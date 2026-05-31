@@ -29,9 +29,28 @@ the API gaps it is likely to surface.
 | **E** | Scene-flow game (menu → play → result) ✅ done | `SceneCmd` Push/Replace/Pop, UI buttons, `GameState`, scene-owned systems, explicit entity cleanup | surfaced gap: preserving cross-scene diagnostics/state across `Replace` requires carrying a handle outside the reset `World` |
 | **F** | Skeletal-animation showcase character ✅ done | NEW: 2D cutout skeletal animation (`src/skeletal.rs`, `examples/skeletal_puppet.rs`) | surfaced + fixed `HierarchySystem` depth-3 cap; scale-vs-attachment-size rule noted in `docs/SKELETAL.md` |
 
-## Recommended order
+## Done
 
-1. **D** (simple shooter) to widen genre coverage. (A, B, C, E, F now done.)
+- **A — Platformer** (`platformer_game`): tile collision, gravity, jump, moving platforms.
+- **B — Maze escape** (`maze_escape_game`): PathGrid + BehaviorTree + SpatialGrid.
+- **C — Sokoban** (`sokoban_game`): discrete grid, undo/redo (`History<T>`), multi-level + save.
+- **D — Simple shooter** (`shooter_game`): pooled bullets (`Pool`), `Timer` fire/wave cadence,
+  `SpatialGrid`/`CollisionLayer` hit detection, score/lives + restart, explosion particles, audio buses.
+  - **Engine gap closed:** `ParticleEmitter` was continuous-only → added the additive one-shot
+    `ParticleBurst` component (+ `ParticleEmitter::for_burst()`); `ParticleSystem` drains it and
+    retires the emitter. Re-exported as `engine::ParticleBurst`. Unit tests in `src/particle.rs`.
+  - **Surfaced-but-not-a-gap:** `Pool` worked for bullet churn via `remove_resource`/reinsert per
+    system; released bullets strip `Sprite`/`Collider`/`CollisionLayer` so they leave the renderer
+    and grid. No new pooling API was needed.
+- **E — Scene-flow / UI interaction** (`scene_flow_game`): menus, pause, transitions.
+
+## Breadth pass complete
+
+A–E have shipped under the dogfooding loop. **F** (below) remains as the one optional depth item.
+
+## Backlog (unordered)
+
+- **F — Top-down twin-stick / bullet survival**: steering, many entities, GPU particles.
 
 ## Alignment check — previously "planned" items vs the reset vision
 

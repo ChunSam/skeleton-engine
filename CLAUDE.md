@@ -59,7 +59,7 @@ Where to read to find a given thing:
 | Tag, EntityDef, SceneDef, Prefab, spawn_entity_def, spawn_scene_def | `src/prefab.rs` |
 | Timer, Tween, Easing | `src/timer.rs`, `src/tween.rs` |
 | History (generic snapshot undo/redo for grid puzzles, turn-based, editors) | `src/history.rs` |
-| ParticleEmitter, ParticleSystem | `src/particle.rs` |
+| ParticleEmitter, ParticleSystem, ParticleBurst (one-shot burst + `ParticleEmitter::for_burst()`) | `src/particle.rs` |
 | Tilemap, TilemapAtlas, TilemapSystem | `src/tilemap.rs` |
 | AudioManager (playback, positional audio, bus mixer, fades) | `src/audio.rs` |
 | save / load / load_or_default / exists / delete / save_path / SaveError | `src/save.rs` |

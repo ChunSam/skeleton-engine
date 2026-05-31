@@ -79,7 +79,7 @@ pub use input::{GamepadAxis, GamepadButton, GamepadState, InputMap, InputState, 
 pub use locale::{LocaleBundle, LocaleData, LocaleResource, TextDirection};
 pub use material::ShaderMaterial;
 pub use network::{NetworkClient, NetworkEvent, NetworkSystem};
-pub use particle::{Particle, ParticleEmitter, ParticleSystem};
+pub use particle::{Particle, ParticleBurst, ParticleEmitter, ParticleSystem};
 pub use pathfinding::{find_path, PathGrid};
 #[cfg(not(target_arch = "wasm32"))]
 pub use physics::{

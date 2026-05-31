@@ -2106,6 +2106,39 @@ The positions of `Panel` children are computed by `LayoutSystem`. It must be reg
 
 ---
 
+## 2026-05-31 — Vertical shooter example + one-shot `ParticleBurst` (candidate D)
+
+**Shipped:** `examples/games/shooter/shooter.rs` (`shooter_game`) — a small vertical shooter:
+player ship (WASD/Arrows + Space), pooled bullets via `engine::Pool`, `Timer`-driven fire
+cooldown and enemy-wave cadence, `SpatialGrid`/`CollisionLayer` hit detection, score/lives,
+game-over + `R` restart, explosion particles, and placeholder `play_tone` sfx on an "sfx"
+audio bus.
+
+**Engine gap closed:** `ParticleEmitter` was continuous-only (`spawn_rate`/`emit`), so
+hit/explosion *bursts* had no clean API. Added the **additive** `ParticleBurst { remaining }`
+component plus `ParticleEmitter::for_burst()`; `ParticleSystem` emits the radial burst in one
+tick and despawns the (dedicated, one-shot) emitter entity. Continuous emission is unchanged
+(back-compat — no field added to `ParticleEmitter`, so `rust-survivors` and the existing
+`particle_demo` literal construction are unaffected). Re-exported as `engine::ParticleBurst`.
+Two unit tests in `src/particle.rs` (burst count + emitter retirement; continuous unaffected).
+
+**Gotchas / decisions:**
+- Persistent ECS `Sprite` entities (the maze pattern), *not* Sokoban's immediate-mode
+  `DebugDrawQueue` — a particle-heavy action game has many moving sprites.
+- `Pool` has no borrow-friendly accessor while also needing `&mut World`, so each system that
+  fires/releases does `remove_resource::<Pool>()` → use → `insert_resource`. Released bullets
+  strip `Sprite`/`Collider`/`CollisionLayer`/`Velocity`/`Bullet` so they vanish from both the
+  renderer and the collision grid; reacquire re-adds them. No new pooling API was required.
+- `AudioManager` is `cfg(not(wasm32))`; all audio wiring (import, setup, `play_tone`) is
+  target-gated so the wasm example build stays green (sfx no-op on wasm).
+
+**Verified:** native build; `cargo clippy --lib --example shooter_game` = 0 warnings;
+`cargo fmt --check` clean; `cargo test --lib` = 247 passed (incl. 2 new particle tests); wasm
+build (lib + `shooter_game` example) = 0 warnings; startup smoke-run, no panic. **Not
+verified:** interactive play (GUI not observable here) — left for the user, same as Sokoban.
+
+---
+
 ## Completed Phase candidate records
 
 | Phase | Feature | Difficulty | Notes |
