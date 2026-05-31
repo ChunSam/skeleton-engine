@@ -440,12 +440,20 @@ impl System for CollisionSystem {
         if let Some(grid) = world.resource::<SpatialGrid>() {
             let enemy_mask = CollisionLayer(LAYER_ENEMY);
             let mut claimed: std::collections::HashSet<Entity> = std::collections::HashSet::new();
+            let mut spent: std::collections::HashSet<Entity> = std::collections::HashSet::new();
             for (bullet, pos) in &bullets {
+                // A bullet kills at most one enemy and is released once. Without
+                // `spent`, a single bullet overlapping two adjacent enemies in
+                // one frame would be pushed (and later released) twice.
+                if spent.contains(bullet) {
+                    continue;
+                }
                 let min = *pos - Vec2::splat(BULLET_HALF * 2.0);
                 let max = *pos + Vec2::splat(BULLET_HALF * 2.0);
                 for enemy in grid.query_aabb(min, max, enemy_mask) {
                     if claimed.insert(enemy) {
                         bullet_kills.push((*bullet, enemy));
+                        spent.insert(*bullet);
                         break; // one bullet, one enemy
                     }
                 }
