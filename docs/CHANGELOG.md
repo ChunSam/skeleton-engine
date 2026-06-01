@@ -18,7 +18,9 @@ The package follows semantic versioning beginning with 1.0.0.
 - `PhysicsWorld::add_static_from_tilemap(tilemap, ppu, collider_for)` and the `TileCollider`
   descriptor (`solid` / `solid_with` / `one_way`) to generate one static collider per solid
   tile, aligned to `TilemapSystem`'s tile coordinates. `platformer_game`'s level is now a
-  single `Tilemap` that drives both rendering and collision.
+  single `Tilemap` that drives both rendering and collision; its seamless tileset is
+  reproducible via `examples/gen_platform_tiles.rs` (the original `tiles.png` is a set of
+  discrete object sprites with transparent margins, not a seamless tileset).
 - One-way platforms: `PhysicsWorld::set_one_way`/`is_one_way` and
   `CharacterController::request_drop`/`is_dropping`. `move_character` now passes through
   one-way colliders when ascending or dropping and only lands on them from above.
