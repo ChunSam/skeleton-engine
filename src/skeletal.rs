@@ -221,7 +221,7 @@ impl System for SkeletalAnimationSystem {
 
 /// 본 계층을 스폰하고 이름→엔티티 맵을 구성하는 저작 헬퍼.
 ///
-/// 내부적으로 [`attach`](crate::hierarchy::attach)를 사용해 `Parent`/`Children`을 관리한다.
+/// 내부적으로 [`crate::hierarchy::attach`]를 사용해 `Parent`/`Children`을 관리한다.
 pub struct SkeletonBuilder {
     root: Entity,
     bones: HashMap<String, Entity>,
