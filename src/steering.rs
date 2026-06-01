@@ -113,14 +113,8 @@ impl System for SteeringSystem {
 
             for entity in entities {
                 let (pos, target, max_speed) = {
-                    let t = world
-                        .query::<Transform>()
-                        .find(|(e, _)| *e == entity)
-                        .map(|(_, t)| t.position);
-                    let seek = world
-                        .query::<Seek>()
-                        .find(|(e, _)| *e == entity)
-                        .map(|(_, s)| (s.target, s.max_speed));
+                    let t = world.get::<Transform>(entity).map(|t| t.position);
+                    let seek = world.get::<Seek>(entity).map(|s| (s.target, s.max_speed));
                     match (t, seek) {
                         (Some(p), Some((tgt, ms))) => (p, tgt, ms),
                         _ => continue,
@@ -147,14 +141,10 @@ impl System for SteeringSystem {
 
             for entity in entities {
                 let (pos, target, max_speed, flee_radius) = {
-                    let t = world
-                        .query::<Transform>()
-                        .find(|(e, _)| *e == entity)
-                        .map(|(_, t)| t.position);
+                    let t = world.get::<Transform>(entity).map(|t| t.position);
                     let flee = world
-                        .query::<Flee>()
-                        .find(|(e, _)| *e == entity)
-                        .map(|(_, f)| (f.target, f.max_speed, f.flee_radius));
+                        .get::<Flee>(entity)
+                        .map(|f| (f.target, f.max_speed, f.flee_radius));
                     match (t, flee) {
                         (Some(p), Some((tgt, ms, fr))) => (p, tgt, ms, fr),
                         _ => continue,
@@ -182,14 +172,10 @@ impl System for SteeringSystem {
 
             for entity in entities {
                 let (pos, target, max_speed, slow_radius, stop_radius) = {
-                    let t = world
-                        .query::<Transform>()
-                        .find(|(e, _)| *e == entity)
-                        .map(|(_, t)| t.position);
+                    let t = world.get::<Transform>(entity).map(|t| t.position);
                     let arrive = world
-                        .query::<Arrive>()
-                        .find(|(e, _)| *e == entity)
-                        .map(|(_, a)| (a.target, a.max_speed, a.slow_radius, a.stop_radius));
+                        .get::<Arrive>(entity)
+                        .map(|a| (a.target, a.max_speed, a.slow_radius, a.stop_radius));
                     match (t, arrive) {
                         (Some(p), Some((tgt, ms, sr, pr))) => (p, tgt, ms, sr, pr),
                         _ => continue,
@@ -252,11 +238,7 @@ impl System for SteeringSystem {
             let entities: Vec<Entity> = world.query::<SteeringVelocity>().map(|(e, _)| e).collect();
 
             for entity in entities {
-                let velocity = match world
-                    .query::<SteeringVelocity>()
-                    .find(|(e, _)| *e == entity)
-                    .map(|(_, sv)| sv.velocity)
-                {
+                let velocity = match world.get::<SteeringVelocity>(entity).map(|sv| sv.velocity) {
                     Some(v) => v,
                     None => continue,
                 };
@@ -419,5 +401,66 @@ mod tests {
             (sv.length() - 200.0).abs() < 1e-3,
             "flee speed should be max_speed when inside radius"
         );
+    }
+
+    /// Regression guard for the O(1) per-entity lookup refactor (was O(N²)
+    /// `query().find()` self-scans): with many seekers, *every* one must resolve
+    /// its own `Seek`/`Transform`/`SteeringVelocity` and advance toward a shared
+    /// target in a single tick. A lookup that crossed entity wires would fail this.
+    #[test]
+    fn many_seekers_each_advance_toward_shared_target() {
+        let mut world = World::new();
+        let target = Vec2::new(500.0, 500.0);
+        let n = 64;
+
+        // Ring of seekers around the target, each at a distinct position.
+        let mut entities = Vec::with_capacity(n);
+        for i in 0..n {
+            let angle = (i as f32 / n as f32) * std::f32::consts::TAU;
+            let pos = target + Vec2::new(angle.cos(), angle.sin()) * 200.0;
+            let e = world.spawn();
+            world.add_component(
+                e,
+                Transform {
+                    position: pos,
+                    scale: Vec2::ONE,
+                    rotation: 0.0,
+                    z: 0.0,
+                },
+            );
+            world.add_component(e, SteeringVelocity::default());
+            world.add_component(
+                e,
+                Seek {
+                    target,
+                    max_speed: 100.0,
+                },
+            );
+            entities.push((e, pos));
+        }
+
+        let dt = 0.1;
+        let mut sys = SteeringSystem;
+        sys.run(&mut world, dt);
+
+        for (e, start) in entities {
+            let now = world
+                .query::<Transform>()
+                .find(|(en, _)| *en == e)
+                .map(|(_, t)| t.position)
+                .unwrap();
+            // Each seeker moved (Transform changed) and got strictly closer to
+            // the shared target — proving its own components were read, not a
+            // neighbour's.
+            assert!(
+                now.distance(target) < start.distance(target) - 1.0,
+                "seeker {e:?} should be closer to target after one tick"
+            );
+            let expected_speed = 100.0 * dt;
+            assert!(
+                (now.distance(start) - expected_speed).abs() < 1e-2,
+                "seeker {e:?} should advance max_speed*dt = {expected_speed}"
+            );
+        }
     }
 }

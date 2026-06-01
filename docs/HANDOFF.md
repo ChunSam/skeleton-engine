@@ -1,125 +1,125 @@
-# 핸드오프 문서 — skeleton-engine
+# Handoff document — skeleton-engine
 
-작성일: 2026-05-24 (Phase 45~53 갱신: 2026-05-26 / Phase 46~59 완료: 2026-05-26 / 코드 리뷰 7항목 수정: 2026-05-26 / 문서 정리: 2026-05-29)
-엔진 버전: **v1.0.0** (태그: v1.0.0, main 브랜치 기준)
-패키지: **skeleton-engine** (라이브러리 크레이트: `engine`)
-작성자: ChunSam
-
----
-
-## 프로젝트 개요
-
-wgpu 기반 Rust 2D 게임 엔진. ECS 아키텍처 위에 물리(Rapier2D), 오디오, 파티클, 타일맵, UI, 씬 시스템 등을 갖추고 있다. 별도의 게임 프로젝트(`rust-survivors`)가 이 엔진을 의존성으로 사용한다.
-
-- **저장소**: `https://github.com/ChunSam/skeleton-engine`
-- **로컬 경로**: `/Users/jkl/Projects/skeleton-engine`
-- **브랜치**: `main`
-- **엔진 소스 규모**: 약 5,400 LOC (src/ 전체)
+Written: 2026-05-24 (Phase 45~53 update: 2026-05-26 / Phase 46~59 complete: 2026-05-26 / 7 code-review fixes: 2026-05-26 / doc cleanup: 2026-05-29)
+Engine version: **v1.0.0** (tag: v1.0.0, based on main branch)
+Package: **skeleton-engine** (library crate: `engine`)
+Author: ChunSam
 
 ---
 
-## 완료된 작업 — Phase별
+## Project overview
 
-| Phase | 주요 내용 | 커밋 |
+A wgpu-based Rust 2D game engine. On top of an ECS architecture it provides physics (Rapier2D), audio, particles, tilemaps, UI, a scene system, and more. A separate game project (`rust-survivors`) uses this engine as a dependency.
+
+- **Repository**: `https://github.com/ChunSam/skeleton-engine`
+- **Local path**: `/Users/jkl/Projects/skeleton-engine`
+- **Branch**: `main`
+- **Engine source size**: ~5,400 LOC (entire src/)
+
+---
+
+## Completed work — by Phase
+
+| Phase | Summary | Commit |
 |---|---|---|
-| Phase 1 | 오디오 pan, 파티클 시스템, 충돌 디버그 시각화, 타일맵, 입력 리바인딩 | `93d54c4` |
-| Phase 2 | ECS `query4` 추가 | `93d54c4` |
-| Phase 3 | `PhysicsWorld` 캡슐화 (접근자 메서드, pub(crate) 내부화) | `fa9013c` |
-| Phase 4 | `query_opt2`, `Events<E>` 이벤트 시스템, UI Widget System | `767a1d2` |
-| Phase 5 | 씬 시스템 (Scene/SceneCmd/SceneChange), Timer, Tween (Easing 6종) | `2147291` |
-| Phase 6 | UI 시스템 강화 — TextInput, ScrollView, Panel+LayoutSystem | `e98b893` |
-| Phase 7 | CollisionEvent — Rapier NarrowPhase 폴링 → `Events<CollisionEvent>` 브리징 | `b4a931d` |
-| Phase 8 | Save/Load 완성 — `load_or_default`, `exists`, `delete`, lib.rs re-export | `01f983b` |
-| Phase 9 | ECS Archetype 스토리지 — TypeId HashMap+Vec → Archetype 밀집 컬럼 스토리지 | `a8b49cc` |
-| Phase 10 | 포스트프로세싱 — 비네팅, 색수차, 근사 블룸 (PostProcessConfig 리소스) | `a8b49cc` |
-| Phase 11 | 오디오 강화 — 위치 오디오, 버스 믹서, 페이드인/아웃 | `a8b49cc` |
-| Phase 12 | Transform 계층 — Parent/Children/GlobalTransform, HierarchySystem, attach/detach | `3862f8d` |
-| Phase 13 | 물리 레이캐스트 + 캐릭터 컨트롤러 — RaycastHit, add_kinematic_*, move_character | `eee451d` |
-| Phase 14 | 애니메이션 상태 머신 — AnimationStateMachine, StateMachineSystem, TransitionCond, AnimParam | `93eb65f` |
-| Phase 15 | 게임패드(gilrs) + UI Slider/CheckBox — GamepadState, Slider, CheckBox, UiEvent 확장 | `30d1b9e` |
-| Phase 16 | 씬 직렬화 + 프리팹 시스템 — Tag, EntityDef, SceneDef, Prefab, spawn_entity_def | `2bfbffa` |
-| Phase 17 | 에셋 파이프라인 + 핫 리로딩 — Handle<T>, ImageAsset, AssetServer, App::load_image | `f985118` |
-| Phase 18 | egui 인게임 디버그 에디터 — DebugUi, F1 토글, Engine Stats 내장 패널 | `83838a7` |
-| Phase 19 | Rhai 스크립팅 — ScriptAsset, ScriptRunner, ScriptingSystem, App::load_script | `861e832` |
-| Phase 20 | 애니메이션 블렌딩 — BlendWeight, play_with_crossfade, BlendTree1D, BlendTreeSystem | `d6ff7f9` |
+| Phase 1 | Audio pan, particle system, collision debug visualization, tilemap, input rebinding | `93d54c4` |
+| Phase 2 | Added ECS `query4` | `93d54c4` |
+| Phase 3 | `PhysicsWorld` encapsulation (accessor methods, pub(crate) internals) | `fa9013c` |
+| Phase 4 | `query_opt2`, `Events<E>` event system, UI Widget System | `767a1d2` |
+| Phase 5 | Scene system (Scene/SceneCmd/SceneChange), Timer, Tween (6 Easing variants) | `2147291` |
+| Phase 6 | UI system enhancements — TextInput, ScrollView, Panel+LayoutSystem | `e98b893` |
+| Phase 7 | CollisionEvent — Rapier NarrowPhase polling → bridged to `Events<CollisionEvent>` | `b4a931d` |
+| Phase 8 | Save/Load completion — `load_or_default`, `exists`, `delete`, lib.rs re-export | `01f983b` |
+| Phase 9 | ECS Archetype storage — TypeId HashMap+Vec → Archetype dense column storage | `a8b49cc` |
+| Phase 10 | Post-processing — vignette, chromatic aberration, approximate bloom (PostProcessConfig resource) | `a8b49cc` |
+| Phase 11 | Audio enhancements — spatial audio, bus mixer, fade in/out | `a8b49cc` |
+| Phase 12 | Transform hierarchy — Parent/Children/GlobalTransform, HierarchySystem, attach/detach | `3862f8d` |
+| Phase 13 | Physics raycast + character controller — RaycastHit, add_kinematic_*, move_character | `eee451d` |
+| Phase 14 | Animation state machine — AnimationStateMachine, StateMachineSystem, TransitionCond, AnimParam | `93eb65f` |
+| Phase 15 | Gamepad (gilrs) + UI Slider/CheckBox — GamepadState, Slider, CheckBox, UiEvent extension | `30d1b9e` |
+| Phase 16 | Scene serialization + prefab system — Tag, EntityDef, SceneDef, Prefab, spawn_entity_def | `2bfbffa` |
+| Phase 17 | Asset pipeline + hot reloading — Handle<T>, ImageAsset, AssetServer, App::load_image | `f985118` |
+| Phase 18 | egui in-game debug editor — DebugUi, F1 toggle, built-in Engine Stats panel | `83838a7` |
+| Phase 19 | Rhai scripting — ScriptAsset, ScriptRunner, ScriptingSystem, App::load_script | `861e832` |
+| Phase 20 | Animation blending — BlendWeight, play_with_crossfade, BlendTree1D, BlendTreeSystem | `d6ff7f9` |
 | Phase 21 | Texture Atlas — TextureAtlas, AtlasSprite, AssetServer::load_atlas, App::load_atlas | `b63e9c9` |
-| Phase 22 | Reflect 시스템 — Reflect 트레잇, ReflectValue, World::register_reflect/get_reflect, egui Inspector | `90f65e3` |
-| Phase 23 | WASM 빌드 지원 — 플랫폼별 deps 분리, cfg-gate, EventLoopExtWebSys, getrandom wasm_js | `b9f4bdb` |
-| Phase 24 | WASM 브라우저 실행 — WebGL2 강제, 비동기 GPU init, web-time, 캔버스 크기 수정 | `24e2108` |
-| Phase 25-A | WebSocket 네트워킹 — NetworkClient(native tungstenite / WASM web-sys), NetworkEvent, NetworkSystem | `88311e9` |
-| Phase 25-B | ECS 병렬 쿼리 — rayon par_query_for_each/map, par_query2_for_each/map, Send+Sync 컴포넌트 스토리지 | `4637ace` |
-| Phase 25-C | 커스텀 셰이더 머티리얼 — ShaderMaterial, params uniform, 파이프라인 캐시, 스프라이트 배칭 정리 | `9a7b375` |
-| Phase 25-D | 에디터 기즈모 — SelectedEntity 리소스, Inspector 엔티티 생성/삭제, 드래그 이동, DebugRect 강조 | `c19d0b6` |
-| Phase 25-E | rust-survivors 연동 — Sprite 필드 대응, EnemyAiSystem par_query2_map 병렬화 (game repo) | — |
-| Phase 26 | LOD/컬링 — Camera::visible_rect, CullConfig 리소스, 회전 고려 AABB 프러스텀 컬링, min_pixel_size LOD | `8db9bbe` |
-| Phase 27 | 멀티플레이어 데모 — mp_server(릴레이 서버) + mp_client(게임 클라이언트) 예제 | — |
-| Phase 28 | 에디터 씬 저장 — Inspector에 "💾 Save Scene" 버튼, SceneDef RON 직렬화 | — |
-| Phase 29 | 씬 계층 직렬화 — EntityDef.parent, spawn_scene_def 2패스, topological_sort_entities | — |
-| Phase 30 | 시스템 프로파일러 — System::name(), ProfilerData/RenderStats 리소스, Engine Stats 패널 확장 | — |
-| Phase 31 | 에셋 브라우저 — ImageEntry, image_list(), Inspector "Assets" 탭 | — |
-| Phase 32 | 런타임 안정성 — AssetLoadState, SceneDef.version, Inspector 📂 Load Scene 버튼 | — |
-| Phase 33 | A* 경로탐색 — PathGrid, find_path + ECS 쿼리 필터 query_with/query_without | — |
-| Phase 34 | RenderLayer + 스프라이트 배칭 — (layer, tex_key, z) 정렬, 동일 텍스처 단일 드로우 | — |
+| Phase 22 | Reflect system — Reflect trait, ReflectValue, World::register_reflect/get_reflect, egui Inspector | `90f65e3` |
+| Phase 23 | WASM build support — platform-specific dep split, cfg-gate, EventLoopExtWebSys, getrandom wasm_js | `b9f4bdb` |
+| Phase 24 | WASM browser run — force WebGL2, async GPU init, web-time, canvas size fix | `24e2108` |
+| Phase 25-A | WebSocket networking — NetworkClient (native tungstenite / WASM web-sys), NetworkEvent, NetworkSystem | `88311e9` |
+| Phase 25-B | ECS parallel queries — rayon par_query_for_each/map, par_query2_for_each/map, Send+Sync component storage | `4637ace` |
+| Phase 25-C | Custom shader materials — ShaderMaterial, params uniform, pipeline cache, sprite batching cleanup | `9a7b375` |
+| Phase 25-D | Editor gizmos — SelectedEntity resource, Inspector entity create/delete, drag move, DebugRect highlight | `c19d0b6` |
+| Phase 25-E | rust-survivors integration — adapt to Sprite fields, EnemyAiSystem par_query2_map parallelization (game repo) | — |
+| Phase 26 | LOD/culling — Camera::visible_rect, CullConfig resource, rotation-aware AABB frustum culling, min_pixel_size LOD | `8db9bbe` |
+| Phase 27 | Multiplayer demo — mp_server (relay server) + mp_client (game client) examples | — |
+| Phase 28 | Editor scene save — Inspector "💾 Save Scene" button, SceneDef RON serialization | — |
+| Phase 29 | Scene hierarchy serialization — EntityDef.parent, two-pass spawn_scene_def, topological_sort_entities | — |
+| Phase 30 | System profiler — System::name(), ProfilerData/RenderStats resources, Engine Stats panel extension | — |
+| Phase 31 | Asset browser — ImageEntry, image_list(), Inspector "Assets" tab | — |
+| Phase 32 | Runtime stability — AssetLoadState, SceneDef.version, Inspector 📂 Load Scene button | — |
+| Phase 33 | A* pathfinding — PathGrid, find_path + ECS query filters query_with/query_without | — |
+| Phase 34 | RenderLayer + sprite batching — (layer, tex_key, z) sort, single draw per same texture | — |
 | Phase 35 | Inspector Undo/Redo — EditorCmd/EditorHistory, Ctrl+Z / Ctrl+Shift+Z | — |
-| Phase 36 | 비헤이비어 트리 — BehaviorNode 트레잇, Sequence/Selector/Inverter/AlwaysSucceed, BehaviorSystem | — |
+| Phase 36 | Behavior tree — BehaviorNode trait, Sequence/Selector/Inverter/AlwaysSucceed, BehaviorSystem | — |
 | Phase 37a | Blackboard + Steering Behaviors — BlackboardValue, Seek/Flee/Arrive/Wander, SteeringSystem | — |
 | Phase 37d | CommandBuffer — Commands::spawn/despawn/insert/remove + World::apply_commands | — |
-| Phase 38a | 씬 그래프 패널 — Inspector "Scene" 탭 TreeView, Tag 이름 편집, 계층 시각화 | — |
-| Phase 38d | Rhai 스크립팅 API 확장 — spawn_entity, despawn_entity, bb_set/get_*, seek/flee/stop_steering | — |
-| Phase 39b | Inspector 컴포넌트 추가/제거 UI — 팩토리 패턴, register_component, ComboBox, ✕ 버튼 | — |
-| Phase 39d | REFERENCE.html v0.38.0 — Steering/Blackboard/Commands/SceneGraph/Rhai 섹션 추가 | — |
-| Phase 40c | Gizmo Grid Snap — snap_enabled/snap_size, snap_to_grid 헬퍼, Inspector 체크박스+DragValue | — |
-| Phase 40d | REFERENCE.html v0.39.0 — 컴포넌트 추가/제거 UI, register_component API 문서화 | — |
-| Phase 41b | ECS 변경 감지 — query_added<T>/query_changed<T>, clear_change_tracking, HashSet 기반 | `5cf3233` |
-| Phase 41a | 2D 라이팅 — PointLight 컴포넌트, AmbientLight 리소스, LightingRenderer (WGSL, 최대 16 라이트) | `2230e31` |
-| Phase 41d | REFERENCE.html v0.41.0 — 2D 라이팅/ECS 변경 감지 섹션 추가 | — |
-| Phase 42a | 2D 노멀 맵 라이팅 — Sprite.normal_texture, PointLight.light_height, 노멀 버퍼, Lambert diffuse WGSL | `bdcd5c8` |
-| Phase 42b | 카메라 이펙트 — shake(strength,duration), follow_entity/lerp_factor, zoom_to(target,speed) | `b83ff6b` |
-| Phase 42d | 오브젝트 풀 — Pool::new/acquire/release/clear, Pooled 마커 컴포넌트 | `b83ff6b` |
-| Phase 43b | 엔티티 복제 — World::clone_entity, register_clone<T>, Inspector Duplicate 버튼 | `e3717c9` |
-| Phase 43c | Debug Draw API — DebugDraw::rect/line/circle/cross, 매 프레임 자동 초기화 | `a6accb5` |
-| Phase 43d | 타임라인/컷씬 — Timeline, Track<T>, Keyframe, Lerp 트레잇, TimelineSystem | `6fc4007` |
-| Phase 43a | 씬 전환 트랜지션 — FadeTransition::fade_in/out, FadeRenderer (WGSL alpha blend) | `c4a05f6` |
-| Phase 44b | 물리 조인트 — add_distance_joint/revolute_joint/prismatic_joint, ImpulseJointHandle | `96b35d1` |
-| Phase 44c | 오디오 이펙트 — AudioEffect (low_pass_hz/pitch/attack_secs), set_effect/clear_effect | `7ea4763` |
-| Phase 45 | 시스템 실행 순서 — SystemLabel/before/after(위상정렬+순환감지), SystemSet on/off | `9f2273d` |
-| Phase 48 | 물리 레이어/센서 — CollisionGroups(비트마스크), 센서 trigger zone, TriggerEvent | `b352ecd` |
-| Phase 49 | 텍스트 완성 — 멀티라인/정렬(TextAlign), 리치텍스트, IME 조합 입력(preedit) | `d648371` |
-| Phase 50 | 로컬라이제이션 — LocaleResource, t API, TextDirection(RTL), LocaleBundle/Data | `9321cac` |
-| Phase 53 | 저장 보안 — chacha20poly1305 AEAD 암호화 + 변조 감지(SaveError::Corrupted) | `34aa368` |
-| Phase 46 | 렌더 텍스처 — RenderTarget, OffscreenCamera, SpriteRenderer rt_cache, 오프스크린 패스 | `96aa5d7` |
-| Phase 47 | 터치 입력/모바일 — TouchState(멀티터치/스와이프/핀치), VirtualJoystick, WASM 마우스 에뮬레이션 | `96aa5d7` |
-| Phase 51 | 에셋 비동기 로딩 — AssetLoadState::Loading, load_image_async, LoadProgress, WASM fetch | `96aa5d7` |
-| Phase 52 | 패닉 복구 — catch_unwind 시스템 래퍼, PanickedSystems, 크래시 로그 기록 | `96aa5d7` |
-| Phase 54 | 에디터 완성 — PrefabInstance 추적, break_prefab_instance, 복수 선택 Ctrl+C/V, 그룹 이동 | `96aa5d7` |
-| Phase 56 | 고급 렌더링 — GpuParticleEmitter/GpuParticleRenderer(컴퓨트 셰이더), PostProcess 색보정 | `687ec89` |
-| Phase 55 | 배포 패키징 — release/release-wasm 프로필, scripts/build_wasm.sh | `706a263` |
-| Phase 57c | CI — .github/workflows/ci.yml (native+WASM 빌드, clippy, rustdoc) | `706a263` |
-| Phase 57a/b | Rustdoc — broken intra_doc_link/invalid_html_tags 수정, RUSTDOCFLAGS="-D warnings" 통과 | `706a263` |
-| Phase 59 | API Freeze — Cargo.toml v1.0.0, keywords/categories/rust-version 추가 | `706a263` |
-| 코드 리뷰 | 런타임·구조 리스크 7항목 수정 — Timeline NaN, TextureError fallback, World 오염, OffscreenCamera layer_mask, ScriptingSystem register_fn 1회화, Network backpressure, egui unsafe 문서화 | `4084cee` |
+| Phase 38a | Scene graph panel — Inspector "Scene" tab TreeView, Tag name editing, hierarchy visualization | — |
+| Phase 38d | Rhai scripting API extension — spawn_entity, despawn_entity, bb_set/get_*, seek/flee/stop_steering | — |
+| Phase 39b | Inspector component add/remove UI — factory pattern, register_component, ComboBox, ✕ button | — |
+| Phase 39d | REFERENCE.html v0.38.0 — added Steering/Blackboard/Commands/SceneGraph/Rhai sections | — |
+| Phase 40c | Gizmo Grid Snap — snap_enabled/snap_size, snap_to_grid helper, Inspector checkbox + DragValue | — |
+| Phase 40d | REFERENCE.html v0.39.0 — documented component add/remove UI, register_component API | — |
+| Phase 41b | ECS change detection — query_added<T>/query_changed<T>, clear_change_tracking, HashSet-based | `5cf3233` |
+| Phase 41a | 2D lighting — PointLight component, AmbientLight resource, LightingRenderer (WGSL, up to 16 lights) | `2230e31` |
+| Phase 41d | REFERENCE.html v0.41.0 — added 2D lighting / ECS change detection sections | — |
+| Phase 42a | 2D normal-map lighting — Sprite.normal_texture, PointLight.light_height, normal buffer, Lambert diffuse WGSL | `bdcd5c8` |
+| Phase 42b | Camera effects — shake(strength,duration), follow_entity/lerp_factor, zoom_to(target,speed) | `b83ff6b` |
+| Phase 42d | Object pool — Pool::new/acquire/release/clear, Pooled marker component | `b83ff6b` |
+| Phase 43b | Entity cloning — World::clone_entity, register_clone<T>, Inspector Duplicate button | `e3717c9` |
+| Phase 43c | Debug Draw API — DebugDraw::rect/line/circle/cross, auto-cleared every frame | `a6accb5` |
+| Phase 43d | Timeline/cutscene — Timeline, Track<T>, Keyframe, Lerp trait, TimelineSystem | `6fc4007` |
+| Phase 43a | Scene transition — FadeTransition::fade_in/out, FadeRenderer (WGSL alpha blend) | `c4a05f6` |
+| Phase 44b | Physics joints — add_distance_joint/revolute_joint/prismatic_joint, ImpulseJointHandle | `96b35d1` |
+| Phase 44c | Audio effects — AudioEffect (low_pass_hz/pitch/attack_secs), set_effect/clear_effect | `7ea4763` |
+| Phase 45 | System execution order — SystemLabel/before/after (topological sort + cycle detection), SystemSet on/off | `9f2273d` |
+| Phase 48 | Physics layers/sensors — CollisionGroups (bitmask), sensor trigger zone, TriggerEvent | `b352ecd` |
+| Phase 49 | Text completion — multiline/alignment (TextAlign), rich text, IME composition input (preedit) | `d648371` |
+| Phase 50 | Localization — LocaleResource, t API, TextDirection (RTL), LocaleBundle/Data | `9321cac` |
+| Phase 53 | Save security — chacha20poly1305 AEAD encryption + tamper detection (SaveError::Corrupted) | `34aa368` |
+| Phase 46 | Render textures — RenderTarget, OffscreenCamera, SpriteRenderer rt_cache, offscreen pass | `96aa5d7` |
+| Phase 47 | Touch input/mobile — TouchState (multi-touch/swipe/pinch), VirtualJoystick, WASM mouse emulation | `96aa5d7` |
+| Phase 51 | Async asset loading — AssetLoadState::Loading, load_image_async, LoadProgress, WASM fetch | `96aa5d7` |
+| Phase 52 | Panic recovery — catch_unwind system wrapper, PanickedSystems, crash log writing | `96aa5d7` |
+| Phase 54 | Editor completion — PrefabInstance tracking, break_prefab_instance, multi-select Ctrl+C/V, group move | `96aa5d7` |
+| Phase 56 | Advanced rendering — GpuParticleEmitter/GpuParticleRenderer (compute shader), PostProcess color grading | `687ec89` |
+| Phase 55 | Release packaging — release/release-wasm profiles, scripts/build_wasm.sh | `706a263` |
+| Phase 57c | CI — .github/workflows/ci.yml (native+WASM build, clippy, rustdoc) | `706a263` |
+| Phase 57a/b | Rustdoc — fixed broken intra_doc_link/invalid_html_tags, RUSTDOCFLAGS="-D warnings" passing | `706a263` |
+| Phase 59 | API Freeze — Cargo.toml v1.0.0, added keywords/categories/rust-version | `706a263` |
+| Code review | Fixed 7 runtime/structural risks — Timeline NaN, TextureError fallback, World contamination, OffscreenCamera layer_mask, ScriptingSystem register_fn one-time, Network backpressure, egui unsafe documentation | `4084cee` |
 
-> Phase 46~59 모두 완료. 코드 리뷰 7항목 수정 + wss:// TLS read timeout 실제 수정 완료.
-> 최근 검증: `cargo fmt --check` 통과 / `cargo test` unit 207 + doctest 31 통과 / `cargo clippy --all-targets --locked -- -D warnings` 통과 / `cargo package --locked --allow-dirty --list` 통과 / `cargo publish --dry-run --locked --allow-dirty` 통과. 현재 변경사항은 커밋 전이므로 패키징 검증에 `--allow-dirty`를 사용했다. **skeleton-engine v1.0.0 릴리즈 준비 완료.**
+> Phase 46~59 all complete. 7 code-review fixes + actual wss:// TLS read timeout fix complete.
+> Latest verification: `cargo fmt --check` passing / `cargo test` unit 207 + doctest 31 passing / `cargo clippy --all-targets --locked -- -D warnings` passing / `cargo package --locked --allow-dirty --list` passing / `cargo publish --dry-run --locked --allow-dirty` passing. Since the current changes are pre-commit, packaging verification used `--allow-dirty`. **skeleton-engine v1.0.0 is ready for release.**
 
-## post-v1.0 안정성 개선 메모
+## post-v1.0 stability improvement notes
 
-분석 결과에서 확인된 "의도와 다르게 조용히 동작할 수 있는 위험"을 줄이는 호환성 유지 개선이다. 기본 런타임 동작은 v1.0과 동일하게 유지하고, 엄격한 실패 처리는 opt-in API로 제공한다.
+These are compatibility-preserving improvements that reduce the "may silently behave differently than intended" risks found in analysis. Default runtime behavior stays identical to v1.0, and strict failure handling is provided as opt-in APIs.
 
-- `ScheduleErrorPolicy` / `SystemPanicPolicy`로 스케줄 순환과 시스템 panic 처리 방식을 opt-in으로 엄격하게 바꿀 수 있다. 기본값은 기존 호환 동작이다.
-- `examples/runtime_policies.rs`는 `PanicOnCycle`, `AbortAfterLog`, 기본 panic 복구 정책의 설정 형태를 짧은 커맨드라인 예제로 보여준다.
-- `World::mark_changed<T>()` / `World::get_mut_tracked<T>()`가 추가되어 직접 필드 수정 후 `query_changed<T>()`에 명시 반영할 수 있다.
-- 네이티브 `AssetServer`는 존재하는 파일 경로를 canonical path로 정규화해 상대/절대 경로 중복 캐시와 핫리로드 매칭 문제를 줄인다. WASM 경로는 URL 의미 보존을 위해 정규화하지 않는다.
-- `SpriteRenderer`는 파일 텍스처를 원 요청 경로와 canonical handle 경로 양쪽 키로 캐시한다. 상대 경로로 `App::load_image()` 후 `Sprite::textured_with_handle(...)`, `DrawImage::textured_with_handle(...)`, `AtlasSprite`가 handle 경로를 우선해도 흰색 fallback으로 빠지지 않는다. 게임 측 임시 workaround 제거 안내는 `docs/RUST_SURVIVORS_TEXTURE_CACHE_KEY_PROMPT.md`에 정리했다.
-- `PhysicsSystem`은 `pixels_per_unit` 단위 규칙을 문서화하고, 릴리즈 빌드에서 비정상 값을 최소 양수로 방어한다. 디버그 빌드에서는 0 이하 입력을 `debug_assert`로 잡는다.
-- Rhai 스크립팅은 trusted local game code용이며 hostile sandbox가 아니다. `spawn_entity()`의 음수 반환값은 같은 스크립트 안에서 실제 엔티티를 조작하는 안정 핸들이 아니다.
-- `Entity(pub u32)`는 세대 번호가 없어 despawn 후 ID가 재사용될 수 있음을 rustdoc에 명시했다. 구조 변경은 v2 후보로 남긴다.
-- v2 `Entity` 세대 번호 설계는 `docs/ENTITY_GENERATION_V2_PLAN.md`에 확정안으로 정리했다. 핵심 방향은 `Entity { index, generation }`, stale handle no-op, `entity.0` 제거다.
-- 검증: `cargo fmt`, `cargo run --example runtime_policies`, `cargo test --all-targets`(library 218 tests + `mp_server` 3 tests), `cargo clippy --all-targets -- -D warnings` 통과. 텍스처 캐시 키 수정 후 별도 `cargo test`도 unit 225 통과 + doctest 31 통과/19 ignored.
+- `ScheduleErrorPolicy` / `SystemPanicPolicy` let you opt into stricter handling of schedule cycles and system panics. The defaults keep the existing compatible behavior.
+- `examples/runtime_policies.rs` shows the configuration form of `PanicOnCycle`, `AbortAfterLog`, and the default panic-recovery policy in a short command-line example.
+- `World::mark_changed<T>()` / `World::get_mut_tracked<T>()` were added so that direct field mutations can be explicitly reflected in `query_changed<T>()`.
+- The native `AssetServer` normalizes existing file paths to canonical paths, reducing duplicate caching of relative/absolute paths and hot-reload matching problems. WASM paths are not normalized, to preserve URL semantics.
+- `SpriteRenderer` caches file textures under both the original requested path and the canonical handle path. After `App::load_image()` with a relative path, `Sprite::textured_with_handle(...)`, `DrawImage::textured_with_handle(...)`, and `AtlasSprite` do not fall back to white even when prioritizing the handle path. Guidance for removing the game-side temporary workaround is documented in `docs/RUST_SURVIVORS_TEXTURE_CACHE_KEY_PROMPT.md`.
+- `PhysicsSystem` documents the `pixels_per_unit` unit convention and, in release builds, defends against abnormal values by clamping to a minimal positive value. In debug builds, inputs of 0 or below are caught with `debug_assert`.
+- Rhai scripting is for trusted local game code, not a hostile sandbox. The negative return value of `spawn_entity()` is not a stable handle for manipulating the actual entity within the same script.
+- It is documented in rustdoc that `Entity(pub u32)` has no generation number, so an ID may be reused after despawn. The structural change is left as a v2 candidate.
+- The v2 `Entity` generation-number design is documented as a finalized plan in `docs/ENTITY_GENERATION_V2_PLAN.md`. The core direction is `Entity { index, generation }`, stale handle no-op, and removing `entity.0`.
+- Verification: `cargo fmt`, `cargo run --example runtime_policies`, `cargo test --all-targets` (library 218 tests + `mp_server` 3 tests), `cargo clippy --all-targets -- -D warnings` passing. After the texture cache key fix, a separate `cargo test` also passes with unit 225 + doctest 31 passing / 19 ignored.
 
 ---
 
-## 현재 구조
+## Current structure
 
 ```
 src/
@@ -183,402 +183,402 @@ src/
 
 ---
 
-## 이번 세션에서 한 일 (코드 리뷰 7항목 수정 — v1.0.0 품질 강화)
+## Work this session (7 code-review fixes — v1.0.0 quality hardening)
 
-> 당시 ENGINE_REVIEW_FIX_PROMPT.md의 런타임·구조 리스크 7개 항목을 우선순위 순서로 수정.
-> 기존 공개 API 변경 없음.
-> 당시 검증 기록: `cargo test` lib 196 tests + doctest 31 통과 / `cargo clippy --all-targets -- -D warnings` 통과. 현재 검증 기준은 상단 요약의 207 unit + 31 doctest 결과를 따른다.
+> At the time, the 7 runtime/structural risk items from ENGINE_REVIEW_FIX_PROMPT.md were fixed in priority order.
+> No changes to existing public APIs.
+> Verification record at the time: `cargo test` lib 196 tests + doctest 31 passing / `cargo clippy --all-targets -- -D warnings` passing. The current verification baseline follows the 207 unit + 31 doctest results in the summary above.
 
-### 1. Timeline NaN 샘플링 panic 제거
+### 1. Removed Timeline NaN sampling panic
 
-**변경 파일**: `src/timeline.rs`
+**Changed file**: `src/timeline.rs`
 
-**문제**: `Track::sample(f32::NAN)` 호출 시 `rposition` 비교가 모두 false → `unwrap()` panic.
+**Problem**: When calling `Track::sample(f32::NAN)`, all `rposition` comparisons are false → `unwrap()` panic.
 
-**수정**: `if t.is_nan() { return None; }` 조기 반환 추가.
+**Fix**: Added an early return `if t.is_nan() { return None; }`.
 
-**추가 테스트**: `track_sample_nan_returns_none`, `track_nan_keyframe_does_not_panic_normal_sample`
-
----
-
-### 2. Texture 로딩 panic → fallback 전환
-
-**변경 파일**: `src/renderer/texture.rs`, `src/lib.rs`
-
-**문제**: `from_path` 파일 없음/디코딩 실패 시 panic.
-
-**수정**:
-- `TextureError { Io(std::io::Error), Decode(image::ImageError) }` 추가
-- `try_from_path(...)  -> Result<Self, TextureError>` 추가
-- `from_path` → `try_from_path` 실패 시 magenta 1×1 fallback + `log::warn!`
-- `decode_image_bytes(bytes) -> Result<(Vec<u8>, u32, u32), TextureError>` 추가 (GPU-free 테스트용)
-- `src/lib.rs`에 `pub use renderer::texture::TextureError` 추가
-- 추가 테스트 3개 (IO 오류, decode 오류, 정상 PNG)
+**Added tests**: `track_sample_nan_returns_none`, `track_nan_keyframe_does_not_panic_normal_sample`
 
 ---
 
-### 3. OffscreenCamera World 상태 오염 수정
+### 2. Texture loading panic → fallback conversion
 
-**변경 파일**: `src/ecs/world.rs`, `src/app.rs`
+**Changed files**: `src/renderer/texture.rs`, `src/lib.rs`
 
-**문제**: 오프스크린 렌더 전 Camera 없어도 `unwrap_or_default()`로 저장 → 렌더 후 항상 Camera 삽입됨.
+**Problem**: `from_path` panics on missing file / decode failure.
 
-**수정**:
-- `World::remove_resource<T>()  -> Option<T>` 메서드 추가
-- app.rs: `Option<Camera>` 저장 → 복원 시 `None`이면 `remove_resource::<Camera>()` 호출
-- 추가 테스트 2개: `world_remove_resource_removes_and_returns`, `world_remove_resource_missing_returns_none`
-
----
-
-### 4. OffscreenCamera 자기 캡처 방지 (layer_mask)
-
-**변경 파일**: `src/components.rs`, `src/renderer/sprite.rs`, `src/app.rs`, `examples/minimap.rs`, `examples/split_screen.rs`
-
-**문제**: 오프스크린 패스에서 결과를 표시하는 스프라이트까지 렌더 대상에 포함될 수 있음.
-
-**수정**:
-- `OffscreenCamera.layer_mask: u32` 필드 추가 (0 = 전체 허용, 하위 호환)
-- `SpriteRenderer::render(...)` 에 `layer_mask: u32` 파라미터 추가
-- 스프라이트 수집 루프: `layer_mask != 0`이면 비트 필터링
-- 오프스크린 패스는 `cam.layer_mask`, 메인 패스는 `0` 전달
-- `examples/minimap.rs`: `layer_mask: 1 << 0` (게임 월드만, UI 스프라이트 제외)
+**Fix**:
+- Added `TextureError { Io(std::io::Error), Decode(image::ImageError) }`
+- Added `try_from_path(...)  -> Result<Self, TextureError>`
+- `from_path` → on `try_from_path` failure, magenta 1×1 fallback + `log::warn!`
+- Added `decode_image_bytes(bytes) -> Result<(Vec<u8>, u32, u32), TextureError>` (for GPU-free testing)
+- Added `pub use renderer::texture::TextureError` to `src/lib.rs`
+- 3 added tests (IO error, decode error, valid PNG)
 
 ---
 
-### 5. ScriptingSystem register_fn 중복 호출 제거
+### 3. Fixed OffscreenCamera World state contamination
 
-**변경 파일**: `src/scripting.rs`
+**Changed files**: `src/ecs/world.rs`, `src/app.rs`
 
-**문제**: `register_fn` 11개가 매 프레임 N 엔티티마다 반복 호출 → Rhai 내부 레지스트리 누적.
+**Problem**: Even with no Camera before the offscreen render, it was saved with `unwrap_or_default()` → a Camera was always inserted after rendering.
 
-**수정**: `thread_local! { static SCRIPT_CTX: RefCell<Option<ScriptCtx>> }` 패턴 도입.
-- `with_limits()`에서 모든 함수 **1회만** 등록; `SCRIPT_CTX.with(|c| { ... })` 으로 컨텍스트 접근
-- `run()` 루프: 엔티티별 버퍼 생성 → `set_script_ctx(ctx)` → 실행 → `clear_script_ctx()`
-- 기존 API 이름 전부 유지 (`spawn_entity`, `bb_set_bool`, 등)
-- 추가 테스트 3개: spawn 명령, bb 라운드트립, 두 엔티티 버퍼 오염 없음
+**Fix**:
+- Added a `World::remove_resource<T>()  -> Option<T>` method
+- app.rs: save `Option<Camera>` → on restore, if `None`, call `remove_resource::<Camera>()`
+- 2 added tests: `world_remove_resource_removes_and_returns`, `world_remove_resource_missing_returns_none`
 
 ---
 
-### 6. 네트워크 backpressure + wss:// TLS read timeout 수정
+### 4. OffscreenCamera self-capture prevention (layer_mask)
 
-**변경 파일**: `src/network.rs`
+**Changed files**: `src/components.rs`, `src/renderer/sprite.rs`, `src/app.rs`, `examples/minimap.rs`, `examples/split_screen.rs`
 
-**문제**: 송신 채널 unbounded → 느린 연결에서 메모리 무제한 증가. `send_text`/`send_bytes` 드롭 여부 불투명. `wss://` TLS 연결에서 `socket.read()`가 블로킹되어 발신/종료 처리 지연 가능.
+**Problem**: The offscreen pass could include the very sprite that displays its result in the render set.
 
-**수정**:
-- `NetworkConfig.max_pending_messages: usize` 필드 추가 (기본값 256)
-- `mpsc::channel` → `mpsc::sync_channel(config.max_pending_messages)` 교체
+**Fix**:
+- Added `OffscreenCamera.layer_mask: u32` field (0 = allow all, backward compatible)
+- Added `layer_mask: u32` parameter to `SpriteRenderer::render(...)`
+- Sprite collection loop: bit-filter when `layer_mask != 0`
+- Offscreen pass passes `cam.layer_mask`, main pass passes `0`
+- `examples/minimap.rs`: `layer_mask: 1 << 0` (game world only, excluding UI sprites)
+
+---
+
+### 5. Removed duplicate ScriptingSystem register_fn calls
+
+**Changed file**: `src/scripting.rs`
+
+**Problem**: The 11 `register_fn` calls were repeated every frame for every N entities → accumulation in the Rhai internal registry.
+
+**Fix**: Introduced the `thread_local! { static SCRIPT_CTX: RefCell<Option<ScriptCtx>> }` pattern.
+- Register all functions **only once** in `with_limits()`; access the context via `SCRIPT_CTX.with(|c| { ... })`
+- `run()` loop: create per-entity buffer → `set_script_ctx(ctx)` → execute → `clear_script_ctx()`
+- Kept all existing API names (`spawn_entity`, `bb_set_bool`, etc.)
+- 3 added tests: spawn command, bb round-trip, no buffer contamination between two entities
+
+---
+
+### 6. Network backpressure + wss:// TLS read timeout fix
+
+**Changed file**: `src/network.rs`
+
+**Problem**: Unbounded send channel → unlimited memory growth on slow connections. Whether `send_text`/`send_bytes` drops was opaque. On `wss://` TLS connections, `socket.read()` could block, delaying send/close handling.
+
+**Fix**:
+- Added `NetworkConfig.max_pending_messages: usize` field (default 256)
+- Replaced `mpsc::channel` → `mpsc::sync_channel(config.max_pending_messages)`
 - `NetworkClient.msg_tx`: `Sender` → `SyncSender`
-- `send_bytes`/`send_text`: `try_send` 사용, 큐 만원 시 `log::warn!` + 드롭 (시그니처 유지)
-- `try_send_bytes(&self, data: &[u8]) -> bool`, `try_send_text(&self, text) -> bool` 추가
-- **TLS read timeout 실제 수정**: `MaybeTlsStream::Rustls(tls)` variant에서 `tls.sock`(`rustls::StreamOwned.sock: pub TcpStream`)으로 직접 `set_read_timeout(5ms)` 호출. `wss://` 연결도 plain TCP와 동일하게 5 ms 주기로 발신 채널 확인 가능.
-- 추가 테스트 1개: `network_bounded_channel_drops_on_full`
+- `send_bytes`/`send_text`: use `try_send`, when the queue is full `log::warn!` + drop (signature preserved)
+- Added `try_send_bytes(&self, data: &[u8]) -> bool`, `try_send_text(&self, text) -> bool`
+- **Actual TLS read timeout fix**: In the `MaybeTlsStream::Rustls(tls)` variant, call `set_read_timeout(5ms)` directly on `tls.sock` (`rustls::StreamOwned.sock: pub TcpStream`). `wss://` connections can now check the send channel at 5 ms intervals, just like plain TCP.
+- 1 added test: `network_bounded_channel_drops_on_full`
 
 ---
 
-### 7. egui unsafe helper 격리·문서화
+### 7. Isolating and documenting the egui unsafe helper
 
-**변경 파일**: `src/app.rs` (`egui_render_pass` 함수)
+**Changed file**: `src/app.rs` (`egui_render_pass` function)
 
-**문제**: `transmute` 2개 사용 — 즉시 안전 API로 교체 불가 (egui-wgpu 0.29 요구사항).
+**Problem**: Uses 2 `transmute`s — can't be immediately replaced with a safe API (egui-wgpu 0.29 requirement).
 
-**수정**: 코드 변경 없이 문서화만. `fn egui_render_pass`를 doc 함수로 변환:
-- `/// # Safety` 섹션에 3가지 불변 조건 명시
-- egui-wgpu 업그레이드 시 제거 체크리스트 추가
+**Fix**: Documentation only, no code change. Converted `fn egui_render_pass` into a documented function:
+- Documented the 3 invariants in a `/// # Safety` section
+- Added a removal checklist for when egui-wgpu is upgraded
 
 ---
 
-## 이번 세션에서 한 일 (Phase 46~59 — v1.0.0 완성)
+## Work this session (Phase 46~59 — v1.0.0 completion)
 
-> 당시 REMAINING_WORK.md Track A 직렬 체인(46→47→51→52→54→56) + Track B(55, 57c) + Solo(57a/b, 59)를 단일 세션에서 완료.
-> 당시 테스트 183개 통과. 현재 v1.0.0 게이트는 `cargo test` unit 207 + doctest 31, `cargo clippy --all-targets --locked -- -D warnings`, `cargo publish --dry-run --locked --allow-dirty` 통과 기준(커밋 전 검증).
+> At the time, REMAINING_WORK.md Track A serial chain (46→47→51→52→54→56) + Track B (55, 57c) + Solo (57a/b, 59) were completed in a single session.
+> 183 tests passing at the time. The current v1.0.0 gate is the pre-commit verification baseline: `cargo test` unit 207 + doctest 31, `cargo clippy --all-targets --locked -- -D warnings`, `cargo publish --dry-run --locked --allow-dirty` passing.
 
-### Phase 46 — 렌더 텍스처 (Offscreen Render Targets)
+### Phase 46 — Render textures (Offscreen Render Targets)
 
-**변경 파일**: `src/renderer/render_target.rs`(신규), `src/renderer/mod.rs`, `src/components.rs`, `src/app.rs`, `src/lib.rs`
+**Changed files**: `src/renderer/render_target.rs` (new), `src/renderer/mod.rs`, `src/components.rs`, `src/app.rs`, `src/lib.rs`
 
 - `RenderTarget { texture, view, sampler, bind_group: Arc<BindGroup>, width, height }` — RENDER_ATTACHMENT|TEXTURE_BINDING
-- `OffscreenCamera { target: String, camera: Camera }` 컴포넌트
-- `App::create_render_target(name, w, h)` + 오프스크린 렌더 패스 (메인 패스 이전 실행)
-- `SpriteRenderer::register_render_target(key, bg)` + `rt_cache` — 렌더 텍스처를 스프라이트 소스로 사용
+- `OffscreenCamera { target: String, camera: Camera }` component
+- `App::create_render_target(name, w, h)` + offscreen render pass (runs before the main pass)
+- `SpriteRenderer::register_render_target(key, bg)` + `rt_cache` — use a render texture as a sprite source
 - `examples/minimap.rs`, `examples/split_screen.rs`
 
-### Phase 47 — 터치 입력 + 모바일
+### Phase 47 — Touch input + mobile
 
-**변경 파일**: `src/input/touch.rs`(신규), `src/input/mod.rs`, `src/ui/joystick.rs`(신규), `src/ui/mod.rs`, `src/app.rs`, `src/lib.rs`
+**Changed files**: `src/input/touch.rs` (new), `src/input/mod.rs`, `src/ui/joystick.rs` (new), `src/ui/mod.rs`, `src/app.rs`, `src/lib.rs`
 
-- `TouchState`: 멀티터치 HashMap, began/moved/ended 프레임 버퍼, 핀치·스와이프 감지
-- `VirtualJoystick`: TouchState → 정규화 Vec2 출력, `update_raw()`, `output_with_deadzone(f32)`
-- `WindowEvent::Touch` 처리 + WASM/PC 마우스 에뮬레이션
+- `TouchState`: multi-touch HashMap, began/moved/ended frame buffers, pinch/swipe detection
+- `VirtualJoystick`: TouchState → normalized Vec2 output, `update_raw()`, `output_with_deadzone(f32)`
+- `WindowEvent::Touch` handling + WASM/PC mouse emulation
 - `examples/touch_demo.rs`
 
-### Phase 51 — 에셋 비동기 로딩
+### Phase 51 — Async asset loading
 
-**변경 파일**: `src/asset.rs`, `src/app.rs`, `src/resources.rs`, `src/lib.rs`, `Cargo.toml`
+**Changed files**: `src/asset.rs`, `src/app.rs`, `src/resources.rs`, `src/lib.rs`, `Cargo.toml`
 
-- `AssetLoadState::Loading` 추가, `AsyncImageResult` + mpsc 채널(네이티브) / thread_local VecDeque(WASM)
-- `App::load_image_async(path)` — spawn_blocking(native) / wasm_bindgen_futures::spawn_local
-- `LoadProgress { total, loaded }` 리소스, 매 프레임 `poll_async_completions()` 처리
+- Added `AssetLoadState::Loading`, `AsyncImageResult` + mpsc channel (native) / thread_local VecDeque (WASM)
+- `App::load_image_async(path)` — spawn_blocking (native) / wasm_bindgen_futures::spawn_local
+- `LoadProgress { total, loaded }` resource, `poll_async_completions()` processed every frame
 
-### Phase 52 — 패닉 복구
+### Phase 52 — Panic recovery
 
-**변경 파일**: `src/app.rs`, `src/resources.rs`, `src/lib.rs`
+**Changed files**: `src/app.rs`, `src/resources.rs`, `src/lib.rs`
 
-- `catch_unwind(AssertUnwindSafe(|| system.run(...)))` 래퍼로 시스템 패닉 격리
-- 패닉 발생 시스템 인덱스를 `HashSet<usize>`에 보관, 이후 프레임 건너뜀
-- `PanickedSystems { disabled: Vec<String> }` 리소스, `write_crash_log()` (네이티브 전용)
+- Isolate system panics with a `catch_unwind(AssertUnwindSafe(|| system.run(...)))` wrapper
+- Keep the index of the panicking system in a `HashSet<usize>`, skipping it in subsequent frames
+- `PanickedSystems { disabled: Vec<String> }` resource, `write_crash_log()` (native only)
 
-### Phase 54 — 에디터 완성
+### Phase 54 — Editor completion
 
-**변경 파일**: `src/app.rs`, `src/prefab.rs`, `src/lib.rs`
+**Changed files**: `src/app.rs`, `src/prefab.rs`, `src/lib.rs`
 
-- `PrefabInstance { source_path: String }` 컴포넌트, `Prefab::spawn_with_tracking()`
-- `break_prefab_instance(world, entity)` — PrefabInstance 제거
-- Inspector Ctrl+C(복사)/Ctrl+V(붙여넣기), 복수 엔티티 선택/그룹 이동
+- `PrefabInstance { source_path: String }` component, `Prefab::spawn_with_tracking()`
+- `break_prefab_instance(world, entity)` — removes PrefabInstance
+- Inspector Ctrl+C (copy)/Ctrl+V (paste), multi-entity selection/group move
 
-### Phase 56 — 고급 렌더링
+### Phase 56 — Advanced rendering
 
-**변경 파일**: `src/gpu_particle.rs`(신규), `src/renderer/gpu_particle.rs`(신규), `src/renderer/shaders/gpu_particle_*.wgsl`(신규), `src/renderer/post_process.rs`, `src/renderer/shaders/post_process.wgsl`, `src/app.rs`, `src/lib.rs`
+**Changed files**: `src/gpu_particle.rs` (new), `src/renderer/gpu_particle.rs` (new), `src/renderer/shaders/gpu_particle_*.wgsl` (new), `src/renderer/post_process.rs`, `src/renderer/shaders/post_process.wgsl`, `src/app.rs`, `src/lib.rs`
 
-**56a GPU 파티클**:
-- `GpuParticleEmitter` 컴포넌트, 링 버퍼(4096 슬롯) 방출 로직
-- `GpuParticleRenderer`: 컴퓨트 셰이더(WGSL) 물리 시뮬레이션 + 렌더 파이프라인(파티클당 6 버텍스)
-- App 렌더 루프 2.8단계 lazy-init 통합, `last_dt` 필드로 render() 내 dt 전달
+**56a GPU particles**:
+- `GpuParticleEmitter` component, ring-buffer (4096 slots) emission logic
+- `GpuParticleRenderer`: compute shader (WGSL) physics simulation + render pipeline (6 vertices per particle)
+- App render loop step 2.8 lazy-init integration, dt passed into render() via `last_dt` field
 - `examples/gpu_particles.rs`
 
-**56b 포스트 프로세스 색보정**:
-- `PostProcessConfig`: `brightness/contrast/saturation` 파라미터 추가
-- `post_process.wgsl`: WGSL 색보정 코드 (밝기→대비→채도 순)
+**56b post-process color grading**:
+- `PostProcessConfig`: added `brightness/contrast/saturation` parameters
+- `post_process.wgsl`: WGSL color-grading code (brightness → contrast → saturation order)
 
-### Phase 55/57c/57a-b/59 — 배포·CI·Rustdoc·API Freeze
+### Phase 55/57c/57a-b/59 — Release/CI/Rustdoc/API Freeze
 
-- `Cargo.toml`: release/release-wasm 프로필(LTO/strip), v1.0.0 메타데이터
-- `scripts/build_wasm.sh`: wasm-bindgen 자동화 + index.html 생성
-- `.github/workflows/ci.yml`: native(test/clippy/fmt/release) + WASM + rustdoc 검사
-- `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` 경고 0개
+- `Cargo.toml`: release/release-wasm profiles (LTO/strip), v1.0.0 metadata
+- `scripts/build_wasm.sh`: wasm-bindgen automation + index.html generation
+- `.github/workflows/ci.yml`: native (test/clippy/fmt/release) + WASM + rustdoc checks
+- `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` 0 warnings
 
-### Phase 45 — 시스템 실행 순서 명시 (Track A)
+### Phase 45 — Explicit system execution order (Track A)
 
-**변경 파일**: `src/ecs/schedule.rs`(신규), `src/ecs/mod.rs`, `src/app.rs`, `src/lib.rs`
+**Changed files**: `src/ecs/schedule.rs` (new), `src/ecs/mod.rs`, `src/app.rs`, `src/lib.rs`
 
-- `SystemLabel`(= `&'static str`), `SystemConfig` 빌더(`.label/.before/.after/.in_set`), `SystemMeta`
-- `compute_order()` — Kahn 위상정렬, 삽입 순서 타이브레이커(결정적), 순환 시 `ScheduleError::Cycle`
-- `App::add_system_labeled(system, config)` — 순서 지정 등록 (기존 `add_system`은 불변)
-- `App::set_enabled(set, bool)` — SystemSet 그룹 일괄 on/off
-- `update()` 루프: dirty 시 `exec_order` 재계산 → 순회 + 비활성 set 스킵
-- 씬 Push/Pop/Replace 후 `reconcile_meta()`로 메타 동기화 (`Scene::on_enter` 시그니처 불변)
+- `SystemLabel` (= `&'static str`), `SystemConfig` builder (`.label/.before/.after/.in_set`), `SystemMeta`
+- `compute_order()` — Kahn topological sort, insertion-order tiebreaker (deterministic), `ScheduleError::Cycle` on a cycle
+- `App::add_system_labeled(system, config)` — registration with order specification (existing `add_system` unchanged)
+- `App::set_enabled(set, bool)` — batch on/off of a SystemSet group
+- `update()` loop: when dirty, recompute `exec_order` → iterate + skip disabled sets
+- After scene Push/Pop/Replace, sync meta with `reconcile_meta()` (`Scene::on_enter` signature unchanged)
 
-### Phase 48 — 물리 레이어/마스크 + 센서 (Track B)
+### Phase 48 — Physics layers/masks + sensors (Track B)
 
-**변경 파일**: `src/physics/world.rs`, `src/physics/events.rs`, `src/physics/system.rs`, `src/physics/mod.rs`, `src/lib.rs`
+**Changed files**: `src/physics/world.rs`, `src/physics/events.rs`, `src/physics/system.rs`, `src/physics/mod.rs`, `src/lib.rs`
 
-- `CollisionGroups`(rapier `InteractionGroups` 래핑, 비트마스크) — 레이어별 선택적 충돌
-- 센서(trigger zone) — `sensor(true)` 콜라이더 + `intersection_pairs()` 폴링
-- `TriggerEvent`(Entered/Exited) — 사용자가 `register_event::<TriggerEvent>()` 필요
+- `CollisionGroups` (wrapping rapier `InteractionGroups`, bitmask) — selective per-layer collision
+- Sensors (trigger zone) — `sensor(true)` collider + `intersection_pairs()` polling
+- `TriggerEvent` (Entered/Exited) — the user must `register_event::<TriggerEvent>()`
 
-### Phase 49 — 텍스트 완성 + IME (Track A)
+### Phase 49 — Text completion + IME (Track A)
 
-**변경 파일**: `src/renderer/text.rs`, `src/ui/text_input.rs`, `src/input/state.rs`, `src/app.rs`, `src/lib.rs`
+**Changed files**: `src/renderer/text.rs`, `src/ui/text_input.rs`, `src/input/state.rs`, `src/app.rs`, `src/lib.rs`
 
-- 멀티라인 + 정렬(`TextAlign::Left/Center/Right`), 리치 텍스트
-- IME 조합 입력 — winit `WindowEvent::Ime` 처리, 조합 중 preedit 미리보기 렌더
+- Multiline + alignment (`TextAlign::Left/Center/Right`), rich text
+- IME composition input — winit `WindowEvent::Ime` handling, preedit preview rendering while composing
 
-### Phase 50 — 로컬라이제이션 i18n (Track B)
+### Phase 50 — Localization i18n (Track B)
 
-**변경 파일**: `src/locale.rs`(신규), `src/lib.rs`
+**Changed files**: `src/locale.rs` (new), `src/lib.rs`
 
-- `LocaleResource` — locale → key → 문자열, 전환 API, `t(key)` 조회 + fallback
-- `LocaleBundle`/`LocaleData`(RON 파싱), `TextDirection`(RTL 메타)
-- WASM 호환: 파일 읽기는 호출자 책임, API는 문자열/바이트 파싱만
+- `LocaleResource` — locale → key → string, switching API, `t(key)` lookup + fallback
+- `LocaleBundle`/`LocaleData` (RON parsing), `TextDirection` (RTL metadata)
+- WASM compatible: file reading is the caller's responsibility, the API only parses strings/bytes
 
-### Phase 53 — 저장 데이터 보안 (Track B)
+### Phase 53 — Save data security (Track B)
 
-**변경 파일**: `src/save.rs`, `Cargo.toml`, `src/lib.rs`
+**Changed files**: `src/save.rs`, `Cargo.toml`, `src/lib.rs`
 
-- `chacha20poly1305`(ChaCha20-Poly1305 AEAD)로 RON 직렬화 데이터를 암호화
-- AEAD 인증 태그로 변조 감지 → `SaveError::Corrupted` (체크섬 별도 불필요)
-- 기존 save/load API 시그니처 하위 호환 유지 + 앱별 키용 SaveKey/save_with_key/load_with_key 제공
-
----
-
-## 이전 세션 (Phase 44)
-
-### Phase 44b — 물리 조인트
-
-**배경**: 플랫포머·퍼즐 장르의 체인, 힌지 문, 슬라이딩 플랫폼 등 조인트 없이는 구현 불가능한 메커니즘이 많았다. Rapier2D `ImpulseJointSet`이 이미 `PhysicsWorld`에 있었지만 공개 API가 없었다.
-
-**변경 파일**: `src/physics/world.rs`, `src/physics/mod.rs`, `src/lib.rs`
-
-**추가 기능**:
-- `add_distance_joint(body1, body2, anchor1, anchor2, rest_length) -> ImpulseJointHandle` — 스프링 기반 거리 조인트 (stiffness=1000, damping=10). Rapier2D 0.22에 `DistanceJointBuilder`가 없으므로 `SpringJointBuilder`로 구현
-- `add_revolute_joint(body1, body2, anchor1, anchor2) -> ImpulseJointHandle` — 힌지(피벗) 조인트
-- `add_prismatic_joint(body1, body2, anchor1, anchor2, axis) -> ImpulseJointHandle` — 슬라이더 조인트, `axis`는 내부에서 `UnitVector`로 정규화
-- `remove_joint(handle: ImpulseJointHandle)` — 조인트 제거
-- `ImpulseJointHandle` — `src/physics/mod.rs`에서 `rapier2d::prelude::ImpulseJointHandle` re-export, `src/lib.rs` 경유 공개
-- 단위 테스트 3개 (distance create/remove, revolute create, prismatic create)
+- Encrypt RON-serialized data with `chacha20poly1305` (ChaCha20-Poly1305 AEAD)
+- Tamper detection via the AEAD authentication tag → `SaveError::Corrupted` (no separate checksum needed)
+- Keeps the existing save/load API signatures backward compatible + provides SaveKey/save_with_key/load_with_key for per-app keys
 
 ---
 
-### Phase 44c — 오디오 이펙트
+## Previous session (Phase 44)
 
-**배경**: 기존 AudioManager는 볼륨·팬·페이드만 지원. 로우패스(몬스터 벽 너머 소리), 피치 조작(속도감·감속), 페이드인(어택) 같은 게임 피드백 이펙트가 없었다.
+### Phase 44b — Physics joints
 
-**변경 파일**: `src/audio.rs`, `src/lib.rs`
+**Background**: Many mechanisms in platformer/puzzle genres — chains, hinged doors, sliding platforms — are impossible without joints. Rapier2D's `ImpulseJointSet` was already in `PhysicsWorld`, but there was no public API.
 
-**추가 기능**:
-- `AudioEffect` 구조체: `low_pass_hz: Option<u32>`, `pitch: f32`, `attack_secs: f32`, `release_secs: f32`. `Default::pitch = 1.0`
-- `AudioManager::effects: HashMap<String, AudioEffect>` 필드
-- `set_effect(channel, effect)` — 이펙트 설정 (다음 play_* 호출 시 적용)
-- `clear_effect(channel)` — 이펙트 초기화
-- `effect(channel) -> Option<&AudioEffect>` — 현재 이펙트 조회
-- `play_internal` 수정: `Box<dyn Source<Item=i16> + Send + 'static>`로 박스화해 pitch(`.speed()`) → low_pass(`.low_pass()`) → attack(`.fade_in()`) 순 체인 적용
-- 단위 테스트 2개 (default_pitch, set_and_clear)
+**Changed files**: `src/physics/world.rs`, `src/physics/mod.rs`, `src/lib.rs`
+
+**Added features**:
+- `add_distance_joint(body1, body2, anchor1, anchor2, rest_length) -> ImpulseJointHandle` — spring-based distance joint (stiffness=1000, damping=10). Since Rapier2D 0.22 has no `DistanceJointBuilder`, implemented with `SpringJointBuilder`
+- `add_revolute_joint(body1, body2, anchor1, anchor2) -> ImpulseJointHandle` — hinge (pivot) joint
+- `add_prismatic_joint(body1, body2, anchor1, anchor2, axis) -> ImpulseJointHandle` — slider joint, `axis` is normalized internally to a `UnitVector`
+- `remove_joint(handle: ImpulseJointHandle)` — remove a joint
+- `ImpulseJointHandle` — re-exported from `src/physics/mod.rs` as `rapier2d::prelude::ImpulseJointHandle`, exposed via `src/lib.rs`
+- 3 unit tests (distance create/remove, revolute create, prismatic create)
 
 ---
 
-## 이번 세션에서 한 일 (Phase 43)
+### Phase 44c — Audio effects
 
-### Phase 43b — 엔티티 복제
+**Background**: The existing AudioManager supported only volume/pan/fade. There were no gameplay-feedback effects like low-pass (sounds beyond a monster's wall), pitch manipulation (sense of speed/slowdown), or fade-in (attack).
 
-**배경**: Inspector에서 엔티티를 복제할 방법이 없었고, 시스템 코드에서도 엔티티를 프로그래밍 방식으로 복사하는 API가 없었다.
+**Changed files**: `src/audio.rs`, `src/lib.rs`
 
-**변경 파일**: `src/ecs/world.rs`, `src/app.rs`
+**Added features**:
+- `AudioEffect` struct: `low_pass_hz: Option<u32>`, `pitch: f32`, `attack_secs: f32`, `release_secs: f32`. `Default::pitch = 1.0`
+- `AudioManager::effects: HashMap<String, AudioEffect>` field
+- `set_effect(channel, effect)` — set an effect (applied on the next play_* call)
+- `clear_effect(channel)` — reset the effect
+- `effect(channel) -> Option<&AudioEffect>` — query the current effect
+- Modified `play_internal`: box as `Box<dyn Source<Item=i16> + Send + 'static>` and chain pitch (`.speed()`) → low_pass (`.low_pass()`) → attack (`.fade_in()`) in order
+- 2 unit tests (default_pitch, set_and_clear)
 
-**추가 기능**:
-- `World::register_clone<T>()` — TypeId별 clone 클로저 등록
-- `World::clone_entity(src) -> Entity` — 등록된 모든 타입을 복사 (remove→call→reinsert 패턴으로 borrow 충돌 방지)
-- `World::has_component_typeid(entity, TypeId) -> bool` — TypeId로 컴포넌트 존재 확인
-- 기본 등록 타입: `Transform`, `Sprite`, `RenderLayer`, `Tag`, `AnimationPlayer`, `Timer`
-- Inspector "Duplicate" 버튼 — (16,16) 오프셋 적용 후 새 엔티티 선택
-- 단위 테스트 3개
+---
+
+## Work this session (Phase 43)
+
+### Phase 43b — Entity cloning
+
+**Background**: There was no way to duplicate an entity in the Inspector, and no API to copy an entity programmatically from system code either.
+
+**Changed files**: `src/ecs/world.rs`, `src/app.rs`
+
+**Added features**:
+- `World::register_clone<T>()` — register a clone closure per TypeId
+- `World::clone_entity(src) -> Entity` — copy all registered types (remove→call→reinsert pattern to avoid borrow conflicts)
+- `World::has_component_typeid(entity, TypeId) -> bool` — check component existence by TypeId
+- Default registered types: `Transform`, `Sprite`, `RenderLayer`, `Tag`, `AnimationPlayer`, `Timer`
+- Inspector "Duplicate" button — applies a (16,16) offset and selects the new entity
+- 3 unit tests
 
 ---
 
 ### Phase 43c — Debug Draw API
 
-**배경**: 게임 시스템에서 디버그 도형(충돌 박스, 경로, 반경)을 그리려면 ECS 엔티티를 직접 만들거나 기존 `DebugDrawQueue`(Rect만 지원)를 직접 사용해야 했다.
+**Background**: To draw debug shapes (collision boxes, paths, radii) from a game system, you had to create ECS entities directly or use the existing `DebugDrawQueue` (Rect only) directly.
 
-**변경 파일**: `src/resources.rs`, `src/app.rs`, `src/lib.rs`
+**Changed files**: `src/resources.rs`, `src/app.rs`, `src/lib.rs`
 
-**추가 기능**:
+**Added features**:
 - `DebugShape` enum: `Rect`, `Line`, `Circle`, `Cross`
-- `DebugDraw` 리소스: `rect/line/line_thick/circle/cross/clear/shapes` 메서드
-- 렌더링: `DrawRect`/`UiQueue`로 변환 (lines = dot-chain, circles = 24각형)
-- App 자동 등록 + 렌더 후 `std::mem::take`로 자동 초기화
-- 단위 테스트 4개
+- `DebugDraw` resource: `rect/line/line_thick/circle/cross/clear/shapes` methods
+- Rendering: converted to `DrawRect`/`UiQueue` (lines = dot-chain, circles = 24-gon)
+- App auto-registration + automatic clear via `std::mem::take` after rendering
+- 4 unit tests
 
 ---
 
-### Phase 43d — 타임라인/컷씬
+### Phase 43d — Timeline/cutscene
 
-**배경**: 엔티티 움직임·색상 변화를 시간 기반으로 제어하는 표준 API가 없었다. 커스텀 타이머 시스템으로 각각 구현해야 했다.
+**Background**: There was no standard API to control entity movement/color changes over time. Each had to be implemented with a custom timer system.
 
-**변경 파일**: `src/timeline.rs` (신규), `src/lib.rs`
+**Changed files**: `src/timeline.rs` (new), `src/lib.rs`
 
-**추가 기능**:
-- `Lerp` 트레잇: `f32`, `Vec2`, `[f32;4]` 구현
-- `Keyframe<T>` — `time`, `value`, `easing: Easing` (기존 tween.rs 재사용)
-- `Track<T: Clone+Lerp>` — 키프레임 정렬, `sample(t)` 이진탐색 보간, `add/duration/is_empty`
-- `Timeline` ECS 컴포넌트 — `position/rotation/scale/color/alpha` 트랙, `playing/looping`, `play/pause/restart/is_finished`
-- `TimelineSystem` — `take_component` 패턴으로 borrow 없이 Transform/Sprite에 적용
-- 단위 테스트 11개
-
----
-
-### Phase 43a — 씬 전환 트랜지션
-
-**배경**: 씬 전환 시 순간 교체되어 시각적 연속성이 없었다. Fade in/out 오버레이로 부드러운 전환을 제공한다.
-
-**변경 파일**: `src/renderer/fade.rs` (신규), `src/renderer/mod.rs`, `src/resources.rs`, `src/app.rs`, `src/lib.rs`
-
-**추가 기능**:
-- `FadeTransition` 리소스: `fade_out(duration)`, `fade_in(duration)`, `.with_color(r,g,b)`, `update(dt)`, `finished` 필드
-- `FadeRenderer` (네이티브 전용): 전체 화면 단색 쿼드, `alpha blend`, `LoadOp::Load` (오버레이)
-- WGSL 셰이더: `FadeUniforms { color: vec3, alpha: f32 }` 16바이트 유니폼
-- App 통합: 지연 초기화, 모든 렌더 패스 이후 마지막에 실행, `alpha > 0.001`일 때만 패스 실행
-- 단위 테스트 4개
+**Added features**:
+- `Lerp` trait: implemented for `f32`, `Vec2`, `[f32;4]`
+- `Keyframe<T>` — `time`, `value`, `easing: Easing` (reusing the existing tween.rs)
+- `Track<T: Clone+Lerp>` — keyframe sorting, `sample(t)` binary-search interpolation, `add/duration/is_empty`
+- `Timeline` ECS component — `position/rotation/scale/color/alpha` tracks, `playing/looping`, `play/pause/restart/is_finished`
+- `TimelineSystem` — applies to Transform/Sprite without borrow using the `take_component` pattern
+- 11 unit tests
 
 ---
 
-## 이번 세션에서 한 일 (Phase 42b + 42d)
+### Phase 43a — Scene transition
 
-### Phase 42b — 카메라 이펙트
+**Background**: Scene transitions swapped instantly with no visual continuity. A fade in/out overlay provides a smooth transition.
 
-**배경**: 카메라가 정적 위치/줌만 지원해 피격 효과(shake), 플레이어 추적(follow), 씬 전환 연출(zoom tween) 같은 게임 피드백을 구현할 방법이 없었다.
+**Changed files**: `src/renderer/fade.rs` (new), `src/renderer/mod.rs`, `src/resources.rs`, `src/app.rs`, `src/lib.rs`
 
-**변경 파일**: `src/camera.rs`, `src/app.rs`
-
-**추가 기능**:
-
-*Camera 구조체 새 필드*
-- `shake_strength/shake_duration/shake_timer` — shake 상태
-- `follow_entity: Option<Entity>` — 추적 대상
-- `lerp_factor: f32` (기본 5.0) — 추적 lerp 강도 (초당)
-- `zoom_target/zoom_tween_speed` — zoom 트윈 상태
-
-*새 메서드*
-- `Camera::shake(strength, duration)` — 화면 흔들기 예약
-- `Camera::zoom_to(target_zoom, speed)` — 부드러운 줌 트윈
-- `Camera::shake_offset() -> Vec2` — 현재 shake 픽셀 오프셋 (sin/cos 두 주파수 합성)
-- `Camera::update(dt, follow_pos: Option<Vec2>)` — 이펙트 진행 (매 프레임 App 호출)
-
-*view_proj 수정*: `self.position + self.shake_offset()`으로 shake 자동 반영
-
-*App::update() 수정*: `follow_entity` 위치를 먼저 읽고 `camera.update(dt, follow_pos)` 호출 (borrow 충돌 방지)
-
-단위 테스트 6개 추가 (shake decay, zoom tween full/partial, follow lerp, no-follow noop, active shake offset)
+**Added features**:
+- `FadeTransition` resource: `fade_out(duration)`, `fade_in(duration)`, `.with_color(r,g,b)`, `update(dt)`, `finished` field
+- `FadeRenderer` (native only): full-screen solid quad, `alpha blend`, `LoadOp::Load` (overlay)
+- WGSL shader: `FadeUniforms { color: vec3, alpha: f32 }` 16-byte uniform
+- App integration: lazy initialization, runs last after all render passes, runs the pass only when `alpha > 0.001`
+- 4 unit tests
 
 ---
 
-### Phase 42d — 오브젝트 풀
+## Work this session (Phase 42b + 42d)
 
-**배경**: 총알·파티클 같은 대량 생성/소멸 엔티티가 매 프레임 spawn/despawn을 반복하면 archetype 재할당 오버헤드가 발생한다. Pool로 엔티티를 재사용해 비용을 줄인다.
+### Phase 42b — Camera effects
 
-**변경 파일**: `src/pool.rs` (신규), `src/lib.rs`
+**Background**: The camera supported only a static position/zoom, leaving no way to implement gameplay feedback like hit effects (shake), player tracking (follow), or scene-transition staging (zoom tween).
 
-**추가 기능**:
+**Changed files**: `src/camera.rs`, `src/app.rs`
 
-*Pool 구조체*
-- `VecDeque<Entity>` 기반 FIFO 재사용 큐
-- `acquire(world, setup)` — 풀에서 꺼내거나 spawn. `Pooled` 마커 제거 후 setup 클로저 실행
-- `release(entity, world)` — `Pooled` 마커 추가 후 큐에 반납. capacity 초과 시 despawn
-- `clear(world)` — 풀 전체 비우기
-- 외부에서 despawn된 엔티티는 `is_alive` 체크로 자동 스킵 (멱등성 보장)
+**Added features**:
 
-*Pooled 마커 컴포넌트*: `query_without::<SomeComp, Pooled>()`로 비활성 엔티티 제외 가능
+*New Camera struct fields*
+- `shake_strength/shake_duration/shake_timer` — shake state
+- `follow_entity: Option<Entity>` — tracking target
+- `lerp_factor: f32` (default 5.0) — tracking lerp strength (per second)
+- `zoom_target/zoom_tween_speed` — zoom tween state
 
-단위 테스트 5개 (spawn, reacquire, overflow, clear, skip-dead)
+*New methods*
+- `Camera::shake(strength, duration)` — schedule a screen shake
+- `Camera::zoom_to(target_zoom, speed)` — smooth zoom tween
+- `Camera::shake_offset() -> Vec2` — current shake pixel offset (sin/cos sum of two frequencies)
+- `Camera::update(dt, follow_pos: Option<Vec2>)` — advance effects (called by App every frame)
+
+*view_proj change*: shake is automatically reflected via `self.position + self.shake_offset()`
+
+*App::update() change*: read the `follow_entity` position first, then call `camera.update(dt, follow_pos)` (to avoid borrow conflicts)
+
+Added 6 unit tests (shake decay, zoom tween full/partial, follow lerp, no-follow noop, active shake offset)
 
 ---
 
-## 이번 세션에서 한 일 (Phase 42)
+### Phase 42d — Object pool
 
-### Phase 42a — 2D 노멀 맵 라이팅
+**Background**: When mass spawn/despawn entities like bullets/particles repeat spawn/despawn every frame, archetype reallocation overhead occurs. A Pool reuses entities to cut the cost.
 
-**배경**: Phase 41a의 `PointLight` 시스템이 거리 감쇠(atten²)만 적용해 모든 방향에서 균일하게 밝아졌다. 노멀 맵과 Lambert diffuse를 추가해 광원 방향에 따라 요철이 표현되는 방향성 조명을 구현한다.
+**Changed files**: `src/pool.rs` (new), `src/lib.rs`
 
-**변경 파일**: `src/components.rs`, `src/renderer/lighting.rs`, `src/app.rs`, `src/particle.rs` (Sprite 구조체 literal 수정)
+**Added features**:
 
-**추가 기능**:
+*Pool struct*
+- FIFO reuse queue based on `VecDeque<Entity>`
+- `acquire(world, setup)` — take from the pool or spawn. Remove the `Pooled` marker, then run the setup closure
+- `release(entity, world)` — add the `Pooled` marker and return to the queue. Despawn when over capacity
+- `clear(world)` — empty the entire pool
+- Entities despawned externally are automatically skipped via an `is_alive` check (idempotency guaranteed)
 
-*`Sprite` 확장*
-- `normal_texture: Option<String>` — 노멀 맵 파일 경로 (RON 직렬화 지원)
-- `normal_handle: Option<Handle<ImageAsset>>` — 런타임 핸들 (`#[serde(skip)]`)
+*Pooled marker component*: inactive entities can be excluded with `query_without::<SomeComp, Pooled>()`
 
-*`PointLight` 확장*
-- `light_height: f32` (기본 `0.15`) — 광원 가상 Z 높이. L 벡터의 Z 성분으로 사용. 작을수록 측면광 → 노멀 맵 요철 강조, 클수록 정면광
+Added 5 unit tests (spawn, reacquire, overflow, clear, skip-dead)
 
-*`GpuLightData` 수정*
-- `_pad: f32` → `light_height: f32` (32 bytes 유지, `LightingUniforms` 544 bytes 유지)
+---
 
-*노멀 버퍼 (LightingRenderer)*
+## Work this session (Phase 42)
+
+### Phase 42a — 2D normal-map lighting
+
+**Background**: Phase 41a's `PointLight` system applied only distance attenuation (atten²), so everything brightened uniformly from all directions. Adding a normal map and Lambert diffuse implements directional lighting where surface relief is expressed according to the light's direction.
+
+**Changed files**: `src/components.rs`, `src/renderer/lighting.rs`, `src/app.rs`, `src/particle.rs` (Sprite struct literal fix)
+
+**Added features**:
+
+*`Sprite` extension*
+- `normal_texture: Option<String>` — normal-map file path (RON serialization supported)
+- `normal_handle: Option<Handle<ImageAsset>>` — runtime handle (`#[serde(skip)]`)
+
+*`PointLight` extension*
+- `light_height: f32` (default `0.15`) — virtual Z height of the light source. Used as the Z component of the L vector. Lower → side lighting → emphasizes normal-map relief; higher → frontal lighting
+
+*`GpuLightData` change*
+- `_pad: f32` → `light_height: f32` (kept at 32 bytes, `LightingUniforms` kept at 544 bytes)
+
+*Normal buffer (LightingRenderer)*
 - `normal_texture: wgpu::Texture` + `normal_view: wgpu::TextureView` — `Rgba8Unorm`, `RENDER_ATTACHMENT | TEXTURE_BINDING`
-- `clear_normal_buffer(encoder)` — `LoadOp::Clear([0.5, 0.5, 1.0, 1.0])` 로 평면 노멀 초기화 (draw call 없음)
-- `resize()` 에서도 normal_texture 재생성
+- `clear_normal_buffer(encoder)` — initialize to flat normals with `LoadOp::Clear([0.5, 0.5, 1.0, 1.0])` (no draw call)
+- `resize()` also re-creates normal_texture
 - bind group layout binding 3 = normal_tex (fragment)
-- `run_pass()` bind group 4개 entries
+- `run_pass()` 4 bind group entries
 
-*WGSL 셰이더 (Lambert diffuse)*
+*WGSL shader (Lambert diffuse)*
 ```wgsl
 let N = normalize(n_sample.xyz * 2.0 - vec3(1.0));
 let L = normalize(vec3(diff_uv.x, -diff_uv.y * aspect_ratio, l.light_height));
@@ -586,7 +586,7 @@ let diffuse = max(0.0, dot(N, L));
 total = total + l.color * l.intensity * diffuse * atten * atten;
 ```
 
-**현재 동작**: 노멀 버퍼는 항상 평면 노멀로 초기화 → 스프라이트별 노멀 텍스처 렌더링은 향후 스프라이트 렌더러 확장 시 추가 예정. `light_height`만으로도 측광/정면광 전환 효과 있음.
+**Current behavior**: The normal buffer is always initialized to flat normals → per-sprite normal-texture rendering is planned for a future SpriteRenderer extension. Even with `light_height` alone there is a side/frontal lighting transition effect.
 
 ```rust
 // 노멀 맵 스프라이트 설정 예
@@ -604,21 +604,21 @@ world.add_component(light, PointLight {
 
 ---
 
-## 이번 세션에서 한 일 (Phase 41)
+## Work this session (Phase 41)
 
-### Phase 41b — ECS 변경 감지
+### Phase 41b — ECS change detection
 
-**배경**: 컴포넌트가 변경된 엔티티를 추적하려면 수동 dirty-flag 필드를 컴포넌트마다 추가해야 했다. `query_added`/`query_changed`를 통해 이번 프레임에 추가되거나 교체된 컴포넌트만 조회할 수 있게 한다.
+**Background**: Tracking entities whose components changed required adding a manual dirty-flag field to each component. `query_added`/`query_changed` allow querying only the components added or replaced this frame.
 
-**변경 파일**: `src/ecs/world.rs`, `src/app.rs`
+**Changed files**: `src/ecs/world.rs`, `src/app.rs`
 
-**추가 기능**:
-- `World` 구조체에 `added_this_tick: HashSet<(Entity, TypeId)>`, `changed_this_tick: HashSet<(Entity, TypeId)>` 필드 추가
-- `add_component` 수정: 첫 추가 시 `added_this_tick`, 기존 교체 시 `changed_this_tick`에 기록
-- `despawn` / `remove_component` 수정: 해당 엔티티/타입 쌍을 추적 세트에서 제거 (멱등성 보장)
-- `World::clear_change_tracking()` — 매 프레임 `App::update()` 최상단에서 자동 호출
-- `World::query_added::<T>()` / `World::query_changed::<T>()` — 추적 세트 기반 필터 조회
-- 단위 테스트 4개
+**Added features**:
+- Added `added_this_tick: HashSet<(Entity, TypeId)>` and `changed_this_tick: HashSet<(Entity, TypeId)>` fields to the `World` struct
+- Modified `add_component`: record in `added_this_tick` on first add, in `changed_this_tick` on replacement
+- Modified `despawn` / `remove_component`: remove the entity/type pair from the tracking sets (idempotency guaranteed)
+- `World::clear_change_tracking()` — auto-called at the very top of `App::update()` every frame
+- `World::query_added::<T>()` / `World::query_changed::<T>()` — filtered query based on the tracking sets
+- 4 unit tests
 
 ```rust
 // 이번 프레임에 새로 추가된 Enemy만 초기화
@@ -635,29 +635,29 @@ for (e, t) in world.query_changed::<Transform>() {
 
 ---
 
-### Phase 41a — 2D 라이팅
+### Phase 41a — 2D lighting
 
-**배경**: 엔진에 조명 효과가 없어 모든 씬이 균일한 밝기였다. `AmbientLight` 리소스 등록만으로 라이팅 후처리 패스가 활성화되고, `PointLight` + `Transform` 조합으로 포인트 라이트를 배치할 수 있게 한다.
+**Background**: The engine had no lighting effects, so every scene was uniformly bright. Simply registering the `AmbientLight` resource activates the lighting post-pass, and a `PointLight` + `Transform` combination lets you place point lights.
 
-**변경 파일**: `src/renderer/lighting.rs` (신규), `src/renderer/mod.rs`, `src/components.rs`, `src/resources.rs`, `src/app.rs`, `src/lib.rs`
+**Changed files**: `src/renderer/lighting.rs` (new), `src/renderer/mod.rs`, `src/components.rs`, `src/resources.rs`, `src/app.rs`, `src/lib.rs`
 
-**추가 기능**:
+**Added features**:
 
-*컴포넌트 / 리소스*
-- `PointLight { color: [f32;3], radius: f32, intensity: f32 }` — Transform과 함께 엔티티에 추가
-- `AmbientLight { color: [f32;3], intensity: f32 }` (기본: 흰색 10%) — 등록 즉시 라이팅 활성화
+*Components / resources*
+- `PointLight { color: [f32;3], radius: f32, intensity: f32 }` — added to an entity together with Transform
+- `AmbientLight { color: [f32;3], intensity: f32 }` (default: white 10%) — activates lighting immediately on registration
 
 *LightingRenderer (src/renderer/lighting.rs)*
 - `GpuLightData` (32 bytes), `LightingUniforms` (544 bytes) — bytemuck `Pod+Zeroable`
-- 최대 16개 `PointLight` 처리, `atten*atten` 이차 감쇠 함수
-- WGSL 인라인 셰이더: scene_tex 샘플 → 환경광 + 포인트 라이트 합산 → min(total, 1.0) 클램핑
-- 월드→NDC 변환: `ndc_x = pos.x / (vp_w / 2)`, `radius_ndc = radius / (vp_w / 2)`
+- Handles up to 16 `PointLight`s, `atten*atten` quadratic attenuation function
+- Inline WGSL shader: sample scene_tex → sum ambient + point lights → clamp with min(total, 1.0)
+- World→NDC conversion: `ndc_x = pos.x / (vp_w / 2)`, `radius_ndc = radius / (vp_w / 2)`
 
-*App 통합 (src/app.rs)*
-- `lighting_renderer: Option<LightingRenderer>` 필드 (네이티브 전용)
-- `AmbientLight` 리소스 존재 시 자동 활성화/비활성화
-- 라이팅 전용 중간 씬 텍스처(`scene_texture_for_lighting`) — 라이팅+포스트 동시 활성 시 post 출력이 lighting 입력
-- `gpu_struct_sizes` 단위 테스트 (GpuLightData=32, LightingUniforms=544 검증)
+*App integration (src/app.rs)*
+- `lighting_renderer: Option<LightingRenderer>` field (native only)
+- Auto-enable/disable when the `AmbientLight` resource exists
+- Lighting-dedicated intermediate scene texture (`scene_texture_for_lighting`) — when lighting+post are both active, post output is the lighting input
+- `gpu_struct_sizes` unit test (verifies GpuLightData=32, LightingUniforms=544)
 
 ```rust
 // 라이팅 씬 설정 예
@@ -668,66 +668,66 @@ world.add_component(torch, Transform { position: Vec2::new(0.0, 0.0), ..Default:
 world.add_component(torch, PointLight { color: [1.0, 0.7, 0.3], radius: 250.0, intensity: 1.5 });
 ```
 
-> **플랫폼**: 네이티브 전용 (`#[cfg(not(target_arch = "wasm32"))]`).
+> **Platform**: native only (`#[cfg(not(target_arch = "wasm32"))]`).
 
 ---
 
-## 이번 세션에서 한 일 (Phase 24)
+## Work this session (Phase 24)
 
-### Phase 24 — WASM 브라우저 실행
+### Phase 24 — WASM browser run
 
-**배경**: Phase 23에서 `cargo build --target wasm32-unknown-unknown`은 통과했지만 실제 브라우저 실행이 되지 않았다. `wasm-pack build` → HTTP 서버 → Chrome에서 컬러 박스들이 튀어다니는 데모를 동작시키는 것이 목표.
+**Background**: In Phase 23, `cargo build --target wasm32-unknown-unknown` passed, but it didn't actually run in a browser. The goal was to get a `wasm-pack build` → HTTP server → Chrome demo of color boxes bouncing around to work.
 
-**검증**: `wasm-pack build --target web` 성공, Chrome에서 10개 컬러 박스 ECS + 바운스 물리 동작 확인
+**Verification**: `wasm-pack build --target web` succeeded; confirmed in Chrome that 10 color boxes run ECS + bounce physics
 
-**수정된 파일**: `Cargo.toml`, `src/app.rs`, `src/renderer/context.rs`, `src/lib.rs`
+**Changed files**: `Cargo.toml`, `src/app.rs`, `src/renderer/context.rs`, `src/lib.rs`
 
-**해결된 문제 목록 (순서대로 발생)**
+**List of problems solved (in order of occurrence)**
 
-| 문제 | 원인 | 수정 |
+| Problem | Cause | Fix |
 |------|------|------|
-| `requestDevice` 실패 — `maxInterStageShaderComponents` 미인식 | wgpu 22 `Limits::default()`가 Chrome WebGPU가 인식 못하는 limit 포함 | `context.rs`: WASM에서 `Backends::GL` 강제(WebGL2) + `downlevel_webgl2_defaults()` |
-| `std::time::Instant` 패닉 | WASM에서 `std::time::Instant` 미지원 | `Cargo.toml`에 `web-time = "1"` 추가; `app.rs`에 `#[cfg] use web_time::Instant` |
-| GPU `async` init 불가 (`unreachable` 패닉) | WebGPU Promise 기반 → 단순 poll 불가 | `thread_local! PENDING_GPU` + `spawn_local` + `about_to_wait`/`RedrawRequested`에서 pick-up |
-| `surface: 1x1` | `window.inner_size()`가 canvas attach 직후 1×1 반환 | `context.rs`: WASM에서 `#[game-canvas]` DOM 요소에서 직접 width/height 읽기 |
-| `no default font found` 패닉 | WASM에 시스템 폰트 없음 — `cosmic-text` shape 시 패닉 | `finish_init()`: WASM에서 `font_bytes` 비면 `TextRenderer` 생성 생략 |
-| `Surface size (2560×1440) > WebGL2 max (2048)` | Retina DPR=2 → winit `Resized` 이벤트가 물리 픽셀 보고 | `app.rs` `Resized` 핸들러: WASM에서 DOM canvas 크기로 대체 |
+| `requestDevice` failure — `maxInterStageShaderComponents` unrecognized | wgpu 22 `Limits::default()` includes a limit Chrome WebGPU doesn't recognize | `context.rs`: force `Backends::GL` (WebGL2) on WASM + `downlevel_webgl2_defaults()` |
+| `std::time::Instant` panic | `std::time::Instant` unsupported on WASM | Added `web-time = "1"` to `Cargo.toml`; `#[cfg] use web_time::Instant` in `app.rs` |
+| GPU `async` init impossible (`unreachable` panic) | WebGPU is Promise-based → can't simply poll | `thread_local! PENDING_GPU` + `spawn_local` + pick-up in `about_to_wait`/`RedrawRequested` |
+| `surface: 1x1` | `window.inner_size()` returns 1×1 right after canvas attach | `context.rs`: on WASM read width/height directly from the `#[game-canvas]` DOM element |
+| `no default font found` panic | No system font on WASM — panics during `cosmic-text` shaping | `finish_init()`: skip `TextRenderer` creation on WASM when `font_bytes` is empty |
+| `Surface size (2560×1440) > WebGL2 max (2048)` | Retina DPR=2 → winit `Resized` event reports physical pixels | `app.rs` `Resized` handler: substitute the DOM canvas size on WASM |
 
-**핵심 설계 결정**
-- WebGPU 대신 WebGL2(`Backends::GL`)를 강제: Chrome 버전별 WebGPU limit 명세 불일치 문제를 회피. `wgpu = { features = ["webgl"] }` 이미 선언되어 있어 추가 의존성 없음
-- `PENDING_GPU thread_local`: `spawn_local` future에서 GPU 컨텍스트를 완성 후 저장 → 메인 이벤트 루프(`about_to_wait` + `RedrawRequested`)에서 polling. 두 곳에서 체크해 타이밍 경쟁 방지
-- WASM 텍스트: `FontData` 리소스에 TTF 바이트를 직접 주입해야 텍스트 렌더링 가능. 미주입 시 텍스트 렌더러 생략(무패닉)
+**Key design decisions**
+- Force WebGL2 (`Backends::GL`) instead of WebGPU: avoids the WebGPU limit-spec mismatch across Chrome versions. `wgpu = { features = ["webgl"] }` is already declared, so no extra dependency
+- `PENDING_GPU thread_local`: complete the GPU context in the `spawn_local` future, then store it → poll from the main event loop (`about_to_wait` + `RedrawRequested`). Checking in both places prevents a timing race
+- WASM text: text rendering requires injecting TTF bytes directly into the `FontData` resource. Without injection, the text renderer is skipped (no panic)
 
-**WASM 런타임 동작 (업데이트)**
+**WASM runtime behavior (updated)**
 
-| 기능 | WASM |
+| Feature | WASM |
 |------|------|
-| wgpu 렌더링 (WebGL2) | ✅ 동작 |
-| ECS, Sprite, 애니메이션 | ✅ 동작 |
-| 텍스트 렌더링 | ✅ FontData 리소스 주입 시 동작 (미주입 시 생략) |
-| Physics, Audio, Gamepad | 비활성 — `#[cfg(not(wasm))]` |
+| wgpu rendering (WebGL2) | ✅ works |
+| ECS, Sprite, animation | ✅ works |
+| Text rendering | ✅ works when the FontData resource is injected (skipped if not) |
+| Physics, Audio, Gamepad | disabled — `#[cfg(not(wasm))]` |
 
 ---
 
-## 이전 세션에서 한 일 (Phase 27–28)
+## Previous session (Phase 27–28)
 
-### Phase 27 — 멀티플레이어 데모
+### Phase 27 — Multiplayer demo
 
-**배경**: Phase 25-A에서 NetworkClient/NetworkSystem을 구현했지만 실제 서버-클라이언트 데모가 없었다. 두 예제 바이너리를 `examples/`에 추가해 엔진의 네트워킹 API 사용 패턴을 보여준다.
+**Background**: Phase 25-A implemented NetworkClient/NetworkSystem, but there was no actual server-client demo. Two example binaries were added to `examples/` to show the usage patterns of the engine's networking API.
 
 **mp_server** (`examples/mp_server.rs`):
-- `TcpListener::bind("127.0.0.1:9001")`으로 WebSocket 수신
-- 클라이언트별 스레드 + `mpsc::Sender<Message>` 브로드캐스트 맵
-- 5 ms read timeout 루프로 발신/수신 논블로킹 처리
-- 프로토콜: 클라이언트 연결 시 `{"type":"hello","id":N}` 전송, 위치 릴레이 `{"type":"pos","id":N,"x":...,"y":...}`, 퇴장 통보 `{"type":"bye","id":N}`
+- WebSocket accept via `TcpListener::bind("127.0.0.1:9001")`
+- Per-client thread + `mpsc::Sender<Message>` broadcast map
+- Non-blocking send/receive via a 5 ms read-timeout loop
+- Protocol: on client connect send `{"type":"hello","id":N}`, relay position `{"type":"pos","id":N,"x":...,"y":...}`, leave notice `{"type":"bye","id":N}`
 
 **mp_client** (`examples/mp_client.rs`):
-- `NetworkClient::connect("ws://127.0.0.1:9001")` + `NetworkSystem` 등록
-- `MultiplayerSystem`: 로컬 플레이어(흰 사각형) WASD 이동, 20 Hz 위치 송신
-- 원격 플레이어: ID별 고유 색상 사각형, pos/bye 수신 시 스폰/디스폰
-- HUD: 연결 상태, Player ID, 접속 인원 수 표시
+- `NetworkClient::connect("ws://127.0.0.1:9001")` + register `NetworkSystem`
+- `MultiplayerSystem`: local player (white square) WASD movement, 20 Hz position send
+- Remote players: per-ID unique-color square, spawn/despawn on pos/bye receive
+- HUD: shows connection status, Player ID, number of connected players
 
-**실행**:
+**Run**:
 ```
 cargo run --example mp_server   # 터미널 1
 cargo run --example mp_client   # 터미널 2, 3, ...
@@ -735,74 +735,74 @@ cargo run --example mp_client   # 터미널 2, 3, ...
 
 ---
 
-### Phase 29 — 씬 계층 직렬화
+### Phase 29 — Scene hierarchy serialization
 
-**배경**: Phase 12에서 `Parent`/`Children`/`GlobalTransform`/`HierarchySystem` 계층 시스템이 완전히 구현됐지만, `EntityDef`/`SceneDef` 직렬화 포맷이 평면 리스트여서 씬 파일 저장/로드 시 계층 관계가 소실됐다.
+**Background**: In Phase 12 the `Parent`/`Children`/`GlobalTransform`/`HierarchySystem` hierarchy system was fully implemented, but the `EntityDef`/`SceneDef` serialization format was a flat list, so hierarchy relationships were lost when saving/loading scene files.
 
-**변경 파일**: `src/prefab.rs`, `src/app.rs`, `src/lib.rs`
+**Changed files**: `src/prefab.rs`, `src/app.rs`, `src/lib.rs`
 
-**추가 기능**:
-- `EntityDef`에 `parent: Option<String>` 필드 추가 (`#[serde(default, skip_serializing_if = "Option::is_none")]`으로 기존 RON 파일 하위 호환 유지)
-- `spawn_scene_def()` 2패스 방식으로 교체: 1패스 엔티티 생성 + tag→Entity 맵, 2패스 `hierarchy::attach()` 호출
-- `topological_sort_entities(entities: &[Entity], world: &World) -> Vec<Entity>` 자유 함수 추가 (BFS, 루트→자식 순)
-- 에디터 씬 저장 시 `topological_sort_entities()`로 정렬 후 `Parent` 컴포넌트를 읽어 `EntityDef.parent` 채움
-- `topological_sort_entities` re-export (`lib.rs`)
-- 테스트: `scene_hierarchy_roundtrip`, `topological_sort_roots_before_children` 추가
+**Added features**:
+- Added a `parent: Option<String>` field to `EntityDef` (`#[serde(default, skip_serializing_if = "Option::is_none")]` keeps existing RON files backward compatible)
+- Replaced `spawn_scene_def()` with a two-pass approach: pass 1 creates entities + tag→Entity map, pass 2 calls `hierarchy::attach()`
+- Added the free function `topological_sort_entities(entities: &[Entity], world: &World) -> Vec<Entity>` (BFS, root→child order)
+- When the editor saves a scene, sort with `topological_sort_entities()`, then read the `Parent` component to fill `EntityDef.parent`
+- Re-export `topological_sort_entities` (`lib.rs`)
+- Tests: added `scene_hierarchy_roundtrip`, `topological_sort_roots_before_children`
 
 ---
 
-### Phase 30 — 시스템 프로파일러
+### Phase 30 — System profiler
 
-**배경**: 시스템별 실행 시간과 렌더러 통계(draw call 수, culled 스프라이트 수)를 에디터에서 실시간으로 확인할 수 없었다.
+**Background**: Per-system execution time and renderer stats (draw call count, culled sprite count) couldn't be checked in real time from the editor.
 
-**변경 파일**: `src/ecs/system.rs`, `src/resources.rs`, `src/renderer/sprite.rs`, `src/app.rs`, `src/lib.rs`
+**Changed files**: `src/ecs/system.rs`, `src/resources.rs`, `src/renderer/sprite.rs`, `src/app.rs`, `src/lib.rs`
 
-**추가 기능**:
-- `System` 트레잇에 `fn name(&self) -> &'static str { "" }` default 메서드 추가 (기존 impl System 하위 호환)
-- `SystemProfile { name, last_us, avg_us }`, `RenderStats { draw_calls, sprites_rendered, sprites_culled }`, `ProfilerData { systems, render, frame_ms }` 리소스 추가
-- `ProfilerData::record_system()` — EMA(α=1/60) 이동 평균 계산
-- `App::update()` 시스템 루프를 `Instant` 계측 래퍼로 교체, 결과를 `ProfilerData`에 기록
-- `sprite.rs render()` 반환 타입 `RenderStats`로 변경, culling/draw call 카운터 수집
-- Engine Stats 패널에 "Systems" / "Render" collapsible 섹션 추가, `resizable(true)`로 변경
-- `ProfilerData`, `RenderStats`, `SystemProfile` re-export (`lib.rs`)
+**Added features**:
+- Added a `fn name(&self) -> &'static str { "" }` default method to the `System` trait (backward compatible with existing `impl System`)
+- Added `SystemProfile { name, last_us, avg_us }`, `RenderStats { draw_calls, sprites_rendered, sprites_culled }`, `ProfilerData { systems, render, frame_ms }` resources
+- `ProfilerData::record_system()` — EMA (α=1/60) moving average calculation
+- Replaced the `App::update()` system loop with an `Instant` instrumentation wrapper, recording results into `ProfilerData`
+- Changed `sprite.rs render()` return type to `RenderStats`, collecting culling/draw-call counters
+- Added "Systems" / "Render" collapsible sections to the Engine Stats panel, changed to `resizable(true)`
+- Re-export `ProfilerData`, `RenderStats`, `SystemProfile` (`lib.rs`)
 
 ---
 
 ### Phase 40c — Gizmo Grid Snap
 
-**배경**: Gizmo 드래그로 엔티티를 이동할 때 픽셀 단위로만 배치되어 타일맵·격자 기반 레벨 디자인에서 정렬이 불편했다.
+**Background**: When moving entities by gizmo drag, they were placed only in pixel units, making alignment inconvenient for tilemap/grid-based level design.
 
-**변경 파일**: `src/app.rs`
+**Changed file**: `src/app.rs`
 
-**추가 기능**:
-- `snap_to_grid(pos: Vec2, snap_size: f32) -> Vec2` 헬퍼 함수 (네이티브 전용)
-- `App` 구조체 필드: `snap_enabled: bool` (기본 `false`), `snap_size: f32` (기본 `16.0`)
-- Inspector Entities 탭 상단에 "Snap" 체크박스 + 격자 크기 `DragValue` (1~128 px, suffix " px")
-- Gizmo 드래그 위치 계산 후 `snap_enabled`이면 `snap_to_grid` 적용
+**Added features**:
+- `snap_to_grid(pos: Vec2, snap_size: f32) -> Vec2` helper function (native only)
+- `App` struct fields: `snap_enabled: bool` (default `false`), `snap_size: f32` (default `16.0`)
+- Added a "Snap" checkbox + grid size `DragValue` (1~128 px, suffix " px") at the top of the Inspector Entities tab
+- After computing the gizmo drag position, apply `snap_to_grid` if `snap_enabled`
 
 ---
 
-### Phase 39b — Inspector 컴포넌트 추가/제거 UI
+### Phase 39b — Inspector component add/remove UI
 
-**배경**: Inspector에서 컴포넌트를 편집할 수는 있었지만, 선택 엔티티에 새 컴포넌트를 붙이거나 불필요한 컴포넌트를 떼어낼 방법이 없었다.
+**Background**: You could edit components in the Inspector, but there was no way to attach a new component to the selected entity or to detach an unneeded one.
 
-**변경 파일**: `src/app.rs`, `src/ecs/world.rs`
+**Changed files**: `src/app.rs`, `src/ecs/world.rs`
 
-**추가 기능**:
+**Added features**:
 
-*컴포넌트 목록 + 제거 (src/app.rs)*
-- Entities 탭 하단에 선택 엔티티의 컴포넌트 목록 표시
-- 각 컴포넌트 오른쪽 "✕" 버튼으로 즉시 제거 (Transform 제외 — 필수 컴포넌트)
-- borrow 우회: 클릭 결과를 `to_remove: Option<String>`에 저장, egui 클로저 종료 후 실제 제거
+*Component list + remove (src/app.rs)*
+- Show the selected entity's component list at the bottom of the Entities tab
+- An "✕" button to the right of each component removes it immediately (except Transform — a required component)
+- borrow workaround: store the click result in `to_remove: Option<String>`, perform the actual remove after the egui closure ends
 
 *Add Component (src/app.rs)*
-- `component_factories: HashMap<String, Box<dyn Fn(&mut World, Entity) + Send + Sync>>` 필드 추가
-- 기본 등록 컴포넌트: `Sprite`, `RenderLayer`, `ParticleEmitter`, `Blackboard`, `Timer` 등
-- `egui::ComboBox`로 등록된 컴포넌트 목록 선택 → "+ Add" 버튼으로 `Default` 값 추가
-- `App::register_component(name, factory)` 공개 API로 사용자 정의 컴포넌트도 등록 가능
+- Added a `component_factories: HashMap<String, Box<dyn Fn(&mut World, Entity) + Send + Sync>>` field
+- Default registered components: `Sprite`, `RenderLayer`, `ParticleEmitter`, `Blackboard`, `Timer`, etc.
+- Select from the registered component list with `egui::ComboBox` → add `Default` value via the "+ Add" button
+- `App::register_component(name, factory)` public API allows registering user-defined components too
 
 *register_reflect_named (src/ecs/world.rs)*
-- `World::register_reflect_named::<T>(name)` 추가 — Inspector 목록에 표시될 이름을 명시
+- Added `World::register_reflect_named::<T>(name)` — specify the name to be shown in the Inspector list
 
 ```rust
 // 커스텀 컴포넌트 등록 예
@@ -813,46 +813,46 @@ app.register_component("Enemy", |world, entity| {
 
 ---
 
-### Phase 38a — 씬 그래프 패널
+### Phase 38a — Scene graph panel
 
-**배경**: Inspector에 엔티티 목록이 단순 평면 리스트로만 표시돼 계층 구조를 파악하기 어려웠고, 엔티티 이름도 편집할 수 없었다.
+**Background**: The Inspector showed the entity list only as a simple flat list, making the hierarchy hard to grasp, and entity names couldn't be edited.
 
-**변경 파일**: `src/app.rs`
+**Changed file**: `src/app.rs`
 
-**추가 기능**:
-- Inspector 탭바에 **"Scene"** 탭(탭 인덱스 2) 추가 (네이티브 전용)
-- 계층 구조 TreeView: `Parent` 없는 루트 엔티티를 먼저 나열, `Children` 기준 DFS 스택 순회로 들여쓰기 표시
-- 각 노드: `Tag` 있으면 이름, 없으면 `"Entity {id}"` 표시. 자식 있으면 `▶` 마커
-- 클릭 시 `SelectedEntity` 업데이트 (`selectable_label`)
-- Scene 탭 하단에 Tag 이름 인라인 편집 (`text_edit_singleline`), Tag 없으면 "Add Name" 버튼
-- Entities 탭(탭 0)에도 선택 엔티티 이름 편집 필드 추가
+**Added features**:
+- Added a **"Scene"** tab (tab index 2) to the Inspector tab bar (native only)
+- Hierarchy TreeView: list root entities without a `Parent` first, show indentation via DFS stack traversal based on `Children`
+- Each node: show the name if it has a `Tag`, otherwise `"Entity {id}"`. Show a `▶` marker if it has children
+- On click, update `SelectedEntity` (`selectable_label`)
+- Inline Tag name editing at the bottom of the Scene tab (`text_edit_singleline`), "Add Name" button if no Tag
+- Also added a selected-entity name editing field to the Entities tab (tab 0)
 
 ---
 
-### Phase 38d — Rhai 스크립팅 API 확장
+### Phase 38d — Rhai scripting API extension
 
-**배경**: Rhai 스크립트에서 엔티티 생성/삭제, AI 상태(Blackboard) 읽고 쓰기, 스티어링 행동 설정을 할 방법이 없었다.
+**Background**: Rhai scripts had no way to create/delete entities, read/write AI state (Blackboard), or set steering behaviors.
 
-**변경 파일**: `src/scripting.rs`, `src/behavior.rs`
+**Changed files**: `src/scripting.rs`, `src/behavior.rs`
 
-**추가 기능**:
+**Added features**:
 
 *Commands API*
-- `spawn_entity() -> i64` — 스크립트 실행 중 spawn 예약, 실행 후 `world.spawn()` 처리. 임시 핸들(-1,-2,...) 반환
-- `despawn_entity(id: i64)` — 양수 ID를 despawn 큐에 추가, 실행 후 처리
+- `spawn_entity() -> i64` — schedule a spawn during script execution, processed with `world.spawn()` after execution. Returns a temporary handle (-1,-2,...)
+- `despawn_entity(id: i64)` — add a positive ID to the despawn queue, processed after execution
 
 *Blackboard API*
-- 실행 전 `Blackboard` 값을 `Arc<Mutex<HashMap>>` 스냅샷으로 복사 → 스크립트에서 읽기
-- `bb_get_bool(key) / bb_get_float(key) / bb_get_int(key)` — 스냅샷 읽기, 없으면 기본값
-- `bb_set_bool / bb_set_float / bb_set_int` — 변경 버퍼 수집 → 실행 후 `Blackboard` 반영 (없으면 자동 추가)
-- `Blackboard::entries()` 이터레이터 추가 (스냅샷 수집용)
+- Before execution, copy `Blackboard` values into an `Arc<Mutex<HashMap>>` snapshot → read from the script
+- `bb_get_bool(key) / bb_get_float(key) / bb_get_int(key)` — read the snapshot, default if absent
+- `bb_set_bool / bb_set_float / bb_set_int` — collect into a change buffer → reflect into `Blackboard` after execution (auto-added if absent)
+- Added a `Blackboard::entries()` iterator (for snapshot collection)
 
 *Steering API*
-- `seek_target(tx, ty, speed)` — `Seek` + `SteeringVelocity` 추가/교체
-- `flee_from(tx, ty, speed, radius)` — `Flee` + `SteeringVelocity` 추가/교체
+- `seek_target(tx, ty, speed)` — add/replace `Seek` + `SteeringVelocity`
+- `flee_from(tx, ty, speed, radius)` — add/replace `Flee` + `SteeringVelocity`
 - `stop_steering()` — `SteeringVelocity.velocity = Vec2::ZERO`
 
-**Borrow 우회**: World를 Rhai 클로저에 직접 캡처 불가 → 실행 전 스냅샷 + `Arc<Mutex<버퍼>>` 수집 → 실행 후 World 반영
+**Borrow workaround**: World can't be captured directly into a Rhai closure → snapshot before execution + collect into `Arc<Mutex<buffer>>` → reflect into World after execution
 
 ```rhai
 // 스크립트 예시
@@ -867,27 +867,27 @@ seek_target(player_x, player_y, speed);
 
 ### Phase 37a — Blackboard + Steering Behaviors
 
-**배경**: 비헤이비어 트리(Phase 36) 노드들이 서로 상태를 공유할 방법이 없었고, 적 AI가 플레이어를 향해 이동하는 표준적인 스티어링 로직이 없었다.
+**Background**: The behavior tree (Phase 36) nodes had no way to share state with each other, and there was no standard steering logic for enemy AI to move toward the player.
 
-**변경 파일**: `src/behavior.rs`, `src/steering.rs` (신규), `src/lib.rs`
+**Changed files**: `src/behavior.rs`, `src/steering.rs` (new), `src/lib.rs`
 
-**추가 기능**:
+**Added features**:
 
 *Blackboard (src/behavior.rs)*
-- `BlackboardValue { Bool / Float / Int / Vec2 / String }` 열거형
-- `Blackboard` 독립 ECS 컴포넌트 — `HashMap<String, BlackboardValue>` 기반 Key-Value 저장소
-- `set_bool / set_float / set_int / set_vec2 / set_string` / `get_bool / get_float / get_int / get_vec2 / get_string` 메서드
-- BehaviorTree와 분리된 컴포넌트로 설계 → `take_component` 패턴으로 BehaviorTree가 꺼내진 상태에서도 `world.get_mut::<Blackboard>(entity)`로 접근 가능
-- 단위 테스트 6개
+- `BlackboardValue { Bool / Float / Int / Vec2 / String }` enum
+- `Blackboard` standalone ECS component — a key-value store based on `HashMap<String, BlackboardValue>`
+- `set_bool / set_float / set_int / set_vec2 / set_string` / `get_bool / get_float / get_int / get_vec2 / get_string` methods
+- Designed as a component separate from BehaviorTree → with the `take_component` pattern it's accessible via `world.get_mut::<Blackboard>(entity)` even while BehaviorTree is taken out
+- 6 unit tests
 
 *Steering Behaviors (src/steering.rs)*
-- `SteeringVelocity { velocity: Vec2, max_speed: f32 }` — 결과 저장 컴포넌트
-- `Seek { target: Vec2, max_speed: f32 }` — 목표 방향으로 직선 이동
-- `Flee { target: Vec2, max_speed: f32, flee_radius: f32 }` — 반경 이내 접근 시 도망
-- `Arrive { target: Vec2, max_speed: f32, slow_radius: f32, stop_radius: f32 }` — 감속 정착
-- `Wander { max_speed: f32, change_interval: f32 }` — 결정론적 의사난수 방향 배회 (rand 크레이트 미사용)
-- `SteeringSystem`: Seek → Flee → Arrive → Wander 순서로 `SteeringVelocity` 계산 후 `Transform.position` 이동 적용
-- 단위 테스트 4개
+- `SteeringVelocity { velocity: Vec2, max_speed: f32 }` — result-storing component
+- `Seek { target: Vec2, max_speed: f32 }` — straight-line movement toward the target
+- `Flee { target: Vec2, max_speed: f32, flee_radius: f32 }` — flee when approached within the radius
+- `Arrive { target: Vec2, max_speed: f32, slow_radius: f32, stop_radius: f32 }` — decelerated settling
+- `Wander { max_speed: f32, change_interval: f32 }` — deterministic pseudo-random wandering (no rand crate)
+- `SteeringSystem`: compute `SteeringVelocity` in Seek → Flee → Arrive → Wander order, then apply the `Transform.position` movement
+- 4 unit tests
 
 ```rust
 // 스티어링 예
@@ -905,21 +905,21 @@ if let Some(bb) = world.get_mut::<Blackboard>(entity) {
 
 ### Phase 37d — CommandBuffer
 
-**배경**: 시스템 실행 중 엔티티를 생성/삭제하거나 컴포넌트를 추가/제거하면 쿼리 이터레이터와 이중 borrow 충돌이 발생했다. `Commands` 버퍼로 명령을 지연 축적하고 프레임 말에 일괄 적용한다.
+**Background**: Creating/deleting entities or adding/removing components during system execution caused a double-borrow conflict with the query iterator. The `Commands` buffer accumulates commands lazily and applies them in a batch at end of frame.
 
-**변경 파일**: `src/ecs/commands.rs` (신규), `src/ecs/mod.rs`, `src/ecs/world.rs`, `src/components.rs`
+**Changed files**: `src/ecs/commands.rs` (new), `src/ecs/mod.rs`, `src/ecs/world.rs`, `src/components.rs`
 
-**추가 기능**:
+**Added features**:
 
 *Commands (src/ecs/commands.rs)*
-- `Vec<Box<dyn FnOnce(&mut World) + Send>>` 기반 지연 실행 버퍼
+- Deferred-execution buffer based on `Vec<Box<dyn FnOnce(&mut World) + Send>>`
 - `Commands::new()` / `Commands::default()`
-- `spawn(f: impl FnOnce(&mut World, Entity) + Send)` — 스폰 + 컴포넌트 추가를 클로저 하나로
-- `despawn(entity)` — 삭제 예약 (이미 없으면 noop)
-- `insert::<T>(entity, comp)` — 컴포넌트 추가 예약
-- `remove::<T>(entity)` — 컴포넌트 제거 예약
-- `Commands::apply(self, world)` / `World::apply_commands(cmds)` — 순서 보장 일괄 적용
-- 단위 테스트 8개 (spawn/despawn/insert/remove/ordering/multiple/noop × 2)
+- `spawn(f: impl FnOnce(&mut World, Entity) + Send)` — spawn + add components in a single closure
+- `despawn(entity)` — schedule deletion (noop if already gone)
+- `insert::<T>(entity, comp)` — schedule component addition
+- `remove::<T>(entity)` — schedule component removal
+- `Commands::apply(self, world)` / `World::apply_commands(cmds)` — order-preserving batch application
+- 8 unit tests (spawn/despawn/insert/remove/ordering/multiple/noop × 2)
 
 ```rust
 struct SpawnSystem;
@@ -942,28 +942,28 @@ impl System for SpawnSystem {
 
 ---
 
-### Phase 36 — 비헤이비어 트리
+### Phase 36 — Behavior tree
 
-**배경**: A* 경로탐색으로 이동 경로를 구할 수 있게 됐지만, 적 AI의 의사결정 구조(추적·공격·대기 전환)를 시스템 코드에 분산해야 했다. 비헤이비어 트리는 AI 로직을 계층적·재사용 가능한 노드 그래프로 선언할 수 있게 한다.
+**Background**: A* pathfinding made it possible to compute movement paths, but the decision-making structure of enemy AI (chase/attack/idle transitions) had to be scattered across system code. A behavior tree lets you declare AI logic as a hierarchical, reusable node graph.
 
-**변경 파일**: `src/behavior.rs` (신규), `src/ecs/world.rs`, `src/lib.rs`
+**Changed files**: `src/behavior.rs` (new), `src/ecs/world.rs`, `src/lib.rs`
 
-**추가 기능**:
+**Added features**:
 
-*비헤이비어 트리 (src/behavior.rs)*
-- `BehaviorStatus { Running, Success, Failure }` — 노드 실행 결과
-- `BehaviorNode` 트레잇: `tick(&mut self, world, entity, dt)` + `reset()` (선택 구현)
-- `Sequence`: 자식 순서 실행, 첫 Failure에 즉시 중단 → Failure / 전부 성공 → Success
-- `Selector`: 자식 순서 실행, 첫 Success에 즉시 중단 → Success / 전부 실패 → Failure
-- `Inverter`: Success ↔ Failure 반전, Running 유지
-- `AlwaysSucceed`: 자식 결과 무시하고 항상 Success 반환
-- `BehaviorTree` 컴포넌트: 루트 `Box<dyn BehaviorNode>` 래퍼
-- `BehaviorSystem`: `take_component → tick → add_component` 패턴으로 이중 borrow 없이 실행
-- 테스트 8개
+*Behavior tree (src/behavior.rs)*
+- `BehaviorStatus { Running, Success, Failure }` — node execution result
+- `BehaviorNode` trait: `tick(&mut self, world, entity, dt)` + `reset()` (optional implementation)
+- `Sequence`: run children in order, abort immediately on the first Failure → Failure / all succeed → Success
+- `Selector`: run children in order, abort immediately on the first Success → Success / all fail → Failure
+- `Inverter`: invert Success ↔ Failure, keep Running
+- `AlwaysSucceed`: ignore the child result and always return Success
+- `BehaviorTree` component: a wrapper around the root `Box<dyn BehaviorNode>`
+- `BehaviorSystem`: runs without double borrow using the `take_component → tick → add_component` pattern
+- 8 tests
 
 *World::take_component (src/ecs/world.rs)*
-- 컴포넌트를 소유권째 꺼내 반환하는 새 API
-- placeholder(`Box<()>`) 교체 → `remove_component`로 아키타입 정리 → 이중 해제 없음
+- A new API that takes a component out by ownership and returns it
+- Replace with a placeholder (`Box<()>`) → clean up the archetype with `remove_component` → no double free
 
 ```rust
 // 커스텀 노드 예
@@ -987,67 +987,67 @@ app.add_system(BehaviorSystem);
 
 ### Phase 35 — Inspector Undo/Redo
 
-**배경**: Inspector에서 엔티티를 잘못 이동·삭제해도 되돌릴 방법이 없어 에디터 워크플로가 불편했다.
+**Background**: There was no way to undo accidentally moving/deleting an entity in the Inspector, making the editor workflow inconvenient.
 
-**변경 파일**: `src/app.rs` 만 수정.
+**Changed file**: only `src/app.rs`.
 
-**추가 기능**:
+**Added features**:
 - `EditorCmd` enum: `MoveEntity { entity, old_pos, new_pos }` / `CreateEntity { entity }` / `DeleteEntity { tag, transform, sprite }`
-- `EditorHistory { undo: Vec, redo: Vec }`: `push` / `undo` / `redo` 메서드
-- **Gizmo 드래그 완료** 시 `MoveEntity` 기록 (위치 변화 없으면 기록 않음)
-- **New Entity 버튼** → `CreateEntity` 기록
-- **Delete 버튼** → 스냅샷(tag/transform/sprite) 캡처 후 `DeleteEntity` 기록
-- **Ctrl+Z** → undo, **Ctrl+Shift+Z** → redo (egui `ctx.input()` 기반)
-- 네이티브 전용 (`#[cfg(not(target_arch = "wasm32"))]`)
+- `EditorHistory { undo: Vec, redo: Vec }`: `push` / `undo` / `redo` methods
+- On **gizmo drag completion**, record `MoveEntity` (not recorded if there's no position change)
+- **New Entity button** → record `CreateEntity`
+- **Delete button** → capture a snapshot (tag/transform/sprite), then record `DeleteEntity`
+- **Ctrl+Z** → undo, **Ctrl+Shift+Z** → redo (based on egui `ctx.input()`)
+- Native only (`#[cfg(not(target_arch = "wasm32"))]`)
 
 ---
 
-### Phase 34 — RenderLayer + 스프라이트 배칭
+### Phase 34 — RenderLayer + sprite batching
 
-**배경**: 수백 개의 동일 텍스처 스프라이트가 있어도, z 정렬 후 다른 텍스처와 교차되면 draw call이 하나씩 발생했다. 레이어 분리가 없어 배경·게임오브젝트·전경의 렌더 순서를 보장할 방법도 없었다.
+**Background**: Even with hundreds of same-texture sprites, if they interleaved with other textures after z-sorting, draw calls were issued one by one. With no layer separation, there was also no way to guarantee the render order of background, game objects, and foreground.
 
-**변경 파일**: `src/components.rs`, `src/renderer/sprite.rs`, `src/lib.rs`
+**Changed files**: `src/components.rs`, `src/renderer/sprite.rs`, `src/lib.rs`
 
-**추가 기능**:
-- `RenderLayer(i32)` 컴포넌트 추가 (선택, 미지정 시 0)
-  - 낮은 값이 먼저(뒤에) 그려짐. 배경=-1, 게임플레이=0, 전경/이펙트=1 권장
-- 스프라이트 정렬 키: `z` 단독 → `(layer, tex_key, z)` 변경
-  - 같은 `(layer, tex_key)` 는 항상 연속 → 텍스처당 draw call 1회 보장
-  - 다른 layer 간 렌더 순서 항상 보장
-- `AtlasSprite`도 동일하게 `RenderLayer` 읽기 적용
+**Added features**:
+- Added a `RenderLayer(i32)` component (optional, 0 if unspecified)
+  - Lower values are drawn first (behind). Recommended: background=-1, gameplay=0, foreground/effects=1
+- Sprite sort key: from `z` alone → `(layer, tex_key, z)`
+  - The same `(layer, tex_key)` is always contiguous → guarantees 1 draw call per texture
+  - The render order between different layers is always guaranteed
+- `AtlasSprite` also reads `RenderLayer` the same way
 
-**트레이드오프**: 같은 layer 내 서로 다른 텍스처 간 z-ordering은 텍스처 키 사전순으로 결정된다. 정확한 교차 z-ordering이 필요하면 `RenderLayer`로 분리한다.
+**Trade-off**: Within the same layer, z-ordering between different textures is decided by the lexicographic order of texture keys. If exact interleaved z-ordering is needed, separate with `RenderLayer`.
 
 ---
 
-### Phase 33 — A* 경로 탐색 + ECS 쿼리 필터
+### Phase 33 — A* pathfinding + ECS query filters
 
-**배경**: 적 AI가 장애물을 피해 이동할 수단이 없었고, ECS 쿼리에서 "특정 컴포넌트가 있는/없는 엔티티만"을 표현하는 방법이 없어 시스템 내부에서 수동으로 필터링해야 했다. 두 기능은 파일 충돌 없이 병렬 구현 가능해 서브 에이전트 2개로 동시 진행했다.
+**Background**: Enemy AI had no means to move around obstacles, and ECS queries had no way to express "only entities that have/don't have a specific component," requiring manual filtering inside systems. The two features could be implemented in parallel without file conflicts, so two sub-agents worked on them simultaneously.
 
-**변경 파일**: `src/pathfinding.rs` (신규), `src/ecs/world.rs`, `src/lib.rs`
+**Changed files**: `src/pathfinding.rs` (new), `src/ecs/world.rs`, `src/lib.rs`
 
-**A* 경로 탐색 (src/pathfinding.rs)**
+**A* pathfinding (src/pathfinding.rs)**
 
-- `PathGrid { width, height, cells: Vec<bool> }` — row-major 격자
-  - `new(w, h)` — 전부 통행 가능
-  - `new_blocked(w, h)` — 전부 막힘
-  - `set_walkable(x, y, bool)` / `is_walkable(x, y) -> bool` (범위 밖 = false)
+- `PathGrid { width, height, cells: Vec<bool> }` — row-major grid
+  - `new(w, h)` — all walkable
+  - `new_blocked(w, h)` — all blocked
+  - `set_walkable(x, y, bool)` / `is_walkable(x, y) -> bool` (out of range = false)
 - `find_path(grid, start: IVec2, goal: IVec2) -> Option<Vec<IVec2>>`
-  - 4방향 이동, 맨해튼 휴리스틱, `BinaryHeap` min-heap (역순 `Ord`)
-  - 반환 경로에 start 미포함, goal 포함
-  - `start == goal` → `Some(vec![goal])`, 경로 없음 → `None`
-  - 목표가 막혀 있으면 즉시 `None` (open set 탐색 없이)
-- 테스트 4개: 직선·우회·막힘·동일점
+  - 4-directional movement, Manhattan heuristic, `BinaryHeap` min-heap (reversed `Ord`)
+  - The returned path excludes start, includes goal
+  - `start == goal` → `Some(vec![goal])`, no path → `None`
+  - If the goal is blocked, immediately `None` (without open-set search)
+- 4 tests: straight, detour, blocked, same point
 
-**ECS 쿼리 필터 (src/ecs/world.rs)**
+**ECS query filters (src/ecs/world.rs)**
 
-- `World::query_with::<A, B>()` — A와 B를 **모두** 가진 엔티티만 `(Entity, &A)` 반환
-- `World::query_without::<A, B>()` — A는 있고 B가 **없는** 엔티티만 `(Entity, &A)` 반환
-- 구현: 아키타입 레벨에서 `TypeId` 포함 여부(`arch.contains(tb)`)를 판단. per-entity `get::<B>()` 호출보다 효율적이며 기존 `query2` 패턴과 일치함.
-- 마커 타입(`With<T>`, `Without<T>`) 미생성 — 불필요한 추상화 배제
-- 테스트 3개 추가 (총 16개): With 필터, Without 필터, 혼합 4-조합 케이스
+- `World::query_with::<A, B>()` — returns `(Entity, &A)` for only entities that have **both** A and B
+- `World::query_without::<A, B>()` — returns `(Entity, &A)` for only entities that have A but **not** B
+- Implementation: judge `TypeId` inclusion (`arch.contains(tb)`) at the archetype level. More efficient than per-entity `get::<B>()` calls and consistent with the existing `query2` pattern.
+- No marker types (`With<T>`, `Without<T>`) created — avoiding unnecessary abstraction
+- Added 3 tests (16 total): With filter, Without filter, mixed 4-combination case
 
-**사용 예**:
+**Usage example**:
 ```rust
 // Sprite가 있는 Transform만 처리
 for (e, t) in world.query_with::<Transform, Sprite>() { ... }
@@ -1065,126 +1065,126 @@ if let Some(path) = find_path(&grid, IVec2::new(0, 0), IVec2::new(19, 14)) {
 
 ---
 
-### Phase 32 — 런타임 안정성
+### Phase 32 — Runtime stability
 
-**배경**: 이미지 로드 실패 시 마젠타 폴백이 있었지만 어떤 핸들이 실패했는지 알 수 없었다. `SceneDef` RON 포맷에 버전 정보가 없어 향후 구조 변경 시 구 파일을 감지할 수단이 없었다. Inspector에 Save는 있지만 Load가 없어 에디터 워크플로가 불완전했다.
+**Background**: There was a magenta fallback on image load failure, but no way to know which handle failed. The `SceneDef` RON format had no version info, so there was no way to detect old files when the structure changed later. The Inspector had Save but no Load, leaving the editor workflow incomplete.
 
-**변경 파일**: `src/asset.rs`, `src/prefab.rs`, `src/app.rs`, `src/lib.rs`
+**Changed files**: `src/asset.rs`, `src/prefab.rs`, `src/app.rs`, `src/lib.rs`
 
-**추가 기능**:
+**Added features**:
 
 *AssetLoadState (src/asset.rs)*
-- `AssetLoadState { Loaded, Failed(String) }` enum 추가
-- `AssetServer`에 `image_load_states: HashMap<AssetId, AssetLoadState>` 필드 추가
-- `load_image()` 내부에서 `decode_image_with_state()` 호출 — 성공/실패 상태를 함께 기록
-- 핫 리로딩(`poll_reloads`)도 리로드 후 상태 갱신
-- `AssetServer::load_state(&Handle<ImageAsset>) -> AssetLoadState` 공개 API
-- `AssetServer::failed_images() -> Vec<AssetId>` — 실패 핸들 목록 (디버그용)
-- `AssetLoadState` re-export (`lib.rs`)
+- Added an `AssetLoadState { Loaded, Failed(String) }` enum
+- Added an `image_load_states: HashMap<AssetId, AssetLoadState>` field to `AssetServer`
+- Inside `load_image()`, call `decode_image_with_state()` — record the success/failure state together
+- Hot reloading (`poll_reloads`) also updates the state after reload
+- `AssetServer::load_state(&Handle<ImageAsset>) -> AssetLoadState` public API
+- `AssetServer::failed_images() -> Vec<AssetId>` — list of failed handles (for debugging)
+- Re-export `AssetLoadState` (`lib.rs`)
 
-*SceneDef 스키마 버전 (src/prefab.rs)*
-- `SCENE_DEF_VERSION: u32 = 1` 상수 추가
-- `SceneDef`에 `#[serde(default)] pub version: u32` 필드 추가 — 구 파일(version 없음)은 0으로 역직렬화되어 하위 호환 유지
-- `Default` 구현을 수동으로 변경: `version: SCENE_DEF_VERSION`으로 초기화
-- `SceneDef::load()` — 역직렬화 후 버전 불일치 시 `log::warn` 출력, 로드는 계속
-- `SceneDef::save()` — 항상 `version: SCENE_DEF_VERSION`으로 덮어써서 저장
-- `SCENE_DEF_VERSION` re-export (`lib.rs`)
+*SceneDef schema version (src/prefab.rs)*
+- Added a `SCENE_DEF_VERSION: u32 = 1` constant
+- Added a `#[serde(default)] pub version: u32` field to `SceneDef` — old files (no version) deserialize to 0, keeping backward compatibility
+- Changed the `Default` implementation manually: initialize with `version: SCENE_DEF_VERSION`
+- `SceneDef::load()` — after deserialization, on a version mismatch print `log::warn`; loading continues
+- `SceneDef::save()` — always overwrite and save with `version: SCENE_DEF_VERSION`
+- Re-export `SCENE_DEF_VERSION` (`lib.rs`)
 
 *Inspector Load Scene (src/app.rs)*
-- `App`에 `editor_load_status: Option<String>` 필드 추가
-- Inspector 씬 저장 행에 `📂 Load Scene` 버튼 추가 (Save 버튼 왼쪽)
-- 클릭 시: RON 로드 → `Transform`을 가진 기존 엔티티 전부 despawn → `spawn_scene_def` 호출
-- 성공/실패 메시지를 `editor_load_status`에 저장해 패널에 표시
-- `inspector_selected` 초기화 (로드 후 선택 상태 리셋)
+- Added an `editor_load_status: Option<String>` field to `App`
+- Added a `📂 Load Scene` button to the Inspector scene-save row (left of the Save button)
+- On click: RON load → despawn all existing entities that have a `Transform` → call `spawn_scene_def`
+- Store the success/failure message in `editor_load_status` and show it in the panel
+- Reset `inspector_selected` (reset selection state after load)
 
-**아키텍처 결정**:
-- Load Scene 시 `Transform` 보유 엔티티만 제거한다. 물리 바디, 카메라 등 시스템 엔티티는 건드리지 않아 충돌을 피한다.
-- `AssetLoadState::Failed` 내부에 오류 문자열을 포함해 `log::error` 없이도 원인 추적이 가능하다.
-
----
-
-### Phase 31 — 에셋 브라우저
-
-**배경**: 현재 로드된 이미지 에셋 목록을 에디터에서 확인할 수 없었고, `AssetServer`의 내부 `path_to_id` 맵이 private이어서 외부에서 조회 불가였다.
-
-**변경 파일**: `src/asset.rs`, `src/app.rs`, `src/lib.rs`
-
-**추가 기능**:
-- `ImageEntry { path, id, width, height }` 구조체 추가
-- `AssetServer::image_list() -> Vec<ImageEntry>` — 현재 로드된 이미지 목록 반환
-- `AssetServer::get_image_by_id(id: AssetId) -> Option<&ImageAsset>` 추가
-- `App` 구조체에 `inspector_tab: u8` (0=Entities, 1=Assets) 필드 추가
-- Inspector 패널 상단에 탭 버튼 추가, "Assets" 탭에서 파일명·해상도 그리드 표시
-- `ImageEntry` re-export (`lib.rs`)
+**Architecture decisions**:
+- On Load Scene, remove only entities that have a `Transform`. System entities such as physics bodies and the camera are left untouched to avoid conflicts.
+- Including the error string inside `AssetLoadState::Failed` allows tracing the cause without `log::error`.
 
 ---
 
-### Phase 28 — 에디터 씬 저장
+### Phase 31 — Asset browser
 
-**배경**: Phase 25-D에서 기즈모로 엔티티를 배치할 수 있게 됐지만, 배치 결과를 파일로 저장하는 수단이 없었다.
+**Background**: There was no way to check the list of currently loaded image assets from the editor, and `AssetServer`'s internal `path_to_id` map was private, so it couldn't be queried externally.
 
-**변경 파일**: `src/app.rs` 만 수정.
+**Changed files**: `src/asset.rs`, `src/app.rs`, `src/lib.rs`
 
-**추가 기능**:
-- `App` 구조체에 `editor_save_path: String`, `editor_save_status: Option<String>` 필드 추가
-- Inspector 패널 하단에 "Path:" 텍스트 입력 + `💾 Save Scene` 버튼 추가 (`#[cfg(not(target_arch = "wasm32"))]` 게이트)
-- 버튼 클릭 시 현재 월드의 모든 엔티티를 순회해 `Tag`/`Transform`/`Sprite`가 있는 엔티티를 `EntityDef`로 수집 → `SceneDef::save()` 호출
-- 결과 메시지 (예: `✓ 5 entities → saved_scene.ron`) 패널 하단에 표시
-- `reload_scene()` 시 저장 상태 메시지 초기화
+**Added features**:
+- Added an `ImageEntry { path, id, width, height }` struct
+- `AssetServer::image_list() -> Vec<ImageEntry>` — return the list of currently loaded images
+- Added `AssetServer::get_image_by_id(id: AssetId) -> Option<&ImageAsset>`
+- Added an `inspector_tab: u8` (0=Entities, 1=Assets) field to the `App` struct
+- Added tab buttons at the top of the Inspector panel; the "Assets" tab shows a grid of filenames/resolutions
+- Re-export `ImageEntry` (`lib.rs`)
 
 ---
 
-## 이전 세션에서 한 일 (Phase 23)
+### Phase 28 — Editor scene save
 
-### Phase 23 — WASM 빌드 지원
+**Background**: Phase 25-D made it possible to place entities with gizmos, but there was no way to save the placement result to a file.
 
-**배경**: `rapier2d`, `rodio`, `gilrs`, `notify`는 OS 스레드/파일/HID API를 사용해 `wasm32-unknown-unknown` 타겟에서 컴파일되지 않는다. 이들을 플랫폼별 의존성으로 분리하고, 관련 코드를 `cfg`로 게이팅해 WASM 빌드를 통과시킨다.
+**Changed file**: only `src/app.rs`.
 
-**검증**: `cargo build --target wasm32-unknown-unknown` — 경고 없음, 오류 없음
+**Added features**:
+- Added `editor_save_path: String`, `editor_save_status: Option<String>` fields to the `App` struct
+- Added a "Path:" text input + `💾 Save Scene` button at the bottom of the Inspector panel (gated with `#[cfg(not(target_arch = "wasm32"))]`)
+- On button click, iterate all entities in the current world, collect entities that have `Tag`/`Transform`/`Sprite` into `EntityDef`s → call `SceneDef::save()`
+- Show a result message (e.g. `✓ 5 entities → saved_scene.ron`) at the bottom of the panel
+- Reset the save-status message on `reload_scene()`
 
-**수정된 파일**: `Cargo.toml`, `.cargo/config.toml` (신규), `src/lib.rs`, `src/app.rs`, `src/asset.rs`, `src/save.rs`, `src/input/gamepad.rs`
+---
 
-**추가된 파일**: `examples/wasm/index.html`, `examples/wasm/build.sh`, `.cargo/config.toml`
+## Previous session (Phase 23)
 
-**Cargo.toml 변경**
+### Phase 23 — WASM build support
 
-| 분류 | 이전 | 이후 |
+**Background**: `rapier2d`, `rodio`, `gilrs`, and `notify` use OS thread/file/HID APIs and don't compile for the `wasm32-unknown-unknown` target. Splitting them into platform-specific dependencies and gating the related code with `cfg` makes the WASM build pass.
+
+**Verification**: `cargo build --target wasm32-unknown-unknown` — no warnings, no errors
+
+**Changed files**: `Cargo.toml`, `.cargo/config.toml` (new), `src/lib.rs`, `src/app.rs`, `src/asset.rs`, `src/save.rs`, `src/input/gamepad.rs`
+
+**Added files**: `examples/wasm/index.html`, `examples/wasm/build.sh`, `.cargo/config.toml`
+
+**Cargo.toml changes**
+
+| Category | Before | After |
 |------|------|------|
 | `wgpu` | `"22"` | `{ version = "22", features = ["webgl"] }` |
 | `rapier2d`, `rodio`, `gilrs`, `notify`, `dirs` | `[dependencies]` | `[target.'cfg(not(wasm))'.dependencies]` |
-| `wasm-bindgen`, `wasm-bindgen-futures`, `web-sys`, `console_error_panic_hook` | 없음 | `[target.'cfg(wasm)'.dependencies]` |
+| `wasm-bindgen`, `wasm-bindgen-futures`, `web-sys`, `console_error_panic_hook` | none | `[target.'cfg(wasm)'.dependencies]` |
 
-**getrandom 충돌 해결** (`getrandom 0.2` + `0.3` 동시 사용)
-- `getrandom 0.2` — `rand 0.8`용, `js` feature
-- `getrandom 0.3` — wgpu 등 전이 의존성, `wasm_js` feature (알리아스 `getrandom3`)
-- `.cargo/config.toml` — `--cfg getrandom_backend="wasm_js"` RUSTFLAGS 설정
+**getrandom conflict resolution** (`getrandom 0.2` + `0.3` used simultaneously)
+- `getrandom 0.2` — for `rand 0.8`, `js` feature
+- `getrandom 0.3` — transitive dependency of wgpu etc., `wasm_js` feature (alias `getrandom3`)
+- `.cargo/config.toml` — set `--cfg getrandom_backend="wasm_js"` RUSTFLAGS
 
-**cfg-gate 목록**
+**cfg-gate list**
 
-| 파일 | 변경 내용 |
+| File | Change |
 |------|-----------|
-| `src/lib.rs` | `pub mod physics`, `pub mod audio` + 관련 re-export 조건부 컴파일 |
-| `src/lib.rs` | `#[wasm_bindgen(start)]` — `console_error_panic_hook` 초기화 |
-| `src/app.rs` | `gilrs: Option<gilrs::Gilrs>` 필드 + `poll_gilrs()` + `gilrs::Gilrs::new()` |
+| `src/lib.rs` | conditional compilation of `pub mod physics`, `pub mod audio` + related re-exports |
+| `src/lib.rs` | `#[wasm_bindgen(start)]` — `console_error_panic_hook` initialization |
+| `src/app.rs` | `gilrs: Option<gilrs::Gilrs>` field + `poll_gilrs()` + `gilrs::Gilrs::new()` |
 | `src/app.rs` | `run()` — WASM: `EventLoopExtWebSys::spawn_app(self)` |
-| `src/app.rs` | `resumed()` — WASM: 수동 단일-poll executor (webgl 동기 완료 활용) |
-| `src/asset.rs` | `use notify::...` + `_watcher: Option<RecommendedWatcher>` + 감시 설정 |
-| `src/save.rs` | `save_path()` — WASM: `dirs` 없이 상대 경로 반환 |
+| `src/app.rs` | `resumed()` — WASM: manual single-poll executor (using webgl synchronous completion) |
+| `src/asset.rs` | `use notify::...` + `_watcher: Option<RecommendedWatcher>` + watch setup |
+| `src/save.rs` | `save_path()` — WASM: return a relative path without `dirs` |
 | `src/input/gamepad.rs` | `id_map`, `Slot::new`, `process_event`, `slot_mut`, `map_button`, `map_axis` |
 
-**WASM 런타임 동작**
+**WASM runtime behavior**
 
-| 기능 | WASM |
+| Feature | WASM |
 |------|------|
-| wgpu 렌더링 (WebGL2) | 동작 |
-| ECS, UI, 애니메이션, 타일맵 | 동작 |
-| Physics (rapier2d) | 비활성 — `#[cfg(not(wasm))]` |
-| Audio (rodio) | 비활성 — `#[cfg(not(wasm))]` |
-| Gamepad (gilrs) | 비활성 — `#[cfg(not(wasm))]` |
-| 파일시스템 에셋 로드 | 런타임 오류 (std::fs 미지원) |
-| 핫 리로딩 | 비활성 — notify 없음 |
+| wgpu rendering (WebGL2) | works |
+| ECS, UI, animation, tilemap | works |
+| Physics (rapier2d) | disabled — `#[cfg(not(wasm))]` |
+| Audio (rodio) | disabled — `#[cfg(not(wasm))]` |
+| Gamepad (gilrs) | disabled — `#[cfg(not(wasm))]` |
+| Filesystem asset loading | runtime error (std::fs unsupported) |
+| Hot reloading | disabled — no notify |
 
-**브라우저 실행 방법**
+**How to run in a browser**
 ```bash
 # 의존성: cargo install wasm-pack
 cd /path/to/skeleton-engine
@@ -1193,58 +1193,58 @@ python3 -m http.server 8080 --directory examples/wasm
 # 브라우저에서 http://localhost:8080 열기
 ```
 
-**핵심 설계 결정**
-- `physics`와 `audio` 모듈 전체를 lib.rs에서 `#[cfg(not(wasm))]`으로 게이팅 → 해당 파일들 자체는 수정 불필요
-- WASM용 GPU 초기화: wgpu webgl 백엔드는 adapter 요청이 첫 poll에서 즉시 완료(동기) → `pollster::block_on` 없이 단순 수동 poll로 동작
-- `GamepadState` 구조체는 WASM에서도 존재하지만 gilrs 타입(`GamepadId`) 의존 필드/메서드 제거 → 빈 상태로 컴파일 가능
+**Key design decisions**
+- Gate the entire `physics` and `audio` modules with `#[cfg(not(wasm))]` in lib.rs → those files themselves need no modification
+- WASM GPU init: the wgpu webgl backend completes adapter requests immediately (synchronously) on the first poll → works with simple manual polling without `pollster::block_on`
+- The `GamepadState` struct exists on WASM too, but the fields/methods depending on gilrs types (`GamepadId`) are removed → it compiles as an empty state
 
 ---
 
-## 이전 세션에서 한 일 (Phase 22)
+## Previous session (Phase 22)
 
-### Phase 22 — Reflect 시스템
+### Phase 22 — Reflect system
 
-**배경**: egui 인스펙터에서 컴포넌트 속성을 이름으로 읽고 쓸 수 있는 런타임 필드 접근 API가 필요했다. proc-macro 없이 핵심 컴포넌트에 수동 구현해 복잡도를 낮췄다.
+**Background**: A runtime field-access API was needed so the egui inspector could read and write component properties by name. Without a proc-macro, it was implemented manually on core components to keep the complexity low.
 
-**추가된 파일**: `src/reflect.rs`
+**Added file**: `src/reflect.rs`
 
-**수정된 파일**: `src/components.rs`, `src/prefab.rs`, `src/ecs/world.rs`, `src/app.rs`, `src/lib.rs`
+**Changed files**: `src/components.rs`, `src/prefab.rs`, `src/ecs/world.rs`, `src/app.rs`, `src/lib.rs`
 
-**새 타입**
-- `ReflectValue` (`src/reflect.rs`) — `F32 | Vec2 | Bool | String | Color([f32;4])` 열거형
-- `Reflect` 트레잇 (`src/reflect.rs`) — `fields()`, `set_field()`, `type_name()` 인터페이스
-- `ReflectEntry` (`src/ecs/world.rs`) — `Copy` 가능한 함수 포인터 쌍 (`get`, `get_mut`)
+**New types**
+- `ReflectValue` (`src/reflect.rs`) — `F32 | Vec2 | Bool | String | Color([f32;4])` enum
+- `Reflect` trait (`src/reflect.rs`) — `fields()`, `set_field()`, `type_name()` interface
+- `ReflectEntry` (`src/ecs/world.rs`) — a `Copy`-able pair of function pointers (`get`, `get_mut`)
 
-**컴포넌트 구현**
-- `Transform` — x, y, rotation, scale_x, scale_y, z (모두 F32)
+**Component implementations**
+- `Transform` — x, y, rotation, scale_x, scale_y, z (all F32)
 - `Sprite` — color (Color), texture (String)
 - `Tag` — tag (String)
 
-**World 확장** (`src/ecs/world.rs`)
-- `reflect_registry: HashMap<TypeId, ReflectEntry>` 필드 추가
-- `register_reflect::<T>()` — TypeId → 함수 포인터 등록
+**World extension** (`src/ecs/world.rs`)
+- Added a `reflect_registry: HashMap<TypeId, ReflectEntry>` field
+- `register_reflect::<T>()` — register function pointers per TypeId
 - `get_reflect(entity, TypeId)` → `Option<&dyn Reflect>`
 - `get_reflect_mut(entity, TypeId)` → `Option<&mut dyn Reflect>`
-- `reflected_components(entity)` → `Vec<TypeId>` (등록된 컴포넌트 중 보유 목록)
+- `reflected_components(entity)` → `Vec<TypeId>` (the held subset among registered components)
 - `is_alive(entity)` → `bool`
 
-**egui Inspector 패널** (`src/app.rs`)
-- F1 Debug UI 내 `Inspector` 창 추가 (기본 위치: [10, 130])
-- 좌측: 엔티티 목록 (Tag 있으면 Tag명, 없으면 "Entity N" 표시, 클릭으로 선택)
-- 우측: 선택된 엔티티의 컴포넌트별 collapsing 패널 + Grid 레이아웃 필드 편집기
-  - F32 → `DragValue` (슬라이더 속도 0.5)
+**egui Inspector panel** (`src/app.rs`)
+- Added an `Inspector` window inside the F1 Debug UI (default position: [10, 130])
+- Left: entity list (show Tag name if it has a Tag, otherwise "Entity N", select by click)
+- Right: per-component collapsing panels for the selected entity + Grid-layout field editor
+  - F32 → `DragValue` (slider speed 0.5)
   - Color → `color_edit_button_rgba_unmultiplied`
   - String → `text_edit_singleline`
-- 편집은 "stage-and-apply" 패턴: 읽기(불변) → egui 수정 → 쓰기(가변) — borrow 충돌 없음
+- Editing uses the "stage-and-apply" pattern: read (immutable) → egui edit → write (mutable) — no borrow conflict
 
-**자동 등록**: `App::new()` + `App::reload_scene()`에서 Transform, Sprite, Tag 자동 `register_reflect`
+**Auto-registration**: `App::new()` + `App::reload_scene()` auto `register_reflect` for Transform, Sprite, Tag
 
-**핵심 설계 결정**
-- `ReflectEntry`가 `Copy`인 이유: 함수 포인터를 담아 `let entry = *map.get()?` 로 복사 후 `&mut self.archetypes` borrow 가능
-- object-safe 유지: `Reflect` 트레잇에 제네릭·Self 없음 → `dyn Reflect` 사용 가능
-- `Vec2`, `Bool` ReflectValue 열거형에 포함 — 사용자 컴포넌트 확장을 위해 미리 준비
+**Key design decisions**
+- Why `ReflectEntry` is `Copy`: it holds function pointers, so after `let entry = *map.get()?` (a copy), `&mut self.archetypes` can be borrowed
+- Keeps object-safety: the `Reflect` trait has no generics/Self → `dyn Reflect` is usable
+- `Vec2`, `Bool` are included in the ReflectValue enum — prepared in advance for user component extension
 
-**사용 패턴**
+**Usage pattern**
 ```rust
 // 수동 등록 (App::new()에서 자동 등록되지 않는 사용자 컴포넌트)
 world.register_reflect::<MyComp>();
@@ -1264,34 +1264,34 @@ if let Some(refl) = world.get_reflect_mut(entity, TypeId::of::<Transform>()) {
 
 ---
 
-## 이전 세션에서 한 일 (Phase 21)
+## Previous session (Phase 21)
 
-### Phase 21 — Texture Atlas 시스템
+### Phase 21 — Texture Atlas system
 
-**배경**: 렌더러는 이미 GPU 인스턴싱을 사용하지만, 텍스처별 드로우콜이 발생한다. 여러 스프라이트를 하나의 아틀라스 텍스처로 묶으면 드로우콜을 최소화할 수 있다.
+**Background**: The renderer already uses GPU instancing, but a draw call is issued per texture. Bundling multiple sprites into a single atlas texture minimizes draw calls.
 
-**추가된 파일**: `src/atlas.rs`
+**Added file**: `src/atlas.rs`
 
-**수정된 파일**: `src/asset.rs`, `src/renderer/sprite.rs`, `src/app.rs`, `src/lib.rs`
+**Changed files**: `src/asset.rs`, `src/renderer/sprite.rs`, `src/app.rs`, `src/lib.rs`
 
-**새 타입**
-- `TextureAtlas` (`src/atlas.rs`) — 이미지 핸들 + cols/rows 그리드 정보. `uv_rect(index)` → `UvRect` 계산
-- `AtlasSprite` (`src/atlas.rs`) — `Handle<TextureAtlas>` + index + color. Transform과 함께 사용
+**New types**
+- `TextureAtlas` (`src/atlas.rs`) — image handle + cols/rows grid info. `uv_rect(index)` → computes a `UvRect`
+- `AtlasSprite` (`src/atlas.rs`) — `Handle<TextureAtlas>` + index + color. Used together with Transform
 
-**AssetServer 확장** (`src/asset.rs`)
-- `atlases: HashMap<AssetId, TextureAtlas>` + `atlas_path_to_id` 추가
-- `load_atlas(path, cols, rows) → Handle<TextureAtlas>` — 같은 경로 재호출 시 캐시 반환
-- `get_atlas(handle) → Option<&TextureAtlas>` — 렌더러 내부에서 UV 계산에 사용
+**AssetServer extension** (`src/asset.rs`)
+- Added `atlases: HashMap<AssetId, TextureAtlas>` + `atlas_path_to_id`
+- `load_atlas(path, cols, rows) → Handle<TextureAtlas>` — returns the cache on re-call with the same path
+- `get_atlas(handle) → Option<&TextureAtlas>` — used by the renderer internally for UV computation
 
-**App 확장** (`src/app.rs`)
-- `load_atlas(path, cols, rows) → Handle<TextureAtlas>` — `pending_textures`에 추가해 GPU 텍스처도 로드
+**App extension** (`src/app.rs`)
+- `load_atlas(path, cols, rows) → Handle<TextureAtlas>` — also loads the GPU texture by adding to `pending_textures`
 
-**렌더러 확장** (`src/renderer/sprite.rs`)
-- `AtlasSprite` 쿼리 → `AssetServer::get_atlas()` → `uv_rect()` → 기존 `sprites` Vec에 추가
-- 기존 Sprite와 동일한 z-sort + texture-group 드로우콜 흐름 그대로 사용 (하위 호환 유지)
-- `AtlasSprite` 엔티티에 `UvRect` 컴포넌트가 함께 있으면 grid UV 대신 해당 값을 사용한다. 비균일 crop, 세로 뒤집힘, packed atlas 보정은 이 override로 처리한다.
+**Renderer extension** (`src/renderer/sprite.rs`)
+- `AtlasSprite` query → `AssetServer::get_atlas()` → `uv_rect()` → added to the existing `sprites` Vec
+- Uses the same z-sort + texture-group draw-call flow as the existing Sprite (backward compatible)
+- If an `AtlasSprite` entity also has a `UvRect` component, that value is used instead of the grid UV. Non-uniform crop, vertical flip, and packed-atlas correction are handled by this override.
 
-**사용 패턴**
+**Usage pattern**
 ```rust
 // 4×4 그리드 아틀라스 로드
 let atlas = app.load_atlas("assets/characters.png", 4, 4);
@@ -1305,38 +1305,38 @@ world.add_component(e, AtlasSprite::new(atlas.clone(), 5)); // index 5번 타일
 world.get_mut::<AtlasSprite>(e).unwrap().index = 6;
 ```
 
-**핵심 설계 결정**
-- 같은 아틀라스 텍스처를 사용하는 `AtlasSprite` 엔티티들은 z-sort 후 연속 배치 시 **1개 드로우콜**
-- 아틀라스 이미지 경로가 텍스처 캐시 키이므로 기존 `Sprite(texture: path)` 경로와 공유 가능
-- `atlases` map은 `path → AtlasId` 단방향 캐시 — 같은 경로로 다른 cols/rows 호출 시 첫 번째 설정 사용
-- `AtlasSprite` public struct에 새 필드를 추가하지 않고 `UvRect` 컴포넌트 override를 사용해 기존 리터럴 초기화 호환성을 유지한다.
+**Key design decisions**
+- `AtlasSprite` entities using the same atlas texture become **1 draw call** when placed contiguously after z-sort
+- The atlas image path is the texture cache key, so it can be shared with the existing `Sprite(texture: path)` path
+- The `atlases` map is a one-way `path → AtlasId` cache — calling with different cols/rows for the same path uses the first setting
+- Rather than adding new fields to the public `AtlasSprite` struct, a `UvRect` component override is used to keep compatibility with existing literal initialization.
 
-**Follow-up API 확장**
+**Follow-up API extensions**
 - `UvRect::new(...)`, `UvRect::from_pixels(...)`, `flipped_x()`, `flipped_y()` — custom crop/UV orientation helper
-- `Sprite::textured_with_handle(path, Option<Handle<ImageAsset>>)` — 런타임 핸들 우선, 테스트/작은 월드 path fallback
-- `DrawImage`, `UiImageQueue` — screen-space textured UI primitive. 좌표는 `DrawRect`처럼 논리 뷰포트 픽셀 기준이며, 스프라이트 패스 뒤/텍스트 패스 앞에 렌더링한다.
+- `Sprite::textured_with_handle(path, Option<Handle<ImageAsset>>)` — runtime handle first, with a path fallback for tests/small worlds
+- `DrawImage`, `UiImageQueue` — screen-space textured UI primitive. Coordinates are in logical viewport pixels like `DrawRect`, and it renders after the sprite pass / before the text pass.
 
 ---
 
-## 이전 세션에서 한 일 (Phase 20)
+## Previous session (Phase 20)
 
-### Phase 20 — 애니메이션 블렌딩
+### Phase 20 — Animation blending
 
-**배경**: `AnimationPlayer`는 클립 간 즉시 전환만 지원했다. 크로스페이드와 파라미터 기반 클립 선택을 추가해 부드러운 애니메이션 전환을 가능하게 한다.
+**Background**: `AnimationPlayer` supported only instant switching between clips. Adding crossfade and parameter-based clip selection enables smooth animation transitions.
 
-**추가된 파일**: `src/animation/blend_tree.rs`, `src/animation/blend_system.rs`
-**변경된 파일**: `src/animation/player.rs`, `src/animation/system.rs`, `src/animation/mod.rs`, `src/lib.rs`
+**Added files**: `src/animation/blend_tree.rs`, `src/animation/blend_system.rs`
+**Changed files**: `src/animation/player.rs`, `src/animation/system.rs`, `src/animation/mod.rs`, `src/lib.rs`
 
-#### 주요 타입
+#### Main types
 
-| 타입 | 역할 |
+| Type | Role |
 |------|------|
-| `BlendWeight` | 크로스페이드 진행도(0.0→1.0) 컴포넌트. `AnimationSystem`이 매 프레임 갱신 |
-| `BlendTree1D` | float 파라미터 → 자동 클립 선택 + 크로스페이드 컴포넌트 |
-| `BlendEntry` | BlendTree1D의 항목 (threshold, clip_index) |
-| `BlendTreeSystem` | BlendTree1D를 읽어 AnimationPlayer에 클립 전환을 지시하는 시스템 |
+| `BlendWeight` | Crossfade progress (0.0→1.0) component. `AnimationSystem` updates it every frame |
+| `BlendTree1D` | float parameter → automatic clip selection + crossfade component |
+| `BlendEntry` | An item of BlendTree1D (threshold, clip_index) |
+| `BlendTreeSystem` | A system that reads BlendTree1D and directs clip switching on AnimationPlayer |
 
-#### 크로스페이드 API
+#### Crossfade API
 
 ```rust
 // 즉시 전환 (기존)
@@ -1357,7 +1357,7 @@ if let Some(bw) = world.get_mut::<BlendWeight>(entity) {
 }
 ```
 
-#### 1D 블렌드 트리 API
+#### 1D blend tree API
 
 ```rust
 // 트리 구성 (threshold 오름차순)
@@ -1375,7 +1375,7 @@ world.add_component(entity, tree);
 world.get_mut::<BlendTree1D>(entity).unwrap().set_param(speed);
 ```
 
-#### 등록 순서
+#### Registration order
 
 ```rust
 app.add_system(Box::new(BlendTreeSystem));   // 클립 선택
@@ -1383,36 +1383,36 @@ app.add_system(Box::new(AnimationSystem));   // 프레임 진행 + BlendWeight �
 app.add_system(Box::new(StateMachineSystem)); // 상태 머신 (기존)
 ```
 
-#### 크로스페이드 동작 원리
+#### How crossfade works
 
-| 진행도 | 출력 UV | 설명 |
+| Progress | Output UV | Description |
 |--------|---------|------|
-| 0.0 ~ 0.5 미만 | from_clip 현재 프레임 | 이전 클립 계속 표시 |
-| 0.5 이상 ~ 1.0 | to_clip 현재 프레임 | 새 클립으로 전환 |
-| 완료(elapsed ≥ duration) | to_clip 프레임 | crossfade 해제, 정상 재생 |
+| 0.0 ~ below 0.5 | from_clip current frame | keep showing the previous clip |
+| 0.5 and above ~ 1.0 | to_clip current frame | switch to the new clip |
+| done (elapsed ≥ duration) | to_clip frame | release crossfade, normal playback |
 
-두 클립 모두 진행도와 무관하게 계속 진행되므로, UV 전환 시점에 to_clip이 자연스럽게 앞서 재생된 상태다.
+Both clips keep advancing regardless of progress, so at the moment of UV switching the to_clip is naturally already playing ahead.
 
 ---
 
-## 이전 세션에서 한 일 (Phase 19)
+## Previous session (Phase 19)
 
-### Phase 19 — Rhai 스크립팅
+### Phase 19 — Rhai scripting
 
-**배경**: 게임 로직을 Rust 재컴파일 없이 `.rhai` 스크립트로 작성할 수 있게 한다. 각 엔티티에 `ScriptRunner`를 붙이면 매 프레임 `on_update(dt)`가 실행되고, Transform이 자동 동기화된다.
+**Background**: This lets game logic be written in `.rhai` scripts without recompiling Rust. Attaching a `ScriptRunner` to each entity runs `on_update(dt)` every frame and automatically syncs the Transform.
 
-**추가된 파일**: `src/scripting.rs`
-**변경된 파일**: `Cargo.toml`, `src/asset.rs`, `src/app.rs`, `src/lib.rs`
+**Added file**: `src/scripting.rs`
+**Changed files**: `Cargo.toml`, `src/asset.rs`, `src/app.rs`, `src/lib.rs`
 
-#### 주요 타입
+#### Main types
 
-| 타입 | 역할 |
+| Type | Role |
 |------|------|
-| `ScriptAsset` | CPU-side Rhai AST + 소스 문자열 (AssetServer 관리) |
-| `ScriptRunner` | 엔티티 컴포넌트; 스크립트 핸들 + Scope 보유 |
-| `ScriptingSystem` | 매 프레임 `on_update(dt)` 실행 + Transform 동기화 |
+| `ScriptAsset` | CPU-side Rhai AST + source string (managed by AssetServer) |
+| `ScriptRunner` | An entity component; holds the script handle + Scope |
+| `ScriptingSystem` | Runs `on_update(dt)` every frame + Transform sync |
 
-#### 공개 API
+#### Public API
 
 ```rust
 // 스크립트 로드
@@ -1425,7 +1425,7 @@ world.add_component(entity, ScriptRunner::new(handle));
 app.add_system(Box::new(ScriptingSystem::new()));
 ```
 
-**스크립트 예시 (`enemy_ai.rhai`)**:
+**Script example (`enemy_ai.rhai`)**:
 ```rhai
 fn on_start() {
     log("AI 초기화");
@@ -1437,29 +1437,29 @@ fn on_update(dt) {
 }
 ```
 
-#### 스코프 변수 (읽기/쓰기)
+#### Scope variables (read/write)
 
-| 변수 | 타입 | 설명 |
+| Variable | Type | Description |
 |------|------|------|
 | `x`, `y` | `f64` | Transform.position |
-| `rot` | `f64` | Transform.rotation (라디안) |
+| `rot` | `f64` | Transform.rotation (radians) |
 | `sx`, `sy` | `f64` | Transform.scale |
 
-#### 등록된 함수
+#### Registered functions
 
-| 함수 | 설명 |
+| Function | Description |
 |------|------|
-| `log(msg)` | 디버그 출력 (`[Script] msg`) |
+| `log(msg)` | debug output (`[Script] msg`) |
 
-#### 설계 결정
+#### Design decisions
 
-- `ScriptingSystem`이 `Engine`을 직접 소유 — `ScriptEngine` 리소스 없이 간단하게 유지
-- `on_start` / `on_update` 없어도 오류 없이 무시 (`EvalAltResult::ErrorFunctionNotFound` 처리)
-- 핫 리로딩: `poll_reloads`가 `.rhai` 파일 변경 감지 시 AST 재컴파일. `runner.reset()` 호출 시 `on_start` 재실행
-- `max_operations = 1_000_000` 제한으로 스크립트 무한 루프 방지
-- `rhai = { features = ["sync"] }` — Engine을 `Send+Sync`로 만들어 향후 멀티스레드 확장 지원
+- `ScriptingSystem` owns the `Engine` directly — kept simple without a `ScriptEngine` resource
+- Missing `on_start` / `on_update` are ignored without error (handling `EvalAltResult::ErrorFunctionNotFound`)
+- Hot reloading: when `poll_reloads` detects a `.rhai` file change, the AST is recompiled. Calling `runner.reset()` re-runs `on_start`
+- A `max_operations = 1_000_000` limit prevents infinite loops in scripts
+- `rhai = { features = ["sync"] }` — makes the Engine `Send+Sync` to support future multithreaded extension
 
-#### Cargo.toml 변경
+#### Cargo.toml change
 
 ```toml
 rhai = { version = "1", features = ["sync"] }
@@ -1467,22 +1467,22 @@ rhai = { version = "1", features = ["sync"] }
 
 ---
 
-## 이전 세션에서 한 일 (Phase 18)
+## Previous session (Phase 18)
 
-### Phase 18 — egui 인게임 디버그 에디터
+### Phase 18 — egui in-game debug editor
 
-**배경**: 개발 중 엔티티/컴포넌트 상태를 실시간으로 확인할 수 없었다. egui를 통합해 인게임 오버레이 패널을 `System` 안에서 자유롭게 추가할 수 있게 한다.
+**Background**: During development, entity/component state couldn't be checked in real time. Integrating egui lets you freely add in-game overlay panels from within a `System`.
 
-**추가된 파일**: `src/debug_ui.rs`
-**변경된 파일**: `Cargo.toml`, `src/app.rs`, `src/lib.rs`, `src/ecs/world.rs`, `src/asset.rs`
+**Added file**: `src/debug_ui.rs`
+**Changed files**: `Cargo.toml`, `src/app.rs`, `src/lib.rs`, `src/ecs/world.rs`, `src/asset.rs`
 
-#### 주요 타입
+#### Main types
 
-| 타입 | 역할 |
+| Type | Role |
 |------|------|
-| `DebugUi` | ECS Resource; egui Context 보유, enabled 토글 |
+| `DebugUi` | ECS Resource; holds the egui Context, enabled toggle |
 
-#### 공개 API
+#### Public API
 
 ```rust
 // System 안에서 자유롭게 egui 윈도우 추가
@@ -1497,13 +1497,13 @@ if debug.is_enabled() {
 // 내장 패널: "Engine Stats" — FPS / ms / 엔티티 수 / 에셋 수
 ```
 
-#### 렌더 아키텍처
+#### Render architecture
 
-- 씬 → (포스트프로세스) → **egui 오버레이** → present
-- egui는 별도 `CommandEncoder`로 렌더해 씬 인코더와 lifetime 분리
-- egui-wgpu 0.29의 `PaintCallbackFn`이 `&mut RenderPass<'static>`을 요구하는 설계 제약 때문에 `egui_render_pass()` 헬퍼 함수에서 `unsafe transmute` 사용 (paint callback 미등록 상태에서 안전)
+- scene → (post-process) → **egui overlay** → present
+- egui is rendered with a separate `CommandEncoder` to keep lifetimes separate from the scene encoder
+- Because egui-wgpu 0.29's `PaintCallbackFn` requires a `&mut RenderPass<'static>` by design, the `egui_render_pass()` helper function uses `unsafe transmute` (safe when no paint callback is registered)
 
-#### Cargo.toml 변경
+#### Cargo.toml changes
 
 ```toml
 egui = "0.29"
@@ -1511,33 +1511,33 @@ egui-wgpu = "0.29"   # wgpu 22 호환
 egui-winit = { version = "0.29", default-features = false }  # clipboard 제외 (macOS objc2 충돌)
 ```
 
-#### 설계 결정
+#### Design decisions
 
-- `egui-winit`의 clipboard 기능 비활성화: macOS에서 `objc2-app-kit 0.3.2`와 버전 충돌 발생
-- F1 토글은 egui_state 이벤트 처리 전에 InputState와 별도로 처리
-- `DebugUi::ctx()`는 `begin_pass`/`end_pass` 사이에서만 유효; 엔진이 update() 에서 자동 관리
+- Disable `egui-winit`'s clipboard feature: it causes a version conflict with `objc2-app-kit 0.3.2` on macOS
+- The F1 toggle is handled separately from InputState, before egui_state event processing
+- `DebugUi::ctx()` is valid only between `begin_pass`/`end_pass`; the engine manages it automatically in update()
 
 ---
 
-## 이번 세션에서 한 일 (Phase 17)
+## Work this session (Phase 17)
 
-### Phase 17 — 에셋 파이프라인 + 핫 리로딩
+### Phase 17 — Asset pipeline + hot reloading
 
-**배경**: 텍스처를 문자열 경로 대신 타입 안전한 `Handle<T>`로 참조하고, 런타임 중 파일이 변경되면 자동으로 GPU 텍스처를 재업로드한다.
+**Background**: Reference textures via a type-safe `Handle<T>` instead of a string path, and automatically re-upload the GPU texture when the file changes at runtime.
 
-**추가된 파일**: `src/asset.rs`
-**변경된 파일**: `Cargo.toml`, `src/components.rs`, `src/lib.rs`, `src/app.rs`, `src/renderer/sprite.rs`, `src/particle.rs`
+**Added file**: `src/asset.rs`
+**Changed files**: `Cargo.toml`, `src/components.rs`, `src/lib.rs`, `src/app.rs`, `src/renderer/sprite.rs`, `src/particle.rs`
 
-#### 주요 타입
+#### Main types
 
-| 타입 | 역할 |
+| Type | Role |
 |------|------|
-| `AssetId` | `u64` 전역 단조 증가 ID |
-| `Handle<T>` | 타입 지정 에셋 참조 (Clone O(1), id + Arc<str> 경로 보유) |
-| `ImageAsset` | CPU-side RGBA8 이미지 데이터 (Arc<Vec<u8>> + 크기) |
-| `AssetServer` | 에셋 로드·캐싱·파일 감시·핫 리로딩 리소스 |
+| `AssetId` | `u64` global monotonically increasing ID |
+| `Handle<T>` | typed asset reference (Clone O(1), holds id + Arc<str> path) |
+| `ImageAsset` | CPU-side RGBA8 image data (Arc<Vec<u8>> + size) |
+| `AssetServer` | asset load/cache/file-watch/hot-reload resource |
 
-#### 공개 API
+#### Public API
 
 ```rust
 // App 레벨 편의 메서드
@@ -1554,50 +1554,50 @@ Sprite::with_handle(handle)
 
 #### Sprite Breaking Change
 
-`Sprite` 구조체에 `image_handle: Option<Handle<ImageAsset>>` 필드 추가.
+Added an `image_handle: Option<Handle<ImageAsset>>` field to the `Sprite` struct.
 
-- `#[serde(skip)]` — RON 직렬화 무영향 (기존 씬 파일 그대로 사용 가능)
-- 리터럴 `Sprite { texture: None, color: ... }` 초기화 코드는 `image_handle: None` 추가 필요
-- `Sprite::colored()`, `Sprite::textured()`, `Sprite::with_handle()` 생성자는 모두 안전
+- `#[serde(skip)]` — no effect on RON serialization (existing scene files still usable)
+- Literal `Sprite { texture: None, color: ... }` initialization code needs to add `image_handle: None`
+- The `Sprite::colored()`, `Sprite::textured()`, `Sprite::with_handle()` constructors are all safe
 
-#### 핫 리로딩 동작
+#### Hot-reload behavior
 
-1. `App::new()` 시 `AssetServer::new()` 생성 → World 리소스로 삽입
-2. `notify::recommended_watcher`가 백그라운드 스레드에서 파일 변경 감시
-3. `App::update()` 매 프레임: `AssetServer::poll_reloads()` → 변경 경로 수신
-4. `SpriteRenderer::reload_texture(path)` 호출 → GPU 텍스처 갱신
+1. On `App::new()`, create `AssetServer::new()` → insert as a World resource
+2. `notify::recommended_watcher` watches for file changes on a background thread
+3. `App::update()` every frame: `AssetServer::poll_reloads()` → receive changed paths
+4. Call `SpriteRenderer::reload_texture(path)` → update the GPU texture
 
-#### Cargo.toml 변경
+#### Cargo.toml change
 
-- `notify = "6"` — 크로스 플랫폼 파일 감시 (macOS FSEvents, Linux inotify, Windows ReadDirectoryChanges)
+- `notify = "6"` — cross-platform file watching (macOS FSEvents, Linux inotify, Windows ReadDirectoryChanges)
 
-#### 설계 결정
+#### Design decisions
 
-- **Handle에 경로 내재**: `Handle<T>`이 `Arc<str>` 경로를 보유해 렌더러가 AssetServer 없이 GPU 텍스처를 조회 가능.
-- **기존 `texture` 경로와 공존**: `image_handle`이 있으면 우선 적용, 없으면 `texture` 문자열 경로를 그대로 사용 — 기존 코드 마이그레이션 불필요.
-- **파일 감시 실패 시 graceful degradation**: `notify` 초기화 실패(샌드박스 등)해도 로드·캐싱은 정상 동작, 핫 리로딩만 비활성.
+- **Path embedded in Handle**: `Handle<T>` holds an `Arc<str>` path so the renderer can look up the GPU texture without the AssetServer.
+- **Coexists with the existing `texture` path**: if `image_handle` exists it takes precedence, otherwise the `texture` string path is used as-is — no migration of existing code needed.
+- **Graceful degradation on watch failure**: even if `notify` init fails (sandbox, etc.), load/cache works normally; only hot reloading is disabled.
 
 ---
 
-## 이전 세션 (Phase 16)
+## Previous session (Phase 16)
 
-### Phase 16 — 씬 직렬화 + 프리팹 시스템
+### Phase 16 — Scene serialization + prefab system
 
-**배경**: RON 파일 한 장으로 레벨 전체를 저장·로드하고, 단일 엔티티 템플릿(프리팹)을 재사용할 수 있는 기반을 마련한다.
+**Background**: This lays the groundwork to save/load an entire level with a single RON file and reuse a single-entity template (prefab).
 
-**추가된 파일**: `src/prefab.rs`
-**변경된 파일**: `Cargo.toml`, `src/components.rs`, `src/lib.rs`
+**Added file**: `src/prefab.rs`
+**Changed files**: `Cargo.toml`, `src/components.rs`, `src/lib.rs`
 
-#### 주요 타입
+#### Main types
 
-| 타입 | 역할 |
+| Type | Role |
 |------|------|
-| `Tag` | 엔티티 식별용 문자열 컴포넌트 (Serialize/Deserialize 지원) |
-| `EntityDef` | 엔티티 1개를 기술하는 직렬화 가능 구조체 (tag, transform, sprite 선택 필드) |
-| `SceneDef` | `Vec<EntityDef>` 래퍼 — RON 파일 한 장 = 레벨 하나 |
-| `Prefab` | `EntityDef`를 파일로 저장·로드·스폰하는 단일 템플릿 |
+| `Tag` | string component for entity identification (Serialize/Deserialize supported) |
+| `EntityDef` | a serializable struct describing one entity (tag, transform, sprite optional fields) |
+| `SceneDef` | a `Vec<EntityDef>` wrapper — one RON file = one level |
+| `Prefab` | a single template that saves/loads/spawns an `EntityDef` to/from a file |
 
-#### 공개 함수
+#### Public functions
 
 ```rust
 spawn_entity_def(world, &EntityDef) -> Entity
@@ -1609,7 +1609,7 @@ Prefab::load(path)                  -> Result<Prefab, SaveError>
 Prefab::spawn(&self, world)         -> Entity
 ```
 
-#### 씬 파일 형식 (RON 예시)
+#### Scene file format (RON example)
 
 ```ron
 SceneDef(
@@ -1631,33 +1631,33 @@ SceneDef(
 )
 ```
 
-#### Cargo.toml 변경
+#### Cargo.toml change
 
-- `glam = { version = "0.28", features = ["serde"] }` — Vec2 serde 지원 추가
+- `glam = { version = "0.28", features = ["serde"] }` — added Vec2 serde support
 
-#### 설계 결정
+#### Design decisions
 
-- **정적 타입 EntityDef**: Transform + Sprite만 지원. 동적 컴포넌트 레지스트리는 Phase 17 이후 고려.
-- **save.rs 재사용**: 씬/프리팹 직렬화는 기존 `save()` / `load()` 인프라 위에 구현.
-- **Tag 컴포넌트 분리**: 씬 로드 후 "player", "enemy" 등 역할을 쿼리로 구분하기 위한 전용 컴포넌트.
+- **Statically typed EntityDef**: supports only Transform + Sprite. A dynamic component registry is considered after Phase 17.
+- **Reuse save.rs**: scene/prefab serialization is built on the existing `save()` / `load()` infrastructure.
+- **Separate Tag component**: a dedicated component to distinguish roles like "player", "enemy" by query after scene load.
 
 ---
 
-## 이전 세션 (Phase 15)
+## Previous session (Phase 15)
 
-### Phase 15 — 게임패드 + UI Slider/CheckBox
+### Phase 15 — Gamepad + UI Slider/CheckBox
 
-**배경**: 키보드/마우스만 지원하던 입력 레이어를 완성하고, 슬라이더·체크박스 UI 위젯을 추가해 설정 화면 구성 능력을 갖추는 것이 목표.
+**Background**: The goal was to complete the input layer, which previously supported only keyboard/mouse, and add slider/checkbox UI widgets to gain the ability to build settings screens.
 
-**추가된 파일**: `src/input/gamepad.rs`, `src/ui/slider.rs`, `src/ui/checkbox.rs`
-**변경된 파일**: `Cargo.toml`, `src/input/mod.rs`, `src/app.rs`, `src/ui/mod.rs`, `src/ui/system.rs`, `src/lib.rs`
+**Added files**: `src/input/gamepad.rs`, `src/ui/slider.rs`, `src/ui/checkbox.rs`
+**Changed files**: `Cargo.toml`, `src/input/mod.rs`, `src/app.rs`, `src/ui/mod.rs`, `src/ui/system.rs`, `src/lib.rs`
 
-#### 게임패드 입력 (gilrs 0.10)
+#### Gamepad input (gilrs 0.10)
 
-| 타입 | 역할 |
+| Type | Role |
 |------|------|
-| `GamepadState` | ECS 리소스. 최대 4개 패드 슬롯, 버튼/축 상태 추적 |
-| `GamepadButton` | South/East/North/West/LeftBumper/RightBumper/… 16종 |
+| `GamepadState` | ECS resource. Up to 4 pad slots, tracks button/axis state |
+| `GamepadButton` | South/East/North/West/LeftBumper/RightBumper/… 16 variants |
 | `GamepadAxis` | LeftStickX/Y, RightStickX/Y, LeftTrigger, RightTrigger, DPadX/Y |
 
 ```rust
@@ -1668,9 +1668,9 @@ if let Some(gs) = world.resource::<GamepadState>() {
 }
 ```
 
-- `App::new()` 에서 `GamepadState::default()` 자동 삽입
-- gilrs 이벤트는 `about_to_wait` 에서 폴링 → `update()` 마지막에 `flush()`
-- `Connected` / `Disconnected` gilrs 이벤트로 슬롯 동적 할당/해제
+- `App::new()` auto-inserts `GamepadState::default()`
+- gilrs events are polled in `about_to_wait` → `flush()` at the end of `update()`
+- Dynamic slot allocation/release via `Connected` / `Disconnected` gilrs events
 
 #### UI Slider
 
@@ -1681,8 +1681,8 @@ world.insert(e, Slider::new(0.0, 100.0, 50.0));
 // UiEvent::SliderChanged(entity, new_value) 로 변경 통보
 ```
 
-- 트랙 클릭 또는 썸 드래그로 값 변경
-- 색상 커스터마이즈: `track_color`, `fill_color`, `thumb_color`, `thumb_hovered_color`
+- Change the value by clicking the track or dragging the thumb
+- Color customization: `track_color`, `fill_color`, `thumb_color`, `thumb_hovered_color`
 
 #### UI CheckBox
 
@@ -1693,33 +1693,33 @@ world.insert(e, CheckBox::new("사운드 켜기"));
 // UiEvent::CheckBoxToggled(entity, checked) 로 토글 통보
 ```
 
-#### UiEvent 확장
+#### UiEvent extension
 
-`SliderChanged(Entity, f32)`, `CheckBoxToggled(Entity, bool)` 추가 (기존 5종 → 7종).
+Added `SliderChanged(Entity, f32)`, `CheckBoxToggled(Entity, bool)` (5 → 7 variants).
 
 ---
 
-## 이번 세션에서 한 일 (Phase 14)
+## Work this session (Phase 14)
 
-### Phase 14 — 애니메이션 상태 머신
+### Phase 14 — Animation state machine
 
-**배경**: `AnimationPlayer.play(clip_index)` 로만 클립을 전환하면 게임 로직이 직접 애니메이션 인덱스를 관리해야 했다. 캐릭터 상태(idle/run/jump/attack)가 많아질수록 조건 분기가 급증하므로, 상태 머신으로 전환 규칙을 선언적으로 분리할 필요가 있었다.
+**Background**: Switching clips only via `AnimationPlayer.play(clip_index)` forced game logic to manage animation indices directly. As character states (idle/run/jump/attack) multiply, conditional branching explodes, so it was necessary to separate transition rules declaratively with a state machine.
 
-**추가된 파일**: `src/animation/state_machine.rs`
-**변경된 파일**: `src/animation/mod.rs`, `src/animation/player.rs`, `src/lib.rs`
+**Added file**: `src/animation/state_machine.rs`
+**Changed files**: `src/animation/mod.rs`, `src/animation/player.rs`, `src/lib.rs`
 
-#### 신규 타입
+#### New types
 
-| 타입 | 역할 |
+| Type | Role |
 |------|------|
-| `AnimationStateMachine` | 엔티티에 붙이는 상태 머신 컴포넌트 |
-| `AnimState` | 클립 인덱스 + 전환 엣지 목록 |
-| `AnimTransition` | 대상 상태 + AND 조건 목록 |
+| `AnimationStateMachine` | a state-machine component attached to an entity |
+| `AnimState` | clip index + list of transition edges |
+| `AnimTransition` | target state + list of AND conditions |
 | `TransitionCond` | `BoolEq` / `FloatGt` / `FloatLt` / `Trigger` / `AnimationEnd` |
 | `AnimParam` | `Bool(bool)` / `Float(f32)` / `Trigger(bool)` |
-| `StateMachineSystem` | 매 프레임 전환 평가 → `AnimationPlayer.play()` 호출 |
+| `StateMachineSystem` | evaluates transitions every frame → calls `AnimationPlayer.play()` |
 
-#### 사용 패턴
+#### Usage pattern
 
 ```rust
 // 상태 머신 생성 (초기 상태 "idle", 클립 인덱스 0)
@@ -1745,35 +1745,35 @@ world.get_mut::<AnimationStateMachine>(player).unwrap().set_bool("is_running", t
 world.get_mut::<AnimationStateMachine>(player).unwrap().fire_trigger("jump");
 ```
 
-#### 시스템 등록 순서
+#### System registration order
 
 ```rust
 app.add_system(Box::new(AnimationSystem));     // 프레임 진행 + UvRect 동기화
 app.add_system(Box::new(StateMachineSystem));  // 전환 조건 평가 → play() 호출
 ```
 
-`StateMachineSystem`이 `AnimationSystem` **이후에** 실행되어야 `is_finished()` 판정이 같은 프레임에 반영된다.
+`StateMachineSystem` must run **after** `AnimationSystem` so that the `is_finished()` decision is reflected in the same frame.
 
-#### 트리거 소비 규칙
+#### Trigger consumption rule
 
-트리거는 `StateMachineSystem`이 실행될 때마다 소비된다(전환 여부와 무관). 따라서 한 프레임에 `fire_trigger()`를 호출해야 하며, 전환 조건이 없는 상태에서 활성화하면 그 프레임 내에 버려진다.
+A trigger is consumed every time `StateMachineSystem` runs (regardless of whether a transition happens). So `fire_trigger()` must be called within one frame, and activating it in a state with no transition condition discards it within that frame.
 
-#### `AnimationPlayer` 변경
+#### `AnimationPlayer` change
 
-`is_finished() -> bool` 메서드 추가 — non-looping 클립의 마지막 프레임이면 `true`. `AnimationEnd` 조건의 기반.
+Added an `is_finished() -> bool` method — `true` when it's the last frame of a non-looping clip. The basis of the `AnimationEnd` condition.
 
 ---
 
-## 이번 세션에서 한 일 (Phase 13)
+## Work this session (Phase 13)
 
-### Phase 13 — 물리 레이캐스트 + 캐릭터 컨트롤러
+### Phase 13 — Physics raycast + character controller
 
-**배경**: 시야 판정·마우스 픽킹·총기 탄착 계산 등을 위한 레이캐스트가 없었고, 경사면·계단 처리를 포함하는 게임 특화 캐릭터 이동 기능이 필요했다.
+**Background**: There was no raycast for line-of-sight checks, mouse picking, gun impact calculation, etc., and game-specific character movement including slope/stair handling was needed.
 
-**추가된 파일**: `src/physics/character.rs`
-**변경된 파일**: `src/physics/world.rs`, `src/physics/mod.rs`, `src/lib.rs`
+**Added file**: `src/physics/character.rs`
+**Changed files**: `src/physics/world.rs`, `src/physics/mod.rs`, `src/lib.rs`
 
-#### 레이캐스트 (`PhysicsWorld`)
+#### Raycast (`PhysicsWorld`)
 
 ```rust
 // 단순 레이캐스트 — 최초 충돌 콜라이더 핸들 + toi
@@ -1785,10 +1785,10 @@ let hit: Option<RaycastHit> =
     physics.cast_ray_with_normal(origin_physics, dir, max_toi, solid);
 ```
 
-- 모든 좌표는 **물리 단위** (픽셀 ÷ pixels_per_unit).
-- `step()` 이후 `query_pipeline`이 갱신된 뒤에 호출해야 최신 상태가 반영된다.
+- All coordinates are in **physics units** (pixels ÷ pixels_per_unit).
+- Must be called after `step()`, once `query_pipeline` has been updated, so the latest state is reflected.
 
-#### 키네마틱 바디
+#### Kinematic bodies
 
 ```rust
 // 중력 비반응, 수동 위치 제어
@@ -1796,7 +1796,7 @@ let (rb, col) = physics.add_kinematic_box(pos / PPU, half_w, half_h);
 let (rb, col) = physics.add_kinematic_circle(pos / PPU, radius);
 ```
 
-#### 캐릭터 컨트롤러 (`CharacterController` 컴포넌트)
+#### Character controller (`CharacterController` component)
 
 ```rust
 use engine::{CharacterController, PhysicsBody};
@@ -1817,55 +1817,55 @@ physics.move_character(
 if controller.grounded { /* 접지 = 점프 가능 */ }
 ```
 
-**구조 특이사항**
-- `CharacterController::inner`의 `up = -Y` — 엔진 화면 좌표(Y+는 아래)에 맞춰 설정.
-  Rapier 기본값(+Y)을 그대로 쓰면 바닥/천장 판정이 뒤집힌다.
-- `move_character()`는 내부적으로 `set_next_kinematic_translation()`을 호출하므로
-  다음 `step()` 때 위치가 실제로 반영된다.
-- `PhysicsSystem::run()` 이전에 캐릭터 이동을 처리하는 전용 시스템을 등록해야 올바른 순서로 동작한다.
+**Structural notes**
+- `CharacterController::inner`'s `up = -Y` — set to match the engine's screen coordinates (Y+ is down).
+  Using Rapier's default (+Y) as-is would flip the floor/ceiling decision.
+- `move_character()` internally calls `set_next_kinematic_translation()`, so
+  the position is actually reflected on the next `step()`.
+- A dedicated system handling character movement must be registered before `PhysicsSystem::run()` to work in the correct order.
 
-**신규 테스트** (`src/physics/world.rs`): 7개
-- `cast_ray_hits_static_box` — 정적 박스에 레이 충돌 확인
-- `cast_ray_misses_when_no_obstacle` — 장애물 없으면 None
-- `cast_ray_with_normal_returns_correct_normal` — 법선 방향 검증
-- `add_kinematic_box_creates_body` — 키네마틱 바디 생성
-- `add_kinematic_circle_creates_body` — 키네마틱 원형 바디 생성
-- `move_character_grounded_on_floor` — 바닥 위 접지 판정
-- `character_controller_builder_methods` — 빌더 메서드 파라미터 설정
+**New tests** (`src/physics/world.rs`): 7
+- `cast_ray_hits_static_box` — confirms a ray hits a static box
+- `cast_ray_misses_when_no_obstacle` — None when there's no obstacle
+- `cast_ray_with_normal_returns_correct_normal` — verifies the normal direction
+- `add_kinematic_box_creates_body` — creates a kinematic body
+- `add_kinematic_circle_creates_body` — creates a kinematic circle body
+- `move_character_grounded_on_floor` — grounded decision on the floor
+- `character_controller_builder_methods` — builder-method parameter setting
 
-**검증**: `cargo test` 61개 단위 + 11개 doc 테스트 전부 통과 (`rust-survivors` 빌드 무영향)
+**Verification**: `cargo test` — all 61 unit + 11 doc tests pass (no effect on `rust-survivors` build)
 
 ---
 
-## 이번 세션에서 한 일 (Phase 12)
+## Work this session (Phase 12)
 
-### Phase 12 — Transform 계층 (Parent · Children · GlobalTransform)
+### Phase 12 — Transform hierarchy (Parent · Children · GlobalTransform)
 
-**배경**: 무기 부착, 복합 캐릭터 구성 등 엔티티 간 변환 종속성이 필요했으나, 기존 `Transform`은 독립 로컬 값만 저장하는 플랫 구조였다.
+**Background**: Transform dependencies between entities — weapon attachment, composite character setups, etc. — were needed, but the existing `Transform` was a flat structure storing only an independent local value.
 
-**추가된 파일**: `src/hierarchy.rs`
+**Added file**: `src/hierarchy.rs`
 
-**신규 컴포넌트·타입**
-- `Parent(Entity)` — 부모 엔티티를 가리키는 컴포넌트
-- `Children(Vec<Entity>)` — 자식 엔티티 목록 (부모 측에 보관)
-- `GlobalTransform { position, scale, rotation, z }` — 매 프레임 HierarchySystem이 계산하는 월드 공간 변환 (`Copy`)
-- `HierarchySystem` — `System` 구현체. `App`이 유저 시스템 직후 자동 실행 (등록 불필요)
-- `attach(world, child, parent)` — Parent + Children 동시 관리 헬퍼
-- `detach(world, child)` — 부모 연결 해제 헬퍼
+**New components/types**
+- `Parent(Entity)` — a component pointing to the parent entity
+- `Children(Vec<Entity>)` — list of child entities (held on the parent side)
+- `GlobalTransform { position, scale, rotation, z }` — world-space transform computed by HierarchySystem every frame (`Copy`)
+- `HierarchySystem` — a `System` implementation. `App` runs it automatically right after user systems (no registration needed)
+- `attach(world, child, parent)` — helper that manages Parent + Children together
+- `detach(world, child)` — helper that detaches the parent link
 
-**렌더러 통합** (`src/renderer/sprite.rs`)
-- `InstanceRaw::from_global()` 추가
-- `render()` 루프: `GlobalTransform` 있으면 우선 사용, 없으면 `Transform` fallback → **완전 하위 호환**
+**Renderer integration** (`src/renderer/sprite.rs`)
+- Added `InstanceRaw::from_global()`
+- `render()` loop: use `GlobalTransform` first if present, fall back to `Transform` if not → **fully backward compatible**
 
-**App 자동 실행** (`src/app.rs`)
+**App auto-run** (`src/app.rs`)
 ```
 유저 시스템(물리 포함) → HierarchySystem → 이벤트 flush → 렌더
 ```
-물리가 `Transform.position`을 갱신한 직후 계층 전파가 실행되므로 항상 정확한 월드 변환이 보장된다.
+Because hierarchy propagation runs right after physics updates `Transform.position`, an accurate world transform is always guaranteed.
 
-**깊이 제한**: 내부 2-pass 구조로 최대 3단계 (루트 → 자식 → 손자) 지원.
+**Depth limit**: the internal 2-pass structure supports up to 3 levels (root → child → grandchild).
 
-**사용 패턴**
+**Usage pattern**
 ```rust
 use engine::{attach, Transform};
 use glam::Vec2;
@@ -1878,42 +1878,42 @@ world.get_mut::<Transform>(weapon).unwrap().position = Vec2::new(30.0, 0.0);
 // → weapon의 GlobalTransform.position = player.position + (30, 0) rotated by player.rotation
 ```
 
-**당시 검증 기록**: `cargo build` + `cargo test` (skeleton-engine, rust-survivors 96개 테스트 통과)
+**Verification record at the time**: `cargo build` + `cargo test` (skeleton-engine, rust-survivors 96 tests passing)
 
 ---
 
-## 이번 세션에서 한 일 (Phase 9~11)
+## Work this session (Phase 9~11)
 
-### Phase 9 — ECS Archetype 스토리지
+### Phase 9 — ECS Archetype storage
 
-**배경**: 기존 ECS는 `HashMap<TypeId, Vec<Option<Box<dyn Any>>>>` 구조로, 엔티티 수가 늘면 쿼리 루프마다 `None` 체크가 발생했다.
+**Background**: The existing ECS used a `HashMap<TypeId, Vec<Option<Box<dyn Any>>>>` structure, so as entity count grew, a `None` check occurred in every query loop.
 
-**변경**: `src/ecs/world.rs` 전면 재작성 — Archetype 기반 밀집 컬럼 스토리지.
-- `Archetype` 내부 구조: `type_set: Vec<TypeId>` (정렬) + `entities: Vec<Entity>` + `columns: HashMap<TypeId, Vec<Box<dyn Any>>>`
-- 같은 컴포넌트 집합을 가진 엔티티들이 동일 Archetype에 모이므로 쿼리 시 `None` 체크 불필요
-- `add_component` / `remove_component` 시 `move_entity()` 헬퍼로 Archetype 간 이동 (swap_remove + 위치 맵 업데이트)
-- 공개 API 완전 호환 유지: `spawn`, `despawn`, `get`, `get_mut`, `query1~4`, `query_opt2`, `entities()`, 리소스 메서드
-- 신규 테스트 2개 추가: `archetype_reuse_across_entities`, `add_component_replaces_existing` (총 14개)
+**Change**: full rewrite of `src/ecs/world.rs` — Archetype-based dense column storage.
+- Internal `Archetype` structure: `type_set: Vec<TypeId>` (sorted) + `entities: Vec<Entity>` + `columns: HashMap<TypeId, Vec<Box<dyn Any>>>`
+- Entities with the same component set gather in the same Archetype, so no `None` check is needed during queries
+- On `add_component` / `remove_component`, move between Archetypes via the `move_entity()` helper (swap_remove + position-map update)
+- Full public API compatibility kept: `spawn`, `despawn`, `get`, `get_mut`, `query1~4`, `query_opt2`, `entities()`, resource methods
+- Added 2 new tests: `archetype_reuse_across_entities`, `add_component_replaces_existing` (14 total)
 
-**아키텍처 결정**: `entities: Vec<Entity>` 보조 필드를 유지해 `entities() -> &[Entity]` 시그니처를 변경 없이 보존.
+**Architecture decision**: keep the `entities: Vec<Entity>` auxiliary field to preserve the `entities() -> &[Entity]` signature unchanged.
 
-### Phase 10 — 포스트프로세싱
+### Phase 10 — Post-processing
 
-**추가된 파일**
+**Added files**
 - `src/renderer/post_process.rs`: `PostProcessConfig` + `PostProcessRenderer`
-- `src/renderer/shaders/post_process.wgsl`: 비네팅·색수차·근사 블룸 WGSL 셰이더
+- `src/renderer/shaders/post_process.wgsl`: vignette/chromatic-aberration/approximate-bloom WGSL shader
 
-**구조**
-1. `PostProcessConfig` 리소스를 World에 삽입하고 `enabled: true` 설정
-2. `App::render()` 가 중간 텍스처(`target_view`)에 씬 전체를 렌더링
-3. 포스트프로세스 패스: 중간 텍스처 → 스왑체인 (풀스크린 삼각형, 버텍스 버퍼 불필요)
+**Structure**
+1. Insert the `PostProcessConfig` resource into World and set `enabled: true`
+2. `App::render()` renders the entire scene to an intermediate texture (`target_view`)
+3. Post-process pass: intermediate texture → swapchain (full-screen triangle, no vertex buffer needed)
 
-**효과 설명**
-- **비네팅**: 화면 가장자리 어두움 (`vignette_strength`, `vignette_radius`)
-- **색수차**: RGB 채널을 방사형으로 다른 UV에서 샘플 (`chroma_offset`)
-- **근사 블룸**: 4-tap threshold 샘플링으로 밝은 영역 번짐 (`bloom_threshold`, `bloom_intensity`)
+**Effect descriptions**
+- **Vignette**: dark screen edges (`vignette_strength`, `vignette_radius`)
+- **Chromatic aberration**: sample RGB channels at radially different UVs (`chroma_offset`)
+- **Approximate bloom**: 4-tap threshold sampling to bleed bright areas (`bloom_threshold`, `bloom_intensity`)
 
-**사용 패턴**
+**Usage pattern**
 ```rust
 app.world.insert_resource(PostProcessConfig {
     enabled: true,
@@ -1924,15 +1924,15 @@ app.world.insert_resource(PostProcessConfig {
 });
 ```
 
-**주의**: 리소스 없거나 `enabled: false`면 중간 텍스처 패스 완전 건너뜀 (제로 오버헤드).
+**Note**: if the resource is absent or `enabled: false`, the intermediate-texture pass is fully skipped (zero overhead).
 
-### Phase 11 — 오디오 강화
+### Phase 11 — Audio enhancements
 
-**변경 파일**: `src/audio.rs` (기존 API 완전 호환 유지)
+**Changed file**: `src/audio.rs` (fully compatible with the existing API)
 
-**추가된 기능**
+**Added features**
 
-#### 위치 오디오
+#### Spatial audio
 ```rust
 // 1회성 위치 재생
 am.play_at("sfx", "boom.wav", false, source_pos, listener_pos, 500.0);
@@ -1940,9 +1940,9 @@ am.play_at("sfx", "boom.wav", false, source_pos, listener_pos, 500.0);
 // 움직이는 소리 발생원 — 매 프레임 호출
 am.update_position("sfx", enemy_pos, player_pos, 500.0);
 ```
-- `(볼륨, 팬)` = 거리 선형 감쇠 + X 방향 스테레오 팬 자동 계산
+- `(volume, pan)` = distance linear attenuation + automatic X-direction stereo pan
 
-#### 오디오 버스 믹서
+#### Audio bus mixer
 ```rust
 am.assign_bus("bgm",      "music");
 am.assign_bus("sfx_jump", "sfx");
@@ -1950,7 +1950,7 @@ am.set_bus_volume("music", 0.5);   // 음악 전체 절반으로
 am.set_bus_volume("sfx",   0.8);   // 효과음 전체 80%
 ```
 
-#### 페이드
+#### Fade
 ```rust
 am.play_fade_in("bgm", "music.ogg", true, 2.0);  // 2초 페이드인
 am.fade_out("bgm", 3.0);                          // 3초 페이드아웃 후 정지
@@ -1960,24 +1960,40 @@ am.fade_volume("sfx", 0.3, 1.5);                  // 1.5초 동안 0.3으로
 world.resource_mut::<AudioManager>().map(|am| am.update(dt));
 ```
 
-**테스트**: 위치 오디오 파라미터 계산 4개 (`spatial_params_*`)
+#### Channel playback state
+```rust
+match am.playback_state("bgm") {
+    AudioChannelState::Missing => { /* never played, failed, or stopped */ }
+    AudioChannelState::Playing => { /* still queued */ }
+    AudioChannelState::Finished => { /* non-looping sink drained naturally */ }
+}
+
+if am.is_finished("bgm") == Some(true) {
+    am.play("bgm", "next_track.mp3", false);
+}
+```
+- `stop(channel)` removes the sink, so the state becomes `Missing`.
+- Natural completion keeps the sink queryable as `Finished` until the channel is stopped or reused.
+- Native builds enable MP3, OGG/Vorbis, and WAV decoding through `rodio`.
+
+**Tests**: spatial-audio parameter computations, audio-effect defaults, playback-state helper mapping, and guarded live `play_tone` drain behavior when an audio device exists.
 
 ---
 
-## 이번 세션에서 한 일 (Phase 8)
+## Work this session (Phase 8)
 
-### Save/Load 완성
+### Save/Load completion
 
-**추가된 함수**
-- `load_or_default<T: DeserializeOwned + Default>(path)` — 파일 없으면 `Default::default()` 반환, 파싱 에러는 그대로 전파
-- `exists(path) -> bool` — 저장 파일 존재 여부 확인
-- `delete(path) -> Result<(), SaveError>` — 저장 파일 삭제 (없으면 Ok)
+**Added functions**
+- `load_or_default<T: DeserializeOwned + Default>(path)` — returns `Default::default()` if the file is missing, propagates parse errors as-is
+- `exists(path) -> bool` — check whether the save file exists
+- `delete(path) -> Result<(), SaveError>` — delete the save file (Ok if absent)
 
-**lib.rs re-export 추가**: `save`, `load`, `load_or_default`, `exists`, `delete`, `save_path`, `SaveError` 최상위 노출
+**lib.rs re-export additions**: exposed `save`, `load`, `load_or_default`, `exists`, `delete`, `save_path`, `SaveError` at the top level
 
-**테스트 추가**: `load_or_default_returns_default_when_missing`, `load_or_default_returns_saved_value`, `exists_and_delete` (총 5개 → 전부 통과)
+**Test additions**: `load_or_default_returns_default_when_missing`, `load_or_default_returns_saved_value`, `exists_and_delete` (5 total → all passing)
 
-**사용 패턴**
+**Usage pattern**
 ```rust
 use engine::{load_or_default, save, save_path, delete, exists};
 
@@ -2001,21 +2017,21 @@ delete(&path)?;
 
 ---
 
-## 이전 세션에서 한 일 (Phase 7)
+## Previous session (Phase 7)
 
-### 물리 충돌 이벤트 — ECS 브리징
+### Physics collision events — ECS bridging
 
-**배경**: `PhysicsPipeline::step()`이 contact handler를 `&()`(no-op)으로 고정해 충돌 시작/종료를 게임 로직에서 감지할 수 없었다.
+**Background**: `PhysicsPipeline::step()` fixed the contact handler to `&()` (no-op), so collision start/stop couldn't be detected from game logic.
 
-**구현 방식**: Rapier `EventHandler` 트레잇 구현 대신 `NarrowPhase` 폴링 선택. `step()` 이후 `narrow_phase.contact_pairs()`를 반복해 이전 프레임 접촉 집합과 diff → `Events<CollisionEvent>` 전송. `Mutex`/`RefCell` 불필요, 기존 `has_contact()` 패턴과 일관성 유지.
+**Implementation approach**: chose `NarrowPhase` polling rather than implementing the Rapier `EventHandler` trait. After `step()`, iterate `narrow_phase.contact_pairs()` and diff against the previous frame's contact set → send `Events<CollisionEvent>`. No `Mutex`/`RefCell` needed, consistent with the existing `has_contact()` pattern.
 
-**추가된 파일/변경**
-- `src/physics/events.rs` (신규): `CollisionEvent { Started(Entity, Entity), Stopped(Entity, Entity) }` — `Copy + Clone`
-- `src/physics/system.rs`: `active_contacts: HashSet<(ColliderHandle, ColliderHandle)>` 필드, `run()` 내 diff 블록
+**Added files/changes**
+- `src/physics/events.rs` (new): `CollisionEvent { Started(Entity, Entity), Stopped(Entity, Entity) }` — `Copy + Clone`
+- `src/physics/system.rs`: `active_contacts: HashSet<(ColliderHandle, ColliderHandle)>` field, diff block inside `run()`
 - `src/physics/mod.rs`: `pub mod events` + `CollisionEvent` re-export
-- `src/lib.rs`: `CollisionEvent` 최상위 re-export
+- `src/lib.rs`: top-level `CollisionEvent` re-export
 
-**사용 패턴**
+**Usage pattern**
 ```rust
 app.register_event::<CollisionEvent>();         // 필수: 이벤트 버스 등록
 app.add_system(Box::new(PhysicsSystem::new(physics, 50.0)));
@@ -2032,121 +2048,202 @@ if let Some(events) = world.resource::<Events<CollisionEvent>>() {
 }
 ```
 
-**주의**: ECS에 `PhysicsBody`가 없는 static 콜라이더(바닥 등)와의 충돌은 `col_map.get()` 실패로 조용히 스킵. 이벤트 미등록 시에도 패닉 없음(`resource_mut` → `None` guard).
+**Note**: collisions with static colliders (floors, etc.) that have no `PhysicsBody` in the ECS are silently skipped due to `col_map.get()` failure. No panic even when the event isn't registered (`resource_mut` → `None` guard).
 
 ---
 
-## 이전 세션에서 한 일 (Phase 6)
+## Previous session (Phase 6)
 
-### UI 시스템 강화
+### UI system enhancements
 
 **TextInput** (`src/ui/text_input.rs`)
-- `UiNode` + `TextInput` 엔티티로 텍스트 입력 필드 구성
-- UTF-8 byte index 기반 커서 (`backspace()` 멀티바이트 안전)
-- 커서 깜빡임: dt 누적, 0.5초마다 토글
-- 이벤트: `TextChanged`, `TextSubmitted`, `TextFocused`, `TextBlurred`
+- Compose a text input field with a `UiNode` + `TextInput` entity
+- UTF-8 byte-index-based cursor (`backspace()` is multi-byte safe)
+- Cursor blink: dt accumulation, toggle every 0.5 s
+- Events: `TextChanged`, `TextSubmitted`, `TextFocused`, `TextBlurred`
 
 **ScrollView** (`src/ui/scroll_view.rs`)
-- `UiNode` + `ScrollView` 엔티티로 스크롤 목록 구성
-- 자식 엔티티 없이 내부 `items: Vec<String>` 직접 렌더링
-- 커서가 위젯 위에 있을 때 마우스 휠로 스크롤
-- `clamp_scroll(view_height)` — 범위 초과 방지
+- Compose a scroll list with a `UiNode` + `ScrollView` entity
+- Render the internal `items: Vec<String>` directly without child entities
+- Scroll with the mouse wheel when the cursor is over the widget
+- `clamp_scroll(view_height)` — prevent out-of-range
 
 **Panel + LayoutSystem** (`src/ui/panel.rs`)
-- `UiNode` + `Panel` 엔티티: 자식 엔티티 자동 배치 (`Vertical` / `Horizontal`)
-- `LayoutSystem`: UiSystem 이전에 실행 — 자식 `UiNode.offset`을 절대 스크린 좌표로 재계산
-- 등록 순서 필수: `add_system(Box::new(LayoutSystem))` → `add_system(Box::new(UiSystem))`
+- `UiNode` + `Panel` entity: automatically arrange child entities (`Vertical` / `Horizontal`)
+- `LayoutSystem`: runs before UiSystem — recompute child `UiNode.offset` into absolute screen coordinates
+- Required registration order: `add_system(Box::new(LayoutSystem))` → `add_system(Box::new(UiSystem))`
 
-**InputState 문자 버퍼** (`src/input/state.rs`)
-- `text_input_chars: Vec<char>` 필드 추가
-- `text_chars() -> &[char]` 공개 읽기 / `push_char`, `push_backspace`, `push_enter` (pub(crate))
-- `app.rs`에서 `logical_key`로 문자 추출 → 버퍼 기록 (센티넬: `'\x08'` = Backspace, `'\n'` = Enter)
+**InputState character buffer** (`src/input/state.rs`)
+- Added a `text_input_chars: Vec<char>` field
+- `text_chars() -> &[char]` public read / `push_char`, `push_backspace`, `push_enter` (pub(crate))
+- In `app.rs`, extract characters from `logical_key` → record into the buffer (sentinels: `'\x08'` = Backspace, `'\n'` = Enter)
 
-**UiEvent 확장**
-- `Copy` 제거, `Clone` 유지 (String 포함 필요)
-- 기존 `ButtonClicked` 보존 + `TextChanged`, `TextSubmitted`, `TextFocused`, `TextBlurred` 추가
-
----
-
-## 알아야 할 아키텍처 결정
-
-### 렌더러 분리
-`AnimationPlayer`를 렌더러가 직접 참조하지 않는다. `AnimationSystem`이 `UvRect` 컴포넌트를 동기화하고, 렌더러는 `UvRect`만 읽는다. 레이어 경계 위반을 막기 위한 구조.
-
-### DebugDrawQueue → UiQueue 변환
-`DebugDrawQueue`는 순수 데이터(`DebugRect`)를 담고, `App`의 render 단계에서 `DrawRect`로 변환해 `UiQueue`에 넣는다. 시스템 레이어가 렌더러 타입에 의존하지 않도록 하는 설계.
-
-### PhysicsWorld 캡슐화
-내부 rapier2d 필드는 `pub(crate)`. 외부에서는 `rigid_body()`, `rigid_body_mut()`, `get_collider()`, `get_collider_mut()`, `add_dynamic_circle()`, `remove_body()` 접근자만 사용한다.
-
-### ECS borrow 충돌 우회
-Rust borrow checker 제약상 쿼리 중 `get_mut`을 바로 섞을 수 없다. 표준 패턴: 먼저 `.collect()`로 엔티티 목록을 뽑고, 순회하며 `get_mut` 호출.
-
-### UI 문자 입력 버퍼 (Phase 6~)
-`InputState.text_chars()` — 이번 프레임 입력 문자 슬라이스. `UiSystem`이 소비하고, `flush()`에서 초기화. `TextInput`이 포커스된 엔티티만 이 버퍼를 처리한다.
-
-### LayoutSystem 실행 순서 (Phase 6~)
-`Panel` 자식의 위치는 `LayoutSystem`이 계산한다. `UiSystem` 보다 반드시 먼저 등록해야 올바른 위치로 렌더된다.
+**UiEvent extension**
+- Removed `Copy`, kept `Clone` (needed to hold String)
+- Preserved the existing `ButtonClicked` + added `TextChanged`, `TextSubmitted`, `TextFocused`, `TextBlurred`
 
 ---
 
-## 완료된 Phase 후보 기록
+## Architecture decisions worth knowing
 
-| Phase | 기능 | 난이도 | 비고 |
+### Renderer separation
+The renderer doesn't reference `AnimationPlayer` directly. `AnimationSystem` syncs the `UvRect` component, and the renderer reads only `UvRect`. A structure to prevent layer-boundary violations.
+
+### DebugDrawQueue → UiQueue conversion
+`DebugDrawQueue` holds pure data (`DebugRect`), and `App`'s render stage converts it to `DrawRect` and puts it in `UiQueue`. A design so the system layer doesn't depend on renderer types.
+
+### PhysicsWorld encapsulation
+The internal rapier2d fields are `pub(crate)`. From outside, use only the accessors `rigid_body()`, `rigid_body_mut()`, `get_collider()`, `get_collider_mut()`, `add_dynamic_circle()`, `remove_body()`.
+
+### ECS borrow-conflict workaround
+Due to the Rust borrow checker, you can't mix `get_mut` directly during a query. Standard pattern: first `.collect()` the entity list, then iterate calling `get_mut`.
+
+### UI character input buffer (Phase 6~)
+`InputState.text_chars()` — a slice of the characters input this frame. `UiSystem` consumes it, and it's cleared in `flush()`. Only the entity with a focused `TextInput` processes this buffer.
+
+### LayoutSystem execution order (Phase 6~)
+The positions of `Panel` children are computed by `LayoutSystem`. It must be registered before `UiSystem` to render at the correct positions.
+
+---
+
+## 2026-06-01 — Top-down twin-stick survival example + `SteeringSystem` O(N²)→O(N) fix (candidate F)
+
+**Shipped:** `examples/games/survivor/survivor.rs` (`survivor_game`) — a single-screen
+top-down twin-stick shooter: WASD move, **Arrow keys aim *and* fire** (8-way, hold =
+repeat), seeker enemies that chase via `engine::Seek` + `SteeringSystem`, pooled bullets
+(`engine::Pool`), `SpatialGrid`/`CollisionLayer` hits (carrying the shooter's
+`claimed`/`spent` double-fire guard), CPU `ParticleBurst` death explosions, a **GPU-particle
+player thruster** (`GpuParticleEmitter`), single life + spawn-grace, and a `ProfilerData`
+perf HUD (`frame_ms` + per-system `steer` time). Debug keys `G` (invuln) / `B` (+50 enemies)
+exist so the perf target can be reached — single-life play ends before the screen fills.
+
+**Engine gap closed — `SteeringSystem` was O(N²).** Each steering entity looked itself up with
+`world.query::<T>().find(|(e,_)| *e == entity)` (full scan) for `Transform` + the behavior
+component + the final `SteeringVelocity` pass — quadratic over the entity set. The survivor
+example surfaced it for real: at **200 seekers the `SteeringSystem` averaged 3.67ms** (≈30× the
+expected cost for simple seek math), eating ~22% of the 60fps budget and scaling quadratically.
+Fix (additive, **behavior-identical**): replace the per-entity `query().find(...)` scans with
+direct `world.get`/`get_mut(entity)` O(1) component access (`src/steering.rs`, Seek/Flee/Arrive
++ the transform-apply pass; Wander already used `get_mut`). Added a regression test
+(`many_seekers_each_advance_toward_shared_target`: 64 seekers each resolve their own components
+and step toward a shared target). **Measured after:** 200 → **0.48ms**, 600 → **1.36ms**
+(2.83× time for 3× entities = linear, confirming O(N); the old code at 600 would have been
+~33ms = a blown frame). The game holds ~60fps (`frame` 16–17ms, vsync-capped) at 600 enemies,
+3× the design target; remaining frame cost is render/collision, not steering.
+
+**Gotchas / decisions:**
+- **Plan correction:** the whole `gpu_particle` module is `#[cfg(not(wasm32))]`-gated (like
+  `AudioManager`), *not* available on wasm as the plan assumed. The thruster is therefore
+  target-gated: on wasm the thruster entity exists (Transform only) and renders nothing;
+  `update_thruster_emit` is a native fn + wasm no-op stub. wasm example build stays green.
+- `frame_ms` (= `dt`·1000, present mode `AutoVsync`) **saturates at the ~16.7ms vsync cap**, so
+  it can't reveal CPU headroom — the per-system `ProfilerData.systems` avg (`steer`) is the
+  honest "does steering bite?" number. Surfacing it in the HUD is itself good `ProfilerData`
+  dogfooding.
+- Natural spawn cap `NATURAL_CAP = 200` (balance/perf target) is split from the absolute hard
+  cap `MAX_ENEMIES = 600` (debug `B` stress headroom) so normal play feel is unchanged.
+- `rust-survivors` rebuilt clean against the steering change (behavior-identical → no breakage).
+- A Sonnet read-only review pass found no real defects (pool lifecycle, dedup, borrow patterns,
+  cfg-gating all clean); one latent tidy applied (spawn timer now Playing-gated).
+
+**Verified:** native build + `cargo clippy --lib --example survivor_game` = 0 warnings;
+`cargo fmt --check` clean; `cargo test --lib` = **248 passed** (incl. the new steering test);
+wasm build (lib + `survivor_game` example) = 0 warnings; startup smoke-run, no panic;
+**interactive play user-confirmed** (1–5 working; perf observed: steer 3.67→0.48ms@200, 1.36ms@600).
+
+---
+
+## 2026-05-31 — Vertical shooter example + one-shot `ParticleBurst` (candidate D)
+
+**Shipped:** `examples/games/shooter/shooter.rs` (`shooter_game`) — a small vertical shooter:
+player ship (WASD/Arrows + Space), pooled bullets via `engine::Pool`, `Timer`-driven fire
+cooldown and enemy-wave cadence, `SpatialGrid`/`CollisionLayer` hit detection, score/lives,
+game-over + `R` restart, explosion particles, and placeholder `play_tone` sfx on an "sfx"
+audio bus.
+
+**Engine gap closed:** `ParticleEmitter` was continuous-only (`spawn_rate`/`emit`), so
+hit/explosion *bursts* had no clean API. Added the **additive** `ParticleBurst { remaining }`
+component plus `ParticleEmitter::for_burst()`; `ParticleSystem` emits the radial burst in one
+tick and despawns the (dedicated, one-shot) emitter entity. Continuous emission is unchanged
+(back-compat — no field added to `ParticleEmitter`, so `rust-survivors` and the existing
+`particle_demo` literal construction are unaffected). Re-exported as `engine::ParticleBurst`.
+Two unit tests in `src/particle.rs` (burst count + emitter retirement; continuous unaffected).
+
+**Gotchas / decisions:**
+- Persistent ECS `Sprite` entities (the maze pattern), *not* Sokoban's immediate-mode
+  `DebugDrawQueue` — a particle-heavy action game has many moving sprites.
+- `Pool` has no borrow-friendly accessor while also needing `&mut World`, so each system that
+  fires/releases does `remove_resource::<Pool>()` → use → `insert_resource`. Released bullets
+  strip `Sprite`/`Collider`/`CollisionLayer`/`Velocity`/`Bullet` so they vanish from both the
+  renderer and the collision grid; reacquire re-adds them. No new pooling API was required.
+- `AudioManager` is `cfg(not(wasm32))`; all audio wiring (import, setup, `play_tone`) is
+  target-gated so the wasm example build stays green (sfx no-op on wasm).
+
+**Verified:** native build; `cargo clippy --lib --example shooter_game` = 0 warnings;
+`cargo fmt --check` clean; `cargo test --lib` = 247 passed (incl. 2 new particle tests); wasm
+build (lib + `shooter_game` example) = 0 warnings; startup smoke-run, no panic. **Not
+verified:** interactive play (GUI not observable here) — left for the user, same as Sokoban.
+
+---
+
+## Completed Phase candidate records
+
+| Phase | Feature | Difficulty | Notes |
 |-------|------|--------|------|
-| ~~Phase 13~~ | ~~물리 레이캐스트 + 캐릭터 컨트롤러~~ | — | 완료 |
-| ~~Phase 14~~ | ~~애니메이션 상태 머신~~ | — | 완료 |
-| ~~Phase 15~~ | ~~게임패드(gilrs) + UI Slider/CheckBox~~ | — | 완료 |
-| ~~Phase 16~~ | ~~씬 직렬화 + 프리팹 시스템~~ | — | 완료 |
-| ~~Phase 17~~ | ~~에셋 파이프라인 + 핫 리로딩~~ | — | 완료 |
-| ~~Phase 18~~ | ~~egui 인게임 디버그 에디터~~ | — | 완료 |
-| ~~Phase 19~~ | ~~Rhai 스크립팅 — ScriptAsset/ScriptRunner/ScriptingSystem~~ | — | 완료 |
-| ~~Phase 20~~ | ~~애니메이션 블렌딩 — BlendWeight/play_with_crossfade/BlendTree1D~~ | — | 완료 |
-| ~~Phase 21~~ | ~~Texture Atlas — TextureAtlas/AtlasSprite/load_atlas~~ | — | 완료 |
-| ~~Phase 22~~ | ~~Reflect 시스템 — Reflect 트레잇, ReflectValue, World::register_reflect/get_reflect~~ | — | 완료 |
-| ~~Phase 23~~ | ~~WASM 빌드 지원 — cfg-gate 4개 의존성, fs 추상화, 진입점 분기~~ | — | 완료 |
-| ~~Phase 24~~ | ~~WASM 브라우저 실행 — WebGL2 강제, 비동기 GPU init, web-time~~ | — | 완료 |
-| ~~Phase 25~~ | ~~네트워킹 / ECS 병렬 / 셰이더 머티리얼 / 에디터 기즈모 / 연동~~ | — | 완료 |
-| ~~Phase 26~~ | ~~LOD / 컬링 — Camera::visible_rect, CullConfig, AABB 프러스텀 컬링, min_pixel_size LOD~~ | — | 완료 |
-| ~~Phase 27~~ | ~~멀티플레이어 데모 — NetworkClient 기반 서버-클라 롤플레잉 예제~~ | — | 완료 |
-| ~~Phase 28~~ | ~~에디터 씬 저장 — 기즈모로 배치한 엔티티를 SceneDef RON으로 직렬화~~ | — | 완료 |
-| ~~Phase 29~~ | ~~씬 계층 직렬화 — EntityDef.parent, 2패스 스폰, topological_sort_entities~~ | — | 완료 |
-| ~~Phase 30~~ | ~~시스템 프로파일러 — System::name(), ProfilerData, RenderStats, Engine Stats 확장~~ | — | 완료 |
-| ~~Phase 31~~ | ~~에셋 브라우저 — ImageEntry, image_list(), Inspector Assets 탭~~ | — | 완료 |
-| ~~Phase 32~~ | ~~런타임 안정성 — AssetLoadState, SceneDef.version, Load Scene 버튼~~ | — | 완료 |
-| ~~Phase 33~~ | ~~A* 경로 탐색 (PathGrid/find_path) + ECS 쿼리 필터 (query_with/query_without)~~ | — | 완료 |
-| ~~Phase 34~~ | ~~RenderLayer 컴포넌트 + 스프라이트 배칭 (layer·tex·z 정렬)~~ | — | 완료 |
-| ~~Phase 35~~ | ~~Inspector Undo/Redo (Ctrl+Z/Shift+Z) — 이동·생성·삭제~~ | — | 완료 |
-| ~~Phase 36~~ | ~~비헤이비어 트리 — BehaviorTree/BehaviorSystem, Sequence/Selector/Inverter~~ | — | 완료 |
-| ~~Phase 37a~~ | ~~Blackboard(독립 ECS 컴포넌트) + Steering Behaviors (Seek/Flee/Arrive/Wander)~~ | — | 완료 |
-| ~~Phase 37d~~ | ~~CommandBuffer — Commands::spawn/despawn/insert/remove + World::apply_commands~~ | — | 완료 |
-| ~~Phase 38a~~ | ~~씬 그래프 패널 — 에디터 TreeView + Tag 이름 편집~~ | — | 완료 |
-| ~~Phase 38d~~ | ~~Rhai 스크립팅 API 확장 — spawn/despawn/Blackboard/Steering~~ | — | 완료 |
-| ~~Phase 39b~~ | ~~Inspector 컴포넌트 추가/제거 UI — 팩토리 패턴 + ComboBox + ✕ 버튼~~ | — | 완료 |
-| ~~Phase 39d~~ | ~~REFERENCE.html v0.38.0 — Steering/Blackboard/Commands/SceneGraph/Rhai 문서화~~ | — | 완료 |
-| ~~Phase 40c~~ | ~~Gizmo Grid Snap — 체크박스 + 격자 크기 DragValue + snap_to_grid 헬퍼~~ | — | 완료 |
-| ~~Phase 40d~~ | ~~REFERENCE.html v0.39.0 — 컴포넌트 추가/제거 UI, register_component 문서화~~ | — | 완료 |
-| ~~코드 리뷰 7항목~~ | ~~Timeline NaN / TextureError / remove_resource / layer_mask / register_fn 1회화 / network backpressure / egui unsafe 문서화~~ | — | 완료 (`4084cee`) |
-| ~~WASM 빌드 회귀 + unsafe 정리~~ | ~~network.rs `push_event_bounded` import 누락으로 wasm32 빌드 깨짐 복구 + BehaviorTree 불필요한 `unsafe impl Send/Sync` 제거~~ | — | 완료 (`af6fc59`) |
-| ~~비전 재설정~~ | ~~`docs/VISION.md` 신설(포크 가능한 범용 2D skeleton, 폭 우선 + 예제 검증 루프), `docs/NEXT_WORK.md` 후보 목록~~ | — | 완료 |
-| ~~2D 스켈레탈 애니메이션~~ | ~~컷아웃 모델: `src/skeletal.rs` + `SkeletonBuilder` + `examples/skeletal_puppet.rs`. HierarchySystem 임의 깊이 전파로 개선~~ | — | 완료 |
+| ~~Phase 13~~ | ~~Physics raycast + character controller~~ | — | done |
+| ~~Phase 14~~ | ~~Animation state machine~~ | — | done |
+| ~~Phase 15~~ | ~~Gamepad (gilrs) + UI Slider/CheckBox~~ | — | done |
+| ~~Phase 16~~ | ~~Scene serialization + prefab system~~ | — | done |
+| ~~Phase 17~~ | ~~Asset pipeline + hot reloading~~ | — | done |
+| ~~Phase 18~~ | ~~egui in-game debug editor~~ | — | done |
+| ~~Phase 19~~ | ~~Rhai scripting — ScriptAsset/ScriptRunner/ScriptingSystem~~ | — | done |
+| ~~Phase 20~~ | ~~Animation blending — BlendWeight/play_with_crossfade/BlendTree1D~~ | — | done |
+| ~~Phase 21~~ | ~~Texture Atlas — TextureAtlas/AtlasSprite/load_atlas~~ | — | done |
+| ~~Phase 22~~ | ~~Reflect system — Reflect trait, ReflectValue, World::register_reflect/get_reflect~~ | — | done |
+| ~~Phase 23~~ | ~~WASM build support — cfg-gate 4 dependencies, fs abstraction, entry-point branching~~ | — | done |
+| ~~Phase 24~~ | ~~WASM browser run — force WebGL2, async GPU init, web-time~~ | — | done |
+| ~~Phase 25~~ | ~~networking / ECS parallel / shader materials / editor gizmos / integration~~ | — | done |
+| ~~Phase 26~~ | ~~LOD / culling — Camera::visible_rect, CullConfig, AABB frustum culling, min_pixel_size LOD~~ | — | done |
+| ~~Phase 27~~ | ~~multiplayer demo — NetworkClient-based server-client roleplay example~~ | — | done |
+| ~~Phase 28~~ | ~~editor scene save — serialize gizmo-placed entities to SceneDef RON~~ | — | done |
+| ~~Phase 29~~ | ~~scene hierarchy serialization — EntityDef.parent, two-pass spawn, topological_sort_entities~~ | — | done |
+| ~~Phase 30~~ | ~~system profiler — System::name(), ProfilerData, RenderStats, Engine Stats extension~~ | — | done |
+| ~~Phase 31~~ | ~~asset browser — ImageEntry, image_list(), Inspector Assets tab~~ | — | done |
+| ~~Phase 32~~ | ~~runtime stability — AssetLoadState, SceneDef.version, Load Scene button~~ | — | done |
+| ~~Phase 33~~ | ~~A* pathfinding (PathGrid/find_path) + ECS query filters (query_with/query_without)~~ | — | done |
+| ~~Phase 34~~ | ~~RenderLayer component + sprite batching (layer·tex·z sort)~~ | — | done |
+| ~~Phase 35~~ | ~~Inspector Undo/Redo (Ctrl+Z/Shift+Z) — move/create/delete~~ | — | done |
+| ~~Phase 36~~ | ~~behavior tree — BehaviorTree/BehaviorSystem, Sequence/Selector/Inverter~~ | — | done |
+| ~~Phase 37a~~ | ~~Blackboard (standalone ECS component) + Steering Behaviors (Seek/Flee/Arrive/Wander)~~ | — | done |
+| ~~Phase 37d~~ | ~~CommandBuffer — Commands::spawn/despawn/insert/remove + World::apply_commands~~ | — | done |
+| ~~Phase 38a~~ | ~~scene graph panel — editor TreeView + Tag name editing~~ | — | done |
+| ~~Phase 38d~~ | ~~Rhai scripting API extension — spawn/despawn/Blackboard/Steering~~ | — | done |
+| ~~Phase 39b~~ | ~~Inspector component add/remove UI — factory pattern + ComboBox + ✕ button~~ | — | done |
+| ~~Phase 39d~~ | ~~REFERENCE.html v0.38.0 — Steering/Blackboard/Commands/SceneGraph/Rhai documentation~~ | — | done |
+| ~~Phase 40c~~ | ~~Gizmo Grid Snap — checkbox + grid-size DragValue + snap_to_grid helper~~ | — | done |
+| ~~Phase 40d~~ | ~~REFERENCE.html v0.39.0 — component add/remove UI, register_component documentation~~ | — | done |
+| ~~7 code-review items~~ | ~~Timeline NaN / TextureError / remove_resource / layer_mask / register_fn one-time / network backpressure / egui unsafe documentation~~ | — | done (`4084cee`) |
+| ~~WASM build regression + unsafe cleanup~~ | ~~recover wasm32 build broken by missing `push_event_bounded` import in network.rs + remove unnecessary `unsafe impl Send/Sync` from BehaviorTree~~ | — | done (`af6fc59`) |
+| ~~vision reset~~ | ~~established `docs/VISION.md` (forkable general-purpose 2D skeleton, breadth-first + example-verification loop), `docs/NEXT_WORK.md` candidate list~~ | — | done |
+| ~~2D skeletal animation~~ | ~~cutout model: `src/skeletal.rs` + `SkeletonBuilder` + `examples/skeletal_puppet.rs`. Improved HierarchySystem with arbitrary-depth propagation~~ | — | done |
+| ~~Sokoban playable example (candidate C)~~ | ~~`examples/games/sokoban/sokoban.rs`: discrete grid push logic, 3 levels, undo/redo, progress save/load. Engine gap fixed: reusable genre-agnostic `History<T>` snapshot undo (`src/history.rs`), since the only prior undo was the editor's private command history. Board rendered via immediate-mode `DebugDrawQueue` filled rects (no ECS entity churn). `save`/`load_or_default` reused unchanged.~~ | — | done |
 
-> **현재 상태**: post-v1.0 폭 확장 단계 진입. 비전(`docs/VISION.md`) = 포크 가능한 범용 2D skeleton, 기능은 작은 플레이 예제로 검증. 다음 후보는 `docs/NEXT_WORK.md`. native·wasm32 빌드, 264 테스트, clippy 경고 0 확인.
+> **Current status**: post-v1.0 breadth-expansion. Vision (`docs/VISION.md`) = a forkable general-purpose 2D skeleton, features verified with small playable examples. Playable examples A–F all shipped (platformer, scene-flow, maze-escape, sokoban, shooter, **survivor** = the candidate-F twin-stick/steering depth item); the breadth+depth pass per `docs/NEXT_WORK.md` is complete. Confirmed native·wasm32 builds (lib + `survivor_game` example), **248 lib tests** passing (incl. the new `SteeringSystem` O(N) regression test), 0 clippy warnings. Latest engine change: `SteeringSystem` O(N²)→O(N) per-entity lookup fix (steer 3.67→0.48ms @200 seekers).
 
 ---
 
-## 연관 저장소
+## Related repositories
 
-| 저장소 | 역할 | 경로 |
+| Repository | Role | Path |
 |---|---|---|
-| `skeleton-engine` | 엔진 코어 (이 저장소) | `/Users/jkl/Projects/skeleton-engine` |
-| `rust-survivors` | 엔진을 사용하는 게임 프로젝트 | `/Users/jkl/Projects/rust-survivors` |
+| `skeleton-engine` | engine core (this repository) | `/Users/jkl/Projects/skeleton-engine` |
+| `rust-survivors` | a game project using the engine | `/Users/jkl/Projects/rust-survivors` |
 
-두 저장소는 **독립적으로** 개발된다. 엔진 개선은 `skeleton-engine`에서만, 게임 로직은 `rust-survivors`에서만.
+The two repositories are developed **independently**. Engine improvements only in `skeleton-engine`, game logic only in `rust-survivors`.
 
 ---
 
-## 참고 문서
+## Reference documents
 
-- `REFERENCE.html` — 공개 API 레퍼런스 (코드 예제 포함)
-- `src/` 각 파일 인라인 doc comment — 세부 구현 의도 기록됨
+- `REFERENCE.html` — public API reference (with code examples)
+- inline doc comments in each `src/` file — detailed implementation intent recorded

@@ -7,11 +7,13 @@
 
 ## Context
 
-`examples/` currently holds only tech demos (`gpu_particles`, `minimap`,
-`split_screen`, `loading_bar`, `touch_demo`, `mp_client`/`mp_server`,
-`runtime_policies`) and the beginner `basic`. There is **no actual playable game yet**.
-Closing that gap is the active direction: widen the feature set breadth-first, and prove
-each feature with a small playable example.
+`examples/` now separates top-level feature demos from playable example games under
+`examples/games/`. The first playable examples are the platformer
+(`cargo run --example platformer_game`), scene-flow game
+(`cargo run --example scene_flow_game`), and maze-escape
+(`cargo run --example maze_escape_game`), which start closing the previous validation gap.
+The active direction remains: widen the feature set breadth-first, and prove each feature
+with a small playable example.
 
 ## Candidate feature × playable-example pairs
 
@@ -20,22 +22,47 @@ the API gaps it is likely to surface.
 
 | # | Example game | Engine capability validated/extended | Likely gaps to surface |
 |---|--------------|----------------------------------------|------------------------|
-| **A** | Platformer (jump, run, platforms) | `CharacterController`, `move_character`, tilemap collision, `AnimationStateMachine` | one-way platforms, coyote-time, tilemap↔physics binding ergonomics |
-| **B** | Top-down maze escape (chasing enemies) | `PathGrid`/`find_path`, `BehaviorTree`, `SpatialGrid` collision | pathfinding → behavior-tree handoff flow |
-| **C** | Puzzle (match-grid / Sokoban) | grid logic, `Tween`/`Easing`, `save`/`load`, UI | grid movement, undo, progress-save API friction |
+| **A** | Platformer (jump, run, platforms) ✅ done | `CharacterController`, `move_character`, physics platforms/sensors, `AnimationStateMachine`, atlas animation, camera follow | surfaced gaps: one-way platforms remain future work; tilemap↔physics binding still wants a higher-level ergonomic helper |
+| **B** | Top-down maze escape (chasing enemies) ✅ done | `PathGrid`/`find_path`, `BehaviorTree`, `SpatialGrid` collision (`examples/games/maze_escape/maze_escape.rs`) | surfaced + fixed: `BehaviorTree`/`Sequence`/`Selector`/`Inverter`/`AlwaysSucceed`/`BehaviorSystem` were not re-exported from `engine::`; `SpatialGrid` was trapped inside `CollisionGridSystem` (now mirrored to a `World` resource each frame); no `PathGrid::from_tilemap` (added). Still open: `BlackboardValue` cannot hold `Vec<IVec2>`, so `ComputePathToPlayer` writes only the next step and recomputes each tick. |
+| **C** | Sokoban (box pushing) ✅ done | discrete grid logic, multi-level progression, undo/redo, `save`/`load` progress (`examples/games/sokoban/sokoban.rs`) | surfaced + fixed: no reusable game-facing undo — only the editor had a private command history; added genre-agnostic `History<T>` snapshot undo/redo (`src/history.rs`, re-exported from `engine::`). `save`/`load_or_default` reused unchanged (no friction). Immediate-mode `DebugDrawQueue` filled rects render board state without ECS entity churn. |
 | **D** | Simple shooter (bullets, waves) | `ParticleEmitter`, `Timer`, collision layers, audio buses | pooling/spawn bursts, perf; complements rust-survivors |
-| **E** | Scene-flow game (menu → play → result) | `SceneCmd` Push/Replace/Pop, UI buttons, `GameState` | resource cleanup across scene transitions |
+| **E** | Scene-flow game (menu → play → result) ✅ done | `SceneCmd` Push/Replace/Pop, UI buttons, `GameState`, scene-owned systems, explicit entity cleanup | surfaced gap: preserving cross-scene diagnostics/state across `Replace` requires carrying a handle outside the reset `World` |
 | **F** | Skeletal-animation showcase character ✅ done | NEW: 2D cutout skeletal animation (`src/skeletal.rs`, `examples/skeletal_puppet.rs`) | surfaced + fixed `HierarchySystem` depth-3 cap; scale-vs-attachment-size rule noted in `docs/SKELETAL.md` |
 
-## Recommended order
+## Done
 
-1. **A — Platformer first.** Validates the most unproven core in one shot (character
-   controller + tilemap collision + animation state machine) and best exercises the
-   foundational genre-agnostic 2D feature set.
-2. **E — Scene flow.** Every game's skeleton; polishing it once lets later examples reuse it.
-3. Then **B / C / D** to widen genre coverage.
-4. **F (skeletal animation)** as the first genuinely new feature once the existing
-   surface is validated.
+- **A — Platformer** (`platformer_game`): tile collision, gravity, jump, moving platforms.
+- **B — Maze escape** (`maze_escape_game`): PathGrid + BehaviorTree + SpatialGrid.
+- **C — Sokoban** (`sokoban_game`): discrete grid, undo/redo (`History<T>`), multi-level + save.
+- **D — Simple shooter** (`shooter_game`): pooled bullets (`Pool`), `Timer` fire/wave cadence,
+  `SpatialGrid`/`CollisionLayer` hit detection, score/lives + restart, explosion particles, audio buses.
+  - **Engine gap closed:** `ParticleEmitter` was continuous-only → added the additive one-shot
+    `ParticleBurst` component (+ `ParticleEmitter::for_burst()`); `ParticleSystem` drains it and
+    retires the emitter. Re-exported as `engine::ParticleBurst`. Unit tests in `src/particle.rs`.
+  - **Surfaced-but-not-a-gap:** `Pool` worked for bullet churn via `remove_resource`/reinsert per
+    system; released bullets strip `Sprite`/`Collider`/`CollisionLayer` so they leave the renderer
+    and grid. No new pooling API was needed.
+- **E — Scene-flow / UI interaction** (`scene_flow_game`): menus, pause, transitions.
+- **F — Top-down twin-stick survival** (`survivor_game`): WASD move + Arrow-key 8-way aimed
+  fire, `engine::Seek`/`SteeringSystem` seeker enemies, pooled bullets, `SpatialGrid` hits,
+  `GpuParticleEmitter` player thruster, `ProfilerData` perf HUD. Debug `G`/`B` keys to reach
+  the perf scale on demand.
+  - **Engine gap closed:** `SteeringSystem` was **O(N²)** — each entity self-looked-up via
+    `query().find()` full scans. The example surfaced it with data (steer **3.67ms @ 200**
+    seekers, ~30× expected, quadratic). Fixed to O(1) `world.get`/`get_mut(entity)` access
+    (behavior-identical, additive) + a regression test in `src/steering.rs`. After: **0.48ms
+    @200, 1.36ms @600** (linear), ~60fps held at 600 (3× the design target). `rust-survivors`
+    rebuilt clean (no breakage).
+  - **Surfaced-but-not-a-gap:** `GpuParticleEmitter` is native-only (`cfg(not(wasm32))`, like
+    `AudioManager`) — the thruster is target-gated, wasm renders nothing. `frame_ms` is
+    vsync-capped (`AutoVsync`) so per-system `ProfilerData.systems` (the HUD `steer` readout)
+    is the real CPU-cost signal.
+
+## Breadth + depth pass complete
+
+A–E (breadth) and **F** (depth: steering + many entities + GPU particles) have all shipped
+under the dogfooding loop. No remaining planned candidate — the playable-examples program is
+done for v1.0.0.
 
 ## Alignment check — previously "planned" items vs the reset vision
 
