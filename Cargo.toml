@@ -52,6 +52,10 @@ path = "examples/games/sokoban/sokoban.rs"
 name = "shooter_game"
 path = "examples/games/shooter/shooter.rs"
 
+[[example]]
+name = "survivor_game"
+path = "examples/games/survivor/survivor.rs"
+
 [dependencies]
 winit    = "0.30"
 wgpu     = { version = "22", features = ["webgl"] }

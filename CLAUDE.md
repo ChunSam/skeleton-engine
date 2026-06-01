@@ -49,6 +49,7 @@ Where to read to find a given thing:
 | add_kinematic_box, add_kinematic_circle | `src/physics/world.rs` |
 | SpatialGrid, Collider, CollisionLayer (SpatialGrid is mirrored to a World resource by CollisionGridSystem) | `src/collision/` |
 | BehaviorTree, BehaviorNode, Sequence, Selector, Inverter, AlwaysSucceed, BehaviorSystem, Blackboard | `src/behavior.rs` |
+| Seek, Flee, Arrive, Wander, SteeringVelocity, SteeringSystem (steering behaviors; O(1) per-entity component lookup) | `src/steering.rs` |
 | PathGrid, find_path, PathGrid::from_tilemap | `src/pathfinding.rs` |
 | AnimationPlayer, AnimationClip, AnimationSystem, BlendWeight | `src/animation/player.rs`, `src/animation/system.rs` |
 | AnimationStateMachine, StateMachineSystem, TransitionCond, AnimParam | `src/animation/state_machine.rs` |

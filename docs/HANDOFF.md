@@ -2106,6 +2106,53 @@ The positions of `Panel` children are computed by `LayoutSystem`. It must be reg
 
 ---
 
+## 2026-06-01 — Top-down twin-stick survival example + `SteeringSystem` O(N²)→O(N) fix (candidate F)
+
+**Shipped:** `examples/games/survivor/survivor.rs` (`survivor_game`) — a single-screen
+top-down twin-stick shooter: WASD move, **Arrow keys aim *and* fire** (8-way, hold =
+repeat), seeker enemies that chase via `engine::Seek` + `SteeringSystem`, pooled bullets
+(`engine::Pool`), `SpatialGrid`/`CollisionLayer` hits (carrying the shooter's
+`claimed`/`spent` double-fire guard), CPU `ParticleBurst` death explosions, a **GPU-particle
+player thruster** (`GpuParticleEmitter`), single life + spawn-grace, and a `ProfilerData`
+perf HUD (`frame_ms` + per-system `steer` time). Debug keys `G` (invuln) / `B` (+50 enemies)
+exist so the perf target can be reached — single-life play ends before the screen fills.
+
+**Engine gap closed — `SteeringSystem` was O(N²).** Each steering entity looked itself up with
+`world.query::<T>().find(|(e,_)| *e == entity)` (full scan) for `Transform` + the behavior
+component + the final `SteeringVelocity` pass — quadratic over the entity set. The survivor
+example surfaced it for real: at **200 seekers the `SteeringSystem` averaged 3.67ms** (≈30× the
+expected cost for simple seek math), eating ~22% of the 60fps budget and scaling quadratically.
+Fix (additive, **behavior-identical**): replace the per-entity `query().find(...)` scans with
+direct `world.get`/`get_mut(entity)` O(1) component access (`src/steering.rs`, Seek/Flee/Arrive
++ the transform-apply pass; Wander already used `get_mut`). Added a regression test
+(`many_seekers_each_advance_toward_shared_target`: 64 seekers each resolve their own components
+and step toward a shared target). **Measured after:** 200 → **0.48ms**, 600 → **1.36ms**
+(2.83× time for 3× entities = linear, confirming O(N); the old code at 600 would have been
+~33ms = a blown frame). The game holds ~60fps (`frame` 16–17ms, vsync-capped) at 600 enemies,
+3× the design target; remaining frame cost is render/collision, not steering.
+
+**Gotchas / decisions:**
+- **Plan correction:** the whole `gpu_particle` module is `#[cfg(not(wasm32))]`-gated (like
+  `AudioManager`), *not* available on wasm as the plan assumed. The thruster is therefore
+  target-gated: on wasm the thruster entity exists (Transform only) and renders nothing;
+  `update_thruster_emit` is a native fn + wasm no-op stub. wasm example build stays green.
+- `frame_ms` (= `dt`·1000, present mode `AutoVsync`) **saturates at the ~16.7ms vsync cap**, so
+  it can't reveal CPU headroom — the per-system `ProfilerData.systems` avg (`steer`) is the
+  honest "does steering bite?" number. Surfacing it in the HUD is itself good `ProfilerData`
+  dogfooding.
+- Natural spawn cap `NATURAL_CAP = 200` (balance/perf target) is split from the absolute hard
+  cap `MAX_ENEMIES = 600` (debug `B` stress headroom) so normal play feel is unchanged.
+- `rust-survivors` rebuilt clean against the steering change (behavior-identical → no breakage).
+- A Sonnet read-only review pass found no real defects (pool lifecycle, dedup, borrow patterns,
+  cfg-gating all clean); one latent tidy applied (spawn timer now Playing-gated).
+
+**Verified:** native build + `cargo clippy --lib --example survivor_game` = 0 warnings;
+`cargo fmt --check` clean; `cargo test --lib` = **248 passed** (incl. the new steering test);
+wasm build (lib + `survivor_game` example) = 0 warnings; startup smoke-run, no panic;
+**interactive play user-confirmed** (1–5 working; perf observed: steer 3.67→0.48ms@200, 1.36ms@600).
+
+---
+
 ## 2026-05-31 — Vertical shooter example + one-shot `ParticleBurst` (candidate D)
 
 **Shipped:** `examples/games/shooter/shooter.rs` (`shooter_game`) — a small vertical shooter:
@@ -2181,7 +2228,7 @@ verified:** interactive play (GUI not observable here) — left for the user, sa
 | ~~2D skeletal animation~~ | ~~cutout model: `src/skeletal.rs` + `SkeletonBuilder` + `examples/skeletal_puppet.rs`. Improved HierarchySystem with arbitrary-depth propagation~~ | — | done |
 | ~~Sokoban playable example (candidate C)~~ | ~~`examples/games/sokoban/sokoban.rs`: discrete grid push logic, 3 levels, undo/redo, progress save/load. Engine gap fixed: reusable genre-agnostic `History<T>` snapshot undo (`src/history.rs`), since the only prior undo was the editor's private command history. Board rendered via immediate-mode `DebugDrawQueue` filled rects (no ECS entity churn). `save`/`load_or_default` reused unchanged.~~ | — | done |
 
-> **Current status**: post-v1.0 breadth-expansion. Vision (`docs/VISION.md`) = a forkable general-purpose 2D skeleton, features verified with small playable examples. Candidate D (simple shooter) is the next recommended item in `docs/NEXT_WORK.md`. Confirmed native·wasm32 builds (lib + sokoban example), 245 lib tests passing (incl. 4 new `History` tests), 0 clippy warnings.
+> **Current status**: post-v1.0 breadth-expansion. Vision (`docs/VISION.md`) = a forkable general-purpose 2D skeleton, features verified with small playable examples. Playable examples A–F all shipped (platformer, scene-flow, maze-escape, sokoban, shooter, **survivor** = the candidate-F twin-stick/steering depth item); the breadth+depth pass per `docs/NEXT_WORK.md` is complete. Confirmed native·wasm32 builds (lib + `survivor_game` example), **248 lib tests** passing (incl. the new `SteeringSystem` O(N) regression test), 0 clippy warnings. Latest engine change: `SteeringSystem` O(N²)→O(N) per-entity lookup fix (steer 3.67→0.48ms @200 seekers).
 
 ---
 

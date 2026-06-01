@@ -43,14 +43,26 @@ the API gaps it is likely to surface.
     system; released bullets strip `Sprite`/`Collider`/`CollisionLayer` so they leave the renderer
     and grid. No new pooling API was needed.
 - **E — Scene-flow / UI interaction** (`scene_flow_game`): menus, pause, transitions.
+- **F — Top-down twin-stick survival** (`survivor_game`): WASD move + Arrow-key 8-way aimed
+  fire, `engine::Seek`/`SteeringSystem` seeker enemies, pooled bullets, `SpatialGrid` hits,
+  `GpuParticleEmitter` player thruster, `ProfilerData` perf HUD. Debug `G`/`B` keys to reach
+  the perf scale on demand.
+  - **Engine gap closed:** `SteeringSystem` was **O(N²)** — each entity self-looked-up via
+    `query().find()` full scans. The example surfaced it with data (steer **3.67ms @ 200**
+    seekers, ~30× expected, quadratic). Fixed to O(1) `world.get`/`get_mut(entity)` access
+    (behavior-identical, additive) + a regression test in `src/steering.rs`. After: **0.48ms
+    @200, 1.36ms @600** (linear), ~60fps held at 600 (3× the design target). `rust-survivors`
+    rebuilt clean (no breakage).
+  - **Surfaced-but-not-a-gap:** `GpuParticleEmitter` is native-only (`cfg(not(wasm32))`, like
+    `AudioManager`) — the thruster is target-gated, wasm renders nothing. `frame_ms` is
+    vsync-capped (`AutoVsync`) so per-system `ProfilerData.systems` (the HUD `steer` readout)
+    is the real CPU-cost signal.
 
-## Breadth pass complete
+## Breadth + depth pass complete
 
-A–E have shipped under the dogfooding loop. **F** (below) remains as the one optional depth item.
-
-## Backlog (unordered)
-
-- **F — Top-down twin-stick / bullet survival**: steering, many entities, GPU particles.
+A–E (breadth) and **F** (depth: steering + many entities + GPU particles) have all shipped
+under the dogfooding loop. No remaining planned candidate — the playable-examples program is
+done for v1.0.0.
 
 ## Alignment check — previously "planned" items vs the reset vision
 
