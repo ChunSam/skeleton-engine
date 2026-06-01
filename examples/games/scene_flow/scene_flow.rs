@@ -1,5 +1,3 @@
-use std::sync::{Arc, Mutex};
-
 use engine::{
     Anchor, App, Button, ButtonState, Entity, Events, GameState, InputState, KeyCode, Label, Scene,
     SceneChange, SceneCmd, ShouldQuit, System, TextAlign, UiEvent, UiImageQueue, UiNode, UiQueue,
@@ -18,11 +16,11 @@ const BADGE_PATH: &str = concat!(
     "/examples/games/scene_flow/assets/flow_badge.png"
 );
 
-#[derive(Clone, Default)]
-struct SceneFlowStats {
-    data: Arc<Mutex<StatsData>>,
-}
-
+/// Cross-scene diagnostics. Previously this lived behind `Arc<Mutex<_>>` and was
+/// cloned into every scene's constructor, because `SceneCmd::Replace` resets the
+/// `World` and would otherwise drop it. It is now a plain resource preserved across
+/// resets via `App::register_persistent::<StatsData>()` — no Arc, no Mutex, and
+/// scenes no longer carry a handle.
 #[derive(Default)]
 struct StatsData {
     menu_enters: u32,
@@ -37,47 +35,45 @@ struct StatsData {
     overlay: &'static str,
 }
 
-impl SceneFlowStats {
-    fn mark_enter(&self, scene: &'static str) {
-        let mut data = self.data.lock().unwrap();
+impl StatsData {
+    fn mark_enter(&mut self, scene: &'static str) {
         match scene {
             "Menu" => {
-                data.menu_enters += 1;
-                data.current_scene = "Menu";
-                data.overlay = "None";
+                self.menu_enters += 1;
+                self.current_scene = "Menu";
+                self.overlay = "None";
             }
             "Play" => {
-                data.play_enters += 1;
-                data.current_scene = "Play";
-                data.overlay = "None";
+                self.play_enters += 1;
+                self.current_scene = "Play";
+                self.overlay = "None";
             }
             "Pause" => {
-                data.pause_enters += 1;
-                data.overlay = "Pause";
+                self.pause_enters += 1;
+                self.overlay = "Pause";
             }
             "Result" => {
-                data.result_enters += 1;
-                data.overlay = "Result";
+                self.result_enters += 1;
+                self.overlay = "Result";
             }
             _ => {}
         }
     }
 
-    fn mark_exit(&self, scene: &'static str) {
-        let mut data = self.data.lock().unwrap();
+    fn mark_exit(&mut self, scene: &'static str) {
         match scene {
-            "Menu" => data.menu_exits += 1,
-            "Play" => data.play_exits += 1,
+            "Menu" => self.menu_exits += 1,
+            "Play" => self.play_exits += 1,
             "Pause" => {
-                data.pause_exits += 1;
-                if data.overlay == "Pause" {
-                    data.overlay = "None";
+                self.pause_exits += 1;
+                if self.overlay == "Pause" {
+                    self.overlay = "None";
                 }
             }
             "Result" => {
-                data.result_exits += 1;
-                if data.overlay == "Result" {
-                    data.overlay = "None";
+                self.result_exits += 1;
+                if self.overlay == "Result" {
+                    self.overlay = "None";
                 }
             }
             _ => {}
@@ -85,28 +81,34 @@ impl SceneFlowStats {
     }
 
     fn summary(&self) -> String {
-        let data = self.data.lock().unwrap();
         format!(
             "Scene: {} | Overlay: {}\nEnter  M:{} P:{} Pa:{} R:{}\nExit   M:{} P:{} Pa:{} R:{}",
-            data.current_scene,
-            data.overlay,
-            data.menu_enters,
-            data.play_enters,
-            data.pause_enters,
-            data.result_enters,
-            data.menu_exits,
-            data.play_exits,
-            data.pause_exits,
-            data.result_exits
+            self.current_scene,
+            self.overlay,
+            self.menu_enters,
+            self.play_enters,
+            self.pause_enters,
+            self.result_enters,
+            self.menu_exits,
+            self.play_exits,
+            self.pause_exits,
+            self.result_exits
         )
     }
 }
 
-fn stats_from_world(world: &World) -> SceneFlowStats {
-    world
-        .resource::<SceneFlowStats>()
-        .cloned()
-        .unwrap_or_default()
+/// Record a scene enter on the persistent `StatsData` resource.
+fn mark_enter(world: &mut World, scene: &'static str) {
+    if let Some(stats) = world.resource_mut::<StatsData>() {
+        stats.mark_enter(scene);
+    }
+}
+
+/// Record a scene exit on the persistent `StatsData` resource.
+fn mark_exit(world: &mut World, scene: &'static str) {
+    if let Some(stats) = world.resource_mut::<StatsData>() {
+        stats.mark_exit(scene);
+    }
 }
 
 fn clicked(world: &World) -> Vec<Entity> {
@@ -238,14 +240,12 @@ fn configure_window(world: &mut World) {
 }
 
 struct MenuScene {
-    stats: SceneFlowStats,
     entities: Vec<Entity>,
 }
 
 impl MenuScene {
-    fn new(stats: SceneFlowStats) -> Self {
+    fn new() -> Self {
         Self {
-            stats,
             entities: Vec::new(),
         }
     }
@@ -254,8 +254,7 @@ impl MenuScene {
 impl Scene for MenuScene {
     fn on_enter(&mut self, world: &mut World, systems: &mut Vec<Box<dyn System>>) {
         configure_window(world);
-        self.stats.mark_enter("Menu");
-        world.insert_resource(self.stats.clone());
+        mark_enter(world, "Menu");
         world.insert_resource(GameState::Paused);
 
         add_label(
@@ -298,7 +297,7 @@ impl Scene for MenuScene {
     }
 
     fn on_exit(&mut self, world: &mut World) {
-        self.stats.mark_exit("Menu");
+        mark_exit(world, "Menu");
         despawn_all(world, &mut self.entities);
     }
 }
@@ -314,7 +313,6 @@ impl System for MenuSystem {
         let clicks = clicked(world);
         let start = clicks.contains(&self.start) || key_pressed(world, KeyCode::Enter);
         let quit = clicks.contains(&self.quit) || key_pressed(world, KeyCode::Escape);
-        let stats = stats_from_world(world);
 
         update_stats_label(world, self.stats_label);
 
@@ -324,21 +322,19 @@ impl System for MenuSystem {
             }
         } else if start {
             if let Some(scene_change) = world.resource_mut::<SceneChange>() {
-                scene_change.request(SceneCmd::Replace(Box::new(PlayScene::new(stats))));
+                scene_change.request(SceneCmd::Replace(Box::new(PlayScene::new())));
             }
         }
     }
 }
 
 struct PlayScene {
-    stats: SceneFlowStats,
     entities: Vec<Entity>,
 }
 
 impl PlayScene {
-    fn new(stats: SceneFlowStats) -> Self {
+    fn new() -> Self {
         Self {
-            stats,
             entities: Vec::new(),
         }
     }
@@ -347,8 +343,7 @@ impl PlayScene {
 impl Scene for PlayScene {
     fn on_enter(&mut self, world: &mut World, systems: &mut Vec<Box<dyn System>>) {
         configure_window(world);
-        self.stats.mark_enter("Play");
-        world.insert_resource(self.stats.clone());
+        mark_enter(world, "Play");
         world.insert_resource(GameState::Playing);
 
         add_label(
@@ -396,7 +391,7 @@ impl Scene for PlayScene {
     }
 
     fn on_exit(&mut self, world: &mut World) {
-        self.stats.mark_exit("Play");
+        mark_exit(world, "Play");
         despawn_all(world, &mut self.entities);
     }
 }
@@ -420,7 +415,6 @@ impl System for PlaySystem {
         }
 
         let clicks = clicked(world);
-        let stats = stats_from_world(world);
         let complete = clicks.contains(&self.complete) || key_pressed(world, KeyCode::Enter);
         let pause = clicks.contains(&self.pause)
             || key_pressed(world, KeyCode::KeyP)
@@ -429,30 +423,28 @@ impl System for PlaySystem {
 
         if menu {
             if let Some(scene_change) = world.resource_mut::<SceneChange>() {
-                scene_change.request(SceneCmd::Replace(Box::new(MenuScene::new(stats))));
+                scene_change.request(SceneCmd::Replace(Box::new(MenuScene::new())));
             }
         } else if complete {
             if let Some(scene_change) = world.resource_mut::<SceneChange>() {
-                scene_change.request(SceneCmd::Push(Box::new(ResultScene::new(stats))));
+                scene_change.request(SceneCmd::Push(Box::new(ResultScene::new())));
             }
         } else if pause {
             if let Some(scene_change) = world.resource_mut::<SceneChange>() {
-                scene_change.request(SceneCmd::Push(Box::new(PauseScene::new(stats))));
+                scene_change.request(SceneCmd::Push(Box::new(PauseScene::new())));
             }
         }
     }
 }
 
 struct PauseScene {
-    stats: SceneFlowStats,
     entities: Vec<Entity>,
     hidden_entities: Vec<Entity>,
 }
 
 impl PauseScene {
-    fn new(stats: SceneFlowStats) -> Self {
+    fn new() -> Self {
         Self {
-            stats,
             entities: Vec::new(),
             hidden_entities: Vec::new(),
         }
@@ -462,8 +454,7 @@ impl PauseScene {
 impl Scene for PauseScene {
     fn on_enter(&mut self, world: &mut World, systems: &mut Vec<Box<dyn System>>) {
         configure_window(world);
-        self.stats.mark_enter("Pause");
-        world.insert_resource(self.stats.clone());
+        mark_enter(world, "Pause");
         world.insert_resource(GameState::Paused);
 
         self.hidden_entities = hide_existing_ui(world);
@@ -502,7 +493,7 @@ impl Scene for PauseScene {
     }
 
     fn on_exit(&mut self, world: &mut World) {
-        self.stats.mark_exit("Pause");
+        mark_exit(world, "Pause");
         if let Some(state) = world.resource_mut::<GameState>() {
             *state = GameState::Playing;
         }
@@ -521,7 +512,6 @@ impl System for PauseSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
         update_stats_label(world, self.stats_label);
         let clicks = clicked(world);
-        let stats = stats_from_world(world);
         let resume = clicks.contains(&self.resume)
             || key_pressed(world, KeyCode::KeyP)
             || key_pressed(world, KeyCode::Escape);
@@ -529,7 +519,7 @@ impl System for PauseSystem {
 
         if menu {
             if let Some(scene_change) = world.resource_mut::<SceneChange>() {
-                scene_change.request(SceneCmd::Replace(Box::new(MenuScene::new(stats))));
+                scene_change.request(SceneCmd::Replace(Box::new(MenuScene::new())));
             }
         } else if resume {
             if let Some(scene_change) = world.resource_mut::<SceneChange>() {
@@ -540,15 +530,13 @@ impl System for PauseSystem {
 }
 
 struct ResultScene {
-    stats: SceneFlowStats,
     entities: Vec<Entity>,
     hidden_entities: Vec<Entity>,
 }
 
 impl ResultScene {
-    fn new(stats: SceneFlowStats) -> Self {
+    fn new() -> Self {
         Self {
-            stats,
             entities: Vec::new(),
             hidden_entities: Vec::new(),
         }
@@ -558,8 +546,7 @@ impl ResultScene {
 impl Scene for ResultScene {
     fn on_enter(&mut self, world: &mut World, systems: &mut Vec<Box<dyn System>>) {
         configure_window(world);
-        self.stats.mark_enter("Result");
-        world.insert_resource(self.stats.clone());
+        mark_enter(world, "Result");
         world.insert_resource(GameState::GameOver);
 
         self.hidden_entities = hide_existing_ui(world);
@@ -597,7 +584,7 @@ impl Scene for ResultScene {
     }
 
     fn on_exit(&mut self, world: &mut World) {
-        self.stats.mark_exit("Result");
+        mark_exit(world, "Result");
         restore_ui(world, &mut self.hidden_entities);
         despawn_all(world, &mut self.entities);
     }
@@ -613,7 +600,6 @@ impl System for ResultSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
         update_stats_label(world, self.stats_label);
         let clicks = clicked(world);
-        let stats = stats_from_world(world);
         let retry = clicks.contains(&self.retry) || key_pressed(world, KeyCode::KeyR);
         let menu = clicks.contains(&self.menu)
             || key_pressed(world, KeyCode::Escape)
@@ -621,11 +607,11 @@ impl System for ResultSystem {
 
         if retry {
             if let Some(scene_change) = world.resource_mut::<SceneChange>() {
-                scene_change.request(SceneCmd::Replace(Box::new(PlayScene::new(stats))));
+                scene_change.request(SceneCmd::Replace(Box::new(PlayScene::new())));
             }
         } else if menu {
             if let Some(scene_change) = world.resource_mut::<SceneChange>() {
-                scene_change.request(SceneCmd::Replace(Box::new(MenuScene::new(stats))));
+                scene_change.request(SceneCmd::Replace(Box::new(MenuScene::new())));
             }
         }
     }
@@ -633,8 +619,8 @@ impl System for ResultSystem {
 
 fn update_stats_label(world: &mut World, entity: Entity) {
     let text = world
-        .resource::<SceneFlowStats>()
-        .map(SceneFlowStats::summary)
+        .resource::<StatsData>()
+        .map(StatsData::summary)
         .unwrap_or_else(|| "Stats unavailable".to_string());
 
     if let Some(label) = world.get_mut::<Label>(entity) {
@@ -668,8 +654,12 @@ fn main() {
     let mut app = App::new();
     app.register_event::<UiEvent>();
 
-    let stats = SceneFlowStats::default();
-    app.set_scene(Box::new(MenuScene::new(stats)));
+    // Cross-scene diagnostics live as a plain resource preserved across the World
+    // resets that `SceneCmd::Replace` triggers — no Arc<Mutex>, no per-scene handle.
+    app.world.insert_resource(StatsData::default());
+    app.register_persistent::<StatsData>();
+
+    app.set_scene(Box::new(MenuScene::new()));
     configure_window(&mut app.world);
     app.load_image(BG_PATH);
     app.load_image(BADGE_PATH);

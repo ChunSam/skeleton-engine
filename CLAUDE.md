@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.0.0 | package `skeleton-engine`, library crate `engine` | wgpu-based Rust 2D game engine  
+> Version v1.1.0 | package `skeleton-engine`, library crate `engine` | wgpu-based Rust 2D game engine  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`
 
@@ -35,7 +35,7 @@ Where to read to find a given thing:
 | ScriptAsset, ScriptRunner, ScriptingSystem (Rhai scripting) | `src/scripting.rs` |
 | DebugUi (egui overlay, F1 toggle, custom panels via `ctx()`) | `src/debug_ui.rs` |
 | Full public API re-export list | `src/lib.rs` |
-| Entity / Component / Resource / Query | `src/ecs/world.rs` |
+| Entity / Component / Resource / Query (+ `register_persistent` survives scene reset, via `App`) | `src/ecs/world.rs`, `src/app.rs` |
 | Event bus (`Events<E>`) | `src/ecs/events.rs` |
 | `System` trait | `src/ecs/system.rs` |
 | Scene transitions (Scene, SceneCmd, SceneChange) | `src/scene.rs` |
@@ -45,10 +45,10 @@ Where to read to find a given thing:
 | InputState, InputMap | `src/input/` |
 | GamepadState, GamepadButton, GamepadAxis | `src/input/gamepad.rs` |
 | PhysicsWorld, PhysicsBody, PhysicsSystem, CollisionEvent | `src/physics/` |
-| CharacterController, RaycastHit, cast_ray, cast_ray_with_normal, move_character | `src/physics/character.rs`, `src/physics/world.rs` |
-| add_kinematic_box, add_kinematic_circle | `src/physics/world.rs` |
+| CharacterController (+ `request_drop`/`is_dropping` for one-way), RaycastHit, cast_ray, cast_ray_with_normal, move_character | `src/physics/character.rs`, `src/physics/world.rs` |
+| add_kinematic_box, add_kinematic_circle, add_static_from_tilemap, TileCollider, set_one_way/is_one_way | `src/physics/world.rs` |
 | SpatialGrid, Collider, CollisionLayer (SpatialGrid is mirrored to a World resource by CollisionGridSystem) | `src/collision/` |
-| BehaviorTree, BehaviorNode, Sequence, Selector, Inverter, AlwaysSucceed, BehaviorSystem, Blackboard | `src/behavior.rs` |
+| BehaviorTree, BehaviorNode, Sequence, Selector, Inverter, AlwaysSucceed, BehaviorSystem, Blackboard, BlackboardValue (`Path` variant + `set_path`/`get_path`) | `src/behavior.rs` |
 | Seek, Flee, Arrive, Wander, SteeringVelocity, SteeringSystem (steering behaviors; O(1) per-entity component lookup) | `src/steering.rs` |
 | PathGrid, find_path, PathGrid::from_tilemap | `src/pathfinding.rs` |
 | AnimationPlayer, AnimationClip, AnimationSystem, BlendWeight | `src/animation/player.rs`, `src/animation/system.rs` |

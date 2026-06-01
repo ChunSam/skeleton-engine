@@ -446,6 +446,21 @@ impl World {
             .and_then(|b| b.downcast::<T>().ok().map(|b| *b))
     }
 
+    /// `TypeId`로 리소스를 type-erased 박스째 꺼낸다 (소유권 이전).
+    ///
+    /// 정적 타입을 모른 채 리소스를 다른 `World`로 옮길 때 쓴다 (예: 씬 전환 시
+    /// persistent 리소스 보존). 일반적인 게임 코드는 [`World::remove_resource`]를 쓴다.
+    pub fn take_resource_erased(&mut self, type_id: TypeId) -> Option<Box<dyn Any>> {
+        self.resources.remove(&type_id)
+    }
+
+    /// [`World::take_resource_erased`]로 꺼낸 박스를 다시 삽입한다.
+    ///
+    /// `type_id`는 박스가 담은 실제 타입의 `TypeId`여야 한다 (보통 꺼낼 때 쓴 것과 동일).
+    pub fn insert_resource_erased(&mut self, type_id: TypeId, resource: Box<dyn Any>) {
+        self.resources.insert(type_id, resource);
+    }
+
     // ── Reflect 레지스트리 ────────────────────────────────────────────────────
 
     /// 타입 T를 Reflect 레지스트리에 등록한다.
@@ -1317,5 +1332,33 @@ mod tests {
         let mut world = World::new();
         let v = world.remove_resource::<u32>();
         assert_eq!(v, None);
+    }
+
+    #[test]
+    fn erased_resource_roundtrips_between_worlds() {
+        // persistent 리소스 보존 메커니즘(App::register_persistent)의 핵심 단계:
+        // type-erased 박스로 꺼내 새 World에 그대로 넣어도 값이 보존된다.
+        #[derive(Debug, PartialEq)]
+        struct Score(u32);
+
+        let tid = TypeId::of::<Score>();
+        let mut old = World::new();
+        old.insert_resource(Score(42));
+
+        let boxed = old.take_resource_erased(tid).expect("리소스 존재");
+        assert!(
+            old.resource::<Score>().is_none(),
+            "꺼낸 뒤 옛 World엔 없어야"
+        );
+
+        let mut fresh = World::new();
+        fresh.insert_resource_erased(tid, boxed);
+        assert_eq!(fresh.resource::<Score>(), Some(&Score(42)));
+    }
+
+    #[test]
+    fn take_resource_erased_missing_returns_none() {
+        let mut world = World::new();
+        assert!(world.take_resource_erased(TypeId::of::<u32>()).is_none());
     }
 }

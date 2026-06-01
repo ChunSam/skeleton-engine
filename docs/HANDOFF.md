@@ -2106,6 +2106,56 @@ The positions of `Panel` children are computed by `LayoutSystem`. It must be reg
 
 ---
 
+## 2026-06-01 — Playable-example dogfooding gaps closed (v1.1.0)
+
+**Context:** the v1.0.0 playable-examples program surfaced four engine gaps (`docs/NEXT_WORK.md`
+rows A/B/E + notes). All four are now fixed, each validated by editing the example that first
+surfaced it (no new examples). Released as **v1.1.0** (additive minor; one `#[non_exhaustive]`).
+
+**1. Blackboard path caching (`src/behavior.rs`).** Added `BlackboardValue::Path(Vec<IVec2>)`
++ `Blackboard::set_path`/`get_path`, and marked `BlackboardValue` `#[non_exhaustive]`.
+`maze_escape`'s `ComputePathToPlayer` now caches the full A* path and recomputes only when the
+player's goal tile changes (was: stored one step, re-ran `find_path` every tick).
+
+**2. Persistent resources (`src/ecs/world.rs`, `src/app.rs`).** Added type-erased
+`World::take_resource_erased`/`insert_resource_erased` and `App::register_persistent::<T>()`.
+`reload_scene` lifts registered resources out of the old `World` before `World::new()` and
+re-inserts them last (so they win over default re-inserts). `scene_flow` dropped its
+`Arc<Mutex<StatsData>>` cross-scene workaround — `StatsData` is now a plain persistent resource.
+
+**3. Tilemap→physics helper (`src/physics/world.rs`).** Added
+`PhysicsWorld::add_static_from_tilemap(tilemap, ppu, collider_for)` + the `TileCollider`
+descriptor (`solid`/`solid_with`/`one_way`). It mirrors `TilemapSystem`'s tile-center math so
+colliders align with rendered tiles. `platformer`'s hardcoded `PLATFORMS` array is replaced by
+an ASCII `LEVEL` → `Tilemap` driving both rendering and collision from one source.
+
+**4. One-way platforms (`src/physics/world.rs`, `src/physics/character.rs`).**
+`PhysicsWorld::set_one_way`/`is_one_way` tag colliders; `CharacterController::request_drop`/
+`is_dropping` request a timed drop-through. `move_character` builds a Rapier `QueryFilter`
+predicate that excludes a one-way collider when the character is ascending, or dropping, or its
+bottom is below the platform top — so the character only lands from above and can jump up through
+or press-down to fall. `platformer` adds a one-way tile (`'O'`) and an S/Down drop key.
+
+**Gotchas / decisions:**
+- `BlackboardValue` was not `#[non_exhaustive]` (technically minor-breaking to add a variant);
+  added the attribute now. `scripting.rs` already had a `_ =>` arm; `rust-survivors` rebuilt
+  clean (no exhaustive match).
+- The one-way predicate needs the `query_pipeline` populated — in the unit test that means a
+  `step(dt)` before the first `move_character` (the live loop already steps each frame).
+- `platformer` imports `rapier2d` directly and uses physics, which is `#[cfg(not(wasm32))]`, so
+  the example is native-only (pre-existing). The **lib** still builds on wasm; `maze_escape` and
+  `scene_flow` examples build on wasm.
+- `add_static_from_tilemap` emits one box per solid tile (no row-merging); large maps can revisit
+  this later.
+
+**Verified:** `cargo fmt --check` clean; `cargo test --lib` = **253 passed** (incl. new path-cache,
+erased-resource, tilemap-collider, and one-way tests); `cargo clippy --lib --example
+maze_escape_game --example scene_flow_game --example platformer_game -- -D warnings` = 0 warnings;
+wasm lib + `maze_escape`/`scene_flow` examples build; `rust-survivors` rebuilds clean. Interactive
+play left for user confirmation (GUI not observable here).
+
+---
+
 ## 2026-06-01 — Top-down twin-stick survival example + `SteeringSystem` O(N²)→O(N) fix (candidate F)
 
 **Shipped:** `examples/games/survivor/survivor.rs` (`survivor_game`) — a single-screen
