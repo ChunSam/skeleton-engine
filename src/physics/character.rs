@@ -24,6 +24,9 @@ pub struct CharacterController {
     /// 이전 `move_character` 호출 후 접지 여부.
     pub grounded: bool,
     pub(crate) inner: KinematicCharacterController,
+    /// one-way 플랫폼을 아래로 통과(drop-through)하는 남은 시간 (초).
+    /// `request_drop`으로 설정되고 `move_character`가 매 프레임 감소시킨다.
+    pub(crate) drop_timer: f32,
 }
 
 impl Default for CharacterController {
@@ -47,6 +50,7 @@ impl Default for CharacterController {
             max_slope_angle: std::f32::consts::FRAC_PI_4,
             grounded: false,
             inner,
+            drop_timer: 0.0,
         }
     }
 }
@@ -84,4 +88,22 @@ impl CharacterController {
         }
         self
     }
+
+    /// one-way 플랫폼을 아래로 통과하도록 요청한다 (아래 키 입력 시 호출).
+    ///
+    /// 이후 짧은 시간 동안 `move_character`가 one-way 콜라이더와의 충돌을 무시해
+    /// 캐릭터가 발밑 플랫폼 아래로 떨어진다. 일반 솔리드 콜라이더에는 영향이 없다.
+    pub fn request_drop(&mut self) {
+        self.drop_timer = Self::DROP_DURATION;
+    }
+
+    /// drop 요청이 활성 상태인지 (one-way 통과 윈도가 남아 있는지).
+    pub fn is_dropping(&self) -> bool {
+        self.drop_timer > 0.0
+    }
+}
+
+impl CharacterController {
+    /// drop-through 윈도 길이 (초). 캐릭터가 플랫폼 두께를 벗어나기에 충분한 시간.
+    pub(crate) const DROP_DURATION: f32 = 0.2;
 }

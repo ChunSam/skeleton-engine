@@ -9,4 +9,4 @@ pub use character::CharacterController;
 pub use events::{CollisionEvent, TriggerEvent};
 pub use rapier2d::prelude::ImpulseJointHandle;
 pub use system::PhysicsSystem;
-pub use world::{CollisionGroups, PhysicsWorld, RaycastHit};
+pub use world::{CollisionGroups, PhysicsWorld, RaycastHit, TileCollider};

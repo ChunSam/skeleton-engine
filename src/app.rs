@@ -317,6 +317,8 @@ pub struct App {
     event_flushers: Vec<EventHook>,
     /// reload_scene 시 이벤트 리소스를 재삽입하는 클로저 목록.
     event_initializers: Vec<EventHook>,
+    /// 씬 전환(World 리셋)을 넘어 보존할 리소스 타입 목록 (`register_persistent`).
+    persistent_resources: Vec<std::any::TypeId>,
     /// gilrs 게임패드 컨텍스트. 초기화 실패 시 None (게임패드 없이 동작).
     #[cfg(not(target_arch = "wasm32"))]
     gilrs: Option<gilrs::Gilrs>,
@@ -433,6 +435,7 @@ impl App {
             pending_render_targets: Vec::new(),
             event_flushers: Vec::new(),
             event_initializers: Vec::new(),
+            persistent_resources: Vec::new(),
             gilrs,
             egui_renderer: None,
             egui_state: None,
@@ -482,6 +485,7 @@ impl App {
             pending_render_targets: Vec::new(),
             event_flushers: Vec::new(),
             event_initializers: Vec::new(),
+            persistent_resources: Vec::new(),
             egui_renderer: None,
             egui_state: None,
             egui_output: None,
@@ -693,11 +697,35 @@ impl App {
             .load_script(path)
     }
 
+    /// 리소스 타입 `T`를 씬 전환(World 리셋)을 넘어 보존하도록 등록한다.
+    ///
+    /// 기본적으로 `SceneCmd::Replace`(및 [`App::reload_scene`])는 `World`를 통째로
+    /// 새로 만들어 모든 리소스를 버린다. 점수·진행도·진단 같은 cross-scene 상태를
+    /// 매번 씬 생성자로 넘기지 않으려면, 해당 리소스를 일반 리소스로 `insert_resource`
+    /// 한 뒤 이 메서드로 타입을 등록한다. 등록된 타입의 리소스는 리셋 직전에 옛 `World`에서
+    /// 꺼내져 새 `World`에 그대로 다시 삽입된다 (존재할 때만).
+    ///
+    /// 같은 타입을 두 번 등록해도 중복 보존되지 않는다.
+    pub fn register_persistent<T: 'static>(&mut self) {
+        let tid = std::any::TypeId::of::<T>();
+        if !self.persistent_resources.contains(&tid) {
+            self.persistent_resources.push(tid);
+        }
+    }
+
     /// ECS 월드를 초기화하고 기본 리소스를 재삽입한다.
     ///
     /// 씬 전환 시 엔티티·컴포넌트를 전부 지우고 싶을 때 사용한다.
     /// 시스템은 유지되므로 필요하면 `add_system`으로 새로 등록한다.
+    /// [`App::register_persistent`]로 등록한 리소스는 리셋을 넘어 보존된다.
     pub fn reload_scene(&mut self) {
+        // 리셋 전에 보존 대상 리소스를 type-erased 박스로 꺼내 둔다.
+        let preserved: Vec<(std::any::TypeId, Box<dyn std::any::Any>)> = self
+            .persistent_resources
+            .iter()
+            .filter_map(|&tid| self.world.take_resource_erased(tid).map(|b| (tid, b)))
+            .collect();
+
         self.world = World::new();
         self.world.insert_resource(InputState::default());
         self.world.insert_resource(GamepadState::default());
@@ -742,6 +770,11 @@ impl App {
         self.world
             .register_clone::<crate::animation::player::AnimationPlayer>();
         self.world.register_clone::<crate::timer::Timer>();
+        // 보존 대상 리소스를 마지막에 재삽입 — 엔진 기본 리소스보다 우선시되도록
+        // (같은 타입이면 보존본이 기본본을 덮어쓴다).
+        for (tid, boxed) in preserved {
+            self.world.insert_resource_erased(tid, boxed);
+        }
         self.inspector_selected = None;
         #[cfg(not(target_arch = "wasm32"))]
         {

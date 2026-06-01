@@ -84,7 +84,7 @@ pub use pathfinding::{find_path, PathGrid};
 #[cfg(not(target_arch = "wasm32"))]
 pub use physics::{
     CharacterController, CollisionEvent, CollisionGroups, ImpulseJointHandle, PhysicsBody,
-    PhysicsSystem, PhysicsWorld, RaycastHit, TriggerEvent,
+    PhysicsSystem, PhysicsWorld, RaycastHit, TileCollider, TriggerEvent,
 };
 pub use pool::{Pool, Pooled};
 pub use prefab::{

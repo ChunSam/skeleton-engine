@@ -8,11 +8,10 @@
 //! Controls: WASD / Arrows to move, R to restart, Esc to quit.
 
 use engine::{
-    behavior::{Blackboard, BlackboardValue},
-    App, BehaviorNode, BehaviorStatus, BehaviorSystem, BehaviorTree, Camera, Collider,
-    CollisionGridSystem, CollisionLayer, DrawText, Entity, InputState, KeyCode, PathGrid, Selector,
-    Sequence, ShouldQuit, SpatialGrid, Sprite, System, TextQueue, Tilemap, TilemapAtlas, Transform,
-    WindowConfig, World,
+    behavior::Blackboard, App, BehaviorNode, BehaviorStatus, BehaviorSystem, BehaviorTree, Camera,
+    Collider, CollisionGridSystem, CollisionLayer, DrawText, Entity, InputState, KeyCode, PathGrid,
+    Selector, Sequence, ShouldQuit, SpatialGrid, Sprite, System, TextQueue, Tilemap, TilemapAtlas,
+    Transform, WindowConfig, World,
 };
 use glam::{IVec2, Vec2};
 
@@ -186,7 +185,10 @@ impl BehaviorNode for MoveTowardPlayer {
     }
 }
 
-/// Run A*, then write the next tile's world center into the Blackboard.
+/// Run A* once and cache the **whole path** (`BlackboardValue::Path`) in the
+/// Blackboard. Recompute only when the player's goal tile changes or the cached
+/// path has been consumed — this is the validation point for path caching: the
+/// previous version recomputed A* every single tick.
 struct ComputePathToPlayer;
 impl BehaviorNode for ComputePathToPlayer {
     fn tick(&mut self, world: &mut World, entity: Entity, _dt: f32) -> BehaviorStatus {
@@ -196,49 +198,62 @@ impl BehaviorNode for ComputePathToPlayer {
         let Some(enemy_pos) = world.get::<Transform>(entity).map(|t| t.position) else {
             return BehaviorStatus::Failure;
         };
-        let Some(grid) = world.resource::<PathGrid>() else {
-            return BehaviorStatus::Failure;
-        };
 
         let start = world_to_tile(enemy_pos);
         let goal = world_to_tile(player_pos);
-        let Some(path) = engine::find_path(grid, start, goal) else {
-            return BehaviorStatus::Failure;
-        };
-        let Some(next) = path.into_iter().next() else {
-            // Already on the player's tile — fall through and let direct chase
-            // close the remaining sub-tile distance.
-            return BehaviorStatus::Success;
-        };
-        let next_world = tile_center(next.x, next.y);
 
-        if let Some(bb) = world.get_mut::<Blackboard>(entity) {
-            bb.set_vec2("path_target", next_world);
+        // Decide whether the cached path is still usable before touching A*.
+        let needs_recompute = match world.get::<Blackboard>(entity) {
+            Some(bb) => {
+                let cached_goal = (bb.get_int("path_goal_x"), bb.get_int("path_goal_y"));
+                let idx = bb.get_int("path_idx").unwrap_or(0);
+                let len = bb.get_path("path").map(|p| p.len() as i32).unwrap_or(0);
+                cached_goal != (Some(goal.x), Some(goal.y)) || idx >= len
+            }
+            None => return BehaviorStatus::Failure,
+        };
+
+        if needs_recompute {
+            let Some(grid) = world.resource::<PathGrid>() else {
+                return BehaviorStatus::Failure;
+            };
+            let Some(path) = engine::find_path(grid, start, goal) else {
+                return BehaviorStatus::Failure;
+            };
+            if let Some(bb) = world.get_mut::<Blackboard>(entity) {
+                bb.set_path("path", path);
+                bb.set_int("path_idx", 0);
+                bb.set_int("path_goal_x", goal.x);
+                bb.set_int("path_goal_y", goal.y);
+            }
         }
         BehaviorStatus::Success
     }
 }
 
-/// Move one step toward the cached blackboard target.
+/// Walk along the cached path, advancing the waypoint index when the current one
+/// is reached. No A* runs here — it only reads `BlackboardValue::Path`.
 struct FollowPathStep;
 impl BehaviorNode for FollowPathStep {
     fn tick(&mut self, world: &mut World, entity: Entity, dt: f32) -> BehaviorStatus {
-        let target = match world.get::<Blackboard>(entity).and_then(|bb| {
-            bb.entries().find_map(|(k, v)| {
-                if k == "path_target" {
-                    if let BlackboardValue::Vec2(p) = v {
-                        Some(*p)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            })
-        }) {
-            Some(p) => p,
-            None => return BehaviorStatus::Failure,
+        let Some(current) = world.get::<Transform>(entity).map(|t| t.position) else {
+            return BehaviorStatus::Failure;
         };
+        let Some((target, idx, reached)) = world.get::<Blackboard>(entity).and_then(|bb| {
+            let idx = bb.get_int("path_idx").unwrap_or(0).max(0) as usize;
+            let wp = *bb.get_path("path")?.get(idx)?;
+            let center = tile_center(wp.x, wp.y);
+            Some((center, idx, (center - current).length() < TILE * 0.25))
+        }) else {
+            return BehaviorStatus::Failure;
+        };
+
+        // Advance to the next waypoint once the current one is reached.
+        if reached {
+            if let Some(bb) = world.get_mut::<Blackboard>(entity) {
+                bb.set_int("path_idx", idx as i32 + 1);
+            }
+        }
 
         move_enemy_toward(world, entity, target, dt);
         BehaviorStatus::Success
@@ -495,8 +510,10 @@ fn reset(world: &mut World) {
             t.position = *spawn;
         }
         if let Some(bb) = world.get_mut::<Blackboard>(*entity) {
-            // Drop the cached path step so the BT recomputes immediately.
-            bb.set_vec2("path_target", *spawn);
+            // Invalidate the cached path so the BT recomputes from the new spawn.
+            bb.set_int("path_goal_x", i32::MIN);
+            bb.set_int("path_goal_y", i32::MIN);
+            bb.set_int("path_idx", 0);
         }
         if let Some(tree) = world.get_mut::<BehaviorTree>(*entity) {
             tree.reset();

@@ -3,6 +3,7 @@ use rapier2d::prelude::*;
 
 use crate::physics::body::PhysicsBody;
 use crate::physics::character::CharacterController;
+use crate::tilemap::Tilemap;
 
 // ── 충돌 그룹 ────────────────────────────────────────────────────────────────
 
@@ -87,6 +88,44 @@ pub struct RaycastHit {
     pub toi: f32,
 }
 
+/// [`PhysicsWorld::add_static_from_tilemap`]이 타일마다 만들 콜라이더의 종류.
+///
+/// 충돌 그룹과 one-way 여부를 함께 지정한다. 편의 생성자로 흔한 경우를 만든다:
+/// [`TileCollider::solid`](전체 충돌), [`TileCollider::one_way`](위에서만 막음).
+#[derive(Debug, Clone, Copy)]
+pub struct TileCollider {
+    /// 콜라이더 충돌 그룹.
+    pub groups: CollisionGroups,
+    /// `true`면 위에서 내려올 때만 막는 one-way 플랫폼.
+    pub one_way: bool,
+}
+
+impl TileCollider {
+    /// 모든 방향을 막는 일반 솔리드 타일 (`CollisionGroups::all`).
+    pub fn solid() -> Self {
+        Self {
+            groups: CollisionGroups::all(),
+            one_way: false,
+        }
+    }
+
+    /// 충돌 그룹을 지정한 솔리드 타일.
+    pub fn solid_with(groups: CollisionGroups) -> Self {
+        Self {
+            groups,
+            one_way: false,
+        }
+    }
+
+    /// 위에서 내려올 때만 막고 아래/위 통과를 허용하는 one-way 플랫폼 타일.
+    pub fn one_way() -> Self {
+        Self {
+            groups: CollisionGroups::all(),
+            one_way: true,
+        }
+    }
+}
+
 /// rapier2d 2D 물리 시뮬레이션 세계.
 ///
 /// `PhysicsSystem`이 소유하거나 직접 시스템 구조체에 넣어 사용한다.
@@ -103,6 +142,9 @@ pub struct PhysicsWorld {
     pub(crate) multibody_joint_set: MultibodyJointSet,
     ccd_solver: CCDSolver,
     query_pipeline: QueryPipeline,
+    /// 위에서만 막는 one-way 플랫폼으로 표시된 콜라이더 집합.
+    /// `move_character`가 이동 방향에 따라 이 콜라이더와의 충돌을 동적으로 무시한다.
+    one_way_colliders: std::collections::HashSet<ColliderHandle>,
 }
 
 impl PhysicsWorld {
@@ -121,7 +163,26 @@ impl PhysicsWorld {
             multibody_joint_set: MultibodyJointSet::new(),
             ccd_solver: CCDSolver::new(),
             query_pipeline: QueryPipeline::new(),
+            one_way_colliders: std::collections::HashSet::new(),
         }
+    }
+
+    /// 콜라이더를 one-way(위에서만 막는) 플랫폼으로 표시하거나 해제한다.
+    ///
+    /// one-way로 표시된 콜라이더는 [`PhysicsWorld::move_character`]에서 캐릭터가
+    /// **아래로 내려오며 그 윗면 위에 있을 때만** 충돌하고, 위로 상승 중이거나
+    /// drop 요청(`CharacterController::request_drop`) 중에는 통과한다.
+    pub fn set_one_way(&mut self, handle: ColliderHandle, one_way: bool) {
+        if one_way {
+            self.one_way_colliders.insert(handle);
+        } else {
+            self.one_way_colliders.remove(&handle);
+        }
+    }
+
+    /// 콜라이더가 one-way 플랫폼으로 표시되어 있는지 여부.
+    pub fn is_one_way(&self, handle: ColliderHandle) -> bool {
+        self.one_way_colliders.contains(&handle)
     }
 
     /// 중력에 반응하는 동적 박스 바디를 추가한다.
@@ -195,6 +256,46 @@ impl PhysicsWorld {
             self.collider_set
                 .insert_with_parent(collider, handle, &mut self.rigid_body_set);
         (handle, col_handle)
+    }
+
+    /// 타일맵의 타일마다 정적 박스 콜라이더를 생성한다.
+    ///
+    /// [`crate::tilemap::TilemapSystem`]이 타일 스프라이트를 배치하는 좌표 규약과
+    /// 동일하게 각 타일의 세계 중심을 계산하므로, 렌더되는 타일과 콜라이더가 정확히
+    /// 겹친다. `collider_for`가 [`Some`]을 반환하는 타일에만 콜라이더를 만들고,
+    /// [`None`]이면 건너뛴다 (빈 칸·장식 타일 등). [`TileCollider`]로 솔리드와
+    /// one-way 플랫폼을 타일별로 섞어 한 번에 만들 수 있다 (one-way 타일은
+    /// [`PhysicsWorld::set_one_way`]로 자동 표시된다).
+    ///
+    /// `pixels_per_unit`은 세계(픽셀) 좌표를 물리(미터) 단위로 변환하는 비율이다.
+    /// 반환값은 생성된 `(RigidBodyHandle, ColliderHandle)` 목록이다 (스폰 순서: 행→열).
+    pub fn add_static_from_tilemap(
+        &mut self,
+        tilemap: &Tilemap,
+        pixels_per_unit: f32,
+        mut collider_for: impl FnMut(u32) -> Option<TileCollider>,
+    ) -> Vec<(RigidBodyHandle, ColliderHandle)> {
+        let ppu = pixels_per_unit.max(f32::MIN_POSITIVE);
+        let half = (tilemap.tile_size * 0.5) / ppu;
+        let mut handles = Vec::new();
+        for (row_idx, row) in tilemap.tiles.iter().enumerate() {
+            for (col_idx, &tile_id) in row.iter().enumerate() {
+                let Some(kind) = collider_for(tile_id) else {
+                    continue;
+                };
+                let x =
+                    tilemap.origin.x + col_idx as f32 * tilemap.tile_size + tilemap.tile_size * 0.5;
+                let y =
+                    tilemap.origin.y + row_idx as f32 * tilemap.tile_size + tilemap.tile_size * 0.5;
+                let pair =
+                    self.add_static_box_with_groups(Vec2::new(x, y) / ppu, half, half, kind.groups);
+                if kind.one_way {
+                    self.one_way_colliders.insert(pair.1);
+                }
+                handles.push(pair);
+            }
+        }
+        handles
     }
 
     /// 중력에 반응하는 동적 원형 바디를 추가한다.
@@ -520,6 +621,27 @@ impl PhysicsWorld {
         };
         let _ = shape_type; // 타입 힌트용으로 저장, 실제 사용은 shape 참조
 
+        // one-way 플랫폼 처리: drop 윈도를 갱신하고, 이번 프레임의 통과 판정값을 미리 구한다.
+        // 화면 좌표(Y+는 아래)이므로 "내려옴" = desired.y > 0, 캐릭터 밑면 = AABB.maxs.y.
+        let drop_active = controller.drop_timer > 0.0;
+        controller.drop_timer = (controller.drop_timer - dt).max(0.0);
+        let moving_down = desired.y > 1e-6;
+        let char_bottom = shape.compute_aabb(&col_pos).maxs.y;
+        // 윗면보다 살짝(스킨 두께) 위까지는 "위에 있음"으로 간주해 안정적으로 착지/접지한다.
+        const ONE_WAY_TOLERANCE: f32 = 0.05;
+        let one_way = &self.one_way_colliders;
+        let predicate = move |handle: ColliderHandle, collider: &Collider| -> bool {
+            if !one_way.contains(&handle) {
+                return true; // 일반 솔리드: 항상 충돌.
+            }
+            if drop_active || !moving_down {
+                return false; // drop 중이거나 상승 중 → 통과.
+            }
+            // 내려오는 중 + 캐릭터 밑면이 플랫폼 윗면 위(또는 거의 닿음)일 때만 막는다.
+            let platform_top = collider.compute_aabb().mins.y;
+            char_bottom <= platform_top + ONE_WAY_TOLERANCE
+        };
+
         let output = controller.inner.move_shape(
             dt,
             &self.rigid_body_set,
@@ -528,7 +650,9 @@ impl PhysicsWorld {
             shape,
             &col_pos,
             desired,
-            QueryFilter::default().exclude_collider(col_handle),
+            QueryFilter::default()
+                .exclude_collider(col_handle)
+                .predicate(&predicate),
             |_| {},
         );
 
@@ -801,5 +925,83 @@ mod tests {
         let (b2, _) = pw.add_dynamic_box(Vec2::new(0.0, 1.0), 0.4, 0.4, false);
         let h = pw.add_prismatic_joint(b1, b2, Vec2::ZERO, Vec2::ZERO, Vec2::new(0.0, 1.0));
         assert!(pw.impulse_joint_set.get(h).is_some());
+    }
+
+    #[test]
+    fn add_static_from_tilemap_creates_collider_per_matching_tile() {
+        use crate::tilemap::{Tilemap, TilemapAtlas};
+
+        // tiles[row][col]: 1 = solid, 2 = one-way, 0 = empty.
+        let tiles = vec![vec![1, 0, 2], vec![0, 1, 1]];
+        let tilemap = Tilemap::new(TilemapAtlas::new("x", 1, 1), tiles, 32.0, Vec2::ZERO);
+        let mut pw = make_world();
+
+        // Solid tiles (id 1) get a collider; everything else is skipped.
+        let solids =
+            pw.add_static_from_tilemap(&tilemap, 32.0, |id| (id == 1).then(TileCollider::solid));
+        assert_eq!(solids.len(), 3, "id==1 타일 3개에만 콜라이더 생성");
+        assert_eq!(pw.collider_set.len(), 3);
+
+        // The one-way tile (id 2) is created and auto-registered as one-way.
+        let one_ways =
+            pw.add_static_from_tilemap(&tilemap, 32.0, |id| (id == 2).then(TileCollider::one_way));
+        assert_eq!(one_ways.len(), 1, "id==2 타일 1개");
+        assert_eq!(pw.collider_set.len(), 4);
+        assert!(
+            pw.is_one_way(one_ways[0].1),
+            "one-way 콜라이더로 표시되어야"
+        );
+
+        // Tile center for [row=0][col=0] with tile_size 32, ppu 32 → world (16,16) → physics (0.5,0.5).
+        let body = pw.rigid_body_set.get(solids[0].0).unwrap();
+        let t = body.translation();
+        assert!((t.x - 0.5).abs() < 1e-5 && (t.y - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn one_way_platform_blocks_from_top_passes_from_below_and_on_drop() {
+        // 화면 좌표(+y 아래). 플랫폼 y=2.0, half 0.5 → 윗면 1.5 / 밑면 2.5.
+        // 캐릭터 half 0.5. ppu=1.0이라 픽셀=물리 단위. move_character가 설정한
+        // next_kinematic_translation을 step()으로 실제 이동시킨 뒤 y를 읽어 판정한다.
+        let dt = 1.0 / 60.0;
+        let run = |start_y: f32, desired_y: f32, one_way: bool, drop: bool| -> f32 {
+            let mut pw = PhysicsWorld::new(Vec2::ZERO);
+            let (_p, pcol) = pw.add_static_box(Vec2::new(0.0, 2.0), 1.0, 0.5);
+            pw.set_one_way(pcol, one_way);
+            let (crb, ccol) = pw.add_kinematic_box(Vec2::new(0.0, start_y), 0.5, 0.5);
+            let mut ctrl = CharacterController::new();
+            if drop {
+                ctrl.request_drop();
+            }
+            // 초기 step으로 query_pipeline에 콜라이더를 등록한다 (move_character가 이를 질의함).
+            pw.step(dt);
+            pw.move_character(&mut ctrl, crb, ccol, Vec2::new(0.0, desired_y), dt, 1.0);
+            pw.step(dt);
+            pw.rigid_body(crb).unwrap().translation().y
+        };
+
+        // 1) 위에서 내려옴: one-way·솔리드 모두 막아 윗면(center≈1.0)에서 멈춘다.
+        assert!(
+            run(0.5, 0.6, true, false) < 1.05,
+            "one-way도 위에서 내려오면 막아야"
+        );
+        assert!(run(0.5, 0.6, false, false) < 1.05, "솔리드는 막아야");
+
+        // 2) 아래에서 위로: one-way는 통과(올라감), 솔리드는 밑면(center≈3.0)에서 막힌다.
+        assert!(
+            run(3.0, -1.5, true, false) < 2.0,
+            "one-way는 아래에서 위로 통과해야"
+        );
+        assert!(
+            run(3.0, -1.5, false, false) > 2.8,
+            "솔리드는 아래에서 막아야"
+        );
+
+        // 3) 윗면에 선 채 drop 요청 + 내려옴: one-way는 통과(내려감), 솔리드는 그대로.
+        assert!(
+            run(1.0, 0.6, true, true) > 1.4,
+            "drop 요청 시 one-way 통과해야"
+        );
+        assert!(run(1.0, 0.6, false, true) < 1.05, "솔리드는 drop 요청 무시");
     }
 }

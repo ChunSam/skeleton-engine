@@ -4,9 +4,29 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
-## Unreleased
+## 1.1.0
 
 ### Added
+
+- `BlackboardValue::Path(Vec<IVec2>)` plus `Blackboard::set_path`/`get_path` so behavior
+  trees can cache a whole A* path instead of recomputing every tick. `BlackboardValue` is
+  now `#[non_exhaustive]`. Validated by `maze_escape_game`, whose enemies now cache the path
+  and only re-run `find_path` when the player's goal tile changes.
+- `App::register_persistent::<T>()` plus `World::take_resource_erased`/`insert_resource_erased`
+  to preserve chosen resources across the `World` reset that `SceneCmd::Replace` triggers.
+  `scene_flow_game` uses it to drop its `Arc<Mutex<_>>` cross-scene state workaround.
+- `PhysicsWorld::add_static_from_tilemap(tilemap, ppu, collider_for)` and the `TileCollider`
+  descriptor (`solid` / `solid_with` / `one_way`) to generate one static collider per solid
+  tile, aligned to `TilemapSystem`'s tile coordinates. `platformer_game`'s level is now a
+  single `Tilemap` that drives both rendering and collision; its seamless tileset is
+  reproducible via `examples/gen_platform_tiles.rs` (the original `tiles.png` is a set of
+  discrete object sprites with transparent margins, not a seamless tileset).
+- One-way platforms: `PhysicsWorld::set_one_way`/`is_one_way` and
+  `CharacterController::request_drop`/`is_dropping`. `move_character` now passes through
+  one-way colliders when ascending or dropping and only lands on them from above.
+  `platformer_game` adds a one-way platform and an S/Down drop-through key.
+
+### Added (pre-1.1 carryover)
 
 - 2D cutout (rigged) skeletal animation in `src/skeletal.rs`: `SkeletalAnimator`,
   `SkeletalClip`, `BoneTrack`, `BoneKeyframe`, `SkeletalAnimationSystem`, and the

@@ -2,7 +2,8 @@ use engine::{
     AnimationClip, AnimationPlayer, AnimationStateMachine, AnimationSystem, App, AtlasSprite,
     Camera, CharacterController, DrawText, Entity, Events, InputState, KeyCode, PhysicsBody,
     PhysicsSystem, PhysicsWorld, ShouldQuit, Sprite, StateMachineSystem, System, TextQueue,
-    Transform, TransitionCond, TriggerEvent, UvRect, WindowConfig, World,
+    TileCollider, Tilemap, TilemapAtlas, TilemapSystem, Transform, TransitionCond, TriggerEvent,
+    UvRect, WindowConfig, World,
 };
 use glam::Vec2;
 use rapier2d::na as nalgebra;
@@ -11,12 +12,13 @@ use rapier2d::prelude::vector;
 const WINDOW_W: u32 = 960;
 const WINDOW_H: u32 = 540;
 const PPU: f32 = 64.0;
+const TILE_SIZE: f32 = 64.0;
 
-const PLAYER_START: Vec2 = Vec2::new(120.0, 320.0);
+const PLAYER_START: Vec2 = Vec2::new(160.0, 380.0);
 const PLAYER_SIZE: Vec2 = Vec2::new(64.0, 64.0);
 const PLAYER_HALF_PHYSICS: Vec2 = Vec2::new(0.32, 0.46);
-const GOAL_POS: Vec2 = Vec2::new(1220.0, 230.0);
-const FALL_Y: f32 = 620.0;
+const GOAL_POS: Vec2 = Vec2::new(1312.0, 224.0);
+const FALL_Y: f32 = 700.0;
 
 const MOVE_ACCEL: f32 = 2600.0;
 const GROUND_DECEL: f32 = 3200.0;
@@ -27,14 +29,44 @@ const JUMP_SPEED: f32 = 560.0;
 const COYOTE_TIME: f32 = 0.10;
 const JUMP_BUFFER: f32 = 0.11;
 
-const PLATFORMS: &[(f32, f32, f32, f32, u32)] = &[
-    (120.0, 420.0, 360.0, 64.0, 0),
-    (440.0, 380.0, 170.0, 48.0, 1),
-    (660.0, 330.0, 170.0, 48.0, 2),
-    (900.0, 290.0, 190.0, 48.0, 1),
-    (1180.0, 340.0, 280.0, 64.0, 0),
-    (780.0, 470.0, 190.0, 56.0, 8),
+// Level as a uniform tile grid (one char per 64px tile). The collider geometry is
+// generated from this same map by `PhysicsWorld::add_static_from_tilemap`, so the
+// level is defined in exactly one place.
+//   '.' = empty   'G' = ground   'B' = block   'O' = one-way platform
+const LEVEL: &[&str] = &[
+    "........................",
+    "........................",
+    "........................",
+    "........................",
+    "...............BBBBBBBB.",
+    "..OOO......BBB..........",
+    ".......BBB..............",
+    "GGGGGG..................",
+    "........................",
+    "........................",
 ];
+
+// Tilemap tile ids (atlas index + 1; 0 = empty).
+const TILE_GROUND: u32 = 1; // atlas index 0
+const TILE_BLOCK: u32 = 2; // atlas index 1
+const TILE_ONEWAY: u32 = 9; // atlas index 8
+
+/// Parse the ASCII `LEVEL` into a `tiles[row][col]` grid for `Tilemap`.
+fn level_tiles() -> Vec<Vec<u32>> {
+    LEVEL
+        .iter()
+        .map(|row| {
+            row.chars()
+                .map(|c| match c {
+                    'G' => TILE_GROUND,
+                    'B' => TILE_BLOCK,
+                    'O' => TILE_ONEWAY,
+                    _ => 0,
+                })
+                .collect()
+        })
+        .collect()
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PlayStatus {
@@ -97,7 +129,7 @@ impl PlatformerPhysicsSystem {
 
 impl System for PlatformerPhysicsSystem {
     fn run(&mut self, world: &mut World, dt: f32) {
-        let (move_axis, jump_pressed, restart_pressed, quit_pressed) = world
+        let (move_axis, jump_pressed, drop_pressed, restart_pressed, quit_pressed) = world
             .resource::<InputState>()
             .map(|input| {
                 let mut axis = 0.0;
@@ -112,11 +144,12 @@ impl System for PlatformerPhysicsSystem {
                     input.just_pressed(KeyCode::Space)
                         || input.just_pressed(KeyCode::KeyW)
                         || input.just_pressed(KeyCode::ArrowUp),
+                    input.just_pressed(KeyCode::KeyS) || input.just_pressed(KeyCode::ArrowDown),
                     input.just_pressed(KeyCode::KeyR),
                     input.just_pressed(KeyCode::Escape),
                 )
             })
-            .unwrap_or((0.0, false, false, false));
+            .unwrap_or((0.0, false, false, false, false));
 
         if quit_pressed {
             if let Some(quit) = world.resource_mut::<ShouldQuit>() {
@@ -192,6 +225,10 @@ impl System for PlatformerPhysicsSystem {
 
             if let Some((rb, col, velocity)) = handles {
                 if let Some(controller) = world.get_mut::<CharacterController>(player) {
+                    // Pressing down while grounded drops through one-way platforms.
+                    if drop_pressed && controller.grounded {
+                        controller.request_drop();
+                    }
                     self.physics.physics.move_character(
                         controller,
                         rb,
@@ -297,7 +334,7 @@ impl System for HudSystem {
 
         if let Some(tq) = world.resource_mut::<TextQueue>() {
             tq.push(DrawText::new(
-                "Move: A/D or Arrows   Jump: Space/W   Restart: R   Quit: Esc",
+                "Move: A/D   Jump: Space/W   Drop: S/Down (one-way)   Restart: R   Quit: Esc",
                 Vec2::new(-(WINDOW_W as f32) * 0.48, -(WINDOW_H as f32) * 0.46),
                 20.0,
                 [235, 245, 255, 255],
@@ -475,34 +512,27 @@ fn animation_state_machine() -> AnimationStateMachine {
     sm
 }
 
-fn spawn_platform(
-    app: &mut App,
-    physics: &mut PhysicsWorld,
-    tile_atlas: engine::Handle<engine::TextureAtlas>,
-    pos: Vec2,
-    size: Vec2,
-    tile_index: u32,
-) {
-    let (rb, col) = physics.add_static_box(pos / PPU, size.x * 0.5 / PPU, size.y * 0.5 / PPU);
-    let entity = app.world.spawn();
-    app.world.add_component(
-        entity,
-        Transform {
-            position: pos,
-            scale: size,
-            z: -1.0,
-            ..Default::default()
-        },
+/// Spawn the level: one `Tilemap` entity for rendering and one static collider per
+/// solid tile via `PhysicsWorld::add_static_from_tilemap`. Both read the same grid.
+fn spawn_level(app: &mut App, physics: &mut PhysicsWorld) {
+    let tiles = level_tiles();
+    let tilemap = Tilemap::new(
+        TilemapAtlas::new("examples/games/platformer/assets/platform_tiles.png", 4, 4),
+        tiles,
+        TILE_SIZE,
+        Vec2::ZERO,
     );
-    app.world
-        .add_component(entity, AtlasSprite::new(tile_atlas, tile_index));
-    app.world.add_component(
-        entity,
-        PhysicsBody {
-            rigid_body_handle: rb,
-            collider_handle: col,
-        },
-    );
+
+    // One collider per solid tile; one-way tiles become pass-through-from-below platforms.
+    physics.add_static_from_tilemap(&tilemap, PPU, |id| match id {
+        0 => None,
+        TILE_ONEWAY => Some(TileCollider::one_way()),
+        _ => Some(TileCollider::solid()),
+    });
+
+    // The Tilemap component drives `TilemapSystem`, which spawns the tile sprites.
+    let map_entity = app.world.spawn();
+    app.world.add_component(map_entity, tilemap);
 }
 
 fn main() {
@@ -516,21 +546,16 @@ fn main() {
     app.register_event::<TriggerEvent>();
 
     let player_atlas = app.load_atlas("examples/games/platformer/assets/player_atlas.png", 4, 4);
-    let tile_atlas = app.load_atlas("examples/games/platformer/assets/tiles.png", 4, 4);
+    // Load the seamless tile texture so `TilemapSystem`'s tile sprites resolve it by path.
+    // (The original `tiles.png` is a set of discrete object sprites with transparent
+    // margins — fine when stretched per-platform, but it shows gaps as 1:1 tiles.)
+    // platform_tiles.png is generated by `examples/gen_platform_tiles.rs` (deterministic).
+    app.load_atlas("examples/games/platformer/assets/platform_tiles.png", 4, 4);
     let goal_image = app.load_image("examples/games/platformer/assets/goal.png");
 
     let mut physics = PhysicsWorld::new(Vec2::ZERO);
 
-    for &(x, y, w, h, tile) in PLATFORMS {
-        spawn_platform(
-            &mut app,
-            &mut physics,
-            tile_atlas.clone(),
-            Vec2::new(x, y),
-            Vec2::new(w, h),
-            tile,
-        );
-    }
+    spawn_level(&mut app, &mut physics);
 
     let (goal_rb, goal_col) = physics.add_sensor_box(GOAL_POS / PPU, 0.36, 0.58);
     let goal = app.world.spawn();
@@ -612,6 +637,7 @@ fn main() {
     camera.lerp_factor = 5.0;
     app.world.insert_resource(camera);
 
+    app.add_system(TilemapSystem::new());
     app.add_system(PlatformerPhysicsSystem::new(physics));
     app.add_system(GoalSystem);
     app.add_system(CameraAnchorSystem);

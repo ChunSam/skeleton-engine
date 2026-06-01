@@ -38,7 +38,7 @@
 
 use std::collections::HashMap;
 
-use glam::Vec2;
+use glam::{IVec2, Vec2};
 
 use crate::ecs::{Entity, World};
 use crate::System;
@@ -46,13 +46,19 @@ use crate::System;
 // ─── Blackboard ───────────────────────────────────────────────────────────────
 
 /// Blackboard에 저장 가능한 값 타입.
+///
+/// `#[non_exhaustive]`로 표시되어 있어, 외부 크레이트에서 `match` 시 와일드카드(`_`) 분기가
+/// 필요하다. 이는 이후 값 타입을 추가해도 다운스트림이 깨지지 않게 한다.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum BlackboardValue {
     Bool(bool),
     Float(f32),
     Int(i32),
     Vec2(Vec2),
     String(String),
+    /// 타일 좌표 경로 (A* 결과 등). 한 번 계산한 경로를 캐싱해 매 틱 재계산을 피하는 용도.
+    Path(Vec<IVec2>),
 }
 
 /// BehaviorTree와 함께 사용하는 공유 Key-Value 상태 저장소.
@@ -103,6 +109,12 @@ impl Blackboard {
             .insert(key.to_string(), BlackboardValue::String(v.into()));
     }
 
+    /// 타일 좌표 경로를 저장한다. A* 결과를 캐싱해 매 틱 재계산을 피하는 용도.
+    pub fn set_path(&mut self, key: &str, v: Vec<IVec2>) {
+        self.values
+            .insert(key.to_string(), BlackboardValue::Path(v));
+    }
+
     pub fn get_bool(&self, key: &str) -> Option<bool> {
         match self.values.get(key) {
             Some(BlackboardValue::Bool(v)) => Some(*v),
@@ -134,6 +146,14 @@ impl Blackboard {
     pub fn get_string(&self, key: &str) -> Option<&str> {
         match self.values.get(key) {
             Some(BlackboardValue::String(v)) => Some(v.as_str()),
+            _ => None,
+        }
+    }
+
+    /// 저장된 타일 좌표 경로를 슬라이스로 반환한다.
+    pub fn get_path(&self, key: &str) -> Option<&[IVec2]> {
+        match self.values.get(key) {
+            Some(BlackboardValue::Path(v)) => Some(v.as_slice()),
             _ => None,
         }
     }
@@ -400,6 +420,19 @@ mod tests {
         let mut w = World::new();
         let e = w.spawn();
         (w, e)
+    }
+
+    #[test]
+    fn blackboard_path_roundtrip() {
+        let mut bb = Blackboard::new();
+        let path = vec![IVec2::new(1, 2), IVec2::new(3, 4), IVec2::new(5, 6)];
+        bb.set_path("route", path.clone());
+        assert_eq!(bb.get_path("route"), Some(path.as_slice()));
+        // 타입 불일치 / 미존재 키는 None.
+        assert_eq!(bb.get_path("missing"), None);
+        bb.set_vec2("v", Vec2::new(1.0, 2.0));
+        assert_eq!(bb.get_path("v"), None);
+        assert_eq!(bb.get_vec2("route"), None);
     }
 
     #[test]
