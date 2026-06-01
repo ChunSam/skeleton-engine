@@ -517,7 +517,7 @@ fn animation_state_machine() -> AnimationStateMachine {
 fn spawn_level(app: &mut App, physics: &mut PhysicsWorld) {
     let tiles = level_tiles();
     let tilemap = Tilemap::new(
-        TilemapAtlas::new("examples/games/platformer/assets/tiles.png", 4, 4),
+        TilemapAtlas::new("examples/games/platformer/assets/platform_tiles.png", 4, 4),
         tiles,
         TILE_SIZE,
         Vec2::ZERO,
@@ -546,8 +546,10 @@ fn main() {
     app.register_event::<TriggerEvent>();
 
     let player_atlas = app.load_atlas("examples/games/platformer/assets/player_atlas.png", 4, 4);
-    // Load the tile texture so `TilemapSystem`'s tile sprites resolve it by path.
-    app.load_atlas("examples/games/platformer/assets/tiles.png", 4, 4);
+    // Load the seamless tile texture so `TilemapSystem`'s tile sprites resolve it by path.
+    // (The original `tiles.png` is a set of discrete object sprites with transparent
+    // margins — fine when stretched per-platform, but it shows gaps as 1:1 tiles.)
+    app.load_atlas("examples/games/platformer/assets/platform_tiles.png", 4, 4);
     let goal_image = app.load_image("examples/games/platformer/assets/goal.png");
 
     let mut physics = PhysicsWorld::new(Vec2::ZERO);
