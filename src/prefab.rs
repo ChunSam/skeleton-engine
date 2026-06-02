@@ -367,7 +367,11 @@ mod tests {
         // concurrent `remove_dir` could delete it between another test's
         // `create_dir_all` and `fs::write`, yielding a flaky `Io(NotFound)`.
         std::env::temp_dir()
-            .join(format!("engine-prefab-test-{}-{}", std::process::id(), name))
+            .join(format!(
+                "engine-prefab-test-{}-{}",
+                std::process::id(),
+                name
+            ))
             .join(name)
     }
 
