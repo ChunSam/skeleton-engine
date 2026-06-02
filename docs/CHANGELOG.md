@@ -21,6 +21,12 @@ The package follows semantic versioning beginning with 1.0.0.
 
 ### Fixed
 
+- Interactive responsiveness: the event loop never set a `ControlFlow`, defaulting to `Wait`, so
+  drags/hover updated a beat late and sliders did not track the cursor smoothly. It now runs with
+  `ControlFlow::Poll` for a continuous per-frame loop (vsync-paced via the existing redraw request).
+- `TextInput` cursor editing: added `move_left`/`move_right`/`move_home`/`move_end`/`delete_forward`
+  (UTF-8 safe) on `TextInput`, and `UiSystem` now applies ←/→/Home/End/Delete to the focused field.
+  Previously the caret could only sit where typing left it (no navigation, no forward delete).
 - HiDPI mouse/touch hit-testing: the cursor was stored in physical pixels while UI hit-testing,
   `ViewportSize`, and `Camera::screen_to_world` all work in logical pixels, so on a scaled display
   (e.g. Retina 2×) clicks landed offset from the cursor. `CursorMoved` and the touch→mouse

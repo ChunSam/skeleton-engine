@@ -70,6 +70,52 @@ impl TextInput {
         self.cursor = char_start;
     }
 
+    /// 커서를 앞 문자 경계로 한 칸 이동한다 (UTF-8 안전).
+    pub fn move_left(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        let mut i = self.cursor - 1;
+        while !self.text.is_char_boundary(i) {
+            i -= 1;
+        }
+        self.cursor = i;
+    }
+
+    /// 커서를 다음 문자 경계로 한 칸 이동한다 (UTF-8 안전).
+    pub fn move_right(&mut self) {
+        if self.cursor >= self.text.len() {
+            return;
+        }
+        let mut i = self.cursor + 1;
+        while i < self.text.len() && !self.text.is_char_boundary(i) {
+            i += 1;
+        }
+        self.cursor = i;
+    }
+
+    /// 커서를 맨 앞으로 이동한다.
+    pub fn move_home(&mut self) {
+        self.cursor = 0;
+    }
+
+    /// 커서를 맨 뒤로 이동한다.
+    pub fn move_end(&mut self) {
+        self.cursor = self.text.len();
+    }
+
+    /// 커서 위치의 문자를 삭제한다 (forward delete, UTF-8 안전).
+    pub fn delete_forward(&mut self) {
+        if self.cursor >= self.text.len() {
+            return;
+        }
+        let mut end = self.cursor + 1;
+        while end < self.text.len() && !self.text.is_char_boundary(end) {
+            end += 1;
+        }
+        self.text.drain(self.cursor..end);
+    }
+
     /// 커서 위치에 문자를 삽입한다.
     pub fn insert_char(&mut self, c: char) {
         if self.text.len() + c.len_utf8() <= self.max_len {
@@ -105,6 +151,31 @@ mod tests {
         input.insert_str("한글!");
 
         assert_eq!(input.text, "한글");
+    }
+
+    #[test]
+    fn cursor_movement_is_utf8_safe() {
+        let mut input = TextInput::new("");
+        input.insert_str("한a글"); // 3 + 1 + 3 bytes, cursor at end (7)
+        assert_eq!(input.cursor, 7);
+
+        input.move_left(); // before "글"
+        assert_eq!(input.cursor, 4);
+        input.move_left(); // before "a"
+        assert_eq!(input.cursor, 3);
+        input.move_home();
+        assert_eq!(input.cursor, 0);
+
+        input.move_right(); // past "한"
+        assert_eq!(input.cursor, 3);
+        input.delete_forward(); // removes "a"
+        assert_eq!(input.text, "한글");
+        assert_eq!(input.cursor, 3);
+
+        input.move_end();
+        assert_eq!(input.cursor, input.text.len());
+        input.move_right(); // clamped at end
+        assert_eq!(input.cursor, input.text.len());
     }
 
     #[test]

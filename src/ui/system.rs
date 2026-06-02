@@ -1,5 +1,6 @@
 use glam::Vec2;
 use winit::event::MouseButton;
+use winit::keyboard::KeyCode;
 
 use crate::ecs::{Entity, Events, System, World};
 use crate::input::InputState;
@@ -41,6 +42,19 @@ impl System for UiSystem {
                     input.ime_preedit().to_string(),
                 ),
                 None => return,
+            };
+
+        // Text-editing navigation keys (applied to the focused TextInput).
+        let (nav_left, nav_right, nav_home, nav_end, nav_delete) =
+            match world.resource::<InputState>() {
+                Some(input) => (
+                    input.just_pressed(KeyCode::ArrowLeft),
+                    input.just_pressed(KeyCode::ArrowRight),
+                    input.just_pressed(KeyCode::Home),
+                    input.just_pressed(KeyCode::End),
+                    input.just_pressed(KeyCode::Delete),
+                ),
+                None => (false, false, false, false, false),
             };
 
         let viewport = match world.resource::<ViewportSize>() {
@@ -177,6 +191,25 @@ impl System for UiSystem {
                         if ti.cursor_blink >= 0.5 {
                             ti.cursor_blink -= 0.5;
                             ti.cursor_visible = !ti.cursor_visible;
+                        }
+                    }
+
+                    // 커서 이동/forward-delete 키
+                    if let Some(ti) = world.get_mut::<TextInput>(entity) {
+                        if nav_left {
+                            ti.move_left();
+                        }
+                        if nav_right {
+                            ti.move_right();
+                        }
+                        if nav_home {
+                            ti.move_home();
+                        }
+                        if nav_end {
+                            ti.move_end();
+                        }
+                        if nav_delete {
+                            ti.delete_forward();
                         }
                     }
 

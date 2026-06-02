@@ -52,6 +52,10 @@ const LOCALES_RON: &str = r#"
             "about.3": "Type a player name",
             "about.4": "Click a language to switch instantly",
             "about.5": "Scroll this list with the wheel",
+            "about.6": "Arrow keys / Home / End move the text cursor",
+            "about.7": "Continue starts a short dialogue",
+            "about.8": "Press M in the dialogue to muffle the music",
+            "about.9": "Esc steps back to the title",
             "npc.name": "Guide",
             "npc.greet": "Welcome",
             "npc.line2": "Change the settings anytime from the menu.",
@@ -77,6 +81,10 @@ const LOCALES_RON: &str = r#"
             "about.3": "플레이어 이름 입력",
             "about.4": "언어를 클릭하면 즉시 전환",
             "about.5": "휠로 이 목록을 스크롤",
+            "about.6": "방향키 / Home / End 로 텍스트 커서 이동",
+            "about.7": "계속을 누르면 짧은 대화 시작",
+            "about.8": "대화에서 M 키로 음악 음소거",
+            "about.9": "Esc 로 타이틀로 돌아가기",
             "npc.name": "안내자",
             "npc.greet": "환영합니다",
             "npc.line2": "메뉴에서 언제든 설정을 바꿀 수 있어요.",
@@ -102,6 +110,10 @@ const LOCALES_RON: &str = r#"
             "about.3": "Escribe un nombre",
             "about.4": "Haz clic en un idioma para cambiar",
             "about.5": "Desplaza esta lista con la rueda",
+            "about.6": "Flechas / Inicio / Fin mueven el cursor de texto",
+            "about.7": "Continuar inicia un breve diálogo",
+            "about.8": "Pulsa M en el diálogo para silenciar la música",
+            "about.9": "Esc vuelve al título",
             "npc.name": "Guía",
             "npc.greet": "Bienvenido",
             "npc.line2": "Cambia los ajustes cuando quieras desde el menú.",
@@ -247,10 +259,13 @@ fn spawn_plain_button(
 }
 
 fn about_items(world: &World) -> Vec<String> {
-    ["about.1", "about.2", "about.3", "about.4", "about.5"]
-        .iter()
-        .map(|k| format!("•  {}", t(world, k)))
-        .collect()
+    [
+        "about.1", "about.2", "about.3", "about.4", "about.5", "about.6", "about.7", "about.8",
+        "about.9",
+    ]
+    .iter()
+    .map(|k| format!("•  {}", t(world, k)))
+    .collect()
 }
 
 // ── audio (native-only) ────────────────────────────────────────────────────
@@ -276,11 +291,27 @@ fn blip(_world: &mut World, _freq: f32) {}
 #[cfg(not(target_arch = "wasm32"))]
 fn play_bgm(world: &mut World) {
     if let Some(audio) = world.resource_mut::<AudioManager>() {
-        audio.play_tone("bgm", 220.0, 1.2, 0.5);
+        audio.play_tone("bgm", 196.0, 1.2, 0.5);
     }
 }
 #[cfg(target_arch = "wasm32")]
 fn play_bgm(_world: &mut World) {}
+
+/// Keep a sustained tone on the music bus so the Music slider is audible: replay
+/// it whenever the previous one drains. Dragging the slider changes the bus volume,
+/// which changes the loudness of this sustained tone in real time.
+#[cfg(not(target_arch = "wasm32"))]
+fn keep_bgm(world: &mut World) {
+    let playing = world
+        .resource::<AudioManager>()
+        .map(|a| a.is_playing("bgm"))
+        .unwrap_or(true);
+    if !playing {
+        play_bgm(world);
+    }
+}
+#[cfg(target_arch = "wasm32")]
+fn keep_bgm(_world: &mut World) {}
 
 /// Toggle a low-pass `AudioEffect` on the music channel, then replay so it applies.
 #[cfg(not(target_arch = "wasm32"))]
@@ -450,6 +481,7 @@ impl Scene for SettingsScene {
             world.add_component(e, UiNode::new(0.0, 0.0, 340.0, 30.0));
             let mut input = TextInput::new("…").with_max_len(24);
             input.text = settings.name.clone();
+            input.cursor = input.text.len(); // start the caret at the end, not in front
             world.add_component(e, input);
             self.entities.push(e);
             e
@@ -585,9 +617,11 @@ impl Scene for SettingsScene {
             UiNode::new(280.0, 430.0, 200.0, 50.0).with_z(0.92),
         );
 
-        // Re-apply persisted bus volumes (survives the world reset; harmless to repeat).
+        // Re-apply persisted bus volumes (survives the world reset; harmless to repeat),
+        // then start the sustained music tone so the Music slider is audible.
         set_bus(world, "music", settings.music);
         set_bus(world, "sfx", settings.sfx);
+        play_bgm(world);
 
         systems.push(Box::new(LocalizationSystem));
         systems.push(Box::new(LayoutSystem));
@@ -604,6 +638,7 @@ impl Scene for SettingsScene {
             scroll,
             back,
             cont,
+            last_sfx_step: -1,
         }));
     }
 
@@ -624,6 +659,9 @@ struct SettingsSystem {
     scroll: Entity,
     back: Entity,
     cont: Entity,
+    /// Last 5%-quantized SFX value we played a blip for, so dragging gives
+    /// occasional feedback instead of restarting a tone every frame (which is silent).
+    last_sfx_step: i32,
 }
 
 impl SettingsSystem {
@@ -645,6 +683,8 @@ impl SettingsSystem {
 
 impl System for SettingsSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
+        keep_bgm(world);
+
         let mut go_back = key_pressed(world, KeyCode::Escape);
         let mut go_cont = false;
 
@@ -661,7 +701,13 @@ impl System for SettingsSystem {
                             s.sfx = v;
                         }
                         set_bus(world, "sfx", v);
-                        blip(world, 740.0);
+                        // Blip on the sfx bus only when the 5% step changes, so it is
+                        // audible without restarting a 50 ms tone every drag frame.
+                        let step = (v * 20.0).round() as i32;
+                        if step != self.last_sfx_step {
+                            self.last_sfx_step = step;
+                            blip(world, 740.0);
+                        }
                     }
                 }
                 UiEvent::CheckBoxToggled(e, checked) => {
@@ -803,6 +849,8 @@ const DIALOGUE_LINES: usize = 2;
 
 impl System for DialogueSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
+        keep_bgm(world);
+
         if key_pressed(world, KeyCode::Escape) {
             request(world, SceneCmd::Replace(Box::new(TitleScene::new())));
             return;

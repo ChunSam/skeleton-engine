@@ -18,7 +18,7 @@ use glam::Vec2;
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, KeyEvent, MouseScrollDelta, WindowEvent},
-    event_loop::{ActiveEventLoop, EventLoop},
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::PhysicalKey,
     window::{Window, WindowId},
 };
@@ -930,6 +930,10 @@ impl App {
                 return;
             }
         };
+        // 게임/인터랙티브 앱이므로 매 프레임 연속 갱신한다. 기본값 `Wait` 는 입력이
+        // 있을 때만 깨어나 드래그·호버 반응이 한 박자 늦게 느껴진다. `Poll` 은
+        // about_to_wait 의 request_redraw 와 함께 vsync 한계까지 연속 루프를 돈다.
+        event_loop.set_control_flow(ControlFlow::Poll);
         #[cfg(not(target_arch = "wasm32"))]
         if let Err(err) = event_loop.run_app(&mut self) {
             log::error!("이벤트 루프 오류: {err}");
