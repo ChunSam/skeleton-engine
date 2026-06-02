@@ -82,6 +82,12 @@ standalone demos or none). The densest, most universally-needed cluster — UI d
     (`TextRenderer` font is fixed at init; `LocaleData.font` is dead) → non-Latin relies on native
     system-font fallback, absent on Linux CI / wasm; `LocaleData.direction` (RTL) is metadata only
     and not wired into alignment. Both await a future dedicated example.
+  - **Deferred-item follow-up:** the macOS input-latency item is now *largely* addressed — the
+    live window-drag freeze is gone (frame step factored into `App::step_frame`, driven inline
+    from `Resized`, plus `pre_present_notify`); content keeps animating through both resize and
+    titlebar-move drags. Residual: a one-frame lag at the *start* of a drag (documented limitation,
+    CHANGELOG → Unreleased). Still deferred from this cluster: overlay caret, `TextInput`
+    horizontal scroll, real OS fullscreen.
 
 Remaining never-in-a-game subsystems (candidates for later dogfooding cycles, none scheduled):
 2D lighting (`PointLight`/normal-map), `BlendTree1D`, `Timeline`/cutscene, `PostProcessConfig`,

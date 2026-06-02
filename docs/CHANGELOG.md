@@ -4,6 +4,36 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 1.2.1
+
+### Fixed
+
+- macOS live window-**resize** drag froze the content: while the OS runs its modal resize loop
+  the normal `about_to_wait → request_redraw → RedrawRequested` cadence is parked, and the
+  `Resized` handler only reconfigured the surface without drawing. The frame step (update +
+  render) is now factored into `App::step_frame` and is also driven inline from `Resized`, so
+  animations keep advancing while the window is being resized.
+
+### Added
+
+- `Window::pre_present_notify()` is now called immediately before `surface.present()`, the
+  winit-recommended compositor hint that trims presentation latency.
+- `settings_menu_game` gained a small always-animating spinner (bottom-left, `dt`-driven, no
+  input) so a window-drag freeze is visible by eye — it stalls during a drag and resumes after.
+- Debug instrumentation: `step_frame` logs `frame gap <ms>` at `debug` level when the
+  inter-frame gap exceeds ~33 ms, to quantify drag/stall (e.g. `RUST_LOG=engine=debug`). The
+  `settings_menu_game` example now initializes `env_logger` (native-only dev-dependency) so the
+  `log` output is actually visible — previously no log backend was installed.
+
+### Known limitations
+
+- A one-frame lag remains at the **start** of a live drag (both resize and titlebar move): the
+  window content tracks the cursor a beat late on the first movement, then follows normally for
+  the rest of the drag. The hard freeze is gone — content keeps animating throughout both drag
+  kinds on the tested macOS (15.x / Darwin 25) — but this residual start-of-drag latency is a
+  macOS/winit present-timing artifact left as a documented limitation per the "known levers"
+  scope (deeper fixes — background redraw thread / native Cocoa hooks — were out of scope).
+
 ## 1.2.0
 
 ### Added

@@ -1,6 +1,6 @@
 [package]
 name        = "skeleton-engine"
-version     = "1.2.0"
+version     = "1.2.1"
 edition     = "2021"
 description = "Lightweight 2D game engine — wgpu rendering, custom ECS, rapier2d physics"
 repository  = "https://github.com/ChunSam/skeleton-engine"
@@ -88,6 +88,10 @@ gilrs       = "0.10"
 notify      = "6"
 tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
 rayon       = "1"
+
+# 네이티브 예제에서 `log` 출력을 보기 위한 백엔드 (RUST_LOG 로 제어). wasm 은 제외.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+env_logger = "0.11"
 
 # ── WASM 전용 ────────────────────────────────────────────────────────────────
 [target.'cfg(target_arch = "wasm32")'.dependencies]

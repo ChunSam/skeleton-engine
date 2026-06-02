@@ -350,6 +350,58 @@ fn set_muffle(world: &mut World, on: bool) {
 #[cfg(target_arch = "wasm32")]
 fn set_muffle(_world: &mut World, _on: bool) {}
 
+// ── Animated indicator (window-drag freeze probe) ─────────────────────────────
+//
+// A spinner that advances every frame from `dt` alone — no input. During a live OS
+// window drag on macOS the event loop enters a modal run-loop and frames can stall,
+// so this indicator visibly freezes during the drag and resumes after, making the
+// engine-side mitigation (inline render on `Resized`) easy to confirm by eye.
+const SPINNER_FRAMES: [&str; 4] = ["|", "/", "-", "\\"];
+
+struct SpinnerSystem {
+    label: Option<Entity>,
+    elapsed: f32,
+}
+
+impl SpinnerSystem {
+    fn new() -> Self {
+        Self {
+            label: None,
+            elapsed: 0.0,
+        }
+    }
+}
+
+impl System for SpinnerSystem {
+    fn run(&mut self, world: &mut World, dt: f32) {
+        self.elapsed += dt;
+        // Lazily (re)create the label; the world is reset on each scene change.
+        let alive = self.label.map(|e| world.is_alive(e)).unwrap_or(false);
+        if !alive {
+            let e = world.spawn();
+            world.add_component(
+                e,
+                UiNode::new(12.0, -12.0, 260.0, 26.0)
+                    .with_anchor(Anchor::BottomLeft)
+                    .with_z(0.99),
+            );
+            world.add_component(
+                e,
+                Label::new("")
+                    .with_font_size(18.0)
+                    .with_color([120, 230, 160, 255]),
+            );
+            self.label = Some(e);
+        }
+        if let Some(e) = self.label {
+            let frame = SPINNER_FRAMES[((self.elapsed * 8.0) as usize) % SPINNER_FRAMES.len()];
+            if let Some(label) = world.get_mut::<Label>(e) {
+                label.text = format!("{frame}  live {:.1}s (drag the window)", self.elapsed);
+            }
+        }
+    }
+}
+
 // ── Title scene ──────────────────────────────────────────────────────────────
 
 struct TitleScene {
@@ -411,6 +463,7 @@ impl Scene for TitleScene {
         );
 
         systems.push(Box::new(LocalizationSystem));
+        systems.push(Box::new(SpinnerSystem::new()));
         systems.push(Box::new(UiSystem));
         systems.push(Box::new(TitleSystem { start, quit }));
     }
@@ -641,6 +694,7 @@ impl Scene for SettingsScene {
 
         systems.push(Box::new(LocalizationSystem));
         systems.push(Box::new(LayoutSystem));
+        systems.push(Box::new(SpinnerSystem::new()));
         systems.push(Box::new(UiSystem));
         systems.push(Box::new(SettingsSystem {
             name_input,
@@ -840,6 +894,7 @@ impl Scene for DialogueScene {
 
         systems.push(Box::new(LocalizationSystem));
         systems.push(Box::new(LayoutSystem));
+        systems.push(Box::new(SpinnerSystem::new()));
         systems.push(Box::new(UiSystem));
         systems.push(Box::new(DialogueSystem {
             speaker,
@@ -909,6 +964,11 @@ impl System for DialogueSystem {
 // ── entry point ────────────────────────────────────────────────────────────────
 
 fn main() {
+    // Native log backend so `log::debug!` (incl. the engine's `frame gap …ms`
+    // drag-stall instrumentation) is visible. Control with e.g. RUST_LOG=engine=debug.
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = env_logger::try_init();
+
     let mut app = App::new();
     app.register_event::<UiEvent>();
 

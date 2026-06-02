@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.2.0 | package `skeleton-engine`, library crate `engine` | wgpu-based Rust 2D game engine  
+> Version v1.2.1 | package `skeleton-engine`, library crate `engine` | wgpu-based Rust 2D game engine  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`
 

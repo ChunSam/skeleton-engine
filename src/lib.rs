@@ -157,7 +157,7 @@ pub fn run_demo() {
             // 좌표계: (0,0) = 좌상단, (width, height) = 우하단
             let (w, h) = world
                 .resource::<ViewportSize>()
-                .map(|v| (v.width as f32, v.height as f32))
+                .map(|v| (v.width, v.height))
                 .unwrap_or((1280.0, 720.0));
             let margin = 32.0;
 

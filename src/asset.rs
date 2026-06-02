@@ -129,8 +129,9 @@ struct AsyncImageResult {
 
 #[cfg(target_arch = "wasm32")]
 thread_local! {
+    #[allow(clippy::type_complexity)]
     static WASM_ASYNC_QUEUE: RefCell<std::collections::VecDeque<(AssetId, String, (ImageAsset, AssetLoadState))>>
-        = RefCell::new(std::collections::VecDeque::new());
+        = const { RefCell::new(std::collections::VecDeque::new()) };
 }
 
 // ─── AssetServer ──────────────────────────────────────────────────────────────
