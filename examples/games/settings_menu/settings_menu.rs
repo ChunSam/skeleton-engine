@@ -29,13 +29,16 @@ use engine::{AudioEffect, AudioManager};
 const WINDOW_W: u32 = 960;
 const WINDOW_H: u32 = 600;
 
-// Background music tone. The muffle low-pass cutoff sits well below this so the
-// filter clearly attenuates it (a cutoff above the tone would be inaudible).
+// Background music = a low tone + a high tone played together. The muffle low-pass
+// cutoff sits between them, so toggling it clearly removes the bright high tone while
+// the low tone stays — a faithful, audible low-pass demo (not a mute).
 // Native-only: audio (and these constants) are compiled out on wasm.
 #[cfg(not(target_arch = "wasm32"))]
-const BGM_FREQ: f32 = 440.0;
+const BGM_LOW: f32 = 196.0;
 #[cfg(not(target_arch = "wasm32"))]
-const MUFFLE_HZ: u32 = 180;
+const BGM_HIGH: f32 = 1568.0;
+#[cfg(not(target_arch = "wasm32"))]
+const MUFFLE_HZ: u32 = 400;
 
 const LOCALES_RON: &str = r#"
 (
@@ -299,20 +302,21 @@ fn blip(_world: &mut World, _freq: f32) {}
 #[cfg(not(target_arch = "wasm32"))]
 fn play_bgm(world: &mut World) {
     if let Some(audio) = world.resource_mut::<AudioManager>() {
-        audio.play_tone("bgm", BGM_FREQ, 1.2, 0.5);
+        audio.play_tone("bgm_low", BGM_LOW, 1.2, 0.4);
+        audio.play_tone("bgm_high", BGM_HIGH, 1.2, 0.25);
     }
 }
 #[cfg(target_arch = "wasm32")]
 fn play_bgm(_world: &mut World) {}
 
-/// Keep a sustained tone on the music bus so the Music slider is audible: replay
-/// it whenever the previous one drains. Dragging the slider changes the bus volume,
-/// which changes the loudness of this sustained tone in real time.
+/// Keep the sustained two-tone music alive so the Music slider stays audible: replay
+/// both tones whenever they drain. Dragging the slider changes the music bus volume,
+/// which changes the loudness of these sustained tones in real time.
 #[cfg(not(target_arch = "wasm32"))]
 fn keep_bgm(world: &mut World) {
     let playing = world
         .resource::<AudioManager>()
-        .map(|a| a.is_playing("bgm"))
+        .map(|a| a.is_playing("bgm_low"))
         .unwrap_or(true);
     if !playing {
         play_bgm(world);
@@ -321,25 +325,27 @@ fn keep_bgm(world: &mut World) {
 #[cfg(target_arch = "wasm32")]
 fn keep_bgm(_world: &mut World) {}
 
-/// Toggle a low-pass `AudioEffect` on the music channel, then replay so it applies.
-/// Low-pass keeps the lows and removes the highs — on a pure tone (no overtones)
-/// that mostly attenuates it; it is *not* a mute. Validates `set_effect`.
+/// Toggle a low-pass `AudioEffect` on both music channels, then replay so it applies.
+/// The cutoff sits between the low and high tones, so muffling removes the bright high
+/// tone and keeps the low one — an audible low-pass (not a mute). Validates `set_effect`.
 #[cfg(not(target_arch = "wasm32"))]
 fn set_muffle(world: &mut World, on: bool) {
     if let Some(audio) = world.resource_mut::<AudioManager>() {
-        if on {
-            audio.set_effect(
-                "bgm",
-                AudioEffect {
-                    low_pass_hz: Some(MUFFLE_HZ),
-                    ..Default::default()
-                },
-            );
-        } else {
-            audio.clear_effect("bgm");
+        for ch in ["bgm_low", "bgm_high"] {
+            if on {
+                audio.set_effect(
+                    ch,
+                    AudioEffect {
+                        low_pass_hz: Some(MUFFLE_HZ),
+                        ..Default::default()
+                    },
+                );
+            } else {
+                audio.clear_effect(ch);
+            }
         }
-        audio.play_tone("bgm", BGM_FREQ, 1.2, 0.5);
     }
+    play_bgm(world);
 }
 #[cfg(target_arch = "wasm32")]
 fn set_muffle(_world: &mut World, _on: bool) {}
@@ -915,7 +921,8 @@ fn main() {
     // Native audio: two buses (music / sfx) preserved across scene resets.
     #[cfg(not(target_arch = "wasm32"))]
     if let Some(mut audio) = AudioManager::new() {
-        audio.assign_bus("bgm", "music");
+        audio.assign_bus("bgm_low", "music");
+        audio.assign_bus("bgm_high", "music");
         audio.assign_bus("ui", "sfx");
         audio.set_bus_volume("music", 0.6);
         audio.set_bus_volume("sfx", 0.6);

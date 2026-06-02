@@ -27,7 +27,6 @@ The package follows semantic versioning beginning with 1.0.0.
   while pressing a button then moving off did nothing). `InputState` now records the cursor at the
   press and release moments (`mouse_press_cursor`/`mouse_release_cursor`), and `UiSystem` hit-tests
   clicks/toggles/drag-starts against those (hover and drag-tracking still use the live cursor).
-  `update()` also moved to `about_to_wait` so input is fully drained before systems read it.
 - `TextInput` caret rendering: the caret `|` was always appended at the end of the string, so it
   never matched the real cursor after navigation and text appeared to be inserted "in the middle".
   Added `TextInput::display_with_caret` which inserts the caret (and IME preedit) at the byte
