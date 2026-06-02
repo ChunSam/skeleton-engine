@@ -2106,6 +2106,50 @@ The positions of `Panel` children are computed by `LayoutSystem`. It must be reg
 
 ---
 
+## 2026-06-02 — Settings + Dialogue UI example + `LocalizedText` (v1.2.0)
+
+**Context:** a subsystem-coverage audit of `examples/` found ~10 shipped subsystems with no
+*playable-game* coverage (standalone demo or nothing). The densest, most universally-needed
+cluster — UI depth + localization + audio buses — is now closed by one new playable example,
+continuing the dogfooding loop. Released as **v1.2.0** (additive minor).
+
+**Shipped:** `examples/games/settings_menu/settings_menu.rs` (`settings_menu_game`) — a Title →
+Settings → Dialogue front-end slice. First playable-game use of `TextInput`, `Slider`, `CheckBox`,
+`ScrollView`, `Panel`/`LayoutSystem`, rich/multiline `Label`, `LocaleResource` (EN/KO/ES), and
+`AudioManager` buses + `AudioEffect` low-pass. Settings rows are laid out by a `Panel`(`Vertical`);
+the language switcher flips locale; the dialogue greets the player by the typed name and honors the
+subtitles checkbox; `M` muffles the music bus via a low-pass `AudioEffect`. `Settings`, the locale,
+and the native `AudioManager` are kept across the `SceneCmd::Replace` world reset via
+`App::register_persistent` (re-validates that v1.1.0 feature with three resource types).
+
+**Engine gap closed — `LocalizedText` + `LocalizationSystem` (`src/ui/localized.rs`).**
+`LocaleResource` is data-only (`t()` lookup); switching locale forced the game to manually walk
+every `Label`/`Button` and re-assign `.text`. Added a `LocalizedText { key }` component and a
+`LocalizationSystem` that each frame resolves the key through `LocaleResource` into the entity's
+`Label.text` / `Button.label` / `CheckBox.label`. The example switches language with one
+`set_locale` call and the whole UI retranslates next frame. Re-exported from the crate root;
+3 unit tests (resolve per current locale, switch updates each widget kind, missing key falls back).
+
+**Gotchas / decisions:**
+- Audio (`AudioManager`/`AudioEffect`) is `cfg(not(wasm32))`; all wiring is target-gated (shooter/
+  survivor pattern) so the wasm **lib and example** both still build — widgets just stay silent.
+- Two audio buses, `music` + `sfx` (no global "master" — the bus model is flat, so the sliders map
+  honestly to those two buses). `set_effect` applies on the next `play_*`, so muffle replays the tone.
+- **Documented (not fixed) i18n gaps:** runtime per-locale font switching is unsupported —
+  `TextRenderer` takes `FontData` once at init (`src/app.rs:2923`); `LocaleData.font` is dead. So
+  non-Latin (Korean) renders via native system-font fallback only — visible on macOS, **absent on
+  Linux CI / wasm**. `LocaleData.direction` (RTL) is metadata only (renderer maps `TextAlign::Right`
+  explicitly, `src/renderer/text.rs:75`); no RTL locale ships, so RTL is left for a future example.
+- `LocalizedText` targets all three text-bearing widgets so locale-driven labels leave the example's
+  manual path entirely; only the dynamic dialogue line (name interpolation) is still built by hand.
+
+**Verified:** `cargo fmt --check` clean; `cargo clippy --lib --example settings_menu_game -D warnings`
+= 0 warnings; `cargo test --lib` = **256 passed** (253 + 3 new `LocalizedText` tests); wasm **lib +
+`settings_menu_game`** build; `rust-survivors` rebuilds clean (additive). Interactive play left for
+user confirmation (GUI not observable here), consistent with prior examples.
+
+---
+
 ## 2026-06-01 — Playable-example dogfooding gaps closed (v1.1.0)
 
 **Context:** the v1.0.0 playable-examples program surfaced four engine gaps (`docs/NEXT_WORK.md`

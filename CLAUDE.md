@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.1.0 | package `skeleton-engine`, library crate `engine` | wgpu-based Rust 2D game engine  
+> Version v1.2.0 | package `skeleton-engine`, library crate `engine` | wgpu-based Rust 2D game engine  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`
 
@@ -57,6 +57,7 @@ Where to read to find a given thing:
 | SkeletalAnimator, SkeletalClip, BoneTrack, BoneKeyframe, SkeletalAnimationSystem, SkeletonBuilder (2D cutout skeletal animation) | `src/skeletal.rs` (details: `docs/SKELETAL.md`) |
 | UI (UiNode, Button, Label, TextInput, ScrollView, Panel, LayoutSystem, UiEvent) | `src/ui/` |
 | Slider (horizontal slider), CheckBox (toggle checkbox) | `src/ui/slider.rs`, `src/ui/checkbox.rs` |
+| LocalizedText (key bound to a widget), LocalizationSystem (resolves `LocaleResource::t` into Label/Button/CheckBox each frame) | `src/ui/localized.rs` |
 | Tag, EntityDef, SceneDef, Prefab, spawn_entity_def, spawn_scene_def | `src/prefab.rs` |
 | Timer, Tween, Easing | `src/timer.rs`, `src/tween.rs` |
 | History (generic snapshot undo/redo for grid puzzles, turn-based, editors) | `src/history.rs` |

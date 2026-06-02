@@ -18,7 +18,7 @@ use glam::Vec2;
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, KeyEvent, MouseScrollDelta, WindowEvent},
-    event_loop::{ActiveEventLoop, EventLoop},
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::PhysicalKey,
     window::{Window, WindowId},
 };
@@ -930,6 +930,10 @@ impl App {
                 return;
             }
         };
+        // 게임/인터랙티브 앱이므로 매 프레임 연속 갱신한다. 기본값 `Wait` 는 입력이
+        // 있을 때만 깨어나 드래그·호버 반응이 한 박자 늦게 느껴진다. `Poll` 은
+        // about_to_wait 의 request_redraw 와 함께 vsync 한계까지 연속 루프를 돈다.
+        event_loop.set_control_flow(ControlFlow::Poll);
         #[cfg(not(target_arch = "wasm32"))]
         if let Err(err) = event_loop.run_app(&mut self) {
             log::error!("이벤트 루프 오류: {err}");
@@ -2766,9 +2770,20 @@ impl ApplicationHandler for App {
             }
 
             // ── 마우스 커서 이동 ─────────────────────────────────────────────
+            // winit이 주는 좌표는 물리 픽셀이지만, UI 히트테스트·`ViewportSize`·
+            // `Camera::screen_to_world`는 모두 논리 픽셀 기준이다. HiDPI(예: Retina 2×)
+            // 에서 어긋나지 않도록 scale factor로 나눠 논리 좌표로 저장한다.
             WindowEvent::CursorMoved { position, .. } => {
+                let scale = self
+                    .window
+                    .as_ref()
+                    .map(|w| w.scale_factor() as f32)
+                    .unwrap_or(1.0);
                 if let Some(input) = self.world.resource_mut::<InputState>() {
-                    input.set_cursor(Vec2::new(position.x as f32, position.y as f32));
+                    input.set_cursor(Vec2::new(
+                        position.x as f32 / scale,
+                        position.y as f32 / scale,
+                    ));
                 }
             }
 
@@ -2810,14 +2825,22 @@ impl ApplicationHandler for App {
                         }
                     }
                 }
-                // 터치를 마우스 왼쪽 버튼으로 에뮬레이션 (기존 UI 시스템 호환)
+                // 터치를 마우스 왼쪽 버튼으로 에뮬레이션 (기존 UI 시스템 호환).
+                // UI 히트테스트가 쓰는 `InputState` 커서는 마우스와 동일하게 논리
+                // 좌표여야 하므로 scale factor로 나눈다 (`TouchState`는 물리 좌표 유지).
+                let scale = self
+                    .window
+                    .as_ref()
+                    .map(|w| w.scale_factor() as f32)
+                    .unwrap_or(1.0);
+                let logical = Vec2::new(pos.x / scale, pos.y / scale);
                 if let Some(input) = self.world.resource_mut::<InputState>() {
                     match phase {
                         winit::event::TouchPhase::Started => {
-                            input.set_cursor(pos);
+                            input.set_cursor(logical);
                             input.press_mouse(winit::event::MouseButton::Left);
                         }
-                        winit::event::TouchPhase::Moved => input.set_cursor(pos),
+                        winit::event::TouchPhase::Moved => input.set_cursor(logical),
                         winit::event::TouchPhase::Ended | winit::event::TouchPhase::Cancelled => {
                             input.release_mouse(winit::event::MouseButton::Left);
                         }
@@ -2835,6 +2858,10 @@ impl ApplicationHandler for App {
                     }
                 }
 
+                // update() 와 render() 를 한 RedrawRequested 안에서 연속 실행한다.
+                // (한때 update 를 about_to_wait 로 분리했으나, update→render 사이에
+                // 한 프레임 지연이 생겨 입력 반응이 늦었다. 클릭 정확성은 press/release
+                // 시점 커서 기록으로 보장되므로 여기서 함께 돌려 지연을 없앤다.)
                 let now = Instant::now();
                 let dt = self
                     .last_frame
@@ -2882,7 +2909,7 @@ impl ApplicationHandler for App {
         }
     }
 
-    /// 이벤트 큐가 비었을 때 → 게임패드 폴링 후 매 프레임 redraw 요청
+    /// 이벤트 큐가 비었을 때 → 게임패드 폴링 후 매 프레임 redraw 요청.
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
         #[cfg(not(target_arch = "wasm32"))]
         self.poll_gilrs();
@@ -2962,6 +2989,10 @@ impl App {
         self.sprite_renderer = Some(sprite_renderer);
         self.text_renderer = text_renderer;
         self.gpu = Some(gpu);
+        // IME 활성화: 켜지 않으면 macOS 등에서 한글/일어/중국어가 조합되지 않고
+        // 자모/캐나 단위 `Character` 이벤트로 들어온다. `Ime::Preedit/Commit` 핸들러는
+        // 이미 있으므로, 허용만 하면 조합된 글자가 `Commit` 으로 전달된다.
+        window.set_ime_allowed(true);
         self.window = Some(window);
         self.last_frame = Some(Instant::now());
         log::info!("엔진 초기화 완료");

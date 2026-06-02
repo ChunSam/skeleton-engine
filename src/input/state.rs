@@ -17,6 +17,11 @@ pub struct InputState {
     mouse_pressed: [bool; 3],
     mouse_just_pressed: [bool; 3],
     mouse_just_released: [bool; 3],
+    /// 각 버튼이 눌린/떼진 *순간*의 커서 위치. 클릭 히트테스트는 이동으로 갱신되는
+    /// 현재 커서가 아니라 이 값을 써야, press 와 그 직후 move 가 같은 프레임에 묶여도
+    /// 클릭이 엉뚱한 위치로 평가되지 않는다.
+    mouse_press_cursor: [Vec2; 3],
+    mouse_release_cursor: [Vec2; 3],
     scroll: f32,
     text_input_chars: Vec<char>,
     ime_preedit: String,
@@ -32,6 +37,8 @@ impl Default for InputState {
             mouse_pressed: [false; 3],
             mouse_just_pressed: [false; 3],
             mouse_just_released: [false; 3],
+            mouse_press_cursor: [Vec2::ZERO; 3],
+            mouse_release_cursor: [Vec2::ZERO; 3],
             scroll: 0.0,
             text_input_chars: Vec::new(),
             ime_preedit: String::new(),
@@ -72,6 +79,16 @@ impl InputState {
         mouse_button_index(btn).is_some_and(|i| self.mouse_just_released[i])
     }
 
+    /// 버튼이 마지막으로 *눌린 순간*의 커서 위치. 클릭/드래그 시작 히트테스트용.
+    pub fn mouse_press_cursor(&self, btn: MouseButton) -> Vec2 {
+        mouse_button_index(btn).map_or(self.cursor, |i| self.mouse_press_cursor[i])
+    }
+
+    /// 버튼이 마지막으로 *떼진 순간*의 커서 위치. 클릭 확정 히트테스트용.
+    pub fn mouse_release_cursor(&self, btn: MouseButton) -> Vec2 {
+        mouse_button_index(btn).map_or(self.cursor, |i| self.mouse_release_cursor[i])
+    }
+
     pub fn scroll(&self) -> f32 {
         self.scroll
     }
@@ -106,6 +123,8 @@ impl InputState {
 
     pub(crate) fn press_mouse(&mut self, btn: MouseButton) {
         if let Some(i) = mouse_button_index(btn) {
+            // 현재 커서 = 이 press 가 일어난 위치 (CursorMoved 가 먼저 처리됨).
+            self.mouse_press_cursor[i] = self.cursor;
             if !self.mouse_pressed[i] {
                 self.mouse_pressed[i] = true;
                 self.mouse_just_pressed[i] = true;
@@ -115,6 +134,7 @@ impl InputState {
 
     pub(crate) fn release_mouse(&mut self, btn: MouseButton) {
         if let Some(i) = mouse_button_index(btn) {
+            self.mouse_release_cursor[i] = self.cursor;
             self.mouse_pressed[i] = false;
             self.mouse_just_released[i] = true;
         }

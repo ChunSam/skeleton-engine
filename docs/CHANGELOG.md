@@ -4,6 +4,77 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 1.2.0
+
+### Added
+
+- `LocalizedText` component plus `LocalizationSystem` — bind a translation key to a `Label`,
+  `Button`, or `CheckBox` and the system keeps its text in sync with the current locale every
+  frame. Switching language is now just `LocaleResource::set_locale(..)`; the whole UI
+  retranslates with no manual per-widget rebuild. Re-exported from the crate root.
+- `settings_menu_game` example (`examples/games/settings_menu/`) — a Title → Settings → Dialogue
+  slice that is the first playable-game coverage for the UI-depth + localization + audio-bus
+  surface: `TextInput`, `Slider`, `CheckBox`, `ScrollView`, `Panel`/`LayoutSystem`, rich/multiline
+  `Label`, `LocaleResource` (EN/KO/ES) + `LocalizedText`, and `AudioManager` buses + `AudioEffect`
+  low-pass. Cross-scene `Settings`/locale/`AudioManager` survive `SceneCmd::Replace` via
+  `App::register_persistent`.
+
+### Fixed
+
+- Clicks landing on the wrong widget after a mouse move: `InputState` keeps only the latest
+  cursor, so when a press and a following move collapsed into one frame the click was hit-tested
+  at the moved-to position (e.g. pressing empty space then moving onto a button activated it,
+  while pressing a button then moving off did nothing). `InputState` now records the cursor at the
+  press and release moments (`mouse_press_cursor`/`mouse_release_cursor`), and `UiSystem` hit-tests
+  clicks/toggles/drag-starts against those (hover and drag-tracking still use the live cursor).
+- `TextInput` caret rendering: the caret `|` was always appended at the end of the string, so it
+  never matched the real cursor after navigation and text appeared to be inserted "in the middle".
+  Added `TextInput::display_with_caret` which inserts the caret (and IME preedit) at the byte
+  cursor; `UiSystem` uses it. The caret blinks while focused but its slot is always reserved (a
+  space when off, `|` when on) so blinking no longer shifts the trailing text.
+- Input-to-display latency: `desired_maximum_frame_latency` lowered from 2 to 1 (vsync kept, no
+  tearing) so button/drag feedback lands a frame sooner.
+- IME / non-Latin input: `set_ime_allowed(true)` is now called on the window, so macOS (and other
+  platforms) compose CJK input and deliver it via `Ime::Commit`. Previously IME was never enabled,
+  so Korean arrived as separated jamo (per-keystroke `Character` events).
+- `AudioManager::play_tone` now applies the channel's effective bus volume to the sink and the
+  channel `AudioEffect` (low-pass / pitch / fade-in), matching file playback. Previously tones
+  ignored both, so `set_bus_volume` and `set_effect` had no audible effect on tone channels.
+- Interactive responsiveness: the event loop never set a `ControlFlow`, defaulting to `Wait`, so
+  drags/hover updated a beat late and sliders did not track the cursor smoothly. It now runs with
+  `ControlFlow::Poll` for a continuous per-frame loop (vsync-paced via the existing redraw request).
+- `TextInput` cursor editing: added `move_left`/`move_right`/`move_home`/`move_end`/`delete_forward`
+  (UTF-8 safe) on `TextInput`, and `UiSystem` now applies ←/→/Home/End/Delete to the focused field.
+  Previously the caret could only sit where typing left it (no navigation, no forward delete).
+- HiDPI mouse/touch hit-testing: the cursor was stored in physical pixels while UI hit-testing,
+  `ViewportSize`, and `Camera::screen_to_world` all work in logical pixels, so on a scaled display
+  (e.g. Retina 2×) clicks landed offset from the cursor. `CursorMoved` and the touch→mouse
+  emulation now divide by the window scale factor, storing the cursor in logical coordinates
+  (no-op at scale 1.0). Surfaced by `settings_menu_game`'s click-heavy widgets; also corrects
+  editor gizmo dragging and any `screen_to_world` use on HiDPI.
+
+### Known gaps (surfaced, not yet addressed)
+
+- `LocaleData.font` is not applied at runtime: `TextRenderer` takes its font once at init via the
+  `FontData` resource, so per-locale font switching is unsupported. Non-Latin scripts render only
+  through native system-font fallback and are absent on wasm (no system fonts). Korean in
+  `settings_menu_game` therefore renders on macOS but not on Linux CI / wasm.
+- `LocaleData.direction` / `TextDirection::RightToLeft` is metadata only — the text renderer does
+  not auto-apply RTL alignment from the locale (it maps `TextAlign::Right` explicitly). No RTL
+  locale ships in the example, so RTL is left for a future dedicated example.
+- No window fullscreen-request path exists yet, so `settings_menu_game`'s Fullscreen checkbox only
+  stores a preference (its label says so); wiring real OS fullscreen is deferred.
+- The built-in `TextInput` is single-line with no horizontal scrolling: text longer than the field
+  width clips at the edge, and IME composition at the `max_len` cap shows an uncommittable preedit.
+  Adequate for short fields (names, search); a scrolling multi-line field is future work.
+- The blinking `TextInput` caret is drawn inline (a reserved `|`/space slot), so it can still shift
+  the trailing text by a sub-pixel on blink. A fully stable caret needs a renderer-measured overlay
+  (the text renderer drawing the caret quad at the glyph position); deferred.
+- Residual input-to-display latency on macOS: even with `frame_latency=1`, a click registers a beat
+  late, and the window content lags during a live OS window drag (winit enters a modal event-loop
+  mode). `AutoNoVsync` only helped marginally while uncapping the frame rate, so it was not adopted.
+  Treated as a macOS/winit optimization to revisit.
+
 ## 1.1.0
 
 ### Added
