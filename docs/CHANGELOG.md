@@ -21,6 +21,20 @@ The package follows semantic versioning beginning with 1.0.0.
 
 ### Fixed
 
+- Dropped clicks after moving the mouse: the per-frame `update()` ran inside `RedrawRequested`,
+  which winit can service before that cycle's `CursorMoved`/`MouseInput` are drained, so a click
+  right after a move was evaluated against a stale cursor and never armed the widget. `update()`
+  now runs in `about_to_wait` (after the full event drain); `render()` stays in `RedrawRequested`.
+- `TextInput` caret rendering: the caret `|` was always appended at the end of the string, so it
+  never matched the real cursor after navigation and text appeared to be inserted "in the middle".
+  Added `TextInput::display_with_caret` which inserts the caret (and IME preedit) at the byte
+  cursor; `UiSystem` uses it.
+- IME / non-Latin input: `set_ime_allowed(true)` is now called on the window, so macOS (and other
+  platforms) compose CJK input and deliver it via `Ime::Commit`. Previously IME was never enabled,
+  so Korean arrived as separated jamo (per-keystroke `Character` events).
+- `AudioManager::play_tone` now applies the channel's effective bus volume to the sink and the
+  channel `AudioEffect` (low-pass / pitch / fade-in), matching file playback. Previously tones
+  ignored both, so `set_bus_volume` and `set_effect` had no audible effect on tone channels.
 - Interactive responsiveness: the event loop never set a `ControlFlow`, defaulting to `Wait`, so
   drags/hover updated a beat late and sliders did not track the cursor smoothly. It now runs with
   `ControlFlow::Poll` for a continuous per-frame loop (vsync-paced via the existing redraw request).
@@ -43,6 +57,8 @@ The package follows semantic versioning beginning with 1.0.0.
 - `LocaleData.direction` / `TextDirection::RightToLeft` is metadata only — the text renderer does
   not auto-apply RTL alignment from the locale (it maps `TextAlign::Right` explicitly). No RTL
   locale ships in the example, so RTL is left for a future dedicated example.
+- No window fullscreen-request path exists yet, so `settings_menu_game`'s Fullscreen checkbox only
+  stores a preference (its label says so); wiring real OS fullscreen is deferred.
 
 ## 1.1.0
 

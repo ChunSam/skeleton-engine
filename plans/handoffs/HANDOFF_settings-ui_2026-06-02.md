@@ -56,10 +56,35 @@ vision's dogfooding core loop. Direction + all scope decisions were locked via a
 | `rust-survivors` rebuild | clean (additive) |
 | Native interactive run | **left for user** (GUI not observable here) |
 
+## QA fix rounds (engine bugs the example surfaced)
+
+Interactive QA on macOS drove three rounds of engine fixes (all on this branch, all in CHANGELOG
+1.2.0 **Fixed**):
+
+- **Round 1 — HiDPI cursor offset.** Cursor was stored in physical px while UI/`screen_to_world`
+  use logical px → clicks landed offset on Retina. Divide `CursorMoved`/touch by scale factor.
+- **Round 2 — responsiveness + text caret nav.** Set `ControlFlow::Poll`; add `TextInput`
+  arrow/Home/End/Delete cursor movement; example polish (name caret at end, audible volume, scroll).
+- **Round 3 — four confirmed root causes:**
+  - Caret rendered at end of string (ignored `ti.cursor`) → `TextInput::display_with_caret` inserts
+    the caret (and IME preedit) at the real byte cursor; unit-tested.
+  - Korean typed as separated jamo → `window.set_ime_allowed(true)` in `finish_init` (the
+    `Ime::Preedit/Commit` handlers already existed).
+  - Volume sliders / M-muffle inaudible → `AudioManager::play_tone` now applies `effective_volume`
+    + channel `AudioEffect` like `play_internal`.
+  - First click after a mouse move dropped (stale cursor) → moved `update()` from `RedrawRequested`
+    into `about_to_wait` so input is fully drained before systems read it; `render()` stays in
+    `RedrawRequested`.
+  - Fullscreen checkbox relabeled "(preference)" — no OS fullscreen path yet (documented gap).
+
+Round-3 verification: fmt clean; clippy `-D warnings` clean; `cargo test --lib` = **258 passed**;
+wasm lib + example build; `rust-survivors` rebuilds clean. **Residual to re-evaluate with user:** if
+a half-beat input latency remains it is AutoVsync buffering (vsync-disable deferred by user).
+
 ## Where We're Going
 
 - Open PR on `feat/example-settings-ui`; merge after CI green (WASM / Package dry-run / Rustdoc /
-  Test native), mirroring #3. User to confirm the interactive run (type name; drag sliders → audio;
-  toggle checkboxes; scroll; EN→KO→ES instant relabel; dialogue greets by name + subtitles toggle).
+  Test native), mirroring #3. User to confirm the interactive run (caret tracks cursor; Korean
+  composes; sliders change loudness; M muffles; first click after a move registers).
 - Remaining never-in-a-game subsystems for later cycles (none scheduled): 2D lighting, `BlendTree1D`,
   `Timeline`/cutscene, `PostProcessConfig`, physics joints, `RenderTarget` in real play, networking.

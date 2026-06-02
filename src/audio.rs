@@ -412,6 +412,10 @@ impl AudioManager {
     // ── 유틸리티 ──────────────────────────────────────────────────────────────
 
     /// 순수 사인파 톤을 재생한다.
+    ///
+    /// `volume` 은 톤 자체의 진폭이고, 채널이 속한 버스 볼륨은 `play_internal` 과
+    /// 동일하게 sink 볼륨(`effective_volume`)으로 곱해진다. `set_effect` 로 지정한
+    /// 채널 이펙트(로우패스·피치·페이드인)도 톤에 적용된다.
     pub fn play_tone(&mut self, channel: &str, freq: f32, duration_secs: f32, volume: f32) {
         if let Some(old) = self.sinks.remove(channel) {
             old.stop();
@@ -420,9 +424,30 @@ impl AudioManager {
             Ok(s) => s,
             Err(_) => return,
         };
-        let source = SineWave::new(freq)
+        // 버스/채널 볼륨을 sink 에 반영 (set_bus_volume 이 즉시 갱신할 수 있도록).
+        sink.set_volume(self.effective_volume(channel));
+
+        let base = SineWave::new(freq)
             .take_duration(Duration::from_secs_f32(duration_secs))
             .amplify(volume);
+
+        // SineWave 는 f32 샘플이라 low_pass/speed/fade_in 을 변환 없이 직접 적용한다.
+        let source: Box<dyn Source<Item = f32> + Send + 'static> =
+            match self.effects.get(channel).cloned() {
+                Some(eff) => {
+                    let pitch = if eff.pitch > 0.0 { eff.pitch } else { 1.0 };
+                    let s = base.speed(pitch);
+                    match (eff.low_pass_hz, eff.attack_secs) {
+                        (Some(hz), a) if a > 0.001 => {
+                            Box::new(s.low_pass(hz).fade_in(Duration::from_secs_f32(a)))
+                        }
+                        (Some(hz), _) => Box::new(s.low_pass(hz)),
+                        (None, a) if a > 0.001 => Box::new(s.fade_in(Duration::from_secs_f32(a))),
+                        (None, _) => Box::new(s),
+                    }
+                }
+                None => Box::new(base),
+            };
         sink.append(source);
         self.sinks.insert(channel.to_string(), sink);
     }

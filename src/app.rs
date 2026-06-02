@@ -2858,38 +2858,7 @@ impl ApplicationHandler for App {
                     }
                 }
 
-                let now = Instant::now();
-                let dt = self
-                    .last_frame
-                    .map(|t| (now - t).as_secs_f32().min(0.1))
-                    .unwrap_or(1.0 / 60.0);
-                self.last_frame = Some(now);
-                self.last_dt = dt;
-
-                self.update(dt);
-
-                // 시스템이 ShouldQuit(true) 를 설정했으면 종료
-                if self
-                    .world
-                    .resource::<ShouldQuit>()
-                    .map(|q| q.0)
-                    .unwrap_or(false)
-                {
-                    event_loop.exit();
-                    return;
-                }
-
-                // PendingResize: 게임이 요청한 해상도로 창 크기 변경
-                let pending = self.world.resource::<PendingResize>().and_then(|r| r.0);
-                if let Some((w, h)) = pending {
-                    if let Some(window) = &self.window {
-                        let _ = window.request_inner_size(winit::dpi::LogicalSize::new(w, h));
-                    }
-                    if let Some(r) = self.world.resource_mut::<PendingResize>() {
-                        *r = PendingResize(None);
-                    }
-                }
-
+                // 시뮬레이션(update)은 about_to_wait 로 옮겼다. 여기서는 렌더만 한다.
                 match self.render() {
                     Ok(()) => {}
                     Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
@@ -2905,8 +2874,13 @@ impl ApplicationHandler for App {
         }
     }
 
-    /// 이벤트 큐가 비었을 때 → 게임패드 폴링 후 매 프레임 redraw 요청
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+    /// 이벤트 큐가 비었을 때 → 게임패드 폴링 후 시뮬레이션 1프레임 + redraw 요청.
+    ///
+    /// `update()` 를 여기서 돌리는 이유: winit 은 한 사이클의 모든 입력 이벤트를
+    /// 전달한 *뒤* about_to_wait 를 호출한다. 따라서 클릭(`MouseInput`)과 그 직전
+    /// `CursorMoved` 가 같은 프레임에 함께 반영되어, 커서가 1프레임 뒤처져 클릭이
+    /// 드롭되던 문제가 사라진다. 렌더는 RedrawRequested 에서 한다.
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         #[cfg(not(target_arch = "wasm32"))]
         self.poll_gilrs();
 
@@ -2915,6 +2889,41 @@ impl ApplicationHandler for App {
         if self.gpu.is_none() {
             if let Some((gpu, window)) = PENDING_GPU.with(|p| p.borrow_mut().take()) {
                 self.finish_init(gpu, window);
+            }
+        }
+
+        // GPU(=렌더러) 준비 후에만 시뮬레이션을 돈다.
+        if self.gpu.is_some() {
+            let now = Instant::now();
+            let dt = self
+                .last_frame
+                .map(|t| (now - t).as_secs_f32().min(0.1))
+                .unwrap_or(1.0 / 60.0);
+            self.last_frame = Some(now);
+            self.last_dt = dt;
+
+            self.update(dt);
+
+            // 시스템이 ShouldQuit(true) 를 설정했으면 종료
+            if self
+                .world
+                .resource::<ShouldQuit>()
+                .map(|q| q.0)
+                .unwrap_or(false)
+            {
+                event_loop.exit();
+                return;
+            }
+
+            // PendingResize: 게임이 요청한 해상도로 창 크기 변경
+            let pending = self.world.resource::<PendingResize>().and_then(|r| r.0);
+            if let Some((w, h)) = pending {
+                if let Some(window) = &self.window {
+                    let _ = window.request_inner_size(winit::dpi::LogicalSize::new(w, h));
+                }
+                if let Some(r) = self.world.resource_mut::<PendingResize>() {
+                    *r = PendingResize(None);
+                }
             }
         }
 
@@ -2985,6 +2994,10 @@ impl App {
         self.sprite_renderer = Some(sprite_renderer);
         self.text_renderer = text_renderer;
         self.gpu = Some(gpu);
+        // IME 활성화: 켜지 않으면 macOS 등에서 한글/일어/중국어가 조합되지 않고
+        // 자모/캐나 단위 `Character` 이벤트로 들어온다. `Ime::Preedit/Commit` 핸들러는
+        // 이미 있으므로, 허용만 하면 조합된 글자가 `Commit` 으로 전달된다.
+        window.set_ime_allowed(true);
         self.window = Some(window);
         self.last_frame = Some(Instant::now());
         log::info!("엔진 초기화 완료");

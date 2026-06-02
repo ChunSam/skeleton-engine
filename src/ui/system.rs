@@ -252,13 +252,7 @@ impl System for UiSystem {
                     Some(t) => t,
                     None => continue,
                 };
-                let display = if ti.text.is_empty() && !ti.focused {
-                    ti.placeholder.clone()
-                } else if ti.focused && ti.cursor_visible {
-                    format!("{}|", ti.text_with_preedit())
-                } else {
-                    ti.text_with_preedit()
-                };
+                let display = ti.display_with_caret(ti.focused && ti.cursor_visible);
                 (ti.current_color(), display, ti.text_color, ti.font_size)
             };
 
