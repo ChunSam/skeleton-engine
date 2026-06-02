@@ -11,7 +11,7 @@ thread_local! {
     static PENDING_GPU: std::cell::RefCell<Option<(
         crate::renderer::GpuContext,
         Arc<winit::window::Window>,
-    )>> = std::cell::RefCell::new(None);
+    )>> = const { std::cell::RefCell::new(None) };
 }
 
 use glam::Vec2;
@@ -2608,8 +2608,65 @@ impl App {
             self.egui_renderer = Some(er);
         }
 
+        // winit 권장: present 직전 컴포지터에 통지해 표시 지연을 줄인다.
+        if let Some(window) = &self.window {
+            window.pre_present_notify();
+        }
         frame.present();
         Ok(())
+    }
+
+    /// update + render 를 한 번 구동한다. RedrawRequested 와, 라이브 리사이즈
+    /// 드래그 중의 Resized 양쪽에서 호출한다. macOS 는 드래그 동안 OS 모달
+    /// 런루프로 진입해 about_to_wait→request_redraw 사이클이 멈추지만, Resized 는
+    /// 계속 들어오므로 여기서 프레임을 돌려 콘텐츠 멈춤을 완화한다.
+    fn step_frame(&mut self, event_loop: &ActiveEventLoop) {
+        let now = Instant::now();
+        let dt = self
+            .last_frame
+            .map(|t| (now - t).as_secs_f32().min(0.1))
+            .unwrap_or(1.0 / 60.0);
+        // 계측: 프레임 간격이 ~30fps(33ms)보다 벌어지면 기록한다. 라이브 드래그
+        // 중 멈춤을 정량화하기 위한 디버그 로그 (RUST_LOG=debug 로 게이트됨).
+        if dt > 0.033 {
+            log::debug!("frame gap {:.1}ms (drag/stall?)", dt * 1000.0);
+        }
+        self.last_frame = Some(now);
+        self.last_dt = dt;
+
+        self.update(dt);
+
+        // 시스템이 ShouldQuit(true) 를 설정했으면 종료
+        if self
+            .world
+            .resource::<ShouldQuit>()
+            .map(|q| q.0)
+            .unwrap_or(false)
+        {
+            event_loop.exit();
+            return;
+        }
+
+        // PendingResize: 게임이 요청한 해상도로 창 크기 변경
+        let pending = self.world.resource::<PendingResize>().and_then(|r| r.0);
+        if let Some((w, h)) = pending {
+            if let Some(window) = &self.window {
+                let _ = window.request_inner_size(winit::dpi::LogicalSize::new(w, h));
+            }
+            if let Some(r) = self.world.resource_mut::<PendingResize>() {
+                *r = PendingResize(None);
+            }
+        }
+
+        match self.render() {
+            Ok(()) => {}
+            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                if let Some(gpu) = &self.gpu {
+                    gpu.reconfigure();
+                }
+            }
+            Err(e) => log::error!("렌더링 오류: {e:?}"),
+        }
     }
 }
 
@@ -2716,6 +2773,10 @@ impl ApplicationHandler for App {
                     };
                     gpu.resize(size);
                 }
+                // 라이브 리사이즈 드래그 중에도 한 프레임 그려 멈춤을 완화한다.
+                // (macOS 모달 루프 동안 RedrawRequested 가 멈춰도 Resized 는 들어온다.)
+                #[cfg(not(target_arch = "wasm32"))]
+                self.step_frame(event_loop);
             }
 
             // ── 키보드 입력 ──────────────────────────────────────────────────
@@ -2858,51 +2919,11 @@ impl ApplicationHandler for App {
                     }
                 }
 
-                // update() 와 render() 를 한 RedrawRequested 안에서 연속 실행한다.
-                // (한때 update 를 about_to_wait 로 분리했으나, update→render 사이에
+                // update + render 를 한 RedrawRequested 안에서 연속 실행한다.
+                // (한때 update 를 about_to_wait 로 분리했으나 update→render 사이에
                 // 한 프레임 지연이 생겨 입력 반응이 늦었다. 클릭 정확성은 press/release
-                // 시점 커서 기록으로 보장되므로 여기서 함께 돌려 지연을 없앤다.)
-                let now = Instant::now();
-                let dt = self
-                    .last_frame
-                    .map(|t| (now - t).as_secs_f32().min(0.1))
-                    .unwrap_or(1.0 / 60.0);
-                self.last_frame = Some(now);
-                self.last_dt = dt;
-
-                self.update(dt);
-
-                // 시스템이 ShouldQuit(true) 를 설정했으면 종료
-                if self
-                    .world
-                    .resource::<ShouldQuit>()
-                    .map(|q| q.0)
-                    .unwrap_or(false)
-                {
-                    event_loop.exit();
-                    return;
-                }
-
-                // PendingResize: 게임이 요청한 해상도로 창 크기 변경
-                let pending = self.world.resource::<PendingResize>().and_then(|r| r.0);
-                if let Some((w, h)) = pending {
-                    if let Some(window) = &self.window {
-                        let _ = window.request_inner_size(winit::dpi::LogicalSize::new(w, h));
-                    }
-                    if let Some(r) = self.world.resource_mut::<PendingResize>() {
-                        *r = PendingResize(None);
-                    }
-                }
-
-                match self.render() {
-                    Ok(()) => {}
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                        if let Some(gpu) = &self.gpu {
-                            gpu.reconfigure();
-                        }
-                    }
-                    Err(e) => log::error!("렌더링 오류: {e:?}"),
-                }
+                // 시점 커서 기록으로 보장된다.) 동일 시퀀스를 Resized 에서도 재사용한다.
+                self.step_frame(event_loop);
             }
 
             _ => {}
