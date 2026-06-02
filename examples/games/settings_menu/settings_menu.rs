@@ -686,6 +686,29 @@ impl Scene for SettingsScene {
             UiNode::new(280.0, 430.0, 200.0, 50.0).with_z(0.92),
         );
 
+        // Dedicated long-text field (deliberately narrow, prefilled past its width) to
+        // exercise single-line horizontal scroll + caret-follow, with a reachable
+        // `max_len` so IME-at-capacity honesty is testable. Standalone (not in the panel).
+        {
+            let label = world.spawn();
+            world.add_component(label, UiNode::new(500.0, 410.0, 380.0, 20.0).with_z(0.92));
+            world.add_component(
+                label,
+                Label::new("Long-text field — type past the edge (scrolls)")
+                    .with_font_size(15.0)
+                    .with_color([255, 220, 140, 255]),
+            );
+            self.entities.push(label);
+
+            let field = world.spawn();
+            world.add_component(field, UiNode::new(500.0, 434.0, 200.0, 32.0).with_z(0.92));
+            let mut input = TextInput::new("type a long line…").with_max_len(48);
+            input.text = "The quick brown fox jumps over the lazy dog".to_string();
+            input.cursor = input.text.len();
+            world.add_component(field, input);
+            self.entities.push(field);
+        }
+
         // Re-apply persisted bus volumes (survives the world reset; harmless to repeat),
         // then start the sustained music tone so the Music slider is audible.
         set_bus(world, "music", settings.music);

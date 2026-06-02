@@ -86,8 +86,9 @@ standalone demos or none). The densest, most universally-needed cluster — UI d
     live window-drag freeze is gone (frame step factored into `App::step_frame`, driven inline
     from `Resized`, plus `pre_present_notify`); content keeps animating through both resize and
     titlebar-move drags. Residual: a one-frame lag at the *start* of a drag (documented limitation,
-    CHANGELOG → Unreleased). Still deferred from this cluster: overlay caret, `TextInput`
-    horizontal scroll, real OS fullscreen.
+    CHANGELOG → 1.2.1). `TextInput` **horizontal scroll** + IME-at-`max_len` honesty are now also
+    done (single-line scroll via `DrawText::with_single_line_caret`; CHANGELOG → 1.3.0). Still
+    deferred from this cluster: overlay caret, real OS fullscreen.
 
 Remaining never-in-a-game subsystems (candidates for later dogfooding cycles, none scheduled):
 2D lighting (`PointLight`/normal-map), `BlendTree1D`, `Timeline`/cutscene, `PostProcessConfig`,

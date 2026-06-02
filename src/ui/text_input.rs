@@ -160,6 +160,18 @@ impl TextInput {
         };
         format!("{head}{}{caret}{tail}", self.preedit)
     }
+
+    /// Remaining byte capacity before `max_len`. Zero means the field is full.
+    pub fn remaining_capacity(&self) -> usize {
+        self.max_len.saturating_sub(self.text.len())
+    }
+
+    /// Byte offset of the caret within the string from [`Self::display_with_caret`] —
+    /// directly after the head text and the IME preedit. The renderer uses this to
+    /// measure the caret's x for single-line horizontal scrolling.
+    pub fn caret_display_offset(&self) -> usize {
+        self.cursor + self.preedit.len()
+    }
 }
 
 #[cfg(test)]
@@ -229,5 +241,30 @@ mod tests {
 
         assert_eq!(input.text_with_preedit(), "한글");
         assert_eq!(input.text, "글");
+    }
+
+    #[test]
+    fn remaining_capacity_tracks_max_len() {
+        let mut input = TextInput::new("").with_max_len("한글".len()); // 6 bytes
+        assert_eq!(input.remaining_capacity(), 6);
+        input.insert_str("한"); // 3 bytes
+        assert_eq!(input.remaining_capacity(), 3);
+        input.insert_str("글"); // full
+        assert_eq!(input.remaining_capacity(), 0);
+        // Further input is rejected, capacity stays 0 (no underflow).
+        input.insert_str("!");
+        assert_eq!(input.remaining_capacity(), 0);
+        assert_eq!(input.text, "한글");
+    }
+
+    #[test]
+    fn caret_display_offset_accounts_for_preedit() {
+        let mut input = TextInput::new("");
+        input.insert_str("ab"); // cursor at 2
+        assert_eq!(input.caret_display_offset(), 2);
+        input.move_left(); // cursor at 1
+        input.preedit = "ㄱ".to_string(); // 3 bytes inserted at cursor
+                                          // display = "a" + "ㄱ" + caret + "b"; caret sits at byte 1 + 3 = 4.
+        assert_eq!(input.caret_display_offset(), 1 + "ㄱ".len());
     }
 }

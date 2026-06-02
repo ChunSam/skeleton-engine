@@ -250,13 +250,20 @@ impl System for UiSystem {
                         }
                     }
                     if let Some(ti) = world.get_mut::<TextInput>(entity) {
-                        ti.preedit = ime_preedit.clone();
+                        // 남은 용량보다 조합 문자열이 길면 커밋할 수 없으므로 표시하지
+                        // 않는다. max_len 도달 시 헛도는(커밋 불가) preedit 를 막아
+                        // 정직한 피드백을 준다. (커밋은 insert_str 가 들어갈 만큼만 넣음.)
+                        ti.preedit = if ti.remaining_capacity() >= ime_preedit.len() {
+                            ime_preedit.clone()
+                        } else {
+                            String::new()
+                        };
                     }
                 }
             }
 
             // 렌더 명령 수집
-            let (bg_color, display_text, text_color, font_size) = {
+            let (bg_color, display_text, text_color, font_size, caret_byte) = {
                 let ti = match world.get::<TextInput>(entity) {
                     Some(t) => t,
                     None => continue,
@@ -264,7 +271,20 @@ impl System for UiSystem {
                 // Blinking caret; the caret slot is reserved (space when off) so the
                 // trailing text does not shift as it blinks.
                 let display = ti.display_with_caret(ti.focused, ti.cursor_visible);
-                (ti.current_color(), display, ti.text_color, ti.font_size)
+                // Focused → scroll so the caret stays visible; unfocused → anchor to
+                // the start (offset 0) so the field shows the beginning of the text.
+                let caret_byte = if ti.focused {
+                    ti.caret_display_offset()
+                } else {
+                    0
+                };
+                (
+                    ti.current_color(),
+                    display,
+                    ti.text_color,
+                    ti.font_size,
+                    caret_byte,
+                )
             };
 
             rects.push(DrawRect::new(pos.x, pos.y, size.x, size.y, bg_color).with_z(z));
@@ -275,7 +295,8 @@ impl System for UiSystem {
                     font_size,
                     text_color,
                 )
-                .with_bounds(Vec2::new((size.x - 12.0).max(0.0), size.y)),
+                .with_bounds(Vec2::new((size.x - 12.0).max(0.0), size.y))
+                .with_single_line_caret(caret_byte),
             );
         }
 
