@@ -67,6 +67,13 @@ The package follows semantic versioning beginning with 1.0.0.
 - The built-in `TextInput` is single-line with no horizontal scrolling: text longer than the field
   width clips at the edge, and IME composition at the `max_len` cap shows an uncommittable preedit.
   Adequate for short fields (names, search); a scrolling multi-line field is future work.
+- The blinking `TextInput` caret is drawn inline (a reserved `|`/space slot), so it can still shift
+  the trailing text by a sub-pixel on blink. A fully stable caret needs a renderer-measured overlay
+  (the text renderer drawing the caret quad at the glyph position); deferred.
+- Residual input-to-display latency on macOS: even with `frame_latency=1`, a click registers a beat
+  late, and the window content lags during a live OS window drag (winit enters a modal event-loop
+  mode). `AutoNoVsync` only helped marginally while uncapping the frame rate, so it was not adopted.
+  Treated as a macOS/winit optimization to revisit.
 
 ## 1.1.0
 

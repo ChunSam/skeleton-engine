@@ -123,10 +123,13 @@ impl GpuContext {
             format,
             width: size.width.max(1),
             height: size.height.max(1),
+            // AutoVsync + frame_latency=1: 찢김 없이 프레임 큐잉을 최소화한다.
+            // AutoNoVsync(저지연)도 시험했으나 지연 개선이 미미한 반면 프레임이
+            // 무제한으로 돌아(배터리·발열) 기본값으로 부적절했다. macOS 의 잔여
+            // 입력 지연(라이브 창 드래그 중 이벤트 루프 정지 등)은 후속 최적화로 미룸.
             present_mode: wgpu::PresentMode::AutoVsync,
             alpha_mode,
             view_formats: vec![],
-            // 1 프레임만 큐잉 → 입력→화면 지연을 줄인다 (vsync 유지, 화면 찢김 없음).
             desired_maximum_frame_latency: 1,
         };
         surface.configure(&device, &config);

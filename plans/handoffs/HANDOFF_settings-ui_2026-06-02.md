@@ -93,6 +93,15 @@ wasm lib + example build; `rust-survivors` rebuilds clean.
   fmt/clippy `-D warnings` clean; `cargo test --lib` = **260 passed**; wasm lib + example clean;
   `rust-survivors` rebuilds clean. Residual half-beat latency (if any) = AutoVsync, deferred.
 
+- **Rounds 5–6 — final QA pass.** Clicks now hit-test at the press/release cursor (round 4) and
+  feel correct. Remaining polish: caret blinks with a reserved slot (sub-pixel shift remains — full
+  fix = renderer-measured overlay, deferred); the muffle demo plays a low+high two-tone so the
+  low-pass audibly removes the high (user-confirmed working); input latency was reduced via
+  `frame_latency=1` and the `about_to_wait`→`RedrawRequested` revert (removed a frame gap).
+  `AutoNoVsync` was tested but only marginally better while uncapping the frame rate, so the engine
+  stays on `AutoVsync`. Residual macOS latency (incl. modal event loop during live window drag) and
+  the overlay caret are documented known-gaps to revisit as macOS/renderer optimizations.
+
 ## Where We're Going
 
 - Open PR on `feat/example-settings-ui`; merge after CI green (WASM / Package dry-run / Rustdoc /
