@@ -68,7 +68,7 @@ const LOCALES_RON: &str = r#"
             "npc.greet": "Welcome",
             "npc.line2": "Change the settings anytime from the menu.",
             "dialogue.off": "[ subtitles are off ]",
-            "dialogue.help": "Space: next    M: muffle music    Esc: menu",
+            "dialogue.help": "Space: next    M: muffle music (low-pass)    Esc: menu",
         } ),
         "ko": ( translations: {
             "app.title": "[color=#ffd27f][b]스켈레톤[/b][/color] 설정 데모",
@@ -91,13 +91,13 @@ const LOCALES_RON: &str = r#"
             "about.5": "휠로 이 목록을 스크롤",
             "about.6": "방향키 / Home / End 로 텍스트 커서 이동",
             "about.7": "계속을 누르면 짧은 대화 시작",
-            "about.8": "대화에서 M 키로 음악 음소거",
+            "about.8": "대화에서 M 키로 음악을 먹먹하게 (로우패스)",
             "about.9": "Esc 로 타이틀로 돌아가기",
             "npc.name": "안내자",
             "npc.greet": "환영합니다",
             "npc.line2": "메뉴에서 언제든 설정을 바꿀 수 있어요.",
             "dialogue.off": "[ 자막이 꺼져 있습니다 ]",
-            "dialogue.help": "Space: 다음    M: 음소거    Esc: 메뉴",
+            "dialogue.help": "Space: 다음    M: 먹먹하게(로우패스)    Esc: 메뉴",
         } ),
         "es": ( translations: {
             "app.title": "[color=#ffd27f][b]Skeleton[/b][/color] Demo de ajustes",
@@ -120,13 +120,13 @@ const LOCALES_RON: &str = r#"
             "about.5": "Desplaza esta lista con la rueda",
             "about.6": "Flechas / Inicio / Fin mueven el cursor de texto",
             "about.7": "Continuar inicia un breve diálogo",
-            "about.8": "Pulsa M en el diálogo para silenciar la música",
+            "about.8": "Pulsa M en el diálogo para amortiguar la música",
             "about.9": "Esc vuelve al título",
             "npc.name": "Guía",
             "npc.greet": "Bienvenido",
             "npc.line2": "Cambia los ajustes cuando quieras desde el menú.",
             "dialogue.off": "[ subtítulos desactivados ]",
-            "dialogue.help": "Espacio: siguiente    M: silenciar    Esc: menú",
+            "dialogue.help": "Espacio: siguiente    M: amortiguar (paso bajo)    Esc: menú",
         } ),
     },
 )
@@ -322,6 +322,8 @@ fn keep_bgm(world: &mut World) {
 fn keep_bgm(_world: &mut World) {}
 
 /// Toggle a low-pass `AudioEffect` on the music channel, then replay so it applies.
+/// Low-pass keeps the lows and removes the highs — on a pure tone (no overtones)
+/// that mostly attenuates it; it is *not* a mute. Validates `set_effect`.
 #[cfg(not(target_arch = "wasm32"))]
 fn set_muffle(world: &mut World, on: bool) {
     if let Some(audio) = world.resource_mut::<AudioManager>() {

@@ -126,7 +126,8 @@ impl GpuContext {
             present_mode: wgpu::PresentMode::AutoVsync,
             alpha_mode,
             view_formats: vec![],
-            desired_maximum_frame_latency: 2,
+            // 1 프레임만 큐잉 → 입력→화면 지연을 줄인다 (vsync 유지, 화면 찢김 없음).
+            desired_maximum_frame_latency: 1,
         };
         surface.configure(&device, &config);
 

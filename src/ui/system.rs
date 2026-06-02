@@ -261,9 +261,9 @@ impl System for UiSystem {
                     Some(t) => t,
                     None => continue,
                 };
-                // Steady caret while focused: blinking would insert/remove the `|`
-                // glyph and visibly shift the trailing text back and forth.
-                let display = ti.display_with_caret(ti.focused);
+                // Blinking caret; the caret slot is reserved (space when off) so the
+                // trailing text does not shift as it blinks.
+                let display = ti.display_with_caret(ti.focused, ti.cursor_visible);
                 (ti.current_color(), display, ti.text_color, ti.font_size)
             };
 

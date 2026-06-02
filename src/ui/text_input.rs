@@ -140,15 +140,24 @@ impl TextInput {
     }
 
     /// Builds the string the renderer shows: placeholder when empty and unfocused,
-    /// otherwise the text with the IME preedit and (optionally) a `|` caret inserted
-    /// at the real cursor position — not pinned to the end. `cursor` is always on a
-    /// char boundary, so the splits are UTF-8 safe.
-    pub fn display_with_caret(&self, show_caret: bool) -> String {
-        if self.text.is_empty() && self.preedit.is_empty() && !self.focused {
+    /// otherwise the text with the IME preedit and a caret inserted at the real
+    /// cursor position — not pinned to the end. `cursor` is always on a char boundary,
+    /// so the splits are UTF-8 safe.
+    ///
+    /// While focused the caret slot is *always reserved* (a space when the blink is
+    /// off, `|` when on), so blinking does not shift the trailing text back and forth.
+    pub fn display_with_caret(&self, focused: bool, blink_on: bool) -> String {
+        if self.text.is_empty() && self.preedit.is_empty() && !focused {
             return self.placeholder.clone();
         }
         let (head, tail) = self.text.split_at(self.cursor);
-        let caret = if show_caret { "|" } else { "" };
+        let caret = if !focused {
+            ""
+        } else if blink_on {
+            "|"
+        } else {
+            " "
+        };
         format!("{head}{}{caret}{tail}", self.preedit)
     }
 }
@@ -195,19 +204,20 @@ mod tests {
     fn display_with_caret_tracks_cursor() {
         let mut input = TextInput::new("type…");
         // Empty + unfocused → placeholder.
-        assert_eq!(input.display_with_caret(false), "type…");
+        assert_eq!(input.display_with_caret(false, false), "type…");
 
         input.focused = true;
         input.insert_str("한글"); // cursor at end (6 bytes)
-        assert_eq!(input.display_with_caret(true), "한글|");
+        assert_eq!(input.display_with_caret(true, true), "한글|");
+        // Blink off keeps a reserved space so the text does not shift.
+        assert_eq!(input.display_with_caret(true, false), "한글 ");
 
         input.move_left(); // caret between 한 and 글
-        assert_eq!(input.display_with_caret(true), "한|글");
-        assert_eq!(input.display_with_caret(false), "한글"); // blink off → no caret
+        assert_eq!(input.display_with_caret(true, true), "한|글");
 
         // Preedit composes at the caret, the bar sits after it.
         input.preedit = "ㄱ".to_string();
-        assert_eq!(input.display_with_caret(true), "한ㄱ|글");
+        assert_eq!(input.display_with_caret(true, true), "한ㄱ|글");
     }
 
     #[test]

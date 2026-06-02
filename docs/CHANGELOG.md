@@ -31,8 +31,10 @@ The package follows semantic versioning beginning with 1.0.0.
 - `TextInput` caret rendering: the caret `|` was always appended at the end of the string, so it
   never matched the real cursor after navigation and text appeared to be inserted "in the middle".
   Added `TextInput::display_with_caret` which inserts the caret (and IME preedit) at the byte
-  cursor; `UiSystem` uses it. The caret is steady while focused (blinking inserted/removed the glyph
-  and visibly shifted the trailing text).
+  cursor; `UiSystem` uses it. The caret blinks while focused but its slot is always reserved (a
+  space when off, `|` when on) so blinking no longer shifts the trailing text.
+- Input-to-display latency: `desired_maximum_frame_latency` lowered from 2 to 1 (vsync kept, no
+  tearing) so button/drag feedback lands a frame sooner.
 - IME / non-Latin input: `set_ime_allowed(true)` is now called on the window, so macOS (and other
   platforms) compose CJK input and deliver it via `Ime::Commit`. Previously IME was never enabled,
   so Korean arrived as separated jamo (per-keystroke `Character` events).
