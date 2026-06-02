@@ -361,8 +361,13 @@ mod tests {
     use std::fs;
 
     fn tmp_path(name: &str) -> std::path::PathBuf {
+        // One unique dir per test (keyed by the file name) so each test's cleanup
+        // (`remove_dir` on the parent) never races a sibling running in parallel —
+        // previously all prefab tests shared `engine-prefab-test-{pid}` and a
+        // concurrent `remove_dir` could delete it between another test's
+        // `create_dir_all` and `fs::write`, yielding a flaky `Io(NotFound)`.
         std::env::temp_dir()
-            .join(format!("engine-prefab-test-{}", std::process::id()))
+            .join(format!("engine-prefab-test-{}-{}", std::process::id(), name))
             .join(name)
     }
 
