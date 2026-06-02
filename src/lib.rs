@@ -117,8 +117,9 @@ pub use timeline::{Keyframe, Lerp, Timeline, TimelineSystem, Track};
 pub use timer::Timer;
 pub use tween::{Easing, Tween};
 pub use ui::{
-    Anchor, Button, ButtonState, CheckBox, Label, LayoutDir, LayoutSystem, Panel, ScrollView,
-    Slider, TextInput, UiEvent, UiNode, UiSystem, VirtualJoystick,
+    Anchor, Button, ButtonState, CheckBox, Label, LayoutDir, LayoutSystem, LocalizationSystem,
+    LocalizedText, Panel, ScrollView, Slider, TextInput, UiEvent, UiNode, UiSystem,
+    VirtualJoystick,
 };
 
 // ── WASM 패닉 훅 ─────────────────────────────────────────────────────────────

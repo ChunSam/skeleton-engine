@@ -64,6 +64,29 @@ A–E (breadth) and **F** (depth: steering + many entities + GPU particles) have
 under the dogfooding loop. No remaining planned candidate — the playable-examples program is
 done for v1.0.0.
 
+## Coverage follow-up — UI / i18n / audio cluster (v1.2.0)
+
+A subsystem-coverage audit found ~10 shipped subsystems with no *playable-game* coverage (only
+standalone demos or none). The densest, most universally-needed cluster — UI depth + localization
++ audio buses — is now closed by a new playable example:
+
+- **G — Settings + Dialogue** (`settings_menu_game`, `examples/games/settings_menu/`): Title →
+  Settings → Dialogue. First playable-game use of `TextInput`, `Slider`, `CheckBox`, `ScrollView`,
+  `Panel`/`LayoutSystem`, rich/multiline `Label`, `LocaleResource` (EN/KO/ES), and `AudioManager`
+  buses + `AudioEffect` low-pass. `Settings`/locale/`AudioManager` persist across `SceneCmd::Replace`.
+  - **Engine gap closed:** `LocaleResource` had no reactive binding, so switching locale meant
+    manually re-resolving every widget's text. Added the additive `LocalizedText` component +
+    `LocalizationSystem` (targets `Label`/`Button`/`CheckBox`); the example switches language with
+    one `set_locale` call and the whole UI retranslates. Unit tests in `src/ui/localized.rs`.
+  - **Documented gaps (not fixed):** runtime per-locale font switching is unsupported
+    (`TextRenderer` font is fixed at init; `LocaleData.font` is dead) → non-Latin relies on native
+    system-font fallback, absent on Linux CI / wasm; `LocaleData.direction` (RTL) is metadata only
+    and not wired into alignment. Both await a future dedicated example.
+
+Remaining never-in-a-game subsystems (candidates for later dogfooding cycles, none scheduled):
+2D lighting (`PointLight`/normal-map), `BlendTree1D`, `Timeline`/cutscene, `PostProcessConfig`,
+physics joints, `RenderTarget`/`OffscreenCamera` in real play, networking.
+
 ## Alignment check — previously "planned" items vs the reset vision
 
 Vision criteria: (1) fork-friendly skeleton, (2) genre-agnostic 2D, breadth-first,

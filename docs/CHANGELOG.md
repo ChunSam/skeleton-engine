@@ -4,6 +4,31 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 1.2.0
+
+### Added
+
+- `LocalizedText` component plus `LocalizationSystem` — bind a translation key to a `Label`,
+  `Button`, or `CheckBox` and the system keeps its text in sync with the current locale every
+  frame. Switching language is now just `LocaleResource::set_locale(..)`; the whole UI
+  retranslates with no manual per-widget rebuild. Re-exported from the crate root.
+- `settings_menu_game` example (`examples/games/settings_menu/`) — a Title → Settings → Dialogue
+  slice that is the first playable-game coverage for the UI-depth + localization + audio-bus
+  surface: `TextInput`, `Slider`, `CheckBox`, `ScrollView`, `Panel`/`LayoutSystem`, rich/multiline
+  `Label`, `LocaleResource` (EN/KO/ES) + `LocalizedText`, and `AudioManager` buses + `AudioEffect`
+  low-pass. Cross-scene `Settings`/locale/`AudioManager` survive `SceneCmd::Replace` via
+  `App::register_persistent`.
+
+### Known gaps (surfaced, not yet addressed)
+
+- `LocaleData.font` is not applied at runtime: `TextRenderer` takes its font once at init via the
+  `FontData` resource, so per-locale font switching is unsupported. Non-Latin scripts render only
+  through native system-font fallback and are absent on wasm (no system fonts). Korean in
+  `settings_menu_game` therefore renders on macOS but not on Linux CI / wasm.
+- `LocaleData.direction` / `TextDirection::RightToLeft` is metadata only — the text renderer does
+  not auto-apply RTL alignment from the locale (it maps `TextAlign::Right` explicitly). No RTL
+  locale ships in the example, so RTL is left for a future dedicated example.
+
 ## 1.1.0
 
 ### Added
