@@ -19,6 +19,15 @@ The package follows semantic versioning beginning with 1.0.0.
   low-pass. Cross-scene `Settings`/locale/`AudioManager` survive `SceneCmd::Replace` via
   `App::register_persistent`.
 
+### Fixed
+
+- HiDPI mouse/touch hit-testing: the cursor was stored in physical pixels while UI hit-testing,
+  `ViewportSize`, and `Camera::screen_to_world` all work in logical pixels, so on a scaled display
+  (e.g. Retina 2×) clicks landed offset from the cursor. `CursorMoved` and the touch→mouse
+  emulation now divide by the window scale factor, storing the cursor in logical coordinates
+  (no-op at scale 1.0). Surfaced by `settings_menu_game`'s click-heavy widgets; also corrects
+  editor gizmo dragging and any `screen_to_world` use on HiDPI.
+
 ### Known gaps (surfaced, not yet addressed)
 
 - `LocaleData.font` is not applied at runtime: `TextRenderer` takes its font once at init via the

@@ -2766,9 +2766,20 @@ impl ApplicationHandler for App {
             }
 
             // ── 마우스 커서 이동 ─────────────────────────────────────────────
+            // winit이 주는 좌표는 물리 픽셀이지만, UI 히트테스트·`ViewportSize`·
+            // `Camera::screen_to_world`는 모두 논리 픽셀 기준이다. HiDPI(예: Retina 2×)
+            // 에서 어긋나지 않도록 scale factor로 나눠 논리 좌표로 저장한다.
             WindowEvent::CursorMoved { position, .. } => {
+                let scale = self
+                    .window
+                    .as_ref()
+                    .map(|w| w.scale_factor() as f32)
+                    .unwrap_or(1.0);
                 if let Some(input) = self.world.resource_mut::<InputState>() {
-                    input.set_cursor(Vec2::new(position.x as f32, position.y as f32));
+                    input.set_cursor(Vec2::new(
+                        position.x as f32 / scale,
+                        position.y as f32 / scale,
+                    ));
                 }
             }
 
@@ -2810,14 +2821,22 @@ impl ApplicationHandler for App {
                         }
                     }
                 }
-                // 터치를 마우스 왼쪽 버튼으로 에뮬레이션 (기존 UI 시스템 호환)
+                // 터치를 마우스 왼쪽 버튼으로 에뮬레이션 (기존 UI 시스템 호환).
+                // UI 히트테스트가 쓰는 `InputState` 커서는 마우스와 동일하게 논리
+                // 좌표여야 하므로 scale factor로 나눈다 (`TouchState`는 물리 좌표 유지).
+                let scale = self
+                    .window
+                    .as_ref()
+                    .map(|w| w.scale_factor() as f32)
+                    .unwrap_or(1.0);
+                let logical = Vec2::new(pos.x / scale, pos.y / scale);
                 if let Some(input) = self.world.resource_mut::<InputState>() {
                     match phase {
                         winit::event::TouchPhase::Started => {
-                            input.set_cursor(pos);
+                            input.set_cursor(logical);
                             input.press_mouse(winit::event::MouseButton::Left);
                         }
-                        winit::event::TouchPhase::Moved => input.set_cursor(pos),
+                        winit::event::TouchPhase::Moved => input.set_cursor(logical),
                         winit::event::TouchPhase::Ended | winit::event::TouchPhase::Cancelled => {
                             input.release_mouse(winit::event::MouseButton::Left);
                         }
