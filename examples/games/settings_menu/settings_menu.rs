@@ -29,6 +29,14 @@ use engine::{AudioEffect, AudioManager};
 const WINDOW_W: u32 = 960;
 const WINDOW_H: u32 = 600;
 
+// Background music tone. The muffle low-pass cutoff sits well below this so the
+// filter clearly attenuates it (a cutoff above the tone would be inaudible).
+// Native-only: audio (and these constants) are compiled out on wasm.
+#[cfg(not(target_arch = "wasm32"))]
+const BGM_FREQ: f32 = 440.0;
+#[cfg(not(target_arch = "wasm32"))]
+const MUFFLE_HZ: u32 = 180;
+
 const LOCALES_RON: &str = r#"
 (
     default_locale: "en",
@@ -291,7 +299,7 @@ fn blip(_world: &mut World, _freq: f32) {}
 #[cfg(not(target_arch = "wasm32"))]
 fn play_bgm(world: &mut World) {
     if let Some(audio) = world.resource_mut::<AudioManager>() {
-        audio.play_tone("bgm", 196.0, 1.2, 0.5);
+        audio.play_tone("bgm", BGM_FREQ, 1.2, 0.5);
     }
 }
 #[cfg(target_arch = "wasm32")]
@@ -321,14 +329,14 @@ fn set_muffle(world: &mut World, on: bool) {
             audio.set_effect(
                 "bgm",
                 AudioEffect {
-                    low_pass_hz: Some(500),
+                    low_pass_hz: Some(MUFFLE_HZ),
                     ..Default::default()
                 },
             );
         } else {
             audio.clear_effect("bgm");
         }
-        audio.play_tone("bgm", 220.0, 1.2, 0.5);
+        audio.play_tone("bgm", BGM_FREQ, 1.2, 0.5);
     }
 }
 #[cfg(target_arch = "wasm32")]

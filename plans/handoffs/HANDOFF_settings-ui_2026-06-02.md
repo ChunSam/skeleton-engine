@@ -78,8 +78,20 @@ Interactive QA on macOS drove three rounds of engine fixes (all on this branch, 
   - Fullscreen checkbox relabeled "(preference)" — no OS fullscreen path yet (documented gap).
 
 Round-3 verification: fmt clean; clippy `-D warnings` clean; `cargo test --lib` = **258 passed**;
-wasm lib + example build; `rust-survivors` rebuilds clean. **Residual to re-evaluate with user:** if
-a half-beat input latency remains it is AutoVsync buffering (vsync-disable deferred by user).
+wasm lib + example build; `rust-survivors` rebuilds clean.
+
+- **Round 4 — second QA pass.** Round-3's `about_to_wait` move did **not** fix clicks; the real
+  cause was that `InputState` keeps only the latest cursor, so a press + same-frame move hit-tested
+  the click at the moved-to position (press empty → move onto button → it activated; press button →
+  move off → nothing). Fix: `InputState` now records `mouse_press_cursor`/`mouse_release_cursor`,
+  and `UiSystem` hit-tests clicks/toggles/drag-starts against the press/release cursor (hover/drag
+  use the live cursor). Two regression tests added. Also: caret is now **steady** while focused
+  (blinking shifted the trailing text); the example's muffle uses one bgm freq (440 Hz) with a
+  low-pass cutoff below it (180 Hz) so it is audibly + persistently muffled (was 500 Hz above a
+  196/220 Hz tone → inaudible, looked like it reverted). New known gaps: no horizontal `TextInput`
+  scroll (long text clips; IME at `max_len` shows an uncommittable preedit). Round-4 verification:
+  fmt/clippy `-D warnings` clean; `cargo test --lib` = **260 passed**; wasm lib + example clean;
+  `rust-survivors` rebuilds clean. Residual half-beat latency (if any) = AutoVsync, deferred.
 
 ## Where We're Going
 

@@ -21,14 +21,18 @@ The package follows semantic versioning beginning with 1.0.0.
 
 ### Fixed
 
-- Dropped clicks after moving the mouse: the per-frame `update()` ran inside `RedrawRequested`,
-  which winit can service before that cycle's `CursorMoved`/`MouseInput` are drained, so a click
-  right after a move was evaluated against a stale cursor and never armed the widget. `update()`
-  now runs in `about_to_wait` (after the full event drain); `render()` stays in `RedrawRequested`.
+- Clicks landing on the wrong widget after a mouse move: `InputState` keeps only the latest
+  cursor, so when a press and a following move collapsed into one frame the click was hit-tested
+  at the moved-to position (e.g. pressing empty space then moving onto a button activated it,
+  while pressing a button then moving off did nothing). `InputState` now records the cursor at the
+  press and release moments (`mouse_press_cursor`/`mouse_release_cursor`), and `UiSystem` hit-tests
+  clicks/toggles/drag-starts against those (hover and drag-tracking still use the live cursor).
+  `update()` also moved to `about_to_wait` so input is fully drained before systems read it.
 - `TextInput` caret rendering: the caret `|` was always appended at the end of the string, so it
   never matched the real cursor after navigation and text appeared to be inserted "in the middle".
   Added `TextInput::display_with_caret` which inserts the caret (and IME preedit) at the byte
-  cursor; `UiSystem` uses it.
+  cursor; `UiSystem` uses it. The caret is steady while focused (blinking inserted/removed the glyph
+  and visibly shifted the trailing text).
 - IME / non-Latin input: `set_ime_allowed(true)` is now called on the window, so macOS (and other
   platforms) compose CJK input and deliver it via `Ime::Commit`. Previously IME was never enabled,
   so Korean arrived as separated jamo (per-keystroke `Character` events).
@@ -59,6 +63,9 @@ The package follows semantic versioning beginning with 1.0.0.
   locale ships in the example, so RTL is left for a future dedicated example.
 - No window fullscreen-request path exists yet, so `settings_menu_game`'s Fullscreen checkbox only
   stores a preference (its label says so); wiring real OS fullscreen is deferred.
+- The built-in `TextInput` is single-line with no horizontal scrolling: text longer than the field
+  width clips at the edge, and IME composition at the `max_len` cap shows an uncommittable preedit.
+  Adequate for short fields (names, search); a scrolling multi-line field is future work.
 
 ## 1.1.0
 

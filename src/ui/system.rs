@@ -44,6 +44,17 @@ impl System for UiSystem {
                 None => return,
             };
 
+        // Hit-test clicks against the cursor *at the press/release moment*, not the
+        // live cursor — otherwise a press followed by a move in the same frame batch
+        // would evaluate the click at the moved-to position. Hover/drag use `cursor`.
+        let (press_cursor, release_cursor) = match world.resource::<InputState>() {
+            Some(input) => (
+                input.mouse_press_cursor(MouseButton::Left),
+                input.mouse_release_cursor(MouseButton::Left),
+            ),
+            None => (cursor, cursor),
+        };
+
         // Text-editing navigation keys (applied to the focused TextInput).
         let (nav_left, nav_right, nav_home, nav_end, nav_delete) =
             match world.resource::<InputState>() {
@@ -84,18 +95,19 @@ impl System for UiSystem {
                 continue;
             }
 
-            let in_rect = in_bounds(cursor, pos, size);
+            let hover = in_bounds(cursor, pos, size);
+            // A click counts only if both the press and the release landed on the
+            // button (press_cursor persists from the press until the next press).
+            let clicked = just_released
+                && in_bounds(press_cursor, pos, size)
+                && in_bounds(release_cursor, pos, size);
 
             let btn = match world.get_mut::<Button>(entity) {
                 Some(b) => b,
                 None => continue,
             };
             if btn.state != ButtonState::Disabled {
-                let prev = btn.state;
-                let started_in_rect = in_rect && just_pressed;
-                let clicked =
-                    just_released && in_rect && (prev == ButtonState::Pressed || just_pressed);
-                btn.state = if in_rect {
+                btn.state = if hover {
                     if is_held {
                         ButtonState::Pressed
                     } else {
@@ -106,9 +118,6 @@ impl System for UiSystem {
                 };
                 if clicked {
                     ui_events.push(UiEvent::ButtonClicked(entity));
-                }
-                if started_in_rect {
-                    btn.state = ButtonState::Pressed;
                 }
             }
 
@@ -148,7 +157,7 @@ impl System for UiSystem {
                     Some(n) => (n.screen_pos(&viewport), n.size),
                     None => continue,
                 };
-                if in_bounds(cursor, pos, size) {
+                if in_bounds(press_cursor, pos, size) {
                     newly_focused = Some(entity);
                     break;
                 }
@@ -252,7 +261,9 @@ impl System for UiSystem {
                     Some(t) => t,
                     None => continue,
                 };
-                let display = ti.display_with_caret(ti.focused && ti.cursor_visible);
+                // Steady caret while focused: blinking would insert/remove the `|`
+                // glyph and visibly shift the trailing text back and forth.
+                let display = ti.display_with_caret(ti.focused);
                 (ti.current_color(), display, ti.text_color, ti.font_size)
             };
 
@@ -373,11 +384,12 @@ impl System for UiSystem {
             let thumb_w = world.get::<Slider>(entity).map_or(14.0, |s| s.thumb_width);
             let track_len = (size.x - thumb_w).max(0.0);
 
-            // 마우스 누름 → 드래그 시작
-            if just_pressed && in_bounds(cursor, pos, size) {
+            // 마우스 누름 → 드래그 시작 (시작 지점은 press 시점 커서로 판정/계산)
+            if just_pressed && in_bounds(press_cursor, pos, size) {
                 if let Some(slider) = world.get_mut::<Slider>(entity) {
-                    let t = ((cursor.x - pos.x - thumb_w / 2.0) / track_len.max(f32::EPSILON))
-                        .clamp(0.0, 1.0);
+                    let t = ((press_cursor.x - pos.x - thumb_w / 2.0)
+                        / track_len.max(f32::EPSILON))
+                    .clamp(0.0, 1.0);
                     slider.set_normalized(t);
                     slider.dragging = true;
                     let v = slider.value;
@@ -462,8 +474,8 @@ impl System for UiSystem {
                 continue;
             }
 
-            // 클릭 → 토글
-            if just_pressed && in_bounds(cursor, pos, size) {
+            // 클릭 → 토글 (press 시점 커서로 판정)
+            if just_pressed && in_bounds(press_cursor, pos, size) {
                 if let Some(cb) = world.get_mut::<CheckBox>(entity) {
                     cb.checked = !cb.checked;
                     let checked = cb.checked;
@@ -665,5 +677,40 @@ mod tests {
         system.run(&mut world, 0.016);
 
         assert_eq!(click_count(&world, entity), 0);
+    }
+
+    #[test]
+    fn click_uses_press_cursor_not_the_moved_cursor() {
+        // Press OFF the button (button is 10..90 × 10..50), then move ONTO it in the
+        // same frame, then release. The press was off the button, so no click fires —
+        // this is the regression for "click applied at the moved-to position".
+        let (mut world, entity) = setup_button_world(Vec2::new(150.0, 20.0));
+        let mut system = UiSystem;
+
+        {
+            let input = world.resource_mut::<InputState>().unwrap();
+            input.press_mouse(MouseButton::Left); // press_cursor = (150,20), outside
+            input.set_cursor(Vec2::new(20.0, 20.0)); // cursor moves onto the button
+            input.release_mouse(MouseButton::Left); // release_cursor = (20,20), inside
+        }
+        system.run(&mut world, 0.016);
+        assert_eq!(click_count(&world, entity), 0);
+    }
+
+    #[test]
+    fn click_fires_when_press_and_release_on_button_then_cursor_leaves() {
+        // Press + release on the button, then the cursor moves away afterwards.
+        // The click must still register (it is decided by the press/release cursors).
+        let (mut world, entity) = setup_button_world(Vec2::new(20.0, 20.0));
+        let mut system = UiSystem;
+
+        {
+            let input = world.resource_mut::<InputState>().unwrap();
+            input.press_mouse(MouseButton::Left); // press_cursor = (20,20), inside
+            input.release_mouse(MouseButton::Left); // release_cursor = (20,20), inside
+            input.set_cursor(Vec2::new(150.0, 20.0)); // live cursor leaves afterwards
+        }
+        system.run(&mut world, 0.016);
+        assert_eq!(click_count(&world, entity), 1);
     }
 }
