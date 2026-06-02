@@ -29,6 +29,10 @@ pub struct DrawText {
     pub align: TextAlign,
     /// `[color=#RRGGBB]...[/color]`, `[b]...[/b]`, `[i]...[/i]` 태그를 해석한다.
     pub rich: bool,
+    /// `Some(caret_byte)` 면 단일 라인(줄바꿈 없음)으로 그리고, 캐럿 바이트 위치가
+    /// `bounds` 안에 보이도록 수평 스크롤한다. `TextInput` 가 사용한다. `None` 이면
+    /// 기존 줄바꿈 동작.
+    pub single_line_caret: Option<usize>,
 }
 
 impl DrawText {
@@ -41,6 +45,7 @@ impl DrawText {
             color,
             align: TextAlign::Left,
             rich: false,
+            single_line_caret: None,
         }
     }
 
@@ -58,6 +63,29 @@ impl DrawText {
         self.rich = true;
         self
     }
+
+    /// Render as a single non-wrapping line that scrolls horizontally to keep the
+    /// caret (a byte offset into `text`) visible inside `bounds`. Used by `TextInput`.
+    pub fn with_single_line_caret(mut self, caret_byte: usize) -> Self {
+        self.single_line_caret = Some(caret_byte);
+        self
+    }
+}
+
+/// X offset (buffer-local px) of the caret at byte `caret_byte` for a single-line
+/// buffer: the x of the first glyph starting at/after the caret, or the line width
+/// when the caret is past the last glyph. Assumes left alignment.
+fn caret_x(buf: &Buffer, caret_byte: usize) -> f32 {
+    // Single-line buffer → first (only) layout run.
+    let Some(run) = buf.layout_runs().next() else {
+        return 0.0;
+    };
+    for glyph in run.glyphs.iter() {
+        if glyph.start >= caret_byte {
+            return glyph.x;
+        }
+    }
+    run.line_w
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -208,20 +236,35 @@ impl TextRenderer {
         // 각 DrawText 를 glyphon Buffer 로 변환
         // - `Buffer::set_size` 는 cosmic-text 에서 `(font_system, Option<f32>, Option<f32>)` 를 받는다.
         // - `set_text` 도 `(font_system, text, attrs, shaping)` 형태.
-        let buffers: Vec<(Buffer, DrawText)> = items
+        let buffers: Vec<(Buffer, DrawText, f32)> = items
             .into_iter()
             .map(|d| {
                 let size = d.size * scale_factor;
                 let position = d.position * scale_factor;
                 let bounds = d.bounds.map(|b| b * scale_factor);
+                let single_line = d.single_line_caret;
                 let metrics = Metrics::new(size, size * 1.2); // line_height = 1.2× size
                 let mut buf = Buffer::new(&mut self.font_system, metrics);
+                // 단일 라인(TextInput)은 가로 무제한 + 줄바꿈 없음으로 펼친 뒤 아래에서
+                // 수평 스크롤한다. 그 외에는 bounds 폭으로 줄바꿈한다.
+                let width = if single_line.is_some() {
+                    None
+                } else {
+                    Some(bounds.map_or(w as f32 - position.x, |b| b.x.max(0.0)))
+                };
                 buf.set_size(
                     &mut self.font_system,
-                    Some(bounds.map_or(w as f32 - position.x, |b| b.x.max(0.0))),
+                    width,
                     Some(bounds.map_or(h as f32 - position.y, |b| b.y.max(0.0))),
                 );
-                buf.set_wrap(&mut self.font_system, Wrap::WordOrGlyph);
+                buf.set_wrap(
+                    &mut self.font_system,
+                    if single_line.is_some() {
+                        Wrap::None
+                    } else {
+                        Wrap::WordOrGlyph
+                    },
+                );
                 let default_attrs = Attrs::new().family(Family::SansSerif);
                 if d.rich {
                     let rich = parse_rich_text(&d.text, default_attrs);
@@ -245,19 +288,29 @@ impl TextRenderer {
                     line.set_align(Some(d.align.to_glyphon()));
                 }
                 buf.shape_until_scroll(&mut self.font_system, false);
+                // 단일 라인: 캐럿이 bounds 안에 보이도록 수평 스크롤 오프셋 계산.
+                // (캐럿이 field 우측 끝 - margin 을 넘으면 그만큼 왼쪽으로 민다.)
+                let scroll = match single_line {
+                    Some(caret_byte) => {
+                        let field_w = bounds.map_or(w as f32 - position.x, |b| b.x.max(0.0));
+                        let margin = size; // 캐럿이 우측 끝에 붙지 않도록 한 글리프 여유
+                        (caret_x(&buf, caret_byte) - (field_w - margin)).max(0.0)
+                    }
+                    None => 0.0,
+                };
                 let mut scaled = d;
                 scaled.position = position;
                 scaled.bounds = bounds;
                 scaled.size = size;
-                (buf, scaled)
+                (buf, scaled, scroll)
             })
             .collect();
 
         let text_areas: Vec<TextArea<'_>> = buffers
             .iter()
-            .map(|(buf, d)| TextArea {
+            .map(|(buf, d, scroll)| TextArea {
                 buffer: buf,
-                left: d.position.x,
+                left: d.position.x - *scroll,
                 top: d.position.y,
                 scale: 1.0,
                 bounds: TextBounds {

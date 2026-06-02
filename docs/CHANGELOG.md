@@ -4,6 +4,29 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 1.3.0
+
+### Added
+
+- `TextInput` single-line **horizontal scrolling**: long values no longer wrap or clip out of view.
+  The field renders as one non-wrapping line and scrolls so the caret stays visible while typing or
+  navigating (`Home`/`End`/arrows); an unfocused field anchors to the start. New `DrawText`
+  opt-in `with_single_line_caret(caret_byte)` drives it — the renderer measures the caret x via
+  glyphon `Buffer::layout_runs()` and shifts the `TextArea` left, clipped to the field by
+  `TextBounds` (no new render pipeline).
+- `TextInput::remaining_capacity()` and `TextInput::caret_display_offset()` helpers.
+
+### Fixed
+
+- IME at `max_len`: composing input when the field is full no longer shows a phantom, uncommittable
+  preedit. `UiSystem` only displays the IME preedit while it still fits in the remaining capacity
+  (`remaining_capacity() >= preedit.len()`); commits already truncate to fit.
+
+### Example
+
+- `settings_menu_game` Settings scene gained a dedicated narrow long-text field (prefilled past its
+  width, `max_len` 48) that exercises horizontal scroll, caret-follow, and IME-at-capacity.
+
 ## 1.2.1
 
 ### Fixed
