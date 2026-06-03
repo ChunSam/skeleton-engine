@@ -15,7 +15,7 @@ pub mod ui;
 pub use context::{GpuContext, GpuContextError};
 pub use post_process::{PostProcessConfig, PostProcessRenderer};
 pub use render_target::RenderTarget;
-pub use sprite::SpriteRenderer;
+pub use sprite::{FrameContext, SpriteRenderer};
 pub use text::{DrawText, TextAlign, TextQueue, TextRenderer};
 pub use texture::Texture;
 pub use ui::{DrawImage, DrawRect, UiImageQueue, UiQueue};

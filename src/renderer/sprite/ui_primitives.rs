@@ -1,0 +1,157 @@
+use super::*;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum UiPrimitiveKind {
+    Image,
+    Rect,
+}
+
+impl UiPrimitiveKind {
+    pub(super) fn sort_rank(self) -> u8 {
+        match self {
+            UiPrimitiveKind::Image => 0,
+            UiPrimitiveKind::Rect => 1,
+        }
+    }
+}
+
+pub(super) struct UiPrimitive {
+    pub(super) z: f32,
+    pub(super) kind: UiPrimitiveKind,
+    pub(super) order: usize,
+    pub(super) texture_key: Option<String>,
+    pub(super) instance: InstanceRaw,
+}
+
+pub(super) fn ui_quad_instance(
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    color: [f32; 4],
+    uv: UvRect,
+) -> InstanceRaw {
+    let cx = x + w * 0.5;
+    let cy = y + h * 0.5;
+    let model = Mat4::from_scale_rotation_translation(
+        Vec3::new(w, h, 1.0),
+        Quat::IDENTITY,
+        Vec3::new(cx, cy, 0.0),
+    );
+    InstanceRaw {
+        model: model.to_cols_array_2d(),
+        color,
+        uv_offset: [uv.u_offset, uv.v_offset],
+        uv_size: [uv.u_size, uv.v_size],
+    }
+}
+
+pub(super) fn sorted_ui_primitives(rects: &[DrawRect], images: &[DrawImage]) -> Vec<UiPrimitive> {
+    let mut primitives = Vec::with_capacity(rects.len() + images.len());
+
+    primitives.extend(images.iter().enumerate().map(|(order, image)| UiPrimitive {
+        z: image.z,
+        kind: UiPrimitiveKind::Image,
+        order,
+        texture_key: image.texture_key(),
+        instance: ui_quad_instance(image.x, image.y, image.w, image.h, image.color, image.uv),
+    }));
+
+    primitives.extend(rects.iter().enumerate().map(|(order, rect)| UiPrimitive {
+        z: rect.z,
+        kind: UiPrimitiveKind::Rect,
+        order,
+        texture_key: None,
+        instance: ui_quad_instance(rect.x, rect.y, rect.w, rect.h, rect.color, UvRect::FULL),
+    }));
+
+    primitives.sort_by(|a, b| {
+        a.z.partial_cmp(&b.z)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| a.kind.sort_rank().cmp(&b.kind.sort_rank()))
+            .then_with(|| a.order.cmp(&b.order))
+    });
+
+    primitives
+}
+
+impl SpriteRenderer {
+    pub fn render_ui_primitives_from_slices(
+        &mut self,
+        ctx: &mut FrameContext,
+        rects: &[DrawRect],
+        images: &[DrawImage],
+        width: u32,
+        height: u32,
+    ) {
+        if rects.is_empty() && images.is_empty() {
+            return;
+        }
+
+        let device = ctx.device;
+        let queue = ctx.queue;
+        let view = ctx.view;
+        let encoder = &mut *ctx.encoder;
+
+        let screen_proj = Mat4::orthographic_rh(0.0, width as f32, height as f32, 0.0, -1.0, 1.0);
+        let cam = CameraUniform {
+            view_proj: screen_proj.to_cols_array_2d(),
+        };
+        queue.write_buffer(&self.ui_camera_buf, 0, bytemuck::bytes_of(&cam));
+
+        let entries: Vec<(Option<String>, InstanceRaw)> = sorted_ui_primitives(rects, images)
+            .into_iter()
+            .map(|primitive| (primitive.texture_key, primitive.instance))
+            .collect();
+        let instances: Vec<InstanceRaw> = entries.iter().map(|(_, instance)| *instance).collect();
+
+        if instances.len() > self.ui_instance_capacity {
+            self.ui_instance_capacity = instances.len().next_power_of_two();
+            self.ui_instance_buf = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("ui instance buffer"),
+                size: (self.ui_instance_capacity * std::mem::size_of::<InstanceRaw>()) as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
+        queue.write_buffer(&self.ui_instance_buf, 0, bytemuck::cast_slice(&instances));
+
+        let instance_size = std::mem::size_of::<InstanceRaw>() as u64;
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("ui primitive pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &self.ui_camera_bind_group, &[]);
+        pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
+        pass.set_index_buffer(self.index_buf.slice(..), wgpu::IndexFormat::Uint16);
+
+        let mut i = 0usize;
+        while i < entries.len() {
+            let run_key = entries[i].0.as_deref();
+            let run_start = i;
+            i += 1;
+            while i < entries.len() && entries[i].0.as_deref() == run_key {
+                i += 1;
+            }
+            let run_len = i - run_start;
+            let byte_start = run_start as u64 * instance_size;
+            let byte_end = byte_start + run_len as u64 * instance_size;
+            let bind_group = self.bind_group_for_texture_key(run_key);
+            pass.set_bind_group(1, bind_group, &[]);
+            pass.set_vertex_buffer(1, self.ui_instance_buf.slice(byte_start..byte_end));
+            pass.draw_indexed(0..INDICES.len() as u32, 0, 0..run_len as u32);
+        }
+    }
+}

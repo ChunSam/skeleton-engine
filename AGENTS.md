@@ -15,14 +15,14 @@ fork-friendly (clear module boundaries, extension points). See `docs/VISION.md`.
 
 | Looking for | File |
 | --- | --- |
-| Engine entry point, main loop, render orchestration, `load_image` | `src/app.rs` |
-| `Handle<T>`, `ImageAsset`, `ScriptAsset`, `AssetServer` | `src/asset.rs` |
+| Engine entry point, main loop, render orchestration, `load_image` | `src/app.rs`, `src/app/` |
+| `Handle<T>`, `ImageAsset`, `ScriptAsset`, `AssetServer` | `src/asset.rs`, `src/asset/` |
 | `TextureAtlas`, `AtlasSprite` | `src/atlas.rs` |
 | `Reflect`, `ReflectValue` | `src/reflect.rs` |
-| `ScriptAsset`, `ScriptRunner`, `ScriptingSystem` | `src/scripting.rs` |
+| `ScriptAsset`, `ScriptRunner`, `ScriptingSystem` | `src/scripting.rs`, `src/scripting/` |
 | `DebugUi` | `src/debug_ui.rs` |
 | Full public API re-export list | `src/lib.rs` |
-| `Entity`, `Component`, `Resource`, `Query` | `src/ecs/world.rs` |
+| `Entity`, `Component`, `Resource`, `Query` | `src/ecs/world.rs`, `src/ecs/world/` |
 | Event bus `Events<E>` | `src/ecs/events.rs` |
 | `System` trait | `src/ecs/system.rs` |
 | Scene transitions: `Scene`, `SceneCmd`, `SceneChange` | `src/scene.rs` |
@@ -32,14 +32,14 @@ fork-friendly (clear module boundaries, extension points). See `docs/VISION.md`.
 | `InputState`, `InputMap` | `src/input/` |
 | `GamepadState`, `GamepadButton`, `GamepadAxis` | `src/input/gamepad.rs` |
 | `PhysicsWorld`, `PhysicsBody`, `PhysicsSystem`, `CollisionEvent` | `src/physics/` |
-| `CharacterController`, `RaycastHit`, raycast, character movement | `src/physics/character.rs`, `src/physics/world.rs` |
-| `add_kinematic_box`, `add_kinematic_circle` | `src/physics/world.rs` |
+| `CharacterController`, `RaycastHit`, raycast, character movement | `src/physics/character.rs`, `src/physics/world.rs`, `src/physics/world/` |
+| `add_kinematic_box`, `add_kinematic_circle` | `src/physics/world.rs`, `src/physics/world/` |
 | `SpatialGrid`, `Collider`, `CollisionLayer` | `src/collision/` |
 | `AnimationPlayer`, `AnimationClip`, `AnimationSystem`, `BlendWeight` | `src/animation/player.rs`, `src/animation/system.rs` |
 | `AnimationStateMachine`, `StateMachineSystem`, `TransitionCond`, `AnimParam` | `src/animation/state_machine.rs` |
 | `BlendTree1D`, `BlendEntry`, `BlendTreeSystem` | `src/animation/blend_tree.rs`, `src/animation/blend_system.rs` |
 | `SkeletalAnimator`, `SkeletalClip`, `BoneTrack`, `SkeletonBuilder`, `SkeletalAnimationSystem` (2D cutout) | `src/skeletal.rs` (details: `docs/SKELETAL.md`) |
-| UI: `UiNode`, `Button`, `Label`, `TextInput`, `ScrollView`, `Panel`, `LayoutSystem`, `UiEvent` | `src/ui/` |
+| UI: `UiNode`, `Button`, `Label`, `TextInput`, `ScrollView`, `Panel`, `LayoutSystem`, `UiEvent` | `src/ui/`, `src/ui/system/` |
 | `Slider`, `CheckBox` | `src/ui/slider.rs`, `src/ui/checkbox.rs` |
 | `Tag`, `EntityDef`, `SceneDef`, `Prefab`, prefab spawn functions | `src/prefab.rs` |
 | `Timer`, `Tween`, `Easing` | `src/timer.rs`, `src/tween.rs` |
@@ -48,7 +48,7 @@ fork-friendly (clear module boundaries, extension points). See `docs/VISION.md`.
 | `AudioManager` | `src/audio.rs` |
 | save/load API, `SaveError` | `src/save.rs` |
 | `PostProcessConfig`, `PostProcessRenderer` | `src/renderer/post_process.rs` |
-| wgpu render pipeline | `src/renderer/` |
+| wgpu render pipeline, `SpriteRenderer` internals | `src/renderer/`, `src/renderer/sprite/` |
 
 ## Core patterns & task recipes
 

@@ -1,0 +1,527 @@
+use super::*;
+
+#[allow(dead_code)]
+struct Position {
+    x: f32,
+    y: f32,
+}
+#[allow(dead_code)]
+struct Health(u32);
+#[allow(dead_code)]
+struct Velocity {
+    vx: f32,
+    vy: f32,
+}
+
+#[test]
+fn spawn_and_query() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.add_component(e, Position { x: 1.0, y: 2.0 });
+    world.add_component(e, Health(100));
+
+    let pos = world.get::<Position>(e).unwrap();
+    assert_eq!(pos.x, 1.0);
+
+    let count = world.query::<Position>().count();
+    assert_eq!(count, 1);
+}
+
+#[test]
+fn resource() {
+    let mut world = World::new();
+    world.insert_resource(42u32);
+    assert_eq!(*world.resource::<u32>().unwrap(), 42);
+}
+
+#[test]
+fn despawn_removes_entity_from_query() {
+    let mut world = World::new();
+    let e0 = world.spawn();
+    let e1 = world.spawn();
+    let e2 = world.spawn();
+    world.add_component(e0, Position { x: 0.0, y: 0.0 });
+    world.add_component(e1, Position { x: 1.0, y: 0.0 });
+    world.add_component(e2, Position { x: 2.0, y: 0.0 });
+
+    world.despawn(e1);
+
+    let positions: Vec<_> = world.query::<Position>().collect();
+    assert_eq!(positions.len(), 2);
+    assert!(positions.iter().all(|(e, _)| *e != e1));
+}
+
+#[test]
+fn despawn_is_idempotent() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.add_component(e, Health(50));
+    world.despawn(e);
+    world.despawn(e);
+}
+
+#[test]
+fn spawn_reuses_freed_index_with_incremented_generation() {
+    let mut world = World::new();
+    let e_first = world.spawn();
+    world.add_component(e_first, Health(99));
+
+    world.despawn(e_first);
+
+    let e_second = world.spawn();
+    assert_eq!(e_first.index(), e_second.index());
+    assert_eq!(e_first.generation() + 1, e_second.generation());
+    assert!(!world.is_alive(e_first));
+    assert!(world.is_alive(e_second));
+    assert!(world.get::<Health>(e_second).is_none());
+}
+
+#[test]
+fn query2_returns_only_entities_with_both() {
+    let mut world = World::new();
+
+    let ea = world.spawn();
+    world.add_component(ea, Position { x: 0.0, y: 0.0 });
+
+    let eb = world.spawn();
+    world.add_component(eb, Health(10));
+
+    let eab = world.spawn();
+    world.add_component(eab, Position { x: 1.0, y: 1.0 });
+    world.add_component(eab, Health(20));
+
+    let results: Vec<_> = world.query2::<Position, Health>().collect();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].0, eab);
+}
+
+#[test]
+fn remove_component_keeps_entity_alive() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.add_component(e, Position { x: 1.0, y: 2.0 });
+    world.add_component(e, Health(50));
+
+    world.remove_component::<Position>(e);
+
+    assert!(world.get::<Position>(e).is_none());
+    assert_eq!(world.get::<Health>(e).unwrap().0, 50);
+    assert!(world.entities().contains(&e));
+}
+
+#[test]
+fn remove_component_nonexistent_is_noop() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.remove_component::<Position>(e);
+    world.add_component(e, Health(10));
+    world.remove_component::<Velocity>(e);
+    assert_eq!(world.get::<Health>(e).unwrap().0, 10);
+}
+
+#[test]
+fn query4_returns_only_entities_with_all_four() {
+    struct Tag;
+
+    let mut world = World::new();
+
+    let eabc = world.spawn();
+    world.add_component(eabc, Position { x: 0.0, y: 0.0 });
+    world.add_component(eabc, Health(1));
+    world.add_component(eabc, Velocity { vx: 0.0, vy: 0.0 });
+
+    let eabcd = world.spawn();
+    world.add_component(eabcd, Position { x: 1.0, y: 1.0 });
+    world.add_component(eabcd, Health(2));
+    world.add_component(eabcd, Velocity { vx: 1.0, vy: 0.0 });
+    world.add_component(eabcd, Tag);
+
+    let results: Vec<_> = world.query4::<Position, Health, Velocity, Tag>().collect();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].0, eabcd);
+}
+
+#[test]
+fn query_opt2_returns_a_with_optional_b() {
+    let mut world = World::new();
+
+    let ea = world.spawn();
+    world.add_component(ea, Position { x: 1.0, y: 0.0 });
+
+    let eab = world.spawn();
+    world.add_component(eab, Position { x: 2.0, y: 0.0 });
+    world.add_component(eab, Health(50));
+
+    let eb = world.spawn();
+    world.add_component(eb, Health(99));
+
+    let results: Vec<_> = world.query_opt2::<Position, Health>().collect();
+    assert_eq!(results.len(), 2);
+
+    let ea_result = results.iter().find(|(e, _, _)| *e == ea).unwrap();
+    assert!(ea_result.2.is_none());
+
+    let eab_result = results.iter().find(|(e, _, _)| *e == eab).unwrap();
+    assert_eq!(eab_result.2.unwrap().0, 50);
+}
+
+#[test]
+fn query3_returns_only_entities_with_all_three() {
+    let mut world = World::new();
+
+    let eab = world.spawn();
+    world.add_component(eab, Position { x: 0.0, y: 0.0 });
+    world.add_component(eab, Health(5));
+
+    let eabc = world.spawn();
+    world.add_component(eabc, Position { x: 1.0, y: 1.0 });
+    world.add_component(eabc, Health(10));
+    world.add_component(eabc, Velocity { vx: 1.0, vy: 0.0 });
+
+    let results: Vec<_> = world.query3::<Position, Health, Velocity>().collect();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].0, eabc);
+}
+
+#[test]
+fn query_with_returns_only_entities_with_both() {
+    let mut world = World::new();
+
+    let e_pos_only = world.spawn();
+    world.add_component(e_pos_only, Position { x: 0.0, y: 0.0 });
+
+    let e_health_only = world.spawn();
+    world.add_component(e_health_only, Health(10));
+
+    let e_both = world.spawn();
+    world.add_component(e_both, Position { x: 1.0, y: 1.0 });
+    world.add_component(e_both, Health(50));
+
+    let results: Vec<_> = world.query_with::<Position, Health>().collect();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].0, e_both);
+    assert_eq!(results[0].1.x, 1.0);
+}
+
+#[test]
+fn query_without_returns_only_entities_lacking_filter() {
+    let mut world = World::new();
+
+    let e_pos_only = world.spawn();
+    world.add_component(e_pos_only, Position { x: 5.0, y: 0.0 });
+
+    let e_both = world.spawn();
+    world.add_component(e_both, Position { x: 2.0, y: 0.0 });
+    world.add_component(e_both, Health(30));
+
+    let results: Vec<_> = world.query_without::<Position, Health>().collect();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].0, e_pos_only);
+    assert_eq!(results[0].1.x, 5.0);
+}
+
+#[test]
+fn query_with_and_without_mixed_entities() {
+    let mut world = World::new();
+
+    // has Position + Health + Velocity
+    let e_all = world.spawn();
+    world.add_component(e_all, Position { x: 1.0, y: 0.0 });
+    world.add_component(e_all, Health(100));
+    world.add_component(e_all, Velocity { vx: 1.0, vy: 0.0 });
+
+    // has Position + Health (no Velocity)
+    let e_ph = world.spawn();
+    world.add_component(e_ph, Position { x: 2.0, y: 0.0 });
+    world.add_component(e_ph, Health(50));
+
+    // has Position only
+    let e_p = world.spawn();
+    world.add_component(e_p, Position { x: 3.0, y: 0.0 });
+
+    // has Health only
+    let e_h = world.spawn();
+    world.add_component(e_h, Health(10));
+
+    // query_with::<Position, Health> → e_all, e_ph
+    let with_results: Vec<Entity> = world
+        .query_with::<Position, Health>()
+        .map(|(e, _)| e)
+        .collect();
+    assert_eq!(with_results.len(), 2);
+    assert!(with_results.contains(&e_all));
+    assert!(with_results.contains(&e_ph));
+
+    // query_without::<Position, Health> → e_p
+    let without_results: Vec<Entity> = world
+        .query_without::<Position, Health>()
+        .map(|(e, _)| e)
+        .collect();
+    assert_eq!(without_results.len(), 1);
+    assert_eq!(without_results[0], e_p);
+
+    // query_with::<Position, Velocity> → e_all only
+    let with_vel: Vec<Entity> = world
+        .query_with::<Position, Velocity>()
+        .map(|(e, _)| e)
+        .collect();
+    assert_eq!(with_vel.len(), 1);
+    assert_eq!(with_vel[0], e_all);
+}
+
+#[test]
+fn archetype_reuse_across_entities() {
+    let mut world = World::new();
+
+    let e1 = world.spawn();
+    world.add_component(e1, Position { x: 1.0, y: 0.0 });
+    world.add_component(e1, Health(10));
+
+    let e2 = world.spawn();
+    world.add_component(e2, Position { x: 2.0, y: 0.0 });
+    world.add_component(e2, Health(20));
+
+    // 같은 컴포넌트 집합 → 같은 Archetype에 배치되어야 한다
+    let (arch1, _) = world.entity_location[&e1];
+    let (arch2, _) = world.entity_location[&e2];
+    assert_eq!(arch1, arch2);
+    assert_eq!(world.query2::<Position, Health>().count(), 2);
+}
+
+#[test]
+fn add_component_replaces_existing() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.add_component(e, Health(10));
+    world.add_component(e, Health(99)); // replace
+    assert_eq!(world.get::<Health>(e).unwrap().0, 99);
+    assert_eq!(world.query::<Health>().count(), 1);
+}
+
+#[test]
+fn change_tracking_added() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.add_component(e, 42u32);
+    let added: Vec<_> = world.query_added::<u32>().collect();
+    assert_eq!(added.len(), 1);
+    assert_eq!(*added[0].1, 42);
+    // changed 에는 없어야 함
+    assert_eq!(world.query_changed::<u32>().count(), 0);
+    // clear 후 없어짐
+    world.clear_change_tracking();
+    assert_eq!(world.query_added::<u32>().count(), 0);
+}
+
+#[test]
+fn change_tracking_changed() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.add_component(e, 1u32);
+    world.clear_change_tracking();
+    // 교체
+    world.add_component(e, 2u32);
+    assert_eq!(world.query_added::<u32>().count(), 0);
+    let changed: Vec<_> = world.query_changed::<u32>().collect();
+    assert_eq!(changed.len(), 1);
+    assert_eq!(*changed[0].1, 2);
+}
+
+#[test]
+fn mark_changed_tracks_direct_mutation() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.add_component(e, 1u32);
+    world.clear_change_tracking();
+
+    *world.get_mut::<u32>(e).unwrap() = 7;
+    assert_eq!(world.query_changed::<u32>().count(), 0);
+
+    assert!(world.mark_changed::<u32>(e));
+    let changed: Vec<_> = world.query_changed::<u32>().collect();
+    assert_eq!(changed.len(), 1);
+    assert_eq!(*changed[0].1, 7);
+}
+
+#[test]
+fn get_mut_tracked_marks_changed() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.add_component(e, 1u32);
+    world.clear_change_tracking();
+
+    *world.get_mut_tracked::<u32>(e).unwrap() = 3;
+
+    let changed: Vec<_> = world.query_changed::<u32>().collect();
+    assert_eq!(changed.len(), 1);
+    assert_eq!(*changed[0].1, 3);
+}
+
+#[test]
+fn mark_changed_missing_component_returns_false() {
+    let mut world = World::new();
+    let e = world.spawn();
+
+    assert!(!world.mark_changed::<u32>(e));
+    assert!(world.get_mut_tracked::<u32>(e).is_none());
+}
+
+#[test]
+fn change_tracking_despawn_clears() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.add_component(e, 99u32);
+    assert_eq!(world.query_added::<u32>().count(), 1);
+    world.despawn(e);
+    assert_eq!(world.query_added::<u32>().count(), 0);
+}
+
+#[test]
+fn change_tracking_remove_clears() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.add_component(e, 7u32);
+    assert_eq!(world.query_added::<u32>().count(), 1);
+    world.remove_component::<u32>(e);
+    assert_eq!(world.query_added::<u32>().count(), 0);
+}
+
+#[test]
+fn clone_entity_copies_components() {
+    let mut world = World::new();
+    world.register_clone::<u32>();
+    world.register_clone::<f32>();
+
+    let src = world.spawn();
+    world.add_component(src, 42u32);
+    world.add_component(src, 3.125f32);
+
+    let dst = world.clone_entity(src).unwrap();
+    assert_ne!(src, dst);
+    assert_eq!(*world.get::<u32>(dst).unwrap(), 42);
+    assert!((world.get::<f32>(dst).unwrap() - 3.125).abs() < 1e-5);
+    // src still intact
+    assert_eq!(*world.get::<u32>(src).unwrap(), 42);
+}
+
+#[test]
+fn clone_entity_skips_unregistered_types() {
+    #[derive(Debug)]
+    struct NotCloneable;
+    unsafe impl Send for NotCloneable {}
+    unsafe impl Sync for NotCloneable {}
+
+    let mut world = World::new();
+    world.register_clone::<u32>();
+
+    let src = world.spawn();
+    world.add_component(src, 99u32);
+    world.add_component(src, NotCloneable);
+
+    let dst = world.clone_entity(src).unwrap();
+    assert_eq!(*world.get::<u32>(dst).unwrap(), 99);
+    assert!(world.get::<NotCloneable>(dst).is_none()); // not copied
+}
+
+#[test]
+fn clone_entity_dead_src_returns_none() {
+    let mut world = World::new();
+    let src = world.spawn();
+    world.despawn(src);
+
+    let dst = world.clone_entity(src);
+    assert_eq!(dst, None);
+    assert_eq!(world.entity_count(), 0);
+}
+
+#[test]
+fn stale_handle_cannot_mutate_reused_entity() {
+    let mut world = World::new();
+    let stale = world.spawn();
+    world.add_component(stale, Health(10));
+    world.despawn(stale);
+
+    let reused = world.spawn();
+    assert_eq!(stale.index(), reused.index());
+    assert_ne!(stale.generation(), reused.generation());
+
+    assert!(!world.is_alive(stale));
+    assert!(world.get::<Health>(stale).is_none());
+    assert!(world.get_mut::<Health>(stale).is_none());
+
+    world.add_component(stale, Health(99));
+    assert!(world.get::<Health>(reused).is_none());
+
+    world.add_component(reused, Health(5));
+    world.remove_component::<Health>(stale);
+    assert_eq!(world.get::<Health>(reused).unwrap().0, 5);
+
+    assert!(!world.mark_changed::<Health>(stale));
+    assert!(world.take_component::<Health>(stale).is_none());
+
+    world.despawn(stale);
+    assert!(world.is_alive(reused));
+}
+
+#[test]
+fn commands_ignore_stale_handles() {
+    let mut world = World::new();
+    let stale = world.spawn();
+    world.despawn(stale);
+    let reused = world.spawn();
+
+    let mut cmds = crate::ecs::Commands::new();
+    cmds.insert(stale, Health(77));
+    cmds.remove::<Health>(stale);
+    cmds.despawn(stale);
+    world.apply_commands(cmds);
+
+    assert!(world.is_alive(reused));
+    assert!(world.get::<Health>(reused).is_none());
+}
+
+#[test]
+fn world_remove_resource_removes_and_returns() {
+    let mut world = World::new();
+    world.insert_resource(42u32);
+    assert_eq!(world.resource::<u32>().copied(), Some(42));
+
+    let v = world.remove_resource::<u32>();
+    assert_eq!(v, Some(42));
+    assert_eq!(world.resource::<u32>(), None);
+}
+
+#[test]
+fn world_remove_resource_missing_returns_none() {
+    let mut world = World::new();
+    let v = world.remove_resource::<u32>();
+    assert_eq!(v, None);
+}
+
+#[test]
+fn erased_resource_roundtrips_between_worlds() {
+    // persistent 리소스 보존 메커니즘(App::register_persistent)의 핵심 단계:
+    // type-erased 박스로 꺼내 새 World에 그대로 넣어도 값이 보존된다.
+    #[derive(Debug, PartialEq)]
+    struct Score(u32);
+
+    let tid = TypeId::of::<Score>();
+    let mut old = World::new();
+    old.insert_resource(Score(42));
+
+    let boxed = old.take_resource_erased(tid).expect("리소스 존재");
+    assert!(
+        old.resource::<Score>().is_none(),
+        "꺼낸 뒤 옛 World엔 없어야"
+    );
+
+    let mut fresh = World::new();
+    fresh.insert_resource_erased(tid, boxed);
+    assert_eq!(fresh.resource::<Score>(), Some(&Score(42)));
+}
+
+#[test]
+fn take_resource_erased_missing_returns_none() {
+    let mut world = World::new();
+    assert!(world.take_resource_erased(TypeId::of::<u32>()).is_none());
+}

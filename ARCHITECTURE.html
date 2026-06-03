@@ -329,7 +329,7 @@
 
           <rect x="290" y="28" width="190" height="96" rx="8" class="svg-box svg-primary"></rect>
           <text x="310" y="58" class="svg-text">App</text>
-          <text x="310" y="82" class="svg-muted">src/app.rs</text>
+          <text x="310" y="82" class="svg-muted">src/app.rs + src/app/</text>
           <text x="310" y="104" class="svg-muted">event loop orchestration</text>
 
           <rect x="560" y="28" width="190" height="96" rx="8" class="svg-box svg-green"></rect>
@@ -506,7 +506,7 @@ for entity in entities {
           <tbody>
             <tr>
               <td>App/runtime</td>
-              <td><code>src/app.rs</code></td>
+              <td><code>src/app.rs</code>, <code>src/app/</code></td>
               <td>winit 이벤트 루프, GPU 초기화, update/render orchestration, scene stack, debug editor</td>
               <td><code>App::new</code>, <code>App::run</code>, <code>add_system</code>, <code>set_scene</code></td>
             </tr>
@@ -518,19 +518,19 @@ for entity in entities {
             </tr>
             <tr>
               <td>Rendering</td>
-              <td><code>src/renderer/</code>, <code>src/components.rs</code></td>
+              <td><code>src/renderer/</code>, <code>src/renderer/sprite/</code>, <code>src/components.rs</code></td>
               <td>wgpu context, sprite/text/UI rendering, render targets, post process, lighting, GPU particles</td>
               <td><code>Sprite</code>, <code>Camera</code>, <code>UiQueue</code>, <code>TextQueue</code>, <code>PostProcessConfig</code></td>
             </tr>
             <tr>
               <td>Input/UI</td>
-              <td><code>src/input/</code>, <code>src/ui/</code></td>
+              <td><code>src/input/</code>, <code>src/ui/</code>, <code>src/ui/system/</code></td>
               <td>keyboard/mouse/touch/gamepad state, input maps, UI widgets, layout, interaction events</td>
               <td><code>InputState</code>, <code>TouchState</code>, <code>GamepadState</code>, <code>UiSystem</code></td>
             </tr>
             <tr>
               <td>Physics/collision</td>
-              <td><code>src/physics/</code>, <code>src/collision/</code></td>
+              <td><code>src/physics/</code>, <code>src/physics/world/</code>, <code>src/collision/</code></td>
               <td>Rapier2D world, physics bodies, triggers, raycast/character movement, broadphase grid/debug collision</td>
               <td><code>PhysicsSystem</code>, <code>PhysicsWorld</code>, <code>Collider</code>, <code>CollisionGridSystem</code></td>
             </tr>
@@ -542,13 +542,13 @@ for entity in entities {
             </tr>
             <tr>
               <td>Assets/data</td>
-              <td><code>src/asset.rs</code>, <code>src/atlas.rs</code>, <code>src/prefab.rs</code>, <code>src/save.rs</code></td>
+              <td><code>src/asset.rs</code>, <code>src/asset/</code>, <code>src/atlas.rs</code>, <code>src/prefab.rs</code>, <code>src/save.rs</code></td>
               <td>image/script load, atlas metadata, prefab/scene definitions, encrypted save/load</td>
               <td><code>AssetServer</code>, <code>Handle&lt;T&gt;</code>, <code>Prefab</code>, <code>save/load</code></td>
             </tr>
             <tr>
               <td>Tooling/debug</td>
-              <td><code>src/debug_ui.rs</code>, <code>src/reflect.rs</code>, <code>src/scripting.rs</code></td>
+              <td><code>src/debug_ui.rs</code>, <code>src/reflect.rs</code>, <code>src/scripting.rs</code>, <code>src/scripting/</code></td>
               <td>egui debug overlay, inspector reflection, Rhai scripting bridge</td>
               <td><code>DebugUi</code>, <code>Reflect</code>, <code>ScriptingSystem</code></td>
             </tr>

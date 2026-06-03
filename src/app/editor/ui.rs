@@ -1,0 +1,963 @@
+use super::*;
+
+impl App {
+    pub(in crate::app) fn update_editor_ui(&mut self, egui_ctx: &Option<egui::Context>, dt: f32) {
+        // Inspector: 선택된 엔티티 유효성 확인 + 필드 스테이징
+        if let Some(sel) = self.inspector_selected {
+            if !self.world.is_alive(sel) {
+                self.inspector_selected = None;
+                #[cfg(not(target_arch = "wasm32"))]
+                self.selected_entities.clear();
+            }
+        }
+        // 멀티 선택 목록에서 죽은 엔티티 제거 (네이티브 전용)
+        #[cfg(not(target_arch = "wasm32"))]
+        self.selected_entities.retain(|&e| self.world.is_alive(e));
+        let entity_list: Vec<Entity> = self.world.entities().to_vec();
+        let tag_map: HashMap<Entity, String> = self
+            .world
+            .query::<Tag>()
+            .map(|(e, t)| (e, t.0.clone()))
+            .collect();
+        let mut comp_fields: Vec<(&'static str, Vec<(&'static str, ReflectValue)>)> = Vec::new();
+        if let Some(sel) = self.inspector_selected {
+            for tid in self.world.reflected_components(sel) {
+                if let Some(refl) = self.world.get_reflect(sel, tid) {
+                    comp_fields.push((refl.type_name(), refl.fields()));
+                }
+            }
+        }
+        // 선택 엔티티가 가진 Reflect 등록 컴포넌트 이름 목록 (네이티브 전용, 컴포넌트 관리 UI용).
+        // comp_fields에서 이름을 추출하면 borrow 충돌 없이 안전하다.
+        #[cfg(not(target_arch = "wasm32"))]
+        let selected_comp_names: Vec<&'static str> =
+            comp_fields.iter().map(|(name, _)| *name).collect();
+
+        // ── 씬 그래프 데이터 사전 수집 (네이티브 전용) ──────────────────────────
+        // borrow checker 우회: egui 클로저 진입 전에 계층 구조를 모두 복사해 둔다.
+        #[cfg(not(target_arch = "wasm32"))]
+        let scene_graph_data: Vec<(Entity, Option<Entity>)> = {
+            // (entity, parent_entity_or_none)
+            entity_list
+                .iter()
+                .map(|&e| {
+                    let parent = self.world.get::<crate::hierarchy::Parent>(e).map(|p| p.0);
+                    (e, parent)
+                })
+                .collect()
+        };
+        // children_map: 부모 → 자식 목록
+        #[cfg(not(target_arch = "wasm32"))]
+        let children_map: HashMap<Entity, Vec<Entity>> = {
+            let mut map: HashMap<Entity, Vec<Entity>> = HashMap::new();
+            for &(child, parent_opt) in &scene_graph_data {
+                if let Some(parent) = parent_opt {
+                    map.entry(parent).or_default().push(child);
+                }
+            }
+            map
+        };
+        // 루트 엔티티 = Parent 컴포넌트 없는 것
+        #[cfg(not(target_arch = "wasm32"))]
+        let root_entities: Vec<Entity> = scene_graph_data
+            .iter()
+            .filter_map(|&(e, p)| if p.is_none() { Some(e) } else { None })
+            .collect();
+
+        // 내장 EngineStats 패널 + Inspector
+        if let Some(ctx) = egui_ctx {
+            // ── Undo (Ctrl+Z) / Redo (Ctrl+Shift+Z) / Copy (Ctrl+C) / Paste (Ctrl+V) ─
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let (want_undo, want_redo, want_copy, want_paste) = ctx.input(|i| {
+                    let ctrl = i.modifiers.ctrl;
+                    let z = i.key_pressed(egui::Key::Z);
+                    let shift = i.modifiers.shift;
+                    let c = i.key_pressed(egui::Key::C);
+                    let v = i.key_pressed(egui::Key::V);
+                    (
+                        ctrl && z && !shift,
+                        ctrl && z && shift,
+                        ctrl && c,
+                        ctrl && v,
+                    )
+                });
+                if want_undo {
+                    let mut sel = self.inspector_selected;
+                    self.cmd_history.undo(&mut self.world, &mut sel);
+                    self.inspector_selected = sel;
+                    if let Some(s) = self.inspector_selected {
+                        if !self.selected_entities.contains(&s) {
+                            self.selected_entities = vec![s];
+                        }
+                    } else {
+                        self.selected_entities.clear();
+                    }
+                }
+                if want_redo {
+                    let mut sel = self.inspector_selected;
+                    self.cmd_history.redo(&mut self.world, &mut sel);
+                    self.inspector_selected = sel;
+                    if let Some(s) = self.inspector_selected {
+                        if !self.selected_entities.contains(&s) {
+                            self.selected_entities = vec![s];
+                        }
+                    } else {
+                        self.selected_entities.clear();
+                    }
+                }
+                // Ctrl+C: 선택된 엔티티를 EntityDef 클립보드에 복사
+                if want_copy && !self.selected_entities.is_empty() {
+                    let to_copy: Vec<Entity> = self.selected_entities.clone();
+                    self.copy_clipboard = to_copy
+                        .iter()
+                        .filter_map(|&e| entity_to_def(&self.world, e))
+                        .collect();
+                }
+                // Ctrl+V: 클립보드에서 엔티티 붙여넣기 (20px 오프셋)
+                if want_paste && !self.copy_clipboard.is_empty() {
+                    let defs: Vec<crate::prefab::EntityDef> = self.copy_clipboard.clone();
+                    let mut pasted: Vec<Entity> = Vec::new();
+                    for mut def in defs {
+                        if let Some(ref mut t) = def.transform {
+                            t.position += glam::Vec2::new(20.0, 20.0);
+                        }
+                        let e = crate::prefab::spawn_entity_def(&mut self.world, &def);
+                        pasted.push(e);
+                    }
+                    // 붙여넣은 첫 번째 엔티티를 주 선택으로 설정
+                    if let Some(&first) = pasted.first() {
+                        self.inspector_selected = Some(first);
+                        self.selected_entities = pasted;
+                    }
+                }
+            }
+            if self
+                .world
+                .resource::<DebugUi>()
+                .map(|d| d.is_enabled())
+                .unwrap_or(false)
+            {
+                let entity_count = self.world.entity_count();
+                let asset_count = self
+                    .world
+                    .resource::<AssetServer>()
+                    .map(|a| a.image_count())
+                    .unwrap_or(0);
+                egui::Window::new("Engine Stats")
+                    .default_pos([10.0, 10.0])
+                    .resizable(true)
+                    .show(ctx, |ui| {
+                        ui.label(format!("FPS   {:>6.1}", 1.0_f32 / dt.max(0.001)));
+                        ui.label(format!("ms    {:>6.2}", dt * 1000.0));
+                        ui.label(format!("Ent   {entity_count}"));
+                        ui.label(format!("Asset {asset_count}"));
+                        ui.separator();
+                        if let Some(prof) = self.world.resource::<crate::resources::ProfilerData>()
+                        {
+                            ui.collapsing("Systems", |ui| {
+                                egui::Grid::new("sys_prof")
+                                    .num_columns(2)
+                                    .striped(true)
+                                    .show(ui, |ui| {
+                                        for sys in &prof.systems {
+                                            let label = if sys.name.is_empty() {
+                                                "anonymous"
+                                            } else {
+                                                &sys.name
+                                            };
+                                            ui.label(label);
+                                            ui.label(format!("{:.0} µs", sys.avg_us));
+                                            ui.end_row();
+                                        }
+                                    });
+                            });
+                            let r = prof.render;
+                            ui.collapsing("Render", |ui| {
+                                ui.label(format!("draw calls  {}", r.draw_calls));
+                                ui.label(format!("rendered    {}", r.sprites_rendered));
+                                ui.label(format!("culled      {}", r.sprites_culled));
+                            });
+                        }
+                    });
+
+                // Inspector 패널: 엔티티 목록 + 컴포넌트 필드 편집기 + 에셋 브라우저
+                egui::Window::new("Inspector")
+                    .default_pos([10.0, 130.0])
+                    .default_size([440.0, 380.0])
+                    .show(ctx, |ui| {
+                        // ── 탭 선택 ──────────────────────────────────────────────
+                        ui.horizontal(|ui| {
+                            if ui
+                                .selectable_label(self.inspector_tab == 0, "Entities")
+                                .clicked()
+                            {
+                                self.inspector_tab = 0;
+                            }
+                            if ui
+                                .selectable_label(self.inspector_tab == 1, "Assets")
+                                .clicked()
+                            {
+                                self.inspector_tab = 1;
+                            }
+                            #[cfg(not(target_arch = "wasm32"))]
+                            if ui
+                                .selectable_label(self.inspector_tab == 2, "Scene")
+                                .clicked()
+                            {
+                                self.inspector_tab = 2;
+                            }
+                        });
+                        ui.separator();
+
+                        // ── Grid Snap 컨트롤 (Entities 탭, 네이티브 전용) ─────────
+                        #[cfg(not(target_arch = "wasm32"))]
+                        if self.inspector_tab == 0 {
+                            ui.horizontal(|ui| {
+                                ui.checkbox(&mut self.snap_enabled, "Snap");
+                                if self.snap_enabled {
+                                    ui.add(
+                                        egui::DragValue::new(&mut self.snap_size)
+                                            .range(1.0..=128.0)
+                                            .speed(1.0)
+                                            .suffix(" px"),
+                                    );
+                                }
+                            });
+                        }
+
+                        // ── 씬 그래프 탭 (네이티브 전용) ─────────────────────────
+                        #[cfg(not(target_arch = "wasm32"))]
+                        if self.inspector_tab == 2 {
+                            // 씬 그래프: 루트 → 자식 들여쓰기 트리
+                            let mut clicked_entity: Option<Entity> = None;
+                            let mut ctrl_clicked: bool = false;
+
+                            egui::ScrollArea::vertical()
+                                .id_salt("scene_graph")
+                                .max_height(300.0)
+                                .show(ui, |ui| {
+                                    // 재귀 대신 스택 기반 DFS (클로저 안에서 fn 호출 불가 제약 우회)
+                                    let mut stack: Vec<(Entity, usize)> = root_entities
+                                        .iter()
+                                        .rev()
+                                        .map(|&e| (e, 0))
+                                        .collect();
+                                    while let Some((entity, depth)) = stack.pop() {
+                                        let name = tag_map
+                                            .get(&entity)
+                                            .cloned()
+                                            .unwrap_or_else(|| {
+                                                format!(
+                                                    "Entity {}:{}",
+                                                    entity.index(),
+                                                    entity.generation()
+                                                )
+                                            });
+                                        // 멀티 선택: selected_entities 기준으로 강조
+                                        let is_selected =
+                                            self.selected_entities.contains(&entity);
+                                        let has_children = children_map
+                                            .get(&entity)
+                                            .map(|c| !c.is_empty())
+                                            .unwrap_or(false);
+                                        let prefix = if has_children { "▶ " } else { "  " };
+                                        let label_text =
+                                            format!("{}{}{}", "  ".repeat(depth), prefix, name);
+
+                                        let response = ui.selectable_label(
+                                            is_selected,
+                                            &label_text,
+                                        );
+                                        if response.clicked() {
+                                            clicked_entity = Some(entity);
+                                            ctrl_clicked = ui.input(|i| i.modifiers.ctrl);
+                                        }
+
+                                        // 자식을 역순으로 스택에 push (DFS 순서 유지)
+                                        if let Some(ch) = children_map.get(&entity) {
+                                            for &child in ch.iter().rev() {
+                                                stack.push((child, depth + 1));
+                                            }
+                                        }
+                                    }
+                                });
+
+                            if let Some(e) = clicked_entity {
+                                if ctrl_clicked {
+                                    // Ctrl+클릭: 멀티 선택 토글
+                                    if let Some(pos) = self.selected_entities.iter().position(|&x| x == e) {
+                                        self.selected_entities.remove(pos);
+                                        // inspector_selected를 마지막 선택 또는 None으로
+                                        self.inspector_selected = self.selected_entities.last().copied();
+                                    } else {
+                                        self.selected_entities.push(e);
+                                        self.inspector_selected = Some(e);
+                                    }
+                                } else {
+                                    // 일반 클릭: 단일 선택
+                                    self.inspector_selected = Some(e);
+                                    self.selected_entities = vec![e];
+                                }
+                            }
+
+                            // 선택된 엔티티의 Tag 이름 편집
+                            ui.separator();
+                            if let Some(sel) = self.inspector_selected {
+                                let current_name = tag_map
+                                    .get(&sel)
+                                    .cloned()
+                                    .unwrap_or_default();
+                                let has_tag = self.world.get::<Tag>(sel).is_some();
+                                ui.horizontal(|ui| {
+                                    ui.label("Name:");
+                                    if has_tag {
+                                        let mut name_buf = current_name.clone();
+                                        if ui.text_edit_singleline(&mut name_buf).changed() {
+                                            self.world.add_component(sel, Tag(name_buf));
+                                        }
+                                    } else {
+                                        ui.label(format!(
+                                            "Entity {}:{}",
+                                            sel.index(),
+                                            sel.generation()
+                                        ));
+                                        if ui.button("Add Name").clicked() {
+                                            self.world.add_component(
+                                                sel,
+                                                Tag(format!(
+                                                    "Entity {}:{}",
+                                                    sel.index(),
+                                                    sel.generation()
+                                                )),
+                                            );
+                                        }
+                                    }
+                                });
+                            } else {
+                                ui.label("(no entity selected)");
+                            }
+                        }
+
+                        if self.inspector_tab == 1 {
+                            // ── 에셋 브라우저 ─────────────────────────────────────
+                            let entries = self
+                                .world
+                                .resource::<AssetServer>()
+                                .map(|a| a.image_list())
+                                .unwrap_or_default();
+                            if entries.is_empty() {
+                                ui.label("(No images loaded)");
+                            } else {
+                                egui::ScrollArea::vertical()
+                                    .id_salt("asset_browser")
+                                    .max_height(300.0)
+                                    .show(ui, |ui| {
+                                        egui::Grid::new("asset_grid")
+                                            .num_columns(2)
+                                            .spacing([8.0, 4.0])
+                                            .show(ui, |ui| {
+                                                for entry in &entries {
+                                                    let filename =
+                                                        std::path::Path::new(&entry.path)
+                                                            .file_name()
+                                                            .map(|f| {
+                                                                f.to_string_lossy().into_owned()
+                                                            })
+                                                            .unwrap_or_else(|| {
+                                                                entry.path.clone()
+                                                            });
+                                                    ui.label("[ ]");
+                                                    ui.vertical(|ui| {
+                                                        ui.label(&filename);
+                                                        ui.small(format!(
+                                                            "{}×{}",
+                                                            entry.width, entry.height
+                                                        ));
+                                                    });
+                                                    ui.end_row();
+                                                }
+                                            });
+                                    });
+                            }
+                        } else {
+                        // ── 에디터 액션 버튼 ─────────────────────────────────────
+                        ui.horizontal(|ui| {
+                            if ui.button("＋ New Entity").clicked() {
+                                let e = self.world.spawn();
+                                self.world.add_component(
+                                    e,
+                                    crate::components::Transform::default(),
+                                );
+                                self.world.add_component(
+                                    e,
+                                    crate::prefab::Tag("New Entity".into()),
+                                );
+                                self.inspector_selected = Some(e);
+                                #[cfg(not(target_arch = "wasm32"))]
+                                {
+                                    self.selected_entities = vec![e];
+                                    self.cmd_history.push(EditorCmd::CreateEntity { entity: e });
+                                }
+                            }
+                            if let Some(sel) = self.inspector_selected {
+                                if ui
+                                    .add_enabled(true, egui::Button::new("🗑 Delete"))
+                                    .clicked()
+                                {
+                                    #[cfg(not(target_arch = "wasm32"))]
+                                    {
+                                        let tag = self.world.get::<crate::prefab::Tag>(sel).map(|t| t.0.clone());
+                                        let transform = self.world.get::<crate::components::Transform>(sel).cloned();
+                                        let sprite = self.world.get::<crate::components::Sprite>(sel).cloned();
+                                        self.cmd_history.push(EditorCmd::DeleteEntity { tag, transform, sprite });
+                                    }
+                                    self.world.despawn(sel);
+                                    self.inspector_selected = None;
+                                    #[cfg(not(target_arch = "wasm32"))]
+                                    self.selected_entities.retain(|&x| x != sel);
+                                }
+                                if ui
+                                    .add_enabled(true, egui::Button::new("⎘ Duplicate"))
+                                    .clicked()
+                                {
+                                    if let Some(new_entity) = self.world.clone_entity(sel) {
+                                        if let Some(t) = self.world.get_mut::<crate::components::Transform>(new_entity) {
+                                            t.position += glam::Vec2::new(16.0, 16.0);
+                                        }
+                                        self.inspector_selected = Some(new_entity);
+                                        #[cfg(not(target_arch = "wasm32"))]
+                                        {
+                                            self.selected_entities = vec![new_entity];
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                        ui.separator();
+                        ui.horizontal_top(|ui| {
+                            // 왼쪽: 엔티티 목록
+                            ui.vertical(|ui| {
+                                ui.set_min_width(130.0);
+                                ui.strong("Entities");
+                                egui::ScrollArea::vertical()
+                                    .id_salt("inspector_ent")
+                                    .max_height(250.0)
+                                    .show(ui, |ui| {
+                                        for &e in &entity_list {
+                                            let label = tag_map
+                                                .get(&e)
+                                                .cloned()
+                                                .unwrap_or_else(|| {
+                                                    format!("E{}:{}", e.index(), e.generation())
+                                                });
+                                            // 멀티 선택 강조 (네이티브) 또는 단일 선택 (WASM)
+                                            #[cfg(not(target_arch = "wasm32"))]
+                                            let is_sel = self.selected_entities.contains(&e);
+                                            #[cfg(target_arch = "wasm32")]
+                                            let is_sel = self.inspector_selected == Some(e);
+                                            let resp = ui.selectable_label(is_sel, &label);
+                                            if resp.clicked() {
+                                                #[cfg(not(target_arch = "wasm32"))]
+                                                {
+                                                    if ui.input(|i| i.modifiers.ctrl) {
+                                                        // Ctrl+클릭: 토글
+                                                        if let Some(pos) = self.selected_entities.iter().position(|&x| x == e) {
+                                                            self.selected_entities.remove(pos);
+                                                            self.inspector_selected = self.selected_entities.last().copied();
+                                                        } else {
+                                                            self.selected_entities.push(e);
+                                                            self.inspector_selected = Some(e);
+                                                        }
+                                                    } else {
+                                                        self.inspector_selected = Some(e);
+                                                        self.selected_entities = vec![e];
+                                                    }
+                                                }
+                                                #[cfg(target_arch = "wasm32")]
+                                                {
+                                                    self.inspector_selected = Some(e);
+                                                }
+                                            }
+                                        }
+                                    });
+                            });
+                            ui.separator();
+                            // 오른쪽: 컴포넌트 필드 편집기
+                            ui.vertical(|ui| {
+                                ui.strong("Components");
+                                egui::ScrollArea::vertical()
+                                    .id_salt("inspector_comp")
+                                    .max_height(250.0)
+                                    .show(ui, |ui| {
+                                        for (comp_name, fields) in comp_fields.iter_mut() {
+                                            ui.collapsing(*comp_name, |ui| {
+                                                egui::Grid::new(*comp_name)
+                                                    .num_columns(2)
+                                                    .spacing([4.0, 2.0])
+                                                    .show(ui, |ui| {
+                                                        for (fname, fval) in fields.iter_mut() {
+                                                            ui.label(*fname);
+                                                            match fval {
+                                                                ReflectValue::F32(v) => {
+                                                                    ui.add(
+                                                                        egui::DragValue::new(v)
+                                                                            .speed(0.5),
+                                                                    );
+                                                                }
+                                                                ReflectValue::Vec2(v) => {
+                                                                    ui.horizontal(|ui| {
+                                                                        ui.add(
+                                                                            egui::DragValue::new(
+                                                                                &mut v.x,
+                                                                            )
+                                                                            .speed(0.5)
+                                                                            .prefix("x:"),
+                                                                        );
+                                                                        ui.add(
+                                                                            egui::DragValue::new(
+                                                                                &mut v.y,
+                                                                            )
+                                                                            .speed(0.5)
+                                                                            .prefix("y:"),
+                                                                        );
+                                                                    });
+                                                                }
+                                                                ReflectValue::Bool(v) => {
+                                                                    ui.checkbox(v, "");
+                                                                }
+                                                                ReflectValue::String(s) => {
+                                                                    ui.text_edit_singleline(s);
+                                                                }
+                                                                ReflectValue::Color(c) => {
+                                                                    ui.horizontal(|ui| {
+                                                                        ui.add(
+                                                                            egui::DragValue::new(
+                                                                                &mut c[0],
+                                                                            )
+                                                                            .speed(0.01)
+                                                                            .prefix("r:"),
+                                                                        );
+                                                                        ui.add(
+                                                                            egui::DragValue::new(
+                                                                                &mut c[1],
+                                                                            )
+                                                                            .speed(0.01)
+                                                                            .prefix("g:"),
+                                                                        );
+                                                                        ui.add(
+                                                                            egui::DragValue::new(
+                                                                                &mut c[2],
+                                                                            )
+                                                                            .speed(0.01)
+                                                                            .prefix("b:"),
+                                                                        );
+                                                                        ui.add(
+                                                                            egui::DragValue::new(
+                                                                                &mut c[3],
+                                                                            )
+                                                                            .speed(0.01)
+                                                                            .prefix("a:"),
+                                                                        );
+                                                                    });
+                                                                }
+                                                            }
+                                                            ui.end_row();
+                                                        }
+                                                    });
+                                            });
+                                        }
+                                    });
+                            });
+                        });
+
+                        // ── 컴포넌트 추가/제거 (네이티브 전용, Phase 39b) ────────────
+                        #[cfg(not(target_arch = "wasm32"))]
+                        if let Some(sel) = self.inspector_selected {
+                            ui.separator();
+                            ui.strong("Component List");
+
+                            // 제거할 컴포넌트 이름 (클로저 밖에서 결정)
+                            let mut to_remove: Option<&'static str> = None;
+                            for &comp_name in &selected_comp_names {
+                                ui.horizontal(|ui| {
+                                    ui.label(comp_name);
+                                    if comp_name != "Transform" && ui.small_button("✕").clicked() {
+                                        to_remove = Some(comp_name);
+                                    }
+                                });
+                            }
+
+                            // 클로저 종료 후 실제 제거
+                            if let Some(name) = to_remove {
+                                match name {
+                                    "Sprite" => {
+                                        self.world.remove_component::<crate::components::Sprite>(sel);
+                                    }
+                                    "Tag" => {
+                                        self.world.remove_component::<crate::prefab::Tag>(sel);
+                                    }
+                                    "RenderLayer" => {
+                                        self.world.remove_component::<crate::components::RenderLayer>(sel);
+                                    }
+                                    "ParticleEmitter" => {
+                                        self.world.remove_component::<crate::particle::ParticleEmitter>(sel);
+                                    }
+                                    _ => {}
+                                }
+                            }
+
+                            ui.separator();
+                            // Add Component 드롭다운
+                            let factory_names: Vec<String> = {
+                                let mut names: Vec<String> =
+                                    self.component_factories.keys().cloned().collect();
+                                names.sort();
+                                names
+                            };
+                            if !factory_names.is_empty() {
+                                if self.add_component_selected.is_empty() {
+                                    self.add_component_selected =
+                                        factory_names[0].clone();
+                                }
+                                let cur = self.add_component_selected.clone();
+                                egui::ComboBox::from_id_salt("add_comp_combo")
+                                    .selected_text(&cur)
+                                    .show_ui(ui, |ui| {
+                                        for name in &factory_names {
+                                            ui.selectable_value(
+                                                &mut self.add_component_selected,
+                                                name.clone(),
+                                                name,
+                                            );
+                                        }
+                                    });
+                                if ui.button("+ Add").clicked() {
+                                    let chosen = self.add_component_selected.clone();
+                                    if let Some(factory) =
+                                        self.component_factories.get(&chosen)
+                                    {
+                                        factory(&mut self.world, sel);
+                                    }
+                                }
+                            }
+                        }
+
+                        // ── PrefabInstance / Break Prefab (네이티브 전용) ─────────
+                        #[cfg(not(target_arch = "wasm32"))]
+                        if let Some(sel) = self.inspector_selected {
+                            let prefab_path = self
+                                .world
+                                .get::<crate::prefab::PrefabInstance>(sel)
+                                .map(|pi| pi.source_path.clone());
+                            if let Some(path) = prefab_path {
+                                ui.separator();
+                                ui.horizontal(|ui| {
+                                    ui.label(format!("Prefab: {path}"));
+                                    if ui.button("Break Prefab").clicked() {
+                                        crate::prefab::break_prefab_instance(
+                                            &mut self.world,
+                                            sel,
+                                        );
+                                    }
+                                });
+                            }
+                        }
+
+                        // ── 선택 엔티티 이름(Tag) 편집 (네이티브 전용) ──────────────
+                        #[cfg(not(target_arch = "wasm32"))]
+                        if let Some(sel) = self.inspector_selected {
+                            ui.separator();
+                            let current_name =
+                                tag_map.get(&sel).cloned().unwrap_or_default();
+                            let has_tag = self.world.get::<Tag>(sel).is_some();
+                            ui.horizontal(|ui| {
+                                ui.label("Name:");
+                                if has_tag {
+                                    let mut name_buf = current_name;
+                                    if ui.text_edit_singleline(&mut name_buf).changed() {
+                                        self.world.add_component(sel, Tag(name_buf));
+                                    }
+                                } else {
+                                    ui.label(format!(
+                                        "Entity {}:{}",
+                                        sel.index(),
+                                        sel.generation()
+                                    ));
+                                    if ui.button("Add Name").clicked() {
+                                        self.world.add_component(
+                                            sel,
+                                            Tag(format!(
+                                                "Entity {}:{}",
+                                                sel.index(),
+                                                sel.generation()
+                                            )),
+                                        );
+                                    }
+                                }
+                            });
+                        }
+                        // ── 씬 저장 (Phase 28) ───────────────────────────────────
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            ui.separator();
+                            ui.horizontal(|ui| {
+                                ui.label("Path:");
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.editor_save_path)
+                                        .desired_width(180.0),
+                                );
+                                if ui.button("📂 Load Scene").clicked() {
+                                    let path = std::path::Path::new(&self.editor_save_path);
+                                    match crate::prefab::SceneDef::load(path) {
+                                        Ok(scene_def) => {
+                                            // 기존 에디터 엔티티(Transform 또는 Tag 보유) 제거
+                                            let to_remove: Vec<Entity> = self
+                                                .world
+                                                .query::<crate::components::Transform>()
+                                                .map(|(e, _)| e)
+                                                .collect();
+                                            for e in to_remove {
+                                                self.world.despawn(e);
+                                            }
+                                            self.inspector_selected = None;
+                                            self.selected_entities.clear();
+                                            let count = scene_def.entities.len();
+                                            crate::prefab::spawn_scene_def(
+                                                &mut self.world,
+                                                &scene_def,
+                                            );
+                                            self.editor_load_status =
+                                                Some(format!("✓ {count} entities ← {}", self.editor_save_path));
+                                            self.editor_save_status = None;
+                                        }
+                                        Err(e) => {
+                                            self.editor_load_status = Some(format!("✗ {e}"));
+                                        }
+                                    }
+                                }
+                                if ui.button("💾 Save Scene").clicked() {
+                                    let mut scene_def = crate::prefab::SceneDef::default();
+                                    // 부모가 자식보다 먼저 나오도록 위상 정렬
+                                    let sorted = crate::prefab::topological_sort_entities(
+                                        &entity_list,
+                                        &self.world,
+                                    );
+                                    for &e in &sorted {
+                                        let tag = self
+                                            .world
+                                            .get::<crate::prefab::Tag>(e)
+                                            .map(|t| t.0.clone());
+                                        let transform = self
+                                            .world
+                                            .get::<crate::components::Transform>(e)
+                                            .cloned();
+                                        let sprite = self
+                                            .world
+                                            .get::<crate::components::Sprite>(e)
+                                            .cloned();
+                                        // Parent 컴포넌트 → 부모의 tag 문자열
+                                        let parent = self
+                                            .world
+                                            .get::<crate::hierarchy::Parent>(e)
+                                            .and_then(|p| tag_map.get(&p.0))
+                                            .cloned();
+                                        if tag.is_some()
+                                            || transform.is_some()
+                                            || sprite.is_some()
+                                        {
+                                            scene_def.entities.push(
+                                                crate::prefab::EntityDef {
+                                                    tag,
+                                                    transform,
+                                                    sprite,
+                                                    parent,
+                                                },
+                                            );
+                                        }
+                                    }
+                                    let count = scene_def.entities.len();
+                                    let path = self.editor_save_path.clone();
+                                    self.editor_save_status = match scene_def
+                                        .save(std::path::Path::new(&path))
+                                    {
+                                        Ok(()) => {
+                                            Some(format!("✓ {count} entities → {path}"))
+                                        }
+                                        Err(e) => Some(format!("✗ {e}")),
+                                    };
+                                }
+                            });
+                            if let Some(msg) = &self.editor_save_status {
+                                ui.small(msg.as_str());
+                            }
+                            if let Some(msg) = &self.editor_load_status {
+                                ui.small(msg.as_str());
+                            }
+                        }
+                        } // end Entities tab
+                    });
+            }
+        }
+
+        // Inspector: 스테이징 값을 World에 적용 (egui 프레임 종료 전)
+        if let Some(sel) = self.inspector_selected {
+            let type_ids = self.world.reflected_components(sel);
+            for (i, tid) in type_ids.iter().enumerate() {
+                if i < comp_fields.len() {
+                    if let Some(refl) = self.world.get_reflect_mut(sel, *tid) {
+                        for (fname, fval) in &comp_fields[i].1 {
+                            refl.set_field(fname, fval.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── SelectedEntity 리소스 동기화 ─────────────────────────────────────────
+        if let Some(res) = self
+            .world
+            .resource_mut::<crate::resources::SelectedEntity>()
+        {
+            res.0 = self.inspector_selected;
+        }
+
+        // ── Gizmo: 선택 엔티티 강조 + 드래그 이동 ────────────────────────────────
+        let egui_wants_mouse = egui_ctx
+            .as_ref()
+            .map(|c| c.wants_pointer_input())
+            .unwrap_or(false);
+
+        if let Some(sel) = self.inspector_selected {
+            // 선택된 엔티티의 Transform을 복사 (borrow 해방)
+            let tr_copy = self.world.get::<crate::components::Transform>(sel).cloned();
+
+            if let Some(tr) = tr_copy {
+                // 선택 강조: DebugDrawQueue에 테두리 사각형 추가
+                if let Some(dq) = self.world.resource_mut::<DebugDrawQueue>() {
+                    let half = tr.scale * 0.5;
+                    // 외곽 강조 (3px 두께 효과: 약간 확장)
+                    let margin = glam::Vec2::splat(3.0 / tr.scale.x.max(1.0) * tr.scale.x);
+                    dq.items.push(DebugRect {
+                        min: tr.position - half - margin,
+                        max: tr.position + half + margin,
+                        color: [0.2, 0.85, 1.0, 0.65],
+                        z: tr.z + 999.0,
+                    });
+                }
+
+                // Gizmo 드래그 — egui가 마우스를 소비하지 않을 때만 동작
+                if !egui_wants_mouse {
+                    // 마우스 입력 + 카메라 좌표 변환 (짧은 borrow 블록)
+                    let cam_default = crate::camera::Camera::default();
+                    let gizmo_input = {
+                        let cam = self
+                            .world
+                            .resource::<crate::camera::Camera>()
+                            .unwrap_or(&cam_default);
+                        self.world
+                            .resource::<crate::input::InputState>()
+                            .map(|inp| {
+                                let world_pos = cam.screen_to_world(inp.cursor());
+                                let pressed =
+                                    inp.mouse_just_pressed(winit::event::MouseButton::Left);
+                                let held = inp.is_mouse_pressed(winit::event::MouseButton::Left);
+                                let released =
+                                    inp.mouse_just_released(winit::event::MouseButton::Left);
+                                (world_pos, pressed, held, released)
+                            })
+                    };
+
+                    if let Some((world_pos, just_pressed, held, just_released)) = gizmo_input {
+                        if just_pressed && !self.gizmo_dragging {
+                            let half = tr.scale * 0.5;
+                            let hit = world_pos.x >= tr.position.x - half.x
+                                && world_pos.x <= tr.position.x + half.x
+                                && world_pos.y >= tr.position.y - half.y
+                                && world_pos.y <= tr.position.y + half.y;
+                            if hit {
+                                self.gizmo_dragging = true;
+                                self.gizmo_drag_offset = tr.position - world_pos;
+                                #[cfg(not(target_arch = "wasm32"))]
+                                {
+                                    self.gizmo_drag_start_pos = Some(tr.position);
+                                }
+                            }
+                        }
+
+                        if self.gizmo_dragging && held {
+                            let new_pos = world_pos + self.gizmo_drag_offset;
+                            #[cfg(not(target_arch = "wasm32"))]
+                            let final_pos = if self.snap_enabled {
+                                snap_to_grid(new_pos, self.snap_size)
+                            } else {
+                                new_pos
+                            };
+                            #[cfg(target_arch = "wasm32")]
+                            let final_pos = new_pos;
+
+                            // 드래그 엔티티의 이전 위치를 구해 delta 계산 후 그룹 이동
+                            #[cfg(not(target_arch = "wasm32"))]
+                            {
+                                let old_pos = self
+                                    .world
+                                    .get::<crate::components::Transform>(sel)
+                                    .map(|t| t.position)
+                                    .unwrap_or(final_pos);
+                                let delta = final_pos - old_pos;
+                                // 주 엔티티 이동
+                                if let Some(t) =
+                                    self.world.get_mut::<crate::components::Transform>(sel)
+                                {
+                                    t.position = final_pos;
+                                }
+                                // 나머지 선택 엔티티에 같은 delta 적용
+                                let others: Vec<Entity> = self
+                                    .selected_entities
+                                    .iter()
+                                    .copied()
+                                    .filter(|&e| e != sel)
+                                    .collect();
+                                for other in others {
+                                    if let Some(t) =
+                                        self.world.get_mut::<crate::components::Transform>(other)
+                                    {
+                                        t.position += delta;
+                                    }
+                                }
+                            }
+                            #[cfg(target_arch = "wasm32")]
+                            if let Some(t) = self.world.get_mut::<crate::components::Transform>(sel)
+                            {
+                                t.position = final_pos;
+                            }
+                        }
+
+                        if just_released {
+                            #[cfg(not(target_arch = "wasm32"))]
+                            if let Some(start_pos) = self.gizmo_drag_start_pos.take() {
+                                let new_pos = self
+                                    .world
+                                    .get::<crate::components::Transform>(sel)
+                                    .map(|t| t.position)
+                                    .unwrap_or(start_pos);
+                                if (new_pos - start_pos).length_squared() > 0.01 {
+                                    self.cmd_history.push(EditorCmd::MoveEntity {
+                                        entity: sel,
+                                        old_pos: start_pos,
+                                        new_pos,
+                                    });
+                                }
+                            }
+                            self.gizmo_dragging = false;
+                        }
+                    }
+                } else {
+                    self.gizmo_dragging = false;
+                }
+            }
+        } else {
+            self.gizmo_dragging = false;
+        }
+    }
+}
