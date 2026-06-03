@@ -173,7 +173,7 @@ mod tests {
             layer,
             z,
             order,
-            crate::ecs::Entity(entity_id),
+            crate::ecs::Entity::from_raw_parts(entity_id, 0),
             1,
             String::new(),
             [0.0; 4],
@@ -200,7 +200,12 @@ mod tests {
                 format!("S:{texture_key}@{}", entry.sort.z)
             }
             SpriteRenderKind::Material { entity, .. } => {
-                format!("M:{}@{}", entity.0, entry.sort.z)
+                format!(
+                    "M:{}:{}@{}",
+                    entity.index(),
+                    entity.generation(),
+                    entry.sort.z
+                )
             }
         }
     }
@@ -263,7 +268,7 @@ mod tests {
                 "S:behind@50",
                 "S:tex_a@0",
                 "S:tex_b@1",
-                "M:99@1.5",
+                "M:99:0@1.5",
                 "S:tex_a@2",
                 "S:front@-50",
             ]
@@ -538,7 +543,7 @@ pub struct SpriteRenderer {
     mat_instance_buf: wgpu::Buffer,
     mat_instance_capacity: usize,
     custom_pipelines: HashMap<u64, wgpu::RenderPipeline>,
-    params_buffers: HashMap<u32, (wgpu::Buffer, wgpu::BindGroup)>,
+    params_buffers: HashMap<crate::ecs::Entity, (wgpu::Buffer, wgpu::BindGroup)>,
     /// RenderTarget bind_group 캐시 (키 = RenderTarget 이름)
     rt_cache: HashMap<String, Arc<wgpu::BindGroup>>,
 }
@@ -558,6 +563,13 @@ fn file_texture_aliases(path: &str) -> Vec<String> {
 impl SpriteRenderer {
     pub fn texture_layout(&self) -> &wgpu::BindGroupLayout {
         &self.texture_layout
+    }
+
+    pub(crate) fn has_texture_key(&self, key: &str) -> bool {
+        self.texture_cache.contains_key(key)
+            || self
+                .texture_cache
+                .contains_key(crate::asset::asset_key(key).as_ref())
     }
 
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
@@ -1147,7 +1159,7 @@ impl SpriteRenderer {
 
             for entry in &entries {
                 if let SpriteRenderKind::Material { entity, params, .. } = &entry.kind {
-                    let eid = entity.0;
+                    let eid = *entity;
                     if !self.params_buffers.contains_key(&eid) {
                         let buf = device.create_buffer(&wgpu::BufferDescriptor {
                             label: Some("material params buf"),
@@ -1241,7 +1253,7 @@ impl SpriteRenderer {
                         .as_ref()
                         .map(|k| self.bind_group_for_texture_key(Some(k)))
                         .unwrap_or(&self.white_texture.bind_group);
-                    let (_, params_bg) = &self.params_buffers[&entity.0];
+                    let (_, params_bg) = &self.params_buffers[entity];
 
                     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("material pass"),

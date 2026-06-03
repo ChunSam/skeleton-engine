@@ -4,6 +4,39 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 2.0.0
+
+### Breaking
+
+- `Entity` is now an opaque generation-checked handle with `index()`, `generation()`, and
+  `from_raw_parts(index, generation)`. Direct `entity.0` access is removed.
+- `World::clone_entity(src)` now returns `Option<Entity>` and returns `None` for stale or
+  despawned handles.
+- Rhai scripting now uses `despawn_entity(index, generation)` instead of index-only
+  `despawn_entity(id)`.
+- Rhai scripting exposes `entity_index()` and `entity_generation()` for the current
+  script runner entity.
+- Removed the misleading public `Sprite.normal_texture` and `Sprite.normal_handle` fields.
+  v2 keeps flat-normal lighting internally but does not expose per-sprite normal maps.
+
+### Fixed
+
+- Post-processing and lighting now compose as `scene -> post -> lighting -> final` when both
+  effects are active.
+- Lighting intermediate targets are recreated after viewport resize, and `PointLight`
+  positions now respect camera position and zoom.
+- Scene replacement restores the same core engine resources as initial app creation, including
+  panic recovery state, and preserves initialized `DebugUi`.
+- Images loaded directly through `AssetServer::load_image` are lazily uploaded to the GPU cache,
+  so scene-owned loading no longer depends on `App::load_image`.
+
+### Changed
+
+- `SceneDef` schema version is now `2`; old v1 files with removed normal-map sprite fields are
+  accepted and those fields are ignored.
+- Agent instructions now define this repository as the default and only verification scope unless
+  the user explicitly asks for external project checks.
+
 ## 1.3.0
 
 ### Added

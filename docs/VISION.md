@@ -15,8 +15,8 @@ Three overlapping purposes, in priority order:
 
 1. **An open-source skeleton others can fork and extend.** People should be able to
    take the source, modify engine code directly, and grow it into their own engine.
-2. **A personal foundation for my own 2D games.** It is the base layer my games are
-   built on (e.g. `rust-survivors`).
+2. **A personal foundation for my own 2D games.** It is the base layer small 2D games
+   can be built on.
 3. **A personal learning vehicle.** Building the internals by hand is itself a goal —
    understanding how a game engine works from the ground up.
 
@@ -29,10 +29,10 @@ any single one.
 
 ## The current problem this reset addresses
 
-The v1.0.0 feature set exists, but it has **not been validated by enough real
-gameplay**. APIs that look reasonable in isolation may be awkward in practice. The risk
-is an engine that is feature-complete on paper but unpleasant to actually ship a game
-with.
+The v1.x feature set has been validated by several small playable examples, but each
+major API still needs gameplay pressure before it is treated as stable. APIs that look
+reasonable in isolation may be awkward in practice. The risk is an engine that is
+feature-complete on paper but unpleasant to actually ship a game with.
 
 ## Direction: features proven by playable examples
 
@@ -43,8 +43,9 @@ The chosen path combines two things:
 
 These are not separate tracks — they are one loop. The dogfooding vehicle is a growing
 set of **small playable example games**, one per genre/feature area, living in
-`examples/`. Today `examples/` holds mostly tech demos (particles, minimap, split
-screen, networking); it has **no actual playable game**. Closing that gap is the point.
+`examples/`. The repo now includes playable slices such as platformer, shooter,
+scene-flow, sokoban, maze escape, survivor, and settings/menu examples; future feature
+work should keep using those examples, or add a new one, to validate the API in play.
 
 ### Operating principles
 

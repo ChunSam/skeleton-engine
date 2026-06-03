@@ -340,6 +340,18 @@ impl AssetServer {
             .collect()
     }
 
+    /// CPU-side images paired with their cache keys for lazy GPU upload.
+    pub(crate) fn image_assets_for_gpu(&self) -> Vec<(String, ImageAsset)> {
+        self.path_to_id
+            .iter()
+            .filter_map(|(path, &id)| {
+                self.images
+                    .get(&id)
+                    .map(|img| (path.to_string(), img.clone()))
+            })
+            .collect()
+    }
+
     /// 스크립트를 로드해 핸들을 반환한다. 같은 경로 재호출 시 캐시된 핸들 반환.
     pub fn load_script(&mut self, path: impl AsRef<Path>) -> Handle<ScriptAsset> {
         let key = asset_key(path.as_ref());

@@ -5,6 +5,8 @@ use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
 
+mod core_resources;
+
 // WASM: GPU 초기화는 async(WebGPU Promise 기반)이므로 thread_local로 결과를 전달한다.
 #[cfg(target_arch = "wasm32")]
 thread_local! {
@@ -33,12 +35,12 @@ use crate::{
     prefab::Tag,
     reflect::ReflectValue,
     renderer::{
-        DrawRect, GpuContext, PostProcessConfig, PostProcessRenderer, SpriteRenderer, TextQueue,
-        TextRenderer, UiImageQueue, UiQueue,
+        DrawRect, GpuContext, PostProcessConfig, PostProcessRenderer, SpriteRenderer, TextRenderer,
+        UiImageQueue, UiQueue,
     },
     resources::{
-        DebugDraw, DebugDrawQueue, DebugRect, DisplayScaleFactor, FontData, GameState,
-        LoadProgress, PendingResize, ShouldQuit, ViewportSize, WindowConfig,
+        DebugDraw, DebugDrawQueue, DebugRect, DisplayScaleFactor, FontData, LoadProgress,
+        PendingResize, ShouldQuit, ViewportSize, WindowConfig,
     },
     scene::{Scene, SceneChange, SceneCmd},
 };
@@ -301,7 +303,22 @@ pub struct App {
     fade_renderer: Option<crate::renderer::fade::FadeRenderer>,
     /// 라이팅 패스가 씬을 먼저 그릴 중간 텍스처.
     #[cfg(not(target_arch = "wasm32"))]
-    scene_texture_for_lighting: Option<(wgpu::Texture, wgpu::TextureView)>,
+    scene_texture_for_lighting: Option<(
+        wgpu::Texture,
+        wgpu::TextureView,
+        u32,
+        u32,
+        wgpu::TextureFormat,
+    )>,
+    /// post+lighting 조합에서 post 결과를 lighting 입력으로 넘기는 중간 텍스처.
+    #[cfg(not(target_arch = "wasm32"))]
+    post_texture_for_lighting: Option<(
+        wgpu::Texture,
+        wgpu::TextureView,
+        u32,
+        u32,
+        wgpu::TextureFormat,
+    )>,
     /// GPU 컴퓨트 셰이더 기반 파티클 렌더러 (lazy init).
     #[cfg(not(target_arch = "wasm32"))]
     gpu_particle_renderer: Option<crate::renderer::gpu_particle::GpuParticleRenderer>,
@@ -371,41 +388,20 @@ pub struct App {
 }
 
 impl App {
+    fn insert_core_resources(world: &mut World) {
+        core_resources::insert_core_resources(world);
+    }
+
+    fn register_core_component_metadata(world: &mut World) {
+        core_resources::register_core_component_metadata(world);
+    }
+
     pub fn new() -> Self {
         #[cfg(not(target_arch = "wasm32"))]
         let gilrs = gilrs::Gilrs::new().ok();
         let mut world = World::new();
-        world.insert_resource(InputState::default());
-        world.insert_resource(GamepadState::default());
-        world.insert_resource(TouchState::default());
-        world.insert_resource(GameState::Playing);
-        world.insert_resource(ShouldQuit(false));
-        world.insert_resource(WindowConfig::default());
-        world.insert_resource(ViewportSize::default());
-        world.insert_resource(PendingResize::default());
-        world.insert_resource(Camera::default());
-        world.insert_resource(TextQueue::default());
-        world.insert_resource(UiQueue::default());
-        world.insert_resource(UiImageQueue::default());
-        world.insert_resource(DebugDrawQueue::default());
-        world.insert_resource(DebugDraw::new());
-        world.insert_resource(crate::resources::SelectedEntity::default());
-        world.insert_resource(crate::resources::ProfilerData::default());
-        world.insert_resource(SceneChange::default());
-        world.insert_resource(AssetServer::new());
-        world.insert_resource(LoadProgress::default());
-        world.insert_resource(crate::resources::PanickedSystems::default());
-        // 엔진 내장 컴포넌트를 Reflect 레지스트리에 자동 등록 (이름 포함)
-        world.register_reflect_named::<crate::components::Transform>("Transform");
-        world.register_reflect_named::<crate::components::Sprite>("Sprite");
-        world.register_reflect_named::<crate::prefab::Tag>("Tag");
-        // 엔진 내장 컴포넌트를 clone_entity 복제 레지스트리에 등록
-        world.register_clone::<crate::components::Transform>();
-        world.register_clone::<crate::components::Sprite>();
-        world.register_clone::<crate::components::RenderLayer>();
-        world.register_clone::<crate::prefab::Tag>();
-        world.register_clone::<crate::animation::player::AnimationPlayer>();
-        world.register_clone::<crate::timer::Timer>();
+        Self::insert_core_resources(&mut world);
+        Self::register_core_component_metadata(&mut world);
 
         #[cfg(not(target_arch = "wasm32"))]
         let mut app = Self {
@@ -427,6 +423,7 @@ impl App {
             lighting_renderer: None,
             fade_renderer: None,
             scene_texture_for_lighting: None,
+            post_texture_for_lighting: None,
             gpu_particle_renderer: None,
             last_frame: None,
             last_dt: 1.0 / 60.0,
@@ -725,51 +722,20 @@ impl App {
             .iter()
             .filter_map(|&tid| self.world.take_resource_erased(tid).map(|b| (tid, b)))
             .collect();
+        let debug_ui = self.world.remove_resource::<DebugUi>();
 
         self.world = World::new();
-        self.world.insert_resource(InputState::default());
-        self.world.insert_resource(GamepadState::default());
-        self.world.insert_resource(TouchState::default());
-        self.world.insert_resource(GameState::Playing);
-        self.world.insert_resource(ShouldQuit(false));
-        self.world.insert_resource(WindowConfig::default());
-        self.world.insert_resource(ViewportSize::default());
-        self.world.insert_resource(PendingResize::default());
-        self.world.insert_resource(Camera::default());
-        self.world.insert_resource(TextQueue::default());
-        self.world.insert_resource(UiQueue::default());
-        self.world.insert_resource(UiImageQueue::default());
-        self.world.insert_resource(DebugDrawQueue::default());
-        self.world.insert_resource(DebugDraw::new());
-        self.world
-            .insert_resource(crate::resources::SelectedEntity::default());
-        self.world
-            .insert_resource(crate::resources::ProfilerData::default());
-        self.world.insert_resource(SceneChange::default());
-        self.world.insert_resource(AssetServer::new());
-        self.world.insert_resource(LoadProgress::default());
+        Self::insert_core_resources(&mut self.world);
         // 등록된 이벤트 리소스 재삽입
         let inits = std::mem::take(&mut self.event_initializers);
         for init in &inits {
             init(&mut self.world);
         }
         self.event_initializers = inits;
-        // Reflect 레지스트리 재등록 (World 재생성으로 초기화되었으므로)
-        self.world
-            .register_reflect_named::<crate::components::Transform>("Transform");
-        self.world
-            .register_reflect_named::<crate::components::Sprite>("Sprite");
-        self.world
-            .register_reflect_named::<crate::prefab::Tag>("Tag");
-        // clone_entity 복제 레지스트리 재등록
-        self.world.register_clone::<crate::components::Transform>();
-        self.world.register_clone::<crate::components::Sprite>();
-        self.world
-            .register_clone::<crate::components::RenderLayer>();
-        self.world.register_clone::<crate::prefab::Tag>();
-        self.world
-            .register_clone::<crate::animation::player::AnimationPlayer>();
-        self.world.register_clone::<crate::timer::Timer>();
+        Self::register_core_component_metadata(&mut self.world);
+        if let Some(debug_ui) = debug_ui {
+            self.world.insert_resource(debug_ui);
+        }
         // 보존 대상 리소스를 마지막에 재삽입 — 엔진 기본 리소스보다 우선시되도록
         // (같은 타입이면 보존본이 기본본을 덮어쓴다).
         for (tid, boxed) in preserved {
@@ -1341,7 +1307,13 @@ impl App {
                                         let name = tag_map
                                             .get(&entity)
                                             .cloned()
-                                            .unwrap_or_else(|| format!("Entity {}", entity.0));
+                                            .unwrap_or_else(|| {
+                                                format!(
+                                                    "Entity {}:{}",
+                                                    entity.index(),
+                                                    entity.generation()
+                                                )
+                                            });
                                         // 멀티 선택: selected_entities 기준으로 강조
                                         let is_selected =
                                             self.selected_entities.contains(&entity);
@@ -1405,11 +1377,19 @@ impl App {
                                             self.world.add_component(sel, Tag(name_buf));
                                         }
                                     } else {
-                                        ui.label(format!("Entity {}", sel.0));
+                                        ui.label(format!(
+                                            "Entity {}:{}",
+                                            sel.index(),
+                                            sel.generation()
+                                        ));
                                         if ui.button("Add Name").clicked() {
                                             self.world.add_component(
                                                 sel,
-                                                Tag(format!("Entity {}", sel.0)),
+                                                Tag(format!(
+                                                    "Entity {}:{}",
+                                                    sel.index(),
+                                                    sel.generation()
+                                                )),
                                             );
                                         }
                                     }
@@ -1501,14 +1481,15 @@ impl App {
                                     .add_enabled(true, egui::Button::new("⎘ Duplicate"))
                                     .clicked()
                                 {
-                                    let new_entity = self.world.clone_entity(sel);
-                                    if let Some(t) = self.world.get_mut::<crate::components::Transform>(new_entity) {
-                                        t.position += glam::Vec2::new(16.0, 16.0);
-                                    }
-                                    self.inspector_selected = Some(new_entity);
-                                    #[cfg(not(target_arch = "wasm32"))]
-                                    {
-                                        self.selected_entities = vec![new_entity];
+                                    if let Some(new_entity) = self.world.clone_entity(sel) {
+                                        if let Some(t) = self.world.get_mut::<crate::components::Transform>(new_entity) {
+                                            t.position += glam::Vec2::new(16.0, 16.0);
+                                        }
+                                        self.inspector_selected = Some(new_entity);
+                                        #[cfg(not(target_arch = "wasm32"))]
+                                        {
+                                            self.selected_entities = vec![new_entity];
+                                        }
                                     }
                                 }
                             }
@@ -1527,7 +1508,9 @@ impl App {
                                             let label = tag_map
                                                 .get(&e)
                                                 .cloned()
-                                                .unwrap_or_else(|| format!("E{}", e.0));
+                                                .unwrap_or_else(|| {
+                                                    format!("E{}:{}", e.index(), e.generation())
+                                                });
                                             // 멀티 선택 강조 (네이티브) 또는 단일 선택 (WASM)
                                             #[cfg(not(target_arch = "wasm32"))]
                                             let is_sel = self.selected_entities.contains(&e);
@@ -1756,11 +1739,19 @@ impl App {
                                         self.world.add_component(sel, Tag(name_buf));
                                     }
                                 } else {
-                                    ui.label(format!("Entity {}", sel.0));
+                                    ui.label(format!(
+                                        "Entity {}:{}",
+                                        sel.index(),
+                                        sel.generation()
+                                    ));
                                     if ui.button("Add Name").clicked() {
                                         self.world.add_component(
                                             sel,
-                                            Tag(format!("Entity {}", sel.0)),
+                                            Tag(format!(
+                                                "Entity {}:{}",
+                                                sel.index(),
+                                                sel.generation()
+                                            )),
                                         );
                                     }
                                 }
@@ -2104,6 +2095,64 @@ impl App {
                 prog.loaded += async_completed.len();
             }
         }
+        self.upload_asset_server_images_to_gpu();
+    }
+
+    fn upload_asset_server_images_to_gpu(&mut self) {
+        let (Some(sr), Some(gpu)) = (&mut self.sprite_renderer, &self.gpu) else {
+            return;
+        };
+        let images = self
+            .world
+            .resource::<AssetServer>()
+            .map(|assets| assets.image_assets_for_gpu())
+            .unwrap_or_default();
+        for (path, asset) in images {
+            if !sr.has_texture_key(&path) {
+                sr.load_texture_from_image(&gpu.device, &gpu.queue, &path, &asset);
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn ensure_intermediate_texture(
+        slot: &mut Option<(
+            wgpu::Texture,
+            wgpu::TextureView,
+            u32,
+            u32,
+            wgpu::TextureFormat,
+        )>,
+        device: &wgpu::Device,
+        label: &'static str,
+        width: u32,
+        height: u32,
+        format: wgpu::TextureFormat,
+    ) -> bool {
+        let needs_new = match slot {
+            Some((_, _, w, h, fmt)) => *w != width || *h != height || *fmt != format,
+            None => true,
+        };
+        if needs_new {
+            let tex = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+            *slot = Some((tex, view, width, height, format));
+        }
+        needs_new
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -2123,6 +2172,9 @@ impl App {
             match &mut self.post_renderer {
                 None => {
                     self.post_renderer = Some(PostProcessRenderer::new(&gpu.device, w, h, fmt));
+                }
+                Some(pr) if pr.format() != fmt => {
+                    pr.reconfigure(&gpu.device, w, h, fmt);
                 }
                 Some(pr) if pr.width != w || pr.height != h => {
                     pr.resize(&gpu.device, w, h);
@@ -2150,6 +2202,9 @@ impl App {
                                 fmt,
                             ));
                     }
+                    Some(lr) if lr.format() != fmt => {
+                        lr.reconfigure(&gpu.device, w, h, fmt);
+                    }
                     Some(lr) if lr.width != w || lr.height != h => {
                         lr.resize(&gpu.device, w, h);
                     }
@@ -2157,39 +2212,30 @@ impl App {
                 }
                 // 씬 중간 텍스처 생성 / 리사이즈 (post_renderer가 없을 때만 필요)
                 if !use_post {
-                    let needs_new = match &self.scene_texture_for_lighting {
-                        None => true,
-                        Some(_) => {
-                            // 크기 재확인을 위해 뷰 크기를 직접 비교할 수 없으므로
-                            // lighting_renderer 크기가 바뀌면 텍스처도 재생성한다.
-                            // lighting_renderer resize가 이미 처리했으므로, 텍스처와 lr 크기 비교는 불필요.
-                            // 여기선 None인 경우만 처리.
-                            false
-                        }
-                    };
-                    if needs_new {
-                        let tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
-                            label: Some("scene_for_lighting"),
-                            size: wgpu::Extent3d {
-                                width: w,
-                                height: h,
-                                depth_or_array_layers: 1,
-                            },
-                            mip_level_count: 1,
-                            sample_count: 1,
-                            dimension: wgpu::TextureDimension::D2,
-                            format: fmt,
-                            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                                | wgpu::TextureUsages::TEXTURE_BINDING,
-                            view_formats: &[],
-                        });
-                        let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
-                        self.scene_texture_for_lighting = Some((tex, view));
-                    }
+                    Self::ensure_intermediate_texture(
+                        &mut self.scene_texture_for_lighting,
+                        &gpu.device,
+                        "scene_for_lighting",
+                        w,
+                        h,
+                        fmt,
+                    );
+                    self.post_texture_for_lighting = None;
+                } else {
+                    self.scene_texture_for_lighting = None;
+                    Self::ensure_intermediate_texture(
+                        &mut self.post_texture_for_lighting,
+                        &gpu.device,
+                        "post_for_lighting",
+                        w,
+                        h,
+                        fmt,
+                    );
                 }
             } else {
                 self.lighting_renderer = None;
                 self.scene_texture_for_lighting = None;
+                self.post_texture_for_lighting = None;
             }
             has_lighting
         };
@@ -2302,7 +2348,7 @@ impl App {
         let render_view: &wgpu::TextureView = if use_lighting && !use_post {
             #[cfg(not(target_arch = "wasm32"))]
             {
-                if let Some((_, view)) = self.scene_texture_for_lighting.as_ref() {
+                if let Some((_, view, _, _, _)) = self.scene_texture_for_lighting.as_ref() {
                     view
                 } else {
                     log::warn!(
@@ -2499,14 +2545,10 @@ impl App {
         if use_post {
             #[cfg(not(target_arch = "wasm32"))]
             let post_output: &wgpu::TextureView = if use_lighting {
-                // 라이팅도 활성이면 post 출력을 씬 중간 텍스처로 보낸다.
-                // 씬 중간 텍스처는 post_renderer 없을 때만 생성되므로 여기선 별도 버퍼 필요.
-                // 단순화: post → final_view, 그 다음 lighting 패스는 final_view를 읽을 수 없다.
-                // 따라서 post+lighting 조합에서는 final_view를 post 출력으로 사용하고
-                // lighting을 그 위에 다시 적용하는 대신, post 출력에 lighting을 적용한다.
-                // 구현: post → final_view 후 lighting 패스를 final_view→output(=final_view)로 수행.
-                // (이 케이스에서는 lighting input = post target_view, output = final_view)
-                &final_view
+                self.post_texture_for_lighting
+                    .as_ref()
+                    .map(|(_, view, _, _, _)| view)
+                    .unwrap_or(&final_view)
             } else {
                 &final_view
             };
@@ -2526,16 +2568,17 @@ impl App {
                 lr.update(&gpu.queue, &self.world, gpu.config.width, gpu.config.height);
 
                 // 노멀 버퍼를 평면 노멀(0.5, 0.5, 1.0)으로 초기화한다.
-                // (스프라이트별 노멀 맵 렌더링은 향후 여기서 수행)
                 lr.clear_normal_buffer(&mut enc);
 
-                // scene input: post가 있으면 post.target_view, 없으면 씬 중간 텍스처
+                // scene input: post가 있으면 post output, 없으면 씬 중간 텍스처
                 let scene_input: Option<&wgpu::TextureView> = if use_post {
-                    self.post_renderer.as_ref().map(|pr| &pr.target_view)
+                    self.post_texture_for_lighting
+                        .as_ref()
+                        .map(|(_, view, _, _, _)| view)
                 } else {
                     self.scene_texture_for_lighting
                         .as_ref()
-                        .map(|(_, view)| view)
+                        .map(|(_, view, _, _, _)| view)
                 };
                 if let Some(scene_input) = scene_input {
                     lr.run_pass(&gpu.device, &mut enc, scene_input, &final_view);
@@ -2957,6 +3000,13 @@ impl App {
         for path in self.pending_textures.drain(..) {
             sprite_renderer.load_texture(&gpu.device, &gpu.queue, &path);
         }
+        if let Some(assets) = self.world.resource::<AssetServer>() {
+            for (path, asset) in assets.image_assets_for_gpu() {
+                if !sprite_renderer.has_texture_key(&path) {
+                    sprite_renderer.load_texture_from_image(&gpu.device, &gpu.queue, &path, &asset);
+                }
+            }
+        }
         // pending_render_targets: GPU 초기화 전에 등록된 RT를 여기서 실제 생성
         for (name, w, h) in self.pending_render_targets.drain(..) {
             let rt = crate::renderer::render_target::RenderTarget::new(
@@ -3182,6 +3232,23 @@ mod tests {
         app.add_system(PanicSystem);
 
         app.update(1.0 / 60.0);
+    }
+
+    #[test]
+    fn reload_scene_restores_core_resources_and_preserves_debug_ui() {
+        let mut app = App::new();
+        app.world
+            .insert_resource(DebugUi::new_with_ctx(egui::Context::default()));
+
+        app.reload_scene();
+
+        assert!(app
+            .world
+            .resource::<crate::resources::PanickedSystems>()
+            .is_some());
+        assert!(app.world.resource::<SceneChange>().is_some());
+        assert!(app.world.resource::<LoadProgress>().is_some());
+        assert!(app.world.resource::<DebugUi>().is_some());
     }
 
     #[test]

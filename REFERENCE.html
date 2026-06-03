@@ -220,7 +220,6 @@
         <a href="#렌더-레이어">렌더 레이어</a>
         <a href="#렌더-텍스처-phase-46">렌더 텍스처</a>
         <a href="#2d-라이팅">2D 라이팅</a>
-        <a href="#2d-노멀-맵-라이팅">2D 노멀 맵 라이팅</a>
         <a href="#포스트-프로세스-색보정-phase-56b">포스트 프로세스 색보정</a>
         <a href="#카메라">카메라</a>
         <a href="#카메라-이펙트">카메라 이펙트</a>
@@ -264,7 +263,7 @@
     </nav>
     <main class="doc">
 <h1 id="skeleton-engine-레퍼런스">skeleton-engine 레퍼런스</h1>
-<blockquote>버전 v1.0.0 기준. 패키지명은 <code>skeleton-engine</code>, 라이브러리 크레이트명은 <code>engine</code>인 wgpu 기반 2D 게임 엔진.</blockquote>
+<blockquote>버전 v2.0.0 기준. 패키지명은 <code>skeleton-engine</code>, 라이브러리 크레이트명은 <code>engine</code>인 wgpu 기반 2D 게임 엔진.</blockquote>
 <hr>
 <h2 id="목차">목차</h2>
 <div class="toc-grid">
@@ -278,7 +277,7 @@
   </section>
   <section class="toc-group">
     <h3>렌더링과 카메라</h3>
-    <ul><li><a href="#렌더링">렌더링</a></li><li><a href="#렌더-레이어">렌더 레이어</a></li><li><a href="#렌더-텍스처-phase-46">렌더 텍스처</a></li><li><a href="#2d-라이팅">2D 라이팅</a></li><li><a href="#2d-노멀-맵-라이팅">2D 노멀 맵 라이팅</a></li><li><a href="#포스트-프로세스-색보정-phase-56b">포스트 프로세스 색보정</a></li><li><a href="#카메라">카메라</a></li><li><a href="#카메라-이펙트">카메라 이펙트</a></li><li><a href="#debug-draw-api">Debug Draw API</a></li><li><a href="#씬-전환-트랜지션">씬 전환 트랜지션</a></li><li><a href="#타임라인컷씬">타임라인/컷씬</a></li></ul>
+    <ul><li><a href="#렌더링">렌더링</a></li><li><a href="#렌더-레이어">렌더 레이어</a></li><li><a href="#렌더-텍스처-phase-46">렌더 텍스처</a></li><li><a href="#2d-라이팅">2D 라이팅</a></li><li><a href="#포스트-프로세스-색보정-phase-56b">포스트 프로세스 색보정</a></li><li><a href="#카메라">카메라</a></li><li><a href="#카메라-이펙트">카메라 이펙트</a></li><li><a href="#debug-draw-api">Debug Draw API</a></li><li><a href="#씬-전환-트랜지션">씬 전환 트랜지션</a></li><li><a href="#타임라인컷씬">타임라인/컷씬</a></li></ul>
   </section>
   <section class="toc-group">
     <h3>게임플레이 로직</h3>
@@ -344,7 +343,7 @@ fn main() {
 <pre><code class="language-rust">let mut app = App::new();</code></pre>
 <div class="table-wrap"><table><thead><tr><th>메서드</th><th>설명</th></tr></thead><tbody><tr><td><code>app.add_system(s)</code></td><td>시스템 등록. 매 프레임 등록 순서대로 실행됨</td></tr><tr><td><code>app.load_texture(&quot;path.png&quot;)</code></td><td>PNG 텍스처 로드 예약 (<code>run()</code> 전에도 호출 가능)</td></tr><tr><td><code>app.register_event::&lt;E&gt;()</code></td><td>이벤트 타입 등록 (자동 flush 포함)</td></tr><tr><td><code>app.set_scene(Box&lt;dyn Scene&gt;)</code></td><td>씬을 즉시 전환 (<code>run()</code> 전·후 모두 가능)</td></tr><tr><td><code>app.run()</code></td><td>이벤트 루프 시작 (블로킹)</td></tr></tbody></table></div>
 <p><strong>프레임 실행 순서:</strong></p>
-<ol><li>시스템들 순서대로 <code>run(dt)</code> 호출</li><li>이벤트 큐 flush</li><li>입력 상태 flush</li><li>씬 전환 명령 처리</li><li>렌더링 (스프라이트 → UI 사각형 → 텍스트)</li></ol>
+<ol><li>시스템들 순서대로 <code>run(dt)</code> 호출</li><li>이벤트 큐 flush</li><li>입력 상태 flush</li><li>씬 전환 명령 처리</li><li>렌더링 (<code>scene -&gt; post(optional) -&gt; lighting(optional) -&gt; final</code>)</li></ol>
 <hr>
 <h2 id="ecs--world-entity-system">ECS — World, Entity, System</h2>
 <h3 id="world">World</h3>
@@ -352,6 +351,11 @@ fn main() {
 <pre><code class="language-rust">// 엔티티 생성/삭제
 let e = world.spawn();
 world.despawn(e);
+
+// v2 Entity handle
+let index = e.index();
+let generation = e.generation();
+let same_handle = Entity::from_raw_parts(index, generation);
 
 // 컴포넌트 추가/조회/제거
 world.add_component(e, MyComp { ... });
@@ -1100,10 +1104,10 @@ scene.save(Path::new(&quot;levels/level1.ron&quot;)).unwrap();
 let loaded = SceneDef::load(Path::new(&quot;levels/level1.ron&quot;)).unwrap();
 let entities = spawn_scene_def(&amp;mut world, &amp;loaded);</code></pre>
 <h3 id="스키마-버전-관리-phase-32">스키마 버전 관리 (Phase 32)</h3>
-<p><code>SceneDef</code>에 <code>version: u32</code> 필드가 있다. <code>save()</code>는 항상 현재 버전(<code>SCENE_DEF_VERSION = 1</code>)으로 저장한다.   구 파일(version 필드 없음)을 로드하면 <code>version = 0</code>으로 역직렬화되며, 버전이 다를 경우 <code>log::warn</code>을 출력하고 로드를 계속한다.</p>
-<pre><code class="language-ron">// Phase 32 이후 저장된 파일 형식
+<p><code>SceneDef</code>에 <code>version: u32</code> 필드가 있다. <code>save()</code>는 항상 현재 버전(<code>SCENE_DEF_VERSION = 2</code>)으로 저장한다.   구 파일(version 필드 없음)을 로드하면 <code>version = 0</code>으로 역직렬화되며, 버전이 다를 경우 <code>log::warn</code>을 출력하고 로드를 계속한다.</p>
+<pre><code class="language-ron">// v2.0 이후 저장된 파일 형식
 SceneDef(
-    version: 1,
+    version: 2,
     entities: [
         EntityDef(
             tag: Some(&quot;player&quot;),
@@ -1114,7 +1118,7 @@ SceneDef(
     ],
 )</code></pre>
 <pre><code class="language-rust">// 버전 상수
-use engine::SCENE_DEF_VERSION;  // 현재 = 1</code></pre>
+use engine::SCENE_DEF_VERSION;  // 현재 = 2</code></pre>
 <h3 id="계층-구조-parent-필드">계층 구조 (parent 필드)</h3>
 <pre><code class="language-rust">EntityDef {
     tag: Some(&quot;child&quot;.into()),
@@ -1375,8 +1379,8 @@ world.add_component(enemy, ScriptRunner::new(handle));
 app.add_system(ScriptingSystem);</code></pre>
 <h3 id="스크립트에서-사용-가능한-함수-확장-api">스크립트에서 사용 가능한 함수 (확장 API)</h3>
 <h4 id="commands">Commands</h4>
-<div class="table-wrap"><table><thead><tr><th>함수</th><th>설명</th></tr></thead><tbody><tr><td><code>spawn_entity() -&gt; i64</code></td><td>새 엔티티 생성. 임시 핸들 반환 (음수)</td></tr><tr><td><code>despawn_entity(id)</code></td><td>엔티티 삭제 예약</td></tr></tbody></table></div>
-<p><code>spawn_entity()</code>의 음수 반환값은 같은 스크립트 안에서 실제 엔티티를 조작할 수 있는 안정 핸들이 아니다. 실제 스폰은 스크립트 실행 후 적용된다. <code>despawn_entity(id)</code>는 세대 번호 없는 ECS ID를 사용하므로 오래 보관한 ID는 재사용된 다른 엔티티를 가리킬 수 있다.</p>
+<div class="table-wrap"><table><thead><tr><th>함수</th><th>설명</th></tr></thead><tbody><tr><td><code>spawn_entity() -&gt; i64</code></td><td>새 엔티티 생성. 임시 핸들 반환 (음수)</td></tr><tr><td><code>entity_index() -&gt; i64</code></td><td>현재 스크립트 엔티티의 index 반환</td></tr><tr><td><code>entity_generation() -&gt; i64</code></td><td>현재 스크립트 엔티티의 generation 반환</td></tr><tr><td><code>despawn_entity(index, generation)</code></td><td>세대 검증 핸들로 엔티티 삭제 예약</td></tr></tbody></table></div>
+<p><code>spawn_entity()</code>의 음수 반환값은 같은 스크립트 안에서 실제 엔티티를 조작할 수 있는 안정 핸들이 아니다. 실제 스폰은 스크립트 실행 후 적용된다. 현재 엔티티를 삭제하려면 <code>despawn_entity(entity_index(), entity_generation())</code>를 사용한다. <code>despawn_entity(index, generation)</code>는 stale handle이면 조용히 무시된다.</p>
 <h4 id="blackboard-2">Blackboard</h4>
 <div class="table-wrap"><table><thead><tr><th>함수</th><th>설명</th></tr></thead><tbody><tr><td><code>bb_get_bool(key)</code> / <code>bb_set_bool(key, val)</code></td><td>bool 읽기/쓰기</td></tr><tr><td><code>bb_get_float(key)</code> / <code>bb_set_float(key, val)</code></td><td>f32 읽기/쓰기</td></tr><tr><td><code>bb_get_int(key)</code> / <code>bb_set_int(key, val)</code></td><td>i32 읽기/쓰기</td></tr></tbody></table></div>
 <h4 id="steering">Steering</h4>
@@ -1509,53 +1513,38 @@ impl System for TransformDirtySystem {
     }
 }</code></pre>
 <hr>
-<h2 id="2d-노멀-맵-라이팅">2D 노멀 맵 라이팅</h2>
-<p>Phase 41a의 <code>PointLight</code> + <code>AmbientLight</code> 라이팅 시스템을 확장해, 스프라이트별 노멀 맵 텍스처로 방향성 조명(Lambert diffuse)을 구현한다.</p>
-<h3 id="노멀-맵이-없을-때-기본-동작">노멀 맵이 없을 때 기본 동작</h3>
-<p>라이팅 패스는 매 프레임 노멀 버퍼를 평면 노멀 <code>[0.5, 0.5, 1.0]</code> (카메라 방향)로 초기화한다. 노멀 맵 없이도 <code>PointLight</code>의 <code>light_height</code> 값에 따라 방향성 조명 효과를 얻을 수 있다.</p>
-<h3 id="spritenormaltexture">Sprite.normal_texture</h3>
-<pre><code class="language-rust">// 노멀 맵이 있는 스프라이트
-let mut sprite = Sprite::textured(&quot;assets/rock.png&quot;);
-sprite.normal_texture = Some(&quot;assets/rock_normal.png&quot;.to_string());
-world.add_component(entity, sprite);</code></pre>
-<div class="table-wrap"><table><thead><tr><th>필드</th><th>타입</th><th>설명</th></tr></thead><tbody><tr><td><code>normal_texture</code></td><td><code>Option&lt;String&gt;</code></td><td>노멀 맵 파일 경로 (None이면 평면 노멀)</td></tr><tr><td><code>normal_handle</code></td><td><code>Option&lt;Handle&lt;ImageAsset&gt;&gt;</code></td><td>런타임 핸들 (직렬화 제외)</td></tr></tbody></table></div>
+<h2 id="flat-normal-2d-lighting">Flat-normal 2D lighting</h2>
+<p>v2.0 removes the misleading public sprite normal-map API. The lighting renderer still keeps an internal flat-normal buffer initialized to <code>[0.5, 0.5, 1.0]</code> every frame, so <code>PointLight</code> and <code>AmbientLight</code> continue to work without per-sprite normal textures.</p>
 <h3 id="pointlightlightheight">PointLight.light_height</h3>
-<p>광원의 가상 Z 높이. 노멀 맵과 함께 Lambert 조명의 방향 벡터 L의 Z 성분으로 사용된다.</p>
+<p>Virtual Z height for a point light. Lower values make lighting more directional; higher values behave closer to frontal light. This works against the flat normal buffer.</p>
 <pre><code class="language-rust">world.add_component(light_entity, PointLight {
     color: [1.0, 0.9, 0.7],
     radius: 300.0,
     intensity: 2.0,
-    light_height: 0.15,  // 작을수록 측광(그라데이션), 클수록 정면광
+    light_height: 0.15,
 });</code></pre>
-<div class="table-wrap"><table><thead><tr><th><code>light_height</code></th><th>효과</th></tr></thead><tbody><tr><td><code>0.05</code></td><td>강한 측면 조명 — 노멀 맵 요철이 뚜렷하게 표현</td></tr><tr><td><code>0.15</code></td><td>기본값 — 자연스러운 방향성 조명</td></tr><tr><td><code>0.5~1.0</code></td><td>거의 정면광 — 노멀 맵 효과 약해짐</td></tr></tbody></table></div>
-<h3 id="노멀-맵-파일-형식">노멀 맵 파일 형식</h3>
-<ul><li>OpenGL 기준 노멀 맵: RGB채널에 <code>(R=X, G=Y, B=Z)</code> 저장, 평면은 <code>(128, 128, 255)</code></li><li>일반 게임 툴(Substance, NormalMap-Online 등) 기본 출력 포맷과 호환</li></ul>
 <h3 id="렌더-파이프라인-순서">렌더 파이프라인 순서</h3>
 <pre><code>스프라이트 렌더링 (scene_tex)
     ↓
 노멀 버퍼 초기화 (flat normal [0.5, 0.5, 1.0])
-    (추후: 스프라이트 노멀 텍스처 → 노멀 버퍼 렌더)
     ↓
 LightingRenderer (scene_tex + normal_buf → Lambert diffuse)
     ↓
 화면 출력</code></pre>
-<h3 id="사용-예--돌-텍스처에-조명-효과">사용 예 — 돌 텍스처에 조명 효과</h3>
+<h3 id="사용-예--조명-효과">사용 예 — 조명 효과</h3>
 <pre><code class="language-rust">struct SetupSystem;
 impl System for SetupSystem {
     fn run(&amp;mut self, world: &amp;mut World, _dt: f32) {
         world.insert_resource(AmbientLight { color: [1.0, 1.0, 1.0], intensity: 0.04 });
 
         let rock = world.spawn();
-        let mut sprite = Sprite::textured(&quot;assets/rock.png&quot;);
-        sprite.normal_texture = Some(&quot;assets/rock_normal.png&quot;.to_string());
         world.add_component(rock, Transform {
             position: Vec2::new(0.0, 0.0),
             scale: Vec2::splat(128.0),
             ..Default::default()
         });
-        world.add_component(rock, sprite);
+        world.add_component(rock, Sprite::textured(&quot;assets/rock.png&quot;));
 
-        // 측면에서 비추는 따뜻한 빛
         let torch = world.spawn();
         world.add_component(torch, Transform {
             position: Vec2::new(-200.0, -100.0),
@@ -1565,7 +1554,7 @@ impl System for SetupSystem {
             color: [1.0, 0.7, 0.3],
             radius: 400.0,
             intensity: 3.0,
-            light_height: 0.08,  // 낮게 — 노멀 맵 요철 강조
+            light_height: 0.08,
         });
     }
 }</code></pre>
@@ -1667,9 +1656,11 @@ impl System for BulletSystem {
 }</code></pre>
 <hr>
 <h2 id="엔티티-복제">엔티티 복제</h2>
-<p><code>World::clone_entity(src)</code> — 등록된 컴포넌트를 복사해 새 엔티티를 생성한다.</p>
+<p><code>World::clone_entity(src)</code> — 등록된 컴포넌트를 복사해 새 엔티티를 생성한다. <code>src</code>가 stale이거나 despawn된 핸들이면 <code>None</code>을 반환한다.</p>
 <h3 id="기본-사용-3">기본 사용</h3>
-<pre><code class="language-rust">let new_entity = world.clone_entity(original_entity);
+<pre><code class="language-rust">let Some(new_entity) = world.clone_entity(original_entity) else {
+    return;
+};
 
 // 위치를 약간 오프셋
 if let Some(t) = world.get_mut::&lt;Transform&gt;(new_entity) {
@@ -1715,8 +1706,9 @@ world.insert_resource(FadeTransition::fade_out(0.5));
 if let Some(fade) = world.resource::&lt;FadeTransition&gt;() {
     if fade.finished {
         // 씬 전환 실행
-        world.resource_mut::&lt;SceneChange&gt;().unwrap().0 =
-            Some(SceneCmd::Replace(Box::new(NextScene)));
+        world.resource_mut::&lt;SceneChange&gt;()
+            .unwrap()
+            .request(SceneCmd::Replace(Box::new(NextScene)));
     }
 }</code></pre>
 <h3 id="페이드-인-화면이-밝아짐">페이드 인 (화면이 밝아짐)</h3>
@@ -1750,8 +1742,9 @@ impl System for GameSystem {
         if let Some(fade) = world.resource::&lt;FadeTransition&gt;() {
             if fade.finished &amp;&amp; fade.alpha &gt; 0.5 {
                 // 페이드 아웃 완료 → 씬 전환
-                world.resource_mut::&lt;SceneChange&gt;().unwrap().0 =
-                    Some(SceneCmd::Replace(Box::new(GameOverScene)));
+                world.resource_mut::&lt;SceneChange&gt;()
+                    .unwrap()
+                    .request(SceneCmd::Replace(Box::new(GameOverScene)));
             }
         }
     }

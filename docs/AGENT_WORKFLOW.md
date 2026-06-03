@@ -69,17 +69,10 @@ When public API, usage, examples, or release notes are affected, update docs alo
 
 Content that could push `AGENTS.md` over 200 lines goes into a new `docs/*.md`, with only a one-line summary and link added to `AGENTS.md`.
 
-## 6. Related-project checks
+## 6. Verification scope
 
-The default verification scope is this engine repo. By default, do not build or modify `rust-survivors`.
-
-Check `rust-survivors` only when:
-
-- the user explicitly requests it
-- there is a clear possibility of a breaking change to the engine's public API
-- the purpose of the change is to fix a `rust-survivors` integration issue
-
-If you ran a check, note which commands or searches you used in the completion report.
+The default verification scope is this engine repo. Do not build or modify external projects
+unless the user explicitly requests it.
 
 ## 7. Git rules
 

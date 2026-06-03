@@ -107,7 +107,7 @@ pub struct EntityDef {
 // ─── SceneDef ─────────────────────────────────────────────────────────────────
 
 /// 현재 `SceneDef` RON 포맷 버전. 구조 변경 시 증가시킨다.
-pub const SCENE_DEF_VERSION: u32 = 1;
+pub const SCENE_DEF_VERSION: u32 = 2;
 
 /// 레벨/씬 전체를 기술하는 직렬화 가능 구조체.
 ///
@@ -116,7 +116,7 @@ pub const SCENE_DEF_VERSION: u32 = 1;
 /// # RON 예시
 /// ```ron
 /// SceneDef(
-///     version: 1,
+///     version: 2,
 ///     entities: [
 ///         EntityDef(
 ///             tag: Some("ground"),
@@ -454,6 +454,31 @@ mod tests {
 
         fs::remove_file(&path).ok();
         fs::remove_dir(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn scene_def_v1_sprite_normal_fields_are_ignored() {
+        let text = r#"
+SceneDef(
+    version: 1,
+    entities: [
+        EntityDef(
+            tag: Some("legacy"),
+            sprite: Some(Sprite(
+                texture: Some("legacy.png"),
+                color: (1.0, 0.5, 0.25, 1.0),
+                normal_texture: Some("legacy_normal.png"),
+            )),
+        ),
+    ],
+)
+"#;
+
+        let scene: SceneDef = ron::from_str(text).expect("old normal field should be ignored");
+        assert_eq!(scene.version, 1);
+        let sprite = scene.entities[0].sprite.as_ref().unwrap();
+        assert_eq!(sprite.texture.as_deref(), Some("legacy.png"));
+        assert_eq!(sprite.color, [1.0, 0.5, 0.25, 1.0]);
     }
 
     #[test]

@@ -88,6 +88,7 @@ enum SteeringCmd {
 // ECS 시스템은 단일 스레드이므로 RefCell이 안전하다.
 
 struct ScriptCtx {
+    entity: Entity,
     cmd_buf: Arc<Mutex<ScriptCommands>>,
     bb_buf: Arc<Mutex<Vec<BbEntry>>>,
     steer_buf: Arc<Mutex<Option<SteeringCmd>>>,
@@ -127,12 +128,14 @@ fn clear_script_ctx() {
 /// ### Commands
 /// ```rhai
 /// let id = spawn_entity();   // 새 엔티티 생성 → ID(i64) 반환
-/// despawn_entity(id);        // 엔티티 삭제 예약
+/// let index = entity_index();
+/// let generation = entity_generation();
+/// despawn_entity(index, generation); // 엔티티 삭제 예약
 /// ```
 ///
 /// `spawn_entity()`가 반환하는 음수 ID는 같은 스크립트 안에서 실제 엔티티를 조작할 수 있는
-/// 안정 핸들이 아니다. 실제 스폰은 스크립트 실행 후 적용된다. 또한 `despawn_entity(id)`는
-/// 세대 번호 없는 ECS ID를 사용하므로 오래 보관한 ID는 재사용된 다른 엔티티를 가리킬 수 있다.
+/// 안정 핸들이 아니다. 실제 스폰은 스크립트 실행 후 적용된다. `despawn_entity(index,
+/// generation)`은 generation-checked ECS handle을 구성하며 stale handle이면 조용히 무시된다.
 ///
 /// ### Blackboard
 /// ```rhai
@@ -199,16 +202,40 @@ impl ScriptingSystem {
             })
         });
 
-        engine.register_fn("despawn_entity", |id: i64| {
+        engine.register_fn("despawn_entity", |index: i64, generation: i64| {
             SCRIPT_CTX.with(|c| {
                 let borrow = c.borrow();
                 let ctx = borrow
                     .as_ref()
                     .expect("SCRIPT_CTX must be set during script execution");
-                if id >= 0 {
-                    ctx.cmd_buf.lock().unwrap().despawn.push(Entity(id as u32));
+                if index >= 0 && generation >= 0 {
+                    ctx.cmd_buf
+                        .lock()
+                        .unwrap()
+                        .despawn
+                        .push(Entity::from_raw_parts(index as u32, generation as u32));
                 }
             });
+        });
+
+        engine.register_fn("entity_index", || -> i64 {
+            SCRIPT_CTX.with(|c| {
+                let borrow = c.borrow();
+                let ctx = borrow
+                    .as_ref()
+                    .expect("SCRIPT_CTX must be set during script execution");
+                ctx.entity.index() as i64
+            })
+        });
+
+        engine.register_fn("entity_generation", || -> i64 {
+            SCRIPT_CTX.with(|c| {
+                let borrow = c.borrow();
+                let ctx = borrow
+                    .as_ref()
+                    .expect("SCRIPT_CTX must be set during script execution");
+                ctx.entity.generation() as i64
+            })
         });
 
         engine.register_fn("bb_set_bool", |key: &str, val: bool| {
@@ -403,6 +430,7 @@ impl System for ScriptingSystem {
 
             // ── thread_local 컨텍스트 설정 → 스크립트 실행 → 컨텍스트 제거 ───
             set_script_ctx(ScriptCtx {
+                entity,
                 cmd_buf: Arc::clone(&cmd_buf),
                 bb_buf: Arc::clone(&bb_buf),
                 steer_buf: Arc::clone(&steer_buf),
@@ -547,6 +575,10 @@ fn call_fn_optional<A: rhai::FuncArgs>(
 mod tests {
     use super::*;
 
+    fn test_entity() -> Entity {
+        Entity::from_raw_parts(7, 3)
+    }
+
     fn make_engine() -> ScriptingSystem {
         ScriptingSystem::new()
     }
@@ -566,6 +598,7 @@ mod tests {
         let sys = make_engine();
         let cmd_buf = Arc::new(Mutex::new(ScriptCommands::default()));
         let ctx = ScriptCtx {
+            entity: test_entity(),
             cmd_buf: Arc::clone(&cmd_buf),
             bb_buf: Arc::new(Mutex::new(Vec::new())),
             steer_buf: Arc::new(Mutex::new(None)),
@@ -587,6 +620,7 @@ mod tests {
         );
 
         let ctx = ScriptCtx {
+            entity: test_entity(),
             cmd_buf: Arc::new(Mutex::new(ScriptCommands::default())),
             bb_buf: Arc::clone(&bb_buf),
             steer_buf: Arc::new(Mutex::new(None)),
@@ -618,6 +652,7 @@ mod tests {
         // 엔티티 A 실행
         let bb_buf_a = Arc::new(Mutex::new(Vec::new()));
         let ctx_a = ScriptCtx {
+            entity: test_entity(),
             cmd_buf: Arc::new(Mutex::new(ScriptCommands::default())),
             bb_buf: Arc::clone(&bb_buf_a),
             steer_buf: Arc::new(Mutex::new(None)),
@@ -628,6 +663,7 @@ mod tests {
         // 엔티티 B 실행
         let bb_buf_b = Arc::new(Mutex::new(Vec::new()));
         let ctx_b = ScriptCtx {
+            entity: Entity::from_raw_parts(8, 4),
             cmd_buf: Arc::new(Mutex::new(ScriptCommands::default())),
             bb_buf: Arc::clone(&bb_buf_b),
             steer_buf: Arc::new(Mutex::new(None)),
@@ -650,5 +686,55 @@ mod tests {
         assert!(!b
             .iter()
             .any(|e| matches!(e, BbEntry::Bool(k, _) if k == "flag_a")));
+    }
+
+    #[test]
+    fn scripting_entity_identity_functions_return_context_entity() {
+        let sys = make_engine();
+        let bb_buf = Arc::new(Mutex::new(Vec::new()));
+        let ctx = ScriptCtx {
+            entity: test_entity(),
+            cmd_buf: Arc::new(Mutex::new(ScriptCommands::default())),
+            bb_buf: Arc::clone(&bb_buf),
+            steer_buf: Arc::new(Mutex::new(None)),
+            bb_snap: Arc::new(Mutex::new(HashMap::new())),
+        };
+        eval_with_ctx(
+            &sys,
+            ctx,
+            r#"
+            bb_set_int("idx", entity_index());
+            bb_set_int("gen", entity_generation());
+        "#,
+        );
+
+        let changes = bb_buf.lock().unwrap().clone();
+        assert!(changes
+            .iter()
+            .any(|e| matches!(e, BbEntry::Int(k, 7) if k == "idx")));
+        assert!(changes
+            .iter()
+            .any(|e| matches!(e, BbEntry::Int(k, 3) if k == "gen")));
+    }
+
+    #[test]
+    fn scripting_self_despawn_can_use_context_identity() {
+        let sys = make_engine();
+        let cmd_buf = Arc::new(Mutex::new(ScriptCommands::default()));
+        let entity = test_entity();
+        let ctx = ScriptCtx {
+            entity,
+            cmd_buf: Arc::clone(&cmd_buf),
+            bb_buf: Arc::new(Mutex::new(Vec::new())),
+            steer_buf: Arc::new(Mutex::new(None)),
+            bb_snap: Arc::new(Mutex::new(HashMap::new())),
+        };
+        eval_with_ctx(
+            &sys,
+            ctx,
+            "despawn_entity(entity_index(), entity_generation());",
+        );
+
+        assert_eq!(cmd_buf.lock().unwrap().despawn, vec![entity]);
     }
 }

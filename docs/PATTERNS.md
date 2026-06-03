@@ -124,8 +124,10 @@ for ev in world.resource::<Events<MyEvent>>().unwrap().read() { ... }
 ### Scene transitions
 
 ```rust
-world.resource_mut::<SceneChange>().unwrap().0 =
-    Some(SceneCmd::Replace(Box::new(MyScene)));
+world
+    .resource_mut::<SceneChange>()
+    .unwrap()
+    .request(SceneCmd::Replace(Box::new(MyScene)));
 // SceneCmd::Push(Box::new(MyScene)) — push onto the stack
 // SceneCmd::Pop                      — return to the previous scene
 ```

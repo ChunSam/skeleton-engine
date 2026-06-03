@@ -1,6 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
+use crate::camera::Camera;
 use crate::components::{PointLight, Transform};
 use crate::ecs::World;
 use crate::resources::AmbientLight;
@@ -15,7 +16,7 @@ pub struct GpuLightData {
     pub radius_ndc: f32,
     pub intensity: f32,
     pub color: [f32; 3],
-    pub light_height: f32, // virtual Z height for normal mapping (0.05~1.0 typical)
+    pub light_height: f32, // virtual Z height for flat-normal lighting (0.05~1.0 typical)
 }
 
 /// GPU 유니폼 전체 (544바이트).
@@ -80,7 +81,7 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> VOut {
 fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let scene = textureSample(scene_tex, scene_sampler, in.uv);
 
-    // Normal from normal map: [0,1] -> [-1,1], then normalize
+    // Normal from the flat-normal buffer: [0,1] -> [-1,1], then normalize.
     let n_sample = textureSample(normal_tex, scene_sampler, in.uv);
     let N = normalize(n_sample.xyz * 2.0 - vec3(1.0, 1.0, 1.0));
 
@@ -95,7 +96,7 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
         let d     = length(vec2(diff_uv.x, diff_uv.y * u.aspect_ratio));
         let atten = max(0.0, 1.0 - d / l.radius_ndc);
 
-        // Lambert diffuse using normal map
+        // Lambert diffuse using the flat-normal buffer.
         // Light direction in UV space -> normalize to get L vector
         // diff_uv.y is negated because UV Y is flipped relative to NDC Y
         let L       = normalize(vec3(diff_uv.x, -diff_uv.y * u.aspect_ratio, l.light_height));
@@ -114,9 +115,6 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
 ///
 /// `AmbientLight` 리소스가 World에 있을 때 `App`이 자동으로 생성·실행한다.
 pub struct LightingRenderer {
-    /// 라이팅 결과가 출력되는 중간 텍스처 뷰.
-    pub output_view: wgpu::TextureView,
-    output_texture: wgpu::Texture,
     /// 노멀 버퍼 텍스처 (뷰포트와 같은 크기, Rgba8Unorm).
     normal_texture: wgpu::Texture,
     /// 노멀 버퍼 텍스처 뷰 (라이팅 셰이더 binding 3).
@@ -130,6 +128,25 @@ pub struct LightingRenderer {
     sampler: wgpu::Sampler,
     bind_group_layout: wgpu::BindGroupLayout,
     uniform_buffer: wgpu::Buffer,
+}
+
+fn light_position_ndc(
+    position: glam::Vec2,
+    radius: f32,
+    camera: Camera,
+    vp_w: u32,
+    vp_h: u32,
+) -> ([f32; 2], f32) {
+    let viewport_w = vp_w.max(1) as f32;
+    let viewport_h = vp_h.max(1) as f32;
+    let camera_origin = camera.position + camera.shake_offset();
+    let screen = (position - camera_origin) * camera.zoom;
+    let half_w = viewport_w / 2.0;
+    let half_h = viewport_h / 2.0;
+    let ndc_x = screen.x / half_w - 1.0;
+    let ndc_y = screen.y / half_h - 1.0;
+    let radius_ndc = radius * camera.zoom / viewport_w;
+    ([ndc_x, ndc_y], radius_ndc)
 }
 
 impl LightingRenderer {
@@ -192,7 +209,7 @@ impl LightingRenderer {
                     },
                     count: None,
                 },
-                // binding 3: 노멀 맵 텍스처
+                // binding 3: flat-normal buffer texture
                 wgpu::BindGroupLayoutEntry {
                     binding: 3,
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -238,14 +255,9 @@ impl LightingRenderer {
             cache: None,
         });
 
-        let (output_texture, output_view) =
-            Self::create_output(device, width, height, surface_format);
-
         let (normal_texture, normal_view) = Self::create_normal_buffer(device, width, height);
 
         Self {
-            output_texture,
-            output_view,
             normal_texture,
             normal_view,
             width,
@@ -258,14 +270,25 @@ impl LightingRenderer {
         }
     }
 
-    /// 창 크기 변경 시 출력 텍스처와 노멀 버퍼를 재생성한다.
+    pub(crate) fn format(&self) -> wgpu::TextureFormat {
+        self.format
+    }
+
+    pub(crate) fn reconfigure(
+        &mut self,
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+        surface_format: wgpu::TextureFormat,
+    ) {
+        *self = Self::new(device, width, height, surface_format);
+    }
+
+    /// 창 크기 변경 시 노멀 버퍼를 재생성한다.
     pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {
         if self.width == width && self.height == height {
             return;
         }
-        let (tex, view) = Self::create_output(device, width, height, self.format);
-        self.output_texture = tex;
-        self.output_view = view;
 
         let (ntex, nview) = Self::create_normal_buffer(device, width, height);
         self.normal_texture = ntex;
@@ -311,18 +334,16 @@ impl LightingRenderer {
         let mut lights_gpu = [GpuLightData::zeroed(); 16];
         let mut light_count = 0u32;
 
-        let half_w = vp_w as f32 / 2.0;
-        let half_h = vp_h as f32 / 2.0;
+        let camera = world.resource::<Camera>().copied().unwrap_or_default();
 
         for (_, light, transform) in world.query2::<PointLight, Transform>() {
             if light_count >= 16 {
                 break;
             }
-            let ndc_x = transform.position.x / half_w;
-            let ndc_y = -transform.position.y / half_h;
-            let radius_ndc = light.radius / half_w;
+            let (position_ndc, radius_ndc) =
+                light_position_ndc(transform.position, light.radius, camera, vp_w, vp_h);
             lights_gpu[light_count as usize] = GpuLightData {
-                position_ndc: [ndc_x, ndc_y],
+                position_ndc,
                 radius_ndc,
                 intensity: light.intensity,
                 color: light.color,
@@ -397,30 +418,6 @@ impl LightingRenderer {
 
     // ── 내부 헬퍼 ─────────────────────────────────────────────────────────────
 
-    fn create_output(
-        device: &wgpu::Device,
-        width: u32,
-        height: u32,
-        format: wgpu::TextureFormat,
-    ) -> (wgpu::Texture, wgpu::TextureView) {
-        let tex = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("lighting output"),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
-        let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
-        (tex, view)
-    }
-
     fn create_normal_buffer(
         device: &wgpu::Device,
         width: u32,
@@ -455,5 +452,26 @@ mod tests {
     fn gpu_struct_sizes() {
         assert_eq!(std::mem::size_of::<GpuLightData>(), 32);
         assert_eq!(std::mem::size_of::<LightingUniforms>(), 544);
+    }
+
+    #[test]
+    fn light_position_uses_camera_transform() {
+        let camera = Camera::default();
+        let (ndc, radius) =
+            light_position_ndc(glam::Vec2::new(400.0, 300.0), 100.0, camera, 800, 600);
+        assert!((ndc[0] - 0.0).abs() < 1e-5);
+        assert!((ndc[1] - 0.0).abs() < 1e-5);
+        assert!((radius - 0.125).abs() < 1e-5);
+
+        let (ndc, _) = light_position_ndc(glam::Vec2::new(400.0, 0.0), 100.0, camera, 800, 600);
+        assert!((ndc[0] - 0.0).abs() < 1e-5);
+        assert!((ndc[1] + 1.0).abs() < 1e-5);
+
+        let camera = Camera::new(glam::Vec2::new(100.0, 50.0), 2.0);
+        let (ndc, radius) =
+            light_position_ndc(glam::Vec2::new(300.0, 200.0), 100.0, camera, 800, 600);
+        assert!((ndc[0] - 0.0).abs() < 1e-5);
+        assert!((ndc[1] - 0.0).abs() < 1e-5);
+        assert!((radius - 0.25).abs() < 1e-5);
     }
 }

@@ -1,6 +1,6 @@
 # AGENTS.md — skeleton-engine agent reference
 
-> Version v1.0.0 | package `skeleton-engine` | library crate `engine`
+> Version v2.0.0 | package `skeleton-engine` | library crate `engine`
 > wgpu-based Rust 2D game engine | Full API: `REFERENCE.html` | structure: `ARCHITECTURE.html` | dev history: `docs/HANDOFF.md`
 
 ## Project direction (read `docs/VISION.md`)
@@ -75,15 +75,10 @@ and leave only a summary and link here.
 - Handle single-file edits with clear requirements directly in the main session.
 - Use subagents freely for: exploring 3+ files, changing multiple subsystems, implementing after a long conversation, or work that benefits from parallel review.
 - If public API/usage/examples are affected, check whether related docs need updating.
-- Run default verification against the engine repo. Check `rust-survivors` only on user request or clear need.
+- Run default verification against the engine repo.
 - stage/commit/push only on user request.
 - Confirm beforehand: public API removal/rename, dependency/version changes, large refactors, file deletion, destructive Git.
 - Subagent prompts must include file paths, patterns to apply, expected behavior, and the do-not-change scope.
-
-## Related projects
-- `skeleton-engine`: `/Users/jkl/Projects/skeleton-engine` — engine core, this repo
-- `rust-survivors`: `/Users/jkl/Projects/rust-survivors` — a game project using this engine under the crate name `engine`
-- On breaking changes to the engine's public API, check the impact on the game side
 
 ## Documentation structure
 Instruction files that agents must auto-detect live at the repo root. General docs are collected under `docs/`.

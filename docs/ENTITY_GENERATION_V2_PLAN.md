@@ -1,13 +1,10 @@
 # Entity Generation v2 Plan
 
-> **Status: Cancelled / archived (2026-05-29).** Removed from the planned/scheduled work
-> during the vision reset (`docs/VISION.md`): it is a v2-only breaking change, not breadth
-> and not example-validated, so it does not match the current direction. The design below
-> is preserved for reference in case generation-checked handles are revisited for a future
-> v2.0.0.
+> **Status: Implemented in v2.0.0.** The design below is retained as the migration record
+> for the generation-checked `Entity` handle.
 
 Written: 2026-05-29
-Status: Cancelled / archived (originally: finalized v2 candidate design)
+Status: Implemented v2 design
 
 ## Summary
 
@@ -15,8 +12,8 @@ Today `Entity(pub u32)` reuses IDs after despawn. A long-held `Entity` value can
 a new entity, so `SelectedEntity`, `Parent`, `Children`, script despawn requests, and
 game-code caches can act on the wrong entity.
 
-In v1 this behavior is documented and `is_alive()` checks are recommended. In v2, `Entity`
-becomes a generation-tagged handle so stale handles fail automatically.
+In v1 this behavior was documented and `is_alive()` checks were recommended. In v2, `Entity`
+is a generation-tagged handle so stale handles fail automatically.
 
 ## Decisions
 

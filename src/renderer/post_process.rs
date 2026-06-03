@@ -214,6 +214,20 @@ impl PostProcessRenderer {
         }
     }
 
+    pub(crate) fn format(&self) -> wgpu::TextureFormat {
+        self.format
+    }
+
+    pub(crate) fn reconfigure(
+        &mut self,
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+        surface_format: wgpu::TextureFormat,
+    ) {
+        *self = Self::new(device, width, height, surface_format);
+    }
+
     /// 창 크기 변경 시 중간 텍스처를 재생성한다.
     pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {
         let (tex, view) = Self::create_target(device, width, height, self.format);

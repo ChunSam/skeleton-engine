@@ -1,7 +1,18 @@
 # Handoff document — skeleton-engine
 
 Written: 2026-05-24 (Phase 45~53 update: 2026-05-26 / Phase 46~59 complete: 2026-05-26 / 7 code-review fixes: 2026-05-26 / doc cleanup: 2026-05-29)
-Engine version: **v1.0.0** (tag: v1.0.0, based on main branch)
+Engine version: **v2.0.0** (main branch)
+
+## Current v2.0.0 cleanup status
+
+- `Entity` is now an opaque generation-checked handle. Use `entity.index()` and
+  `entity.generation()` instead of `entity.0`.
+- `World::clone_entity(src)` returns `Option<Entity>`; stale/dead handles return `None`.
+- Scripting despawn uses `despawn_entity(index, generation)`.
+- The public `Sprite.normal_texture` / `normal_handle` API was removed. Lighting keeps an
+  internal flat-normal buffer only; old `SceneDef` v1 normal fields are ignored on load.
+- Render composition is `scene -> post(optional) -> lighting(optional) -> final`.
+- `rust-survivors` is no longer part of the default engine verification scope.
 Package: **skeleton-engine** (library crate: `engine`)
 Author: ChunSam
 
@@ -554,6 +565,10 @@ Added 5 unit tests (spawn, reacquire, overflow, clear, skip-dead)
 ## Work this session (Phase 42)
 
 ### Phase 42a — 2D normal-map lighting
+
+> v2.0 update: the public `Sprite.normal_texture` / `normal_handle` fields described in this
+> historical phase were removed because per-sprite normal textures were never rendered. The
+> renderer keeps only the internal flat-normal buffer.
 
 **Background**: Phase 41a's `PointLight` system applied only distance attenuation (atten²), so everything brightened uniformly from all directions. Adding a normal map and Lambert diffuse implements directional lighting where surface relief is expressed according to the light's direction.
 

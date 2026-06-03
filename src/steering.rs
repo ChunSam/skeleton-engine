@@ -219,7 +219,8 @@ impl System for SteeringSystem {
                         wander.timer = 0.0;
                         // 의사 난수 방향: entity id 기반의 단순한 결정론적 계산
                         // (실제 프로젝트에서는 rand 크레이트 활용 권장)
-                        let seed = (entity.0 as f32 * 1.6180339) + wander.current_dir.x * 31.7;
+                        let seed =
+                            (entity.index() as f32 * 1.6180339) + wander.current_dir.x * 31.7;
                         let angle = (seed.sin() * 6283.185).abs() % std::f32::consts::TAU;
                         wander.current_dir = Vec2::new(angle.cos(), angle.sin());
                     }

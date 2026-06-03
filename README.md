@@ -31,12 +31,22 @@ isolation. See [`docs/VISION.md`](docs/VISION.md) for the full rationale.
 
 ```toml
 [dependencies]
-skeleton-engine = "1.0.0"
+skeleton-engine = "2.0.0"
 ```
 
 ```rust
 use engine::*;
 ```
+
+## v2.0 notes
+
+- `Entity` is an opaque generation-checked handle. Use `entity.index()` and
+  `entity.generation()` for display, serialization boundaries, or script calls.
+- `World::clone_entity(src)` returns `Option<Entity>`.
+- Rhai scripts use `entity_index()`, `entity_generation()`, and
+  `despawn_entity(index, generation)`.
+- `Sprite.normal_texture` and `Sprite.normal_handle` were removed; v2 keeps flat-normal lighting
+  internally but does not expose per-sprite normal maps.
 
 ## Quick Start
 

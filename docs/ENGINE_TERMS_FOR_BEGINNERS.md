@@ -51,7 +51,7 @@ ECS는 Entity Component System의 약자다. 게임 오브젝트를 상속 구�
 
 | 용어 | 쉬운 뜻 | 이 엔진에서의 이름 |
 | --- | --- | --- |
-| Entity | 게임 안의 물체를 가리키는 ID | `Entity(pub u32)` |
+| Entity | 게임 안의 물체를 가리키는 세대 검증 핸들 | `Entity::index()`, `Entity::generation()` |
 | Component | 엔티티에 붙는 데이터 조각 | `Transform`, `Sprite`, `PhysicsBody` 등 |
 | System | 컴포넌트를 읽고 수정하는 로직 | `System` trait |
 | World | 모든 엔티티, 컴포넌트, 리소스가 들어 있는 저장소 | `World` |
@@ -276,7 +276,7 @@ CPU 파티클은 구조가 단순하고 디버깅이 쉽다. GPU 파티클은 �
 | Lighting | 빛을 계산해 장면을 밝히는 기능 | `LightingRenderer` |
 | Ambient Light | 전체 장면에 깔리는 기본 빛 | `AmbientLight` |
 | Point Light | 한 지점에서 퍼지는 빛 | `PointLight` |
-| Normal Map | 표면의 방향 정보를 담은 텍스처 | `Sprite.normal_texture` |
+| Normal Map | 표면의 방향 정보를 담은 텍스처 | v2에서는 공개 `Sprite` API로 제공하지 않음 |
 | Light Height | 2D 조명에서 가상의 빛 높이 | `PointLight.light_height` |
 | Shader | GPU에서 실행되는 작은 프로그램 | WGSL shader |
 | Material | 어떤 셰이더와 파라미터로 그릴지 나타내는 데이터 | `ShaderMaterial` |

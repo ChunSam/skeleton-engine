@@ -59,11 +59,6 @@ pub struct Sprite {
     /// `texture`보다 우선 적용된다.
     #[serde(skip)]
     pub image_handle: Option<Handle<ImageAsset>>,
-    /// 노멀 맵 텍스처 경로 (None이면 평면 노멀 사용). RON 직렬화 지원.
-    pub normal_texture: Option<String>,
-    /// 노멀 맵 핸들 (런타임 전용, 직렬화 제외)
-    #[serde(skip)]
-    pub normal_handle: Option<Handle<ImageAsset>>,
 }
 
 impl Sprite {
@@ -72,8 +67,6 @@ impl Sprite {
             texture: None,
             color: [r, g, b, 1.0],
             image_handle: None,
-            normal_texture: None,
-            normal_handle: None,
         }
     }
 
@@ -82,8 +75,6 @@ impl Sprite {
             texture: Some(path.into()),
             color: [1.0; 4],
             image_handle: None,
-            normal_texture: None,
-            normal_handle: None,
         }
     }
 
@@ -93,8 +84,6 @@ impl Sprite {
             texture: None,
             color: [1.0; 4],
             image_handle: Some(handle),
-            normal_texture: None,
-            normal_handle: None,
         }
     }
 
@@ -107,8 +96,6 @@ impl Sprite {
             texture: Some(path.into()),
             color: [1.0; 4],
             image_handle: handle,
-            normal_texture: None,
-            normal_handle: None,
         }
     }
 }
@@ -267,7 +254,7 @@ pub struct PointLight {
     pub radius: f32,
     /// 밝기 배율
     pub intensity: f32,
-    /// 광원의 가상 Z 높이 (노멀 맵 방향성 계산에 사용). 0.05~1.0 범위 권장.
+    /// 광원의 가상 Z 높이 (flat-normal lighting 방향성 계산에 사용). 0.05~1.0 범위 권장.
     pub light_height: f32,
 }
 

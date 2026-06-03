@@ -304,8 +304,6 @@ fn spawn_particle(
             texture: None,
             color: color_start,
             image_handle: None,
-            normal_texture: None,
-            normal_handle: None,
         },
     };
     world.add_component(pe, sprite);

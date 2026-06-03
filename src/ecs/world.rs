@@ -1,13 +1,35 @@
 use std::any::{Any, TypeId};
 use std::collections::{HashMap, HashSet, VecDeque};
 
-/// 엔티티 ID는 despawn 후 재사용될 수 있다.
+/// Generation-checked ECS handle.
 ///
-/// `Entity`는 세대 번호를 포함하지 않는 가벼운 핸들이므로, 오래 저장해 둔 값이 나중에
-/// 새로 생성된 다른 엔티티를 가리킬 수 있다. 장기 보관이 필요한 로직은 `is_alive()` 확인이나
-/// 별도 `Tag`/도메인 ID를 함께 사용한다.
+/// `index` identifies the storage slot and `generation` changes every time that slot is
+/// despawned. A stale handle from an older generation does not match the reused entity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Entity(pub u32);
+pub struct Entity {
+    index: u32,
+    generation: u32,
+}
+
+impl Entity {
+    /// Storage slot index. Useful for debug labels, deterministic seeds, and migration logs.
+    pub const fn index(self) -> u32 {
+        self.index
+    }
+
+    /// Generation number for this slot. A reused slot receives a higher generation.
+    pub const fn generation(self) -> u32 {
+        self.generation
+    }
+
+    /// Construct an entity handle from raw parts.
+    ///
+    /// This is primarily for integration boundaries such as scripting. It does not make the
+    /// handle alive unless a `World` currently contains the same index and generation.
+    pub const fn from_raw_parts(index: u32, generation: u32) -> Self {
+        Self { index, generation }
+    }
+}
 
 /// 컴포넌트 저장 단위. `Send + Sync`를 요구해 병렬 쿼리를 가능하게 한다.
 type ComponentBox = Box<dyn Any + Send + Sync>;
@@ -66,12 +88,13 @@ impl Archetype {
 
 /// ECS의 중심 저장소
 ///
-/// - 엔티티(Entity): 단순한 u32 ID
+/// - 엔티티(Entity): index와 generation을 가진 stale-safe handle
 /// - 컴포넌트: Archetype 기반 밀집 컬럼 스토리지
 /// - 리소스: 전역 싱글턴 데이터
 pub struct World {
-    next_id: u32,
-    free_ids: VecDeque<u32>,
+    next_index: u32,
+    free_indices: VecDeque<u32>,
+    generations: Vec<u32>,
     entities: Vec<Entity>,
     archetypes: Vec<Archetype>,
     archetype_index: HashMap<Vec<TypeId>, ArchetypeId>,
@@ -90,8 +113,9 @@ impl World {
         let mut archetype_index = HashMap::new();
         archetype_index.insert(vec![], 0);
         Self {
-            next_id: 0,
-            free_ids: VecDeque::new(),
+            next_index: 0,
+            free_indices: VecDeque::new(),
+            generations: Vec::new(),
             entities: Vec::new(),
             archetypes: vec![empty_arch],
             archetype_index,
@@ -110,18 +134,17 @@ impl World {
     }
 
     /// 빈 엔티티를 생성하고 반환한다.
-    ///
-    /// 제거된 엔티티 ID는 재사용될 수 있으므로 `Entity` 값을 장기간 보관하는 코드는
-    /// 재사용 가능성을 고려해야 한다.
     pub fn spawn(&mut self) -> Entity {
-        let id = if let Some(reused) = self.free_ids.pop_front() {
+        let index = if let Some(reused) = self.free_indices.pop_front() {
             reused
         } else {
-            let id = self.next_id;
-            self.next_id += 1;
-            id
+            let index = self.next_index;
+            self.next_index += 1;
+            self.generations.push(0);
+            index
         };
-        let entity = Entity(id);
+        let generation = self.generations[index as usize];
+        let entity = Entity::from_raw_parts(index, generation);
         let row = self.archetypes[0].entities.len();
         self.archetypes[0].entities.push(entity);
         self.entity_location.insert(entity, (0, row));
@@ -130,8 +153,6 @@ impl World {
     }
 
     /// 엔티티를 제거하고 모든 컴포넌트를 해제한다. 멱등성 보장.
-    ///
-    /// 제거된 ID는 이후 `spawn()`에서 재사용될 수 있다.
     pub fn despawn(&mut self, entity: Entity) {
         let (arch_id, row) = match self.entity_location.get(&entity) {
             Some(&loc) => loc,
@@ -160,7 +181,12 @@ impl World {
         }
 
         self.entity_location.remove(&entity);
-        self.free_ids.push_back(entity.0);
+        if let Some(generation) = self.generations.get_mut(entity.index as usize) {
+            if *generation != u32::MAX {
+                *generation += 1;
+                self.free_indices.push_back(entity.index);
+            }
+        }
         self.added_this_tick.retain(|(e, _)| *e != entity);
         self.changed_this_tick.retain(|(e, _)| *e != entity);
     }
@@ -650,11 +676,10 @@ impl World {
 
     /// 엔티티를 복제한다. `register_clone`에 등록된 컴포넌트만 복사된다.
     ///
-    /// `src`가 alive하지 않으면 빈 엔티티를 반환한다.
-    /// 반환값: 새로 생성된 엔티티.
-    pub fn clone_entity(&mut self, src: Entity) -> Entity {
+    /// `src`가 alive하지 않으면 `None`을 반환한다.
+    pub fn clone_entity(&mut self, src: Entity) -> Option<Entity> {
         if !self.is_alive(src) {
-            return self.spawn();
+            return None;
         }
 
         // 1. clone_registry에 등록된 TypeId 중 src 엔티티가 보유한 것만 수집
@@ -673,7 +698,7 @@ impl World {
             self.clone_component_by_typeid(src, dst, tid);
         }
 
-        dst
+        Some(dst)
     }
 
     /// entity가 주어진 TypeId의 컴포넌트를 보유하고 있는지 확인한다.
@@ -946,7 +971,7 @@ mod tests {
     }
 
     #[test]
-    fn spawn_reuses_freed_id() {
+    fn spawn_reuses_freed_index_with_incremented_generation() {
         let mut world = World::new();
         let e_first = world.spawn();
         world.add_component(e_first, Health(99));
@@ -954,7 +979,10 @@ mod tests {
         world.despawn(e_first);
 
         let e_second = world.spawn();
-        assert_eq!(e_first.0, e_second.0);
+        assert_eq!(e_first.index(), e_second.index());
+        assert_eq!(e_first.generation() + 1, e_second.generation());
+        assert!(!world.is_alive(e_first));
+        assert!(world.is_alive(e_second));
         assert!(world.get::<Health>(e_second).is_none());
     }
 
@@ -1278,7 +1306,7 @@ mod tests {
         world.add_component(src, 42u32);
         world.add_component(src, 3.125f32);
 
-        let dst = world.clone_entity(src);
+        let dst = world.clone_entity(src).unwrap();
         assert_ne!(src, dst);
         assert_eq!(*world.get::<u32>(dst).unwrap(), 42);
         assert!((world.get::<f32>(dst).unwrap() - 3.125).abs() < 1e-5);
@@ -1300,20 +1328,66 @@ mod tests {
         world.add_component(src, 99u32);
         world.add_component(src, NotCloneable);
 
-        let dst = world.clone_entity(src);
+        let dst = world.clone_entity(src).unwrap();
         assert_eq!(*world.get::<u32>(dst).unwrap(), 99);
         assert!(world.get::<NotCloneable>(dst).is_none()); // not copied
     }
 
     #[test]
-    fn clone_entity_dead_src_returns_empty() {
+    fn clone_entity_dead_src_returns_none() {
         let mut world = World::new();
         let src = world.spawn();
         world.despawn(src);
 
         let dst = world.clone_entity(src);
-        assert!(world.is_alive(dst));
-        assert_eq!(world.entity_count(), 1); // only dst
+        assert_eq!(dst, None);
+        assert_eq!(world.entity_count(), 0);
+    }
+
+    #[test]
+    fn stale_handle_cannot_mutate_reused_entity() {
+        let mut world = World::new();
+        let stale = world.spawn();
+        world.add_component(stale, Health(10));
+        world.despawn(stale);
+
+        let reused = world.spawn();
+        assert_eq!(stale.index(), reused.index());
+        assert_ne!(stale.generation(), reused.generation());
+
+        assert!(!world.is_alive(stale));
+        assert!(world.get::<Health>(stale).is_none());
+        assert!(world.get_mut::<Health>(stale).is_none());
+
+        world.add_component(stale, Health(99));
+        assert!(world.get::<Health>(reused).is_none());
+
+        world.add_component(reused, Health(5));
+        world.remove_component::<Health>(stale);
+        assert_eq!(world.get::<Health>(reused).unwrap().0, 5);
+
+        assert!(!world.mark_changed::<Health>(stale));
+        assert!(world.take_component::<Health>(stale).is_none());
+
+        world.despawn(stale);
+        assert!(world.is_alive(reused));
+    }
+
+    #[test]
+    fn commands_ignore_stale_handles() {
+        let mut world = World::new();
+        let stale = world.spawn();
+        world.despawn(stale);
+        let reused = world.spawn();
+
+        let mut cmds = crate::ecs::Commands::new();
+        cmds.insert(stale, Health(77));
+        cmds.remove::<Health>(stale);
+        cmds.despawn(stale);
+        world.apply_commands(cmds);
+
+        assert!(world.is_alive(reused));
+        assert!(world.get::<Health>(reused).is_none());
     }
 
     #[test]
