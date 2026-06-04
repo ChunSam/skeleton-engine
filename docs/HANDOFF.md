@@ -2119,6 +2119,9 @@ Due to the Rust borrow checker, you can't mix `get_mut` directly during a query.
 ### LayoutSystem execution order (Phase 6~)
 The positions of `Panel` children are computed by `LayoutSystem`. It must be registered before `UiSystem` to render at the correct positions.
 
+### `FrameContext` stays public (resolved 2026-06-04)
+`renderer::FrameContext` (the `device`/`queue`/`view`/`encoder` bundle, `src/renderer/sprite.rs`) is exposed as `engine::renderer::FrameContext` via `pub use` in `renderer/mod.rs` — not lifted to the crate root. The `source-split-refactor` chain left open whether to tighten it to `pub(crate)`. **Decision: keep it public.** It is the parameter type of the public `SpriteRenderer::render`, so `pub(crate)` would make that method uncallable from outside the crate (you can't name/construct the argument type), shrinking the fork surface rather than tidying it. Exposing the low-level render entry point is on-mission for a hackable skeleton (`docs/VISION.md`). No external code uses it today (examples / `rust-survivors` don't), but that's not a reason to hide an extension point.
+
 ---
 
 ## 2026-06-02 — Settings + Dialogue UI example + `LocalizedText` (v1.2.0)
