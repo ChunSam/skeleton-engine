@@ -17,9 +17,10 @@ cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo build --target wasm32-unknown-unknown   # lib+bins — see wasm gotcha
 cargo test --all-targets
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps  # CI fails docs on broken intra-doc links
 ```
 
-Or run all four in order via `./scripts/verify.sh`.
+Or run all of them in order via `./scripts/verify.sh`.
 
 - **WASM gotcha:** do *not* gate on `--target wasm32 --all-targets` — it fails on the
   native-only examples (`platformer_game`/`mp_server`/`gpu_particles`, which pull in

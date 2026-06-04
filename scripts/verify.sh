@@ -2,7 +2,8 @@
 # CI-equivalent local verification — run before declaring a change "done".
 #
 # Mirrors the gates in .github/workflows/ci.yml (native fmt + clippy + test,
-# plus the wasm build) so a refactor can't pass locally yet break CI.
+# the wasm build, and the rustdoc -D warnings doc build) so a refactor can't
+# pass locally yet break CI.
 #
 # Usage:
 #   ./scripts/verify.sh
@@ -25,5 +26,8 @@ cargo build --target wasm32-unknown-unknown
 
 echo "[verify] cargo test --all-targets"
 cargo test --all-targets
+
+echo "[verify] RUSTDOCFLAGS=-D warnings cargo doc --no-deps"
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
 
 echo "[verify] all checks passed ✓"

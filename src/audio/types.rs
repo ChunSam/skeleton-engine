@@ -27,11 +27,11 @@ impl Default for AudioEffect {
     }
 }
 
-/// Public playback state for an [`AudioManager`] channel.
+/// Public playback state for an [`AudioManager`](crate::audio::AudioManager) channel.
 ///
 /// Natural completion of a non-looping sound leaves the channel in
 /// [`Finished`](Self::Finished) until another sound is played on that channel or
-/// [`AudioManager::stop`] removes it.
+/// [`AudioManager::stop`](crate::audio::AudioManager::stop) removes it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AudioChannelState {
     /// No sink exists for this channel. The channel was never played, failed to

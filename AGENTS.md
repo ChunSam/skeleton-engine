@@ -90,6 +90,7 @@ cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo build --target wasm32-unknown-unknown   # lib+bins, NOT --all-targets
 cargo test --all-targets
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps  # CI gate — broken intra-doc links fail
 ```
 
 Or `./scripts/verify.sh`. The wasm gate uses lib+bins, not `--all-targets`: the
