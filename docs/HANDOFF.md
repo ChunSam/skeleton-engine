@@ -2124,6 +2124,81 @@ The positions of `Panel` children are computed by `LayoutSystem`. It must be reg
 
 ---
 
+## 2026-06-05 — Lit dungeon example + lighting nearest-16 cull
+
+**Context:** continuing the dogfooding loop (`docs/VISION.md`), 2D lighting and `PostProcessConfig`
+were the densest shipped-but-never-in-a-game cluster (`docs/NEXT_WORK.md`). One new playable
+example exercises both in real play, and the one small engine gap it surfaced was fixed inline
+(VISION's "fix awkward API before release" bar). Scope was locked up front via `/grill-me`.
+
+**Shipped:** `examples/games/lit_dungeon/lit_dungeon.rs` (`lit_dungeon_game`) — a dark top-down
+brazier-lighting puzzle (candidate **H**). The player carries a torch (`PointLight`) whose
+radius/intensity decay over time (fuel); lighting one of 16 scattered braziers spawns a
+persistent `PointLight` and refills the torch. Light all braziers → the exit `PointLight` turns
+on → reach it to win; run out of fuel in the dark → lose. `AmbientLight` (dark blue) enables the
+lighting pass; `PostProcessConfig` preset = bloom (torch/brazier glow) + vignette (tunnel-vision),
+toggled with `P`. Camera follows the player across a 960×768 level (viewport 800×600). World is
+drawn as `Sprite` quads (lit); HUD via `TextQueue`/`DrawText` (composited after the lighting pass,
+so it stays readable). Wall collision reuses the maze-escape `SpatialGrid` + per-axis-slide
+pattern.
+
+**Engine change (`src/renderer/lighting.rs`):** `LightingRenderer::update` previously filled the
+16-slot GPU array with the first 16 lights in arbitrary query order once a scene exceeded the
+hard cap — distant lights popped in/out at random. Now `select_nearest_lights` keeps the **nearest
+16 to the camera** (`select_nth_unstable_by` on squared distance) and a `std::sync::Once` warns
+once. The example holds 18 lights at full clear, so the cull runs in real play. Two unit tests
+added (`select_nearest_lights_*`). Additive: behavior within the 16-cap is unchanged; the cap is
+not raised.
+
+**Second engine fix (post-process shader, surfaced at runtime):** launching the example panicked
+in `Device::create_shader_module` for `post_process shader` — `post_process.wgsl` indexed its
+bloom tap-offset array (declared `let`) by a loop variable, which naga rejects ("may only be
+indexed by a constant"). Changed `let tap_offsets` → `var tap_offsets` (an addressable array can
+be dynamically indexed). Latent because post-processing had never run in a game and CI compiles
+but never executes the windowed app, so the shader was never validated; this example is the first
+runtime exercise of `PostProcessConfig`. Also tuned the example's base sprite colors brighter —
+the lighting model is multiplicative (`scene × light`), so dark base colors stay dark even when
+fully lit, which made the first build read as near-black.
+
+**Third engine fix (HiDPI lighting offset, surfaced from playtest feedback):** on a Retina
+display the torch/brazier lights drifted off their sprites (and were half-size) as the camera
+moved. Root cause: `App::render` passed the **physical** surface size (`gpu.config.width/height`)
+to `LightingRenderer::update`, while the sprite pass uses the **logical** viewport
+(`render.rs:392`). `light_position_ndc` therefore scaled positions/radii by a 2× wrong factor on
+scale-2 displays. Fixed by passing `logical_w/logical_h` to the lighting update
+(`src/app/render.rs`). Latent because lighting had never run in a game and, on scale-1.0 displays,
+logical == physical so it aligned by coincidence. Diagnosed by instrumenting `cam_pos`/`vp` in
+both passes and an auto-walk screenshot (light upper-left while the player was center) — confirmed
+the light tracks the player after the fix.
+
+**Fourth engine fix (HUD darkened by lighting, surfaced from playtest feedback):** the dark
+dungeon's HUD/status text was unreadable. Root cause: `TextQueue`/`DrawText` rendered into the
+scene texture *before* the post-process and lighting passes (`App::render`), so screen-space text
+was multiplied down by world lighting. Moved the text pass to run **after** post+lighting onto
+`final_view` (below the fade overlay and egui). HUD is now bright regardless of scene darkness.
+Trade-off (accepted with the user): `DrawText` is no longer affected by `PostProcessConfig` —
+route text through egui if post-processed text is wanted.
+
+**Deliberate non-goals / documented limitations (all bigger than a "small fix"):**
+
+- No occlusion / shadows — the lighting shader is radial attenuation + flat-normal Lambert, so
+  light passes through walls. The puzzle is designed not to rely on line-of-sight.
+- No real per-sprite normal maps (the public `Sprite.normal_texture` API was removed in v2).
+- Lighting is **native-only**: `src/app/render.rs` forces `use_lighting = false` on wasm
+  (`#[cfg(target_arch = "wasm32")]`). The example compiles for wasm but renders unlit there;
+  `PostProcessConfig` has no wasm gate and still applies.
+
+**Verification:** `./scripts/verify.sh` (fmt, clippy `-D warnings`, wasm lib+bins build,
+`test --all-targets`, rustdoc `-D warnings`) → exit 0. Native `cargo run --example
+lit_dungeon_game` confirmed visually (dark ambient, torch radius, brazier bloom, vignette, fuel
+decay, win/lose, >16-light cull).
+
+**Decision (carried from the same session):** `renderer::FrameContext` stays a public re-export —
+see "Architecture decisions worth knowing" above. The `source-split-refactor` chain's handoffs
+were archived to `plans/handoffs/archive/`.
+
+---
+
 ## 2026-06-02 — Settings + Dialogue UI example + `LocalizedText` (v1.2.0)
 
 **Context:** a subsystem-coverage audit of `examples/` found ~10 shipped subsystems with no

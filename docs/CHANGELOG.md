@@ -6,6 +6,12 @@ The package follows semantic versioning beginning with 1.0.0.
 
 ## 2.0.0
 
+### Added
+
+- `lit_dungeon_game` example (`examples/games/lit_dungeon/`): first playable-game use of 2D
+  lighting (`PointLight`/`AmbientLight`) and `PostProcessConfig`. A dark top-down brazier-
+  lighting puzzle with a decaying torch; bloom + vignette post-process (toggle with `P`).
+
 ### Breaking
 
 - `Entity` is now an opaque generation-checked handle with `index()`, `generation()`, and
@@ -21,6 +27,19 @@ The package follows semantic versioning beginning with 1.0.0.
 
 ### Fixed
 
+- Post-process shader (`post_process.wgsl`) declares the bloom tap-offset array as `var` instead
+  of `let`, fixing a naga validation error ("may only be indexed by a constant") that panicked on
+  shader creation whenever `PostProcessConfig.enabled` was `true`. Surfaced by the new
+  `lit_dungeon_game` — the first runtime use of post-processing (CI compiles but never runs the
+  windowed app).
+- 2D lighting now projects `PointLight` positions with the **logical** viewport size (matching
+  the sprite pass) instead of the physical surface size. On HiDPI/Retina displays (scale > 1)
+  lights previously drifted from their sprites and rendered at half radius; on scale-1.0 displays
+  it happened to line up, which is why it went unnoticed. Also surfaced by `lit_dungeon_game`.
+- Screen-space text (`TextQueue`/`DrawText`) now renders **after** the post-process and lighting
+  passes, so HUD/overlay text is no longer dimmed by world lighting (or warped by post effects).
+  Trade-off: `DrawText` is no longer affected by `PostProcessConfig`; route text through egui if
+  you want it post-processed. Surfaced by `lit_dungeon_game`.
 - Post-processing and lighting now compose as `scene -> post -> lighting -> final` when both
   effects are active.
 - Lighting intermediate targets are recreated after viewport resize, and `PointLight`
@@ -36,6 +55,9 @@ The package follows semantic versioning beginning with 1.0.0.
   accepted and those fields are ignored.
 - Agent instructions now define this repository as the default and only verification scope unless
   the user explicitly asks for external project checks.
+- Lighting now renders the **nearest 16** point lights to the camera when a scene exceeds the
+  16-light hard cap (previously the first 16 in arbitrary query order), and warns once. Light
+  occlusion/shadows and per-sprite normal maps remain out of scope; lighting stays native-only.
 
 ## 1.3.0
 

@@ -90,9 +90,43 @@ standalone demos or none). The densest, most universally-needed cluster — UI d
     done (single-line scroll via `DrawText::with_single_line_caret`; CHANGELOG → 1.3.0). Still
     deferred from this cluster: overlay caret, real OS fullscreen.
 
+## Coverage follow-up — lighting + post-process cluster (candidate H, 2026-06-05)
+
+- **H — Lit dungeon** (`lit_dungeon_game`, `examples/games/lit_dungeon/`): first playable-game
+  use of 2D lighting (`PointLight`/`AmbientLight`) and `PostProcessConfig`. Dark top-down
+  dungeon — the player carries a torch (`PointLight`) whose radius/intensity **decay over time**
+  (fuel); lighting one of 16 scattered braziers spawns a persistent `PointLight` and refills the
+  torch. Light all braziers to open the exit, then reach it. Bloom = torch/brazier glow,
+  vignette = tunnel-vision; `P` toggles post-process. Camera follows the player across a level
+  larger than the viewport.
+  - **Engine gap closed:** `LightingRenderer::update` took an arbitrary first-16 lights (query
+    order) once a scene exceeded the 16-light hard cap, so distant lights popped in/out at
+    random. Now it selects the **nearest 16 to the camera** (`select_nearest_lights`,
+    distance-sorted) and warns once. The level holds 18 lights at full clear, so the cull is
+    exercised in real play. Unit tests in `src/renderer/lighting.rs`.
+  - **Engine bug fixed (post-process):** `PostProcessConfig { enabled: true }` panicked on shader
+    creation — `post_process.wgsl` indexed its bloom tap-offset array (declared `let`) by a loop
+    variable, which naga rejects. Changed to `var` (an addressable array can be dynamically
+    indexed). Latent because post-processing had never run in a game and CI doesn't execute the
+    windowed app; this example is the first runtime exercise of post-processing.
+  - **Engine bug fixed (HiDPI lighting):** the lighting pass projected `PointLight` positions with
+    the physical surface size while the sprite pass uses the logical viewport, so on Retina
+    (scale 2) every light drifted off its sprite and rendered at half radius. Fixed to pass the
+    logical viewport to `LightingRenderer::update` (`src/app/render.rs`). Latent because lighting
+    had never been in a game and aligned by coincidence on scale-1.0 displays.
+  - **Engine bug fixed (HUD darkened by lighting):** `TextQueue`/`DrawText` rendered into the
+    scene *before* post/lighting, so the dark-dungeon HUD was unreadable. Moved the text pass to
+    run after post+lighting onto `final_view` (`src/app/render.rs`). Trade-off: `DrawText` is no
+    longer post-processed (use egui for that).
+  - **Documented limitations (bigger than a "small fix", deliberately left as known limits):**
+    no occlusion/shadows (light passes through walls — radial attenuation only); no real
+    per-sprite normal maps (removed in v2); lighting is **native-only** (the App render path
+    forces it off on wasm, so the wasm build renders unlit — PostProcess still works on wasm);
+    the 16-light hard cap is retained (the nearest-16 cull makes it graceful, doesn't raise it).
+
 Remaining never-in-a-game subsystems (candidates for later dogfooding cycles, none scheduled):
-2D lighting (`PointLight`/normal-map), `BlendTree1D`, `Timeline`/cutscene, `PostProcessConfig`,
-physics joints, `RenderTarget`/`OffscreenCamera` in real play, networking.
+`BlendTree1D`, `Timeline`/cutscene, physics joints, `RenderTarget`/`OffscreenCamera` in real
+play, networking.
 
 ## Alignment check — previously "planned" items vs the reset vision
 

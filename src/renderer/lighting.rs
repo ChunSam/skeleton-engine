@@ -149,6 +149,26 @@ fn light_position_ndc(
     ([ndc_x, ndc_y], radius_ndc)
 }
 
+/// 라이팅 패스가 한 번에 처리할 수 있는 최대 광원 수 (GPU 유니폼 배열 크기와 일치).
+const MAX_LIGHTS: usize = 16;
+
+/// 카메라에서 가까운 순으로 최대 `MAX_LIGHTS`개 광원의 인덱스를 고른다.
+///
+/// 광원이 캡을 넘을 때 먼 광원이 조용히 누락되던 기존 동작(쿼리 순서로 앞 16개)을
+/// 대체한다. 반환 순서는 정렬되어 있지 않다 (가법 라이팅이라 16개 내부 순서는 무관).
+fn select_nearest_lights(positions: &[glam::Vec2], camera_pos: glam::Vec2) -> Vec<usize> {
+    let mut idx: Vec<usize> = (0..positions.len()).collect();
+    if positions.len() > MAX_LIGHTS {
+        idx.select_nth_unstable_by(MAX_LIGHTS - 1, |&a, &b| {
+            positions[a]
+                .distance_squared(camera_pos)
+                .total_cmp(&positions[b].distance_squared(camera_pos))
+        });
+        idx.truncate(MAX_LIGHTS);
+    }
+    idx
+}
+
 impl LightingRenderer {
     /// 새 `LightingRenderer`를 생성한다.
     pub fn new(
@@ -325,23 +345,43 @@ impl LightingRenderer {
     }
 
     /// ECS World에서 라이트 데이터를 수집하고 유니폼 버퍼를 갱신한다.
+    ///
+    /// 광원이 `MAX_LIGHTS`(16)를 넘으면 카메라에서 가까운 16개만 전송한다
+    /// (먼 광원을 임의로 누락시키지 않는다).
     pub fn update(&self, queue: &wgpu::Queue, world: &World, vp_w: u32, vp_h: u32) {
         let ambient = world
             .resource::<AmbientLight>()
             .copied()
             .unwrap_or_default();
 
-        let mut lights_gpu = [GpuLightData::zeroed(); 16];
-        let mut light_count = 0u32;
-
         let camera = world.resource::<Camera>().copied().unwrap_or_default();
 
-        for (_, light, transform) in world.query2::<PointLight, Transform>() {
-            if light_count >= 16 {
-                break;
-            }
+        // 모든 포인트 라이트를 (월드 위치, 라이트 데이터)로 수집한다.
+        let collected: Vec<(glam::Vec2, PointLight)> = world
+            .query2::<PointLight, Transform>()
+            .map(|(_, light, transform)| (transform.position, *light))
+            .collect();
+
+        if collected.len() > MAX_LIGHTS {
+            static CAP_WARN: std::sync::Once = std::sync::Once::new();
+            let n = collected.len();
+            CAP_WARN.call_once(|| {
+                log::warn!(
+                    "lighting: {n} point lights exceed the {MAX_LIGHTS}-light cap; \
+                     rendering the nearest {MAX_LIGHTS} to the camera"
+                );
+            });
+        }
+
+        let positions: Vec<glam::Vec2> = collected.iter().map(|(p, _)| *p).collect();
+        let selected = select_nearest_lights(&positions, camera.position);
+
+        let mut lights_gpu = [GpuLightData::zeroed(); MAX_LIGHTS];
+        let mut light_count = 0u32;
+        for &i in &selected {
+            let (pos, light) = collected[i];
             let (position_ndc, radius_ndc) =
-                light_position_ndc(transform.position, light.radius, camera, vp_w, vp_h);
+                light_position_ndc(pos, light.radius, camera, vp_w, vp_h);
             lights_gpu[light_count as usize] = GpuLightData {
                 position_ndc,
                 radius_ndc,
@@ -473,5 +513,27 @@ mod tests {
         assert!((ndc[0] - 0.0).abs() < 1e-5);
         assert!((ndc[1] - 0.0).abs() < 1e-5);
         assert!((radius - 0.25).abs() < 1e-5);
+    }
+
+    #[test]
+    fn select_nearest_lights_returns_all_under_cap() {
+        let positions: Vec<glam::Vec2> = (0..5).map(|i| glam::Vec2::new(i as f32, 0.0)).collect();
+        let selected = select_nearest_lights(&positions, glam::Vec2::ZERO);
+        assert_eq!(selected.len(), 5);
+    }
+
+    #[test]
+    fn select_nearest_lights_keeps_closest_to_camera() {
+        // 18개 광원을 x = 0,1,..,17 에 배치 → 카메라(원점)에서 인덱스가 작을수록 가깝다.
+        let positions: Vec<glam::Vec2> = (0..18).map(|i| glam::Vec2::new(i as f32, 0.0)).collect();
+        let selected = select_nearest_lights(&positions, glam::Vec2::ZERO);
+
+        assert_eq!(selected.len(), MAX_LIGHTS);
+        // 가장 가까운 16개(인덱스 0..=15)만 선택되고, 가장 먼 16·17은 빠져야 한다.
+        let mut sorted = selected.clone();
+        sorted.sort_unstable();
+        assert_eq!(sorted, (0..MAX_LIGHTS).collect::<Vec<usize>>());
+        assert!(!selected.contains(&16));
+        assert!(!selected.contains(&17));
     }
 }

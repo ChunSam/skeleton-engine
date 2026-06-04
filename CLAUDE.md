@@ -92,6 +92,7 @@ Where to read to find a given thing:
 | AudioManager (playback, positional audio, bus mixer, fades) | `src/audio.rs`, `src/audio/` |
 | save / load / load_or_default / exists / delete / save_path / SaveError | `src/save.rs` |
 | PostProcessConfig, PostProcessRenderer | `src/renderer/post_process.rs` |
+| PointLight, AmbientLight, LightingRenderer (2D point-light pass, nearest-16 cull; native-only) | `src/renderer/lighting.rs` |
 | wgpu render pipeline (rarely edited directly) | `src/renderer/` |
 
 ---

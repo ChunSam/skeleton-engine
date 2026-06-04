@@ -500,20 +500,6 @@ impl App {
             }
         }
 
-        // 3단계: 텍스트 그리기
-        let (w, h) = (gpu.config.width, gpu.config.height);
-        if let Some(tr) = &mut self.text_renderer {
-            tr.render(
-                &gpu.device,
-                &gpu.queue,
-                &mut enc,
-                render_view,
-                &mut self.world,
-                w,
-                h,
-            );
-        }
-
         // 4단계: 포스트프로세스 패스 (중간 텍스처 → 스왑체인 또는 라이팅 중간 텍스처)
         if use_post {
             #[cfg(not(target_arch = "wasm32"))]
@@ -538,7 +524,10 @@ impl App {
         #[cfg(not(target_arch = "wasm32"))]
         if use_lighting {
             if let Some(lr) = &self.lighting_renderer {
-                lr.update(&gpu.queue, &self.world, gpu.config.width, gpu.config.height);
+                // Light positions must use the same logical viewport the sprite pass
+                // uses (render.rs:392), not the physical surface size — otherwise on a
+                // HiDPI display (scale > 1) lights drift from their sprites and shrink.
+                lr.update(&gpu.queue, &self.world, logical_w, logical_h);
 
                 // 노멀 버퍼를 평면 노멀(0.5, 0.5, 1.0)으로 초기화한다.
                 lr.clear_normal_buffer(&mut enc);
@@ -558,6 +547,24 @@ impl App {
                 } else {
                     log::warn!("lighting pass skipped because scene input texture is missing");
                 }
+            }
+        }
+
+        // 4.7단계: HUD/텍스트 패스 — post·lighting 이후 final_view 에 그린다. 화면공간
+        // HUD/텍스트가 월드 라이팅·포스트프로세스에 어두워지지 않게 하기 위함이다
+        // (페이드 오버레이보다는 아래, egui 보다도 아래).
+        {
+            let (w, h) = (gpu.config.width, gpu.config.height);
+            if let Some(tr) = &mut self.text_renderer {
+                tr.render(
+                    &gpu.device,
+                    &gpu.queue,
+                    &mut enc,
+                    &final_view,
+                    &mut self.world,
+                    w,
+                    h,
+                );
             }
         }
 

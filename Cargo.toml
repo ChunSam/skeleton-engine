@@ -60,6 +60,10 @@ path = "examples/games/survivor/survivor.rs"
 name = "settings_menu_game"
 path = "examples/games/settings_menu/settings_menu.rs"
 
+[[example]]
+name = "lit_dungeon_game"
+path = "examples/games/lit_dungeon/lit_dungeon.rs"
+
 [dependencies]
 winit    = "0.30"
 wgpu     = { version = "22", features = ["webgl"] }

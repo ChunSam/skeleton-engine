@@ -66,7 +66,9 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
                                  f32(textureDimensions(scene_tex).y));
     let spread = 4.0;
     var bloom = vec3<f32>(0.0);
-    let tap_offsets = array<vec2<f32>, 4>(
+    // `var` (not `let`): a dynamically-indexed array needs an address space.
+    // naga rejects dynamic indexing of a `let` array ("may only be indexed by a constant").
+    var tap_offsets = array<vec2<f32>, 4>(
         vec2<f32>( texel.x,  0.0) * spread,
         vec2<f32>(-texel.x,  0.0) * spread,
         vec2<f32>( 0.0,  texel.y) * spread,
