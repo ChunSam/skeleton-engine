@@ -1,5 +1,8 @@
 use super::*;
 
+mod gizmo;
+mod shortcuts;
+
 impl App {
     pub(in crate::app) fn update_editor_ui(&mut self, egui_ctx: &Option<egui::Context>, dt: f32) {
         // Inspector: 선택된 엔티티 유효성 확인 + 필드 스테이징
@@ -68,70 +71,7 @@ impl App {
         if let Some(ctx) = egui_ctx {
             // ── Undo (Ctrl+Z) / Redo (Ctrl+Shift+Z) / Copy (Ctrl+C) / Paste (Ctrl+V) ─
             #[cfg(not(target_arch = "wasm32"))]
-            {
-                let (want_undo, want_redo, want_copy, want_paste) = ctx.input(|i| {
-                    let ctrl = i.modifiers.ctrl;
-                    let z = i.key_pressed(egui::Key::Z);
-                    let shift = i.modifiers.shift;
-                    let c = i.key_pressed(egui::Key::C);
-                    let v = i.key_pressed(egui::Key::V);
-                    (
-                        ctrl && z && !shift,
-                        ctrl && z && shift,
-                        ctrl && c,
-                        ctrl && v,
-                    )
-                });
-                if want_undo {
-                    let mut sel = self.inspector_selected;
-                    self.cmd_history.undo(&mut self.world, &mut sel);
-                    self.inspector_selected = sel;
-                    if let Some(s) = self.inspector_selected {
-                        if !self.selected_entities.contains(&s) {
-                            self.selected_entities = vec![s];
-                        }
-                    } else {
-                        self.selected_entities.clear();
-                    }
-                }
-                if want_redo {
-                    let mut sel = self.inspector_selected;
-                    self.cmd_history.redo(&mut self.world, &mut sel);
-                    self.inspector_selected = sel;
-                    if let Some(s) = self.inspector_selected {
-                        if !self.selected_entities.contains(&s) {
-                            self.selected_entities = vec![s];
-                        }
-                    } else {
-                        self.selected_entities.clear();
-                    }
-                }
-                // Ctrl+C: 선택된 엔티티를 EntityDef 클립보드에 복사
-                if want_copy && !self.selected_entities.is_empty() {
-                    let to_copy: Vec<Entity> = self.selected_entities.clone();
-                    self.copy_clipboard = to_copy
-                        .iter()
-                        .filter_map(|&e| entity_to_def(&self.world, e))
-                        .collect();
-                }
-                // Ctrl+V: 클립보드에서 엔티티 붙여넣기 (20px 오프셋)
-                if want_paste && !self.copy_clipboard.is_empty() {
-                    let defs: Vec<crate::prefab::EntityDef> = self.copy_clipboard.clone();
-                    let mut pasted: Vec<Entity> = Vec::new();
-                    for mut def in defs {
-                        if let Some(ref mut t) = def.transform {
-                            t.position += glam::Vec2::new(20.0, 20.0);
-                        }
-                        let e = crate::prefab::spawn_entity_def(&mut self.world, &def);
-                        pasted.push(e);
-                    }
-                    // 붙여넣은 첫 번째 엔티티를 주 선택으로 설정
-                    if let Some(&first) = pasted.first() {
-                        self.inspector_selected = Some(first);
-                        self.selected_entities = pasted;
-                    }
-                }
-            }
+            self.handle_editor_shortcuts(ctx);
             if self
                 .world
                 .resource::<DebugUi>()
@@ -822,142 +762,6 @@ impl App {
             res.0 = self.inspector_selected;
         }
 
-        // ── Gizmo: 선택 엔티티 강조 + 드래그 이동 ────────────────────────────────
-        let egui_wants_mouse = egui_ctx
-            .as_ref()
-            .map(|c| c.wants_pointer_input())
-            .unwrap_or(false);
-
-        if let Some(sel) = self.inspector_selected {
-            // 선택된 엔티티의 Transform을 복사 (borrow 해방)
-            let tr_copy = self.world.get::<crate::components::Transform>(sel).cloned();
-
-            if let Some(tr) = tr_copy {
-                // 선택 강조: DebugDrawQueue에 테두리 사각형 추가
-                if let Some(dq) = self.world.resource_mut::<DebugDrawQueue>() {
-                    let half = tr.scale * 0.5;
-                    // 외곽 강조 (3px 두께 효과: 약간 확장)
-                    let margin = glam::Vec2::splat(3.0 / tr.scale.x.max(1.0) * tr.scale.x);
-                    dq.items.push(DebugRect {
-                        min: tr.position - half - margin,
-                        max: tr.position + half + margin,
-                        color: [0.2, 0.85, 1.0, 0.65],
-                        z: tr.z + 999.0,
-                    });
-                }
-
-                // Gizmo 드래그 — egui가 마우스를 소비하지 않을 때만 동작
-                if !egui_wants_mouse {
-                    // 마우스 입력 + 카메라 좌표 변환 (짧은 borrow 블록)
-                    let cam_default = crate::camera::Camera::default();
-                    let gizmo_input = {
-                        let cam = self
-                            .world
-                            .resource::<crate::camera::Camera>()
-                            .unwrap_or(&cam_default);
-                        self.world
-                            .resource::<crate::input::InputState>()
-                            .map(|inp| {
-                                let world_pos = cam.screen_to_world(inp.cursor());
-                                let pressed =
-                                    inp.mouse_just_pressed(winit::event::MouseButton::Left);
-                                let held = inp.is_mouse_pressed(winit::event::MouseButton::Left);
-                                let released =
-                                    inp.mouse_just_released(winit::event::MouseButton::Left);
-                                (world_pos, pressed, held, released)
-                            })
-                    };
-
-                    if let Some((world_pos, just_pressed, held, just_released)) = gizmo_input {
-                        if just_pressed && !self.gizmo_dragging {
-                            let half = tr.scale * 0.5;
-                            let hit = world_pos.x >= tr.position.x - half.x
-                                && world_pos.x <= tr.position.x + half.x
-                                && world_pos.y >= tr.position.y - half.y
-                                && world_pos.y <= tr.position.y + half.y;
-                            if hit {
-                                self.gizmo_dragging = true;
-                                self.gizmo_drag_offset = tr.position - world_pos;
-                                #[cfg(not(target_arch = "wasm32"))]
-                                {
-                                    self.gizmo_drag_start_pos = Some(tr.position);
-                                }
-                            }
-                        }
-
-                        if self.gizmo_dragging && held {
-                            let new_pos = world_pos + self.gizmo_drag_offset;
-                            #[cfg(not(target_arch = "wasm32"))]
-                            let final_pos = if self.snap_enabled {
-                                snap_to_grid(new_pos, self.snap_size)
-                            } else {
-                                new_pos
-                            };
-                            #[cfg(target_arch = "wasm32")]
-                            let final_pos = new_pos;
-
-                            // 드래그 엔티티의 이전 위치를 구해 delta 계산 후 그룹 이동
-                            #[cfg(not(target_arch = "wasm32"))]
-                            {
-                                let old_pos = self
-                                    .world
-                                    .get::<crate::components::Transform>(sel)
-                                    .map(|t| t.position)
-                                    .unwrap_or(final_pos);
-                                let delta = final_pos - old_pos;
-                                // 주 엔티티 이동
-                                if let Some(t) =
-                                    self.world.get_mut::<crate::components::Transform>(sel)
-                                {
-                                    t.position = final_pos;
-                                }
-                                // 나머지 선택 엔티티에 같은 delta 적용
-                                let others: Vec<Entity> = self
-                                    .selected_entities
-                                    .iter()
-                                    .copied()
-                                    .filter(|&e| e != sel)
-                                    .collect();
-                                for other in others {
-                                    if let Some(t) =
-                                        self.world.get_mut::<crate::components::Transform>(other)
-                                    {
-                                        t.position += delta;
-                                    }
-                                }
-                            }
-                            #[cfg(target_arch = "wasm32")]
-                            if let Some(t) = self.world.get_mut::<crate::components::Transform>(sel)
-                            {
-                                t.position = final_pos;
-                            }
-                        }
-
-                        if just_released {
-                            #[cfg(not(target_arch = "wasm32"))]
-                            if let Some(start_pos) = self.gizmo_drag_start_pos.take() {
-                                let new_pos = self
-                                    .world
-                                    .get::<crate::components::Transform>(sel)
-                                    .map(|t| t.position)
-                                    .unwrap_or(start_pos);
-                                if (new_pos - start_pos).length_squared() > 0.01 {
-                                    self.cmd_history.push(EditorCmd::MoveEntity {
-                                        entity: sel,
-                                        old_pos: start_pos,
-                                        new_pos,
-                                    });
-                                }
-                            }
-                            self.gizmo_dragging = false;
-                        }
-                    }
-                } else {
-                    self.gizmo_dragging = false;
-                }
-            }
-        } else {
-            self.gizmo_dragging = false;
-        }
+        self.update_editor_gizmo(egui_ctx);
     }
 }

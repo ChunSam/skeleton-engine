@@ -6,6 +6,31 @@
 
 ---
 
+## Verification (run before declaring done)
+
+A code/refactor change is **not done** until the **CI-equivalent** checks pass
+*locally*. CI (`.github/workflows/ci.yml`) enforces these on every push, but run them
+**before committing** so a regression never reaches `main`:
+
+```bash
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo build --target wasm32-unknown-unknown   # lib+bins — see wasm gotcha
+cargo test --all-targets
+```
+
+Or run all four in order via `./scripts/verify.sh`.
+
+- **WASM gotcha:** do *not* gate on `--target wasm32 --all-targets` — it fails on the
+  native-only examples (`platformer_game`/`mp_server`/`gpu_particles`, which pull in
+  `rapier2d`/`tungstenite`/`GpuParticleEmitter`). The lib+bins build above (or `--lib`)
+  is the real wasm gate.
+- **Why this exists:** a prior refactor shipped declaring "done" on only `fmt --check` +
+  `test --lib`, which misses the wasm-build + clippy regressions that the commands above
+  catch. Don't narrow the bar.
+
+---
+
 ## Project direction (read `docs/VISION.md`)
 
 This engine is a **skeleton**: a hackable, MIT-licensed, genre-agnostic 2D engine meant
@@ -63,7 +88,7 @@ Where to read to find a given thing:
 | History (generic snapshot undo/redo for grid puzzles, turn-based, editors) | `src/history.rs` |
 | ParticleEmitter, ParticleSystem, ParticleBurst (one-shot burst + `ParticleEmitter::for_burst()`) | `src/particle.rs` |
 | Tilemap, TilemapAtlas, TilemapSystem | `src/tilemap.rs` |
-| AudioManager (playback, positional audio, bus mixer, fades) | `src/audio.rs` |
+| AudioManager (playback, positional audio, bus mixer, fades) | `src/audio.rs`, `src/audio/` |
 | save / load / load_or_default / exists / delete / save_path / SaveError | `src/save.rs` |
 | PostProcessConfig, PostProcessRenderer | `src/renderer/post_process.rs` |
 | wgpu render pipeline (rarely edited directly) | `src/renderer/` |

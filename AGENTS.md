@@ -45,7 +45,7 @@ fork-friendly (clear module boundaries, extension points). See `docs/VISION.md`.
 | `Timer`, `Tween`, `Easing` | `src/timer.rs`, `src/tween.rs` |
 | `ParticleEmitter`, `ParticleSystem` | `src/particle.rs` |
 | `Tilemap`, `TilemapAtlas`, `TilemapSystem` | `src/tilemap.rs` |
-| `AudioManager` | `src/audio.rs` |
+| `AudioManager` | `src/audio.rs`, `src/audio/` |
 | save/load API, `SaveError` | `src/save.rs` |
 | `PostProcessConfig`, `PostProcessRenderer` | `src/renderer/post_process.rs` |
 | wgpu render pipeline, `SpriteRenderer` internals | `src/renderer/`, `src/renderer/sprite/` |
@@ -75,10 +75,27 @@ and leave only a summary and link here.
 - Handle single-file edits with clear requirements directly in the main session.
 - Use subagents freely for: exploring 3+ files, changing multiple subsystems, implementing after a long conversation, or work that benefits from parallel review.
 - If public API/usage/examples are affected, check whether related docs need updating.
-- Run default verification against the engine repo.
+- Before declaring done, run the **Verification** checks below (CI-equivalent).
 - stage/commit/push only on user request.
 - Confirm beforehand: public API removal/rename, dependency/version changes, large refactors, file deletion, destructive Git.
 - Subagent prompts must include file paths, patterns to apply, expected behavior, and the do-not-change scope.
+
+### Verification (run before declaring done)
+
+A change is "done" only after the **CI-equivalent** checks pass *locally* (CI in
+`.github/workflows/ci.yml` enforces them on push — run them before committing):
+
+```bash
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo build --target wasm32-unknown-unknown   # lib+bins, NOT --all-targets
+cargo test --all-targets
+```
+
+Or `./scripts/verify.sh`. The wasm gate uses lib+bins, not `--all-targets`: the
+native-only examples (`platformer_game`/`mp_server`/`gpu_particles`) don't compile to
+wasm. Don't narrow the bar to `fmt --check` + `test --lib` — that misses wasm/clippy
+regressions.
 
 ## Documentation structure
 Instruction files that agents must auto-detect live at the repo root. General docs are collected under `docs/`.
