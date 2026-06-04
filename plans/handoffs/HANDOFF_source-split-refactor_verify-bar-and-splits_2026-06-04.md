@@ -214,3 +214,14 @@ sed -n '1,30p' CLAUDE.md                 # the Verification block (Phase 1)
 **Closed at:** 2026-06-04 19:08:13 KST
 **Commit:** `b97071a` (refactor work) + the `session:` commit carrying this handoff
 **Session status:** Handed off to next session — committed and pushed to `origin/main`
+
+## Post-Handoff Follow-up (rustdoc CI fix)
+
+After pushing, CI on `31b4af8` **failed the Rustdoc job** (native/wasm/test/package all passed). Root cause: the audio split moved `AudioChannelState` into `src/audio/types.rs`, breaking its `[`AudioManager`]`/`[`AudioManager::stop`]` intra-doc links (`AudioManager` is in the parent `audio` module, out of scope in `types.rs`). CI's `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` gate caught it — but `scripts/verify.sh` and the Phase 1 verify blocks had **omitted the rustdoc gate**, so the local bar wasn't truly CI-equivalent (the exact gap class Phase 1 targets).
+
+**Fix (`9aebd6a`, pushed, CI green):**
+- `src/audio/types.rs` — absolute-path links: `[`AudioManager`](crate::audio::AudioManager)` and `[`AudioManager::stop`](crate::audio::AudioManager::stop)` (same rendered text, no import needed).
+- `scripts/verify.sh` + `CLAUDE.md` + `AGENTS.md` — added the `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` gate so the local bar now covers **5** checks (fmt, clippy, wasm, test, **rustdoc**).
+- Local `./scripts/verify.sh` (with rustdoc) → exit 0; CI run `26945631687` on `9aebd6a` → **success** (all 4 jobs green).
+
+**Lesson for next session:** when splitting a module, same-module intra-doc links (`[`Type`]`/`[`Type::method`]`) break if the referenced item stays in the parent — use absolute-path links or run the rustdoc gate locally. `verify.sh` now includes it.
