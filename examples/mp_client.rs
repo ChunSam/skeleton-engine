@@ -1,19 +1,19 @@
-//! Phase 27 — 멀티플레이어 클라이언트 데모
+//! Phase 27 — Multiplayer client demo
 //!
-//! 먼저 서버를 실행한 뒤 이 클라이언트를 여러 창으로 실행한다.
+//! Start the server first, then run this client in multiple windows.
 //!
 //! ```
-//! # 터미널 1
+//! # Terminal 1
 //! cargo run --example mp_server
 //!
-//! # 터미널 2, 3, ...
+//! # Terminal 2, 3, ...
 //! cargo run --example mp_client
 //! ```
 //!
-//! # 조작
-//! - WASD / 방향키: 플레이어 이동
-//! - 흰색 사각형: 자신
-//! - 색상 사각형: 다른 접속자 (ID별 고유 색상)
+//! # Controls
+//! - WASD / Arrow keys: move player
+//! - White rectangle: yourself
+//! - Colored rectangle: other connected players (unique color per ID)
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
@@ -43,7 +43,7 @@ fn main() {
         y: f32,
     }
 
-    // ── 씬 ──────────────────────────────────────────────────────────────────────
+    // ── Scene ───────────────────────────────────────────────────────────────────
 
     struct MultiScene;
 
@@ -56,7 +56,7 @@ fn main() {
         }
     }
 
-    // ── 게임 시스템 ────────────────────────────────────────────────────────────
+    // ── Game system ───────────────────────────────────────────────────────────
 
     struct MultiplayerSystem {
         local_entity: Option<engine::Entity>,
@@ -80,7 +80,7 @@ fn main() {
 
     impl System for MultiplayerSystem {
         fn run(&mut self, world: &mut World, dt: f32) {
-            // 1. 네트워크 이벤트 처리
+            // 1. Process network events
             let events: Vec<NetworkEvent> = world
                 .resource::<Events<NetworkEvent>>()
                 .map(|bus| bus.read().to_vec())
@@ -110,7 +110,7 @@ fn main() {
                 }
             }
 
-            // 2. 로컬 플레이어 엔티티 보장
+            // 2. Ensure local player entity exists
             if self.local_entity.is_none() {
                 let e = world.spawn();
                 world.add_component(
@@ -126,7 +126,7 @@ fn main() {
                 self.local_entity = Some(e);
             }
 
-            // 3. 입력 → 이동
+            // 3. Input → movement
             let (dx, dy) = {
                 use engine::KeyCode;
                 if let Some(input) = world.resource::<engine::InputState>() {
@@ -155,7 +155,7 @@ fn main() {
                 }
             }
 
-            // 4. 위치 송신 (20 Hz, ID 할당 이후)
+            // 4. Send position (20 Hz, after ID is assigned)
             self.send_timer -= dt;
             if self.send_timer <= 0.0 && self.local_id.is_some() {
                 self.send_timer = 0.05;
@@ -174,7 +174,7 @@ fn main() {
                 }
             }
 
-            // 5. 상태 HUD
+            // 5. Status HUD
             let id_label = self
                 .local_id
                 .map(|id| format!("Player #{id}"))
@@ -229,7 +229,7 @@ fn main() {
                             tr.position = Vec2::new(x, y);
                         }
                     } else {
-                        // 새 원격 플레이어 스폰
+                        // Spawn a new remote player
                         let e = world.spawn();
                         let [r, g, b] = remote_color(id);
                         world.add_component(
@@ -254,7 +254,7 @@ fn main() {
         }
     }
 
-    // ── 진입점 ──────────────────────────────────────────────────────────────────
+    // ── Entry point ─────────────────────────────────────────────────────────────
 
     let mut app = App::new();
     app.world.insert_resource(WindowConfig {
@@ -271,7 +271,7 @@ fn main() {
 #[cfg(target_arch = "wasm32")]
 fn main() {}
 
-/// ID를 6색 팔레트로 매핑한다.
+/// Maps an ID to a 6-color palette.
 fn remote_color(id: usize) -> [f32; 3] {
     const PALETTE: &[[f32; 3]] = &[
         [1.0, 0.35, 0.35], // red

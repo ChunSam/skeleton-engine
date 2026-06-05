@@ -8,7 +8,7 @@ use engine::{
 };
 use glam::Vec2;
 
-// ─── 시스템: 플레이어 이동 ────────────────────────────────────────────────────
+// ─── System: player movement ─────────────────────────────────────────────────
 struct MoveSystem;
 
 impl System for MoveSystem {
@@ -43,7 +43,7 @@ impl System for MoveSystem {
             }
         }
 
-        // 메인 카메라를 플레이어 위치에 추적
+        // Track the main camera to the player position
         let player_pos = entities
             .first()
             .and_then(|&e| world.get::<Transform>(e))
@@ -58,15 +58,15 @@ impl System for MoveSystem {
     }
 }
 
-// ─── 태그 컴포넌트 ───────────────────────────────────────────────────────────
+// ─── Tag components ──────────────────────────────────────────────────────────
 #[derive(Clone)]
 struct PlayerTag;
 
-/// 적 위에 떠 있는 월드 고정 라벨 마커.
+/// World-anchored label marker that floats above enemies.
 #[derive(Clone)]
 struct EnemyTag;
 
-// ─── 시스템: 월드 엔티티 위에 화면 라벨 띄우기 ───────────────────────────────
+// ─── System: draw screen labels above world entities ─────────────────────────
 /// Demonstrates [`Camera::world_to_screen`] + [`DrawText::centered`]: a nameplate
 /// is anchored to each enemy's *world* position, projected to screen pixels each
 /// frame so it tracks the enemy as the camera follows the player.
@@ -74,11 +74,11 @@ struct WorldLabelSystem;
 
 impl System for WorldLabelSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
-        // 카메라 스냅샷 (불변 차용을 끊고 TextQueue 를 가변 차용하기 위해 먼저 수집).
+        // Snapshot the camera (collect first to release the immutable borrow before mutably borrowing TextQueue).
         let Some(camera) = world.resource::<Camera>().copied() else {
             return;
         };
-        // 각 적의 월드 위치에서 살짝 위(스크린 기준)로 라벨을 띄운다 (Y 아래가 +).
+        // Place labels slightly above each enemy's world position in screen space (Y increases downward).
         let enemies: Vec<Entity> = world.query::<EnemyTag>().map(|(e, _)| e).collect();
         let labels: Vec<Vec2> = enemies
             .iter()
@@ -103,18 +103,18 @@ impl System for WorldLabelSystem {
     }
 }
 
-/// 미니맵 표시 스프라이트 마커 — HUD 시스템이 매 프레임 위치를 갱신한다.
+/// Minimap display sprite marker — the HUD system updates its position every frame.
 #[derive(Clone)]
 struct MinimapTag;
 
-// ─── 시스템: 미니맵 HUD 위치 고정 ────────────────────────────────────────────
+// ─── System: lock the minimap HUD position ───────────────────────────────────
 struct MinimapHudSystem;
 
 impl System for MinimapHudSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
-        // 메인 카메라는 top-left 앵커이며 매 프레임 플레이어를 따라간다. 미니맵
-        // 스프라이트를 카메라 가시 영역의 우상단 코너에 고정한다(월드 고정 좌표면
-        // 카메라가 움직일 때 화면 밖으로 흘러가던 기존 버그를 해결).
+        // The main camera has a top-left anchor and follows the player every frame. Pin the
+        // minimap sprite to the top-right corner of the camera's visible rect (a world-fixed
+        // position would drift off-screen as the camera moves — this fixes that old bug).
         let (vw, vh) = world
             .resource::<ViewportSize>()
             .map(|v| (v.width, v.height))
@@ -125,7 +125,7 @@ impl System for MinimapHudSystem {
         else {
             return;
         };
-        let inset = 90.0 + 16.0; // 스프라이트 반 크기 + 여백 (zoom=1 → 월드=픽셀)
+        let inset = 90.0 + 16.0; // half sprite size + margin (zoom=1 → world=pixels)
         let target = Vec2::new(max.x - inset, min.y + inset);
         let entities: Vec<Entity> = world.query::<MinimapTag>().map(|(e, _)| e).collect();
         for e in entities {
@@ -143,7 +143,7 @@ impl System for MinimapHudSystem {
 fn main() {
     let mut app = App::new();
 
-    // 윈도우 설정
+    // Window configuration
     app.world.insert_resource(WindowConfig {
         title: "Phase 46 — Minimap".into(),
         width: 800,
@@ -151,10 +151,10 @@ fn main() {
         clear_color: [0.08, 0.10, 0.15, 1.0],
     });
 
-    // ─── 오프스크린 렌더 타겟 등록 (미니맵 256×256) ─────────────────────────
+    // ─── Register offscreen render target (minimap 256×256) ─────────────────
     app.create_render_target("minimap", 256, 256);
 
-    // ─── 플레이어 (녹색 박스) ────────────────────────────────────────────────
+    // ─── Player (green box) ──────────────────────────────────────────────────
     let player = app.world.spawn();
     app.world.add_component(
         player,
@@ -173,7 +173,7 @@ fn main() {
     );
     app.world.add_component(player, PlayerTag);
 
-    // ─── 적들 (빨간 박스) ────────────────────────────────────────────────────
+    // ─── Enemies (red boxes) ─────────────────────────────────────────────────
     let enemy_positions = [
         Vec2::new(200.0, 100.0),
         Vec2::new(-150.0, 200.0),
@@ -201,7 +201,7 @@ fn main() {
         app.world.add_component(e, EnemyTag);
     }
 
-    // ─── 배경 타일들 (회색 박스들) ────────────────────────────────────────────
+    // ─── Background tiles (gray boxes) ───────────────────────────────────────
     for i in -5..=5 {
         for j in -5..=5 {
             let bg = app.world.spawn();
@@ -226,35 +226,36 @@ fn main() {
         }
     }
 
-    // ─── OffscreenCamera 엔티티 (미니맵용, 줌 아웃) ──────────────────────────
+    // ─── OffscreenCamera entity (for minimap, zoomed out) ────────────────────
     let oc_entity = app.world.spawn();
     app.world.add_component(
         oc_entity,
         OffscreenCamera {
             target: "minimap".to_string(),
             camera: Camera::new(Vec2::ZERO, 0.15),
-            layer_mask: 1 << 0, // 게임 월드(layer 0)만 — 미니맵 표시용 스프라이트(layer 1) 제외
+            layer_mask: 1 << 0, // game world (layer 0) only — excludes the minimap display sprite (layer 1)
         },
     );
 
-    // ─── 미니맵 표시용 스프라이트 (화면 우상단 고정) ──────────────────────────
-    // 메인 카메라가 플레이어를 따라 움직이므로 월드 고정 좌표로 두면 미니맵이
-    // 화면 밖으로 흘러간다(기존 버그). MinimapHudSystem 이 매 프레임 카메라
-    // 가시 영역의 우상단으로 위치를 갱신해 항상 코너에 고정한다.
+    // ─── Minimap display sprite (pinned to top-right of screen) ──────────────
+    // Because the main camera follows the player, a world-fixed position causes
+    // the minimap to drift off-screen (old bug). MinimapHudSystem updates the
+    // position to the top-right of the camera's visible rect every frame so it
+    // stays anchored to the corner.
     let minimap_sprite = app.world.spawn();
     app.world.add_component(
         minimap_sprite,
         Transform {
-            position: Vec2::new(694.0, 106.0), // 1프레임째 HUD 시스템이 갱신
+            position: Vec2::new(694.0, 106.0), // overwritten by the HUD system on frame 1
             scale: Vec2::new(180.0, 180.0),
-            z: 100.0, // 최상위 레이어
+            z: 100.0, // topmost layer
             ..Default::default()
         },
     );
     app.world.add_component(
         minimap_sprite,
         Sprite {
-            texture: Some("minimap".to_string()), // RT 키
+            texture: Some("minimap".to_string()), // RT key
             color: Color::rgba(1.0, 1.0, 1.0, 0.9),
             ..Default::default()
         },
