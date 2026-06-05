@@ -7,6 +7,19 @@ mod joints;
 mod raycast;
 mod tile_collider;
 
+// ── 조인트 핸들 ──────────────────────────────────────────────────────────────
+
+/// Opaque handle to a physics joint created by one of the
+/// `PhysicsWorld::add_*_joint` methods.
+///
+/// Wraps rapier's `ImpulseJointHandle` so the rapier type does not leak through
+/// the engine's public API (mirrors how [`CollisionGroups`] wraps
+/// `InteractionGroups`). Pass it back to [`PhysicsWorld::remove_joint`] to remove
+/// the joint. The inner handle is engine-private, so it can only be obtained from
+/// `add_*_joint` — not forged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct JointHandle(pub(crate) ImpulseJointHandle);
+
 // ── 충돌 그룹 ────────────────────────────────────────────────────────────────
 
 /// Rapier `InteractionGroups`를 감싼 엔진용 충돌 레이어/마스크.

@@ -1,7 +1,7 @@
 use glam::Vec2;
 use rapier2d::prelude::*;
 
-use super::PhysicsWorld;
+use super::{JointHandle, PhysicsWorld};
 
 impl PhysicsWorld {
     /// 두 바디 사이에 DistanceJoint를 생성한다.
@@ -14,12 +14,12 @@ impl PhysicsWorld {
         anchor1: Vec2,
         anchor2: Vec2,
         rest_length: f32,
-    ) -> ImpulseJointHandle {
+    ) -> JointHandle {
         let data = SpringJointBuilder::new(rest_length, 1000.0, 10.0)
             .local_anchor1(point![anchor1.x, anchor1.y])
             .local_anchor2(point![anchor2.x, anchor2.y])
             .build();
-        self.impulse_joint_set.insert(body1, body2, data, true)
+        JointHandle(self.impulse_joint_set.insert(body1, body2, data, true))
     }
 
     /// RevoluteJoint (힌지) — 두 바디가 공통 피벗점을 기준으로 자유 회전.
@@ -29,12 +29,12 @@ impl PhysicsWorld {
         body2: RigidBodyHandle,
         anchor1: Vec2,
         anchor2: Vec2,
-    ) -> ImpulseJointHandle {
+    ) -> JointHandle {
         let data = RevoluteJointBuilder::new()
             .local_anchor1(point![anchor1.x, anchor1.y])
             .local_anchor2(point![anchor2.x, anchor2.y])
             .build();
-        self.impulse_joint_set.insert(body1, body2, data, true)
+        JointHandle(self.impulse_joint_set.insert(body1, body2, data, true))
     }
 
     /// PrismaticJoint (슬라이더) — 특정 축 방향으로만 상대 이동 허용.
@@ -45,17 +45,17 @@ impl PhysicsWorld {
         anchor1: Vec2,
         anchor2: Vec2,
         axis: Vec2,
-    ) -> ImpulseJointHandle {
+    ) -> JointHandle {
         let unit_axis = UnitVector::new_normalize(vector![axis.x, axis.y]);
         let data = PrismaticJointBuilder::new(unit_axis)
             .local_anchor1(point![anchor1.x, anchor1.y])
             .local_anchor2(point![anchor2.x, anchor2.y])
             .build();
-        self.impulse_joint_set.insert(body1, body2, data, true)
+        JointHandle(self.impulse_joint_set.insert(body1, body2, data, true))
     }
 
     /// 조인트를 제거한다.
-    pub fn remove_joint(&mut self, handle: ImpulseJointHandle) {
-        self.impulse_joint_set.remove(handle, true);
+    pub fn remove_joint(&mut self, handle: JointHandle) {
+        self.impulse_joint_set.remove(handle.0, true);
     }
 }
