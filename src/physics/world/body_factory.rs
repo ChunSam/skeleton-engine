@@ -237,6 +237,17 @@ impl PhysicsWorld {
 
     /// 바디와 연결된 모든 콜라이더를 제거한 뒤 강체를 삭제한다.
     pub fn remove_body(&mut self, body: &PhysicsBody) {
+        // 제거 전에 이 바디의 콜라이더를 one_way 집합에서 정리한다. rapier 는 콜라이더
+        // 핸들을 재사용하므로, 정리하지 않으면 같은 핸들을 받은 새 콜라이더가 stale
+        // one-way 플래그를 물려받아 의도치 않게 한쪽 통과 동작을 한다.
+        let colliders: Vec<_> = self
+            .rigid_body_set
+            .get(body.rigid_body_handle)
+            .map(|rb| rb.colliders().to_vec())
+            .unwrap_or_default();
+        for collider in colliders {
+            self.one_way_colliders.remove(&collider);
+        }
         self.rigid_body_set.remove(
             body.rigid_body_handle,
             &mut self.island_manager,

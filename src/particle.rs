@@ -201,36 +201,38 @@ impl System for ParticleSystem {
             if !emit || spawn_rate <= 0.0 {
                 continue;
             }
-            let should_spawn = {
+            let spawn_count = {
                 let em = world.get_mut::<ParticleEmitter>(emitter_entity).unwrap();
                 em.timer += dt;
                 let interval = 1.0 / spawn_rate;
-                if em.timer >= interval {
+                // 느린 프레임에서 timer 가 interval 의 여러 배면 그만큼 스폰한다.
+                // (기존엔 프레임당 1개만 스폰해 방출 밀도가 프레임레이트에 의존했다)
+                let mut count = 0u32;
+                while em.timer >= interval {
                     em.timer -= interval;
-                    true
-                } else {
-                    false
+                    count += 1;
                 }
+                // 폭주 방지: 한 프레임 최대 64개 (매우 큰 spawn_rate + 긴 dt 대비)
+                count.min(64)
             };
-            if !should_spawn {
-                continue;
+
+            for _ in 0..spawn_count {
+                let actual_velocity = Vec2::new(
+                    velocity.x + rng.gen_range(-spread.x..=spread.x),
+                    velocity.y + rng.gen_range(-spread.y..=spread.y),
+                );
+
+                spawn_particle(
+                    world,
+                    pos,
+                    size,
+                    &texture,
+                    actual_velocity,
+                    lifetime,
+                    color_start,
+                    color_end,
+                );
             }
-
-            let actual_velocity = Vec2::new(
-                velocity.x + rng.gen_range(-spread.x..=spread.x),
-                velocity.y + rng.gen_range(-spread.y..=spread.y),
-            );
-
-            spawn_particle(
-                world,
-                pos,
-                size,
-                &texture,
-                actual_velocity,
-                lifetime,
-                color_start,
-                color_end,
-            );
         }
 
         // 3. 일회성 버스트 방출 (ParticleEmitter + ParticleBurst). 연속 방출과
@@ -357,8 +359,9 @@ mod tests {
 
         ParticleSystem.run(&mut world, 0.05);
 
-        // 연속 이미터는 파티클을 내되, despawn되지 않고 살아남는다.
-        assert!(world.query::<Particle>().count() >= 1);
+        // 연속 이미터는 dt(0.05) / interval(1/100 = 0.01) = 5개를 내고,
+        // despawn되지 않고 살아남는다. (예전엔 프레임당 1개만 내 under-emit 했다)
+        assert_eq!(world.query::<Particle>().count(), 5);
         assert!(world.is_alive(emitter));
     }
 }
