@@ -7,6 +7,7 @@ pub mod audio;
 pub mod behavior;
 pub mod camera;
 pub mod collision;
+pub mod color;
 pub mod components;
 pub mod debug_ui;
 pub mod ecs;
@@ -67,6 +68,7 @@ pub use camera::Camera;
 pub use collision::{
     Collider, CollisionDebugSystem, CollisionGridSystem, CollisionLayer, DebugConfig, SpatialGrid,
 };
+pub use color::Color;
 pub use components::{OffscreenCamera, PointLight, RenderLayer, Sprite, Transform};
 pub use debug_ui::DebugUi;
 pub use ecs::schedule::{ScheduleError, SystemConfig, SystemLabel, SystemMeta};
