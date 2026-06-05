@@ -101,9 +101,13 @@ pub struct ImageEntry {
 // ─── ScriptAsset ─────────────────────────────────────────────────────────────
 
 /// CPU-side Rhai 스크립트 에셋.
+///
+/// `ast` 는 `Arc` 로 감싸 둔다. `ScriptingSystem` 이 매 프레임 스크립트 엔티티마다
+/// AST 핸들을 복제(`clone`)하는데, `Arc` 라면 트리 전체 deep-clone 대신 refcount 만
+/// 증가한다.
 pub struct ScriptAsset {
     pub source: String,
-    pub ast: rhai::AST,
+    pub ast: Arc<rhai::AST>,
 }
 
 // ─── AssetLoadState ───────────────────────────────────────────────────────────

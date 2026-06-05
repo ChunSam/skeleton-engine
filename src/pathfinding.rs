@@ -1,6 +1,7 @@
 use glam::IVec2;
+use std::cell::RefCell;
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use crate::tilemap::Tilemap;
 
@@ -145,8 +146,39 @@ const NEIGHBORS: [IVec2; 4] = [
     IVec2::new(1, 0),
 ];
 
+/// Reusable A* scratch collections. Kept in a thread-local so repeated
+/// `find_path` calls (e.g. many AI agents repathing each frame) reuse their
+/// allocations instead of re-allocating the open list / score maps every call.
+#[derive(Default)]
+struct AStarScratch {
+    open: BinaryHeap<Node>,
+    /// g_score: 시작점에서 각 노드까지의 실제 비용
+    g_score: HashMap<IVec2, i32>,
+    /// came_from: 경로 역추적용
+    came_from: HashMap<IVec2, IVec2>,
+    /// closed: 이미 최적 비용으로 확정(expand)된 노드. 중복 힙 엔트리를 거른다.
+    closed: HashSet<IVec2>,
+}
+
+impl AStarScratch {
+    fn reset(&mut self) {
+        self.open.clear();
+        self.g_score.clear();
+        self.came_from.clear();
+        self.closed.clear();
+    }
+}
+
+thread_local! {
+    static ASTAR_SCRATCH: RefCell<AStarScratch> = RefCell::new(AStarScratch::default());
+}
+
 /// A* 경로 탐색.
 /// 반환: 시작점 제외, 목표점 포함한 경로. 경로 없으면 `None`.
+///
+/// Manhattan 휴리스틱은 4-방향 균일 격자에서 consistent 하므로, 노드를 처음 pop 할 때
+/// 그 노드의 g 값이 최적이다. 따라서 closed set 으로 이미 확정된 노드의 stale 한 중복
+/// 힙 엔트리를 건너뛰어도 최단 경로 보장이 유지된다.
 pub fn find_path(grid: &PathGrid, start: IVec2, goal: IVec2) -> Option<Vec<IVec2>> {
     // 시작 == 목표
     if start == goal {
@@ -158,51 +190,59 @@ pub fn find_path(grid: &PathGrid, start: IVec2, goal: IVec2) -> Option<Vec<IVec2
         return None;
     }
 
-    let mut open: BinaryHeap<Node> = BinaryHeap::new();
-    // g_score: 시작점에서 각 노드까지의 실제 비용
-    let mut g_score: HashMap<IVec2, i32> = HashMap::new();
-    // came_from: 경로 역추적용
-    let mut came_from: HashMap<IVec2, IVec2> = HashMap::new();
+    ASTAR_SCRATCH.with(|cell| {
+        let mut s = cell.borrow_mut();
+        s.reset();
 
-    g_score.insert(start, 0);
-    open.push(Node {
-        f: manhattan(start, goal),
-        pos: start,
-    });
+        s.g_score.insert(start, 0);
+        s.open.push(Node {
+            f: manhattan(start, goal),
+            pos: start,
+        });
 
-    while let Some(Node { pos: current, .. }) = open.pop() {
-        if current == goal {
-            // 경로 역추적
-            let mut path = Vec::new();
-            let mut cur = current;
-            while let Some(&prev) = came_from.get(&cur) {
-                path.push(cur);
-                cur = prev;
+        while let Some(Node { pos: current, .. }) = s.open.pop() {
+            if current == goal {
+                // 경로 역추적
+                let mut path = Vec::new();
+                let mut cur = current;
+                while let Some(&prev) = s.came_from.get(&cur) {
+                    path.push(cur);
+                    cur = prev;
+                }
+                path.reverse();
+                return Some(path);
             }
-            path.reverse();
-            return Some(path);
-        }
 
-        let g_current = *g_score.get(&current).unwrap_or(&i32::MAX);
-
-        for &dir in &NEIGHBORS {
-            let next = current + dir;
-            if !grid.is_walkable(next.x, next.y) {
+            // 이미 확정된 노드면 stale 한 중복 엔트리이므로 재확장하지 않는다.
+            if !s.closed.insert(current) {
                 continue;
             }
-            let g_next = g_current + 1;
-            if g_next < *g_score.get(&next).unwrap_or(&i32::MAX) {
-                g_score.insert(next, g_next);
-                came_from.insert(next, current);
-                open.push(Node {
-                    f: g_next + manhattan(next, goal),
-                    pos: next,
-                });
+
+            let g_current = *s.g_score.get(&current).unwrap_or(&i32::MAX);
+
+            for &dir in &NEIGHBORS {
+                let next = current + dir;
+                // 확정된 이웃은 비용 개선 여지가 없다.
+                if s.closed.contains(&next) {
+                    continue;
+                }
+                if !grid.is_walkable(next.x, next.y) {
+                    continue;
+                }
+                let g_next = g_current + 1;
+                if g_next < *s.g_score.get(&next).unwrap_or(&i32::MAX) {
+                    s.g_score.insert(next, g_next);
+                    s.came_from.insert(next, current);
+                    s.open.push(Node {
+                        f: g_next + manhattan(next, goal),
+                        pos: next,
+                    });
+                }
             }
         }
-    }
 
-    None
+        None
+    })
 }
 
 // ── 테스트 ────────────────────────────────────────────────────────────────────
@@ -296,6 +336,45 @@ mod tests {
         // (2,0) blocked, missing (2,1) stays walkable
         assert!(!grid.is_walkable(2, 0));
         assert!(grid.is_walkable(2, 1));
+    }
+
+    #[test]
+    fn optimal_path_length_on_open_grid() {
+        // 5x5 open grid: (0,0) → (4,4). Shortest path = 8 steps (Manhattan),
+        // start excluded / goal included → 8 cells. The closed-set must not
+        // break optimality.
+        let grid = PathGrid::new(5, 5);
+        let path = find_path(&grid, IVec2::new(0, 0), IVec2::new(4, 4)).unwrap();
+        assert_eq!(path.len(), 8, "최단 경로 길이가 8이어야 함: {path:?}");
+        assert_eq!(path.last(), Some(&IVec2::new(4, 4)));
+        // 인접 셀 간 이동은 항상 거리 1 (대각선 없음)
+        let mut prev = IVec2::new(0, 0);
+        for &p in &path {
+            assert_eq!(manhattan(prev, p), 1, "인접하지 않은 점프: {prev:?}→{p:?}");
+            prev = p;
+        }
+    }
+
+    #[test]
+    fn repeated_calls_reuse_scratch_without_contamination() {
+        // 같은 thread_local scratch 를 재사용해도 직전 호출의 상태가 다음 결과를
+        // 오염시키면 안 된다. 막힌 경우와 뚫린 경우를 번갈아 호출한다.
+        let mut grid = PathGrid::new(3, 3);
+        grid.set_walkable(1, 0, false);
+        grid.set_walkable(1, 1, false);
+        grid.set_walkable(1, 2, false);
+        // 막힌 열로 인해 도달 불가
+        assert!(find_path(&grid, IVec2::new(0, 0), IVec2::new(2, 0)).is_none());
+
+        // 동일 grid 의 통행 가능한 목표 — 직전 None 호출의 scratch 가 남아있어도 정상.
+        let path = find_path(&grid, IVec2::new(0, 0), IVec2::new(0, 2)).unwrap();
+        assert_eq!(path, vec![IVec2::new(0, 1), IVec2::new(0, 2)]);
+
+        // 장애물을 치우고 다시 — 캐시된 closed/g_score 가 비워져야 새 경로가 나온다.
+        grid.set_walkable(1, 0, true);
+        let again = find_path(&grid, IVec2::new(0, 0), IVec2::new(2, 0)).unwrap();
+        assert_eq!(again.last(), Some(&IVec2::new(2, 0)));
+        assert_eq!(again.len(), 2);
     }
 
     #[test]

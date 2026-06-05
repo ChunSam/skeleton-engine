@@ -15,13 +15,15 @@ pub struct DebugConfig {
 
 // ─── 시스템 ──────────────────────────────────────────────────────────────────
 
-/// 충돌 디버그 시각화 시스템.
+/// Collision-debug visualization system.
 ///
-/// 매 프레임 `SpatialGrid`를 재구성하고, `DebugConfig::show_colliders`가
-/// true이면 각 콜라이더를 반투명 사각형으로 `UiQueue`에 추가한다.
+/// When `DebugConfig::show_colliders` is true, draws each collider as a
+/// translucent rectangle into the `DebugDrawQueue`.
 ///
-/// `CollisionGridSystem`과 별도로 그리드를 유지한다.
-/// `CollisionGridSystem`의 그리드를 직접 접근하려면 커스텀 시스템을 작성한다.
+/// If a `CollisionGridSystem` already mirrors a `SpatialGrid` into the World this
+/// frame, that grid's entries are reused (no second rebuild). When used
+/// standalone (no `CollisionGridSystem` registered), it falls back to rebuilding
+/// its own internal grid via `self.grid`.
 pub struct CollisionDebugSystem {
     grid: SpatialGrid,
 }
@@ -47,22 +49,31 @@ impl System for CollisionDebugSystem {
         if !enabled {
             return;
         }
-        self.grid.rebuild(world);
 
-        let rects: Vec<DebugRect> = self
-            .grid
-            .entries
-            .values()
-            .map(|entry| {
-                let (aabb_min, aabb_max) = entry.collider.aabb(entry.center);
-                DebugRect {
-                    min: aabb_min,
-                    max: aabb_max,
-                    color: crate::color::Color::rgba(0.0, 1.0, 0.2, 0.25),
-                    z: 999.0,
-                }
-            })
-            .collect();
+        // Prefer the grid a `CollisionGridSystem` already mirrored this frame.
+        // Only rebuild our own when running standalone (no such system present).
+        let build_rects = |grid: &SpatialGrid| -> Vec<DebugRect> {
+            grid.entries
+                .values()
+                .map(|entry| {
+                    let (aabb_min, aabb_max) = entry.collider.aabb(entry.center);
+                    DebugRect {
+                        min: aabb_min,
+                        max: aabb_max,
+                        color: crate::color::Color::rgba(0.0, 1.0, 0.2, 0.25),
+                        z: 999.0,
+                    }
+                })
+                .collect()
+        };
+
+        let rects: Vec<DebugRect> = match world.resource::<SpatialGrid>() {
+            Some(grid) => build_rects(grid),
+            None => {
+                self.grid.rebuild(world);
+                build_rects(&self.grid)
+            }
+        };
 
         if let Some(queue) = world.resource_mut::<DebugDrawQueue>() {
             queue.items.extend(rects);
