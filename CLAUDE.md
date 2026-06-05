@@ -94,6 +94,7 @@ Where to read to find a given thing:
 | save / load / load_or_default / exists / delete / save_path / SaveError | `src/save.rs` |
 | PostProcessConfig, PostProcessRenderer | `src/renderer/post_process.rs` |
 | PointLight, AmbientLight, LightingRenderer (2D point-light pass, nearest-16 cull; native-only) | `src/renderer/lighting.rs` |
+| RenderTarget, OffscreenCamera, create_render_target (render-to-texture; each offscreen target submits its **own** command buffer so it uses its own camera — exclude RT-display sprites via `layer_mask`; example: `security_camera`) | `src/renderer/render_target.rs`, `src/app/render.rs`, `src/components.rs` |
 | wgpu render pipeline (rarely edited directly) | `src/renderer/` |
 
 ---

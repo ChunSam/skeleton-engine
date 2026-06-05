@@ -2124,6 +2124,54 @@ The positions of `Panel` children are computed by `LayoutSystem`. It must be reg
 
 ---
 
+## 2026-06-05 — Security-camera example + offscreen-render fix (RenderTarget/OffscreenCamera, candidate K)
+
+**Context:** continuing the dogfooding loop (`docs/VISION.md`), `RenderTarget`/`OffscreenCamera` was a
+shipped subsystem with **two tech demos** (`minimap`, `split_screen`) but **no playable game**. Scope
+was grill-locked to: build a small stealth game using offscreen rendering in real play, and fix only
+the gap the example genuinely hits (zero engine change was an accepted outcome).
+
+**Example:** `examples/security_camera.rs` (top-level, auto-discovered; cross-platform — no
+native-only deps). A guard patrols a room placed **entirely offscreen** (off the right edge of the
+world the main camera frames); its only view is a wall **monitor** — an `OffscreenCamera` renders the
+guard room into the `"camfeed"` `RenderTarget`, displayed by a `Sprite { texture: Some("camfeed") }`.
+The player times a doorway crossing by the guard's position on the monitor; reaching the exit wins,
+being in the doorway while the guard watches it resets the player (`R` replays, `Esc` quits). This is
+the first use of an offscreen camera as the **sole view of a disjoint region** — which is exactly what
+exposed the bug below.
+
+**Engine bug fixed — offscreen targets rendered with the main camera.** `SpriteRenderer`'s camera
+uniform is a single shared buffer (`camera_buf`) updated via `queue.write_buffer` (`src/renderer/
+sprite.rs`). The offscreen pass and the main pass were recorded into **one command submission**
+(`src/app/render.rs`), and within a single submit only the **last** `write_buffer` to a given buffer
+takes effect before the command buffer runs — so the main camera (written last) was used for *every*
+offscreen target. The two demos masked it: their offscreen content overlaps the main view, so
+"rendered with the main camera" looked plausible. The disjoint guard room made it obvious — the
+monitor showed the corridor instead of the guard room. **Diagnosed empirically** (not by theory): a
+magenta-backdrop test left the feed unchanged, and an `eprintln` proved the offscreen camera *was*
+passed correctly `(1100,210)` — pointing at the shared-buffer/single-submit interaction, not the swap.
+**Fix:** each offscreen target now renders into its **own** `CommandEncoder` and is submitted
+immediately, pairing its camera write with its own draws. GPU-validated by the native run (CI compiles
+but cannot run the windowed app); not unit-testable without a GPU.
+
+**Also fixed — `split_screen` self-capture crash (pre-existing).** It used `layer_mask: 0` (all
+layers), so its RT *display* sprites were drawn into the targets they sample — a wgpu validation error
+(texture as both color attachment and sampled resource in one pass). It crashed on frame 2 on the
+**committed** code too (confirmed by reverting the engine fix), so this was not a regression; it
+surfaced while fixing the offscreen-render bug. Fixed by masking the display sprites out of the
+offscreen pass (`layer_mask: 1 << 0`), matching `minimap`'s self-capture avoidance. (`split_screen`'s
+on-screen *layout* still uses an older center-origin assumption — separate cosmetic item, left as-is.)
+
+**Verification:** `./scripts/verify.sh` green (fmt, clippy `-D warnings`, wasm lib+bins, `test
+--all-targets`, rustdoc `-D warnings`); native `cargo run --example security_camera` renders the guard
+room on the monitor (red guard + yellow door stripe + crates) while the corridor/player/exit render in
+the main view; `minimap` + `split_screen` run without crashing under the fix; `rust-survivors`
+path-patch `cargo check --workspace` clean (uses 0 RenderTarget; the render-path change is internal,
+no public API change). Coordinate lesson: the engine `Camera` is **top-left anchored, Y-down** (see
+`src/camera.rs`) — the first example draft used center-origin/Y-up and rendered offscreen.
+
+---
+
 ## 2026-06-05 — Crane wrecking-ball example + `PhysicsSystem` rotation sync (joints, candidate J)
 
 **Context:** continuing the dogfooding loop (`docs/VISION.md`), physics **joints** were a

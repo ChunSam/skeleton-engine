@@ -166,8 +166,37 @@ standalone demos or none). The densest, most universally-needed cluster — UI d
     (stiffness 1000 / damping 10) — it is a stiff spring, not a rigid link, and there is no
     `add_fixed_joint`. Fine for ropes/tethers; revisit if a future example needs a rigid weld.
 
+## Coverage follow-up — RenderTarget / OffscreenCamera (candidate K, 2026-06-05)
+
+- **K — Security camera** (`security_camera`, `examples/security_camera.rs`): first **playable-game**
+  use of `RenderTarget` / `OffscreenCamera`. A stealth puzzle — a guard patrols an **entirely
+  offscreen** room whose only view is a wall monitor (an `OffscreenCamera` → `RenderTarget` sampled
+  by a `Sprite`); time the doorway crossing by the guard's position on the monitor, reach the exit to
+  escape, get caught to reset. The API already shipped with **two tech demos** (`minimap`,
+  `split_screen`), so unlike past candidates the gap was *not* a missing API — it was (a) no playable
+  game, and (b) a latent render bug only a disjoint offscreen region could expose.
+  - **Engine bug fixed (offscreen renders with main camera):** the sprite renderer's camera uniform
+    is one shared buffer written via `queue.write_buffer`; the offscreen pass + main pass shared a
+    single command submission, and only the last write to that buffer wins per submit — so every
+    offscreen target rendered with the main camera. The two demos hid it (their offscreen content
+    overlaps the main view); the disjoint guard room exposed it (the monitor showed the corridor).
+    Fixed by submitting each offscreen target in its own command buffer (`src/app/render.rs`). Not
+    unit-testable (no GPU in CI); GPU-validated by the native run + playtest.
+  - **`split_screen` self-capture crash fixed:** it used `layer_mask: 0`, drawing its RT display
+    sprites into the targets they sample (a render-pass usage conflict) — it crashed on frame 2.
+    Fixed by masking the display sprites out (`layer_mask: 1 << 0`), matching `minimap`. Pre-existing
+    (crashes on the committed code too), surfaced while fixing the offscreen-render bug.
+  - **Self-capture is a user-side concern:** the engine renders whatever layers the `OffscreenCamera`
+    mask selects; an RT-display sprite must be excluded via `layer_mask` (or layer) so it is not drawn
+    into the target it samples. `minimap`/`security_camera` do this; the old `split_screen` did not.
+  - **Deferred (noted, not done):** no screen-anchored/HUD helper for RT display (examples place the
+    monitor in world space); no RT resize-on-viewport or per-target clear color; retained UI widgets
+    (`src/ui/`) cannot sample an RT (the immediate `DrawImage` overlay can). Add only when an example
+    needs them. `split_screen`'s on-screen *layout* also predates the top-left camera convention and
+    is left as a separate cosmetic item.
+
 Remaining never-in-a-game subsystems (candidates for later dogfooding cycles, none scheduled):
-`Timeline`/cutscene, `RenderTarget`/`OffscreenCamera` in real play, networking.
+`Timeline`/cutscene, networking.
 
 ## Alignment check — previously "planned" items vs the reset vision
 

@@ -24,6 +24,14 @@ The package follows semantic versioning beginning with 1.0.0.
   crane cart hangs a revolute-pinned arm with a distance-tethered wrecking ball; drive the cart to
   swing the ball and knock a block stack off its pedestal. The joint methods shipped with unit tests
   but had zero game/example coverage. Demonstrates the rotation-sync fix below.
+- `security_camera` example (`examples/security_camera.rs`): first playable-game use of
+  `RenderTarget` / `OffscreenCamera`. A stealth puzzle where a guard patrols a room that is
+  **entirely offscreen** — its only view is a wall monitor (an `OffscreenCamera` renders the guard
+  room into a `RenderTarget` that a `Sprite` samples). Read the guard's position on the monitor and
+  cross the doorway when it is away from the door stripe; reach the exit to escape, get caught to
+  reset (`R` replays, `Esc` quits). The existing `minimap`/`split_screen` demos exercised the API but
+  only ever framed the *same* region the main camera shows; this is the first use of an offscreen
+  camera as the sole view of a **disjoint** region. Demonstrates the offscreen-render fix below.
 
 ### Breaking
 
@@ -77,6 +85,22 @@ The package follows semantic versioning beginning with 1.0.0.
   true`) are unaffected (their angle is always 0). Surfaced by `crane_wrecking_ball`; regression
   tests in `src/physics/system.rs`. Behaviorally inert for consumers that own a raw `PhysicsWorld`
   and sync transforms themselves (e.g. `rust-survivors`).
+- Offscreen render targets (`OffscreenCamera` → `RenderTarget`) now render with their **own** camera
+  instead of the main camera. The sprite renderer's camera uniform is a single shared buffer updated
+  via `queue.write_buffer`; the offscreen pass and the main pass were recorded into one command
+  submission, and within a single submit only the **last** write to that buffer takes effect — so
+  every offscreen target was drawn with the (later-written) main camera's view. The
+  `minimap`/`split_screen` demos masked this because their offscreen content overlaps the main view;
+  it became obvious only with an offscreen camera framing a *disjoint* region (the monitor rendered
+  the main scene instead of the guard room). Each offscreen target now submits in its own command
+  buffer so its camera write pairs with its own draws. Surfaced by `security_camera`; GPU-validated
+  by a native run (CI compiles but cannot run the windowed app).
+- `split_screen` example no longer crashes with a wgpu validation error on its second frame. It used
+  `layer_mask: 0` (render all layers), so its render-target *display* sprites were drawn into the
+  same targets they sample — a self-capture (a texture used as both color attachment and sampled
+  resource within one render pass). It "survived" only frame 1, before the targets were registered.
+  Fixed by masking the display sprites out of the offscreen pass (`layer_mask: 1 << 0`), the same
+  self-capture-avoidance `minimap` already uses.
 
 ### Changed
 

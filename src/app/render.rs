@@ -256,9 +256,21 @@ impl App {
                 // ② Safety: render_targets는 이 루프에서 수정되지 않는다.
                 let rt_view = unsafe { &*view_ptr };
 
+                // 각 오프스크린 타겟은 **자체 command submission**으로 렌더한다.
+                // SpriteRenderer 의 카메라 유니폼은 `queue.write_buffer` 로 갱신되는 단일 공유
+                // 버퍼(`camera_buf`)다. 한 번의 submit 안에서는 같은 버퍼에 대한 write 중
+                // **마지막 것만** 적용되므로, 오프스크린 드로우와 메인 패스를 같은 submit 에
+                // 기록하면 오프스크린 타겟이 (나중에 쓰이는) **메인 카메라**로 렌더되어 버린다.
+                // 여기서 바로 submit 해 이 타겟의 카메라 write 와 그 드로우를 한 쌍으로 묶는다.
+                let mut oenc = gpu
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("offscreen encoder"),
+                    });
+
                 // ③ RT clear
                 {
-                    let _pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    let _pass = oenc.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("offscreen clear"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                             view: rt_view,
@@ -286,7 +298,7 @@ impl App {
                             device: &gpu.device,
                             queue: &gpu.queue,
                             view: rt_view,
-                            encoder: &mut enc,
+                            encoder: &mut oenc,
                         },
                         &self.world,
                         rt_w,
@@ -294,6 +306,10 @@ impl App {
                         layer_mask,
                     );
                 }
+
+                // 이 타겟의 카메라 write + 드로우를 즉시 flush. (메인 패스의 카메라 write 보다
+                // 먼저 적용되며, RT 텍스처는 메인 패스가 샘플하기 전에 채워진다.)
+                gpu.queue.submit(std::iter::once(oenc.finish()));
 
                 // ⑤ 카메라 복원 — 원래 없던 경우 제거해 World 오염 방지
                 match saved_cam {
