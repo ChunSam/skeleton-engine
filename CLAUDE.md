@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.3.0 | package `skeleton-engine`, library crate `engine` | wgpu-based Rust 2D game engine  
+> Version v1.4.0 | package `skeleton-engine` v4.0.0, library crate `engine` | wgpu-based Rust 2D game engine  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`
 
@@ -57,7 +57,7 @@ Where to read to find a given thing:
 | Engine entry point, main loop, render orchestration, `load_image` | `src/app.rs` |
 | Handle<T>, ImageAsset, ScriptAsset, AssetServer (asset load / caching / hot reload) | `src/asset.rs` |
 | TextureAtlas (uniform grid atlas), AtlasSprite (atlas tile render component) | `src/atlas.rs` |
-| Reflect trait, ReflectValue (runtime field read/write, egui Inspector integration) | `src/reflect.rs` |
+| Reflect trait, ReflectValue (`F32`/`I32`/`Vec2`/`Bool`/`String`/`Color`, `#[non_exhaustive]`; runtime field read/write, egui Inspector integration) | `src/reflect.rs` |
 | ScriptAsset, ScriptRunner, ScriptingSystem (Rhai scripting) | `src/scripting.rs` |
 | DebugUi (egui overlay, F1 toggle, custom panels via `ctx()`) | `src/debug_ui.rs` |
 | Full public API re-export list | `src/lib.rs` |
@@ -67,13 +67,13 @@ Where to read to find a given thing:
 | Scene transitions (Scene, SceneCmd, SceneChange) | `src/scene.rs` |
 | Transform, Sprite | `src/components.rs` |
 | WindowConfig, GameState, ShouldQuit, DebugDrawQueue | `src/resources.rs` |
-| Camera (coordinate transforms, zoom) | `src/camera.rs` |
+| Camera (coordinate transforms, zoom; `screen_to_world`/`world_to_screen`) | `src/camera.rs` |
 | InputState, InputMap | `src/input/` |
 | GamepadState, GamepadButton, GamepadAxis | `src/input/gamepad.rs` |
 | PhysicsWorld, PhysicsBody, PhysicsSystem (syncs body position **and rotation** → Transform), CollisionEvent | `src/physics/` |
 | CharacterController (+ `request_drop`/`is_dropping` for one-way), RaycastHit, cast_ray, cast_ray_with_normal, move_character | `src/physics/character.rs`, `src/physics/world.rs` |
 | add_kinematic_box, add_kinematic_circle, add_static_from_tilemap, TileCollider, set_one_way/is_one_way | `src/physics/world.rs` |
-| add_revolute_joint, add_distance_joint, add_prismatic_joint, remove_joint (ImpulseJointHandle; example: `crane_wrecking_ball`) | `src/physics/world/joints.rs` |
+| add_revolute_joint, add_distance_joint, add_prismatic_joint, remove_joint (return/take engine `JointHandle` newtype wrapping rapier; example: `crane_wrecking_ball`) | `src/physics/world/joints.rs` |
 | SpatialGrid, Collider, CollisionLayer (SpatialGrid is mirrored to a World resource by CollisionGridSystem) | `src/collision/` |
 | BehaviorTree, BehaviorNode, Sequence, Selector, Inverter, AlwaysSucceed, BehaviorSystem, Blackboard, BlackboardValue (`Path` variant + `set_path`/`get_path`) | `src/behavior.rs` |
 | Seek, Flee, Arrive, Wander, SteeringVelocity, SteeringSystem (steering behaviors; O(1) per-entity component lookup) | `src/steering.rs` |
@@ -91,11 +91,12 @@ Where to read to find a given thing:
 | History (generic snapshot undo/redo for grid puzzles, turn-based, editors) | `src/history.rs` |
 | ParticleEmitter, ParticleSystem, ParticleBurst (one-shot burst + `ParticleEmitter::for_burst()`) | `src/particle.rs` |
 | Tilemap, TilemapAtlas, TilemapSystem | `src/tilemap.rs` |
-| AudioManager (playback, positional audio, bus mixer, fades) | `src/audio.rs`, `src/audio/` |
+| AudioManager (playback, positional audio, bus mixer, fades), AudioSystem (built-in system that ticks `update(dt)` so fades progress; SFX file-bytes cache) | `src/audio.rs`, `src/audio/` |
 | save / load / load_or_default / exists / delete / save_path / SaveError | `src/save.rs` |
 | PostProcessConfig, PostProcessRenderer | `src/renderer/post_process.rs` |
 | PointLight, AmbientLight, LightingRenderer (2D point-light pass, nearest-16 cull; native-only) | `src/renderer/lighting.rs` |
 | RenderTarget, OffscreenCamera, create_render_target (render-to-texture; each offscreen target submits its **own** command buffer so it uses its own camera — exclude RT-display sprites via `layer_mask`; example: `security_camera`) | `src/renderer/render_target.rs`, `src/app/render.rs`, `src/components.rs` |
+| DrawText, TextQueue, TextAlign, TextAnchor (screen-space text, top-left origin; `DrawText::centered` anchors at text center; place at a world position via `Camera::world_to_screen`) | `src/renderer/text.rs` |
 | wgpu render pipeline (rarely edited directly) | `src/renderer/` |
 
 ---
