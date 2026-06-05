@@ -236,6 +236,12 @@ impl AnimationStateMachine {
 /// `AnimationSystem` **이후에** 등록해야 `is_finished()` 판정이 같은 프레임에 반영된다.
 pub struct StateMachineSystem;
 
+impl StateMachineSystem {
+    /// 스케줄 라벨. 권장 순서: `AnimationSystem::LABEL` **이후**
+    /// (`SystemConfig::new().label(StateMachineSystem::LABEL).after(AnimationSystem::LABEL)`).
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::animation_state_machine";
+}
+
 impl System for StateMachineSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
         let entities: Vec<Entity> = world

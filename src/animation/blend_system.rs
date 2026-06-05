@@ -7,6 +7,12 @@ use crate::ecs::{Entity, System, World};
 /// `AnimationSystem` **이전에** 등록해야 클립 전환이 같은 프레임에 반영된다.
 pub struct BlendTreeSystem;
 
+impl BlendTreeSystem {
+    /// 스케줄 라벨. 권장 순서: `AnimationSystem::LABEL` **이전**
+    /// (`SystemConfig::new().label(BlendTreeSystem::LABEL).before(AnimationSystem::LABEL)`).
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::blend_tree";
+}
+
 impl System for BlendTreeSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
         let entities: Vec<Entity> = world.query::<BlendTree1D>().map(|(e, _)| e).collect();

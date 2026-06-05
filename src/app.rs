@@ -484,4 +484,47 @@ mod tests {
         );
         assert!(app.panicked_systems.is_empty());
     }
+
+    #[test]
+    fn builtin_system_labels_compose_for_ordering() {
+        // 내장 시스템의 LABEL 상수가 실제 스케줄러에서 순서 제약으로 동작하는지 검증.
+        use crate::animation::{AnimationSystem, StateMachineSystem};
+        use crate::ecs::schedule::{compute_order, SystemMeta};
+        use crate::ui::{LayoutSystem, UiSystem};
+
+        let metas = vec![
+            // idx0: StateMachine — Animation 이후
+            SystemMeta {
+                label: Some(StateMachineSystem::LABEL),
+                after: vec![AnimationSystem::LABEL],
+                ..Default::default()
+            },
+            // idx1: Animation
+            SystemMeta {
+                label: Some(AnimationSystem::LABEL),
+                ..Default::default()
+            },
+            // idx2: Ui — Layout 이후
+            SystemMeta {
+                label: Some(UiSystem::LABEL),
+                after: vec![LayoutSystem::LABEL],
+                ..Default::default()
+            },
+            // idx3: Layout
+            SystemMeta {
+                label: Some(LayoutSystem::LABEL),
+                ..Default::default()
+            },
+        ];
+        let order = compute_order(&metas).unwrap();
+        let pos = |i: usize| order.iter().position(|&x| x == i).unwrap();
+        assert!(
+            pos(1) < pos(0),
+            "AnimationSystem::LABEL must order before StateMachineSystem::LABEL"
+        );
+        assert!(
+            pos(3) < pos(2),
+            "LayoutSystem::LABEL must order before UiSystem::LABEL"
+        );
+    }
 }
