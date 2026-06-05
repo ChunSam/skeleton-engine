@@ -14,10 +14,10 @@
 //! across the `SceneCmd::Replace` world reset via `App::register_persistent`.
 
 use engine::{
-    Anchor, App, Button, CheckBox, Entity, Events, GameState, ImeConfig, InputState, KeyCode,
-    Label, LayoutDir, LayoutSystem, LocaleResource, LocalizationSystem, LocalizedText, Panel,
-    Scene, SceneChange, SceneCmd, ScrollView, ShouldQuit, Slider, System, TextAlign, TextInput,
-    UiEvent, UiNode, UiSystem, WindowConfig, World,
+    Anchor, App, Button, CheckBox, Color, Entity, Events, GameState, ImeConfig, InputState,
+    KeyCode, Label, LayoutDir, LayoutSystem, LocaleResource, LocalizationSystem, LocalizedText,
+    Panel, Scene, SceneChange, SceneCmd, ScrollView, ShouldQuit, Slider, System, TextAlign,
+    TextInput, UiEvent, UiNode, UiSystem, WindowConfig, World,
 };
 
 // The engine's `AudioManager` / `AudioEffect` are native-only (`cfg(not(wasm32))`),
@@ -243,10 +243,10 @@ fn spawn_loc_button(
     let entity = world.spawn();
     world.add_component(entity, node);
     let mut button = Button::new("");
-    button.color_normal = [0.06, 0.12, 0.18, 1.0];
-    button.color_hovered = [0.10, 0.26, 0.34, 1.0];
-    button.color_pressed = [0.90, 0.62, 0.16, 1.0];
-    button.text_color = [235, 240, 245, 255];
+    button.color_normal = Color::rgba(0.06, 0.12, 0.18, 1.0);
+    button.color_hovered = Color::rgba(0.10, 0.26, 0.34, 1.0);
+    button.color_pressed = Color::rgba(0.90, 0.62, 0.16, 1.0);
+    button.text_color = Color::rgba_u8(235, 240, 245, 255);
     button.font_size = 20.0;
     world.add_component(entity, button);
     world.add_component(entity, LocalizedText::new(key));
@@ -263,9 +263,9 @@ fn spawn_plain_button(
     let entity = world.spawn();
     world.add_component(entity, node);
     let mut button = Button::new(label);
-    button.color_normal = [0.10, 0.10, 0.16, 1.0];
-    button.color_hovered = [0.20, 0.22, 0.30, 1.0];
-    button.color_pressed = [0.32, 0.40, 0.60, 1.0];
+    button.color_normal = Color::rgba(0.10, 0.10, 0.16, 1.0);
+    button.color_hovered = Color::rgba(0.20, 0.22, 0.30, 1.0);
+    button.color_pressed = Color::rgba(0.32, 0.40, 0.60, 1.0);
     button.font_size = 18.0;
     world.add_component(entity, button);
     entities.push(entity);
@@ -618,7 +618,7 @@ impl Scene for SettingsScene {
         let mut p = Panel::new(LayoutDir::Vertical)
             .with_gap(10.0)
             .with_padding(16.0);
-        p.background_color = [0.06, 0.08, 0.12, 0.95];
+        p.background_color = Color::rgba(0.06, 0.08, 0.12, 0.95);
         p.children = vec![
             name_label,
             name_input,
@@ -876,7 +876,7 @@ impl Scene for DialogueScene {
         let mut p = Panel::new(LayoutDir::Vertical)
             .with_padding(20.0)
             .with_gap(12.0);
-        p.background_color = [0.05, 0.07, 0.11, 0.96];
+        p.background_color = Color::rgba(0.05, 0.07, 0.11, 0.96);
         world.add_component(panel, p);
         self.entities.push(panel);
 

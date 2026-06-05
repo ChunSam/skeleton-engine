@@ -20,8 +20,8 @@
 //! (Native-only: the `physics` module is gated off wasm, like the platformer example.)
 
 use engine::{
-    App, Camera, DrawText, Entity, InputState, KeyCode, PhysicsBody, PhysicsSystem, PhysicsWorld,
-    ShouldQuit, Sprite, System, TextQueue, Transform, WindowConfig, World,
+    App, Camera, Color, DrawText, Entity, InputState, KeyCode, PhysicsBody, PhysicsSystem,
+    PhysicsWorld, ShouldQuit, Sprite, System, TextQueue, Transform, WindowConfig, World,
 };
 use glam::Vec2;
 use rapier2d::na as nalgebra;
@@ -61,7 +61,7 @@ const BLOCK_COLORS: [[f32; 3]; BLOCK_COUNT] = [
     [0.30, 0.65, 0.95],
     [0.85, 0.45, 0.85],
 ];
-const KNOCKED_COLOR: [f32; 4] = [0.40, 0.40, 0.45, 1.0];
+const KNOCKED_COLOR: Color = Color::rgba(0.40, 0.40, 0.45, 1.0);
 
 /// A dynamic body whose position/rotation we restore on reset.
 struct Dynamic {
@@ -115,7 +115,7 @@ impl CraneSystem {
         for b in &mut self.blocks {
             b.knocked = false;
             if let Some(sprite) = world.get_mut::<Sprite>(b.entity) {
-                sprite.color = [b.color[0], b.color[1], b.color[2], 1.0];
+                sprite.color = Color::rgb(b.color[0], b.color[1], b.color[2]);
             }
         }
         self.won = false;

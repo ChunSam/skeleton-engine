@@ -7,7 +7,7 @@ use engine::{
     ecs::{System, World},
     renderer::{DrawRect, TextQueue, UiQueue},
     resources::{ViewportSize, WindowConfig},
-    App, AssetServer, LoadProgress, Scene, SceneChange, SceneCmd,
+    App, AssetServer, Color, LoadProgress, Scene, SceneChange, SceneCmd,
 };
 
 // ─── 로딩 씬 ─────────────────────────────────────────────────────────────────
@@ -79,7 +79,7 @@ impl System for LoadingUpdateSystem {
                 y: bar_y - 2.0,
                 w: bar_w + 4.0,
                 h: bar_h + 4.0,
-                color: [0.15, 0.15, 0.15, 1.0],
+                color: Color::rgba(0.15, 0.15, 0.15, 1.0),
                 z: 0.5,
             });
             // 진행 바
@@ -88,7 +88,7 @@ impl System for LoadingUpdateSystem {
                 y: bar_y,
                 w: (bar_w * progress).max(0.0),
                 h: bar_h,
-                color: [0.3, 0.8, 0.3, 1.0],
+                color: Color::rgba(0.3, 0.8, 0.3, 1.0),
                 z: 0.6,
             });
         }

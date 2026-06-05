@@ -8,7 +8,7 @@
 /// 데스크톱에서는 마우스 클릭이 터치로 에뮬레이션되어 조이스틱을 조작할 수 있다.
 use engine::{
     ecs::{Entity, System, World},
-    App, Camera, DebugDraw, Sprite, TouchState, Transform, VirtualJoystick, WindowConfig,
+    App, Camera, Color, DebugDraw, Sprite, TouchState, Transform, VirtualJoystick, WindowConfig,
 };
 use glam::Vec2;
 
@@ -190,7 +190,7 @@ fn main() {
     app.world.add_component(
         player,
         Sprite {
-            color: [0.3, 0.6, 1.0, 1.0],
+            color: Color::rgba(0.3, 0.6, 1.0, 1.0),
             ..Default::default()
         },
     );
@@ -213,7 +213,7 @@ fn main() {
             app.world.add_component(
                 bg,
                 Sprite {
-                    color: [shade, shade, shade + 0.02, 1.0],
+                    color: Color::rgba(shade, shade, shade + 0.02, 1.0),
                     ..Default::default()
                 },
             );

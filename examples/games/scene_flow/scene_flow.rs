@@ -1,7 +1,7 @@
 use engine::{
-    Anchor, App, Button, ButtonState, Entity, Events, GameState, InputState, KeyCode, Label, Scene,
-    SceneChange, SceneCmd, ShouldQuit, System, TextAlign, UiEvent, UiImageQueue, UiNode, UiQueue,
-    UiSystem, Vec2, ViewportSize, WindowConfig, World,
+    Anchor, App, Button, ButtonState, Color, Entity, Events, GameState, InputState, KeyCode, Label,
+    Scene, SceneChange, SceneCmd, ShouldQuit, System, TextAlign, UiEvent, UiImageQueue, UiNode,
+    UiQueue, UiSystem, Vec2, ViewportSize, WindowConfig, World,
 };
 use engine::{DrawImage, DrawRect};
 
@@ -175,10 +175,10 @@ fn add_button(
             .with_z(0.94),
     );
     let mut button = Button::new(label);
-    button.color_normal = [0.035, 0.13, 0.16, 0.98];
-    button.color_hovered = [0.07, 0.30, 0.34, 1.0];
-    button.color_pressed = [0.90, 0.62, 0.16, 1.0];
-    button.text_color = [255, 235, 170, 255];
+    button.color_normal = Color::rgba(0.035, 0.13, 0.16, 0.98);
+    button.color_hovered = Color::rgba(0.07, 0.30, 0.34, 1.0);
+    button.color_pressed = Color::rgba(0.90, 0.62, 0.16, 1.0);
+    button.text_color = Color::rgba_u8(255, 235, 170, 255);
     button.font_size = 28.0;
     world.add_component(entity, button);
     entities.push(entity);
@@ -201,7 +201,7 @@ fn add_modal_scrim(world: &mut World, entities: &mut Vec<Entity>) {
     );
     let mut scrim = Button::new("");
     scrim.state = ButtonState::Disabled;
-    scrim.color_disabled = [0.0, 0.018, 0.026, 0.96];
+    scrim.color_disabled = Color::rgba(0.0, 0.018, 0.026, 0.96);
     world.add_component(entity, scrim);
     entities.push(entity);
 }

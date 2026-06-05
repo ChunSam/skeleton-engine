@@ -9,6 +9,7 @@ use wgpu::{
     RenderPassDescriptor, StoreOp, TextureFormat, TextureView,
 };
 
+use crate::color::Color as EngineColor;
 use crate::ecs::World;
 use crate::resources::DisplayScaleFactor;
 
@@ -25,7 +26,7 @@ pub struct DrawText {
     /// 폰트 픽셀 크기
     pub size: f32,
     /// RGBA (0~255)
-    pub color: [u8; 4],
+    pub color: EngineColor,
     pub align: TextAlign,
     /// `[color=#RRGGBB]...[/color]`, `[b]...[/b]`, `[i]...[/i]` 태그를 해석한다.
     pub rich: bool,
@@ -36,13 +37,18 @@ pub struct DrawText {
 }
 
 impl DrawText {
-    pub fn new(text: impl Into<String>, position: Vec2, size: f32, color: [u8; 4]) -> Self {
+    pub fn new(
+        text: impl Into<String>,
+        position: Vec2,
+        size: f32,
+        color: impl Into<EngineColor>,
+    ) -> Self {
         Self {
             text: text.into(),
             position,
             bounds: None,
             size,
-            color,
+            color: color.into(),
             align: TextAlign::Left,
             rich: false,
             single_line_caret: None,
@@ -323,7 +329,10 @@ impl TextRenderer {
                         .bounds
                         .map_or(h as i32, |b| (d.position.y + b.y).ceil() as i32),
                 },
-                default_color: Color::rgba(d.color[0], d.color[1], d.color[2], d.color[3]),
+                default_color: {
+                    let [r, g, b, a] = d.color.to_u8();
+                    Color::rgba(r, g, b, a)
+                },
                 custom_glyphs: &[],
             })
             .collect();
@@ -514,7 +523,7 @@ mod tests {
         assert_eq!(d.position, Vec2::new(10.0, 20.0));
         assert_eq!(d.bounds, Some(Vec2::new(120.0, 48.0)));
         assert_eq!(d.size, 24.0);
-        assert_eq!(d.color, [255, 0, 0, 255]);
+        assert_eq!(d.color, EngineColor::from([255u8, 0, 0, 255]));
         assert_eq!(d.align, TextAlign::Center);
         assert!(d.rich);
     }

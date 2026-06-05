@@ -1,3 +1,5 @@
+use crate::color::Color;
+
 /// 텍스트 입력 위젯 컴포넌트.
 ///
 /// `UiNode` 와 함께 엔티티에 붙여 사용한다.
@@ -15,9 +17,9 @@ pub struct TextInput {
     /// 현재 IME 조합 중인 문자열. 커밋 전 미리보기로만 렌더링된다.
     pub preedit: String,
 
-    pub color_normal: [f32; 4],
-    pub color_focused: [f32; 4],
-    pub text_color: [u8; 4],
+    pub color_normal: Color,
+    pub color_focused: Color,
+    pub text_color: Color,
     pub font_size: f32,
 }
 
@@ -32,9 +34,9 @@ impl TextInput {
             cursor_blink: 0.0,
             cursor_visible: true,
             preedit: String::new(),
-            color_normal: [0.15, 0.15, 0.20, 1.0],
-            color_focused: [0.20, 0.25, 0.35, 1.0],
-            text_color: [220, 220, 220, 255],
+            color_normal: Color::rgba(0.15, 0.15, 0.20, 1.0),
+            color_focused: Color::rgba(0.20, 0.25, 0.35, 1.0),
+            text_color: Color::rgba_u8(220, 220, 220, 255),
             font_size: 16.0,
         }
     }
@@ -49,7 +51,7 @@ impl TextInput {
         self
     }
 
-    pub fn current_color(&self) -> [f32; 4] {
+    pub fn current_color(&self) -> Color {
         if self.focused {
             self.color_focused
         } else {

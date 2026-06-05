@@ -22,7 +22,7 @@
 //! Controls: WASD / arrows to move · Space to skip the cutscene · R to replay · Esc to quit.
 
 use engine::{
-    App, Camera, CameraTarget, DrawText, Easing, Entity, InputState, KeyCode, RenderLayer,
+    App, Camera, CameraTarget, Color, DrawText, Easing, Entity, InputState, KeyCode, RenderLayer,
     ShouldQuit, Sprite, System, TextQueue, Timeline, TimelineSystem, Transform, WindowConfig,
     World,
 };
@@ -229,7 +229,7 @@ impl System for CutsceneSystem {
             } else {
                 0.3
             };
-            s.color[3] = pulse;
+            s.color.a = pulse;
         }
 
         // ── HUD (screen-space, so it's unaffected by the cutscene camera) ────────
@@ -269,7 +269,14 @@ impl System for CutsceneSystem {
 }
 
 /// Spawn a colored box centered at `pos` with full size `size` on render-`layer`.
-fn spawn_box(app: &mut App, pos: Vec2, size: Vec2, color: [f32; 4], z: f32, layer: i32) -> Entity {
+fn spawn_box(
+    app: &mut App,
+    pos: Vec2,
+    size: Vec2,
+    color: impl Into<Color>,
+    z: f32,
+    layer: i32,
+) -> Entity {
     let e = app.world.spawn();
     app.world.add_component(
         e,
@@ -283,7 +290,7 @@ fn spawn_box(app: &mut App, pos: Vec2, size: Vec2, color: [f32; 4], z: f32, laye
     app.world.add_component(
         e,
         Sprite {
-            color,
+            color: color.into(),
             ..Default::default()
         },
     );
@@ -379,7 +386,7 @@ fn main() {
     app.world.add_component(
         overlay,
         Sprite {
-            color: [0.0, 0.0, 0.0, 0.0],
+            color: Color::rgba(0.0, 0.0, 0.0, 0.0),
             ..Default::default()
         },
     );

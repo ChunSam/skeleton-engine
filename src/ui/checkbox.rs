@@ -11,13 +11,15 @@
 /// world.insert(entity, UiNode::new(50.0, 200.0, 160.0, 24.0));
 /// world.insert(entity, CheckBox::new("사운드 켜기"));
 /// ```
+use crate::color::Color;
+
 pub struct CheckBox {
     pub checked: bool,
     pub label: String,
-    pub checked_color: [f32; 4],
-    pub unchecked_color: [f32; 4],
-    pub border_color: [f32; 4],
-    pub text_color: [u8; 4],
+    pub checked_color: Color,
+    pub unchecked_color: Color,
+    pub border_color: Color,
+    pub text_color: Color,
     pub font_size: f32,
     /// 체크박스 정사각형 한 변의 크기(픽셀). UiNode 높이보다 작아야 한다.
     pub box_size: f32,
@@ -28,10 +30,10 @@ impl CheckBox {
         Self {
             checked: false,
             label: label.into(),
-            checked_color: [0.28, 0.56, 0.90, 1.0],
-            unchecked_color: [0.18, 0.18, 0.22, 1.0],
-            border_color: [0.50, 0.52, 0.62, 1.0],
-            text_color: [210, 210, 220, 255],
+            checked_color: Color::rgba(0.28, 0.56, 0.90, 1.0),
+            unchecked_color: Color::rgba(0.18, 0.18, 0.22, 1.0),
+            border_color: Color::rgba(0.50, 0.52, 0.62, 1.0),
+            text_color: Color::rgba_u8(210, 210, 220, 255),
             font_size: 16.0,
             box_size: 20.0,
         }

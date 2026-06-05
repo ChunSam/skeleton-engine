@@ -1,10 +1,11 @@
 use glam::Vec2;
 use rand::Rng;
 
+use crate::color::Color;
 use crate::components::{Sprite, Transform};
 use crate::ecs::{Entity, System, World};
 
-type ParticleUpdate = (Entity, f32, f32, Vec2, [f32; 4], [f32; 4]);
+type ParticleUpdate = (Entity, f32, f32, Vec2, Color, Color);
 type EmitterSnapshot = (
     Entity,
     Vec2,
@@ -13,22 +14,13 @@ type EmitterSnapshot = (
     f32,
     Vec2,
     Vec2,
-    [f32; 4],
-    [f32; 4],
+    Color,
+    Color,
     Vec2,
     Option<String>,
 );
 // (entity, pos, lifetime, velocity_spread, color_start, color_end, size, texture)
-type BurstSnapshot = (
-    Entity,
-    Vec2,
-    f32,
-    Vec2,
-    [f32; 4],
-    [f32; 4],
-    Vec2,
-    Option<String>,
-);
+type BurstSnapshot = (Entity, Vec2, f32, Vec2, Color, Color, Vec2, Option<String>);
 
 // ─── 컴포넌트 ─────────────────────────────────────────────────────────────────
 
@@ -45,9 +37,9 @@ pub struct ParticleEmitter {
     /// 속도에 추가되는 랜덤 범위 (±각 축)
     pub velocity_spread: Vec2,
     /// 생성 시 색상 (RGBA)
-    pub color_start: [f32; 4],
+    pub color_start: Color,
     /// 소멸 시 색상 (RGBA) — 생존 시간에 따라 보간
-    pub color_end: [f32; 4],
+    pub color_end: Color,
     /// 파티클 크기 (픽셀)
     pub size: Vec2,
     /// 텍스처 경로. None이면 단색 사각형.
@@ -65,8 +57,8 @@ impl Default for ParticleEmitter {
             lifetime: 1.0,
             velocity: Vec2::new(0.0, -50.0),
             velocity_spread: Vec2::new(20.0, 10.0),
-            color_start: [1.0, 1.0, 1.0, 1.0],
-            color_end: [1.0, 1.0, 1.0, 0.0],
+            color_start: Color::WHITE,
+            color_end: Color::rgba(1.0, 1.0, 1.0, 0.0),
             size: Vec2::splat(8.0),
             texture: None,
             emit: true,
@@ -90,8 +82,8 @@ impl ParticleEmitter {
             lifetime: 0.5,
             velocity: Vec2::ZERO,
             velocity_spread: Vec2::splat(160.0),
-            color_start: [1.0, 0.85, 0.35, 1.0],
-            color_end: [1.0, 0.25, 0.1, 0.0],
+            color_start: Color::rgb(1.0, 0.85, 0.35),
+            color_end: Color::rgba(1.0, 0.25, 0.1, 0.0),
             size: Vec2::splat(6.0),
             texture: None,
             emit: false,
@@ -105,8 +97,8 @@ pub struct Particle {
     pub lifetime: f32,
     pub age: f32,
     pub velocity: Vec2,
-    pub color_start: [f32; 4],
-    pub color_end: [f32; 4],
+    pub color_start: Color,
+    pub color_end: Color,
 }
 
 /// 일회성 파티클 버스트 마커.
@@ -146,12 +138,12 @@ impl System for ParticleSystem {
                 tr.position += velocity * dt;
             }
             let t = new_age / lifetime;
-            let lerped = [
-                color_start[0] + (color_end[0] - color_start[0]) * t,
-                color_start[1] + (color_end[1] - color_start[1]) * t,
-                color_start[2] + (color_end[2] - color_start[2]) * t,
-                color_start[3] + (color_end[3] - color_start[3]) * t,
-            ];
+            let lerped = Color::rgba(
+                color_start.r + (color_end.r - color_start.r) * t,
+                color_start.g + (color_end.g - color_start.g) * t,
+                color_start.b + (color_end.b - color_start.b) * t,
+                color_start.a + (color_end.a - color_start.a) * t,
+            );
             if let Some(sp) = world.get_mut::<Sprite>(entity) {
                 sp.color = lerped;
             }
@@ -287,8 +279,8 @@ fn spawn_particle(
     texture: &Option<String>,
     velocity: Vec2,
     lifetime: f32,
-    color_start: [f32; 4],
-    color_end: [f32; 4],
+    color_start: Color,
+    color_end: Color,
 ) {
     let pe = world.spawn();
     world.add_component(

@@ -322,9 +322,9 @@ impl SpriteRenderer {
             let blend = world.get::<BlendUv>(entity).copied();
             let make_instance = |model: [[f32; 4]; 4]| match blend {
                 Some(b) if b.weight > 0.0 => {
-                    InstanceRaw::blended(model, sprite.color, uv, b.to, b.weight)
+                    InstanceRaw::blended(model, sprite.color.to_array(), uv, b.to, b.weight)
                 }
-                _ => InstanceRaw::single(model, sprite.color, uv),
+                _ => InstanceRaw::single(model, sprite.color.to_array(), uv),
             };
             let layer = world
                 .get::<crate::components::RenderLayer>(entity)
@@ -383,7 +383,7 @@ impl SpriteRenderer {
         let atlas_entries: Vec<(
             crate::ecs::Entity,
             u32,
-            [f32; 4],
+            crate::color::Color,
             crate::asset::Handle<crate::atlas::TextureAtlas>,
         )> = world
             .query::<AtlasSprite>()
@@ -422,7 +422,11 @@ impl SpriteRenderer {
                                 gt.z,
                                 order,
                                 tex_key,
-                                InstanceRaw::single(gt.to_matrix().to_cols_array_2d(), *color, uv),
+                                InstanceRaw::single(
+                                    gt.to_matrix().to_cols_array_2d(),
+                                    color.to_array(),
+                                    uv,
+                                ),
                             ));
                         } else if let Some(tr) = world.get::<Transform>(*entity) {
                             if !is_visible(tr.position, tr.scale, tr.rotation) {
@@ -440,7 +444,11 @@ impl SpriteRenderer {
                                 tr.z,
                                 order,
                                 tex_key,
-                                InstanceRaw::single(tr.to_matrix().to_cols_array_2d(), *color, uv),
+                                InstanceRaw::single(
+                                    tr.to_matrix().to_cols_array_2d(),
+                                    color.to_array(),
+                                    uv,
+                                ),
                             ));
                         }
                     }

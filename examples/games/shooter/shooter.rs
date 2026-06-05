@@ -15,9 +15,9 @@
 //! Esc quit.
 
 use engine::{
-    App, Camera, Collider, CollisionGridSystem, CollisionLayer, DrawText, Entity, InputState,
-    KeyCode, ParticleBurst, ParticleEmitter, ParticleSystem, Pool, ShouldQuit, SpatialGrid, Sprite,
-    System, TextQueue, Timer, Transform, WindowConfig, World,
+    App, Camera, Collider, CollisionGridSystem, CollisionLayer, Color, DrawText, Entity,
+    InputState, KeyCode, ParticleBurst, ParticleEmitter, ParticleSystem, Pool, ShouldQuit,
+    SpatialGrid, Sprite, System, TextQueue, Timer, Transform, WindowConfig, World,
 };
 // The engine's `AudioManager` is native-only (`cfg(not(wasm32))`), so all audio
 // wiring is target-gated to keep the wasm example build green.
@@ -524,7 +524,7 @@ impl System for CollisionSystem {
 
 /// One-shot explosion: a dedicated entity carrying a burst emitter that the
 /// engine's `ParticleSystem` drains and despawns next tick.
-fn spawn_explosion(world: &mut World, pos: Vec2, color: [f32; 4]) {
+fn spawn_explosion(world: &mut World, pos: Vec2, color: impl Into<Color>) {
     let e = world.spawn();
     world.add_component(
         e,
@@ -536,7 +536,7 @@ fn spawn_explosion(world: &mut World, pos: Vec2, color: [f32; 4]) {
         },
     );
     let mut emitter = ParticleEmitter::for_burst();
-    emitter.color_start = color;
+    emitter.color_start = color.into();
     emitter.lifetime = 0.45;
     emitter.size = Vec2::splat(5.0);
     emitter.velocity_spread = Vec2::splat(190.0);

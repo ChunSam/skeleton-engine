@@ -2,6 +2,7 @@ use glam::{Mat4, Quat, Vec2, Vec3};
 use serde::{Deserialize, Serialize};
 
 use crate::asset::{Handle, ImageAsset};
+use crate::color::Color;
 use crate::reflect::{Reflect, ReflectValue};
 
 // ─── 렌더 컴포넌트 ────────────────────────────────────────────────────────────
@@ -54,7 +55,7 @@ pub struct Sprite {
     /// 텍스처 파일 경로 (None이면 단색 사각형). RON 직렬화 지원.
     pub texture: Option<String>,
     /// RGBA 색상 배율 (흰색 = 텍스처 원본)
-    pub color: [f32; 4],
+    pub color: Color,
     /// AssetServer를 통해 로드한 이미지 핸들. 직렬화 제외 — 런타임 전용.
     /// `texture`보다 우선 적용된다.
     #[serde(skip)]
@@ -65,7 +66,7 @@ impl Sprite {
     pub fn colored(r: f32, g: f32, b: f32) -> Self {
         Self {
             texture: None,
-            color: [r, g, b, 1.0],
+            color: Color::rgb(r, g, b),
             image_handle: None,
         }
     }
@@ -73,7 +74,7 @@ impl Sprite {
     pub fn textured(path: impl Into<String>) -> Self {
         Self {
             texture: Some(path.into()),
-            color: [1.0; 4],
+            color: Color::WHITE,
             image_handle: None,
         }
     }
@@ -82,7 +83,7 @@ impl Sprite {
     pub fn with_handle(handle: Handle<ImageAsset>) -> Self {
         Self {
             texture: None,
-            color: [1.0; 4],
+            color: Color::WHITE,
             image_handle: Some(handle),
         }
     }
@@ -94,7 +95,7 @@ impl Sprite {
     ) -> Self {
         Self {
             texture: Some(path.into()),
-            color: [1.0; 4],
+            color: Color::WHITE,
             image_handle: handle,
         }
     }
@@ -178,7 +179,7 @@ impl Reflect for Transform {
 impl Reflect for Sprite {
     fn fields(&self) -> Vec<(&'static str, ReflectValue)> {
         vec![
-            ("color", ReflectValue::Color(self.color)),
+            ("color", ReflectValue::Color(self.color.to_array())),
             (
                 "texture",
                 ReflectValue::String(self.texture.clone().unwrap_or_default()),
@@ -188,7 +189,7 @@ impl Reflect for Sprite {
     fn set_field(&mut self, name: &str, val: ReflectValue) -> bool {
         match (name, val) {
             ("color", ReflectValue::Color(c)) => {
-                self.color = c;
+                self.color = Color::from(c);
                 true
             }
             ("texture", ReflectValue::String(s)) => {
@@ -240,7 +241,7 @@ pub struct RenderLayer(pub i32);
 /// app.world.insert_resource(engine::AmbientLight { intensity: 0.05, ..Default::default() });
 /// app.world.add_component(e, Transform { position: Vec2::new(400.0, 300.0), ..Default::default() });
 /// app.world.add_component(e, PointLight {
-///     color: [1.0, 0.9, 0.6],
+///     color: engine::Color::rgb(1.0, 0.9, 0.6),
 ///     radius: 300.0,
 ///     intensity: 1.5,
 ///     ..Default::default()
@@ -249,7 +250,7 @@ pub struct RenderLayer(pub i32);
 #[derive(Debug, Clone, Copy)]
 pub struct PointLight {
     /// RGB 색상 (0.0~1.0)
-    pub color: [f32; 3],
+    pub color: Color,
     /// 월드 좌표 픽셀 반경
     pub radius: f32,
     /// 밝기 배율
@@ -261,7 +262,7 @@ pub struct PointLight {
 impl Default for PointLight {
     fn default() -> Self {
         Self {
-            color: [1.0, 1.0, 1.0],
+            color: Color::WHITE,
             radius: 200.0,
             intensity: 1.0,
             light_height: 0.15,

@@ -1,5 +1,7 @@
 use glam::Vec2;
 
+use crate::color::Color;
+
 // ─── 패닉 복구 ──────────────────────────────────────────────────────────────
 
 /// 패닉이 발생해 비활성화된 시스템 목록.
@@ -27,7 +29,7 @@ pub struct PanickedSystems {
 pub struct DebugRect {
     pub min: Vec2,
     pub max: Vec2,
-    pub color: [f32; 4],
+    pub color: Color,
     pub z: f32,
 }
 
@@ -43,30 +45,22 @@ pub struct DebugDrawQueue {
 #[derive(Debug, Clone)]
 pub enum DebugShape {
     /// 축 정렬 사각형 (외곽선)
-    Rect {
-        min: Vec2,
-        max: Vec2,
-        color: [f32; 4],
-    },
+    Rect { min: Vec2, max: Vec2, color: Color },
     /// 직선 (시작점 → 끝점, 두께 thickness px)
     Line {
         start: Vec2,
         end: Vec2,
-        color: [f32; 4],
+        color: Color,
         thickness: f32,
     },
     /// 원 (24각형 근사)
     Circle {
         center: Vec2,
         radius: f32,
-        color: [f32; 4],
+        color: Color,
     },
     /// 십자 마커 (두 직선 교차)
-    Cross {
-        pos: Vec2,
-        size: f32,
-        color: [f32; 4],
-    },
+    Cross { pos: Vec2, size: f32, color: Color },
 }
 
 /// 매 프레임 디버그 도형을 수집하는 리소스.
@@ -93,42 +87,50 @@ impl DebugDraw {
     }
 
     /// 축 정렬 사각형 외곽선을 그린다.
-    pub fn rect(&mut self, min: Vec2, max: Vec2, color: [f32; 4]) {
-        self.shapes.push(DebugShape::Rect { min, max, color });
+    pub fn rect(&mut self, min: Vec2, max: Vec2, color: impl Into<Color>) {
+        self.shapes.push(DebugShape::Rect {
+            min,
+            max,
+            color: color.into(),
+        });
     }
 
     /// 직선을 그린다 (기본 두께 1.5px).
-    pub fn line(&mut self, start: Vec2, end: Vec2, color: [f32; 4]) {
+    pub fn line(&mut self, start: Vec2, end: Vec2, color: impl Into<Color>) {
         self.shapes.push(DebugShape::Line {
             start,
             end,
-            color,
+            color: color.into(),
             thickness: 1.5,
         });
     }
 
     /// 두께를 지정해 직선을 그린다.
-    pub fn line_thick(&mut self, start: Vec2, end: Vec2, color: [f32; 4], thickness: f32) {
+    pub fn line_thick(&mut self, start: Vec2, end: Vec2, color: impl Into<Color>, thickness: f32) {
         self.shapes.push(DebugShape::Line {
             start,
             end,
-            color,
+            color: color.into(),
             thickness,
         });
     }
 
     /// 원을 그린다 (24각형 근사).
-    pub fn circle(&mut self, center: Vec2, radius: f32, color: [f32; 4]) {
+    pub fn circle(&mut self, center: Vec2, radius: f32, color: impl Into<Color>) {
         self.shapes.push(DebugShape::Circle {
             center,
             radius,
-            color,
+            color: color.into(),
         });
     }
 
     /// 십자 마커를 그린다.
-    pub fn cross(&mut self, pos: Vec2, size: f32, color: [f32; 4]) {
-        self.shapes.push(DebugShape::Cross { pos, size, color });
+    pub fn cross(&mut self, pos: Vec2, size: f32, color: impl Into<Color>) {
+        self.shapes.push(DebugShape::Cross {
+            pos,
+            size,
+            color: color.into(),
+        });
     }
 
     /// 이번 프레임의 모든 도형을 지운다. App이 렌더링 후 자동 호출.
@@ -357,14 +359,14 @@ impl Default for CullConfig {
 /// # use engine::{App, AmbientLight};
 /// # let mut app = App::new();
 /// app.world.insert_resource(AmbientLight {
-///     color: [0.2, 0.2, 0.3],
+///     color: engine::Color::rgb(0.2, 0.2, 0.3),
 ///     intensity: 0.05,
 /// });
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub struct AmbientLight {
     /// 환경광 RGB 색상 (0.0~1.0)
-    pub color: [f32; 3],
+    pub color: Color,
     /// 0.0 = 완전 어두움, 1.0 = 원본 밝기
     pub intensity: f32,
 }
@@ -372,7 +374,7 @@ pub struct AmbientLight {
 impl Default for AmbientLight {
     fn default() -> Self {
         Self {
-            color: [1.0, 1.0, 1.0],
+            color: Color::WHITE,
             intensity: 0.1,
         }
     }
@@ -462,7 +464,7 @@ pub struct FadeTransition {
     /// 초당 알파 변화량
     pub speed: f32,
     /// 오버레이 RGB 색상
-    pub color: [f32; 3],
+    pub color: Color,
     /// 페이드 완료 여부 (App이 매 프레임 업데이트)
     pub finished: bool,
 }
@@ -474,7 +476,7 @@ impl FadeTransition {
             alpha: 0.0,
             target_alpha: 1.0,
             speed: 1.0 / duration.max(0.001),
-            color: [0.0, 0.0, 0.0],
+            color: Color::BLACK,
             finished: false,
         }
     }
@@ -485,14 +487,14 @@ impl FadeTransition {
             alpha: 1.0,
             target_alpha: 0.0,
             speed: 1.0 / duration.max(0.001),
-            color: [0.0, 0.0, 0.0],
+            color: Color::BLACK,
             finished: false,
         }
     }
 
     /// 커스텀 색상으로 페이드
     pub fn with_color(mut self, r: f32, g: f32, b: f32) -> Self {
-        self.color = [r, g, b];
+        self.color = Color::rgb(r, g, b);
         self
     }
 
@@ -518,7 +520,7 @@ impl Default for FadeTransition {
             alpha: 0.0,
             target_alpha: 0.0,
             speed: 1.0,
-            color: [0.0, 0.0, 0.0],
+            color: Color::BLACK,
             finished: true,
         }
     }

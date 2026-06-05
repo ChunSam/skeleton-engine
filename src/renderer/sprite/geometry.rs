@@ -81,11 +81,19 @@ impl InstanceRaw {
     }
 
     pub(super) fn from(transform: &Transform, sprite: &Sprite, uv: UvRect) -> Self {
-        Self::single(transform.to_matrix().to_cols_array_2d(), sprite.color, uv)
+        Self::single(
+            transform.to_matrix().to_cols_array_2d(),
+            sprite.color.to_array(),
+            uv,
+        )
     }
 
     pub(super) fn from_global(gt: &GlobalTransform, sprite: &Sprite, uv: UvRect) -> Self {
-        Self::single(gt.to_matrix().to_cols_array_2d(), sprite.color, uv)
+        Self::single(
+            gt.to_matrix().to_cols_array_2d(),
+            sprite.color.to_array(),
+            uv,
+        )
     }
 
     pub(super) fn layout() -> wgpu::VertexBufferLayout<'static> {

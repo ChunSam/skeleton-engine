@@ -18,7 +18,7 @@
 //! progress (furthest level reached) is saved and resumed on the next launch.
 
 use engine::{
-    save, App, Camera, DebugDrawQueue, DebugRect, DrawText, History, InputState, KeyCode,
+    save, App, Camera, Color, DebugDrawQueue, DebugRect, DrawText, History, InputState, KeyCode,
     ShouldQuit, System, TextQueue, WindowConfig, World,
 };
 use glam::{IVec2, Vec2};
@@ -361,7 +361,7 @@ impl System for RenderSystem {
         let level = s.level();
 
         let mut rects: Vec<DebugRect> = Vec::new();
-        let push = |rects: &mut Vec<DebugRect>, c: IVec2, inset: f32, color: [f32; 4], z: f32| {
+        let push = |rects: &mut Vec<DebugRect>, c: IVec2, inset: f32, color: Color, z: f32| {
             let origin = cell_origin(level, c) + Vec2::splat(inset);
             let size = TILE - inset * 2.0;
             rects.push(DebugRect {
@@ -377,24 +377,30 @@ impl System for RenderSystem {
             for x in 0..level.cols {
                 let c = IVec2::new(x, y);
                 if !level.is_wall(c) {
-                    push(&mut rects, c, 0.0, [0.13, 0.15, 0.20, 1.0], 0.0);
+                    push(&mut rects, c, 0.0, Color::rgba(0.13, 0.15, 0.20, 1.0), 0.0);
                 }
             }
         }
         // Walls.
         for &w in &level.walls {
-            push(&mut rects, w, 0.0, [0.30, 0.33, 0.42, 1.0], 0.1);
+            push(&mut rects, w, 0.0, Color::rgba(0.30, 0.33, 0.42, 1.0), 0.1);
         }
         // Goals.
         for &g in &level.goals {
-            push(&mut rects, g, TILE * 0.32, [0.95, 0.78, 0.30, 0.85], 0.2);
+            push(
+                &mut rects,
+                g,
+                TILE * 0.32,
+                Color::rgba(0.95, 0.78, 0.30, 0.85),
+                0.2,
+            );
         }
         // Boxes — green when seated on a goal.
         for &b in &s.state.boxes {
             let color = if level.is_goal(b) {
-                [0.40, 0.85, 0.45, 1.0]
+                Color::rgba(0.40, 0.85, 0.45, 1.0)
             } else {
-                [0.75, 0.52, 0.30, 1.0]
+                Color::rgba(0.75, 0.52, 0.30, 1.0)
             };
             push(&mut rects, b, TILE * 0.12, color, 0.3);
         }
@@ -403,7 +409,7 @@ impl System for RenderSystem {
             &mut rects,
             s.state.player,
             TILE * 0.18,
-            [0.40, 0.70, 0.95, 1.0],
+            Color::rgba(0.40, 0.70, 0.95, 1.0),
             0.4,
         );
 

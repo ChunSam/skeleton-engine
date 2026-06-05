@@ -1,5 +1,6 @@
 use crate::animation::player::UvRect;
 use crate::asset::{Handle, ImageAsset};
+use crate::color::Color;
 
 #[derive(Clone, Copy)]
 pub struct DrawRect {
@@ -7,18 +8,18 @@ pub struct DrawRect {
     pub y: f32,
     pub w: f32,
     pub h: f32,
-    pub color: [f32; 4],
+    pub color: Color,
     pub z: f32,
 }
 
 impl DrawRect {
-    pub fn new(x: f32, y: f32, w: f32, h: f32, color: [f32; 4]) -> Self {
+    pub fn new(x: f32, y: f32, w: f32, h: f32, color: impl Into<Color>) -> Self {
         Self {
             x,
             y,
             w,
             h,
-            color,
+            color: color.into(),
             z: 0.0,
         }
     }
@@ -35,7 +36,7 @@ pub struct DrawImage {
     pub y: f32,
     pub w: f32,
     pub h: f32,
-    pub color: [f32; 4],
+    pub color: Color,
     pub z: f32,
     pub texture: Option<String>,
     pub image_handle: Option<Handle<ImageAsset>>,
@@ -49,7 +50,7 @@ impl DrawImage {
             y,
             w,
             h,
-            color: [1.0; 4],
+            color: Color::WHITE,
             z: 0.0,
             texture: Some(path.into()),
             image_handle: None,
@@ -63,7 +64,7 @@ impl DrawImage {
             y,
             w,
             h,
-            color: [1.0; 4],
+            color: Color::WHITE,
             z: 0.0,
             texture: None,
             image_handle: Some(handle),
@@ -84,7 +85,7 @@ impl DrawImage {
             y,
             w,
             h,
-            color: [1.0; 4],
+            color: Color::WHITE,
             z: 0.0,
             texture: Some(path.into()),
             image_handle: handle,
@@ -92,13 +93,13 @@ impl DrawImage {
         }
     }
 
-    pub fn colored(x: f32, y: f32, w: f32, h: f32, color: [f32; 4]) -> Self {
+    pub fn colored(x: f32, y: f32, w: f32, h: f32, color: impl Into<Color>) -> Self {
         Self {
             x,
             y,
             w,
             h,
-            color,
+            color: color.into(),
             z: 0.0,
             texture: None,
             image_handle: None,
@@ -106,8 +107,8 @@ impl DrawImage {
         }
     }
 
-    pub fn with_color(mut self, color: [f32; 4]) -> Self {
-        self.color = color;
+    pub fn with_color(mut self, color: impl Into<Color>) -> Self {
+        self.color = color.into();
         self
     }
 

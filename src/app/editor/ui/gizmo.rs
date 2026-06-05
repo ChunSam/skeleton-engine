@@ -23,7 +23,7 @@ impl App {
                     dq.items.push(DebugRect {
                         min: tr.position - half - margin,
                         max: tr.position + half + margin,
-                        color: [0.2, 0.85, 1.0, 0.65],
+                        color: crate::color::Color::rgba(0.2, 0.85, 1.0, 0.65),
                         z: tr.z + 999.0,
                     });
                 }

@@ -45,6 +45,17 @@ impl Lerp for [f32; 4] {
     }
 }
 
+impl Lerp for crate::color::Color {
+    fn lerp(a: &Self, b: &Self, t: f32) -> Self {
+        Self::rgba(
+            a.r + (b.r - a.r) * t,
+            a.g + (b.g - a.g) * t,
+            a.b + (b.b - a.b) * t,
+            a.a + (b.a - a.a) * t,
+        )
+    }
+}
+
 // ── Keyframe<T> ──────────────────────────────────────────────────────────────
 
 /// 특정 시간에 특정 값을 갖도록 하는 키프레임.
@@ -194,7 +205,7 @@ pub struct Timeline {
     pub position: Track<glam::Vec2>,
     pub rotation: Track<f32>,
     pub scale: Track<glam::Vec2>,
-    pub color: Track<[f32; 4]>,
+    pub color: Track<crate::color::Color>,
     pub alpha: Track<f32>,
     /// Camera zoom track. Only applied when the entity also carries
     /// [`CameraTarget`]; empty (inert) by default, so ordinary timelines that
@@ -328,10 +339,10 @@ impl crate::ecs::System for TimelineSystem {
                 }
             }
 
-            // Apply alpha (overrides sprite.color[3])
+            // Apply alpha (overrides sprite.color.a)
             if let Some(alpha) = tl.alpha.sample(t) {
                 if let Some(sprite) = world.get_mut::<Sprite>(entity) {
-                    sprite.color[3] = alpha;
+                    sprite.color.a = alpha;
                 }
             }
 
