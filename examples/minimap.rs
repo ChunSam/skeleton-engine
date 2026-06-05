@@ -3,8 +3,8 @@
 //! Renders the world normally with the main camera, and an `OffscreenCamera`
 //! builds a zoomed-out 256x256 minimap shown in the top-right corner.
 use engine::{
-    App, Camera, Color, Entity, KeyCode, OffscreenCamera, RenderLayer, Sprite, System, Transform,
-    ViewportSize, WindowConfig, World,
+    App, Camera, Color, DrawText, Entity, KeyCode, OffscreenCamera, RenderLayer, Sprite, System,
+    TextQueue, Transform, ViewportSize, WindowConfig, World,
 };
 use glam::Vec2;
 
@@ -61,6 +61,47 @@ impl System for MoveSystem {
 // ─── 태그 컴포넌트 ───────────────────────────────────────────────────────────
 #[derive(Clone)]
 struct PlayerTag;
+
+/// 적 위에 떠 있는 월드 고정 라벨 마커.
+#[derive(Clone)]
+struct EnemyTag;
+
+// ─── 시스템: 월드 엔티티 위에 화면 라벨 띄우기 ───────────────────────────────
+/// Demonstrates [`Camera::world_to_screen`] + [`DrawText::centered`]: a nameplate
+/// is anchored to each enemy's *world* position, projected to screen pixels each
+/// frame so it tracks the enemy as the camera follows the player.
+struct WorldLabelSystem;
+
+impl System for WorldLabelSystem {
+    fn run(&mut self, world: &mut World, _dt: f32) {
+        // 카메라 스냅샷 (불변 차용을 끊고 TextQueue 를 가변 차용하기 위해 먼저 수집).
+        let Some(camera) = world.resource::<Camera>().copied() else {
+            return;
+        };
+        // 각 적의 월드 위치에서 살짝 위(스크린 기준)로 라벨을 띄운다 (Y 아래가 +).
+        let enemies: Vec<Entity> = world.query::<EnemyTag>().map(|(e, _)| e).collect();
+        let labels: Vec<Vec2> = enemies
+            .iter()
+            .filter_map(|&e| world.get::<Transform>(e))
+            .map(|t| camera.world_to_screen(t.position + Vec2::new(0.0, -28.0)))
+            .collect();
+
+        if let Some(tq) = world.resource_mut::<TextQueue>() {
+            for screen_pos in labels {
+                tq.push(DrawText::centered(
+                    "ENEMY",
+                    screen_pos,
+                    14.0,
+                    [255, 180, 180, 230],
+                ));
+            }
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "WorldLabelSystem"
+    }
+}
 
 /// 미니맵 표시 스프라이트 마커 — HUD 시스템이 매 프레임 위치를 갱신한다.
 #[derive(Clone)]
@@ -157,6 +198,7 @@ fn main() {
                 ..Default::default()
             },
         );
+        app.world.add_component(e, EnemyTag);
     }
 
     // ─── 배경 타일들 (회색 박스들) ────────────────────────────────────────────
@@ -222,5 +264,6 @@ fn main() {
 
     app.add_system(MoveSystem);
     app.add_system(MinimapHudSystem);
+    app.add_system(WorldLabelSystem);
     app.run();
 }

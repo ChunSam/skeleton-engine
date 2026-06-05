@@ -93,9 +93,10 @@ impl System for LoadingUpdateSystem {
 
         // 퍼센트 텍스트
         if let Some(tq) = world.resource_mut::<TextQueue>() {
-            tq.push(DrawText::new(
+            // `centered` anchors at the text's center — no manual -width/2 offset.
+            tq.push(DrawText::centered(
                 format!("Loading... {:.0}%", progress * 100.0),
-                glam::Vec2::new(bar_x + bar_w / 2.0 - 70.0, bar_y - 40.0),
+                glam::Vec2::new(bar_x + bar_w / 2.0, bar_y - 28.0),
                 22.0,
                 [255, 255, 255, 255],
             ));
@@ -131,9 +132,9 @@ impl System for GameUpdateSystem {
             .map(|v| (v.width, v.height))
             .unwrap_or((800.0, 600.0));
         if let Some(tq) = world.resource_mut::<TextQueue>() {
-            tq.push(DrawText::new(
+            tq.push(DrawText::centered(
                 "Loading complete! Game ready.",
-                glam::Vec2::new(vw / 2.0 - 130.0, vh / 2.0),
+                glam::Vec2::new(vw / 2.0, vh / 2.0),
                 22.0,
                 [100, 255, 100, 255],
             ));
