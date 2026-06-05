@@ -41,6 +41,11 @@ impl App {
             self.copy_clipboard.clear();
         }
         self.editor_save_status = None;
+        // 패닉으로 비활성화된 시스템 인덱스 집합을 초기화한다.
+        // 월드가 리셋되면 시스템에 다시 기회를 주고, Replace 로 systems 가 통째로
+        // 교체될 때 옛 인덱스가 새 씬의 무관한 시스템을 잘못 건너뛰는 것을 막는다.
+        // (새 월드에는 빈 PanickedSystems 리소스가 재삽입되므로 표시도 함께 초기화됨)
+        self.panicked_systems.clear();
     }
 
     pub fn set_scene(&mut self, scene: Box<dyn Scene>) {
@@ -85,6 +90,22 @@ impl App {
                     scene.on_exit(&mut self.world);
                     let new_len = self.systems.len().saturating_sub(owned);
                     self.systems.truncate(new_len);
+                    // Pop 으로 사라진 시스템 인덱스를 패닉 집합에서 제거한다(남은 인덱스는
+                    // 그대로 유효). 이렇게 하지 않으면 잘려나간 인덱스가 그대로 남아
+                    // 이후 같은 인덱스에 들어오는 시스템을 잘못 건너뛴다.
+                    self.panicked_systems.retain(|&i| i < new_len);
+                    // 표시용 PanickedSystems 리소스도 남은 인덱스 기준으로 재구성.
+                    let names: Vec<String> = self
+                        .panicked_systems
+                        .iter()
+                        .filter_map(|&i| self.systems.get(i).map(|s| s.name().to_string()))
+                        .collect();
+                    if let Some(ps) = self
+                        .world
+                        .resource_mut::<crate::resources::PanickedSystems>()
+                    {
+                        ps.disabled = names;
+                    }
                     self.reconcile_meta(); // truncate 후 meta 동기화
                 }
             }

@@ -26,7 +26,14 @@ impl System for AnimationSystem {
                     // to_clip 프레임 진행
                     if let Some(to_clip) = player.clips.get(cf.to_clip) {
                         if !to_clip.frames.is_empty() {
-                            let frame_dur = 1.0 / to_clip.fps;
+                            // fps <= 0 (정지/비정상값)이면 frame_dur = +inf 로 두어
+                            // while 루프가 실행되지 않게 한다. fps < 0 일 때 frame_dur 가
+                            // 음수가 되어 무한 루프(행)에 빠지던 것을 방지.
+                            let frame_dur = if to_clip.fps > 0.0 {
+                                1.0 / to_clip.fps
+                            } else {
+                                f32::INFINITY
+                            };
                             cf.to_timer += dt;
                             while cf.to_timer >= frame_dur {
                                 cf.to_timer -= frame_dur;
@@ -58,7 +65,13 @@ impl System for AnimationSystem {
                 if clip.frames.is_empty() {
                     continue;
                 }
-                let frame_dur = 1.0 / clip.fps;
+                // fps <= 0 이면 frame_dur = +inf — 프레임을 진행하지 않는다(0 = 정지,
+                // 음수 = 무한 루프 방지). clip 빌림은 이 줄에서 끝난다.
+                let frame_dur = if clip.fps > 0.0 {
+                    1.0 / clip.fps
+                } else {
+                    f32::INFINITY
+                };
                 player.timer += dt;
                 if player.timer >= frame_dur {
                     player.timer -= frame_dur;
