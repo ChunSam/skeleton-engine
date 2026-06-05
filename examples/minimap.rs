@@ -4,7 +4,7 @@
 /// 화면 우상단에 표시한다.
 use engine::{
     ecs::{Entity, System, World},
-    App, Camera, OffscreenCamera, RenderLayer, Sprite, Transform, WindowConfig,
+    App, Camera, OffscreenCamera, RenderLayer, Sprite, Transform, ViewportSize, WindowConfig,
 };
 use glam::Vec2;
 use winit::keyboard::KeyCode;
@@ -62,6 +62,43 @@ impl System for MoveSystem {
 // ─── 태그 컴포넌트 ───────────────────────────────────────────────────────────
 #[derive(Clone)]
 struct PlayerTag;
+
+/// 미니맵 표시 스프라이트 마커 — HUD 시스템이 매 프레임 위치를 갱신한다.
+#[derive(Clone)]
+struct MinimapTag;
+
+// ─── 시스템: 미니맵 HUD 위치 고정 ────────────────────────────────────────────
+struct MinimapHudSystem;
+
+impl System for MinimapHudSystem {
+    fn run(&mut self, world: &mut World, _dt: f32) {
+        // 메인 카메라는 top-left 앵커이며 매 프레임 플레이어를 따라간다. 미니맵
+        // 스프라이트를 카메라 가시 영역의 우상단 코너에 고정한다(월드 고정 좌표면
+        // 카메라가 움직일 때 화면 밖으로 흘러가던 기존 버그를 해결).
+        let (vw, vh) = world
+            .resource::<ViewportSize>()
+            .map(|v| (v.width, v.height))
+            .unwrap_or((800.0, 600.0));
+        let Some((min, max)) = world
+            .resource::<Camera>()
+            .map(|cam| cam.visible_rect(vw, vh))
+        else {
+            return;
+        };
+        let inset = 90.0 + 16.0; // 스프라이트 반 크기 + 여백 (zoom=1 → 월드=픽셀)
+        let target = Vec2::new(max.x - inset, min.y + inset);
+        let entities: Vec<Entity> = world.query::<MinimapTag>().map(|(e, _)| e).collect();
+        for e in entities {
+            if let Some(t) = world.get_mut::<Transform>(e) {
+                t.position = target;
+            }
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "MinimapHudSystem"
+    }
+}
 
 fn main() {
     let mut app = App::new();
@@ -160,14 +197,14 @@ fn main() {
     );
 
     // ─── 미니맵 표시용 스프라이트 (화면 우상단 고정) ──────────────────────────
-    // ViewportSystem이 아직 없으므로 고정 좌표 사용.
-    // 화면 우상단: (800 - 256/2 - 10, 600 - 256/2 - 10) = (618, 462)
-    // UI 좌표계는 좌하단 원점, 오른쪽/위쪽이 양수.
+    // 메인 카메라가 플레이어를 따라 움직이므로 월드 고정 좌표로 두면 미니맵이
+    // 화면 밖으로 흘러간다(기존 버그). MinimapHudSystem 이 매 프레임 카메라
+    // 가시 영역의 우상단으로 위치를 갱신해 항상 코너에 고정한다.
     let minimap_sprite = app.world.spawn();
     app.world.add_component(
         minimap_sprite,
         Transform {
-            position: Vec2::new(272.0, -172.0), // 화면 우상단 근처 (월드 공간)
+            position: Vec2::new(694.0, 106.0), // 1프레임째 HUD 시스템이 갱신
             scale: Vec2::new(180.0, 180.0),
             z: 100.0, // 최상위 레이어
             ..Default::default()
@@ -182,7 +219,9 @@ fn main() {
         },
     );
     app.world.add_component(minimap_sprite, RenderLayer(10));
+    app.world.add_component(minimap_sprite, MinimapTag);
 
     app.add_system(MoveSystem);
+    app.add_system(MinimapHudSystem);
     app.run();
 }

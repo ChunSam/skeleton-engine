@@ -108,8 +108,12 @@ impl<T: Clone + Lerp> Track<T> {
             return Some(last.value.clone());
         }
 
-        // Find the last keyframe with time <= t
-        let idx = self.keyframes.iter().rposition(|kf| kf.time <= t).unwrap();
+        // Find the last keyframe with time <= t.
+        // 모든 키프레임 time 이 NaN 인 퇴화 트랙에서는 rposition 이 None 을 반환한다
+        // (NaN <= t == false). 이 경우 panic 대신 첫 값으로 폴백한다.
+        let Some(idx) = self.keyframes.iter().rposition(|kf| kf.time <= t) else {
+            return Some(self.keyframes[0].value.clone());
+        };
         let a = &self.keyframes[idx];
         let b = &self.keyframes[idx + 1];
 
@@ -376,6 +380,17 @@ mod tests {
     fn track_empty_returns_none() {
         let track: Track<f32> = Track::new();
         assert!(track.sample(0.5).is_none());
+    }
+
+    #[test]
+    fn all_nan_keyframe_times_do_not_panic() {
+        // 모든 키프레임 time 이 NaN 인 퇴화 트랙: rposition 이 None 을 반환해
+        // 이전엔 .unwrap() 이 panic 했다. 지금은 첫 값으로 폴백한다.
+        let mut track: Track<f32> = Track::new();
+        track.add(f32::NAN, 1.0, Easing::Linear);
+        track.add(f32::NAN, 2.0, Easing::Linear);
+        let v = track.sample(0.5);
+        assert!(v.is_some(), "all-NaN track should fall back, not panic");
     }
 
     #[test]

@@ -49,7 +49,14 @@ impl Timer {
         if self.elapsed >= self.duration {
             self.just_finished = true;
             if self.repeating {
-                self.elapsed -= self.duration;
+                // duration <= 0 (예: repeating(0.0)) 이면 elapsed 가 무한히 누적되지
+                // 않도록 0으로 리셋한다. 양수 duration 에서는 modulo 로 wrap 하여
+                // dt > duration 인 느린 프레임에서도 elapsed 가 경계 안에 머문다.
+                if self.duration > 0.0 {
+                    self.elapsed %= self.duration;
+                } else {
+                    self.elapsed = 0.0;
+                }
             } else {
                 self.elapsed = self.duration;
             }
@@ -129,5 +136,26 @@ mod tests {
         assert!((t.fraction() - 0.5).abs() < 1e-5);
         t.tick(5.0);
         assert!((t.fraction() - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn repeating_zero_duration_stays_bounded() {
+        // repeating(0.0) 는 매 tick just_finished 가 되지만 elapsed 가 무한히
+        // 누적되면 안 된다(이전엔 elapsed -= 0 으로 wrap 되지 않아 무한 증가했다).
+        let mut t = Timer::repeating(0.0);
+        for _ in 0..1000 {
+            t.tick(0.016);
+            assert!(t.just_finished());
+        }
+        assert!(t.elapsed() < 1.0, "elapsed grew unbounded: {}", t.elapsed());
+    }
+
+    #[test]
+    fn repeating_catches_up_when_dt_exceeds_duration() {
+        // dt > duration 인 느린 프레임에서도 elapsed 가 modulo 로 경계 안에 머문다.
+        let mut t = Timer::repeating(1.0);
+        t.tick(3.5);
+        assert!(t.just_finished());
+        assert!(t.elapsed() < 1.0, "elapsed not wrapped: {}", t.elapsed());
     }
 }

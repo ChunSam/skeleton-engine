@@ -74,18 +74,32 @@ impl Camera {
     ///
     /// 역연산: world = position + screen / zoom
     pub fn screen_to_world(&self, screen_pos: Vec2) -> Vec2 {
+        let zoom = self.safe_zoom();
         Vec2::new(
-            screen_pos.x / self.zoom + self.position.x,
-            screen_pos.y / self.zoom + self.position.y,
+            screen_pos.x / zoom + self.position.x,
+            screen_pos.y / zoom + self.position.y,
         )
+    }
+
+    /// 0 나눗셈/NaN을 막기 위한 안전 줌 배율. `zoom` 이 0(또는 비정상적으로 작은 값)
+    /// 으로 설정돼도 `screen_to_world`/`visible_rect`/`view_proj` 가 NaN 좌표를
+    /// 내보내지 않도록 한다.
+    #[inline]
+    fn safe_zoom(&self) -> f32 {
+        if self.zoom.abs() < f32::EPSILON {
+            f32::EPSILON
+        } else {
+            self.zoom
+        }
     }
 
     /// 현재 카메라의 월드 공간 가시 AABB를 `(min, max)` 로 반환한다.
     ///
     /// 이 직사각형 밖에 있는 스프라이트는 렌더링해도 화면에 보이지 않으므로 컬링 가능.
     pub fn visible_rect(&self, viewport_w: f32, viewport_h: f32) -> (Vec2, Vec2) {
+        let zoom = self.safe_zoom();
         let min = self.position;
-        let max = self.position + Vec2::new(viewport_w / self.zoom, viewport_h / self.zoom);
+        let max = self.position + Vec2::new(viewport_w / zoom, viewport_h / zoom);
         (min, max)
     }
 
@@ -96,11 +110,12 @@ impl Camera {
     /// left = position.x,  right = position.x + width/zoom
     /// top  = position.y,  bottom = position.y + height/zoom
     pub fn view_proj(&self, width: f32, height: f32) -> Mat4 {
+        let zoom = self.safe_zoom();
         let pos = self.position + self.shake_offset();
         let left = pos.x;
-        let right = pos.x + width / self.zoom;
+        let right = pos.x + width / zoom;
         let top = pos.y;
-        let bottom = pos.y + height / self.zoom;
+        let bottom = pos.y + height / zoom;
         Mat4::orthographic_rh(left, right, bottom, top, -1.0, 1.0)
     }
 
@@ -329,5 +344,26 @@ mod tests {
         let offset = cam.shake_offset();
         // At least one component should be non-zero (sin/cos won't both be 0 at 0.016*30~0.48)
         assert!(offset.x != 0.0 || offset.y != 0.0);
+    }
+
+    #[test]
+    fn zoom_zero_does_not_produce_nan() {
+        // zoom == 0 이어도 좌표 변환/투영이 NaN 을 내보내지 않아야 한다.
+        let cam = Camera::new(Vec2::new(10.0, 20.0), 0.0);
+        let w = cam.screen_to_world(Vec2::new(100.0, 50.0));
+        assert!(
+            w.x.is_finite() && w.y.is_finite(),
+            "screen_to_world NaN: {w:?}"
+        );
+        let (min, max) = cam.visible_rect(W, H);
+        assert!(
+            min.x.is_finite() && max.x.is_finite() && max.y.is_finite(),
+            "visible_rect NaN: {min:?}..{max:?}"
+        );
+        let m = cam.view_proj(W, H);
+        assert!(
+            m.to_cols_array().iter().all(|v| v.is_finite()),
+            "view_proj NaN: {m:?}"
+        );
     }
 }

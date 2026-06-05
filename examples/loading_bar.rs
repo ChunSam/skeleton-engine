@@ -6,7 +6,7 @@
 use engine::{
     ecs::{System, World},
     renderer::{DrawRect, TextQueue, UiQueue},
-    resources::WindowConfig,
+    resources::{ViewportSize, WindowConfig},
     App, AssetServer, LoadProgress, Scene, SceneChange, SceneCmd,
 };
 
@@ -60,11 +60,17 @@ impl System for LoadingUpdateSystem {
             loaded as f32 / total as f32
         };
 
-        // 진행률 바 렌더링
+        // 진행률 바 렌더링 — UiQueue/DrawRect 는 좌상단(0,0) 원점 스크린 픽셀
+        // 좌표계다. 화면 중앙에 놓으려면 ViewportSize 기준 양수 좌표가 필요하다.
+        // (기존엔 음수 좌표라 바 전체가 화면 밖에 그려졌다)
+        let (vw, vh) = world
+            .resource::<ViewportSize>()
+            .map(|v| (v.width, v.height))
+            .unwrap_or((800.0, 600.0));
         let bar_w = 400.0f32;
         let bar_h = 36.0f32;
-        let bar_x = -bar_w / 2.0;
-        let bar_y = -bar_h / 2.0;
+        let bar_x = (vw - bar_w) / 2.0;
+        let bar_y = (vh - bar_h) / 2.0;
 
         if let Some(ui) = world.resource_mut::<UiQueue>() {
             // 배경 바
@@ -91,7 +97,7 @@ impl System for LoadingUpdateSystem {
         if let Some(tq) = world.resource_mut::<TextQueue>() {
             tq.push(engine::renderer::DrawText::new(
                 format!("Loading... {:.0}%", progress * 100.0),
-                glam::Vec2::new(-70.0, -60.0),
+                glam::Vec2::new(bar_x + bar_w / 2.0 - 70.0, bar_y - 40.0),
                 22.0,
                 [255, 255, 255, 255],
             ));
@@ -122,10 +128,14 @@ struct GameUpdateSystem;
 
 impl System for GameUpdateSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
+        let (vw, vh) = world
+            .resource::<ViewportSize>()
+            .map(|v| (v.width, v.height))
+            .unwrap_or((800.0, 600.0));
         if let Some(tq) = world.resource_mut::<TextQueue>() {
             tq.push(engine::renderer::DrawText::new(
                 "Loading complete! Game ready.",
-                glam::Vec2::new(-130.0, 0.0),
+                glam::Vec2::new(vw / 2.0 - 130.0, vh / 2.0),
                 22.0,
                 [100, 255, 100, 255],
             ));

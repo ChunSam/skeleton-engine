@@ -460,6 +460,12 @@ impl SpriteRenderer {
             })
             .collect();
 
+        // 살아있는(= 현재 ShaderMaterial 을 가진) 엔티티 집합. 컬링 여부와 무관하게
+        // world 쿼리 결과 전체를 담으므로, 프레임 끝에서 params_buffers 를 이 집합으로
+        // retain 하면 despawn/머티리얼 제거된 엔티티의 GPU 버퍼만 정리된다.
+        let live_material_entities: std::collections::HashSet<crate::ecs::Entity> =
+            mat_ids.iter().map(|(e, ..)| *e).collect();
+
         for (entity, hash, frag_source, params) in mat_ids {
             let uv = world.get::<UvRect>(entity).copied().unwrap_or(UvRect::FULL);
             let sprite = match world.get::<Sprite>(entity) {
@@ -689,6 +695,12 @@ impl SpriteRenderer {
                 }
             }
         }
+
+        // ShaderMaterial 엔티티의 GPU params 버퍼 누수 방지: 더 이상 살아있지 않은
+        // (despawn 되었거나 ShaderMaterial 이 제거된) 엔티티의 버퍼/바인드그룹을 정리한다.
+        // params_buffers 는 그동안 insert 만 되고 제거된 적이 없어 무한히 증가했다.
+        self.params_buffers
+            .retain(|e, _| live_material_entities.contains(e));
 
         stats
     }
