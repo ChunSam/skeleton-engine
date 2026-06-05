@@ -26,6 +26,12 @@ use state::{submit_output, viewport_from_world, InputSnapshot, UiOutput};
 /// 9. 이벤트 일괄 발행
 pub struct UiSystem;
 
+impl UiSystem {
+    /// 스케줄 라벨. 권장 순서: `LayoutSystem::LABEL` **이후**
+    /// (`SystemConfig::new().label(UiSystem::LABEL).after(LayoutSystem::LABEL)`).
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::ui";
+}
+
 impl System for UiSystem {
     fn run(&mut self, world: &mut World, dt: f32) {
         let input = match InputSnapshot::from_world(world) {

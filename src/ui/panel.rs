@@ -53,6 +53,12 @@ impl Panel {
 /// `app.add_system(Box::new(LayoutSystem))` 을 `UiSystem` 보다 먼저 등록해야 한다.
 pub struct LayoutSystem;
 
+impl LayoutSystem {
+    /// 스케줄 라벨. 권장 순서: `UiSystem::LABEL` **이전**
+    /// (`SystemConfig::new().label(LayoutSystem::LABEL).before(UiSystem::LABEL)`).
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::ui_layout";
+}
+
 impl System for LayoutSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
         let viewport = match world.resource::<ViewportSize>() {

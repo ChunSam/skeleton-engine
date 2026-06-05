@@ -9,6 +9,13 @@ use crate::ecs::{Entity, System, World};
 /// `BlendWeight` 컴포넌트도 항상 갱신되며(전환 없으면 1.0), 게임 코드에서 활용할 수 있다.
 pub struct AnimationSystem;
 
+impl AnimationSystem {
+    /// 스케줄 라벨. 다른 시스템이 `SystemConfig::new().after(AnimationSystem::LABEL)`
+    /// 로 이 시스템 이후 실행을 요청할 수 있다(예: StateMachineSystem 은 이후,
+    /// BlendTreeSystem 은 이전에 실행되어야 한다).
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::animation";
+}
+
 impl System for AnimationSystem {
     fn run(&mut self, world: &mut World, dt: f32) {
         let entities: Vec<Entity> = world.query::<AnimationPlayer>().map(|(e, _)| e).collect();
