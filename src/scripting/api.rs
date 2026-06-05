@@ -16,28 +16,25 @@ impl ScriptingSystem {
 
         engine.register_fn("spawn_entity", || -> i64 {
             SCRIPT_CTX.with(|c| {
-                let borrow = c.borrow();
+                let mut borrow = c.borrow_mut();
                 let ctx = borrow
-                    .as_ref()
+                    .as_mut()
                     .expect("SCRIPT_CTX must be set during script execution");
-                let mut cmds = ctx.cmd_buf.lock().unwrap();
-                cmds.spawn_count += 1;
-                let handle = -(cmds.spawn_count as i64);
-                cmds.spawned_ids.push(handle);
+                ctx.cmd_buf.spawn_count += 1;
+                let handle = -(ctx.cmd_buf.spawn_count as i64);
+                ctx.cmd_buf.spawned_ids.push(handle);
                 handle
             })
         });
 
         engine.register_fn("despawn_entity", |index: i64, generation: i64| {
             SCRIPT_CTX.with(|c| {
-                let borrow = c.borrow();
+                let mut borrow = c.borrow_mut();
                 let ctx = borrow
-                    .as_ref()
+                    .as_mut()
                     .expect("SCRIPT_CTX must be set during script execution");
                 if index >= 0 && generation >= 0 {
                     ctx.cmd_buf
-                        .lock()
-                        .unwrap()
                         .despawn
                         .push(Entity::from_raw_parts(index as u32, generation as u32));
                 }
@@ -66,40 +63,31 @@ impl ScriptingSystem {
 
         engine.register_fn("bb_set_bool", |key: &str, val: bool| {
             SCRIPT_CTX.with(|c| {
-                let borrow = c.borrow();
+                let mut borrow = c.borrow_mut();
                 let ctx = borrow
-                    .as_ref()
+                    .as_mut()
                     .expect("SCRIPT_CTX must be set during script execution");
-                ctx.bb_buf
-                    .lock()
-                    .unwrap()
-                    .push(BbEntry::Bool(key.to_string(), val));
+                ctx.bb_buf.push(BbEntry::Bool(key.to_string(), val));
             });
         });
 
         engine.register_fn("bb_set_float", |key: &str, val: f64| {
             SCRIPT_CTX.with(|c| {
-                let borrow = c.borrow();
+                let mut borrow = c.borrow_mut();
                 let ctx = borrow
-                    .as_ref()
+                    .as_mut()
                     .expect("SCRIPT_CTX must be set during script execution");
-                ctx.bb_buf
-                    .lock()
-                    .unwrap()
-                    .push(BbEntry::Float(key.to_string(), val));
+                ctx.bb_buf.push(BbEntry::Float(key.to_string(), val));
             });
         });
 
         engine.register_fn("bb_set_int", |key: &str, val: i64| {
             SCRIPT_CTX.with(|c| {
-                let borrow = c.borrow();
+                let mut borrow = c.borrow_mut();
                 let ctx = borrow
-                    .as_ref()
+                    .as_mut()
                     .expect("SCRIPT_CTX must be set during script execution");
-                ctx.bb_buf
-                    .lock()
-                    .unwrap()
-                    .push(BbEntry::Int(key.to_string(), val));
+                ctx.bb_buf.push(BbEntry::Int(key.to_string(), val));
             });
         });
 
@@ -109,8 +97,7 @@ impl ScriptingSystem {
                 let ctx = borrow
                     .as_ref()
                     .expect("SCRIPT_CTX must be set during script execution");
-                let snap = ctx.bb_snap.lock().unwrap();
-                match snap.get(key) {
+                match ctx.bb_snap.get(key) {
                     Some(BbEntry::Bool(_, v)) => *v,
                     _ => false,
                 }
@@ -123,8 +110,7 @@ impl ScriptingSystem {
                 let ctx = borrow
                     .as_ref()
                     .expect("SCRIPT_CTX must be set during script execution");
-                let snap = ctx.bb_snap.lock().unwrap();
-                match snap.get(key) {
+                match ctx.bb_snap.get(key) {
                     Some(BbEntry::Float(_, v)) => *v,
                     _ => 0.0,
                 }
@@ -137,8 +123,7 @@ impl ScriptingSystem {
                 let ctx = borrow
                     .as_ref()
                     .expect("SCRIPT_CTX must be set during script execution");
-                let snap = ctx.bb_snap.lock().unwrap();
-                match snap.get(key) {
+                match ctx.bb_snap.get(key) {
                     Some(BbEntry::Int(_, v)) => *v,
                     _ => 0,
                 }
@@ -147,11 +132,11 @@ impl ScriptingSystem {
 
         engine.register_fn("seek_target", |tx: f64, ty: f64, speed: f64| {
             SCRIPT_CTX.with(|c| {
-                let borrow = c.borrow();
+                let mut borrow = c.borrow_mut();
                 let ctx = borrow
-                    .as_ref()
+                    .as_mut()
                     .expect("SCRIPT_CTX must be set during script execution");
-                *ctx.steer_buf.lock().unwrap() = Some(SteeringCmd::Seek {
+                ctx.steer_buf = Some(SteeringCmd::Seek {
                     tx: tx as f32,
                     ty: ty as f32,
                     speed: speed as f32,
@@ -161,11 +146,11 @@ impl ScriptingSystem {
 
         engine.register_fn("flee_from", |tx: f64, ty: f64, speed: f64, radius: f64| {
             SCRIPT_CTX.with(|c| {
-                let borrow = c.borrow();
+                let mut borrow = c.borrow_mut();
                 let ctx = borrow
-                    .as_ref()
+                    .as_mut()
                     .expect("SCRIPT_CTX must be set during script execution");
-                *ctx.steer_buf.lock().unwrap() = Some(SteeringCmd::Flee {
+                ctx.steer_buf = Some(SteeringCmd::Flee {
                     tx: tx as f32,
                     ty: ty as f32,
                     speed: speed as f32,
@@ -176,11 +161,11 @@ impl ScriptingSystem {
 
         engine.register_fn("stop_steering", || {
             SCRIPT_CTX.with(|c| {
-                let borrow = c.borrow();
+                let mut borrow = c.borrow_mut();
                 let ctx = borrow
-                    .as_ref()
+                    .as_mut()
                     .expect("SCRIPT_CTX must be set during script execution");
-                *ctx.steer_buf.lock().unwrap() = Some(SteeringCmd::Stop);
+                ctx.steer_buf = Some(SteeringCmd::Stop);
             });
         });
 

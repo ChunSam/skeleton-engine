@@ -167,34 +167,40 @@ impl SpatialGrid {
 
 // ─── CollisionGridSystem ──────────────────────────────────────────────────────
 
-/// 매 프레임 `SpatialGrid` 를 rebuild 하는 시스템.
+/// Rebuilds the `SpatialGrid` World resource every frame.
 ///
-/// `PhysicsSystem` 이 `PhysicsWorld` 를 직접 소유하듯, 이 시스템이 `SpatialGrid`
-/// 를 소유한다. borrow checker 충돌을 피하기 위해 ECS 리소스로 넣지 않는다.
+/// Mirrors the [`crate::physics::PhysicsSystem`] / `PhysicsWorld` pattern: the
+/// grid lives in the World as a resource, and this system *moves* it out, rebuilds
+/// it in place, and moves it back each frame (remove → rebuild → insert). Because
+/// `rebuild` only `clear()`s and refills the existing `HashMap`s, their allocations
+/// are reused across frames and no per-frame deep clone is made.
+///
+/// After this system runs, any later system can read the grid with
+/// `world.resource::<SpatialGrid>()` and call `query_radius` / `query_aabb`.
 ///
 /// ```ignore
 /// app.add_system(CollisionGridSystem::new(128.0));
-/// // 이후 시스템에서 SpatialGrid 를 직접 참조하고 싶으면 CollisionGridSystem 에서 꺼낸다.
+/// // later systems: if let Some(grid) = world.resource::<SpatialGrid>() { grid.query_radius(..) }
 /// ```
 pub struct CollisionGridSystem {
-    pub grid: SpatialGrid,
+    cell_size: f32,
 }
 
 impl CollisionGridSystem {
     pub fn new(cell_size: f32) -> Self {
-        Self {
-            grid: SpatialGrid::new(cell_size),
-        }
+        Self { cell_size }
     }
 }
 
 impl System for CollisionGridSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
-        self.grid.rebuild(world);
-        // Mirror the rebuilt grid to a World resource so external systems
-        // (AI, gameplay) can call `query_radius` / `query_aabb` without
-        // reaching into this system. Cost: one clone per frame.
-        world.insert_resource(self.grid.clone());
+        // Take last frame's grid (keeping its allocated buckets) or make a fresh
+        // one on the first frame, rebuild in place, then move it back. No clone.
+        let mut grid = world
+            .remove_resource::<SpatialGrid>()
+            .unwrap_or_else(|| SpatialGrid::new(self.cell_size));
+        grid.rebuild(world);
+        world.insert_resource(grid);
     }
 }
 
@@ -280,6 +286,41 @@ mod tests {
         let result = grid.query_radius(Vec2::ZERO, 500.0, CollisionLayer(1 << 0));
         assert!(result.contains(&e_a), "e_a 는 마스크와 일치해야 함");
         assert!(!result.contains(&e_b), "e_b 는 마스크와 불일치해야 함");
+    }
+
+    /// `CollisionGridSystem` 은 rebuild 한 grid 를 World 리소스로 미러링해야 한다.
+    /// (deep clone 없이 remove→rebuild→insert 패턴으로)
+    #[test]
+    fn grid_system_mirrors_grid_to_resource() {
+        let (mut world, e) = make_world_with_circle(Vec2::new(50.0, 50.0), 16.0);
+        let mut system = CollisionGridSystem::new(128.0);
+
+        // 첫 프레임: 리소스가 없던 상태에서 새 grid 를 만들어 채운다.
+        system.run(&mut world, 0.016);
+        let grid = world
+            .resource::<SpatialGrid>()
+            .expect("grid system should mirror a SpatialGrid resource");
+        assert!(grid.entries.contains_key(&e), "엔티티가 미러에 있어야 함");
+        assert!(grid
+            .query_radius(Vec2::new(50.0, 50.0), 200.0, CollisionLayer::ALL)
+            .contains(&e));
+
+        // 두 번째 프레임: 직전 프레임의 grid 를 재사용(remove→rebuild→insert)해야 한다.
+        system.run(&mut world, 0.016);
+        let grid = world.resource::<SpatialGrid>().unwrap();
+        assert!(
+            grid.entries.contains_key(&e),
+            "rebuild 후에도 미러가 유지돼야 함"
+        );
+
+        // despawn 후 한 프레임 더 돌리면 미러에서도 사라져야 한다.
+        world.despawn(e);
+        system.run(&mut world, 0.016);
+        let grid = world.resource::<SpatialGrid>().unwrap();
+        assert!(
+            !grid.entries.contains_key(&e),
+            "despawn 된 엔티티는 미러에서 제거돼야 함"
+        );
     }
 
     /// despawn 후 rebuild 하면 결과에서 사라져야 한다.

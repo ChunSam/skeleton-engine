@@ -62,5 +62,8 @@ pub(super) fn compile_script_file(path: &str) -> ScriptAsset {
         log::error!("스크립트 컴파일 실패 '{path}': {e}");
         engine.compile("").unwrap()
     });
-    ScriptAsset { source, ast }
+    ScriptAsset {
+        source,
+        ast: Arc::new(ast),
+    }
 }
