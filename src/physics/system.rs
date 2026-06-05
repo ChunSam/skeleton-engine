@@ -19,10 +19,20 @@ use crate::physics::world::PhysicsWorld;
 /// 자유 회전하는 바디(힌지 암 등)의 스프라이트가 물리와 함께 돌도록. 회전을 잠근 바디
 /// (`lock_rotation: true`)는 각도가 항상 0이라 영향이 없다.
 ///
-/// 플레이어 제어 등 커스텀 로직이 필요하면 이 타입을 그대로 쓰지 않고,
-/// `PhysicsWorld`를 직접 소유하는 전용 시스템을 만드는 것을 권장한다.
+/// # Setup
+///
+/// `PhysicsWorld`는 이 시스템이 아닌 **World 리소스**로 관리된다. 사용 전 반드시
+/// `world.insert_resource(physics)` 로 삽입하고, `PhysicsSystem::new(ppu)` 만 시스템에 등록한다.
+///
+/// ```ignore
+/// let physics = PhysicsWorld::new(gravity);
+/// app.world.insert_resource(physics);
+/// app.add_system(PhysicsSystem::new(50.0));
+/// ```
+///
+/// 다른 시스템이나 게임 코드에서 물리 월드에 접근하려면 `world.resource_mut::<PhysicsWorld>()`
+/// 를 사용한다.
 pub struct PhysicsSystem {
-    pub physics: PhysicsWorld,
     /// 화면 픽셀당 물리 단위 비율. 예: 50.0 → 1 unit = 50px
     pub pixels_per_unit: f32,
     active_contacts: HashSet<(ColliderHandle, ColliderHandle)>,
@@ -30,13 +40,12 @@ pub struct PhysicsSystem {
 }
 
 impl PhysicsSystem {
-    pub fn new(physics: PhysicsWorld, pixels_per_unit: f32) -> Self {
+    pub fn new(pixels_per_unit: f32) -> Self {
         debug_assert!(
             pixels_per_unit > 0.0,
             "PhysicsSystem::new requires pixels_per_unit > 0"
         );
         Self {
-            physics,
             pixels_per_unit: pixels_per_unit.max(f32::EPSILON),
             active_contacts: HashSet::new(),
             active_intersections: HashSet::new(),
@@ -54,7 +63,11 @@ fn ordered_pair(a: ColliderHandle, b: ColliderHandle) -> (ColliderHandle, Collid
 
 impl System for PhysicsSystem {
     fn run(&mut self, world: &mut World, dt: f32) {
-        self.physics.step(dt);
+        let Some(mut physics) = world.remove_resource::<PhysicsWorld>() else {
+            return;
+        };
+
+        physics.step(dt);
 
         // ── 충돌 이벤트 diff ──────────────────────────────────────────────────
         let col_map: HashMap<ColliderHandle, Entity> = world
@@ -63,8 +76,7 @@ impl System for PhysicsSystem {
             .collect();
 
         // Rapier는 동일 쌍의 collider1/collider2 순서를 프레임 간 유지한다
-        let current: HashSet<(ColliderHandle, ColliderHandle)> = self
-            .physics
+        let current: HashSet<(ColliderHandle, ColliderHandle)> = physics
             .narrow_phase
             .contact_pairs()
             .filter(|p| p.has_any_active_contact)
@@ -102,8 +114,7 @@ impl System for PhysicsSystem {
         // ── end 충돌 이벤트 diff ─────────────────────────────────────────────
 
         // ── 센서 이벤트 diff ──────────────────────────────────────────────────
-        let current_intersections: HashSet<(ColliderHandle, ColliderHandle)> = self
-            .physics
+        let current_intersections: HashSet<(ColliderHandle, ColliderHandle)> = physics
             .narrow_phase
             .intersection_pairs()
             .filter(|(_, _, intersecting)| *intersecting)
@@ -148,7 +159,7 @@ impl System for PhysicsSystem {
 
         let scale = self.pixels_per_unit.max(f32::EPSILON);
         for (entity, handle) in pairs {
-            if let Some(body) = self.physics.rigid_body(handle) {
+            if let Some(body) = physics.rigid_body(handle) {
                 let t = *body.translation();
                 let angle = body.rotation().angle();
                 if let Some(tr) = world.get_mut::<Transform>(entity) {
@@ -157,6 +168,8 @@ impl System for PhysicsSystem {
                 }
             }
         }
+
+        world.insert_resource(physics);
     }
 }
 
@@ -172,9 +185,10 @@ mod tests {
         let (sensor_body, sensor_col) = physics.add_sensor_box(Vec2::ZERO, 1.0, 1.0);
         let (actor_body, actor_col) = physics.add_dynamic_box(Vec2::ZERO, 0.5, 0.5, false);
 
-        let mut system = PhysicsSystem::new(physics, 1.0);
         let mut world = World::new();
+        world.insert_resource(physics);
         world.insert_resource(Events::<TriggerEvent>::default());
+        let mut system = PhysicsSystem::new(1.0);
 
         let sensor = world.spawn();
         world.add_component(
@@ -205,8 +219,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "PhysicsSystem::new requires pixels_per_unit > 0")]
     fn non_positive_pixels_per_unit_is_clamped() {
-        let physics = PhysicsWorld::new(Vec2::ZERO);
-        let _ = PhysicsSystem::new(physics, 0.0);
+        let _ = PhysicsSystem::new(0.0);
     }
 
     #[test]
@@ -216,8 +229,9 @@ mod tests {
         let (rb, col) = physics.add_dynamic_box(Vec2::ZERO, 0.5, 0.5, false);
         physics.rigid_body_mut(rb).unwrap().set_angvel(3.0, true);
 
-        let mut system = PhysicsSystem::new(physics, 1.0);
         let mut world = World::new();
+        world.insert_resource(physics);
+        let mut system = PhysicsSystem::new(1.0);
         let e = world.spawn();
         world.add_component(
             e,
@@ -249,8 +263,9 @@ mod tests {
             .unwrap()
             .apply_torque_impulse(5.0, true);
 
-        let mut system = PhysicsSystem::new(physics, 1.0);
         let mut world = World::new();
+        world.insert_resource(physics);
+        let mut system = PhysicsSystem::new(1.0);
         let e = world.spawn();
         world.add_component(
             e,

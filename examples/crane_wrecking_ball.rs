@@ -78,9 +78,9 @@ struct Block {
     knocked: bool,
 }
 
-/// Owns the `PhysicsWorld` (via `PhysicsSystem`) and layers crane control + win/reset on top.
-/// Calls `self.physics.run` to do the engine step + Transform sync — the code path that now
-/// also syncs rotation, which this example exists to prove.
+/// Layers crane control and win/reset logic on top of the engine physics step.
+/// Calls `self.physics.run` to drive the `PhysicsWorld` resource (step + Transform sync) —
+/// the code path that syncs rotation, which this example exists to prove.
 struct CraneSystem {
     physics: PhysicsSystem,
     cart: RigidBodyHandle,
@@ -97,17 +97,19 @@ impl CraneSystem {
 
         // Cart back to the rail start.
         self.cart_x = CART_START_X;
-        if let Some(rb) = self.physics.physics.rigid_body_mut(self.cart) {
-            rb.set_translation(vector![CART_START_X, CART_Y], true);
-            rb.set_next_kinematic_translation(vector![CART_START_X, CART_Y]);
-        }
-        // Arm + ball + blocks back home, motionless.
-        for d in &self.dynamics {
-            if let Some(rb) = self.physics.physics.rigid_body_mut(d.handle) {
-                rb.set_translation(vector![d.home.x, d.home.y], true);
-                rb.set_rotation(ident, true);
-                rb.set_linvel(vector![0.0, 0.0], true);
-                rb.set_angvel(0.0, true);
+        if let Some(physics) = world.resource_mut::<PhysicsWorld>() {
+            if let Some(rb) = physics.rigid_body_mut(self.cart) {
+                rb.set_translation(vector![CART_START_X, CART_Y], true);
+                rb.set_next_kinematic_translation(vector![CART_START_X, CART_Y]);
+            }
+            // Arm + ball + blocks back home, motionless.
+            for d in &self.dynamics {
+                if let Some(rb) = physics.rigid_body_mut(d.handle) {
+                    rb.set_translation(vector![d.home.x, d.home.y], true);
+                    rb.set_rotation(ident, true);
+                    rb.set_linvel(vector![0.0, 0.0], true);
+                    rb.set_angvel(0.0, true);
+                }
             }
         }
         for b in &mut self.blocks {
@@ -148,8 +150,10 @@ impl System for CraneSystem {
 
         // ── drive the kinematic cart along the rail ──────────────────────────
         self.cart_x = (self.cart_x + dir * CART_SPEED * dt).clamp(RAIL_MIN_X, RAIL_MAX_X);
-        if let Some(rb) = self.physics.physics.rigid_body_mut(self.cart) {
-            rb.set_next_kinematic_translation(vector![self.cart_x, CART_Y]);
+        if let Some(physics) = world.resource_mut::<PhysicsWorld>() {
+            if let Some(rb) = physics.rigid_body_mut(self.cart) {
+                rb.set_next_kinematic_translation(vector![self.cart_x, CART_Y]);
+            }
         }
 
         // ── engine step + Transform sync (position AND rotation) ─────────────
@@ -160,11 +164,17 @@ impl System for CraneSystem {
             if b.knocked {
                 continue;
             }
-            let Some(rb) = self.physics.physics.rigid_body(b.handle) else {
-                continue;
+            let pos = {
+                let Some(physics) = world.resource::<PhysicsWorld>() else {
+                    continue;
+                };
+                let Some(rb) = physics.rigid_body(b.handle) else {
+                    continue;
+                };
+                let p = rb.translation();
+                Vec2::new(p.x, p.y)
             };
-            let p = rb.translation();
-            if (Vec2::new(p.x, p.y) - b.home).length() > KNOCK_DIST {
+            if (pos - b.home).length() > KNOCK_DIST {
                 b.knocked = true;
                 if let Some(sprite) = world.get_mut::<Sprite>(b.entity) {
                     sprite.color = KNOCKED_COLOR;
@@ -360,8 +370,9 @@ fn main() {
     }
 
     app.world.insert_resource(Camera::new(Vec2::ZERO, 1.0));
+    app.world.insert_resource(physics);
     app.add_system(CraneSystem {
-        physics: PhysicsSystem::new(physics, PPU),
+        physics: PhysicsSystem::new(PPU),
         cart: cart_rb,
         cart_x: CART_START_X,
         arm_entity,

@@ -93,9 +93,9 @@ struct PlatformerPhysicsSystem {
 }
 
 impl PlatformerPhysicsSystem {
-    fn new(physics: PhysicsWorld) -> Self {
+    fn new() -> Self {
         Self {
-            physics: PhysicsSystem::new(physics, PPU),
+            physics: PhysicsSystem::new(PPU),
         }
     }
 
@@ -103,14 +103,19 @@ impl PlatformerPhysicsSystem {
         let Some(player) = world.resource::<PlatformerSession>().map(|s| s.player) else {
             return;
         };
-        let Some(body) = world.get::<PhysicsBody>(player) else {
+        let Some(rb_handle) = world
+            .get::<PhysicsBody>(player)
+            .map(|b| b.rigid_body_handle)
+        else {
             return;
         };
 
         let physics_pos = PLAYER_START / PPU;
-        if let Some(rb) = self.physics.physics.rigid_body_mut(body.rigid_body_handle) {
-            rb.set_translation(vector![physics_pos.x, physics_pos.y], true);
-            rb.set_next_kinematic_translation(vector![physics_pos.x, physics_pos.y]);
+        if let Some(physics) = world.resource_mut::<PhysicsWorld>() {
+            if let Some(rb) = physics.rigid_body_mut(rb_handle) {
+                rb.set_translation(vector![physics_pos.x, physics_pos.y], true);
+                rb.set_next_kinematic_translation(vector![physics_pos.x, physics_pos.y]);
+            }
         }
         if let Some(transform) = world.get_mut::<Transform>(player) {
             transform.position = PLAYER_START;
@@ -224,24 +229,27 @@ impl System for PlatformerPhysicsSystem {
             });
 
             if let Some((rb, col, velocity)) = handles {
-                if let Some(controller) = world.get_mut::<CharacterController>(player) {
-                    // Pressing down while grounded drops through one-way platforms.
-                    if drop_pressed && controller.grounded {
-                        controller.request_drop();
-                    }
-                    self.physics.physics.move_character(
-                        controller,
-                        rb,
-                        col,
-                        velocity * dt,
-                        dt,
-                        PPU,
-                    );
-                    if controller.grounded && velocity_y > 0.0 {
-                        if let Some(session) = world.resource_mut::<PlatformerSession>() {
-                            session.velocity.y = 0.0;
+                // Pressing down while grounded drops through one-way platforms.
+                if drop_pressed {
+                    if let Some(controller) = world.get_mut::<CharacterController>(player) {
+                        if controller.grounded {
+                            controller.request_drop();
                         }
                     }
+                }
+                // move_character needs &mut PhysicsWorld and &mut CharacterController
+                // simultaneously — remove PhysicsWorld from the resource map so the
+                // borrow checker sees separate ownership.
+                if let Some(mut physics) = world.remove_resource::<PhysicsWorld>() {
+                    if let Some(controller) = world.get_mut::<CharacterController>(player) {
+                        physics.move_character(controller, rb, col, velocity * dt, dt, PPU);
+                        if controller.grounded && velocity_y > 0.0 {
+                            if let Some(session) = world.resource_mut::<PlatformerSession>() {
+                                session.velocity.y = 0.0;
+                            }
+                        }
+                    }
+                    world.insert_resource(physics);
                 }
             }
 
@@ -637,8 +645,9 @@ fn main() {
     camera.lerp_factor = 5.0;
     app.world.insert_resource(camera);
 
+    app.world.insert_resource(physics);
     app.add_system(TilemapSystem::new());
-    app.add_system(PlatformerPhysicsSystem::new(physics));
+    app.add_system(PlatformerPhysicsSystem::new());
     app.add_system(GoalSystem);
     app.add_system(CameraAnchorSystem);
     app.add_system(AnimationSystem);
