@@ -1,3 +1,5 @@
+use crate::color::Color;
+
 /// 스크롤 가능한 텍스트 목록 위젯.
 ///
 /// `UiNode` 와 함께 엔티티에 붙여 사용한다.
@@ -9,8 +11,8 @@ pub struct ScrollView {
     pub scroll_offset: f32,
     pub item_height: f32,
     pub font_size: f32,
-    pub color: [u8; 4],
-    pub background_color: [f32; 4],
+    pub color: Color,
+    pub background_color: Color,
 }
 
 impl ScrollView {
@@ -20,8 +22,8 @@ impl ScrollView {
             scroll_offset: 0.0,
             item_height: 24.0,
             font_size: 14.0,
-            color: [200, 200, 200, 255],
-            background_color: [0.10, 0.10, 0.15, 1.0],
+            color: Color::rgba_u8(200, 200, 200, 255),
+            background_color: Color::rgba(0.10, 0.10, 0.15, 1.0),
         }
     }
 

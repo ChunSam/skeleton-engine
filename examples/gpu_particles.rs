@@ -8,7 +8,7 @@
 use engine::{
     renderer::{DrawText, TextQueue},
     resources::WindowConfig,
-    App, GpuParticleEmitter, InputState, System, Transform, World,
+    App, Color, GpuParticleEmitter, InputState, System, Transform, World,
 };
 use glam::Vec2;
 use winit::{event::MouseButton, keyboard::KeyCode};
@@ -45,8 +45,8 @@ impl System for GpuParticleDemo {
             emitter.lifetime = 2.0;
             emitter.velocity = Vec2::new(0.0, -80.0);
             emitter.velocity_spread = Vec2::new(40.0, 30.0);
-            emitter.color_start = [1.0, 0.7, 0.1, 1.0];
-            emitter.color_end = [1.0, 0.1, 0.0, 0.0];
+            emitter.color_start = Color::rgba(1.0, 0.7, 0.1, 1.0);
+            emitter.color_end = Color::rgba(1.0, 0.1, 0.0, 0.0);
             emitter.size = 6.0;
             emitter.emit = true;
             world.add_component(e, emitter);

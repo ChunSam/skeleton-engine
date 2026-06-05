@@ -21,10 +21,10 @@
 //! can push past the natural cap toward `MAX_ENEMIES` for stress-testing.
 
 use engine::{
-    App, Camera, Collider, CollisionGridSystem, CollisionLayer, DrawText, Entity, InputState,
-    KeyCode, ParticleBurst, ParticleEmitter, ParticleSystem, Pool, ProfilerData, Seek, ShouldQuit,
-    SpatialGrid, Sprite, SteeringSystem, SteeringVelocity, System, TextQueue, Timer, Transform,
-    WindowConfig, World,
+    App, Camera, Collider, CollisionGridSystem, CollisionLayer, Color, DrawText, Entity,
+    InputState, KeyCode, ParticleBurst, ParticleEmitter, ParticleSystem, Pool, ProfilerData, Seek,
+    ShouldQuit, SpatialGrid, Sprite, SteeringSystem, SteeringVelocity, System, TextQueue, Timer,
+    Transform, WindowConfig, World,
 };
 // `AudioManager` and `GpuParticleEmitter` are both native-only in the engine
 // (`cfg(not(wasm32))`), so all audio + GPU-particle wiring is target-gated to keep
@@ -182,8 +182,8 @@ fn main() {
         thruster_emitter.lifetime = 0.5;
         thruster_emitter.velocity = Vec2::ZERO;
         thruster_emitter.velocity_spread = Vec2::splat(36.0);
-        thruster_emitter.color_start = [0.5, 0.85, 1.0, 0.9];
-        thruster_emitter.color_end = [0.2, 0.4, 0.9, 0.0];
+        thruster_emitter.color_start = Color::rgba(0.5, 0.85, 1.0, 0.9);
+        thruster_emitter.color_end = Color::rgba(0.2, 0.4, 0.9, 0.0);
         thruster_emitter.size = 5.0;
         thruster_emitter.emit = false; // toggled on only while moving
         app.world.add_component(thruster, thruster_emitter);
@@ -734,7 +734,7 @@ impl System for CollisionSystem {
 
 /// One-shot explosion: a dedicated entity carrying a CPU burst emitter that the
 /// engine's `ParticleSystem` drains and despawns next tick.
-fn spawn_explosion(world: &mut World, pos: Vec2, color: [f32; 4]) {
+fn spawn_explosion(world: &mut World, pos: Vec2, color: impl Into<Color>) {
     let e = world.spawn();
     world.add_component(
         e,
@@ -746,7 +746,7 @@ fn spawn_explosion(world: &mut World, pos: Vec2, color: [f32; 4]) {
         },
     );
     let mut emitter = ParticleEmitter::for_burst();
-    emitter.color_start = color;
+    emitter.color_start = color.into();
     emitter.lifetime = 0.4;
     emitter.size = Vec2::splat(4.0);
     emitter.velocity_spread = Vec2::splat(180.0);

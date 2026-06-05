@@ -1,3 +1,5 @@
+use crate::color::Color;
+
 /// 수평 슬라이더 컴포넌트.
 ///
 /// `UiNode` 와 함께 엔티티에 붙여 사용한다.
@@ -15,10 +17,10 @@ pub struct Slider {
     pub max: f32,
     /// 드래그 중 여부 (내부 상태, 직접 수정 불필요).
     pub(crate) dragging: bool,
-    pub track_color: [f32; 4],
-    pub fill_color: [f32; 4],
-    pub thumb_color: [f32; 4],
-    pub thumb_hovered_color: [f32; 4],
+    pub track_color: Color,
+    pub fill_color: Color,
+    pub thumb_color: Color,
+    pub thumb_hovered_color: Color,
     /// 썸 너비(픽셀). 높이는 UiNode.size.y 와 동일하게 렌더된다.
     pub thumb_width: f32,
 }
@@ -30,10 +32,10 @@ impl Slider {
             min,
             max,
             dragging: false,
-            track_color: [0.20, 0.20, 0.25, 1.0],
-            fill_color: [0.28, 0.52, 0.82, 1.0],
-            thumb_color: [0.70, 0.70, 0.82, 1.0],
-            thumb_hovered_color: [0.90, 0.90, 1.00, 1.0],
+            track_color: Color::rgba(0.20, 0.20, 0.25, 1.0),
+            fill_color: Color::rgba(0.28, 0.52, 0.82, 1.0),
+            thumb_color: Color::rgba(0.70, 0.70, 0.82, 1.0),
+            thumb_hovered_color: Color::rgba(0.90, 0.90, 1.00, 1.0),
             thumb_width: 14.0,
         }
     }

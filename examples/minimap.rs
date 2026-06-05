@@ -4,7 +4,8 @@
 /// 화면 우상단에 표시한다.
 use engine::{
     ecs::{Entity, System, World},
-    App, Camera, OffscreenCamera, RenderLayer, Sprite, Transform, ViewportSize, WindowConfig,
+    App, Camera, Color, OffscreenCamera, RenderLayer, Sprite, Transform, ViewportSize,
+    WindowConfig,
 };
 use glam::Vec2;
 use winit::keyboard::KeyCode;
@@ -127,7 +128,7 @@ fn main() {
     app.world.add_component(
         player,
         Sprite {
-            color: [0.2, 0.9, 0.3, 1.0],
+            color: Color::rgba(0.2, 0.9, 0.3, 1.0),
             ..Default::default()
         },
     );
@@ -154,7 +155,7 @@ fn main() {
         app.world.add_component(
             e,
             Sprite {
-                color: [0.9, 0.2, 0.2, 1.0],
+                color: Color::rgba(0.9, 0.2, 0.2, 1.0),
                 ..Default::default()
             },
         );
@@ -177,7 +178,7 @@ fn main() {
             app.world.add_component(
                 bg,
                 Sprite {
-                    color: [shade, shade, shade, 1.0],
+                    color: Color::rgba(shade, shade, shade, 1.0),
                     ..Default::default()
                 },
             );
@@ -214,7 +215,7 @@ fn main() {
         minimap_sprite,
         Sprite {
             texture: Some("minimap".to_string()), // RT 키
-            color: [1.0, 1.0, 1.0, 0.9],
+            color: Color::rgba(1.0, 1.0, 1.0, 0.9),
             ..Default::default()
         },
     );

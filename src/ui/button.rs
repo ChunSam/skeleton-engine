@@ -1,3 +1,5 @@
+use crate::color::Color;
+
 /// 버튼의 상호작용 상태
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub enum ButtonState {
@@ -16,11 +18,11 @@ pub enum ButtonState {
 pub struct Button {
     pub label: String,
     pub state: ButtonState,
-    pub color_normal: [f32; 4],
-    pub color_hovered: [f32; 4],
-    pub color_pressed: [f32; 4],
-    pub color_disabled: [f32; 4],
-    pub text_color: [u8; 4],
+    pub color_normal: Color,
+    pub color_hovered: Color,
+    pub color_pressed: Color,
+    pub color_disabled: Color,
+    pub text_color: Color,
     pub font_size: f32,
 }
 
@@ -30,17 +32,17 @@ impl Button {
         Self {
             label: label.into(),
             state: ButtonState::Normal,
-            color_normal: [0.20, 0.20, 0.25, 1.0],
-            color_hovered: [0.30, 0.30, 0.40, 1.0],
-            color_pressed: [0.12, 0.12, 0.18, 1.0],
-            color_disabled: [0.15, 0.15, 0.15, 0.6],
-            text_color: [220, 220, 220, 255],
+            color_normal: Color::rgba(0.20, 0.20, 0.25, 1.0),
+            color_hovered: Color::rgba(0.30, 0.30, 0.40, 1.0),
+            color_pressed: Color::rgba(0.12, 0.12, 0.18, 1.0),
+            color_disabled: Color::rgba(0.15, 0.15, 0.15, 0.6),
+            text_color: Color::rgba_u8(220, 220, 220, 255),
             font_size: 18.0,
         }
     }
 
     /// 현재 상태에 대응하는 배경 색상을 반환한다.
-    pub fn current_color(&self) -> [f32; 4] {
+    pub fn current_color(&self) -> Color {
         match self.state {
             ButtonState::Normal => self.color_normal,
             ButtonState::Hovered => self.color_hovered,

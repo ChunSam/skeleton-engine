@@ -1,5 +1,6 @@
 use glam::Vec2;
 
+use crate::color::Color;
 use crate::ecs::{Entity, System, World};
 use crate::renderer::{DrawRect, UiQueue};
 use crate::resources::ViewportSize;
@@ -23,7 +24,7 @@ pub struct Panel {
     pub gap: f32,
     pub direction: LayoutDir,
     pub padding: f32,
-    pub background_color: [f32; 4],
+    pub background_color: Color,
 }
 
 impl Panel {
@@ -33,7 +34,7 @@ impl Panel {
             gap: 8.0,
             direction,
             padding: 8.0,
-            background_color: [0.12, 0.12, 0.18, 0.9],
+            background_color: Color::rgba(0.12, 0.12, 0.18, 0.9),
         }
     }
 

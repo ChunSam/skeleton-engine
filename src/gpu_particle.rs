@@ -1,6 +1,7 @@
 use glam::Vec2;
 use rand::Rng;
 
+use crate::color::Color;
 use crate::components::Transform;
 use crate::ecs::{Entity, World};
 use crate::renderer::gpu_particle::GpuParticle;
@@ -22,8 +23,8 @@ use crate::renderer::gpu_particle::GpuParticle;
 /// emitter.lifetime = 2.0;
 /// emitter.velocity = Vec2::new(0.0, 80.0);
 /// emitter.velocity_spread = Vec2::new(30.0, 20.0);
-/// emitter.color_start = [1.0, 0.5, 0.0, 1.0];
-/// emitter.color_end = [1.0, 0.0, 0.0, 0.0];
+/// emitter.color_start = engine::Color::rgb(1.0, 0.5, 0.0);
+/// emitter.color_end = engine::Color::rgba(1.0, 0.0, 0.0, 0.0);
 /// emitter.size = 6.0;
 /// emitter.emit = true;
 /// world.add_component(entity, emitter);
@@ -38,9 +39,9 @@ pub struct GpuParticleEmitter {
     /// 속도 랜덤 범위 (±각 축)
     pub velocity_spread: Vec2,
     /// 시작 색상 (RGBA)
-    pub color_start: [f32; 4],
+    pub color_start: Color,
     /// 종료 색상 (RGBA)
-    pub color_end: [f32; 4],
+    pub color_end: Color,
     /// 파티클 크기 (픽셀)
     pub size: f32,
     /// false이면 방출 중단
@@ -58,8 +59,8 @@ impl Default for GpuParticleEmitter {
             lifetime: 1.5,
             velocity: Vec2::new(0.0, 60.0),
             velocity_spread: Vec2::new(20.0, 10.0),
-            color_start: [1.0, 0.8, 0.2, 1.0],
-            color_end: [1.0, 0.2, 0.0, 0.0],
+            color_start: Color::rgb(1.0, 0.8, 0.2),
+            color_end: Color::rgba(1.0, 0.2, 0.0, 0.0),
             size: 5.0,
             emit: true,
             timer: 0.0,
@@ -117,8 +118,8 @@ pub(crate) fn collect_new_particles(
                 max_life: emitter.lifetime,
                 size: emitter.size,
                 _pad: 0.0,
-                color_start: emitter.color_start,
-                color_end: emitter.color_end,
+                color_start: emitter.color_start.to_array(),
+                color_end: emitter.color_end.to_array(),
             };
 
             let slot = emitter.next_slot % capacity;

@@ -386,14 +386,14 @@ impl LightingRenderer {
                 position_ndc,
                 radius_ndc,
                 intensity: light.intensity,
-                color: light.color,
+                color: light.color.to_rgb(),
                 light_height: light.light_height,
             };
             light_count += 1;
         }
 
         let uniforms = LightingUniforms {
-            ambient_color: ambient.color,
+            ambient_color: ambient.color.to_rgb(),
             ambient_intensity: ambient.intensity,
             light_count,
             aspect_ratio: vp_h as f32 / vp_w as f32,

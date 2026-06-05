@@ -9,7 +9,7 @@ impl App {
 
         // 선분 근사 헬퍼: 두 점 사이를 thickness×thickness 점들로 채운다.
         let mut push_line =
-            |start: glam::Vec2, end: glam::Vec2, color: [f32; 4], thickness: f32| {
+            |start: glam::Vec2, end: glam::Vec2, color: crate::color::Color, thickness: f32| {
                 let delta = end - start;
                 let len = delta.length();
                 if len < 0.001 {
@@ -599,7 +599,7 @@ impl App {
                 self.world.resource::<crate::resources::FadeTransition>(),
             ) {
                 if fade.alpha > 0.001 {
-                    fr.update(&gpu.queue, fade.color, fade.alpha);
+                    fr.update(&gpu.queue, fade.color.to_rgb(), fade.alpha);
                     fr.run_pass(&mut enc, &final_view);
                 }
             }

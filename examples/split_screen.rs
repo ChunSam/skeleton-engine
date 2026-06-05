@@ -5,7 +5,7 @@
 /// - 화면 오른쪽 절반: "right_view" RenderTarget (P2 시점)
 use engine::{
     ecs::{System, World},
-    App, Camera, OffscreenCamera, RenderLayer, Sprite, Transform, WindowConfig,
+    App, Camera, Color, OffscreenCamera, RenderLayer, Sprite, Transform, WindowConfig,
 };
 use glam::Vec2;
 use winit::keyboard::KeyCode;
@@ -132,7 +132,7 @@ fn main() {
     app.world.add_component(
         p1,
         Sprite {
-            color: [0.2, 0.9, 0.3, 1.0],
+            color: Color::rgba(0.2, 0.9, 0.3, 1.0),
             ..Default::default()
         },
     );
@@ -152,7 +152,7 @@ fn main() {
     app.world.add_component(
         p2,
         Sprite {
-            color: [0.2, 0.4, 1.0, 1.0],
+            color: Color::rgba(0.2, 0.4, 1.0, 1.0),
             ..Default::default()
         },
     );
@@ -160,11 +160,11 @@ fn main() {
 
     // ─── 배경 오브젝트들 ─────────────────────────────────────────────────────
     let bg_objects = [
-        (Vec2::new(0.0, 150.0), [0.8, 0.7, 0.2, 1.0f32]),
-        (Vec2::new(-100.0, -100.0), [0.7, 0.3, 0.8, 1.0]),
-        (Vec2::new(100.0, -150.0), [0.3, 0.7, 0.8, 1.0]),
-        (Vec2::new(-300.0, 50.0), [0.9, 0.5, 0.2, 1.0]),
-        (Vec2::new(300.0, 100.0), [0.5, 0.9, 0.5, 1.0]),
+        (Vec2::new(0.0, 150.0), Color::rgba(0.8, 0.7, 0.2, 1.0)),
+        (Vec2::new(-100.0, -100.0), Color::rgba(0.7, 0.3, 0.8, 1.0)),
+        (Vec2::new(100.0, -150.0), Color::rgba(0.3, 0.7, 0.8, 1.0)),
+        (Vec2::new(-300.0, 50.0), Color::rgba(0.9, 0.5, 0.2, 1.0)),
+        (Vec2::new(300.0, 100.0), Color::rgba(0.5, 0.9, 0.5, 1.0)),
     ];
     for (pos, color) in bg_objects {
         let e = app.world.spawn();
@@ -203,7 +203,7 @@ fn main() {
             app.world.add_component(
                 bg,
                 Sprite {
-                    color: [shade, shade, shade, 1.0],
+                    color: Color::rgba(shade, shade, shade, 1.0),
                     ..Default::default()
                 },
             );
@@ -252,7 +252,7 @@ fn main() {
         left_sprite,
         Sprite {
             texture: Some("left_view".to_string()),
-            color: [1.0, 1.0, 1.0, 1.0],
+            color: Color::WHITE,
             ..Default::default()
         },
     );
@@ -272,7 +272,7 @@ fn main() {
         right_sprite,
         Sprite {
             texture: Some("right_view".to_string()),
-            color: [1.0, 1.0, 1.0, 1.0],
+            color: Color::WHITE,
             ..Default::default()
         },
     );

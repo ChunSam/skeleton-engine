@@ -1,5 +1,6 @@
 use crate::animation::player::UvRect;
 use crate::asset::{Handle, ImageAsset};
+use crate::color::Color;
 
 /// 균일 그리드 텍스처 아틀라스.
 ///
@@ -62,7 +63,7 @@ pub struct AtlasSprite {
     /// 아틀라스 내 타일 인덱스 (0-based, 왼쪽 위→오른쪽 아래)
     pub index: u32,
     /// RGBA 색상 배율 (기본값 흰색 = 원본 텍스처 색상)
-    pub color: [f32; 4],
+    pub color: Color,
 }
 
 impl AtlasSprite {
@@ -70,12 +71,12 @@ impl AtlasSprite {
         Self {
             atlas,
             index,
-            color: [1.0; 4],
+            color: Color::WHITE,
         }
     }
 
-    pub fn with_color(mut self, color: [f32; 4]) -> Self {
-        self.color = color;
+    pub fn with_color(mut self, color: impl Into<Color>) -> Self {
+        self.color = color.into();
         self
     }
 }

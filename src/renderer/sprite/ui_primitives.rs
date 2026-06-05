@@ -49,7 +49,14 @@ pub(super) fn sorted_ui_primitives(rects: &[DrawRect], images: &[DrawImage]) -> 
         kind: UiPrimitiveKind::Image,
         order,
         texture_key: image.texture_key(),
-        instance: ui_quad_instance(image.x, image.y, image.w, image.h, image.color, image.uv),
+        instance: ui_quad_instance(
+            image.x,
+            image.y,
+            image.w,
+            image.h,
+            image.color.to_array(),
+            image.uv,
+        ),
     }));
 
     primitives.extend(rects.iter().enumerate().map(|(order, rect)| UiPrimitive {
@@ -57,7 +64,14 @@ pub(super) fn sorted_ui_primitives(rects: &[DrawRect], images: &[DrawImage]) -> 
         kind: UiPrimitiveKind::Rect,
         order,
         texture_key: None,
-        instance: ui_quad_instance(rect.x, rect.y, rect.w, rect.h, rect.color, UvRect::FULL),
+        instance: ui_quad_instance(
+            rect.x,
+            rect.y,
+            rect.w,
+            rect.h,
+            rect.color.to_array(),
+            UvRect::FULL,
+        ),
     }));
 
     primitives.sort_by(|a, b| {

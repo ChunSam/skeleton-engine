@@ -22,9 +22,9 @@
 //! R restart · Esc quit.
 
 use engine::{
-    AmbientLight, App, Camera, Collider, CollisionGridSystem, CollisionLayer, DrawText, Entity,
-    InputState, KeyCode, PointLight, PostProcessConfig, ShouldQuit, SpatialGrid, Sprite, System,
-    TextQueue, Transform, WindowConfig, World,
+    AmbientLight, App, Camera, Collider, CollisionGridSystem, CollisionLayer, Color, DrawText,
+    Entity, InputState, KeyCode, PointLight, PostProcessConfig, ShouldQuit, SpatialGrid, Sprite,
+    System, TextQueue, Transform, WindowConfig, World,
 };
 use glam::Vec2;
 
@@ -74,9 +74,9 @@ const TILE_FLOOR: u32 = 1;
 const TILE_WALL: u32 = 2;
 
 // Warm/cool light colors.
-const TORCH_COLOR: [f32; 3] = [1.0, 0.82, 0.5];
-const BRAZIER_COLOR: [f32; 3] = [1.0, 0.64, 0.32];
-const EXIT_COLOR: [f32; 3] = [0.5, 1.0, 0.75];
+const TORCH_COLOR: Color = Color::rgb(1.0, 0.82, 0.5);
+const BRAZIER_COLOR: Color = Color::rgb(1.0, 0.64, 0.32);
+const EXIT_COLOR: Color = Color::rgb(0.5, 1.0, 0.75);
 
 // ─── Session ─────────────────────────────────────────────────────────────────
 
@@ -666,7 +666,7 @@ fn main() {
 
     // Dark blue ambient — presence of this resource enables the lighting pass.
     app.world.insert_resource(AmbientLight {
-        color: [0.55, 0.6, 0.95],
+        color: Color::rgb(0.55, 0.6, 0.95),
         intensity: 0.08,
     });
 

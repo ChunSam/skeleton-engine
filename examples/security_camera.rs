@@ -24,8 +24,8 @@
 //! Controls: WASD / arrows to move · R to replay · Esc to quit.
 
 use engine::{
-    App, Camera, DrawText, Entity, InputState, KeyCode, OffscreenCamera, RenderLayer, ShouldQuit,
-    Sprite, System, TextQueue, Transform, WindowConfig, World,
+    App, Camera, Color, DrawText, Entity, InputState, KeyCode, OffscreenCamera, RenderLayer,
+    ShouldQuit, Sprite, System, TextQueue, Transform, WindowConfig, World,
 };
 use glam::Vec2;
 
@@ -59,8 +59,8 @@ const OC_ZOOM: f32 = 0.64;
 
 const CAUGHT_FLASH: f32 = 1.1; // seconds the "CAUGHT" feedback holds, player frozen at start
 
-const COL_THRESH_SAFE: [f32; 4] = [0.22, 0.26, 0.34, 1.0];
-const COL_THRESH_CAUGHT: [f32; 4] = [0.85, 0.25, 0.22, 1.0];
+const COL_THRESH_SAFE: Color = Color::rgba(0.22, 0.26, 0.34, 1.0);
+const COL_THRESH_CAUGHT: Color = Color::rgba(0.85, 0.25, 0.22, 1.0);
 
 /// Drives the guard patrol, player movement, detection, and win/lose loop.
 struct StealthSystem {
@@ -235,7 +235,7 @@ fn spawn_box(
     app: &mut App,
     pos: Vec2,
     size: Vec2,
-    color: [f32; 4],
+    color: impl Into<Color>,
     z: f32,
     layer: Option<i32>,
 ) -> Entity {
@@ -252,7 +252,7 @@ fn spawn_box(
     app.world.add_component(
         e,
         Sprite {
-            color,
+            color: color.into(),
             ..Default::default()
         },
     );
@@ -409,7 +409,7 @@ fn main() {
         monitor,
         Sprite {
             texture: Some("camfeed".to_string()),
-            color: [1.0, 1.0, 1.0, 1.0],
+            color: Color::WHITE,
             ..Default::default()
         },
     );

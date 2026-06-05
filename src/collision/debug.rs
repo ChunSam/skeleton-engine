@@ -58,7 +58,7 @@ impl System for CollisionDebugSystem {
                 DebugRect {
                     min: aabb_min,
                     max: aabb_max,
-                    color: [0.0, 1.0, 0.2, 0.25],
+                    color: crate::color::Color::rgba(0.0, 1.0, 0.2, 0.25),
                     z: 999.0,
                 }
             })

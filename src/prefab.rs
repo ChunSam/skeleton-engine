@@ -128,7 +128,7 @@ pub const SCENE_DEF_VERSION: u32 = 2;
 ///             )),
 ///             sprite: Some(Sprite(
 ///                 texture: None,
-///                 color: (0.3, 0.6, 0.3, 1.0),
+///                 color: (r: 0.3, g: 0.6, b: 0.3, a: 1.0),
 ///             )),
 ///         ),
 ///     ],
@@ -356,6 +356,7 @@ pub fn topological_sort_entities(entities: &[Entity], world: &World) -> Vec<Enti
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::color::Color;
     use crate::components::{Sprite, Transform};
     use glam::Vec2;
     use std::fs;
@@ -403,7 +404,7 @@ mod tests {
         let sp = world
             .get::<Sprite>(entity)
             .expect("Sprite should be present");
-        assert_eq!(sp.color[0], 1.0);
+        assert_eq!(sp.color.r, 1.0);
     }
 
     #[test]
@@ -466,7 +467,7 @@ SceneDef(
             tag: Some("legacy"),
             sprite: Some(Sprite(
                 texture: Some("legacy.png"),
-                color: (1.0, 0.5, 0.25, 1.0),
+                color: (r: 1.0, g: 0.5, b: 0.25, a: 1.0),
                 normal_texture: Some("legacy_normal.png"),
             )),
         ),
@@ -478,7 +479,7 @@ SceneDef(
         assert_eq!(scene.version, 1);
         let sprite = scene.entities[0].sprite.as_ref().unwrap();
         assert_eq!(sprite.texture.as_deref(), Some("legacy.png"));
-        assert_eq!(sprite.color, [1.0, 0.5, 0.25, 1.0]);
+        assert_eq!(sprite.color, Color::from([1.0, 0.5, 0.25, 1.0]));
     }
 
     #[test]
