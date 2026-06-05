@@ -5,6 +5,17 @@
 > HIGH = likely to bite a real game / data-loss / security; MEDIUM = real but narrow;
 > LOW = polish. See `docs/HANDOFF.md` for which items have since been fixed.
 
+> **Resolution status (2026-06-06): all 30 issues addressed.** The findings below
+> are the original as-of-analysis snapshot and are intentionally left unedited.
+> - HIGH #1–#6, MEDIUM #9/#10/#14/#16/#17/#21, LOW #24/#25/#26 → PR #7 (non-breaking sweep).
+> - MEDIUM #11 (Color), #13 (PhysicsWorld resource) → PR #8 (v3.0.0 breaking batch).
+> - MEDIUM #7/#8/#18/#19 (perf), #20/#22/#23 (robustness), #12/#27/#29/#30 (additive API)
+>   → PR #9. **#15 was a false positive** — the point-light radius was already correct;
+>   locked with a contract test, no math change.
+> - LOW #28 (JointHandle newtype) → v4.0.0 breaking change (the only item that forces a
+>   major bump, so done last).
+> Git log is the source of truth for exact commits.
+
 ## 1. Executive summary
 
 skeleton-engine is a wgpu-based, MIT-licensed, genre-agnostic 2D game engine (~36 KLOC

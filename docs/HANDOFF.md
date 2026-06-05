@@ -1,7 +1,7 @@
 # Handoff document — skeleton-engine
 
 Written: 2026-05-24 (Phase 45~53 update: 2026-05-26 / Phase 46~59 complete: 2026-05-26 / 7 code-review fixes: 2026-05-26 / doc cleanup: 2026-05-29)
-Engine version: **v2.0.0** (main branch)
+Engine version: **v4.0.0** (main branch)
 
 ## Current v2.0.0 cleanup status
 
@@ -2121,6 +2121,39 @@ The positions of `Panel` children are computed by `LayoutSystem`. It must be reg
 
 ### `FrameContext` stays public (resolved 2026-06-04)
 `renderer::FrameContext` (the `device`/`queue`/`view`/`encoder` bundle, `src/renderer/sprite.rs`) is exposed as `engine::renderer::FrameContext` via `pub use` in `renderer/mod.rs` — not lifted to the crate root. The `source-split-refactor` chain left open whether to tighten it to `pub(crate)`. **Decision: keep it public.** It is the parameter type of the public `SpriteRenderer::render`, so `pub(crate)` would make that method uncallable from outside the crate (you can't name/construct the argument type), shrinking the fork surface rather than tidying it. Exposing the low-level render entry point is on-mission for a hackable skeleton (`docs/VISION.md`). No external code uses it today (examples / `rust-survivors` don't), but that's not a reason to hide an extension point.
+
+---
+
+## 2026-06-06 — Code-analysis remediation completed (perf/robustness/API + #28) → v4.0.0
+
+Finished the `docs/CODE_ANALYSIS.md` epic — all 30 issues now addressed.
+
+- **PR #9** (off v3.0.0 `main`, non-breaking): perf #7 (`Arc<rhai::AST>` + reusable per-frame
+  script buffers, no per-entity `Arc<Mutex>`), #8 (one sprite render pass instead of a
+  `begin_render_pass` per texture-run/material), #18 (A* closed-set + thread-local scratch reuse),
+  #19 (`SpatialGrid` remove→rebuild→insert, no per-frame deep clone); robustness #20 (built-in
+  `AudioSystem` ticks `update(dt)` + SFX file-bytes cache), #22 (`RenderLayer` negative-fold
+  layer-mask fix), #23 (`spawn_scene_def` first-wins dup-tag warn); additive API #12
+  (`DrawText::centered`/`TextAnchor` + `Camera::world_to_screen`), #27 (`engine::MouseButton`
+  re-export + example import/doc cleanup), #29 (`ReflectValue` `#[non_exhaustive]` + `I32`),
+  #30 (`ScriptingLimits` string/array/map/call/expr-depth caps).
+- **#15 was a false positive** — the point-light radius already agrees with the shader
+  (CPU `radius*zoom/viewport_w` is UV-fraction-of-width, matching the shader's distance space).
+  The analysis's suggested `2*radius/viewport_w` would render lights 2× too large. Confirmed by an
+  independent re-derivation; locked with a contract test (`light_radius_falloff_reaches_zero_at_world_radius`),
+  no math change.
+- **PR #10**: made `loading_bar`/`minimap` use the new text APIs and added a small `audio_fades`
+  example so the new APIs are exercised in real play (the VISION rule).
+- **#28 → v4.0.0 (breaking):** wrapped rapier `ImpulseJointHandle` in an opaque engine
+  `JointHandle` newtype (mirrors `CollisionGroups`); `add_*_joint` return it and `remove_joint`
+  takes it. `engine::ImpulseJointHandle` is removed. This is the only item that forces a major
+  bump, so it was done last.
+- Verified throughout with the CI-pinned toolchain (`cargo +1.88.0`): `fmt` / `clippy --all-targets`
+  / `test --all-targets` (311 lib) / wasm build / doctests / `doc -D warnings` — all green.
+- **rust-survivors:** still pinned to engine **v2** (`rev 61c09f1`). It uses `PhysicsWorld` and
+  array-form color fields, so moving to v3/v4 is a real Color-newtype + PhysicsWorld-resource
+  migration, not a routine pin bump — deferred as its own task. It does **not** use the joint API,
+  so #28 itself doesn't affect it.
 
 ---
 
