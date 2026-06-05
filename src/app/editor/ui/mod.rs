@@ -454,6 +454,12 @@ impl App {
                                                                                 .speed(0.5),
                                                                         );
                                                                     }
+                                                                    ReflectValue::I32(v) => {
+                                                                        ui.add(
+                                                                            egui::DragValue::new(v)
+                                                                                .speed(1.0),
+                                                                        );
+                                                                    }
                                                                     ReflectValue::Vec2(v) => {
                                                                         ui.horizontal(|ui| {
                                                                             ui.add(

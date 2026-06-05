@@ -1,17 +1,15 @@
-/// Phase 56a — GPU 컴퓨트 셰이더 파티클 데모
-///
-/// `cargo run --example gpu_particles`
-///
-/// 마우스 클릭 위치에 GpuParticleEmitter를 생성한다.
-/// 스페이스바: 현재 이미터 방출 토글
-/// R: 모든 이미터 제거
+//! GPU compute-shader particle demo (Phase 56a).
+//!
+//! `cargo run --example gpu_particles`
+//!
+//! Spawns a `GpuParticleEmitter` at the mouse-click position.
+//! - Space: toggle emission for the current emitters
+//! - R: remove all emitters
 use engine::{
-    renderer::{DrawText, TextQueue},
-    resources::WindowConfig,
-    App, Color, GpuParticleEmitter, InputState, System, Transform, World,
+    App, Color, DrawText, GpuParticleEmitter, InputState, KeyCode, MouseButton, System, TextQueue,
+    Transform, WindowConfig, World,
 };
 use glam::Vec2;
-use winit::{event::MouseButton, keyboard::KeyCode};
 
 struct GpuParticleDemo {
     emitter_count: usize,
@@ -20,7 +18,9 @@ struct GpuParticleDemo {
 impl System for GpuParticleDemo {
     fn run(&mut self, world: &mut World, _dt: f32) {
         let (mouse_pos, left_just_pressed, space_just_pressed, r_just_pressed) = {
-            let input = world.resource::<InputState>().unwrap();
+            let Some(input) = world.resource::<InputState>() else {
+                return;
+            };
             (
                 input.cursor(),
                 input.mouse_just_pressed(MouseButton::Left),

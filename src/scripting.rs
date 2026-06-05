@@ -92,15 +92,37 @@ pub struct ScriptingSystem {
     engine: Engine,
 }
 
+/// Resource limits applied to the Rhai engine for a [`ScriptingSystem`].
+///
+/// Defaults are conservative but generous for *trusted local* game scripts: they
+/// guard against accidental runaways (infinite loops, unbounded allocations, deep
+/// recursion) without sandboxing hostile input. A value of `0` for any size/count
+/// limit means "unlimited" (Rhai's convention).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ScriptingLimits {
+    /// Max operations per script run (guards infinite loops). 0 = unlimited.
     pub max_operations: u64,
+    /// Max string length in bytes. 0 = unlimited.
+    pub max_string_size: usize,
+    /// Max array length. 0 = unlimited.
+    pub max_array_size: usize,
+    /// Max object-map entry count. 0 = unlimited.
+    pub max_map_size: usize,
+    /// Max function-call nesting depth (guards runaway recursion).
+    pub max_call_levels: usize,
+    /// Max expression nesting depth (guards parser stack overflow).
+    pub max_expr_depth: usize,
 }
 
 impl Default for ScriptingLimits {
     fn default() -> Self {
         Self {
             max_operations: 1_000_000,
+            max_string_size: 64 * 1024,
+            max_array_size: 100_000,
+            max_map_size: 100_000,
+            max_call_levels: 64,
+            max_expr_depth: 128,
         }
     }
 }

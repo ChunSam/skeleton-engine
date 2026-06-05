@@ -1,14 +1,13 @@
-/// Phase 46 예제: 분할화면 (OffscreenCamera × 2)
-///
-/// P1(녹색)과 P2(파란색) 플레이어가 서로 다른 위치를 보는 좌우 분할화면을 구현한다.
-/// - 화면 왼쪽 절반: "left_view" RenderTarget (P1 시점)
-/// - 화면 오른쪽 절반: "right_view" RenderTarget (P2 시점)
+//! Split-screen example (Phase 46): two `OffscreenCamera`s.
+//!
+//! P1 (green) and P2 (blue) view different locations in a left/right split:
+//! - Left half: "left_view" RenderTarget (P1's view)
+//! - Right half: "right_view" RenderTarget (P2's view)
 use engine::{
-    ecs::{System, World},
-    App, Camera, Color, OffscreenCamera, RenderLayer, Sprite, Transform, WindowConfig,
+    App, Camera, Color, KeyCode, OffscreenCamera, RenderLayer, Sprite, System, Transform,
+    WindowConfig, World,
 };
 use glam::Vec2;
-use winit::keyboard::KeyCode;
 
 // ─── 태그 컴포넌트 ───────────────────────────────────────────────────────────
 #[derive(Clone)]

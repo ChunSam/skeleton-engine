@@ -9,6 +9,12 @@ impl ScriptingSystem {
     pub fn with_limits(limits: ScriptingLimits) -> Self {
         let mut engine = Engine::new();
         engine.set_max_operations(limits.max_operations);
+        engine.set_max_string_size(limits.max_string_size);
+        engine.set_max_array_size(limits.max_array_size);
+        engine.set_max_map_size(limits.max_map_size);
+        engine.set_max_call_levels(limits.max_call_levels);
+        // Same cap for global and in-function expression depth.
+        engine.set_max_expr_depths(limits.max_expr_depth, limits.max_expr_depth);
 
         // ── 모든 함수를 1회만 등록 (thread_local로 실행 컨텍스트 전달) ──────
 

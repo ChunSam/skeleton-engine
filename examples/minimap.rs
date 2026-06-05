@@ -1,14 +1,12 @@
-/// Phase 46 예제: 미니맵 (오프스크린 RenderTarget)
-///
-/// 월드 카메라로 정상 렌더, OffscreenCamera로 줌-아웃된 256x256 미니맵을 만들어
-/// 화면 우상단에 표시한다.
+//! Minimap example (Phase 46): offscreen `RenderTarget`.
+//!
+//! Renders the world normally with the main camera, and an `OffscreenCamera`
+//! builds a zoomed-out 256x256 minimap shown in the top-right corner.
 use engine::{
-    ecs::{Entity, System, World},
-    App, Camera, Color, OffscreenCamera, RenderLayer, Sprite, Transform, ViewportSize,
-    WindowConfig,
+    App, Camera, Color, Entity, KeyCode, OffscreenCamera, RenderLayer, Sprite, System, Transform,
+    ViewportSize, WindowConfig, World,
 };
 use glam::Vec2;
-use winit::keyboard::KeyCode;
 
 // ─── 시스템: 플레이어 이동 ────────────────────────────────────────────────────
 struct MoveSystem;

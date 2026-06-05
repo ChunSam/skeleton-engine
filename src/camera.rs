@@ -81,6 +81,18 @@ impl Camera {
         )
     }
 
+    /// 월드 좌표를 화면(픽셀) 좌표로 변환한다 — [`screen_to_world`](Self::screen_to_world)
+    /// 의 역연산.
+    ///
+    /// 월드 공간 엔티티 위치에 화면 텍스트/UI 를 배치할 때 쓴다. 반환값은 좌상단
+    /// 기준 픽셀 좌표라 `DrawText`/`TextQueue` 에 그대로 넘길 수 있다 (이들은
+    /// 카메라의 영향을 받지 않는 스크린 공간이다).
+    ///
+    /// 연산: screen = (world - position) * zoom
+    pub fn world_to_screen(&self, world_pos: Vec2) -> Vec2 {
+        (world_pos - self.position) * self.zoom
+    }
+
     /// 0 나눗셈/NaN을 막기 위한 안전 줌 배율. `zoom` 이 0(또는 비정상적으로 작은 값)
     /// 으로 설정돼도 `screen_to_world`/`visible_rect`/`view_proj` 가 NaN 좌표를
     /// 내보내지 않도록 한다.
@@ -193,6 +205,23 @@ mod tests {
 
     const W: f32 = 800.0;
     const H: f32 = 600.0;
+
+    #[test]
+    fn world_to_screen_is_inverse_of_screen_to_world() {
+        let cam = Camera::new(Vec2::new(120.0, -40.0), 2.0);
+        // world → screen → world round-trips.
+        let world = Vec2::new(300.0, 150.0);
+        let screen = cam.world_to_screen(world);
+        assert_eq!(screen, (world - cam.position) * cam.zoom);
+        let back = cam.screen_to_world(screen);
+        assert!(
+            (back - world).length() < 1e-3,
+            "round-trip drifted: {back:?}"
+        );
+
+        // The camera's own position maps to screen origin (top-left).
+        assert_eq!(cam.world_to_screen(cam.position), Vec2::ZERO);
+    }
 
     #[test]
     fn default_matches_legacy_ortho() {

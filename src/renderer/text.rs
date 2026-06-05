@@ -13,10 +13,24 @@ use crate::color::Color as EngineColor;
 use crate::ecs::World;
 use crate::resources::DisplayScaleFactor;
 
-/// 한 줄 텍스트 그리기 명령. `position`은 좌상단 픽셀 좌표.
+/// A text draw command.
 ///
-/// Construct values with [`DrawText::new`] and builder methods instead of struct
-/// literals so future layout fields can be added without breaking call sites.
+/// # Coordinate space
+///
+/// `DrawText` / [`TextQueue`] are **screen-space**: `position` is in pixels with
+/// the origin at the **top-left** of the window (x → right, y → down), and is
+/// **not** affected by the [`Camera`](crate::Camera). To place text relative to a
+/// world entity, convert with [`Camera::world_to_screen`](crate::Camera::world_to_screen)
+/// first. (World-space sprites use `Transform` + the camera; UI/text does not.)
+///
+/// By default `position` is the text's **top-left** corner. Use
+/// [`DrawText::centered`] (or [`with_anchor`](DrawText::with_anchor)) to treat
+/// `position` as the text's center instead — handy for titles/HUD readouts where
+/// you'd otherwise eyeball a `-width/2` offset.
+///
+/// Construct values with [`DrawText::new`] / [`DrawText::centered`] and builder
+/// methods instead of struct literals so future layout fields can be added
+/// without breaking call sites.
 #[derive(Debug, Clone)]
 pub struct DrawText {
     pub text: String,
@@ -28,6 +42,8 @@ pub struct DrawText {
     /// RGBA (0~255)
     pub color: EngineColor,
     pub align: TextAlign,
+    /// How `position` anchors the text box (top-left by default, or its center).
+    pub anchor: TextAnchor,
     /// `[color=#RRGGBB]...[/color]`, `[b]...[/b]`, `[i]...[/i]` 태그를 해석한다.
     pub rich: bool,
     /// `Some(caret_byte)` 면 단일 라인(줄바꿈 없음)으로 그리고, 캐럿 바이트 위치가
@@ -50,8 +66,26 @@ impl DrawText {
             size,
             color: color.into(),
             align: TextAlign::Left,
+            anchor: TextAnchor::TopLeft,
             rich: false,
             single_line_caret: None,
+        }
+    }
+
+    /// Like [`new`](DrawText::new), but `position` is the **center** of the text
+    /// (anchor = [`TextAnchor::Center`]) and lines are centered horizontally
+    /// ([`TextAlign::Center`]). The shaped text size is measured at render time,
+    /// so no manual `-width/2` offset is needed.
+    pub fn centered(
+        text: impl Into<String>,
+        position: Vec2,
+        size: f32,
+        color: impl Into<EngineColor>,
+    ) -> Self {
+        Self {
+            anchor: TextAnchor::Center,
+            align: TextAlign::Center,
+            ..Self::new(text, position, size, color)
         }
     }
 
@@ -62,6 +96,12 @@ impl DrawText {
 
     pub fn with_align(mut self, align: TextAlign) -> Self {
         self.align = align;
+        self
+    }
+
+    /// Set how `position` anchors the text box (top-left vs. center).
+    pub fn with_anchor(mut self, anchor: TextAnchor) -> Self {
+        self.anchor = anchor;
         self
     }
 
@@ -92,6 +132,17 @@ fn caret_x(buf: &Buffer, caret_byte: usize) -> f32 {
         }
     }
     run.line_w
+}
+
+/// How a [`DrawText`]'s `position` maps to the rendered text box.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextAnchor {
+    /// `position` is the top-left corner (default — original behavior).
+    #[default]
+    TopLeft,
+    /// `position` is the center; the shaped text is offset by half its measured
+    /// size at render time.
+    Center,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -304,8 +355,23 @@ impl TextRenderer {
                     }
                     None => 0.0,
                 };
+                // Anchor: when centered, shift the effective top-left by half the
+                // shaped text size so `position` is the text's center. Measured
+                // from the shaped buffer (line_height = 1.2 × size, see Metrics).
+                let anchor_offset = match d.anchor {
+                    TextAnchor::TopLeft => Vec2::ZERO,
+                    TextAnchor::Center => {
+                        let mut max_w = 0.0_f32;
+                        let mut lines = 0.0_f32;
+                        for run in buf.layout_runs() {
+                            max_w = max_w.max(run.line_w);
+                            lines += 1.0;
+                        }
+                        Vec2::new(max_w * 0.5, lines * size * 1.2 * 0.5)
+                    }
+                };
                 let mut scaled = d;
-                scaled.position = position;
+                scaled.position = position - anchor_offset;
                 scaled.bounds = bounds;
                 scaled.size = size;
                 (buf, scaled, scroll)
@@ -526,6 +592,23 @@ mod tests {
         assert_eq!(d.color, EngineColor::from([255u8, 0, 0, 255]));
         assert_eq!(d.align, TextAlign::Center);
         assert!(d.rich);
+        // Default anchor is TopLeft (backward compatible).
+        assert_eq!(d.anchor, TextAnchor::TopLeft);
+    }
+
+    #[test]
+    fn drawtext_centered_sets_center_anchor_and_align() {
+        let d = DrawText::centered("Title", Vec2::new(400.0, 300.0), 32.0, [255, 255, 255, 255]);
+        assert_eq!(d.position, Vec2::new(400.0, 300.0));
+        assert_eq!(d.anchor, TextAnchor::Center);
+        assert_eq!(d.align, TextAlign::Center);
+    }
+
+    #[test]
+    fn drawtext_with_anchor_overrides_default() {
+        let d = make_draw_text("x").with_anchor(TextAnchor::Center);
+        assert_eq!(d.anchor, TextAnchor::Center);
+        assert_eq!(TextAnchor::default(), TextAnchor::TopLeft);
     }
 
     #[test]

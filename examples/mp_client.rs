@@ -17,11 +17,9 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
-    use engine::ecs::{System, World};
-    use engine::scene::Scene;
     use engine::{
-        App, DrawText, Events, NetworkClient, NetworkEvent, NetworkSystem, Sprite, TextQueue,
-        Transform, WindowConfig,
+        App, DrawText, Events, NetworkClient, NetworkEvent, NetworkSystem, Scene, Sprite, System,
+        TextQueue, Transform, WindowConfig, World,
     };
     use glam::Vec2;
     use serde::{Deserialize, Serialize};
@@ -130,7 +128,7 @@ fn main() {
 
             // 3. 입력 → 이동
             let (dx, dy) = {
-                use winit::keyboard::KeyCode;
+                use engine::KeyCode;
                 if let Some(input) = world.resource::<engine::InputState>() {
                     let right = (input.is_pressed(KeyCode::KeyD)
                         || input.is_pressed(KeyCode::ArrowRight))
