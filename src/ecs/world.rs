@@ -317,6 +317,32 @@ impl World {
             })
     }
 
+    /// T를 가진 모든 `(Entity, &mut T)` 쌍을 **가변 참조**로 순회한다.
+    ///
+    /// `query::<T>()` 의 가변 버전. 여러 엔티티의 단일 컴포넌트를 직접 수정할 때
+    /// "엔티티를 collect 한 뒤 `get_mut`" 2-패스 우회(매 프레임 할당)가 필요 없다.
+    ///
+    /// `get_mut` 과 마찬가지로, 여기서 수정해도 `query_changed<T>()` 에는 자동
+    /// 기록되지 않는다. 변경 감지가 필요하면 [`World::mark_changed`] 를 호출한다.
+    pub fn query_mut<T: 'static>(&mut self) -> impl Iterator<Item = (Entity, &mut T)> {
+        let tid = TypeId::of::<T>();
+        self.archetypes
+            .iter_mut()
+            .filter(move |arch| arch.contains(tid))
+            .flat_map(move |arch| {
+                // entities(불변)와 columns(가변)는 Archetype 의 서로 다른 필드이므로
+                // 구조 분해로 disjoint 가변/불변 차용을 동시에 얻는다.
+                let Archetype {
+                    entities, columns, ..
+                } = arch;
+                let col = columns.get_mut(&tid).unwrap();
+                entities
+                    .iter()
+                    .zip(col.iter_mut())
+                    .map(|(&e, c)| (e, c.downcast_mut::<T>().unwrap()))
+            })
+    }
+
     /// A, B 를 모두 가진 엔티티를 순회한다.
     pub fn query2<A: 'static, B: 'static>(&self) -> impl Iterator<Item = (Entity, &A, &B)> {
         let ta = TypeId::of::<A>();
