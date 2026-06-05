@@ -182,9 +182,16 @@ pub struct App {
     /// Gizmo 드래그 시작 시 엔티티 위치 (undo 기록용).
     #[cfg(not(target_arch = "wasm32"))]
     gizmo_drag_start_pos: Option<glam::Vec2>,
+    /// Gizmo 그룹 드래그 시작 시 각 선택 엔티티의 위치 (그룹 이동 undo 기록용).
+    #[cfg(not(target_arch = "wasm32"))]
+    gizmo_drag_start_positions: Vec<(Entity, glam::Vec2)>,
     /// 컴포넌트 추가 팩토리 맵 (네이티브 전용). 타입 이름 → World에 컴포넌트를 추가하는 클로저.
     #[cfg(not(target_arch = "wasm32"))]
     component_factories: HashMap<String, ComponentFactory>,
+    /// 컴포넌트 제거 클로저 맵 (네이티브 전용). 타입 이름 → World에서 컴포넌트를 제거하는 클로저.
+    /// 이 맵에 등록된 컴포넌트만 Inspector에서 "✕"(제거) 버튼이 노출/동작한다.
+    #[cfg(not(target_arch = "wasm32"))]
+    component_removers: HashMap<String, ComponentFactory>,
     /// "Add Component" 드롭다운에서 현재 선택된 컴포넌트 이름 (네이티브 전용).
     #[cfg(not(target_arch = "wasm32"))]
     add_component_selected: String,
@@ -257,7 +264,9 @@ impl App {
             inspector_tab: 0,
             cmd_history: EditorHistory::new(),
             gizmo_drag_start_pos: None,
+            gizmo_drag_start_positions: Vec::new(),
             component_factories: HashMap::new(),
+            component_removers: HashMap::new(),
             add_component_selected: String::new(),
             snap_enabled: false,
             snap_size: 16.0,
@@ -432,5 +441,47 @@ mod tests {
 
         assert!(paint_jobs_contain_callbacks(&[callback]));
         assert!(!paint_jobs_contain_callbacks(&[]));
+    }
+
+    #[test]
+    fn scene_replace_clears_panicked_systems() {
+        // 회귀 테스트: 씬 A 에서 패닉으로 비활성화된 시스템 인덱스가 Replace 이후
+        // 씬 B 의 같은 인덱스 시스템을 잘못 건너뛰면 안 된다.
+        struct SceneA;
+        impl Scene for SceneA {
+            fn on_enter(&mut self, _w: &mut World, systems: &mut Vec<Box<dyn System>>) {
+                systems.push(Box::new(PanicSystem)); // idx 0 — 패닉 후 비활성화
+                systems.push(Box::new(CountSystem)); // idx 1
+            }
+            fn on_exit(&mut self, _w: &mut World) {}
+        }
+        struct SceneB;
+        impl Scene for SceneB {
+            fn on_enter(&mut self, _w: &mut World, systems: &mut Vec<Box<dyn System>>) {
+                systems.push(Box::new(CountSystem)); // idx 0
+                systems.push(Box::new(CountSystem)); // idx 1
+            }
+            fn on_exit(&mut self, _w: &mut World) {}
+        }
+
+        let mut app = App::new();
+        app.register_persistent::<Counter>();
+        app.world.insert_resource(Counter::default());
+        app.set_scene(Box::new(SceneA));
+
+        // 씬 A: PanicSystem(idx0) 패닉→비활성화, CountSystem(idx1) 실행 → +1
+        app.update(1.0 / 60.0);
+        assert_eq!(app.world.resource::<Counter>().unwrap().0, 1);
+        assert!(app.panicked_systems.contains(&0));
+
+        // 씬 B 로 교체: panicked_systems 가 초기화되어 idx0/idx1 모두 실행 → +2
+        app.set_scene(Box::new(SceneB));
+        app.update(1.0 / 60.0);
+        assert_eq!(
+            app.world.resource::<Counter>().unwrap().0,
+            3,
+            "stale panicked index suppressed a new scene's system"
+        );
+        assert!(app.panicked_systems.is_empty());
     }
 }

@@ -63,6 +63,24 @@ impl App {
                                 #[cfg(not(target_arch = "wasm32"))]
                                 {
                                     self.gizmo_drag_start_pos = Some(tr.position);
+                                    // 그룹 이동 undo 기록용: 모든 선택 엔티티의 시작 위치 스냅샷.
+                                    // sel 이 selected_entities 에 없을 수도 있으므로 보장한다.
+                                    let mut starts: Vec<(Entity, glam::Vec2)> = Vec::new();
+                                    let mut has_sel = false;
+                                    for &e in &self.selected_entities {
+                                        if let Some(t) =
+                                            self.world.get::<crate::components::Transform>(e)
+                                        {
+                                            if e == sel {
+                                                has_sel = true;
+                                            }
+                                            starts.push((e, t.position));
+                                        }
+                                    }
+                                    if !has_sel {
+                                        starts.push((sel, tr.position));
+                                    }
+                                    self.gizmo_drag_start_positions = starts;
                                 }
                             }
                         }
@@ -117,19 +135,26 @@ impl App {
 
                         if just_released {
                             #[cfg(not(target_arch = "wasm32"))]
-                            if let Some(start_pos) = self.gizmo_drag_start_pos.take() {
-                                let new_pos = self
-                                    .world
-                                    .get::<crate::components::Transform>(sel)
-                                    .map(|t| t.position)
-                                    .unwrap_or(start_pos);
-                                if (new_pos - start_pos).length_squared() > 0.01 {
-                                    self.cmd_history.push(EditorCmd::MoveEntity {
-                                        entity: sel,
-                                        old_pos: start_pos,
-                                        new_pos,
-                                    });
+                            {
+                                // 그룹 이동 전체를 기록한다(기존엔 주 엔티티만 기록되어
+                                // 나머지 선택 엔티티의 이동을 undo 할 수 없었다). 엔티티별로
+                                // MoveEntity 를 쌓으므로 undo 가 엔티티 단위로 동작한다.
+                                let starts = std::mem::take(&mut self.gizmo_drag_start_positions);
+                                for (entity, start_pos) in starts {
+                                    let new_pos = self
+                                        .world
+                                        .get::<crate::components::Transform>(entity)
+                                        .map(|t| t.position)
+                                        .unwrap_or(start_pos);
+                                    if (new_pos - start_pos).length_squared() > 0.01 {
+                                        self.cmd_history.push(EditorCmd::MoveEntity {
+                                            entity,
+                                            old_pos: start_pos,
+                                            new_pos,
+                                        });
+                                    }
                                 }
+                                self.gizmo_drag_start_pos = None;
                             }
                             self.gizmo_dragging = false;
                         }
