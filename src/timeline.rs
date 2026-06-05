@@ -140,6 +140,28 @@ impl<T: Clone + Lerp> Default for Track<T> {
     }
 }
 
+// ── CameraTarget 마커 ─────────────────────────────────────────────────────────
+
+/// Marker that redirects a [`Timeline`] from the entity's own `Transform`/`Sprite`
+/// to the global [`Camera`](crate::camera::Camera) resource. With this component
+/// present, [`TimelineSystem`] writes the `position` track to `Camera::position`
+/// and the `zoom` track to `Camera::zoom`, letting a `Timeline` author camera
+/// pans/zooms for cutscenes. The entity is a virtual camera rig: its other tracks
+/// (rotation/scale/color/alpha) are ignored, and no `Transform` is required.
+///
+/// ```rust,ignore
+/// let mut cam_tl = Timeline::new(3.0);
+/// cam_tl.position.add(0.0, Vec2::new(0.0, 0.0), Easing::EaseInOut);
+/// cam_tl.position.add(3.0, Vec2::new(400.0, 0.0), Easing::EaseInOut);
+/// cam_tl.zoom.add(0.0, 1.0, Easing::Linear);
+/// cam_tl.zoom.add(3.0, 1.5, Easing::EaseOut);
+/// let rig = world.spawn();
+/// world.add_component(rig, cam_tl);
+/// world.add_component(rig, CameraTarget);
+/// ```
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CameraTarget;
+
 // ── Timeline 컴포넌트 ─────────────────────────────────────────────────────────
 
 /// 엔티티에 붙이는 타임라인 컴포넌트. `TimelineSystem`이 매 프레임 구동한다.
@@ -170,6 +192,10 @@ pub struct Timeline {
     pub scale: Track<glam::Vec2>,
     pub color: Track<[f32; 4]>,
     pub alpha: Track<f32>,
+    /// Camera zoom track. Only applied when the entity also carries
+    /// [`CameraTarget`]; empty (inert) by default, so ordinary timelines that
+    /// drive a `Transform`/`Sprite` are unaffected.
+    pub zoom: Track<f32>,
 }
 
 impl Timeline {
@@ -184,6 +210,7 @@ impl Timeline {
             scale: Track::new(),
             color: Track::new(),
             alpha: Track::new(),
+            zoom: Track::new(),
         }
     }
 
@@ -226,6 +253,7 @@ impl crate::ecs::System for TimelineSystem {
     }
 
     fn run(&mut self, world: &mut crate::ecs::World, dt: f32) {
+        use crate::camera::Camera;
         use crate::components::{Sprite, Transform};
 
         // Collect entities with Timeline first to avoid borrow conflicts
@@ -249,6 +277,24 @@ impl crate::ecs::System for TimelineSystem {
             }
 
             let t = tl.time;
+
+            // A `CameraTarget` entity drives the `Camera` resource (a virtual
+            // rig) instead of its own Transform/Sprite: position → camera
+            // position, zoom → camera zoom. Its other tracks are ignored.
+            if world.get::<CameraTarget>(entity).is_some() {
+                if let Some(pos) = tl.position.sample(t) {
+                    if let Some(cam) = world.resource_mut::<Camera>() {
+                        cam.position = pos;
+                    }
+                }
+                if let Some(zoom) = tl.zoom.sample(t) {
+                    if let Some(cam) = world.resource_mut::<Camera>() {
+                        cam.zoom = zoom;
+                    }
+                }
+                world.add_component(entity, tl);
+                continue;
+            }
 
             // Apply position
             if let Some(pos) = tl.position.sample(t) {
@@ -296,6 +342,9 @@ impl crate::ecs::System for TimelineSystem {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::camera::Camera;
+    use crate::components::Transform;
+    use crate::ecs::{System, World};
     use crate::tween::Easing;
     use glam::Vec2;
 
@@ -430,5 +479,94 @@ mod tests {
         tl.restart();
         assert_eq!(tl.time, 0.0);
         assert!(tl.playing);
+    }
+
+    // ── CameraTarget 카메라 구동 ──────────────────────────────────────────────
+
+    fn pan_timeline() -> Timeline {
+        let mut tl = Timeline::new(2.0);
+        tl.position.add(0.0, Vec2::new(0.0, 0.0), Easing::Linear);
+        tl.position.add(2.0, Vec2::new(200.0, 0.0), Easing::Linear);
+        tl
+    }
+
+    #[test]
+    fn camera_target_timeline_drives_camera_position() {
+        let mut world = World::new();
+        world.insert_resource(Camera::default());
+        let rig = world.spawn();
+        world.add_component(rig, pan_timeline());
+        world.add_component(rig, CameraTarget);
+
+        // advance 1.0s into a 2.0s linear pan 0→200 → midpoint 100
+        TimelineSystem.run(&mut world, 1.0);
+        let cam = world.resource::<Camera>().unwrap();
+        assert!(
+            (cam.position.x - 100.0).abs() < 1e-3,
+            "expected camera.x≈100, got {}",
+            cam.position.x
+        );
+    }
+
+    #[test]
+    fn camera_target_timeline_drives_camera_zoom() {
+        let mut world = World::new();
+        world.insert_resource(Camera::default());
+        let mut tl = Timeline::new(2.0);
+        tl.zoom.add(0.0, 1.0, Easing::Linear);
+        tl.zoom.add(2.0, 2.0, Easing::Linear);
+        let rig = world.spawn();
+        world.add_component(rig, tl);
+        world.add_component(rig, CameraTarget);
+
+        TimelineSystem.run(&mut world, 1.0);
+        let cam = world.resource::<Camera>().unwrap();
+        assert!(
+            (cam.zoom - 1.5).abs() < 1e-3,
+            "expected zoom≈1.5, got {}",
+            cam.zoom
+        );
+    }
+
+    #[test]
+    fn camera_target_ignores_own_transform() {
+        let mut world = World::new();
+        world.insert_resource(Camera::default());
+        let rig = world.spawn();
+        world.add_component(rig, pan_timeline());
+        world.add_component(rig, CameraTarget);
+        world.add_component(
+            rig,
+            Transform {
+                position: Vec2::new(7.0, 9.0),
+                ..Default::default()
+            },
+        );
+
+        TimelineSystem.run(&mut world, 1.0);
+        // Camera moved …
+        assert!((world.resource::<Camera>().unwrap().position.x - 100.0).abs() < 1e-3);
+        // … but the rig's own Transform is left untouched (it's a virtual rig).
+        assert_eq!(
+            world.get::<Transform>(rig).unwrap().position,
+            Vec2::new(7.0, 9.0)
+        );
+    }
+
+    #[test]
+    fn non_camera_timeline_leaves_camera_untouched() {
+        let mut world = World::new();
+        world.insert_resource(Camera::default());
+        let e = world.spawn();
+        world.add_component(e, pan_timeline());
+        world.add_component(e, Transform::default());
+
+        TimelineSystem.run(&mut world, 1.0);
+        // Camera resource is untouched without the CameraTarget marker …
+        let cam = world.resource::<Camera>().unwrap();
+        assert_eq!(cam.position, Vec2::ZERO);
+        assert_eq!(cam.zoom, 1.0);
+        // … and the entity's own Transform is driven as before.
+        assert!((world.get::<Transform>(e).unwrap().position.x - 100.0).abs() < 1e-3);
     }
 }

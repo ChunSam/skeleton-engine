@@ -113,7 +113,7 @@ pub use scene::{Scene, SceneChange, SceneCmd};
 pub use scripting::{ScriptRunner, ScriptingSystem};
 pub use steering::{Arrive, Flee, Seek, SteeringSystem, SteeringVelocity, Wander};
 pub use tilemap::{Tilemap, TilemapAtlas, TilemapSystem};
-pub use timeline::{Keyframe, Lerp, Timeline, TimelineSystem, Track};
+pub use timeline::{CameraTarget, Keyframe, Lerp, Timeline, TimelineSystem, Track};
 pub use timer::Timer;
 pub use tween::{Easing, Tween};
 pub use ui::{

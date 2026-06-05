@@ -32,6 +32,18 @@ The package follows semantic versioning beginning with 1.0.0.
   reset (`R` replays, `Esc` quits). The existing `minimap`/`split_screen` demos exercised the API but
   only ever framed the *same* region the main camera shows; this is the first use of an offscreen
   camera as the sole view of a **disjoint** region. Demonstrates the offscreen-render fix below.
+- `timeline_cutscene` example (`examples/timeline_cutscene.rs`): first use of `Timeline` in a
+  playable scene. Walk into a rune to trigger a cutscene that pans/zooms the camera, slides two gate
+  panels apart, and fades a full-screen overlay — all driven by `Timeline` keyframe tracks; Space
+  skips, control returns when it ends, then you cross the now-open gate to the exit. `Timeline`
+  shipped with unit tests but had zero example/game coverage. Demonstrates the camera-drive addition
+  below.
+- `CameraTarget` marker component (`engine::CameraTarget`) + a `Timeline::zoom` track: a `Timeline`
+  on an entity tagged `CameraTarget` drives the `Camera` resource (its `position` track → camera
+  position, `zoom` track → camera zoom) as a virtual camera rig, instead of the entity's own
+  `Transform`/`Sprite`. Lets a `Timeline` author camera moves for cutscenes — previously `Timeline`
+  could only animate an entity's own transform/sprite. Additive: ordinary timelines are unaffected
+  (the `zoom` track is empty by default).
 
 ### Breaking
 

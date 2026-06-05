@@ -2124,6 +2124,46 @@ The positions of `Panel` children are computed by `LayoutSystem`. It must be reg
 
 ---
 
+## 2026-06-05 — Timeline cutscene example + `CameraTarget` camera-drive (Timeline, candidate L)
+
+Dogfooded `Timeline` (keyframe cutscene system) — it shipped with 17 unit tests but **zero**
+example/game usage. New playable example `examples/timeline_cutscene.rs` (cross-platform, no native
+deps, colored sprites): walk a character into a glowing rune to trigger a cutscene that pans/zooms
+the camera onto a sealed gate, slides two gate panels apart, and dips a full-screen black overlay in
+and out — all authored as `Timeline` keyframe tracks. Space skips (jump every timeline to its end);
+when the cutscene ends control returns and you cross the now-open gate to the exit (win), `R` replays.
+
+**Engine gap closed — the camera could not be Timeline-driven.** `TimelineSystem` only wrote an
+entity's own `Transform` (position/rotation/scale) and `Sprite` (color/alpha); the `Camera` is a
+*Resource*, so a cutscene camera move needed bespoke per-example code. Added (additive, in
+`src/timeline.rs`): a zero-size **`CameraTarget`** marker component + a **`Timeline::zoom`** track. A
+timeline on a `CameraTarget` entity is treated as a virtual camera rig — `TimelineSystem` writes its
+`position` track into `Camera::position` and its `zoom` track into `Camera::zoom` (and skips the
+entity's own Transform). Ordinary timelines are unaffected: the new `zoom` track is empty by default
+and the camera branch only fires for marker-tagged entities. Re-exported as `engine::CameraTarget`.
+Four new unit tests cover it (camera position/zoom driven; a marked entity's own Transform is left
+untouched; an unmarked timeline never touches the camera).
+
+**What stayed example-side (engine-fix bar = fix only the gap the example hits).** Skip = set each
+timeline's `time = duration` (the system then samples the final keyframe — camera home, gate open,
+overlay clear); return-to-control = the example polls the rig timeline's `is_finished()`. No engine
+on-finish hook was added. Deferred (only if a future example needs them): an on-finish event/callback,
+a camera **rotation** track (pan + zoom only here), and a multi-timeline sequencing helper.
+
+**Coordinate note (the standing camera gotcha):** the rig's `position` keyframes are top-left-anchored,
+Y-down world coords (a camera at `(0,0)` zoom `1` shows `[0,W]×[0,H]`); the cutscene frames the gate
+with `pos≈(330,107) zoom 1.55` so the zoomed view stays in-bounds. The overlay is a single oversized
+(2400×1600) black quad centered in the room so it covers the screen at any in-room camera pan/zoom.
+
+**Verification:** `./scripts/verify.sh` green (fmt, clippy `-D warnings`, wasm lib+bins, all tests
+incl. the 4 new ones, rustdoc); native `cargo run --example timeline_cutscene` agent-playtested via
+synthetic input + screenshots (Explore → trigger → camera pan/zoom + gate-open cutscene → skip →
+return-to-control → walk through → win banner all confirmed); `rust-survivors` path-patch
+`cargo check --workspace` clean (`game v0.1.0`, uses 0 Timeline; additive API). Camera-drive is pure
+logic (unit-testable), unlike the candidate-K GPU fix.
+
+---
+
 ## 2026-06-05 — Security-camera example + offscreen-render fix (RenderTarget/OffscreenCamera, candidate K)
 
 **Context:** continuing the dogfooding loop (`docs/VISION.md`), `RenderTarget`/`OffscreenCamera` was a

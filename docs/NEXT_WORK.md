@@ -195,8 +195,30 @@ standalone demos or none). The densest, most universally-needed cluster — UI d
     needs them. `split_screen`'s on-screen *layout* also predates the top-left camera convention and
     is left as a separate cosmetic item.
 
+## Coverage follow-up — Timeline / cutscene (candidate L, 2026-06-05)
+
+- **L — Timeline cutscene** (`timeline_cutscene`, `examples/timeline_cutscene.rs`): first use of
+  `Timeline` in a **playable** scene. Walk into a rune → a cutscene pans/zooms the camera, slides two
+  gate panels apart, and fades a full-screen overlay (all `Timeline` tracks); Space skips, control
+  returns when it ends, then you cross the now-open gate to the exit. `Timeline` shipped with unit
+  tests but **zero** example/game usage — the gap was "no playable game" plus one real API hole.
+  - **Engine gap closed (camera could not be Timeline-driven):** `TimelineSystem` only wrote an
+    entity's own `Transform`/`Sprite`; the `Camera` is a *Resource*, so a cutscene camera move was
+    impossible without bespoke per-example code. Added a zero-size `CameraTarget` marker + a
+    `Timeline::zoom` track — a timeline on a `CameraTarget` entity writes its `position`/`zoom`
+    tracks straight into the `Camera` resource (a virtual camera rig). Additive; ordinary timelines
+    are unaffected (`zoom` is empty by default). Unit-tested in `src/timeline.rs` (camera pos/zoom
+    driven; own-Transform ignored for a marked entity; an unmarked timeline leaves the camera alone).
+  - **Skip / return-to-control are example-side:** skip sets each timeline's `time = duration` (the
+    system then samples the final keyframe), and the example polls the rig timeline's `is_finished()`
+    to hand control back — no engine on-finish hook was needed (engine-fix bar = fix only the gap the
+    example hits).
+  - **Deferred (noted, not done):** no on-finish event/callback (poll `is_finished()`); no camera
+    rotation track (pan + zoom only); no multi-timeline sequencing helper. Add only when an example
+    needs them.
+
 Remaining never-in-a-game subsystems (candidates for later dogfooding cycles, none scheduled):
-`Timeline`/cutscene, networking.
+networking.
 
 ## Alignment check — previously "planned" items vs the reset vision
 
