@@ -15,6 +15,10 @@ use crate::physics::world::PhysicsWorld;
 /// `pixels_per_unit`을 곱해 `Transform.position` 픽셀 좌표로 반영한다. 예를 들어
 /// `pixels_per_unit = 50.0`이면 물리 1 unit이 화면 50px에 해당한다.
 ///
+/// 위치뿐 아니라 바디의 **회전각도 `Transform.rotation`(라디안)에 동기화**한다 — 조인트로
+/// 자유 회전하는 바디(힌지 암 등)의 스프라이트가 물리와 함께 돌도록. 회전을 잠근 바디
+/// (`lock_rotation: true`)는 각도가 항상 0이라 영향이 없다.
+///
 /// 플레이어 제어 등 커스텀 로직이 필요하면 이 타입을 그대로 쓰지 않고,
 /// `PhysicsWorld`를 직접 소유하는 전용 시스템을 만드는 것을 권장한다.
 pub struct PhysicsSystem {
@@ -146,8 +150,10 @@ impl System for PhysicsSystem {
         for (entity, handle) in pairs {
             if let Some(body) = self.physics.rigid_body(handle) {
                 let t = *body.translation();
+                let angle = body.rotation().angle();
                 if let Some(tr) = world.get_mut::<Transform>(entity) {
                     tr.position = Vec2::new(t.x * scale, t.y * scale);
+                    tr.rotation = angle;
                 }
             }
         }
@@ -201,5 +207,66 @@ mod tests {
     fn non_positive_pixels_per_unit_is_clamped() {
         let physics = PhysicsWorld::new(Vec2::ZERO);
         let _ = PhysicsSystem::new(physics, 0.0);
+    }
+
+    #[test]
+    fn syncs_body_rotation_to_transform() {
+        // 회전하는 동적 바디의 각도가 Transform.rotation으로 동기화되어야 한다.
+        let mut physics = PhysicsWorld::new(Vec2::ZERO);
+        let (rb, col) = physics.add_dynamic_box(Vec2::ZERO, 0.5, 0.5, false);
+        physics.rigid_body_mut(rb).unwrap().set_angvel(3.0, true);
+
+        let mut system = PhysicsSystem::new(physics, 1.0);
+        let mut world = World::new();
+        let e = world.spawn();
+        world.add_component(
+            e,
+            PhysicsBody {
+                rigid_body_handle: rb,
+                collider_handle: col,
+            },
+        );
+        world.add_component(e, Transform::default());
+
+        let dt = 1.0 / 60.0;
+        system.run(&mut world, dt);
+
+        let rotation = world.get_mut::<Transform>(e).unwrap().rotation;
+        // angvel 3.0 rad/s 가 dt만큼 적분 → 약 0.05 rad. 동기화 안 하면 0으로 남는다.
+        assert!(
+            (rotation - 3.0 * dt).abs() < 1e-2,
+            "rotation 은 body 각도(≈angvel*dt)와 일치해야 함: {rotation}"
+        );
+    }
+
+    #[test]
+    fn locked_rotation_body_keeps_zero_rotation() {
+        // 회전 잠금 바디는 토크를 줘도 각도 0 — 동기화가 무해함을 보장.
+        let mut physics = PhysicsWorld::new(Vec2::ZERO);
+        let (rb, col) = physics.add_dynamic_box(Vec2::ZERO, 0.5, 0.5, true);
+        physics
+            .rigid_body_mut(rb)
+            .unwrap()
+            .apply_torque_impulse(5.0, true);
+
+        let mut system = PhysicsSystem::new(physics, 1.0);
+        let mut world = World::new();
+        let e = world.spawn();
+        world.add_component(
+            e,
+            PhysicsBody {
+                rigid_body_handle: rb,
+                collider_handle: col,
+            },
+        );
+        world.add_component(e, Transform::default());
+
+        system.run(&mut world, 1.0 / 60.0);
+
+        let rotation = world.get_mut::<Transform>(e).unwrap().rotation;
+        assert!(
+            rotation.abs() < 1e-6,
+            "회전 잠금 바디는 rotation 0을 유지해야 함: {rotation}"
+        );
     }
 }

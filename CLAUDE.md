@@ -70,9 +70,10 @@ Where to read to find a given thing:
 | Camera (coordinate transforms, zoom) | `src/camera.rs` |
 | InputState, InputMap | `src/input/` |
 | GamepadState, GamepadButton, GamepadAxis | `src/input/gamepad.rs` |
-| PhysicsWorld, PhysicsBody, PhysicsSystem, CollisionEvent | `src/physics/` |
+| PhysicsWorld, PhysicsBody, PhysicsSystem (syncs body position **and rotation** → Transform), CollisionEvent | `src/physics/` |
 | CharacterController (+ `request_drop`/`is_dropping` for one-way), RaycastHit, cast_ray, cast_ray_with_normal, move_character | `src/physics/character.rs`, `src/physics/world.rs` |
 | add_kinematic_box, add_kinematic_circle, add_static_from_tilemap, TileCollider, set_one_way/is_one_way | `src/physics/world.rs` |
+| add_revolute_joint, add_distance_joint, add_prismatic_joint, remove_joint (ImpulseJointHandle; example: `crane_wrecking_ball`) | `src/physics/world/joints.rs` |
 | SpatialGrid, Collider, CollisionLayer (SpatialGrid is mirrored to a World resource by CollisionGridSystem) | `src/collision/` |
 | BehaviorTree, BehaviorNode, Sequence, Selector, Inverter, AlwaysSucceed, BehaviorSystem, Blackboard, BlackboardValue (`Path` variant + `set_path`/`get_path`) | `src/behavior.rs` |
 | Seek, Flee, Arrive, Wander, SteeringVelocity, SteeringSystem (steering behaviors; O(1) per-entity component lookup) | `src/steering.rs` |

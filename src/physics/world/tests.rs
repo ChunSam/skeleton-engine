@@ -176,6 +176,52 @@ fn add_prismatic_joint_creates() {
 }
 
 #[test]
+fn distance_joint_holds_rest_length_under_gravity() {
+    // 고정 바디(원점)에 동적 바디를 distance joint로 매단다. 중력(+y)으로 아래로
+    // 떨어지지만 조인트가 rest_length를 유지하므로 원점에서의 거리가 ~2.0에 머물러야 한다.
+    let mut pw = make_world(); // gravity (0, 9.8)
+    let (anchor, _) = pw.add_static_box(Vec2::ZERO, 0.1, 0.1);
+    let (ball, _) = pw.add_dynamic_box(Vec2::new(2.0, 0.0), 0.2, 0.2, false);
+    pw.add_distance_joint(anchor, ball, Vec2::ZERO, Vec2::ZERO, 2.0);
+
+    for _ in 0..240 {
+        pw.step(1.0 / 60.0);
+    }
+
+    let p = pw.rigid_body(ball).unwrap().translation();
+    let dist = (p.x * p.x + p.y * p.y).sqrt();
+    assert!(
+        (dist - 2.0).abs() < 0.3,
+        "distance joint 가 rest_length(2.0)을 유지해야 함: {dist}"
+    );
+    assert!(p.y > 0.5, "중력으로 아래(+y)로 매달려야 함: {}", p.y);
+}
+
+#[test]
+fn revolute_joint_keeps_anchor_pinned_under_gravity() {
+    // 고정 바디(원점)에 동적 바디를 revolute로 핀. 피벗(월드 원점)을 중심으로
+    // 자유 회전하므로 바디는 아래로 스윙하지만 중심은 항상 피벗에서 arm 길이(1.0)
+    // 이내에 머문다 (조인트가 끊기면 무한정 추락).
+    let mut pw = make_world();
+    let (anchor, _) = pw.add_static_box(Vec2::ZERO, 0.1, 0.1);
+    let (arm, _) = pw.add_dynamic_box(Vec2::new(1.0, 0.0), 0.4, 0.1, false);
+    // 고정 바디 로컬 (0,0)=원점, arm 로컬 (-1,0)=arm의 좌측 끝=월드 원점 → 피벗=원점.
+    pw.add_revolute_joint(anchor, arm, Vec2::ZERO, Vec2::new(-1.0, 0.0));
+
+    for _ in 0..240 {
+        pw.step(1.0 / 60.0);
+    }
+
+    let p = pw.rigid_body(arm).unwrap().translation();
+    let dist = (p.x * p.x + p.y * p.y).sqrt();
+    assert!(
+        dist < 1.2,
+        "revolute 가 피벗에서 arm 길이 이내로 핀해야 함: {dist}"
+    );
+    assert!(p.y > 0.5, "중력으로 피벗 아래로 스윙해야 함: {}", p.y);
+}
+
+#[test]
 fn add_static_from_tilemap_creates_collider_per_matching_tile() {
     use crate::tilemap::{Tilemap, TilemapAtlas};
 

@@ -145,8 +145,29 @@ standalone demos or none). The densest, most universally-needed cluster — UI d
     exercise of the sprite crossfade path — CI compiles but never runs the windowed app, so this is
     validated by a native run.
 
+## Coverage follow-up — physics joints (candidate J, 2026-06-05)
+
+- **J — Crane wrecking-ball** (`crane_wrecking_ball`, `examples/crane_wrecking_ball.rs`): first
+  playable-example use of the physics **joint** API. A kinematic crane cart hangs a revolute-pinned
+  arm with a distance-tethered ball; the player rolls the cart left/right to swing the ball and
+  knock a 4-block stack off its pedestal (win + `R` reset). Exercises `add_revolute_joint` +
+  `add_distance_joint`, which shipped with creation/removal unit tests but **zero game/example
+  coverage**. (Note for a future cycle: the prior plan mis-scouted this as a *missing* public API —
+  it already existed in `src/physics/world/joints.rs`; the real gap was the missing playable example.)
+  - **Engine bug fixed (rotation sync):** `PhysicsSystem` synced only `Transform.position`, silently
+    dropping body rotation, so the swinging arm rendered bolt-upright while the physics rotated
+    underneath. Now it also writes `Transform.rotation` from the body angle (rotation-locked bodies
+    are unaffected — angle always 0). Latent because no in-engine `PhysicsSystem` user had a freely
+    rotating body. Regression tests in `src/physics/system.rs`.
+  - **Joint constraint coverage:** added tests that step under gravity and assert the constraint
+    holds (revolute keeps the arm pinned at the pivot; distance holds rest length), beyond the prior
+    creation-only tests.
+  - **Deferred (noted, not fixed):** `add_distance_joint` is implemented with `SpringJointBuilder`
+    (stiffness 1000 / damping 10) — it is a stiff spring, not a rigid link, and there is no
+    `add_fixed_joint`. Fine for ropes/tethers; revisit if a future example needs a rigid weld.
+
 Remaining never-in-a-game subsystems (candidates for later dogfooding cycles, none scheduled):
-`Timeline`/cutscene, physics joints, `RenderTarget`/`OffscreenCamera` in real play, networking.
+`Timeline`/cutscene, `RenderTarget`/`OffscreenCamera` in real play, networking.
 
 ## Alignment check — previously "planned" items vs the reset vision
 

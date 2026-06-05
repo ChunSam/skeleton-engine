@@ -2124,6 +2124,52 @@ The positions of `Panel` children are computed by `LayoutSystem`. It must be reg
 
 ---
 
+## 2026-06-05 — Crane wrecking-ball example + `PhysicsSystem` rotation sync (joints, candidate J)
+
+**Context:** continuing the dogfooding loop (`docs/VISION.md`), physics **joints** were a
+never-in-a-game subsystem (`docs/NEXT_WORK.md`, candidate **J**). The paired plan recommended joints
+on the premise that the public joint-creation API was *missing* (`impulse_joint_set` is `pub(crate)`).
+**That premise was wrong** — `add_revolute_joint` / `add_distance_joint` / `add_prismatic_joint` /
+`remove_joint` already existed in `src/physics/world/joints.rs` (added in "Phase 44b", relocated there
+by the source-split refactor) with passing creation/removal tests. The prior scout read
+`world.rs:143-144` but missed the `mod joints;` submodule. So the real gap was the VISION one: **no
+playable example exercised the joints**. The cycle was re-framed as example-led (build the example with
+the existing API + fix whatever awkwardness it surfaces), scope-locked via `/grill-me`.
+
+**Engine change (the dogfooding payoff):**
+- **`PhysicsSystem` now syncs rotation.** `PhysicsSystem::run` synced only `Transform.position`,
+  silently dropping the body angle, so a joint-driven swinging arm rendered bolt-upright while the
+  physics rotated underneath. Now it also writes `Transform.rotation` from `body.rotation().angle()`
+  (`src/physics/system.rs`). Rotation-locked bodies (`lock_rotation: true`) are unaffected (angle
+  always 0). The renderer already consumed `Transform.rotation` for the model matrix and culling, so
+  this was a pure sync gap. Additive — it completes the existing position-only sync. Regression tests:
+  `syncs_body_rotation_to_transform`, `locked_rotation_body_keeps_zero_rotation`.
+
+**Example:** `examples/crane_wrecking_ball.rs` (top-level, auto-discovered; **native-only** like the
+platformer since `physics` is gated off wasm). A kinematic crane cart (moved left/right) hangs a
+revolute-pinned arm with a distance-tethered heavy ball; swing the ball to knock a 4-block stack off
+its pedestal (win banner + `R` reset). It owns the `PhysicsWorld` via a wrapped `PhysicsSystem` and
+calls `self.physics.run(world, dt)` for the step+sync — the exact path the rotation fix lives in — so
+the swinging arm and tumbling blocks visibly rotate (HUD shows the live arm angle). Uses **revolute +
+distance** joints (per the locked scope: only the types the contraption needs; prismatic left for
+later). Mirrors the `PlatformerPhysicsSystem` wrap-`PhysicsSystem` idiom.
+
+**Joint constraint tests:** added `distance_joint_holds_rest_length_under_gravity` and
+`revolute_joint_keeps_anchor_pinned_under_gravity` (step under gravity, assert the constraint holds),
+beyond the prior creation-only tests.
+
+**Verification:** `./scripts/verify.sh` green (fmt, clippy `-D warnings`, wasm lib+bins build,
+`test --all-targets`, rustdoc `-D warnings`) with the example + fix + 4 new tests; native
+`cargo run --example crane_wrecking_ball` rendered with the arm hanging straight (both joints hold)
+and no panic; **rust-survivors** path-patch `cargo check` clean — and behaviorally unaffected because
+it owns a raw `PhysicsWorld` and does its own position-only sync, never calling `PhysicsSystem::run`.
+
+**Deferred (noted, not fixed):** `add_distance_joint` uses `SpringJointBuilder` (stiffness 1000 /
+damping 10) — a stiff spring, not a rigid link — and there is no `add_fixed_joint`. Fine for
+ropes/tethers; revisit if a future example needs a rigid weld.
+
+---
+
 ## 2026-06-05 — BlendTree1D locomotion example + true 2-UV crossfade blend + stranding fix
 
 **Context:** continuing the dogfooding loop (`docs/VISION.md`), `BlendTree1D` (1D param → clip

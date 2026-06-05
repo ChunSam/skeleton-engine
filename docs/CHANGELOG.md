@@ -19,6 +19,11 @@ The package follows semantic versioning beginning with 1.0.0.
 - `ImeConfig { allowed: bool }` resource (`engine::ImeConfig`, default **off**): controls whether
   the window accepts IME text composition. Insert `ImeConfig { allowed: true }` before `App::run()`
   in apps that need text input. See the IME fix under Fixed.
+- `crane_wrecking_ball` example (`examples/crane_wrecking_ball.rs`): first playable-example use of
+  the physics **joint** API (`PhysicsWorld::add_revolute_joint` / `add_distance_joint`). A kinematic
+  crane cart hangs a revolute-pinned arm with a distance-tethered wrecking ball; drive the cart to
+  swing the ball and knock a block stack off its pedestal. The joint methods shipped with unit tests
+  but had zero game/example coverage. Demonstrates the rotation-sync fix below.
 
 ### Breaking
 
@@ -66,6 +71,12 @@ The package follows semantic versioning beginning with 1.0.0.
   character kept moving). IME is now **off by default** and opt-in via the new `ImeConfig` resource;
   only text-input apps (`settings_menu_game`) enable it. Surfaced by `blend_locomotion` (a held
   accelerate key stayed latched under a Korean IME, so the clip never returned to idle).
+- `PhysicsSystem` now syncs each body's **rotation** into `Transform.rotation`, not just its
+  position. Previously a body that rotated under physics (e.g. a joint-driven swinging arm) kept a
+  bolt-upright sprite because rotation was silently dropped. Rotation-locked bodies (`lock_rotation:
+  true`) are unaffected (their angle is always 0). Surfaced by `crane_wrecking_ball`; regression
+  tests in `src/physics/system.rs`. Behaviorally inert for consumers that own a raw `PhysicsWorld`
+  and sync transforms themselves (e.g. `rust-survivors`).
 
 ### Changed
 
