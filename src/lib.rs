@@ -59,7 +59,7 @@ pub use asset::{
 };
 pub use atlas::{AtlasSprite, TextureAtlas};
 #[cfg(not(target_arch = "wasm32"))]
-pub use audio::{AudioChannelState, AudioEffect, AudioManager};
+pub use audio::{AudioChannelState, AudioEffect, AudioManager, AudioSystem};
 pub use behavior::{
     AlwaysSucceed, BehaviorNode, BehaviorStatus, BehaviorSystem, BehaviorTree, Blackboard,
     BlackboardValue, Inverter, Selector, Sequence,

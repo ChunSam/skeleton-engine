@@ -291,7 +291,12 @@ pub fn spawn_entity_def(world: &mut World, def: &EntityDef) -> Entity {
 /// `EntityDef.parent`가 설정된 경우, 해당 태그의 엔티티를 부모로 연결한다.
 /// RON 파일에 `parent` 키가 없는 구버전 씬도 그대로 로드된다 (하위 호환).
 pub fn spawn_scene_def(world: &mut World, scene: &SceneDef) -> Vec<Entity> {
-    // 1패스: 모든 엔티티 생성 + tag → Entity 맵 구축
+    // 1패스: 모든 엔티티 생성 + tag → Entity 맵 구축.
+    //
+    // 같은 태그가 여러 엔티티에 붙으면 parent 해석이 모호해진다. 예전에는 마지막
+    // 엔티티로 조용히 덮어썼다(last-wins). 이제는 **first-wins** 로 고정하고
+    // 중복을 경고한다. (모든 엔티티는 그대로 스폰되며, parent 해석에만 첫 엔티티를
+    // 사용한다.)
     let mut tag_to_entity: HashMap<String, Entity> = HashMap::new();
     let entities: Vec<Entity> = scene
         .entities
@@ -299,7 +304,18 @@ pub fn spawn_scene_def(world: &mut World, scene: &SceneDef) -> Vec<Entity> {
         .map(|def| {
             let e = spawn_entity_def(world, def);
             if let Some(tag) = &def.tag {
-                tag_to_entity.insert(tag.clone(), e);
+                use std::collections::hash_map::Entry;
+                match tag_to_entity.entry(tag.clone()) {
+                    Entry::Vacant(slot) => {
+                        slot.insert(e);
+                    }
+                    Entry::Occupied(_) => {
+                        log::warn!(
+                            "spawn_scene_def: duplicate tag {tag:?}; keeping the first \
+                             entity for parent resolution and ignoring later duplicates."
+                        );
+                    }
+                }
             }
             e
         })
@@ -528,6 +544,49 @@ SceneDef(
         };
         let entities = spawn_scene_def(&mut world, &scene);
         assert_eq!(entities.len(), 3);
+    }
+
+    /// #23: 같은 태그가 둘 이상이면 parent 해석은 **첫 번째** 엔티티로 고정된다
+    /// (first-wins). 모든 엔티티는 그대로 스폰된다.
+    #[test]
+    fn spawn_scene_def_duplicate_tag_is_first_wins() {
+        use crate::hierarchy::Parent;
+
+        let scene = SceneDef {
+            entities: vec![
+                // 첫 번째 "shared" — parent 해석의 승자
+                EntityDef {
+                    tag: Some("shared".into()),
+                    ..Default::default()
+                },
+                // 두 번째 "shared" — 중복(경고), parent 해석에서 무시됨
+                EntityDef {
+                    tag: Some("shared".into()),
+                    ..Default::default()
+                },
+                // "shared" 를 부모로 참조하는 자식
+                EntityDef {
+                    parent: Some("shared".into()),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+
+        let mut world = World::new();
+        let entities = spawn_scene_def(&mut world, &scene);
+        // 중복이 있어도 세 엔티티 전부 스폰된다.
+        assert_eq!(entities.len(), 3);
+
+        let first = entities[0];
+        let child = entities[2];
+        let parent = world
+            .get::<Parent>(child)
+            .expect("child should be attached to a parent");
+        assert_eq!(
+            parent.0, first,
+            "parent must resolve to the FIRST tagged entity (first-wins)"
+        );
     }
 
     #[test]

@@ -58,6 +58,40 @@ pub struct AudioManager {
     fades: HashMap<String, types::Fade>,
     /// 채널별 오디오 이펙트
     effects: HashMap<String, AudioEffect>,
+    /// 경로 → 인코딩된 파일 바이트 캐시. 같은 SFX 를 다시 재생할 때 디스크에서
+    /// 다시 읽지 않도록 한다 (`play`/`play_internal` 경로에서만 사용; 대용량 BGM 용
+    /// `play_streaming` 은 스트리밍하므로 캐시하지 않는다).
+    file_cache: HashMap<String, std::sync::Arc<[u8]>>,
+}
+
+// ─── AudioSystem ──────────────────────────────────────────────────────────────
+
+/// 매 프레임 오디오 페이드를 진행시키는 빌트인 시스템.
+///
+/// `AudioManager::fade_out` / `fade_volume` 는 페이드를 *예약*만 하며, 실제 진행은
+/// `AudioManager::update(dt)` 가 매 프레임 호출돼야 일어난다. 이 시스템을 등록하면
+/// 페이드가 자동으로 동작한다. (엔진의 다른 빌트인 시스템들처럼 사용자가 명시적으로
+/// 추가한다.)
+///
+/// ```rust,no_run
+/// # use engine::{App, AudioManager, AudioSystem};
+/// let mut app = App::new();
+/// if let Some(audio) = AudioManager::new() {
+///     app.world.insert_resource(audio);
+/// }
+/// app.add_system(AudioSystem);
+/// ```
+///
+/// `AudioManager` 리소스가 없으면 아무 일도 하지 않는다.
+#[derive(Default)]
+pub struct AudioSystem;
+
+impl crate::ecs::System for AudioSystem {
+    fn run(&mut self, world: &mut crate::ecs::World, dt: f32) {
+        if let Some(audio) = world.resource_mut::<AudioManager>() {
+            audio.update(dt);
+        }
+    }
 }
 
 #[cfg(test)]

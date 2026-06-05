@@ -13,6 +13,13 @@ use crate::resources::AmbientLight;
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub struct GpuLightData {
     pub position_ndc: [f32; 2],
+    /// Light radius in the SAME space the shader measures fragment distance in:
+    /// UV fraction-of-viewport-width, i.e. `radius * zoom / viewport_w`. The
+    /// `_ndc` suffix is a historical misnomer — this value is UV-space, not NDC
+    /// (NDC would be 2× this). The shader converts `position_ndc` to UV
+    /// (`*0.5+0.5`) and compares an aspect-corrected UV distance against this, so
+    /// the falloff reaches 0 at exactly the light's world-space radius. Do NOT
+    /// double it (see the `light_radius_*` unit tests).
     pub radius_ndc: f32,
     pub intensity: f32,
     pub color: [f32; 3],
@@ -145,6 +152,12 @@ fn light_position_ndc(
     let half_h = viewport_h / 2.0;
     let ndc_x = screen.x / half_w - 1.0;
     let ndc_y = screen.y / half_h - 1.0;
+    // Radius in UV-fraction-of-width (NOT NDC): a world radius `r` is `r*zoom`
+    // pixels, and the shader measures fragment distance as a fraction of viewport
+    // width (uv = pixel / viewport_w). These share one space, so the light's edge
+    // lands at exactly the world radius. (Despite the `_ndc` name — see the field
+    // doc on `GpuLightData::radius_ndc`. Doubling this would render lights 2× too
+    // large.)
     let radius_ndc = radius * camera.zoom / viewport_w;
     ([ndc_x, ndc_y], radius_ndc)
 }
@@ -513,6 +526,50 @@ mod tests {
         assert!((ndc[0] - 0.0).abs() < 1e-5);
         assert!((ndc[1] - 0.0).abs() < 1e-5);
         assert!((radius - 0.25).abs() < 1e-5);
+    }
+
+    /// #15 contract: the CPU `radius_ndc` and the shader's fragment distance live
+    /// in the SAME space (UV fraction-of-width), so a point light's falloff
+    /// reaches 0 at exactly its world-space radius — not half, not double.
+    ///
+    /// This guards against the (tempting but wrong) "fix" of doubling the radius
+    /// to `2*radius/viewport_w`: the shader measures distance in UV ([0,1]),
+    /// where the matching radius is `radius*zoom/viewport_w`. Doubling it would
+    /// render lights 2× too large.
+    #[test]
+    fn light_radius_falloff_reaches_zero_at_world_radius() {
+        let camera = Camera::default(); // pos (0,0), zoom 1
+        let (vp_w, vp_h) = (800u32, 600u32);
+        let world_radius = 100.0_f32;
+        let light_world = glam::Vec2::new(400.0, 300.0); // screen center
+        let (_ndc, radius_uv) = light_position_ndc(light_world, world_radius, camera, vp_w, vp_h);
+
+        // The shader computes diff_uv = uv_light - in.uv, both in [0,1]. A fragment
+        // exactly `world_radius` world-units to the right of the light is this far
+        // in UV-fraction-of-width:
+        let edge_d_uv = world_radius * camera.zoom / vp_w as f32;
+
+        // atten = 1 - d/radius_uv must hit 0 right at the world radius → the CPU
+        // radius equals the edge UV distance (same space).
+        assert!(
+            (radius_uv - edge_d_uv).abs() < 1e-6,
+            "radius_uv {radius_uv} must equal the world-radius UV distance {edge_d_uv} \
+             (same space); a 2× value would mean half/double-size lights"
+        );
+
+        // Half-radius fragment → atten 0.5 (linear falloff sanity check).
+        let atten_half = 1.0 - (edge_d_uv * 0.5) / radius_uv;
+        assert!((atten_half - 0.5).abs() < 1e-6);
+
+        // Aspect-corrected vertical edge also lands at the world radius: a fragment
+        // `world_radius` px above maps to diff_uv.y = r/vp_h, scaled by
+        // aspect_ratio = vp_h/vp_w → r/vp_w, matching radius_uv.
+        let aspect_ratio = vp_h as f32 / vp_w as f32;
+        let vertical_d_uv = (world_radius / vp_h as f32) * aspect_ratio;
+        assert!(
+            (vertical_d_uv - radius_uv).abs() < 1e-6,
+            "falloff must be circular"
+        );
     }
 
     #[test]
