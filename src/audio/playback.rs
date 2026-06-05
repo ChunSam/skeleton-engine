@@ -1,5 +1,7 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Cursor};
+use std::sync::Arc;
 use std::time::Duration;
 
 use rodio::source::SineWave;
@@ -13,7 +15,6 @@ impl AudioManager {
     /// 오디오 장치를 초기화한다. 실패 시 `None` 반환, 게임은 무음으로 계속 실행된다.
     pub fn new() -> Option<Self> {
         use rodio::OutputStream;
-        use std::collections::HashMap;
         match OutputStream::try_default() {
             Ok((_stream, stream_handle)) => Some(Self {
                 _stream,
@@ -25,6 +26,7 @@ impl AudioManager {
                 channel_buses: HashMap::new(),
                 fades: HashMap::new(),
                 effects: HashMap::new(),
+                file_cache: HashMap::new(),
             }),
             Err(e) => {
                 log::warn!("오디오 초기화 실패 (오디오 없이 실행됩니다): {e}");
@@ -185,12 +187,12 @@ impl AudioManager {
 
         let pan = self.pans.get(channel).copied().unwrap_or(0.0);
 
-        let bytes = match std::fs::read(path) {
-            Ok(b) => b,
-            Err(e) => {
-                log::warn!("오디오 파일을 열 수 없습니다 '{path}': {e}");
-                return;
-            }
+        // Reuse cached file bytes so replaying the same SFX doesn't re-read the
+        // file from disk each shot. Decoding still happens per play (rodio decodes
+        // the in-memory bytes), but the disk I/O is paid once per path.
+        let bytes = match read_cached_bytes(&mut self.file_cache, path) {
+            Some(b) => b,
+            None => return,
         };
         let source = match Decoder::new(Cursor::new(bytes)) {
             Ok(s) => s,
@@ -325,5 +327,30 @@ impl AudioManager {
             sink.append(source);
         }
         self.sinks.insert(channel.to_string(), sink);
+    }
+}
+
+/// Return the cached encoded bytes for `path`, reading (and caching) from disk on
+/// the first request. Returns `None` (with a warning) if the file can't be read.
+///
+/// Kept as a free function — independent of the audio device — so it is unit
+/// testable in headless CI where `AudioManager::new()` returns `None`.
+pub(super) fn read_cached_bytes(
+    cache: &mut HashMap<String, Arc<[u8]>>,
+    path: &str,
+) -> Option<Arc<[u8]>> {
+    if let Some(bytes) = cache.get(path) {
+        return Some(Arc::clone(bytes));
+    }
+    match std::fs::read(path) {
+        Ok(b) => {
+            let arc: Arc<[u8]> = Arc::from(b.into_boxed_slice());
+            cache.insert(path.to_string(), Arc::clone(&arc));
+            Some(arc)
+        }
+        Err(e) => {
+            log::warn!("오디오 파일을 열 수 없습니다 '{path}': {e}");
+            None
+        }
     }
 }

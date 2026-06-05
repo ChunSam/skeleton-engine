@@ -296,7 +296,10 @@ pub struct OffscreenCamera {
     /// 이 시점 전용 카메라 (메인 카메라와 독립적으로 동작)
     pub camera: crate::camera::Camera,
     /// 렌더할 RenderLayer 비트마스크. 0 = 전체 레이어 허용 (기본값, 하위 호환).
-    /// RenderLayer(n)은 비트 n에 대응한다 (n은 0~31로 클램프).
+    /// `RenderLayer(n)` (n ∈ 0..=31) 은 비트 n 에 대응한다. 0..=31 범위를 벗어난
+    /// 레이어(음수나 31 초과)는 32-bit 마스크로 지정할 수 없으므로, 0 이 아닌
+    /// 마스크에서는 항상 제외된다 (마스크 0 에서는 정상 렌더). 예: `RenderLayer(-1)`
+    /// 배경은 `layer_mask: 1 << 0` (레이어 0 전용) 패스에서 제외된다.
     pub layer_mask: u32,
 }
 
