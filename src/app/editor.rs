@@ -15,6 +15,9 @@ pub(super) enum EditorCmd {
         entity: Entity,
     },
     DeleteEntity {
+        /// undo 가 재생성한 엔티티 id. redo 에서 정확히 이 엔티티를 despawn 하기 위해
+        /// undo 시점에 채워진다(최초 생성 시엔 None — 원본은 이미 despawn 됨).
+        entity: Option<Entity>,
         tag: Option<String>,
         transform: Option<crate::components::Transform>,
         sprite: Option<crate::components::Sprite>,
@@ -42,7 +45,11 @@ impl EditorHistory {
     }
 
     pub(super) fn undo(&mut self, world: &mut World, selected: &mut Option<Entity>) {
-        let Some(cmd) = self.undo.pop() else { return };
+        let Some(mut cmd) = self.undo.pop() else {
+            return;
+        };
+        // DeleteEntity undo 가 재생성한 엔티티 id — match 종료 후 cmd 에 기록한다.
+        let mut respawned: Option<Entity> = None;
         match &cmd {
             EditorCmd::MoveEntity {
                 entity, old_pos, ..
@@ -60,6 +67,7 @@ impl EditorHistory {
                 tag,
                 transform,
                 sprite,
+                ..
             } => {
                 let e = world.spawn();
                 if let Some(tr) = transform {
@@ -72,7 +80,12 @@ impl EditorHistory {
                     world.add_component(e, Tag(t.clone()));
                 }
                 *selected = Some(e);
+                respawned = Some(e);
             }
+        }
+        // redo 가 현재 선택이 아니라 정확히 재생성된 엔티티를 despawn 하도록 id 를 기록.
+        if let (Some(e), EditorCmd::DeleteEntity { entity, .. }) = (respawned, &mut cmd) {
+            *entity = Some(e);
         }
         self.redo.push(cmd);
     }
@@ -89,19 +102,23 @@ impl EditorHistory {
                 *selected = Some(*entity);
             }
             EditorCmd::CreateEntity { entity: _ } => {
-                // 엔티티가 이미 despawn 됐으므로 새로 스폰 (id가 달라짐 — 허용)
+                // undo 시 despawn 됐으므로 새 엔티티를 스폰한다(새 id).
                 let e = world.spawn();
                 world.add_component(e, crate::components::Transform::default());
                 world.add_component(e, Tag("New Entity".into()));
                 *selected = Some(e);
-                // redo stack의 cmd를 업데이트할 수 없으므로 이 분기는 새 entity로 처리
-                drop(cmd);
+                // 새 id 로 갱신한 cmd 를 undo 스택에 올려 다시 undo 가능하게 한다.
+                // (기존엔 drop(cmd) 로 체인이 끊겨 재생성된 엔티티를 undo 할 수 없었다)
+                self.undo.push(EditorCmd::CreateEntity { entity: e });
                 return;
             }
-            EditorCmd::DeleteEntity { .. } => {
-                if let Some(sel) = *selected {
-                    world.despawn(sel);
-                    *selected = None;
+            EditorCmd::DeleteEntity { entity, .. } => {
+                // undo 가 재생성한 엔티티를 정확히 despawn (현재 선택과 무관).
+                if let Some(e) = *entity {
+                    world.despawn(e);
+                    if *selected == Some(e) {
+                        *selected = None;
+                    }
                 }
             }
         }
@@ -139,6 +156,19 @@ impl App {
         self.register_component("ParticleEmitter", |world, e| {
             world.add_component(e, crate::particle::ParticleEmitter::default());
         });
+        // 제거 클로저 등록 — Inspector "✕" 버튼이 이 맵을 기준으로 노출/동작한다.
+        self.register_component_remover("Sprite", |world, e| {
+            world.remove_component::<crate::components::Sprite>(e);
+        });
+        self.register_component_remover("RenderLayer", |world, e| {
+            world.remove_component::<crate::components::RenderLayer>(e);
+        });
+        self.register_component_remover("ParticleEmitter", |world, e| {
+            world.remove_component::<crate::particle::ParticleEmitter>(e);
+        });
+        self.register_component_remover("Tag", |world, e| {
+            world.remove_component::<crate::prefab::Tag>(e);
+        });
     }
 
     pub fn register_component(
@@ -148,5 +178,17 @@ impl App {
     ) {
         self.component_factories
             .insert(name.into(), Box::new(factory));
+    }
+
+    /// Inspector에서 컴포넌트를 제거할 수 있도록 제거 클로저를 등록한다.
+    /// `register_component` 로 추가 가능한 커스텀 컴포넌트를 제거 가능하게 하려면
+    /// 같은 이름으로 이 메서드도 호출한다(이 맵에 없는 컴포넌트는 "✕" 버튼이 숨겨진다).
+    pub fn register_component_remover(
+        &mut self,
+        name: impl Into<String>,
+        remover: impl Fn(&mut World, Entity) + Send + Sync + 'static,
+    ) {
+        self.component_removers
+            .insert(name.into(), Box::new(remover));
     }
 }
