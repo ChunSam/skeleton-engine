@@ -1,15 +1,20 @@
+#[cfg(not(target_arch = "wasm32"))]
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+#[cfg(not(target_arch = "wasm32"))]
 use chacha20poly1305::{
     aead::{Aead, KeyInit},
     ChaCha20Poly1305, Key, Nonce,
 };
+#[cfg(not(target_arch = "wasm32"))]
 use rand::RngCore;
 use serde::{de::DeserializeOwned, Serialize};
 
+#[cfg(not(target_arch = "wasm32"))]
 const SAVE_MAGIC: &[u8; 9] = b"R2DAEAD01";
+#[cfg(not(target_arch = "wasm32"))]
 const NONCE_LEN: usize = 12;
 const SAVE_KEY_BYTES: [u8; 32] = [
     0x52, 0x32, 0x44, 0x45, 0x2d, 0x53, 0x41, 0x56, 0x45, 0x2d, 0x41, 0x45, 0x41, 0x44, 0x2d, 0x4b,
@@ -37,6 +42,8 @@ pub enum SaveError {
     Io(io::Error),
     Ron(String),
     Corrupted,
+    /// 현재 타깃에서 파일 저장/로드를 지원하지 않음 (예: wasm — 파일시스템 없음).
+    Unsupported,
 }
 
 impl std::fmt::Display for SaveError {
@@ -45,6 +52,12 @@ impl std::fmt::Display for SaveError {
             SaveError::Io(e) => write!(f, "IO error: {e}"),
             SaveError::Ron(s) => write!(f, "RON error: {s}"),
             SaveError::Corrupted => write!(f, "Save file is corrupted or has been tampered with"),
+            SaveError::Unsupported => {
+                write!(
+                    f,
+                    "Save/load is not supported on this target (no filesystem)"
+                )
+            }
         }
     }
 }
@@ -80,14 +93,23 @@ pub fn save<T: Serialize>(path: &Path, data: &T) -> Result<(), SaveError> {
 
 /// 디렉토리를 만들고 데이터를 지정한 키로 AEAD 암호화해 저장한다.
 pub fn save_with_key<T: Serialize>(path: &Path, data: &T, key: SaveKey) -> Result<(), SaveError> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let plaintext = ron::ser::to_string_pretty(data, ron::ser::PrettyConfig::default())
+            .map_err(|e| SaveError::Ron(e.to_string()))?;
+        let encrypted = encrypt_save_bytes(plaintext.as_bytes(), key)?;
+        fs::write(path, encrypted)?;
+        Ok(())
     }
-    let plaintext = ron::ser::to_string_pretty(data, ron::ser::PrettyConfig::default())
-        .map_err(|e| SaveError::Ron(e.to_string()))?;
-    let encrypted = encrypt_save_bytes(plaintext.as_bytes(), key)?;
-    fs::write(path, encrypted)?;
-    Ok(())
+    // wasm: 파일시스템이 없으므로 런타임 IO 에러 대신 명시적 Unsupported 를 반환한다.
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (path, data, key);
+        Err(SaveError::Unsupported)
+    }
 }
 
 /// 저장 파일을 복호화한 뒤 RON으로 역직렬화한다. 파일 없으면 Err(SaveError::Io(NotFound)).
@@ -100,10 +122,18 @@ pub fn load<T: DeserializeOwned>(path: &Path) -> Result<T, SaveError> {
 
 /// 지정한 키로 저장 파일을 복호화한 뒤 RON으로 역직렬화한다.
 pub fn load_with_key<T: DeserializeOwned>(path: &Path, key: SaveKey) -> Result<T, SaveError> {
-    let bytes = fs::read(path)?;
-    let plaintext = decrypt_save_bytes(&bytes, key)?;
-    let s = std::str::from_utf8(&plaintext).map_err(|_| SaveError::Corrupted)?;
-    ron::from_str(s).map_err(|e| SaveError::Ron(e.to_string()))
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let bytes = fs::read(path)?;
+        let plaintext = decrypt_save_bytes(&bytes, key)?;
+        let s = std::str::from_utf8(&plaintext).map_err(|_| SaveError::Corrupted)?;
+        ron::from_str(s).map_err(|e| SaveError::Ron(e.to_string()))
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (path, key);
+        Err(SaveError::Unsupported)
+    }
 }
 
 /// 파일이 있으면 복호화해 로드, 없으면 `T::default()` 반환. 복호화/파싱 에러는 그대로 전파.
@@ -115,24 +145,42 @@ pub fn load_or_default<T: DeserializeOwned + Default>(path: &Path) -> Result<T, 
     }
 }
 
-/// 저장 파일이 존재하는지 확인한다.
+/// 저장 파일이 존재하는지 확인한다. wasm 에서는 항상 `false`.
 pub fn exists(path: &Path) -> bool {
-    path.exists()
-}
-
-/// 저장 파일을 삭제한다. 파일이 없으면 Ok(()).
-pub fn delete(path: &Path) -> Result<(), SaveError> {
-    match fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(SaveError::Io(e)),
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        path.exists()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = path;
+        false
     }
 }
 
+/// 저장 파일을 삭제한다. 파일이 없으면 Ok(()). wasm 에서는 지울 파일이 없으므로 Ok(()).
+pub fn delete(path: &Path) -> Result<(), SaveError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        match fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(SaveError::Io(e)),
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = path;
+        Ok(())
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn cipher(key: SaveKey) -> ChaCha20Poly1305 {
     ChaCha20Poly1305::new(Key::from_slice(&key.0))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn encrypt_save_bytes(plaintext: &[u8], key: SaveKey) -> Result<Vec<u8>, SaveError> {
     let mut nonce_bytes = [0u8; NONCE_LEN];
     rand::thread_rng().fill_bytes(&mut nonce_bytes);
@@ -147,6 +195,7 @@ fn encrypt_save_bytes(plaintext: &[u8], key: SaveKey) -> Result<Vec<u8>, SaveErr
     Ok(out)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn decrypt_save_bytes(bytes: &[u8], key: SaveKey) -> Result<Vec<u8>, SaveError> {
     let header_len = SAVE_MAGIC.len() + NONCE_LEN;
     if bytes.len() <= header_len || !bytes.starts_with(SAVE_MAGIC) {

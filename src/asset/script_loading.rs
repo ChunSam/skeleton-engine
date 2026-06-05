@@ -40,12 +40,22 @@ impl AssetServer {
 }
 
 pub(super) fn compile_script_file(path: &str) -> ScriptAsset {
+    #[cfg(not(target_arch = "wasm32"))]
     let source = match std::fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
             log::error!("스크립트 파일 읽기 실패 '{path}': {e}");
             String::new()
         }
+    };
+    // wasm: 파일시스템이 없어 경로 기반 스크립트 로딩을 지원하지 않는다.
+    // (조용히 빈 스크립트로 떨어지던 동작을 명시적 경고로 바꾼다)
+    #[cfg(target_arch = "wasm32")]
+    let source = {
+        log::warn!(
+            "load_script('{path}'): wasm 타깃은 파일시스템 스크립트 로딩을 지원하지 않습니다"
+        );
+        String::new()
     };
     let engine = rhai::Engine::new();
     let ast = engine.compile(&source).unwrap_or_else(|e| {
