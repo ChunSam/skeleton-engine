@@ -28,6 +28,23 @@ fn spawn_and_query() {
 }
 
 #[test]
+fn query_mut_mutates_all_matching() {
+    let mut world = World::new();
+    let e0 = world.spawn();
+    let e1 = world.spawn();
+    world.add_component(e0, Position { x: 1.0, y: 2.0 });
+    world.add_component(e1, Position { x: 3.0, y: 4.0 });
+
+    // query_mut 로 모든 Position 을 한 번에 가변 순회/수정 (collect+get_mut 우회 불필요)
+    for (_e, p) in world.query_mut::<Position>() {
+        p.x += 10.0;
+    }
+
+    assert_eq!(world.get::<Position>(e0).unwrap().x, 11.0);
+    assert_eq!(world.get::<Position>(e1).unwrap().x, 13.0);
+}
+
+#[test]
 fn resource() {
     let mut world = World::new();
     world.insert_resource(42u32);
