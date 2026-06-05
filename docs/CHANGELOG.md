@@ -11,6 +11,14 @@ The package follows semantic versioning beginning with 1.0.0.
 - `lit_dungeon_game` example (`examples/games/lit_dungeon/`): first playable-game use of 2D
   lighting (`PointLight`/`AmbientLight`) and `PostProcessConfig`. A dark top-down brazier-
   lighting puzzle with a decaying torch; bloom + vignette post-process (toggle with `P`).
+- `blend_locomotion` example (`examples/blend_locomotion.rs`) + `gen_blend_sheet` asset generator:
+  first use of `BlendTree1D` in a real interactive loop. A single speed parameter drives
+  idle/walk/run clip blending; demonstrates the new true crossfade and the stranding fix below.
+- `BlendUv { to, weight }` component (`engine::BlendUv`): written by `AnimationSystem` during a
+  crossfade and read by the sprite renderer to cross-dissolve the two frames per-pixel.
+- `ImeConfig { allowed: bool }` resource (`engine::ImeConfig`, default **off**): controls whether
+  the window accepts IME text composition. Insert `ImeConfig { allowed: true }` before `App::run()`
+  in apps that need text input. See the IME fix under Fixed.
 
 ### Breaking
 
@@ -48,6 +56,16 @@ The package follows semantic versioning beginning with 1.0.0.
   panic recovery state, and preserves initialized `DebugUi`.
 - Images loaded directly through `AssetServer::load_image` are lazily uploaded to the GPU cache,
   so scene-owned loading no longer depends on `App::load_image`.
+- `BlendTreeSystem` no longer strands an entity on an intermediate clip when the blend parameter
+  crosses two thresholds (e.g. idle→walk→run) within a single crossfade: it now defers the new
+  transition instead of recording an unachieved target, and re-evaluates once the crossfade ends.
+  Surfaced by `blend_locomotion`; regression test in `src/animation/blend_system.rs`.
+- Game key input is no longer broken when a CJK IME (Korean/Japanese/Chinese) is active. The window
+  previously enabled IME unconditionally, so on macOS the OS could route key-release events into IME
+  composition and leave keys stuck "pressed" (e.g. a held movement key never released → the
+  character kept moving). IME is now **off by default** and opt-in via the new `ImeConfig` resource;
+  only text-input apps (`settings_menu_game`) enable it. Surfaced by `blend_locomotion` (a held
+  accelerate key stayed latched under a Korean IME, so the clip never returned to idle).
 
 ### Changed
 
@@ -58,6 +76,11 @@ The package follows semantic versioning beginning with 1.0.0.
 - Lighting now renders the **nearest 16** point lights to the camera when a scene exceeds the
   16-light hard cap (previously the first 16 in arbitrary query order), and warns once. Light
   occlusion/shadows and per-sprite normal maps remain out of scope; lighting stays native-only.
+- Animation crossfades are now a true **2-UV shader-lerp** cross-dissolve (`mix(from, to, weight)`
+  in `sprite.wgsl`) instead of a 50% hard frame-swap, and `BlendWeight` is finally consumed by the
+  renderer (via the new `BlendUv` component). Additive: a sprite that is not crossfading
+  (`weight = 0`) renders byte-identically to before. `InstanceRaw` gained internal `to_uv`/`blend`
+  fields; the sprite path stays cross-platform (the blend works on wasm too).
 
 ## 1.3.0
 

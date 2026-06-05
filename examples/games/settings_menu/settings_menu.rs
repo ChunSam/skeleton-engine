@@ -14,10 +14,10 @@
 //! across the `SceneCmd::Replace` world reset via `App::register_persistent`.
 
 use engine::{
-    Anchor, App, Button, CheckBox, Entity, Events, GameState, InputState, KeyCode, Label,
-    LayoutDir, LayoutSystem, LocaleResource, LocalizationSystem, LocalizedText, Panel, Scene,
-    SceneChange, SceneCmd, ScrollView, ShouldQuit, Slider, System, TextAlign, TextInput, UiEvent,
-    UiNode, UiSystem, WindowConfig, World,
+    Anchor, App, Button, CheckBox, Entity, Events, GameState, ImeConfig, InputState, KeyCode,
+    Label, LayoutDir, LayoutSystem, LocaleResource, LocalizationSystem, LocalizedText, Panel,
+    Scene, SceneChange, SceneCmd, ScrollView, ShouldQuit, Slider, System, TextAlign, TextInput,
+    UiEvent, UiNode, UiSystem, WindowConfig, World,
 };
 
 // The engine's `AudioManager` / `AudioEffect` are native-only (`cfg(not(wasm32))`),
@@ -201,6 +201,9 @@ fn configure_window(world: &mut World) {
         height: WINDOW_H,
         clear_color: [0.02, 0.03, 0.05, 1.0],
     });
+    // This example has TextInput + a dialogue box, so it needs IME for CJK composition.
+    // IME defaults to off (so game keys aren't swallowed by a CJK input source); opt in here.
+    world.insert_resource(ImeConfig { allowed: true });
 }
 
 /// Static label whose text is kept in sync with the current locale by

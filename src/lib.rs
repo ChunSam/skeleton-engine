@@ -49,8 +49,8 @@ pub use winit::keyboard::KeyCode;
 
 pub use animation::{
     AnimParam, AnimState, AnimTransition, AnimationClip, AnimationPlayer, AnimationStateMachine,
-    AnimationSystem, BlendEntry, BlendTree1D, BlendTreeSystem, BlendWeight, StateMachineSystem,
-    TransitionCond, UvRect,
+    AnimationSystem, BlendEntry, BlendTree1D, BlendTreeSystem, BlendUv, BlendWeight,
+    StateMachineSystem, TransitionCond, UvRect,
 };
 pub use app::{App, ScheduleErrorPolicy, SystemPanicPolicy};
 pub use asset::{
@@ -105,7 +105,7 @@ pub use renderer::{
 };
 pub use resources::{
     AmbientLight, CullConfig, DebugDraw, DebugDrawQueue, DebugRect, DebugShape, DisplayScaleFactor,
-    FadeTransition, FontData, GameState, LoadProgress, PanickedSystems, PendingResize,
+    FadeTransition, FontData, GameState, ImeConfig, LoadProgress, PanickedSystems, PendingResize,
     ProfilerData, RenderStats, SelectedEntity, ShouldQuit, SystemProfile, ViewportSize,
     WindowConfig,
 };

@@ -3,12 +3,7 @@ use super::ui_primitives::{sorted_ui_primitives, UiPrimitiveKind};
 use super::*;
 
 fn raw() -> InstanceRaw {
-    InstanceRaw {
-        model: [[0.0; 4]; 4],
-        color: [1.0; 4],
-        uv_offset: [0.0; 2],
-        uv_size: [1.0; 2],
-    }
+    InstanceRaw::single([[0.0; 4]; 4], [1.0; 4], UvRect::FULL)
 }
 
 fn sprite(layer: i32, z: f32, order: usize, texture_key: &str) -> SpriteRenderEntry {

@@ -124,9 +124,29 @@ standalone demos or none). The densest, most universally-needed cluster — UI d
     forces it off on wasm, so the wasm build renders unlit — PostProcess still works on wasm);
     the 16-light hard cap is retained (the nearest-16 cull makes it graceful, doesn't raise it).
 
+## Coverage follow-up — animation blend cluster (candidate I, 2026-06-05)
+
+- **I — Blend locomotion** (`blend_locomotion`, `examples/blend_locomotion.rs`, with the
+  `gen_blend_sheet` asset generator): first use of `BlendTree1D` in a real interactive loop. One
+  speed parameter — driven by accelerate/decelerate input — maps to idle/walk/run clips and the
+  engine crossfades between them. A procedurally generated spritesheet (3 hue-distinct rows) makes
+  the blend legible.
+  - **Engine bug fixed (stranding):** `BlendTreeSystem` recorded `last_clip = target` even when it
+    *skipped* the transition under the `is_crossfading()` guard, so crossing two thresholds within
+    one crossfade (a fast idle→walk→run) dropped the second transition and stranded the character
+    on the intermediate clip. Now it defers and re-evaluates after the crossfade ends. Latent
+    because `BlendTree1D` had never been driven by live gameplay. Regression test in
+    `src/animation/blend_system.rs`.
+  - **Engine feature (true crossfade):** the crossfade was a 50% UV hard-swap (a visible pop) and
+    `BlendWeight` was a dead output. Added a true 2-UV shader-lerp cross-dissolve — `AnimationSystem`
+    emits a new `BlendUv { to, weight }` component; `InstanceRaw`/`sprite.wgsl` carry a second UV +
+    blend factor and the fragment shader `mix`es the two frames (single-sample on the common
+    `weight = 0` path). Additive and cross-platform (the blend works on wasm too). First runtime
+    exercise of the sprite crossfade path — CI compiles but never runs the windowed app, so this is
+    validated by a native run.
+
 Remaining never-in-a-game subsystems (candidates for later dogfooding cycles, none scheduled):
-`BlendTree1D`, `Timeline`/cutscene, physics joints, `RenderTarget`/`OffscreenCamera` in real
-play, networking.
+`Timeline`/cutscene, physics joints, `RenderTarget`/`OffscreenCamera` in real play, networking.
 
 ## Alignment check — previously "planned" items vs the reset vision
 

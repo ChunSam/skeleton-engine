@@ -1,10 +1,12 @@
-use crate::animation::player::{AnimationPlayer, BlendWeight};
+use crate::animation::player::{AnimationPlayer, BlendUv, BlendWeight};
 use crate::ecs::{Entity, System, World};
 
-/// 매 프레임 `AnimationPlayer` 타이머를 진행하고 `UvRect`/`BlendWeight` 컴포넌트를 동기화한다.
+/// 매 프레임 `AnimationPlayer` 타이머를 진행하고 `UvRect`/`BlendWeight`/`BlendUv` 컴포넌트를 동기화한다.
 ///
-/// 크로스페이드 중에는 두 클립을 병렬로 진행하고, 진행도가 50%를 넘는 순간 to_clip의 UV를 출력한다.
-/// `BlendWeight` 컴포넌트는 항상 갱신되며(전환 없으면 1.0), 게임 코드에서 알파 보간 등에 활용할 수 있다.
+/// 크로스페이드 중에는 두 클립(from·to)을 병렬로 진행하고, `UvRect`에 from 프레임을,
+/// `BlendUv`에 to 프레임 UV + 진행도(weight)를 출력한다. 스프라이트 셰이더가
+/// `mix(from, to, weight)`로 두 프레임을 합성해 부드러운 크로스페이드를 렌더한다.
+/// `BlendWeight` 컴포넌트도 항상 갱신되며(전환 없으면 1.0), 게임 코드에서 활용할 수 있다.
 pub struct AnimationSystem;
 
 impl System for AnimationSystem {
@@ -12,7 +14,7 @@ impl System for AnimationSystem {
         let entities: Vec<Entity> = world.query::<AnimationPlayer>().map(|(e, _)| e).collect();
 
         for entity in entities {
-            let (uv, weight) = {
+            let (uv, weight, blend_uv) = {
                 let Some(player) = world.get_mut::<AnimationPlayer>(entity) else {
                     continue;
                 };
@@ -69,28 +71,32 @@ impl System for AnimationSystem {
                 }
 
                 // ── 출력 UV 결정 ─────────────────────────────────────────────
-                // 진행도 ≥ 0.5에서 to_clip 프레임으로 전환
+                // from 프레임을 항상 UvRect로 출력하고, 크로스페이드 중이면 to 프레임 UV +
+                // 진행도(weight)를 BlendUv로 전달한다. 셰이더가 두 프레임을 mix해 블렌딩한다.
                 let weight = player.blend_weight();
-                let uv = if let Some(cf) = &player.crossfade {
-                    if weight >= 0.5 {
-                        player.clips[cf.to_clip]
-                            .frames
-                            .get(cf.to_frame)
-                            .copied()
-                            .unwrap_or(crate::animation::player::UvRect::FULL)
-                    } else {
-                        player.current_uv()
-                    }
+                let uv = player.current_uv();
+                let blend_uv = if let Some(cf) = &player.crossfade {
+                    let to = player.clips[cf.to_clip]
+                        .frames
+                        .get(cf.to_frame)
+                        .copied()
+                        .unwrap_or(crate::animation::player::UvRect::FULL);
+                    BlendUv { to, weight }
                 } else {
-                    player.current_uv()
+                    // 전환 중이 아니면 weight 0 — 렌더러는 단일 프레임으로 처리.
+                    BlendUv {
+                        to: uv,
+                        weight: 0.0,
+                    }
                 };
 
-                (uv, weight)
+                (uv, weight, blend_uv)
             };
 
             // AnimationPlayer 빌림 해제 후 컴포넌트 기록
             world.add_component(entity, uv);
             world.add_component(entity, BlendWeight(weight));
+            world.add_component(entity, blend_uv);
         }
     }
 }

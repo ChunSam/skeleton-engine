@@ -296,6 +296,18 @@ impl Default for WindowConfig {
     }
 }
 
+/// 텍스트 입력(IME) 허용 여부. 기본은 **꺼짐**.
+///
+/// 대부분의 게임은 텍스트 입력이 없다. IME가 켜져 있으면 macOS 등에서 CJK 입력기(한글/
+/// 일어/중국어)가 활성일 때 게임 키의 keyUp 이벤트가 조합 처리에 흡수돼 키가 "눌린 채"
+/// 고착될 수 있다(예: 가속 키가 안 풀려 캐릭터가 계속 달림). 그래서 기본은 off이며,
+/// `TextInput`/대화창 등 실제 텍스트 입력이 필요한 앱만 `App::run()` 전에
+/// `ImeConfig { allowed: true }`를 삽입해 IME를 켠다.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ImeConfig {
+    pub allowed: bool,
+}
+
 /// 게임이 사용할 폰트 바이트. App::run() 전에 삽입하면 TextRenderer 가 이를 사용한다.
 pub struct FontData(pub Vec<u8>);
 

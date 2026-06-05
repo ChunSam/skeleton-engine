@@ -131,6 +131,20 @@ mod uv_tests {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BlendWeight(pub f32);
 
+/// 크로스페이드 중 렌더러가 두 프레임을 알파 보간(lerp)하기 위한 컴포넌트.
+///
+/// `AnimationSystem`이 매 프레임 갱신한다. 크로스페이드 중이면 `to`에 to-클립의 현재
+/// 프레임 UV를, `weight`에 진행도(0.0→1.0)를 담는다. 전환 중이 아니면 `weight = 0.0`이며
+/// (`to`는 from과 동일) 렌더러는 단일 프레임으로 처리한다. 스프라이트 셰이더가
+/// `mix(from_uv, to_uv, weight)`로 두 프레임을 합성해 부드러운 크로스페이드를 만든다.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BlendUv {
+    /// to-클립의 현재 프레임 UV.
+    pub to: UvRect,
+    /// 크로스페이드 진행도 [0.0..=1.0]. 0이면 블렌드 없음(단일 프레임).
+    pub weight: f32,
+}
+
 // ─── 크로스페이드 상태 ────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]

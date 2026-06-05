@@ -2124,6 +2124,73 @@ The positions of `Panel` children are computed by `LayoutSystem`. It must be reg
 
 ---
 
+## 2026-06-05 — BlendTree1D locomotion example + true 2-UV crossfade blend + stranding fix
+
+**Context:** continuing the dogfooding loop (`docs/VISION.md`), `BlendTree1D` (1D param → clip
+auto-switch + crossfade) was a never-in-a-game subsystem with zero unit tests (`docs/NEXT_WORK.md`,
+candidate **I**). Reading it during scope-locking (`/grill-me`) surfaced three things; one new
+focused interactive example proves the subsystem in real play and the issues were fixed/upgraded
+per the VISION bar (small fixes inline, the deliberately-chosen feature implemented).
+
+**Shipped:** `examples/blend_locomotion.rs` (+ `examples/gen_blend_sheet.rs`, which writes the
+committed `examples/assets/blend_locomotion.png`). One speed parameter — driven by
+accelerate/decelerate input — maps to idle/walk/run clips via `BlendTree1D` and the engine
+crossfades between them. The spritesheet is 3 hue-distinct rows (blue/green/orange) so the
+cross-dissolve reads clearly; accel is brisk enough to cross two thresholds within one crossfade
+(the stranding case). HUD shows speed, current clip, and the live `BlendWeight`.
+
+**Three engine changes (all surfaced by the example):**
+1. **`BlendTreeSystem` stranding bug (fix).** It recorded `last_clip = target` even when it
+   *skipped* the transition under the `is_crossfading()` guard, so crossing idle→walk→run within a
+   single crossfade dropped the run transition and stranded the character on walk until it
+   decelerated and re-accelerated. Now it `continue`s (defers) without recording when mid-crossfade,
+   and re-evaluates once the crossfade ends. Regression test in `src/animation/blend_system.rs`
+   (plus a `target_clip()` boundary test — the module had no tests at all).
+2. **True 2-UV crossfade blend (feature, deliberately chosen as "the big one").** The crossfade was
+   a 50% UV hard-swap (a visible pop) and `BlendWeight` was a dead output. Now `AnimationSystem`
+   emits a new `BlendUv { to, weight }` component (the from-frame stays in `UvRect`); `InstanceRaw`
+   gained `to_uv_offset`/`to_uv_size`/`blend` (96B→116B, shader_locations 9/10/11) with
+   `single()`/`blended()` constructors used by every instance builder; `sprite.wgsl` appends
+   `uv_to`/`blend` to `VertexOutput` and the fragment shader `mix`es the two frames, branching on
+   `blend > 0` so the common path stays single-sample. **Additive:** a non-crossfading sprite
+   (`weight = 0`) renders byte-identically; custom `ShaderMaterial` frags (which read only
+   `@location(0/1)`) are unaffected; the sprite path stays cross-platform so the blend works on
+   wasm (unlike lighting).
+3. `BlendUv` is re-exported (`engine::BlendUv`) and consumed by the sprite renderer's `Sprite` loop
+   (not `AtlasSprite`/UI — out of scope; those default the new fields).
+
+**Verification:** `./scripts/verify.sh` green (fmt, clippy `-D`, wasm lib+bins build, `test
+--all-targets`, rustdoc `-D`); 273 lib tests + the 2 new blend tests pass. Native
+`cargo run --example blend_locomotion` renders with no shader-validation panic (the new sprite
+shader's first runtime exercise — CI compiles but can't run the windowed app). `rust-survivors`
+`cargo check` against this tip via the local path-patch is clean (the shared instance format +
+sprite shader changed, so this is a higher-blast-radius change than lit_dungeon; additive,
+`weight = 0` path identical). Scope locked up front via `/grill-me`.
+
+**Key decisions:** focused interactive demo (not a win/lose game) — `BlendTree1D`'s parameter is
+speed, so a locomotion demo is the most direct proof; **2-UV shader lerp** chosen over dual-instance
+over-composite (per-pixel correct, and `mix()` doesn't depend on the framebuffer blend mode);
+procedural spritesheet via a committed gen example (`gen_platform_tiles.rs` precedent) rather than a
+new runtime image API (keeps the engine change scoped to the blend feature). Non-goals:
+`AtlasSprite`/UI blending, cross-texture clip blending, raising behavior for non-crossfading sprites.
+
+**Playtest follow-ups (two more issues the live test surfaced):**
+- **Example centering.** The character was spawned at world `(0,0)`, but the engine camera is
+  top-left anchored (`camera.position` = viewport top-left, `src/camera.rs`), so its center landed
+  in the screen corner and 3/4 was clipped. Fixed in the example by spawning at the screen-center
+  world coord `(W/2, H/2)`. Example-only; not an engine bug.
+- **IME swallowed game keys (engine fix).** The window unconditionally called
+  `window.set_ime_allowed(true)` (for the text-input examples). With a CJK IME (Korean) active,
+  macOS routed key-release events into IME composition, leaving keys stuck "pressed" — a held
+  accelerate key never released, so the clip never returned to idle (reported as B3, plus "한글
+  입력시 문제"). The blend logic itself was proven correct by a headless accel→decel regression test
+  (`decelerating_param_returns_through_clips_to_idle`). Fix: added the `ImeConfig { allowed: bool }`
+  resource (default **off**); `src/app/window.rs` reads it instead of forcing IME on; `settings_menu`
+  (the only `TextInput` user) opts in with `ImeConfig { allowed: true }`. Games now get raw,
+  IME-robust keys by default (rust-survivors benefits too — verified `cargo check` clean).
+
+---
+
 ## 2026-06-05 — Lit dungeon example + lighting nearest-16 cull
 
 **Context:** continuing the dogfooding loop (`docs/VISION.md`), 2D lighting and `PostProcessConfig`

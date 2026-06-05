@@ -7,7 +7,7 @@ use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Quat, Vec3};
 use wgpu::util::DeviceExt;
 
-use crate::animation::player::UvRect;
+use crate::animation::player::{BlendUv, UvRect};
 use crate::asset::AssetServer;
 use crate::atlas::AtlasSprite;
 use crate::camera::Camera;
@@ -318,6 +318,14 @@ impl SpriteRenderer {
             }
 
             let uv = world.get::<UvRect>(entity).copied().unwrap_or(UvRect::FULL);
+            // 크로스페이드 중이면 to 프레임 + 진행도를 셰이더 lerp용으로 전달한다.
+            let blend = world.get::<BlendUv>(entity).copied();
+            let make_instance = |model: [[f32; 4]; 4]| match blend {
+                Some(b) if b.weight > 0.0 => {
+                    InstanceRaw::blended(model, sprite.color, uv, b.to, b.weight)
+                }
+                _ => InstanceRaw::single(model, sprite.color, uv),
+            };
             let layer = world
                 .get::<crate::components::RenderLayer>(entity)
                 .map(|l| l.0)
@@ -348,7 +356,7 @@ impl SpriteRenderer {
                     gt.z,
                     order,
                     tex_key,
-                    InstanceRaw::from_global(gt, sprite, uv),
+                    make_instance(gt.to_matrix().to_cols_array_2d()),
                 ));
             } else if let Some(transform) = world.get::<Transform>(entity) {
                 if !is_visible(transform.position, transform.scale, transform.rotation) {
@@ -366,7 +374,7 @@ impl SpriteRenderer {
                     transform.z,
                     order,
                     tex_key,
-                    InstanceRaw::from(transform, sprite, uv),
+                    make_instance(transform.to_matrix().to_cols_array_2d()),
                 ));
             }
         }
@@ -414,12 +422,7 @@ impl SpriteRenderer {
                                 gt.z,
                                 order,
                                 tex_key,
-                                InstanceRaw {
-                                    model: gt.to_matrix().to_cols_array_2d(),
-                                    color: *color,
-                                    uv_offset: [uv.u_offset, uv.v_offset],
-                                    uv_size: [uv.u_size, uv.v_size],
-                                },
+                                InstanceRaw::single(gt.to_matrix().to_cols_array_2d(), *color, uv),
                             ));
                         } else if let Some(tr) = world.get::<Transform>(*entity) {
                             if !is_visible(tr.position, tr.scale, tr.rotation) {
@@ -437,12 +440,7 @@ impl SpriteRenderer {
                                 tr.z,
                                 order,
                                 tex_key,
-                                InstanceRaw {
-                                    model: tr.to_matrix().to_cols_array_2d(),
-                                    color: *color,
-                                    uv_offset: [uv.u_offset, uv.v_offset],
-                                    uv_size: [uv.u_size, uv.v_size],
-                                },
+                                InstanceRaw::single(tr.to_matrix().to_cols_array_2d(), *color, uv),
                             ));
                         }
                     }

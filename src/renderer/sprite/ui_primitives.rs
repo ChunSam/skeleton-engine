@@ -38,12 +38,7 @@ pub(super) fn ui_quad_instance(
         Quat::IDENTITY,
         Vec3::new(cx, cy, 0.0),
     );
-    InstanceRaw {
-        model: model.to_cols_array_2d(),
-        color,
-        uv_offset: [uv.u_offset, uv.v_offset],
-        uv_size: [uv.u_size, uv.v_size],
-    }
+    InstanceRaw::single(model.to_cols_array_2d(), color, uv)
 }
 
 pub(super) fn sorted_ui_primitives(rects: &[DrawRect], images: &[DrawImage]) -> Vec<UiPrimitive> {

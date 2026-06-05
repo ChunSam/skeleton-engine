@@ -372,10 +372,16 @@ impl App {
         self.sprite_renderer = Some(sprite_renderer);
         self.text_renderer = text_renderer;
         self.gpu = Some(gpu);
-        // IME 활성화: 켜지 않으면 macOS 등에서 한글/일어/중국어가 조합되지 않고
-        // 자모/캐나 단위 `Character` 이벤트로 들어온다. `Ime::Preedit/Commit` 핸들러는
-        // 이미 있으므로, 허용만 하면 조합된 글자가 `Commit` 으로 전달된다.
-        window.set_ime_allowed(true);
+        // IME 허용 여부는 `ImeConfig` 리소스로 제어한다 (기본 off — `src/resources.rs`).
+        // 켜면 macOS 등에서 한글/일어/중국어가 `Ime::Preedit/Commit` 으로 조합돼 들어오지만,
+        // CJK 입력기가 활성일 때 게임 키의 keyUp 이벤트가 흡수돼 키가 고착될 수 있으므로
+        // 텍스트 입력이 필요한 앱만 `ImeConfig { allowed: true }` 로 켠다.
+        let ime_allowed = self
+            .world
+            .resource::<crate::resources::ImeConfig>()
+            .map(|c| c.allowed)
+            .unwrap_or(false);
+        window.set_ime_allowed(ime_allowed);
         self.window = Some(window);
         self.last_frame = Some(Instant::now());
         log::info!("엔진 초기화 완료");
