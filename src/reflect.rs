@@ -4,9 +4,15 @@ use glam::Vec2;
 ///
 /// `Reflect::fields()`에서 반환되며, 에디터 Inspector에서 값을 편집하고
 /// `Reflect::set_field()`로 다시 적용할 때 사용한다.
+///
+/// `#[non_exhaustive]`: 포크/다운스트림에서 이 enum 을 `match` 할 때는 `_` 분기를
+/// 둬야 한다 (향후 변형 추가에 대비). 엔진 내부 변형은 자유롭게 추가될 수 있다.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum ReflectValue {
     F32(f32),
+    /// 32비트 정수 필드 (Inspector 에서 정수 DragValue 로 편집).
+    I32(i32),
     Vec2(Vec2),
     Bool(bool),
     String(String),
@@ -44,4 +50,41 @@ pub trait Reflect {
     fn set_field(&mut self, name: &str, val: ReflectValue) -> bool;
     /// Inspector 표시용 타입 이름.
     fn type_name(&self) -> &'static str;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A component with an i32 field, to exercise the `ReflectValue::I32` variant.
+    struct Score(i32);
+
+    impl Reflect for Score {
+        fn fields(&self) -> Vec<(&'static str, ReflectValue)> {
+            vec![("score", ReflectValue::I32(self.0))]
+        }
+        fn set_field(&mut self, name: &str, val: ReflectValue) -> bool {
+            if name == "score" {
+                if let ReflectValue::I32(v) = val {
+                    self.0 = v;
+                    return true;
+                }
+            }
+            false
+        }
+        fn type_name(&self) -> &'static str {
+            "Score"
+        }
+    }
+
+    #[test]
+    fn reflect_value_i32_roundtrips() {
+        let mut s = Score(7);
+        assert_eq!(s.fields(), vec![("score", ReflectValue::I32(7))]);
+        assert!(s.set_field("score", ReflectValue::I32(42)));
+        assert_eq!(s.0, 42);
+        // Wrong variant for the field is rejected, value unchanged.
+        assert!(!s.set_field("score", ReflectValue::F32(1.0)));
+        assert_eq!(s.0, 42);
+    }
 }

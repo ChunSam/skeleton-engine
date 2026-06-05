@@ -46,6 +46,7 @@ pub mod ui;
 // ── 편의 재수출 ────────────────────────────────────────────────────────────────
 
 pub use glam::{IVec2, Mat4, Vec2, Vec3};
+pub use winit::event::MouseButton;
 pub use winit::keyboard::KeyCode;
 
 pub use animation::{
@@ -102,8 +103,8 @@ pub use skeletal::{
 pub use reflect::{Reflect, ReflectValue};
 pub use renderer::texture::TextureError;
 pub use renderer::{
-    DrawImage, DrawRect, DrawText, PostProcessConfig, RenderTarget, TextAlign, TextQueue,
-    TextRenderer, UiImageQueue, UiQueue,
+    DrawImage, DrawRect, DrawText, PostProcessConfig, RenderTarget, TextAlign, TextAnchor,
+    TextQueue, TextRenderer, UiImageQueue, UiQueue,
 };
 pub use resources::{
     AmbientLight, CullConfig, DebugDraw, DebugDrawQueue, DebugRect, DebugShape, DisplayScaleFactor,

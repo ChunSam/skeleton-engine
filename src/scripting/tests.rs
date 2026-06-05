@@ -35,6 +35,28 @@ fn empty_ctx(entity: Entity) -> ScriptCtx {
 }
 
 #[test]
+fn scripting_limits_default_is_conservative() {
+    // #30: defaults should bound strings/arrays/maps/recursion/expr-depth so a
+    // trusted-local script can't accidentally run away, while staying generous.
+    let limits = ScriptingLimits::default();
+    assert_eq!(limits.max_operations, 1_000_000);
+    assert!(limits.max_string_size > 0, "string size must be bounded");
+    assert!(limits.max_array_size > 0, "array size must be bounded");
+    assert!(limits.max_map_size > 0, "map size must be bounded");
+    assert!(
+        (1..=256).contains(&limits.max_call_levels),
+        "call depth must be bounded but usable"
+    );
+    assert!(
+        (1..=512).contains(&limits.max_expr_depth),
+        "expr depth must be bounded but usable"
+    );
+
+    // The engine builds with these limits applied (no panic from the setters).
+    let _sys = ScriptingSystem::with_limits(limits);
+}
+
+#[test]
 fn scripting_spawn_entity_works() {
     let sys = make_engine();
     let ctx = eval_with_ctx(

@@ -1,13 +1,11 @@
-/// Phase 51 예제: 비동기 에셋 로딩 + 진행률 바
-///
-/// - LoadingScene: 여러 이미지를 load_image_async로 비동기 로드하면서
-///   DrawRect로 진행률 바를 표시한다.
-/// - 로딩 완료 후 GameScene으로 자동 전환한다.
+//! Async asset loading + progress bar example (Phase 51).
+//!
+//! - LoadingScene: loads several images via `load_image_async` while drawing a
+//!   progress bar with `DrawRect`.
+//! - Automatically transitions to GameScene once loading completes.
 use engine::{
-    ecs::{System, World},
-    renderer::{DrawRect, TextQueue, UiQueue},
-    resources::{ViewportSize, WindowConfig},
-    App, AssetServer, Color, LoadProgress, Scene, SceneChange, SceneCmd,
+    App, AssetServer, Color, DrawRect, DrawText, LoadProgress, Scene, SceneChange, SceneCmd,
+    System, TextQueue, UiQueue, ViewportSize, WindowConfig, World,
 };
 
 // ─── 로딩 씬 ─────────────────────────────────────────────────────────────────
@@ -95,7 +93,7 @@ impl System for LoadingUpdateSystem {
 
         // 퍼센트 텍스트
         if let Some(tq) = world.resource_mut::<TextQueue>() {
-            tq.push(engine::renderer::DrawText::new(
+            tq.push(DrawText::new(
                 format!("Loading... {:.0}%", progress * 100.0),
                 glam::Vec2::new(bar_x + bar_w / 2.0 - 70.0, bar_y - 40.0),
                 22.0,
@@ -133,7 +131,7 @@ impl System for GameUpdateSystem {
             .map(|v| (v.width, v.height))
             .unwrap_or((800.0, 600.0));
         if let Some(tq) = world.resource_mut::<TextQueue>() {
-            tq.push(engine::renderer::DrawText::new(
+            tq.push(DrawText::new(
                 "Loading complete! Game ready.",
                 glam::Vec2::new(vw / 2.0 - 130.0, vh / 2.0),
                 22.0,
