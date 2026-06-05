@@ -152,9 +152,9 @@ fn add_distance_joint_creates_and_removes() {
     let (b1, _) = pw.add_dynamic_box(Vec2::new(-1.0, 0.0), 0.4, 0.4, false);
     let (b2, _) = pw.add_dynamic_box(Vec2::new(1.0, 0.0), 0.4, 0.4, false);
     let h = pw.add_distance_joint(b1, b2, Vec2::ZERO, Vec2::ZERO, 2.0);
-    assert!(pw.impulse_joint_set.get(h).is_some());
+    assert!(pw.impulse_joint_set.get(h.0).is_some());
     pw.remove_joint(h);
-    assert!(pw.impulse_joint_set.get(h).is_none());
+    assert!(pw.impulse_joint_set.get(h.0).is_none());
 }
 
 #[test]
@@ -163,7 +163,7 @@ fn add_revolute_joint_creates() {
     let (b1, _) = pw.add_dynamic_box(Vec2::new(0.0, 0.0), 0.4, 0.4, false);
     let (b2, _) = pw.add_dynamic_box(Vec2::new(1.0, 0.0), 0.4, 0.4, false);
     let h = pw.add_revolute_joint(b1, b2, Vec2::new(0.5, 0.0), Vec2::new(-0.5, 0.0));
-    assert!(pw.impulse_joint_set.get(h).is_some());
+    assert!(pw.impulse_joint_set.get(h.0).is_some());
 }
 
 #[test]
@@ -172,7 +172,7 @@ fn add_prismatic_joint_creates() {
     let (b1, _) = pw.add_dynamic_box(Vec2::new(0.0, 0.0), 0.4, 0.4, false);
     let (b2, _) = pw.add_dynamic_box(Vec2::new(0.0, 1.0), 0.4, 0.4, false);
     let h = pw.add_prismatic_joint(b1, b2, Vec2::ZERO, Vec2::ZERO, Vec2::new(0.0, 1.0));
-    assert!(pw.impulse_joint_set.get(h).is_some());
+    assert!(pw.impulse_joint_set.get(h.0).is_some());
 }
 
 #[test]
