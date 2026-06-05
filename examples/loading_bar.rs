@@ -8,13 +8,13 @@ use engine::{
     System, TextQueue, UiQueue, ViewportSize, WindowConfig, World,
 };
 
-// ─── 로딩 씬 ─────────────────────────────────────────────────────────────────
+// ─── Loading Scene ───────────────────────────────────────────────────────────
 
 struct LoadingScene;
 
 impl Scene for LoadingScene {
     fn on_enter(&mut self, world: &mut World, systems: &mut Vec<Box<dyn System>>) {
-        // 여러 이미지를 비동기로 로드 요청 (파일 없어도 마젠타 폴백으로 대체됨)
+        // Request async loading of several images (missing files fall back to magenta)
         let paths = [
             "assets/bg.png",
             "assets/player.png",
@@ -28,7 +28,7 @@ impl Scene for LoadingScene {
                 count += 1;
             }
         }
-        // LoadProgress 초기화
+        // Initialize LoadProgress
         if let Some(prog) = world.resource_mut::<LoadProgress>() {
             prog.total = count;
             prog.loaded = 0;
@@ -39,7 +39,7 @@ impl Scene for LoadingScene {
     fn on_exit(&mut self, _world: &mut World) {}
 }
 
-// ─── 로딩 업데이트 시스템 ──────────────────────────────────────────────────────
+// ─── Loading Update System ───────────────────────────────────────────────────
 
 struct LoadingUpdateSystem {
     done: bool,
@@ -58,9 +58,9 @@ impl System for LoadingUpdateSystem {
             loaded as f32 / total as f32
         };
 
-        // 진행률 바 렌더링 — UiQueue/DrawRect 는 좌상단(0,0) 원점 스크린 픽셀
-        // 좌표계다. 화면 중앙에 놓으려면 ViewportSize 기준 양수 좌표가 필요하다.
-        // (기존엔 음수 좌표라 바 전체가 화면 밖에 그려졌다)
+        // Render the progress bar — UiQueue/DrawRect uses a screen-pixel coordinate
+        // system with origin (0,0) at the top-left. Positive coordinates relative to
+        // ViewportSize are needed to center it. (Negative coords drew the bar off-screen.)
         let (vw, vh) = world
             .resource::<ViewportSize>()
             .map(|v| (v.width, v.height))
@@ -71,7 +71,7 @@ impl System for LoadingUpdateSystem {
         let bar_y = (vh - bar_h) / 2.0;
 
         if let Some(ui) = world.resource_mut::<UiQueue>() {
-            // 배경 바
+            // Background bar
             ui.items.push(DrawRect {
                 x: bar_x - 2.0,
                 y: bar_y - 2.0,
@@ -80,7 +80,7 @@ impl System for LoadingUpdateSystem {
                 color: Color::rgba(0.15, 0.15, 0.15, 1.0),
                 z: 0.5,
             });
-            // 진행 바
+            // Progress bar
             ui.items.push(DrawRect {
                 x: bar_x,
                 y: bar_y,
@@ -91,7 +91,7 @@ impl System for LoadingUpdateSystem {
             });
         }
 
-        // 퍼센트 텍스트
+        // Percentage text
         if let Some(tq) = world.resource_mut::<TextQueue>() {
             // `centered` anchors at the text's center — no manual -width/2 offset.
             tq.push(DrawText::centered(
@@ -102,7 +102,7 @@ impl System for LoadingUpdateSystem {
             ));
         }
 
-        // 완료 시 씬 전환
+        // Transition to the game scene when loading is complete
         if !self.done && loaded >= total && total > 0 {
             self.done = true;
             if let Some(sc) = world.resource_mut::<SceneChange>() {
@@ -112,7 +112,7 @@ impl System for LoadingUpdateSystem {
     }
 }
 
-// ─── 게임 씬 ─────────────────────────────────────────────────────────────────
+// ─── Game Scene ──────────────────────────────────────────────────────────────
 
 struct GameScene;
 
@@ -142,7 +142,7 @@ impl System for GameUpdateSystem {
     }
 }
 
-// ─── 진입점 ──────────────────────────────────────────────────────────────────
+// ─── Entry Point ─────────────────────────────────────────────────────────────
 
 fn main() {
     let mut app = App::new();

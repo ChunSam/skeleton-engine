@@ -29,7 +29,7 @@ impl System for GpuParticleDemo {
             )
         };
 
-        // 마우스 클릭 → 새 이미터 생성
+        // Mouse click → spawn a new emitter
         if left_just_pressed {
             let e = world.spawn();
             world.add_component(
@@ -53,7 +53,7 @@ impl System for GpuParticleDemo {
             self.emitter_count += 1;
         }
 
-        // 스페이스: 모든 이미터 토글
+        // Space: toggle all emitters
         if space_just_pressed {
             let entities: Vec<_> = world
                 .query::<GpuParticleEmitter>()
@@ -66,7 +66,7 @@ impl System for GpuParticleDemo {
             }
         }
 
-        // R: 이미터 전부 삭제
+        // R: remove all emitters
         if r_just_pressed {
             let entities: Vec<_> = world
                 .query::<GpuParticleEmitter>()

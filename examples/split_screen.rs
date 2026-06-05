@@ -9,21 +9,21 @@ use engine::{
 };
 use glam::Vec2;
 
-// ─── 태그 컴포넌트 ───────────────────────────────────────────────────────────
+// ─── Tag components ──────────────────────────────────────────────────────────
 #[derive(Clone)]
 struct Player1;
 
 #[derive(Clone)]
 struct Player2;
 
-// ─── 시스템: P1 이동 (WASD) + P2 이동 (방향키) ────────────────────────────
+// ─── System: P1 movement (WASD) + P2 movement (arrow keys) ───────────────────
 struct MoveSystem;
 
 impl System for MoveSystem {
     fn run(&mut self, world: &mut World, dt: f32) {
         let speed = 200.0;
 
-        // P1: WASD, P2: 화살표
+        // P1: WASD, P2: arrow keys
         let mut d1 = Vec2::ZERO;
         let mut d2 = Vec2::ZERO;
 
@@ -54,7 +54,7 @@ impl System for MoveSystem {
             }
         }
 
-        // P1 이동
+        // Move P1
         let p1_entities: Vec<_> = world.query::<Player1>().map(|(e, _)| e).collect();
         for e in &p1_entities {
             if let Some(t) = world.get_mut::<Transform>(*e) {
@@ -62,7 +62,7 @@ impl System for MoveSystem {
             }
         }
 
-        // P2 이동
+        // Move P2
         let p2_entities: Vec<_> = world.query::<Player2>().map(|(e, _)| e).collect();
         for e in &p2_entities {
             if let Some(t) = world.get_mut::<Transform>(*e) {
@@ -70,7 +70,7 @@ impl System for MoveSystem {
             }
         }
 
-        // OffscreenCamera를 플레이어 위치에 맞게 업데이트
+        // Update OffscreenCamera to follow each player's position
         let p1_pos = p1_entities
             .first()
             .and_then(|&e| world.get::<Transform>(e))
@@ -104,7 +104,7 @@ impl System for MoveSystem {
 fn main() {
     let mut app = App::new();
 
-    // 윈도우 설정 (800×600)
+    // Window settings (800×600)
     app.world.insert_resource(WindowConfig {
         title: "Phase 46 — Split Screen".into(),
         width: 800,
@@ -112,12 +112,12 @@ fn main() {
         clear_color: [0.05, 0.05, 0.08, 1.0],
     });
 
-    // ─── 오프스크린 렌더 타겟 등록 ──────────────────────────────────────────
-    // 각 뷰는 화면 절반 너비×높이
+    // ─── Register offscreen render targets ───────────────────────────────────
+    // Each view covers half the screen width × full height
     app.create_render_target("left_view", 400, 600);
     app.create_render_target("right_view", 400, 600);
 
-    // ─── 플레이어 1 (녹색, 좌측) ─────────────────────────────────────────────
+    // ─── Player 1 (green, left side) ─────────────────────────────────────────
     let p1 = app.world.spawn();
     app.world.add_component(
         p1,
@@ -137,7 +137,7 @@ fn main() {
     );
     app.world.add_component(p1, Player1);
 
-    // ─── 플레이어 2 (파란색, 우측) ───────────────────────────────────────────
+    // ─── Player 2 (blue, right side) ─────────────────────────────────────────
     let p2 = app.world.spawn();
     app.world.add_component(
         p2,
@@ -157,7 +157,7 @@ fn main() {
     );
     app.world.add_component(p2, Player2);
 
-    // ─── 배경 오브젝트들 ─────────────────────────────────────────────────────
+    // ─── Background objects ───────────────────────────────────────────────────
     let bg_objects = [
         (Vec2::new(0.0, 150.0), Color::rgba(0.8, 0.7, 0.2, 1.0)),
         (Vec2::new(-100.0, -100.0), Color::rgba(0.7, 0.3, 0.8, 1.0)),
@@ -185,7 +185,7 @@ fn main() {
         );
     }
 
-    // ─── 배경 타일 ───────────────────────────────────────────────────────────
+    // ─── Background tiles ─────────────────────────────────────────────────────
     for i in -6..=6 {
         for j in -4..=4 {
             let bg = app.world.spawn();
@@ -210,33 +210,33 @@ fn main() {
         }
     }
 
-    // ─── OffscreenCamera 엔티티 ───────────────────────────────────────────────
-    // left_view: P1 초기 위치
+    // ─── OffscreenCamera entities ────────────────────────────────────────────
+    // left_view: P1 initial position
     let oc1 = app.world.spawn();
     app.world.add_component(
         oc1,
         OffscreenCamera {
             target: "left_view".to_string(),
             camera: Camera::new(Vec2::new(-200.0, 0.0), 1.0),
-            layer_mask: 1 << 0, // 월드 콘텐츠(layer ≤0)만 — 표시용 스프라이트(layer 20) 자기캡처 방지
+            layer_mask: 1 << 0, // world content only (layer ≤0) — prevents self-capture of display sprites (layer 20)
         },
     );
 
-    // right_view: P2 초기 위치
+    // right_view: P2 initial position
     let oc2 = app.world.spawn();
     app.world.add_component(
         oc2,
         OffscreenCamera {
             target: "right_view".to_string(),
             camera: Camera::new(Vec2::new(200.0, 0.0), 1.0),
-            layer_mask: 1 << 0, // 월드 콘텐츠(layer ≤0)만 — 표시용 스프라이트(layer 20) 자기캡처 방지
+            layer_mask: 1 << 0, // world content only (layer ≤0) — prevents self-capture of display sprites (layer 20)
         },
     );
 
-    // ─── 화면에 표시할 뷰 스프라이트 ─────────────────────────────────────────
-    // 화면 중심 (0,0) 기준, 월드 좌표로 배치.
-    // left_view: 화면 왼쪽 절반 (-200, 0), 크기 400×600
-    // right_view: 화면 오른쪽 절반 (+200, 0), 크기 400×600
+    // ─── View sprites displayed on screen ────────────────────────────────────
+    // Positioned in world coordinates relative to screen center (0,0).
+    // left_view: left half of screen (-200, 0), size 400×600
+    // right_view: right half of screen (+200, 0), size 400×600
     let left_sprite = app.world.spawn();
     app.world.add_component(
         left_sprite,
