@@ -2150,10 +2150,14 @@ Finished the `docs/CODE_ANALYSIS.md` epic — all 30 issues now addressed.
   bump, so it was done last.
 - Verified throughout with the CI-pinned toolchain (`cargo +1.88.0`): `fmt` / `clippy --all-targets`
   / `test --all-targets` (311 lib) / wasm build / doctests / `doc -D warnings` — all green.
-- **rust-survivors:** still pinned to engine **v2** (`rev 61c09f1`). It uses `PhysicsWorld` and
-  array-form color fields, so moving to v3/v4 is a real Color-newtype + PhysicsWorld-resource
-  migration, not a routine pin bump — deferred as its own task. It does **not** use the joint API,
-  so #28 itself doesn't affect it.
+- **rust-survivors:** migrated to engine **v4.0.0** (game commit `da11775`, 2026-06-07; pin bumped
+  v2 `rev 61c09f1` → v4 `rev 60328fa`). The Color newtype (#11) was the **only** breaking change
+  that touched the game; `PhysicsWorld` (#13) was unaffected because the game owns a raw
+  `PhysicsWorld` directly (platformer demo only), and the joint API (#28) is unused. Re-verified
+  green against v4 on 2026-06-08 (`cargo +1.88.0` `fmt`/`clippy --all-targets -D warnings`/`test -p
+  game --lib` 200 pass/release build) — this pass also fixed a fmt slip the migration commit missed
+  (two unwrapped `.to_array()` lines) and 32 **pre-existing** clippy style lints unrelated to the
+  migration.
 
 ---
 
