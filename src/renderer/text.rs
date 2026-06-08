@@ -35,20 +35,20 @@ use crate::resources::DisplayScaleFactor;
 pub struct DrawText {
     pub text: String,
     pub position: Vec2,
-    /// 텍스트 레이아웃 영역. `None`이면 화면 끝까지 사용한다.
+    /// Text layout area. `None` means the text extends to the edge of the screen.
     pub bounds: Option<Vec2>,
-    /// 폰트 픽셀 크기
+    /// Font size in pixels.
     pub size: f32,
-    /// RGBA (0~255)
+    /// RGBA (0–255)
     pub color: EngineColor,
     pub align: TextAlign,
     /// How `position` anchors the text box (top-left by default, or its center).
     pub anchor: TextAnchor,
-    /// `[color=#RRGGBB]...[/color]`, `[b]...[/b]`, `[i]...[/i]` 태그를 해석한다.
+    /// Interprets `[color=#RRGGBB]...[/color]`, `[b]...[/b]`, and `[i]...[/i]` tags.
     pub rich: bool,
-    /// `Some(caret_byte)` 면 단일 라인(줄바꿈 없음)으로 그리고, 캐럿 바이트 위치가
-    /// `bounds` 안에 보이도록 수평 스크롤한다. `TextInput` 가 사용한다. `None` 이면
-    /// 기존 줄바꿈 동작.
+    /// When `Some(caret_byte)`, renders as a single non-wrapping line and scrolls
+    /// horizontally to keep the caret byte position visible within `bounds`.
+    /// Used by `TextInput`. `None` uses the normal line-wrap behaviour.
     pub single_line_caret: Option<usize>,
 }
 
@@ -162,55 +162,54 @@ impl TextAlign {
     }
 }
 
-/// 매 프레임 텍스트 그리기 요청을 모으는 큐.
+/// Queue that accumulates text draw requests each frame.
 ///
-/// `World` 리소스로 삽입된다. 게임 시스템이 `push` 로 항목을 추가하면
-/// `TextRenderer::render` 가 소비하고 `clear` 한다.
+/// Inserted as a `World` resource. Game systems add entries via `push`;
+/// `TextRenderer::render` consumes them and calls `clear`.
 #[derive(Default)]
 pub struct TextQueue {
     items: Vec<DrawText>,
 }
 
 impl TextQueue {
-    /// 텍스트 항목을 큐에 추가한다.
+    /// Adds a text item to the queue.
     pub fn push(&mut self, item: DrawText) {
         self.items.push(item);
     }
 
-    /// 모든 항목을 제거한다.
+    /// Removes all items.
     pub fn clear(&mut self) {
         self.items.clear();
     }
 
-    /// 항목 이터레이터.
+    /// Iterator over all queued items.
     pub fn iter(&self) -> impl Iterator<Item = &DrawText> {
         self.items.iter()
     }
 
-    /// 큐에 들어 있는 항목 수.
+    /// Number of items in the queue.
     pub fn len(&self) -> usize {
         self.items.len()
     }
 
-    /// 큐가 비어 있는지 여부.
+    /// Whether the queue is empty.
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
 }
 
-/// glyphon 0.6 기반 텍스트 렌더러.
+/// Text renderer backed by glyphon 0.6.
 ///
-/// ## 소유권 배치
-/// - `Cache` 를 먼저 만들고 `TextAtlas` / `Viewport` 에 공유한다.
-///   (`TextAtlas::new` 가 `&Cache` 를 필요로 하며, `TextRenderer` 가 `Cache`
-///   소유권을 보존한다.)
-/// - `Viewport::update(queue, Resolution{w,h})` 로 매 프레임 GPU 유니폼을 갱신한다.
+/// ## Ownership layout
+/// - `Cache` is created first and shared with `TextAtlas` / `Viewport`.
+///   (`TextAtlas::new` requires `&Cache`; `TextRenderer` retains ownership of `Cache`.)
+/// - `Viewport::update(queue, Resolution{w,h})` refreshes the GPU uniform each frame.
 pub struct TextRenderer {
     font_system: FontSystem,
     swash_cache: SwashCache,
-    /// `Cache` を先に作り atlas / viewport と共有する (glyphon 0.6 要件).
-    /// `TextAtlas` が内部で `Cache` を `clone()` するため、フィールドとして
-    /// 保持しなくても動くが、所有権を明示的に残す.
+    /// Cache is created first and shared with atlas / viewport (glyphon 0.6 requirement).
+    /// TextAtlas clones the Cache internally, so this field does not have to be kept,
+    /// but we retain explicit ownership here.
     #[allow(dead_code)]
     cache: Cache,
     atlas: TextAtlas,
@@ -219,10 +218,10 @@ pub struct TextRenderer {
 }
 
 impl TextRenderer {
-    /// GPU 리소스를 초기화한다.
+    /// Initialises GPU resources.
     ///
-    /// `font_data` 가 비어 있지 않으면 해당 TTF/OTF 바이트를 fontdb 에 로드한다.
-    /// 비어 있으면 glyphon 의 시스템 폰트 폴백을 사용한다.
+    /// If `font_data` is non-empty the TTF/OTF bytes are loaded into fontdb.
+    /// Otherwise glyphon's system-font fallback is used.
     pub fn new(device: &Device, queue: &Queue, format: TextureFormat, font_data: &[u8]) -> Self {
         let mut font_system = FontSystem::new();
         if !font_data.is_empty() {
@@ -231,12 +230,12 @@ impl TextRenderer {
 
         let swash_cache = SwashCache::new();
 
-        // 2. Cache 먼저, 그 다음 Atlas / Viewport
+        // 2. Cache first, then Atlas / Viewport
         let cache = Cache::new(device);
         let viewport = Viewport::new(device, &cache);
         let mut atlas = TextAtlas::new(device, queue, &cache, format);
 
-        // 3. TextRenderer (glyphon 내부 GlyphonTextRenderer)
+        // 3. TextRenderer (glyphon internal GlyphonTextRenderer)
         let renderer =
             GlyphonTextRenderer::new(&mut atlas, device, MultisampleState::default(), None);
 
@@ -250,11 +249,11 @@ impl TextRenderer {
         }
     }
 
-    /// ECS `World` 에서 `TextQueue` 를 꺼내 텍스트를 렌더링한다.
+    /// Pulls the `TextQueue` from the ECS `World` and renders all text.
     ///
-    /// - 큐가 비어 있으면 렌더 패스를 열지 않고 즉시 반환한다.
-    /// - 스프라이트 pass 이후에 `LoadOp::Load` 로 합성한다.
-    /// - 렌더 후 큐를 비운다.
+    /// - Returns immediately without opening a render pass if the queue is empty.
+    /// - Composites over the sprite pass with `LoadOp::Load`.
+    /// - Clears the queue after rendering.
     #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
@@ -266,7 +265,7 @@ impl TextRenderer {
         w: u32,
         h: u32,
     ) {
-        // 큐에서 항목을 꺼낸다. 비어 있으면 조기 반환.
+        // Pull items from the queue; early-return if empty.
         let items: Vec<DrawText> = match world.resource_mut::<TextQueue>() {
             Some(q) if !q.is_empty() => {
                 let taken = q.items.clone();
@@ -281,7 +280,7 @@ impl TextRenderer {
             .unwrap_or(1.0)
             .max(1.0);
 
-        // Viewport 갱신 (매 프레임 해상도를 GPU 유니폼에 씀)
+        // Update Viewport (writes the resolution to the GPU uniform each frame)
         self.viewport.update(
             queue,
             Resolution {
@@ -290,9 +289,9 @@ impl TextRenderer {
             },
         );
 
-        // 각 DrawText 를 glyphon Buffer 로 변환
-        // - `Buffer::set_size` 는 cosmic-text 에서 `(font_system, Option<f32>, Option<f32>)` 를 받는다.
-        // - `set_text` 도 `(font_system, text, attrs, shaping)` 형태.
+        // Convert each DrawText into a glyphon Buffer.
+        // - `Buffer::set_size` takes `(font_system, Option<f32>, Option<f32>)` in cosmic-text.
+        // - `set_text` takes `(font_system, text, attrs, shaping)`.
         let buffers: Vec<(Buffer, DrawText, f32)> = items
             .into_iter()
             .map(|d| {
@@ -302,8 +301,8 @@ impl TextRenderer {
                 let single_line = d.single_line_caret;
                 let metrics = Metrics::new(size, size * 1.2); // line_height = 1.2× size
                 let mut buf = Buffer::new(&mut self.font_system, metrics);
-                // 단일 라인(TextInput)은 가로 무제한 + 줄바꿈 없음으로 펼친 뒤 아래에서
-                // 수평 스크롤한다. 그 외에는 bounds 폭으로 줄바꿈한다.
+                // Single-line (TextInput): expand to unlimited width + no wrap, then
+                // scroll horizontally below. Otherwise wrap at the bounds width.
                 let width = if single_line.is_some() {
                     None
                 } else {
@@ -345,12 +344,12 @@ impl TextRenderer {
                     line.set_align(Some(d.align.to_glyphon()));
                 }
                 buf.shape_until_scroll(&mut self.font_system, false);
-                // 단일 라인: 캐럿이 bounds 안에 보이도록 수평 스크롤 오프셋 계산.
-                // (캐럿이 field 우측 끝 - margin 을 넘으면 그만큼 왼쪽으로 민다.)
+                // Single-line: compute horizontal scroll offset to keep the caret visible.
+                // (If the caret exceeds field right edge minus margin, shift left by that amount.)
                 let scroll = match single_line {
                     Some(caret_byte) => {
                         let field_w = bounds.map_or(w as f32 - position.x, |b| b.x.max(0.0));
-                        let margin = size; // 캐럿이 우측 끝에 붙지 않도록 한 글리프 여유
+                        let margin = size; // one-glyph margin so the caret doesn't hug the right edge
                         (caret_x(&buf, caret_byte) - (field_w - margin)).max(0.0)
                     }
                     None => 0.0,
@@ -403,7 +402,7 @@ impl TextRenderer {
             })
             .collect();
 
-        // prepare — 글리프 래스터라이즈 + GPU 버퍼 업로드
+        // prepare — rasterize glyphs + upload to GPU buffers
         let _ = self.renderer.prepare(
             device,
             queue,
@@ -414,7 +413,7 @@ impl TextRenderer {
             &mut self.swash_cache,
         );
 
-        // 텍스트 렌더 패스 — LoadOp::Load 로 스프라이트 위에 합성
+        // Text render pass — composite over sprites with LoadOp::Load
         {
             let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
                 label: Some("text pass"),
@@ -433,7 +432,7 @@ impl TextRenderer {
             let _ = self.renderer.render(&self.atlas, &self.viewport, &mut pass);
         }
 
-        // 다음 프레임을 위해 아틀라스 미사용 글리프 정리
+        // Trim unused glyphs from the atlas for the next frame
         self.atlas.trim();
     }
 }
@@ -546,7 +545,7 @@ fn parse_color(raw: &str) -> Option<Color> {
     Some(Color::rgba(r, g, b, a))
 }
 
-// ─── 단위 테스트 (GPU 없이 실행 가능한 부분만) ──────────────────────────────────
+// ─── Unit tests (only the parts that can run without a GPU) ──────────────────────────────────
 
 #[cfg(test)]
 mod tests {

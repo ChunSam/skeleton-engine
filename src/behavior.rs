@@ -1,17 +1,17 @@
-//! 비헤이비어 트리 (Behavior Tree) 시스템 (Phase 36) + Blackboard (Phase 37a)
+//! Behavior Tree system (Phase 36) + Blackboard (Phase 37a)
 //!
-//! # 핵심 타입
-//! - [`BehaviorStatus`] — 노드 실행 결과 (`Running` / `Success` / `Failure`)
-//! - [`BehaviorNode`] — 모든 노드가 구현해야 하는 트레잇
-//! - [`Sequence`] — 자식 순서대로 실행, 첫 Failure에 즉시 중단
-//! - [`Selector`] — 자식 순서대로 실행, 첫 Success에 즉시 중단
-//! - [`Inverter`] — 자식 결과를 반전 (Success↔Failure)
-//! - [`BehaviorTree`] — ECS 컴포넌트. 루트 노드를 감싼다.
-//! - [`BehaviorSystem`] — 매 프레임 `BehaviorTree`를 가진 엔티티를 tick.
-//! - [`Blackboard`] — 독립 ECS 컴포넌트. Key-Value 공유 상태 저장소.
-//! - [`BlackboardValue`] — Blackboard에 저장 가능한 값 타입.
+//! # Core types
+//! - [`BehaviorStatus`] — node execution result (`Running` / `Success` / `Failure`)
+//! - [`BehaviorNode`] — trait that every node must implement
+//! - [`Sequence`] — runs children in order, stops immediately on first Failure
+//! - [`Selector`] — runs children in order, stops immediately on first Success
+//! - [`Inverter`] — inverts the child result (Success↔Failure)
+//! - [`BehaviorTree`] — ECS component. Wraps the root node.
+//! - [`BehaviorSystem`] — ticks every entity that has a `BehaviorTree` each frame.
+//! - [`Blackboard`] — independent ECS component. Shared key-value state store.
+//! - [`BlackboardValue`] — value types that can be stored in a Blackboard.
 //!
-//! # 사용 예
+//! # Example
 //! ```rust,no_run
 //! use engine::behavior::{BehaviorNode, BehaviorStatus, BehaviorTree, Sequence, Selector, Blackboard};
 //! use engine::ecs::World;
@@ -20,7 +20,7 @@
 //! struct ChasePlayer;
 //! impl BehaviorNode for ChasePlayer {
 //!     fn tick(&mut self, world: &mut World, entity: engine::ecs::Entity, _dt: f32) -> BehaviorStatus {
-//!         // Blackboard는 독립 ECS 컴포넌트로, world.get_mut::<Blackboard>(entity)로 접근
+//!         // Blackboard is an independent ECS component; access via world.get_mut::<Blackboard>(entity)
 //!         if let Some(bb) = world.get_mut::<Blackboard>(entity) {
 //!             bb.set_bool("chasing", true);
 //!         }
@@ -45,10 +45,10 @@ use crate::System;
 
 // ─── Blackboard ───────────────────────────────────────────────────────────────
 
-/// Blackboard에 저장 가능한 값 타입.
+/// Value types that can be stored in a Blackboard.
 ///
-/// `#[non_exhaustive]`로 표시되어 있어, 외부 크레이트에서 `match` 시 와일드카드(`_`) 분기가
-/// 필요하다. 이는 이후 값 타입을 추가해도 다운스트림이 깨지지 않게 한다.
+/// Marked `#[non_exhaustive]`, so external crates must include a wildcard (`_`) arm in `match`.
+/// This allows new value types to be added without breaking downstream code.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum BlackboardValue {
@@ -57,16 +57,16 @@ pub enum BlackboardValue {
     Int(i32),
     Vec2(Vec2),
     String(String),
-    /// 타일 좌표 경로 (A* 결과 등). 한 번 계산한 경로를 캐싱해 매 틱 재계산을 피하는 용도.
+    /// Tile-coordinate path (e.g. A* result). Cache a computed path to avoid recalculating every tick.
     Path(Vec<IVec2>),
 }
 
-/// BehaviorTree와 함께 사용하는 공유 Key-Value 상태 저장소.
+/// Shared key-value state store used alongside a BehaviorTree.
 ///
-/// `BehaviorTree`와 독립된 ECS 컴포넌트로, 같은 엔티티에 추가한다.
-/// `BehaviorNode::tick` 내부에서 `world.get_mut::<Blackboard>(entity)` 로 접근한다.
+/// An independent ECS component added to the same entity as `BehaviorTree`.
+/// Access it inside `BehaviorNode::tick` via `world.get_mut::<Blackboard>(entity)`.
 ///
-/// # 예시
+/// # Example
 /// ```rust,no_run
 /// # use engine::behavior::Blackboard;
 /// let mut bb = Blackboard::new();
@@ -109,7 +109,7 @@ impl Blackboard {
             .insert(key.to_string(), BlackboardValue::String(v.into()));
     }
 
-    /// 타일 좌표 경로를 저장한다. A* 결과를 캐싱해 매 틱 재계산을 피하는 용도.
+    /// Stores a tile-coordinate path. Cache A* results to avoid recalculating every tick.
     pub fn set_path(&mut self, key: &str, v: Vec<IVec2>) {
         self.values
             .insert(key.to_string(), BlackboardValue::Path(v));
@@ -150,7 +150,7 @@ impl Blackboard {
         }
     }
 
-    /// 저장된 타일 좌표 경로를 슬라이스로 반환한다.
+    /// Returns the stored tile-coordinate path as a slice.
     pub fn get_path(&self, key: &str) -> Option<&[IVec2]> {
         match self.values.get(key) {
             Some(BlackboardValue::Path(v)) => Some(v.as_slice()),
@@ -158,7 +158,7 @@ impl Blackboard {
         }
     }
 
-    /// 모든 (key, value) 쌍을 반환한다. 스냅샷 용도 (스크립팅 시스템에서 사용).
+    /// Returns all (key, value) pairs as an iterator. Snapshot use (used by the scripting system).
     pub fn entries(&self) -> impl Iterator<Item = (&str, &BlackboardValue)> {
         self.values.iter().map(|(k, v)| (k.as_str(), v))
     }
@@ -172,37 +172,37 @@ impl Default for Blackboard {
 
 // ─── BehaviorStatus ───────────────────────────────────────────────────────────
 
-/// 비헤이비어 노드 실행 결과.
+/// Behavior node execution result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BehaviorStatus {
-    /// 아직 실행 중 (다음 프레임에도 계속 tick 됨).
+    /// Still executing (will be ticked again next frame).
     Running,
-    /// 성공적으로 완료.
+    /// Completed successfully.
     Success,
-    /// 실패.
+    /// Failed.
     Failure,
 }
 
-// ─── BehaviorNode 트레잇 ──────────────────────────────────────────────────────
+// ─── BehaviorNode trait ───────────────────────────────────────────────────────
 
-/// 비헤이비어 트리의 단일 노드.
+/// A single node in a behavior tree.
 ///
-/// 커스텀 행동을 구현할 때 이 트레잇을 구현한다.
+/// Implement this trait to define custom behaviors.
 pub trait BehaviorNode: Send + Sync {
-    /// 한 프레임 실행하고 상태를 반환한다.
+    /// Runs for one frame and returns the node's status.
     fn tick(&mut self, world: &mut World, entity: Entity, dt: f32) -> BehaviorStatus;
 
-    /// 노드가 다시 시작될 때 내부 상태를 초기화한다 (선택 구현).
+    /// Resets internal state when the node is restarted (optional).
     fn reset(&mut self) {}
 }
 
-// ─── 내장 복합 노드 ───────────────────────────────────────────────────────────
+// ─── Built-in composite nodes ─────────────────────────────────────────────────
 
-/// 자식 노드를 순서대로 실행한다.
-/// - 자식이 `Success` → 다음 자식으로 진행
-/// - 자식이 `Running`  → 자신도 `Running` 반환 (다음 프레임에 같은 자식 재시작)
-/// - 자식이 `Failure`  → 즉시 중단하고 `Failure` 반환
-/// - 모든 자식 `Success` → `Success` 반환
+/// Runs child nodes in order.
+/// - Child returns `Success` → advance to the next child
+/// - Child returns `Running`  → return `Running` (restart the same child next frame)
+/// - Child returns `Failure`  → stop immediately and return `Failure`
+/// - All children return `Success` → return `Success`
 pub struct Sequence {
     children: Vec<Box<dyn BehaviorNode>>,
     current: usize,
@@ -241,11 +241,11 @@ impl BehaviorNode for Sequence {
     }
 }
 
-/// 자식 노드를 순서대로 실행한다.
-/// - 자식이 `Failure`  → 다음 자식으로 진행
-/// - 자식이 `Running`  → 자신도 `Running` 반환
-/// - 자식이 `Success`  → 즉시 중단하고 `Success` 반환
-/// - 모든 자식 `Failure` → `Failure` 반환
+/// Runs child nodes in order.
+/// - Child returns `Failure`  → advance to the next child
+/// - Child returns `Running`  → return `Running`
+/// - Child returns `Success`  → stop immediately and return `Success`
+/// - All children return `Failure` → return `Failure`
 pub struct Selector {
     children: Vec<Box<dyn BehaviorNode>>,
     current: usize,
@@ -284,7 +284,7 @@ impl BehaviorNode for Selector {
     }
 }
 
-/// 자식 노드 결과를 반전한다 (Success → Failure, Failure → Success, Running 유지).
+/// Inverts the child node's result (Success → Failure, Failure → Success, Running unchanged).
 pub struct Inverter {
     child: Box<dyn BehaviorNode>,
 }
@@ -309,7 +309,7 @@ impl BehaviorNode for Inverter {
     }
 }
 
-/// 항상 `Success`를 반환하는 데코레이터 노드.
+/// Decorator node that always returns `Success`.
 pub struct AlwaysSucceed {
     child: Box<dyn BehaviorNode>,
 }
@@ -331,12 +331,12 @@ impl BehaviorNode for AlwaysSucceed {
     }
 }
 
-// ─── BehaviorTree 컴포넌트 ────────────────────────────────────────────────────
+// ─── BehaviorTree component ───────────────────────────────────────────────────
 
-/// ECS 컴포넌트. 루트 `BehaviorNode`를 감싼다.
+/// ECS component. Wraps the root `BehaviorNode`.
 ///
-/// `BehaviorSystem`이 매 프레임 `tick()`을 호출한다.
-/// `BehaviorNode: Send + Sync` 이므로 `BehaviorTree`도 스레드 안전하다.
+/// `BehaviorSystem` calls `tick()` every frame.
+/// Because `BehaviorNode: Send + Sync`, `BehaviorTree` is also thread-safe.
 pub struct BehaviorTree {
     root: Box<dyn BehaviorNode>,
 }
@@ -350,7 +350,7 @@ impl BehaviorTree {
         self.root.tick(world, entity, dt)
     }
 
-    /// 루트부터 전체 트리 상태를 초기화한다.
+    /// Resets the entire tree state starting from the root.
     pub fn reset(&mut self) {
         self.root.reset();
     }
@@ -358,9 +358,9 @@ impl BehaviorTree {
 
 // ─── BehaviorSystem ───────────────────────────────────────────────────────────
 
-/// `BehaviorTree` 컴포넌트를 가진 모든 엔티티를 매 프레임 tick하는 시스템.
+/// System that ticks every entity with a `BehaviorTree` component each frame.
 ///
-/// # 등록
+/// # Registration
 /// ```rust,no_run
 /// # use engine::App;
 /// # use engine::behavior::BehaviorSystem;
@@ -371,12 +371,12 @@ pub struct BehaviorSystem;
 
 impl System for BehaviorSystem {
     fn run(&mut self, world: &mut World, dt: f32) {
-        // borrow checker 우회: 먼저 엔티티 목록을 수집
+        // Borrow-checker workaround: collect entity list first.
         let entities: Vec<Entity> = world.query::<BehaviorTree>().map(|(e, _)| e).collect();
 
         for entity in entities {
-            // BehaviorTree를 임시로 꺼내 tick한 뒤 다시 넣는다.
-            // take_component → tick(world) → add_component 로 이중 borrow 없이 처리.
+            // Temporarily remove BehaviorTree, tick it, then put it back.
+            // take_component → tick(world) → add_component avoids a double borrow.
             if let Some(mut tree) = world.take_component::<BehaviorTree>(entity) {
                 tree.tick(world, entity, dt);
                 world.add_component(entity, tree);
@@ -389,7 +389,7 @@ impl System for BehaviorSystem {
     }
 }
 
-// ─── 테스트 ───────────────────────────────────────────────────────────────────
+// ─── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -428,7 +428,7 @@ mod tests {
         let path = vec![IVec2::new(1, 2), IVec2::new(3, 4), IVec2::new(5, 6)];
         bb.set_path("route", path.clone());
         assert_eq!(bb.get_path("route"), Some(path.as_slice()));
-        // 타입 불일치 / 미존재 키는 None.
+        // Type mismatch / missing key returns None.
         assert_eq!(bb.get_path("missing"), None);
         bb.set_vec2("v", Vec2::new(1.0, 2.0));
         assert_eq!(bb.get_path("v"), None);
@@ -521,7 +521,7 @@ mod tests {
         assert!(*ticked.lock().unwrap());
     }
 
-    // ── Blackboard 테스트 ──────────────────────────────────────────────────────
+    // ── Blackboard tests ──────────────────────────────────────────────────────
 
     #[test]
     fn blackboard_bool() {

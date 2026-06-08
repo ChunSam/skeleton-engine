@@ -12,9 +12,9 @@ use super::{
 };
 
 impl AssetServer {
-    /// 이미지를 로드해 핸들을 반환한다. 같은 경로를 다시 호출하면 캐시된 핸들을 반환한다.
+    /// Loads an image and returns a handle. Returns the cached handle if the same path is loaded again.
     ///
-    /// 로드 실패 시 마젠타(1×1) 폴백 텍스처로 대체되며 `load_state()`로 결과를 확인할 수 있다.
+    /// On failure a magenta (1×1) fallback texture is used; check the result via `load_state()`.
     pub fn load_image(&mut self, path: impl AsRef<Path>) -> Handle<ImageAsset> {
         let key = asset_key(path.as_ref());
         if let Some(&id) = self.path_to_id.get(&key) {
@@ -52,9 +52,9 @@ impl AssetServer {
         }
     }
 
-    /// 핸들의 로드 상태를 반환한다.
+    /// Returns the load state for a handle.
     ///
-    /// 존재하지 않는 핸들이면 `AssetLoadState::Failed`를 반환한다.
+    /// Returns `AssetLoadState::Failed` for an unknown handle.
     pub fn load_state(&self, handle: &Handle<ImageAsset>) -> AssetLoadState {
         self.image_load_states
             .get(&handle.id)
@@ -62,7 +62,7 @@ impl AssetServer {
             .unwrap_or_else(|| AssetLoadState::Failed("unknown handle".into()))
     }
 
-    /// 로드에 실패한 이미지 핸들 목록을 반환한다 (디버그용).
+    /// Returns a list of image handles that failed to load (for debugging).
     pub fn failed_images(&self) -> Vec<AssetId> {
         self.image_load_states
             .iter()
@@ -70,22 +70,22 @@ impl AssetServer {
             .collect()
     }
 
-    /// 현재 캐시된 이미지 에셋 수를 반환한다.
+    /// Returns the number of currently cached image assets.
     pub fn image_count(&self) -> usize {
         self.images.len()
     }
 
-    /// CPU-side 이미지 데이터를 반환한다.
+    /// Returns the CPU-side image data.
     pub fn get_image(&self, handle: &Handle<ImageAsset>) -> Option<&ImageAsset> {
         self.images.get(&handle.id)
     }
 
-    /// id로 이미지 에셋을 직접 조회한다 (에셋 브라우저용).
+    /// Looks up an image asset directly by id (for asset browsers).
     pub fn get_image_by_id(&self, id: AssetId) -> Option<&ImageAsset> {
         self.images.get(&id)
     }
 
-    /// 현재 로드된 이미지 에셋 목록을 반환한다 (에셋 브라우저용).
+    /// Returns the list of currently loaded image assets (for asset browsers).
     pub fn image_list(&self) -> Vec<ImageEntry> {
         self.path_to_id
             .iter()
@@ -130,13 +130,13 @@ pub(super) fn decode_image_with_state(path: &str) -> (ImageAsset, AssetLoadState
                 )
             }
             Err(e) => {
-                let msg = format!("이미지 디코딩 실패 '{path}': {e}");
+                let msg = format!("image decode failed '{path}': {e}");
                 log::error!("{msg}");
                 (magenta_fallback(), AssetLoadState::Failed(msg))
             }
         },
         Err(e) => {
-            let msg = format!("이미지 파일 읽기 실패 '{path}': {e}");
+            let msg = format!("image file read failed '{path}': {e}");
             log::error!("{msg}");
             (magenta_fallback(), AssetLoadState::Failed(msg))
         }

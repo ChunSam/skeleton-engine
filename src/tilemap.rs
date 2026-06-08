@@ -6,16 +6,16 @@ use crate::animation::player::UvRect;
 use crate::components::{Sprite, Transform};
 use crate::ecs::{Entity, System, World};
 
-// ─── 데이터 타입 ──────────────────────────────────────────────────────────────
+// ─── Data types ───────────────────────────────────────────────────────────────
 
-/// 타일맵용 텍스처 아틀라스 설정
+/// Texture atlas configuration for a tilemap.
 #[derive(Debug, Clone)]
 pub struct TilemapAtlas {
-    /// 텍스처 파일 경로
+    /// Texture file path.
     pub texture: String,
-    /// 아틀라스 가로 타일 수
+    /// Number of tile columns in the atlas.
     pub columns: u32,
-    /// 아틀라스 세로 타일 수
+    /// Number of tile rows in the atlas.
     pub rows: u32,
 }
 
@@ -28,7 +28,7 @@ impl TilemapAtlas {
         }
     }
 
-    /// 타일 ID(0부터 시작)의 UV 좌표를 반환한다.
+    /// Returns the UV coordinates for the given tile ID (0-based).
     pub fn uv_for(&self, tile_id: u32) -> UvRect {
         if self.columns == 0 || self.rows == 0 {
             return UvRect::FULL;
@@ -50,18 +50,18 @@ mod tests {
     }
 }
 
-/// 타일맵 컴포넌트.
+/// Tilemap component.
 ///
-/// 엔티티에 붙이면 `TilemapSystem`이 타일 엔티티를 자동으로 스폰한다.
-/// `tiles[row][col]` = 0이면 빈 타일, 1 이상이면 `atlas.uv_for(tile_id - 1)` 사용.
+/// Attach to an entity and `TilemapSystem` will automatically spawn tile entities.
+/// `tiles[row][col]` = 0 means an empty tile; 1 or more means use `atlas.uv_for(tile_id - 1)`.
 #[derive(Debug, Clone)]
 pub struct Tilemap {
     pub atlas: TilemapAtlas,
-    /// `tiles[row][col]` 형태. 0 = 빈 칸, 1+ = 타일 ID+1.
+    /// `tiles[row][col]` layout. 0 = empty cell, 1+ = tile ID + 1.
     pub tiles: Vec<Vec<u32>>,
-    /// 타일 한 변 길이 (픽셀)
+    /// Side length of one tile (pixels).
     pub tile_size: f32,
-    /// 타일맵 좌상단 기준점 (세계 좌표)
+    /// Top-left origin of the tilemap (world coordinates).
     pub origin: Vec2,
 }
 
@@ -76,14 +76,14 @@ impl Tilemap {
     }
 }
 
-// ─── 시스템 ──────────────────────────────────────────────────────────────────
+// ─── Systems ──────────────────────────────────────────────────────────────────
 
-/// 타일맵 컴포넌트를 읽어 타일 엔티티를 관리하는 시스템.
+/// System that reads Tilemap components and manages tile entities.
 ///
-/// 타일맵 엔티티가 처음 발견되면 타일 엔티티를 스폰한다.
-/// 타일맵 엔티티가 사라지면 해당 타일 엔티티를 디스폰한다.
+/// Spawns tile entities when a Tilemap entity is first encountered.
+/// Despawns tile entities when a Tilemap entity disappears.
 pub struct TilemapSystem {
-    /// 타일맵 엔티티 → 스폰된 타일 엔티티 목록
+    /// Tilemap entity → list of spawned tile entities.
     tile_entities: HashMap<Entity, Vec<Entity>>,
 }
 
@@ -103,10 +103,10 @@ impl Default for TilemapSystem {
 
 impl System for TilemapSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
-        // 현재 살아있는 타일맵 엔티티 수집
+        // Collect currently alive tilemap entities
         let tilemap_entities: Vec<Entity> = world.query::<Tilemap>().map(|(e, _)| e).collect();
 
-        // 사라진 타일맵 엔티티의 타일들 디스폰
+        // Despawn tiles belonging to tilemap entities that have disappeared
         let removed: Vec<Entity> = self
             .tile_entities
             .keys()
@@ -121,10 +121,10 @@ impl System for TilemapSystem {
             }
         }
 
-        // 새 타일맵 엔티티 스폰
+        // Spawn new tilemap entities
         for map_entity in tilemap_entities {
             if self.tile_entities.contains_key(&map_entity) {
-                continue; // 이미 처리됨
+                continue; // already processed
             }
 
             let (atlas, tiles, tile_size, origin) = {
@@ -153,7 +153,7 @@ impl System for TilemapSystem {
                             z: -1.0,
                         },
                     );
-                    // AnimationPlayer 없이 UvRect 컴포넌트로 UV를 직접 제어한다.
+                    // UV is controlled directly via the UvRect component without an AnimationPlayer.
                     world.add_component(tile_entity, Sprite::textured(&atlas.texture));
                     world.add_component(tile_entity, uv);
                     spawned.push(tile_entity);

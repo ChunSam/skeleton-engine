@@ -8,7 +8,7 @@ mod execution;
 
 // ─── ScriptRunner ─────────────────────────────────────────────────────────────
 
-/// 엔티티에 붙이는 스크립트 실행기 컴포넌트.
+/// Script runner component attached to an entity.
 ///
 /// ```rust,no_run
 /// # use engine::{ScriptRunner, ScriptingSystem};
@@ -38,7 +38,7 @@ impl ScriptRunner {
         }
     }
 
-    /// 다음 프레임에 on_start()가 다시 호출되도록 리셋한다 (핫 리로드 후 유용).
+    /// Resets the runner so `on_start()` is called again on the next frame (useful after hot reload).
     pub fn reset(&mut self) {
         self.started = false;
     }
@@ -46,47 +46,48 @@ impl ScriptRunner {
 
 // ─── ScriptingSystem ──────────────────────────────────────────────────────────
 
-/// ScriptRunner를 가진 모든 엔티티에 대해 매 프레임 스크립트를 실행하는 시스템.
+/// System that runs scripts each frame for every entity that has a `ScriptRunner`.
 ///
-/// 이 시스템은 신뢰된 로컬 게임 스크립트를 실행하기 위한 기능이다. Rhai operation limit은
-/// 실수로 만든 무한 루프를 줄여 주지만, 적대적/원격 사용자 입력을 안전하게 격리하는
-/// sandbox 경계로 보장하지 않는다.
+/// This system is intended for trusted local game scripts. Rhai operation limits reduce
+/// accidental infinite loops, but do not provide a sandbox boundary safe against hostile
+/// or remote user input.
 ///
-/// 스코프 변수: `x`, `y`, `rot`, `sx`, `sy`  (Transform 읽기/쓰기)
+/// Scope variables: `x`, `y`, `rot`, `sx`, `sy`  (read/write Transform)
 ///
-/// 라이프사이클:
-/// - `fn on_start()` — 처음 한 번만 호출 (없어도 무방)
-/// - `fn on_update(dt)` — 매 프레임 호출
+/// Lifecycle:
+/// - `fn on_start()` — called once on the first frame (optional)
+/// - `fn on_update(dt)` — called every frame
 ///
-/// ## 추가 스크립트 API (Phase 38d)
+/// ## Additional Script API (Phase 38d)
 ///
 /// ### Commands
 /// ```rhai
-/// let id = spawn_entity();   // 새 엔티티 생성 → ID(i64) 반환
+/// let id = spawn_entity();   // spawn a new entity → returns ID (i64)
 /// let index = entity_index();
 /// let generation = entity_generation();
-/// despawn_entity(index, generation); // 엔티티 삭제 예약
+/// despawn_entity(index, generation); // schedule entity for despawn
 /// ```
 ///
-/// `spawn_entity()`가 반환하는 음수 ID는 같은 스크립트 안에서 실제 엔티티를 조작할 수 있는
-/// 안정 핸들이 아니다. 실제 스폰은 스크립트 실행 후 적용된다. `despawn_entity(index,
-/// generation)`은 generation-checked ECS handle을 구성하며 stale handle이면 조용히 무시된다.
+/// The negative ID returned by `spawn_entity()` is not a stable handle that can
+/// manipulate the real entity within the same script. The actual spawn is applied after
+/// script execution. `despawn_entity(index, generation)` constructs a generation-checked
+/// ECS handle and silently ignores stale handles.
 ///
 /// ### Blackboard
 /// ```rhai
 /// bb_set_bool("is_chasing", true);
 /// bb_set_float("speed", 150.0);
 /// bb_set_int("hp", 100);
-/// let chasing = bb_get_bool("is_chasing");  // 없으면 false
-/// let speed   = bb_get_float("speed");       // 없으면 0.0
-/// let hp      = bb_get_int("hp");            // 없으면 0
+/// let chasing = bb_get_bool("is_chasing");  // false if absent
+/// let speed   = bb_get_float("speed");       // 0.0 if absent
+/// let hp      = bb_get_int("hp");            // 0 if absent
 /// ```
 ///
 /// ### Steering
 /// ```rhai
-/// seek_target(player_x, player_y, 120.0);        // Seek 컴포넌트 설정
-/// flee_from(enemy_x, enemy_y, 200.0, 80.0);      // Flee 컴포넌트 설정
-/// stop_steering();                                // SteeringVelocity 속도 리셋
+/// seek_target(player_x, player_y, 120.0);        // set Seek component
+/// flee_from(enemy_x, enemy_y, 200.0, 80.0);      // set Flee component
+/// stop_steering();                                // reset SteeringVelocity speed
 /// ```
 pub struct ScriptingSystem {
     engine: Engine,

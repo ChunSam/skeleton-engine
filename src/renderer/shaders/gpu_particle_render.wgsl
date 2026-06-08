@@ -1,4 +1,4 @@
-// GPU 파티클 렌더 셰이더 — 파티클 버퍼를 읽어 쿼드 출력
+// GPU particle render shader — reads the particle buffer and outputs quads
 
 struct Camera {
     view_proj: mat4x4<f32>,
@@ -23,7 +23,7 @@ struct VOut {
     @location(0)       color:    vec4<f32>,
 }
 
-// 파티클당 6 버텍스 (삼각형 2개로 쿼드)
+// 6 vertices per particle (2 triangles forming a quad)
 @vertex
 fn vs_main(@builtin(vertex_index) vi: u32) -> VOut {
     let pi = vi / 6u;
@@ -39,13 +39,13 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VOut {
     let p = particles[pi];
 
     if p.life <= 0.0 {
-        out.clip_pos = vec4<f32>(0.0, 0.0, 10.0, 1.0); // 클립 밖으로
+        out.clip_pos = vec4<f32>(0.0, 0.0, 10.0, 1.0); // push outside clip space
         out.color    = vec4<f32>(0.0);
         return out;
     }
 
     let hs = p.size * 0.5;
-    // 쿼드 6 버텍스 오프셋 (CCW)
+    // Quad vertex offsets (CCW)
     var offs = array<vec2<f32>, 6>(
         vec2<f32>(-hs, -hs),
         vec2<f32>( hs, -hs),

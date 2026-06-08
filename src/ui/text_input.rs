@@ -1,9 +1,9 @@
 use crate::color::Color;
 
-/// 텍스트 입력 위젯 컴포넌트.
+/// Text input widget component.
 ///
-/// `UiNode` 와 함께 엔티티에 붙여 사용한다.
-/// `UiSystem` 이 클릭 시 포커스를 설정하고, 문자 버퍼를 소비해 텍스트를 갱신한다.
+/// Attach to an entity together with `UiNode`.
+/// `UiSystem` sets focus on click and updates the text by consuming the character buffer.
 pub struct TextInput {
     pub text: String,
     /// UTF-8 byte index
@@ -11,10 +11,10 @@ pub struct TextInput {
     pub focused: bool,
     pub placeholder: String,
     pub max_len: usize,
-    /// dt 누적값. 0.5초마다 cursor_visible 토글
+    /// Accumulated dt. Toggles cursor_visible every 0.5 seconds.
     pub cursor_blink: f32,
     pub cursor_visible: bool,
-    /// 현재 IME 조합 중인 문자열. 커밋 전 미리보기로만 렌더링된다.
+    /// String currently being composed by the IME. Rendered as a preview only, before commit.
     pub preedit: String,
 
     pub color_normal: Color,
@@ -59,7 +59,7 @@ impl TextInput {
         }
     }
 
-    /// 커서 바로 앞 문자를 삭제한다 (UTF-8 안전).
+    /// Deletes the character immediately before the cursor (UTF-8 safe).
     pub fn backspace(&mut self) {
         if self.cursor == 0 {
             return;
@@ -72,7 +72,7 @@ impl TextInput {
         self.cursor = char_start;
     }
 
-    /// 커서를 앞 문자 경계로 한 칸 이동한다 (UTF-8 안전).
+    /// Moves the cursor one character boundary to the left (UTF-8 safe).
     pub fn move_left(&mut self) {
         if self.cursor == 0 {
             return;
@@ -84,7 +84,7 @@ impl TextInput {
         self.cursor = i;
     }
 
-    /// 커서를 다음 문자 경계로 한 칸 이동한다 (UTF-8 안전).
+    /// Moves the cursor one character boundary to the right (UTF-8 safe).
     pub fn move_right(&mut self) {
         if self.cursor >= self.text.len() {
             return;
@@ -96,17 +96,17 @@ impl TextInput {
         self.cursor = i;
     }
 
-    /// 커서를 맨 앞으로 이동한다.
+    /// Moves the cursor to the beginning of the text.
     pub fn move_home(&mut self) {
         self.cursor = 0;
     }
 
-    /// 커서를 맨 뒤로 이동한다.
+    /// Moves the cursor to the end of the text.
     pub fn move_end(&mut self) {
         self.cursor = self.text.len();
     }
 
-    /// 커서 위치의 문자를 삭제한다 (forward delete, UTF-8 안전).
+    /// Deletes the character at the cursor position (forward delete, UTF-8 safe).
     pub fn delete_forward(&mut self) {
         if self.cursor >= self.text.len() {
             return;
@@ -118,7 +118,7 @@ impl TextInput {
         self.text.drain(self.cursor..end);
     }
 
-    /// 커서 위치에 문자를 삽입한다.
+    /// Inserts a character at the cursor position.
     pub fn insert_char(&mut self, c: char) {
         if self.text.len() + c.len_utf8() <= self.max_len {
             self.text.insert(self.cursor, c);

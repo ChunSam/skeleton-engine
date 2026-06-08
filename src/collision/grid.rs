@@ -6,7 +6,7 @@ use crate::ecs::{Entity, System, World};
 
 // ─── Collider ────────────────────────────────────────────────────────────────
 
-/// 엔티티에 붙이는 충돌 형태 컴포넌트
+/// Collision shape component attached to an entity
 #[derive(Debug, Clone, Copy)]
 pub enum Collider {
     Circle { radius: f32 },
@@ -14,7 +14,7 @@ pub enum Collider {
 }
 
 impl Collider {
-    /// 콜라이더가 차지하는 AABB(min, max) — 그리드 셀 인덱싱용
+    /// AABB (min, max) occupied by this collider — used for grid cell indexing
     pub fn aabb(&self, center: Vec2) -> (Vec2, Vec2) {
         match self {
             Collider::Circle { radius } => (
@@ -28,9 +28,9 @@ impl Collider {
 
 // ─── CollisionLayer ──────────────────────────────────────────────────────────
 
-/// 비트마스크 형태의 충돌 레이어. AND 결과가 0 이면 충돌 무시.
+/// Bitmask collision layer. If `self & mask == 0`, the collision is ignored.
 ///
-/// 예시:
+/// Example:
 /// ```rust
 /// const LAYER_PLAYER: u32 = 1 << 0;
 /// const LAYER_ENEMY:  u32 = 1 << 1;
@@ -42,7 +42,7 @@ impl CollisionLayer {
     pub const ALL: Self = Self(u32::MAX);
     pub const NONE: Self = Self(0);
 
-    /// 이 레이어와 mask 사이에 공통 비트가 있으면 true
+    /// Returns `true` if this layer and `mask` share at least one bit
     pub fn matches(&self, mask: CollisionLayer) -> bool {
         (self.0 & mask.0) != 0
     }
@@ -50,7 +50,7 @@ impl CollisionLayer {
 
 // ─── SpatialGrid ─────────────────────────────────────────────────────────────
 
-/// 엔티티별 그리드 항목 — 쿼리 시 사용
+/// Per-entity grid entry — used during queries
 #[derive(Debug, Clone, Copy)]
 pub struct GridEntry {
     pub center: Vec2,
@@ -58,20 +58,21 @@ pub struct GridEntry {
     pub layer: CollisionLayer,
 }
 
-/// 공간 해시 그리드.
+/// Spatial hash grid.
 ///
-/// 매 프레임 `rebuild` 로 갱신하고 `query_radius` / `query_aabb` 로 조회.
-/// 기본 셀 크기: 128 픽셀.
+/// Rebuilt every frame via `rebuild`; queried via `query_radius` / `query_aabb`.
+/// Default cell size: 128 pixels.
 ///
-/// `CollisionGridSystem` 이 매 프레임 rebuild 한 결과를 World 리소스로 미러링하므로,
-/// 외부 시스템에서 `world.resource::<SpatialGrid>()` 로 read-only 질의가 가능하다.
+/// `CollisionGridSystem` mirrors the rebuilt grid into the World as a resource each
+/// frame, so external systems can issue read-only queries via
+/// `world.resource::<SpatialGrid>()`.
 #[derive(Debug, Clone)]
 pub struct SpatialGrid {
-    /// 셀 한 변 길이 (픽셀)
+    /// Cell side length (pixels)
     pub cell: f32,
-    /// (col, row) → 그 셀에 겹치는 엔티티 목록
+    /// (col, row) → list of entities overlapping that cell
     pub buckets: HashMap<(i32, i32), Vec<Entity>>,
-    /// 쿼리 시 center/collider/layer 를 다시 읽지 않도록 캐시
+    /// Cache so center/collider/layer don't need to be re-read during queries
     pub entries: HashMap<Entity, GridEntry>,
 }
 
@@ -84,19 +85,19 @@ impl SpatialGrid {
         }
     }
 
-    /// 내부 상태를 비운다.
+    /// Clears internal state.
     pub fn clear(&mut self) {
         self.buckets.clear();
         self.entries.clear();
     }
 
-    /// World 에서 `(Transform, Collider)` 를 가진 모든 엔티티를 읽어 그리드를 재구성한다.
+    /// Reads all entities with `(Transform, Collider)` from the World and rebuilds the grid.
     ///
-    /// `CollisionLayer` 컴포넌트가 없는 엔티티는 `CollisionLayer::ALL` 로 간주한다.
+    /// Entities without a `CollisionLayer` component are treated as `CollisionLayer::ALL`.
     pub fn rebuild(&mut self, world: &World) {
         self.clear();
 
-        // query2 로 Transform + Collider 를 동시에 가진 엔티티만 순회
+        // Iterate only entities that have both Transform and Collider via query2
         let pairs: Vec<(Entity, Vec2, Collider, CollisionLayer)> = world
             .query2::<Transform, Collider>()
             .map(|(entity, transform, collider)| {
@@ -110,7 +111,7 @@ impl SpatialGrid {
             .collect();
 
         for (entity, center, collider, layer) in pairs {
-            // 셀 인덱스 범위 계산
+            // Compute cell index range
             let (aabb_min, aabb_max) = collider.aabb(center);
             let col_min = (aabb_min.x / self.cell).floor() as i32;
             let col_max = (aabb_max.x / self.cell).floor() as i32;
@@ -134,7 +135,7 @@ impl SpatialGrid {
         }
     }
 
-    /// 셀 좌표에서 해당 bucket 을 꺼낸다.
+    /// Returns the cell key (col, row) for the given world coordinates.
     fn cell_key(&self, x: f32, y: f32) -> (i32, i32) {
         (
             (x / self.cell).floor() as i32,
@@ -142,7 +143,7 @@ impl SpatialGrid {
         )
     }
 
-    /// AABB 범위에 해당하는 모든 셀에서 중복 없는 후보 엔티티를 수집한다.
+    /// Collects unique candidate entities from all cells that overlap the given AABB.
     pub(crate) fn candidates_in_aabb(&self, min: Vec2, max: Vec2) -> Vec<Entity> {
         let (col_min, row_min) = self.cell_key(min.x, min.y);
         let (col_max, row_max) = self.cell_key(max.x, max.y);
@@ -204,7 +205,7 @@ impl System for CollisionGridSystem {
     }
 }
 
-// ─── 단위 테스트 ──────────────────────────────────────────────────────────────
+// ─── Unit tests ──────────────────────────────────────────────────────────────
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -226,7 +227,7 @@ mod tests {
         (world, e)
     }
 
-    /// 빈 grid 의 query_radius 는 빈 Vec 을 반환해야 한다.
+    /// `query_radius` on an empty grid must return an empty Vec.
     #[test]
     fn empty_grid_returns_empty_query() {
         let grid = SpatialGrid::new(128.0);
@@ -234,24 +235,24 @@ mod tests {
         assert!(result.is_empty());
     }
 
-    /// 반경 내에 있는 단일 Circle 콜라이더를 검출해야 한다.
+    /// A single Circle collider within the radius must be detected.
     #[test]
     fn single_circle_in_radius() {
         let (world, e) = make_world_with_circle(Vec2::new(50.0, 50.0), 16.0);
         let mut grid = SpatialGrid::new(128.0);
         grid.rebuild(&world);
 
-        // 쿼리 중심에서 거리 = 0, 반경 200 → 반드시 검출
+        // distance from query center = 0, radius 200 → must be detected
         let result = grid.query_radius(Vec2::new(50.0, 50.0), 200.0, CollisionLayer::ALL);
-        assert!(result.contains(&e), "엔티티가 반경 내에 있어야 함");
+        assert!(result.contains(&e), "entity should be within the radius");
     }
 
-    /// 마스크와 레이어가 AND = 0 이면 엔티티가 제외되어야 한다.
+    /// Entities whose layer ANDs to 0 with the mask must be excluded.
     #[test]
     fn layer_mask_filters_results() {
         let mut world = World::new();
 
-        // LAYER_A 엔티티
+        // LAYER_A entity
         let e_a = world.spawn();
         world.add_component(
             e_a,
@@ -265,7 +266,7 @@ mod tests {
         world.add_component(e_a, Collider::Circle { radius: 8.0 });
         world.add_component(e_a, CollisionLayer(1 << 0)); // bit 0
 
-        // LAYER_B 엔티티
+        // LAYER_B entity
         let e_b = world.spawn();
         world.add_component(
             e_b,
@@ -282,48 +283,51 @@ mod tests {
         let mut grid = SpatialGrid::new(128.0);
         grid.rebuild(&world);
 
-        // bit 0 마스크 → e_a 만 검출, e_b 제외
+        // bit 0 mask → only e_a detected, e_b excluded
         let result = grid.query_radius(Vec2::ZERO, 500.0, CollisionLayer(1 << 0));
-        assert!(result.contains(&e_a), "e_a 는 마스크와 일치해야 함");
-        assert!(!result.contains(&e_b), "e_b 는 마스크와 불일치해야 함");
+        assert!(result.contains(&e_a), "e_a should match the mask");
+        assert!(!result.contains(&e_b), "e_b should not match the mask");
     }
 
-    /// `CollisionGridSystem` 은 rebuild 한 grid 를 World 리소스로 미러링해야 한다.
-    /// (deep clone 없이 remove→rebuild→insert 패턴으로)
+    /// `CollisionGridSystem` must mirror the rebuilt grid into the World resource
+    /// (remove→rebuild→insert pattern, no deep clone).
     #[test]
     fn grid_system_mirrors_grid_to_resource() {
         let (mut world, e) = make_world_with_circle(Vec2::new(50.0, 50.0), 16.0);
         let mut system = CollisionGridSystem::new(128.0);
 
-        // 첫 프레임: 리소스가 없던 상태에서 새 grid 를 만들어 채운다.
+        // First frame: builds a fresh grid from scratch (no prior resource).
         system.run(&mut world, 0.016);
         let grid = world
             .resource::<SpatialGrid>()
             .expect("grid system should mirror a SpatialGrid resource");
-        assert!(grid.entries.contains_key(&e), "엔티티가 미러에 있어야 함");
+        assert!(
+            grid.entries.contains_key(&e),
+            "entity should be in the mirror"
+        );
         assert!(grid
             .query_radius(Vec2::new(50.0, 50.0), 200.0, CollisionLayer::ALL)
             .contains(&e));
 
-        // 두 번째 프레임: 직전 프레임의 grid 를 재사용(remove→rebuild→insert)해야 한다.
+        // Second frame: must reuse the previous frame's grid (remove→rebuild→insert).
         system.run(&mut world, 0.016);
         let grid = world.resource::<SpatialGrid>().unwrap();
         assert!(
             grid.entries.contains_key(&e),
-            "rebuild 후에도 미러가 유지돼야 함"
+            "mirror should persist after rebuild"
         );
 
-        // despawn 후 한 프레임 더 돌리면 미러에서도 사라져야 한다.
+        // After despawn, one more frame should remove the entity from the mirror too.
         world.despawn(e);
         system.run(&mut world, 0.016);
         let grid = world.resource::<SpatialGrid>().unwrap();
         assert!(
             !grid.entries.contains_key(&e),
-            "despawn 된 엔티티는 미러에서 제거돼야 함"
+            "despawned entity should be removed from the mirror"
         );
     }
 
-    /// despawn 후 rebuild 하면 결과에서 사라져야 한다.
+    /// After despawn and rebuild, the entity must be absent from results.
     #[test]
     fn rebuild_after_despawn() {
         let (mut world, e) = make_world_with_circle(Vec2::new(30.0, 30.0), 10.0);
@@ -334,11 +338,14 @@ mod tests {
             .query_radius(Vec2::ZERO, 500.0, CollisionLayer::ALL)
             .is_empty());
 
-        // despawn 후 rebuild
+        // rebuild after despawn
         world.despawn(e);
         grid.rebuild(&world);
 
         let result = grid.query_radius(Vec2::ZERO, 500.0, CollisionLayer::ALL);
-        assert!(result.is_empty(), "despawn 된 엔티티는 결과에 없어야 함");
+        assert!(
+            result.is_empty(),
+            "despawned entity should not appear in results"
+        );
     }
 }

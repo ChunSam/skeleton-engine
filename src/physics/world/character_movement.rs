@@ -6,14 +6,14 @@ use crate::physics::character::CharacterController;
 use super::PhysicsWorld;
 
 impl PhysicsWorld {
-    /// `CharacterController`를 이용해 충돌 해결 후 키네마틱 바디를 이동한다.
+    /// Moves a kinematic body using `CharacterController` with collision resolution.
     ///
-    /// `desired_translation` — **픽셀 단위** 이동 벡터.
-    /// 내부에서 `pixels_per_unit`으로 물리 단위로 변환하고,
-    /// 충돌 해결 후 `set_next_kinematic_translation()`으로 바디에 적용한다.
-    /// 다음 `step()` 호출 시 해당 위치로 이동한다.
+    /// `desired_translation` — movement vector in **pixel units**.
+    /// Internally converts to physics units via `pixels_per_unit`, resolves collisions,
+    /// then applies the result with `set_next_kinematic_translation()`.
+    /// The body moves to that position on the next `step()` call.
     ///
-    /// `controller.grounded`가 갱신되므로 이 메서드를 `PhysicsSystem::run()` 이전에 호출해야 한다.
+    /// `controller.grounded` is updated here, so call this method before `PhysicsSystem::run()`.
     pub fn move_character(
         &mut self,
         controller: &mut CharacterController,
@@ -26,36 +26,36 @@ impl PhysicsWorld {
         let ppu = pixels_per_unit;
         let desired = vector![desired_translation.x / ppu, desired_translation.y / ppu];
 
-        // 콜라이더 위치와 shape를 먼저 복사해 borrow 분리
+        // Copy collider position and shape type first to split the borrow
         let (col_pos, shape_type) = match self.collider_set.get(col_handle) {
             Some(c) => (*c.position(), c.shape().shape_type()),
             None => return,
         };
 
-        // shape를 collider_set에서 재획득 (두 번째 불변 참조 — Rust 허용)
+        // Re-acquire shape from collider_set (a second shared reference — allowed by Rust)
         let shape = match self.collider_set.get(col_handle) {
             Some(c) => c.shape(),
             None => return,
         };
-        let _ = shape_type; // 타입 힌트용으로 저장, 실제 사용은 shape 참조
+        let _ = shape_type; // stored as a type hint; the actual shape reference is used below
 
-        // one-way 플랫폼 처리: drop 윈도를 갱신하고, 이번 프레임의 통과 판정값을 미리 구한다.
-        // 화면 좌표(Y+는 아래)이므로 "내려옴" = desired.y > 0, 캐릭터 밑면 = AABB.maxs.y.
+        // One-way platform handling: update the drop window and pre-compute this frame's pass-through values.
+        // Screen coordinates (Y+ is down): "moving down" = desired.y > 0, character bottom = AABB.maxs.y.
         let drop_active = controller.drop_timer > 0.0;
         controller.drop_timer = (controller.drop_timer - dt).max(0.0);
         let moving_down = desired.y > 1e-6;
         let char_bottom = shape.compute_aabb(&col_pos).maxs.y;
-        // 윗면보다 살짝(스킨 두께) 위까지는 "위에 있음"으로 간주해 안정적으로 착지/접지한다.
+        // Treat anything slightly above the top surface (within skin thickness) as "above" for stable landing.
         const ONE_WAY_TOLERANCE: f32 = 0.05;
         let one_way = &self.one_way_colliders;
         let predicate = move |handle: ColliderHandle, collider: &Collider| -> bool {
             if !one_way.contains(&handle) {
-                return true; // 일반 솔리드: 항상 충돌.
+                return true; // Regular solid: always collide.
             }
             if drop_active || !moving_down {
-                return false; // drop 중이거나 상승 중 → 통과.
+                return false; // Dropping or moving up → pass through.
             }
-            // 내려오는 중 + 캐릭터 밑면이 플랫폼 윗면 위(또는 거의 닿음)일 때만 막는다.
+            // Block only when moving down AND the character bottom is above (or nearly touching) the platform top.
             let platform_top = collider.compute_aabb().mins.y;
             char_bottom <= platform_top + ONE_WAY_TOLERANCE
         };
@@ -76,7 +76,7 @@ impl PhysicsWorld {
 
         controller.grounded = output.grounded;
 
-        // 바디 현재 위치 + 이동 벡터로 next_kinematic_translation 설정
+        // Set next_kinematic_translation to current body position + movement vector
         let body_t = self
             .rigid_body_set
             .get(body_handle)

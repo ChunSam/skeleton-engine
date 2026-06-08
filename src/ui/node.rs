@@ -2,7 +2,7 @@ use glam::Vec2;
 
 use crate::resources::ViewportSize;
 
-/// UI 노드의 기준점. 뷰포트 모서리 또는 중심을 기준으로 위치를 계산한다.
+/// Anchor point for a UI node. Positions are computed relative to a viewport corner or center.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub enum Anchor {
     #[default]
@@ -15,23 +15,23 @@ pub enum Anchor {
     BottomRight,
 }
 
-/// 스크린 스페이스 UI 위치/크기 컴포넌트.
+/// Screen-space UI position and size component.
 ///
-/// `offset` 은 `anchor` 기준점으로부터의 픽셀 오프셋이다.
-/// 렌더링 순서(z)는 다른 UI 노드 간의 상대적 깊이를 결정한다.
+/// `offset` is the pixel offset from the `anchor` point.
+/// `z` determines the relative depth among UI nodes (higher value = drawn on top).
 pub struct UiNode {
-    /// 앵커 기준점으로부터의 픽셀 오프셋 (좌상단 기준)
+    /// Pixel offset from the anchor point (top-left origin).
     pub offset: Vec2,
-    /// 노드의 너비·높이 (픽셀)
+    /// Width and height of the node (pixels).
     pub size: Vec2,
-    /// 렌더링 깊이. 값이 클수록 앞에 그려진다 (0.0 ~ 1.0 권장)
+    /// Rendering depth. Higher value = drawn in front (recommended range 0.0 ~ 1.0).
     pub z: f32,
     pub anchor: Anchor,
     pub visible: bool,
 }
 
 impl UiNode {
-    /// 좌상단 기준, z=0.9 기본값으로 노드를 생성한다.
+    /// Creates a node with top-left anchor and z=0.9 as defaults.
     pub fn new(x: f32, y: f32, w: f32, h: f32) -> Self {
         Self {
             offset: Vec2::new(x, y),
@@ -52,7 +52,7 @@ impl UiNode {
         self
     }
 
-    /// 뷰포트 크기를 받아 노드의 스크린 절대 좌상단 픽셀 좌표를 반환한다.
+    /// Returns the absolute top-left screen pixel coordinate of this node given the viewport size.
     pub fn screen_pos(&self, viewport: &ViewportSize) -> Vec2 {
         let (vw, vh) = (viewport.width, viewport.height);
         let (w, h) = (self.size.x, self.size.y);

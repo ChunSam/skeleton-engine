@@ -1,11 +1,11 @@
 use crate::color::Color;
 
-/// 수평 슬라이더 컴포넌트.
+/// Horizontal slider component.
 ///
-/// `UiNode` 와 함께 엔티티에 붙여 사용한다.
-/// `UiSystem` 이 드래그 입력을 처리하고 `UiEvent::SliderChanged` 를 발행한다.
+/// Attach to an entity alongside `UiNode`.
+/// `UiSystem` processes drag input and emits `UiEvent::SliderChanged`.
 ///
-/// # 예제
+/// # Example
 /// ```ignore
 /// let entity = world.spawn();
 /// world.insert(entity, UiNode::new(100.0, 300.0, 200.0, 20.0));
@@ -15,13 +15,13 @@ pub struct Slider {
     pub value: f32,
     pub min: f32,
     pub max: f32,
-    /// 드래그 중 여부 (내부 상태, 직접 수정 불필요).
+    /// Whether a drag is in progress (internal state; no need to modify directly).
     pub(crate) dragging: bool,
     pub track_color: Color,
     pub fill_color: Color,
     pub thumb_color: Color,
     pub thumb_hovered_color: Color,
-    /// 썸 너비(픽셀). 높이는 UiNode.size.y 와 동일하게 렌더된다.
+    /// Thumb width in pixels. Height matches `UiNode.size.y`.
     pub thumb_width: f32,
 }
 
@@ -40,7 +40,7 @@ impl Slider {
         }
     }
 
-    /// 현재 값을 [0.0, 1.0] 으로 정규화한다.
+    /// Normalizes the current value to [0.0, 1.0].
     pub fn normalized(&self) -> f32 {
         let range = self.max - self.min;
         if range.abs() < f32::EPSILON {
@@ -50,7 +50,7 @@ impl Slider {
         }
     }
 
-    /// 정규화 값 t ∈ [0, 1] 로 실제 값을 설정한다.
+    /// Sets the actual value from a normalized `t` ∈ [0, 1].
     pub(crate) fn set_normalized(&mut self, t: f32) {
         self.value = self.min + t.clamp(0.0, 1.0) * (self.max - self.min);
     }

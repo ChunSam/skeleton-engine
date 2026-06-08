@@ -1,15 +1,15 @@
-/// 체크박스 컴포넌트.
+/// Checkbox component.
 ///
-/// `UiNode` 와 함께 엔티티에 붙여 사용한다.
-/// `UiSystem` 이 클릭 시 `checked` 를 토글하고 `UiEvent::CheckBoxToggled` 를 발행한다.
+/// Attach to an entity alongside `UiNode`.
+/// `UiSystem` toggles `checked` on click and emits `UiEvent::CheckBoxToggled`.
 ///
-/// 렌더: \[박스\] 라벨텍스트
+/// Render: \[box\] label text
 ///
-/// # 예제
+/// # Example
 /// ```ignore
 /// let entity = world.spawn();
 /// world.insert(entity, UiNode::new(50.0, 200.0, 160.0, 24.0));
-/// world.insert(entity, CheckBox::new("사운드 켜기"));
+/// world.insert(entity, CheckBox::new("Enable sound"));
 /// ```
 use crate::color::Color;
 
@@ -21,7 +21,7 @@ pub struct CheckBox {
     pub border_color: Color,
     pub text_color: Color,
     pub font_size: f32,
-    /// 체크박스 정사각형 한 변의 크기(픽셀). UiNode 높이보다 작아야 한다.
+    /// Side length of the checkbox square (pixels). Must be smaller than the UiNode height.
     pub box_size: f32,
 }
 

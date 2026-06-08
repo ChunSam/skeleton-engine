@@ -56,26 +56,26 @@ fn collision_groups_layer_bounds_are_checked() {
 #[test]
 fn cast_ray_hits_static_box() {
     let mut pw = make_world();
-    // Y=0 에 두께 1 바닥
+    // Floor of thickness 1 at Y=0
     pw.add_static_box(Vec2::new(0.0, 0.0), 5.0, 0.5);
-    pw.step(1.0 / 60.0); // query_pipeline 갱신
+    pw.step(1.0 / 60.0); // update query_pipeline
 
-    // Y=-5 에서 아래(+Y)로 레이캐스트
+    // Raycast downward (+Y) from Y=-5
     let result = pw.cast_ray(Vec2::new(0.0, -5.0), Vec2::new(0.0, 1.0), 10.0, true);
-    assert!(result.is_some(), "바닥에 레이가 맞아야 함");
+    assert!(result.is_some(), "ray should hit the floor");
     let (_, toi) = result.unwrap();
-    assert!(toi > 0.0 && toi < 10.0, "toi 범위 확인: {toi}");
+    assert!(toi > 0.0 && toi < 10.0, "toi range check: {toi}");
 }
 
 #[test]
 fn cast_ray_misses_when_no_obstacle() {
     let mut pw = make_world();
-    pw.add_static_box(Vec2::new(100.0, 0.0), 5.0, 0.5); // 멀리 있음
+    pw.add_static_box(Vec2::new(100.0, 0.0), 5.0, 0.5); // far away
     pw.step(1.0 / 60.0);
 
-    // X 방향으로 레이캐스트 — 바닥이 Y 방향에 있으므로 맞지 않음
+    // Raycast along X — floor is in the Y direction so it should not be hit
     let result = pw.cast_ray(Vec2::new(0.0, -5.0), Vec2::new(0.0, -1.0), 5.0, true);
-    assert!(result.is_none(), "반대 방향은 맞지 않아야 함");
+    assert!(result.is_none(), "opposite direction should not hit");
 }
 
 #[test]
@@ -87,10 +87,10 @@ fn cast_ray_with_normal_returns_correct_normal() {
     let hit = pw.cast_ray_with_normal(Vec2::new(0.0, -5.0), Vec2::new(0.0, 1.0), 20.0, true);
     assert!(hit.is_some());
     let h = hit.unwrap();
-    // 위에서 아래로 쐈으므로 법선은 위쪽 (Y < 0 in physics coords)
+    // Shot from above downward, so the normal points upward (Y < 0 in physics coords)
     assert!(
         h.normal.y < 0.0,
-        "법선은 레이 반대 방향이어야 함: {:?}",
+        "normal should face opposite to the ray direction: {:?}",
         h.normal
     );
 }
@@ -102,7 +102,7 @@ fn add_kinematic_box_creates_body() {
     assert!(pw.rigid_body(rb).is_some());
     assert!(pw.get_collider(col).is_some());
     let body = pw.rigid_body(rb).unwrap();
-    assert!(body.is_kinematic(), "키네마틱 바디여야 함");
+    assert!(body.is_kinematic(), "should be a kinematic body");
 }
 
 #[test]
@@ -116,25 +116,28 @@ fn add_kinematic_circle_creates_body() {
 #[test]
 fn move_character_grounded_on_floor() {
     let mut pw = make_world();
-    // 바닥: Y=2.0, half_h=0.5 → 상단이 Y=1.5
+    // Floor: Y=2.0, half_h=0.5 → top surface at Y=1.5
     pw.add_static_box(Vec2::new(0.0, 2.0), 5.0, 0.5);
-    // 캐릭터: Y=0.0, half_h=0.5 → 하단이 Y=0.5 (바닥과 1.0 떨어짐)
+    // Character: Y=0.0, half_h=0.5 → bottom at Y=0.5 (1.0 above the floor)
     let (rb, col) = pw.add_kinematic_box(Vec2::new(0.0, 0.0), 0.4, 0.5);
     pw.step(1.0 / 60.0);
 
     let mut ctrl = CharacterController::new();
-    // 아래로 이동 시도 (픽셀 단위, ppu=1)
+    // Attempt to move downward (pixel units, ppu=1)
     pw.move_character(
         &mut ctrl,
         rb,
         col,
-        Vec2::new(0.0, 5.0), // 아래로 이동
+        Vec2::new(0.0, 5.0), // move downward
         1.0 / 60.0,
         1.0,
     );
     pw.step(1.0 / 60.0);
 
-    assert!(ctrl.grounded, "바닥에 닿으면 grounded=true여야 함");
+    assert!(
+        ctrl.grounded,
+        "grounded should be true when touching the floor"
+    );
 }
 
 #[test]
@@ -177,8 +180,9 @@ fn add_prismatic_joint_creates() {
 
 #[test]
 fn distance_joint_holds_rest_length_under_gravity() {
-    // 고정 바디(원점)에 동적 바디를 distance joint로 매단다. 중력(+y)으로 아래로
-    // 떨어지지만 조인트가 rest_length를 유지하므로 원점에서의 거리가 ~2.0에 머물러야 한다.
+    // Attach a dynamic body to a static body (at origin) via a distance joint. Gravity (+y)
+    // pulls it downward, but the joint holds rest_length so the distance from origin should
+    // stay ~2.0.
     let mut pw = make_world(); // gravity (0, 9.8)
     let (anchor, _) = pw.add_static_box(Vec2::ZERO, 0.1, 0.1);
     let (ball, _) = pw.add_dynamic_box(Vec2::new(2.0, 0.0), 0.2, 0.2, false);
@@ -192,20 +196,25 @@ fn distance_joint_holds_rest_length_under_gravity() {
     let dist = (p.x * p.x + p.y * p.y).sqrt();
     assert!(
         (dist - 2.0).abs() < 0.3,
-        "distance joint 가 rest_length(2.0)을 유지해야 함: {dist}"
+        "distance joint should maintain rest_length(2.0): {dist}"
     );
-    assert!(p.y > 0.5, "중력으로 아래(+y)로 매달려야 함: {}", p.y);
+    assert!(
+        p.y > 0.5,
+        "should hang downward (+y) under gravity: {}",
+        p.y
+    );
 }
 
 #[test]
 fn revolute_joint_keeps_anchor_pinned_under_gravity() {
-    // 고정 바디(원점)에 동적 바디를 revolute로 핀. 피벗(월드 원점)을 중심으로
-    // 자유 회전하므로 바디는 아래로 스윙하지만 중심은 항상 피벗에서 arm 길이(1.0)
-    // 이내에 머문다 (조인트가 끊기면 무한정 추락).
+    // Pin a dynamic body to a static body (at origin) with a revolute joint. The body swings
+    // freely around the pivot (world origin), so it swings downward but its center always
+    // stays within the arm length (1.0) of the pivot (it would fall indefinitely if the joint
+    // broke).
     let mut pw = make_world();
     let (anchor, _) = pw.add_static_box(Vec2::ZERO, 0.1, 0.1);
     let (arm, _) = pw.add_dynamic_box(Vec2::new(1.0, 0.0), 0.4, 0.1, false);
-    // 고정 바디 로컬 (0,0)=원점, arm 로컬 (-1,0)=arm의 좌측 끝=월드 원점 → 피벗=원점.
+    // Static body local (0,0)=origin, arm local (-1,0)=left end of arm=world origin → pivot=origin.
     pw.add_revolute_joint(anchor, arm, Vec2::ZERO, Vec2::new(-1.0, 0.0));
 
     for _ in 0..240 {
@@ -216,9 +225,13 @@ fn revolute_joint_keeps_anchor_pinned_under_gravity() {
     let dist = (p.x * p.x + p.y * p.y).sqrt();
     assert!(
         dist < 1.2,
-        "revolute 가 피벗에서 arm 길이 이내로 핀해야 함: {dist}"
+        "revolute should pin the body within arm length of the pivot: {dist}"
     );
-    assert!(p.y > 0.5, "중력으로 피벗 아래로 스윙해야 함: {}", p.y);
+    assert!(
+        p.y > 0.5,
+        "should swing below the pivot under gravity: {}",
+        p.y
+    );
 }
 
 #[test]
@@ -233,17 +246,21 @@ fn add_static_from_tilemap_creates_collider_per_matching_tile() {
     // Solid tiles (id 1) get a collider; everything else is skipped.
     let solids =
         pw.add_static_from_tilemap(&tilemap, 32.0, |id| (id == 1).then(TileCollider::solid));
-    assert_eq!(solids.len(), 3, "id==1 타일 3개에만 콜라이더 생성");
+    assert_eq!(
+        solids.len(),
+        3,
+        "collider should be created only for the 3 id==1 tiles"
+    );
     assert_eq!(pw.collider_set.len(), 3);
 
     // The one-way tile (id 2) is created and auto-registered as one-way.
     let one_ways =
         pw.add_static_from_tilemap(&tilemap, 32.0, |id| (id == 2).then(TileCollider::one_way));
-    assert_eq!(one_ways.len(), 1, "id==2 타일 1개");
+    assert_eq!(one_ways.len(), 1, "1 tile with id==2");
     assert_eq!(pw.collider_set.len(), 4);
     assert!(
         pw.is_one_way(one_ways[0].1),
-        "one-way 콜라이더로 표시되어야"
+        "should be marked as a one-way collider"
     );
 
     // Tile center for [row=0][col=0] with tile_size 32, ppu 32 → world (16,16) → physics (0.5,0.5).
@@ -254,9 +271,9 @@ fn add_static_from_tilemap_creates_collider_per_matching_tile() {
 
 #[test]
 fn one_way_platform_blocks_from_top_passes_from_below_and_on_drop() {
-    // 화면 좌표(+y 아래). 플랫폼 y=2.0, half 0.5 → 윗면 1.5 / 밑면 2.5.
-    // 캐릭터 half 0.5. ppu=1.0이라 픽셀=물리 단위. move_character가 설정한
-    // next_kinematic_translation을 step()으로 실제 이동시킨 뒤 y를 읽어 판정한다.
+    // Screen coords (+y down). Platform y=2.0, half 0.5 → top surface 1.5 / bottom 2.5.
+    // Character half 0.5. ppu=1.0 so pixels == physics units. move_character sets
+    // next_kinematic_translation; step() applies it, then we read y to check the result.
     let dt = 1.0 / 60.0;
     let run = |start_y: f32, desired_y: f32, one_way: bool, drop: bool| -> f32 {
         let mut pw = PhysicsWorld::new(Vec2::ZERO);
@@ -267,34 +284,37 @@ fn one_way_platform_blocks_from_top_passes_from_below_and_on_drop() {
         if drop {
             ctrl.request_drop();
         }
-        // 초기 step으로 query_pipeline에 콜라이더를 등록한다 (move_character가 이를 질의함).
+        // Initial step registers colliders in the query_pipeline (move_character queries it).
         pw.step(dt);
         pw.move_character(&mut ctrl, crb, ccol, Vec2::new(0.0, desired_y), dt, 1.0);
         pw.step(dt);
         pw.rigid_body(crb).unwrap().translation().y
     };
 
-    // 1) 위에서 내려옴: one-way·솔리드 모두 막아 윗면(center≈1.0)에서 멈춘다.
+    // 1) Descending from above: both one-way and solid block, stopping at the top surface (center≈1.0).
     assert!(
         run(0.5, 0.6, true, false) < 1.05,
-        "one-way도 위에서 내려오면 막아야"
+        "one-way should also block when descending from above"
     );
-    assert!(run(0.5, 0.6, false, false) < 1.05, "솔리드는 막아야");
+    assert!(run(0.5, 0.6, false, false) < 1.05, "solid should block");
 
-    // 2) 아래에서 위로: one-way는 통과(올라감), 솔리드는 밑면(center≈3.0)에서 막힌다.
+    // 2) Ascending from below: one-way passes through (goes up), solid blocks at the bottom surface (center≈3.0).
     assert!(
         run(3.0, -1.5, true, false) < 2.0,
-        "one-way는 아래에서 위로 통과해야"
+        "one-way should pass through when ascending from below"
     );
     assert!(
         run(3.0, -1.5, false, false) > 2.8,
-        "솔리드는 아래에서 막아야"
+        "solid should block from below"
     );
 
-    // 3) 윗면에 선 채 drop 요청 + 내려옴: one-way는 통과(내려감), 솔리드는 그대로.
+    // 3) Standing on top and drop-requesting while moving down: one-way passes through, solid stays.
     assert!(
         run(1.0, 0.6, true, true) > 1.4,
-        "drop 요청 시 one-way 통과해야"
+        "one-way should be passable when drop is requested"
     );
-    assert!(run(1.0, 0.6, false, true) < 1.05, "솔리드는 drop 요청 무시");
+    assert!(
+        run(1.0, 0.6, false, true) < 1.05,
+        "solid should ignore drop request"
+    );
 }

@@ -27,13 +27,13 @@ impl System for ScriptingSystem {
         let mut bb_snap: HashMap<String, BbEntry> = HashMap::new();
 
         for entity in entities {
-            // 스크립트 핸들 id + started 플래그 읽기
+            // Read script handle id + started flag
             let (script_id, is_started) = match world.get::<ScriptRunner>(entity) {
                 Some(r) => (r.script.id(), r.started),
                 None => continue,
             };
 
-            // Transform 스냅샷 읽기
+            // Read Transform snapshot
             let (tx, ty, tr, tsx, tsy) = world
                 .get::<Transform>(entity)
                 .map(|t| {
@@ -47,7 +47,7 @@ impl System for ScriptingSystem {
                 })
                 .unwrap_or((0.0, 0.0, 0.0, 1.0, 1.0));
 
-            // AST 읽기
+            // Read AST
             let ast = match world
                 .resource::<AssetServer>()
                 .and_then(|s| s.get_script_by_id(script_id))
@@ -57,16 +57,16 @@ impl System for ScriptingSystem {
                 None => continue,
             };
 
-            // ── 재사용 버퍼 초기화 (할당은 유지, 내용만 비움) ─────────────────
-            // `steer_buf` 는 set_script_ctx 의 `take()` 와 아래 steering 적용의
-            // `take()` 로 매 반복 None 이 되므로 별도 reset 이 필요 없다.
+            // ── Reset reusable buffers (preserve allocations, clear contents) ─────────────────
+            // `steer_buf` is set to None each iteration by the `take()` in set_script_ctx
+            // and the `take()` in the steering application below, so no explicit reset is needed.
             cmd_buf.despawn.clear();
             cmd_buf.spawn_count = 0;
             cmd_buf.spawned_ids.clear();
             bb_buf.clear();
             bb_snap.clear();
 
-            // Blackboard 스냅샷 수집
+            // Collect Blackboard snapshot
             {
                 use crate::behavior::BlackboardValue;
                 if let Some(bb) = world.get::<Blackboard>(entity) {
@@ -82,7 +82,7 @@ impl System for ScriptingSystem {
                 }
             }
 
-            // ── 버퍼를 thread_local 컨텍스트로 옮겨 실행 → 이후 회수 ──────────
+            // ── Move buffers into the thread_local context, execute, then recover ──────────
             set_script_ctx(ScriptCtx {
                 entity,
                 cmd_buf: std::mem::take(&mut cmd_buf),
@@ -119,14 +119,14 @@ impl System for ScriptingSystem {
                 (nx, ny, nr, nsx, nsy)
             };
 
-            // 버퍼 회수 — 실행 결과와 재사용 가능한 할당을 되돌려 받는다.
+            // Recover buffers — get back execution results and reusable allocations.
             let ctx = take_script_ctx().expect("script ctx was set above");
             cmd_buf = ctx.cmd_buf;
             bb_buf = ctx.bb_buf;
             steer_buf = ctx.steer_buf;
             bb_snap = ctx.bb_snap;
 
-            // ── Transform 결과 적용 ──────────────────────────────────────────
+            // ── Apply Transform results ──────────────────────────────────────────
             if let Some(t) = world.get_mut::<Transform>(entity) {
                 t.position.x = new_tx as f32;
                 t.position.y = new_ty as f32;
@@ -135,7 +135,7 @@ impl System for ScriptingSystem {
                 t.scale.y = new_tsy as f32;
             }
 
-            // ── Commands 적용 ────────────────────────────────────────────────
+            // ── Apply Commands ────────────────────────────────────────────────
             for _ in 0..cmd_buf.spawn_count {
                 world.spawn();
             }
@@ -143,7 +143,7 @@ impl System for ScriptingSystem {
                 world.despawn(e);
             }
 
-            // ── Blackboard 변경 적용 ──────────────────────────────────────────
+            // ── Apply Blackboard changes ──────────────────────────────────────────
             if !bb_buf.is_empty() {
                 if world.get::<Blackboard>(entity).is_none() {
                     world.add_component(entity, Blackboard::new());
@@ -159,7 +159,7 @@ impl System for ScriptingSystem {
                 }
             }
 
-            // ── Steering 변경 적용 ────────────────────────────────────────────
+            // ── Apply Steering changes ────────────────────────────────────────────
             if let Some(cmd) = steer_buf.take() {
                 match cmd {
                     SteeringCmd::Seek { tx, ty, speed } => {
@@ -205,7 +205,7 @@ impl System for ScriptingSystem {
     }
 }
 
-// ─── 내부 헬퍼 ────────────────────────────────────────────────────────────────
+// ─── Internal helpers ────────────────────────────────────────────────────────────────
 
 fn call_fn_optional<A: rhai::FuncArgs>(
     engine: &Engine,
@@ -217,7 +217,7 @@ fn call_fn_optional<A: rhai::FuncArgs>(
     if let Err(e) = engine.call_fn::<()>(scope, ast, fn_name, args) {
         match *e {
             EvalAltResult::ErrorFunctionNotFound(_, _) => {}
-            ref other => log::warn!("Script '{fn_name}' 오류: {other}"),
+            ref other => log::warn!("Script '{fn_name}' error: {other}"),
         }
     }
 }

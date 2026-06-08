@@ -2,27 +2,27 @@ use crate::animation::player::UvRect;
 use crate::asset::{Handle, ImageAsset};
 use crate::color::Color;
 
-/// 균일 그리드 텍스처 아틀라스.
+/// Uniform-grid texture atlas.
 ///
-/// 하나의 이미지 파일에 고정 크기 그리드로 여러 스프라이트를 배치한 텍스처.
-/// `cols × rows` 타일로 나뉘며, 인덱스는 왼쪽 위(0)부터 오른쪽 아래 순서.
+/// A texture with multiple sprites arranged in a fixed-size grid in a single image file.
+/// Divided into `cols × rows` tiles; indices run from top-left (0) to bottom-right.
 ///
-/// # 예시
-/// 4×4 아틀라스: 총 16 타일, index 5 → row 1 col 1
+/// # Example
+/// 4×4 atlas: 16 tiles total, index 5 → row 1 col 1
 #[derive(Clone, Debug)]
 pub struct TextureAtlas {
-    /// 아틀라스 전체 이미지 핸들
+    /// Handle for the full atlas image
     pub handle: Handle<ImageAsset>,
-    /// 가로 타일 수
+    /// Number of columns
     pub cols: u32,
-    /// 세로 타일 수
+    /// Number of rows
     pub rows: u32,
 }
 
 impl TextureAtlas {
-    /// index에 해당하는 UV 좌표 (0.0~1.0 정규화).
+    /// Returns the UV coordinates for the given index (normalized 0.0–1.0).
     ///
-    /// index가 범위를 초과하면 `% (cols * rows)` 로 wrap한다.
+    /// If the index is out of range it wraps via `% (cols * rows)`.
     pub fn uv_rect(&self, index: u32) -> UvRect {
         if self.cols == 0 || self.rows == 0 {
             return UvRect::FULL;
@@ -34,19 +34,19 @@ impl TextureAtlas {
         UvRect::from_grid(col, row, self.cols, self.rows)
     }
 
-    /// 이 아틀라스의 이미지 파일 경로 (렌더러 텍스처 캐시 키).
+    /// Image file path for this atlas (used as the renderer texture cache key).
     pub fn texture_path(&self) -> &str {
         self.handle.path()
     }
 }
 
-/// 텍스처 아틀라스의 특정 타일을 렌더링하는 컴포넌트.
+/// Component that renders a specific tile from a texture atlas.
 ///
-/// `Transform` 컴포넌트와 함께 엔티티에 추가해 사용한다.
-/// 기존 `Sprite` 컴포넌트와 동일한 렌더 패스에서 처리되므로
-/// z-order, 블렌딩 등 모든 렌더링 동작이 동일하게 적용된다.
+/// Add to an entity alongside a `Transform` component.
+/// Processed in the same render pass as `Sprite`, so all rendering behavior
+/// (z-order, blending, etc.) is identical.
 ///
-/// # 예시
+/// # Example
 /// ```rust,no_run
 /// # use engine::{App, AtlasSprite, Transform};
 /// # use glam::Vec2;
@@ -58,11 +58,11 @@ impl TextureAtlas {
 /// ```
 #[derive(Clone, Debug)]
 pub struct AtlasSprite {
-    /// 아틀라스 핸들 (AssetServer에서 관리)
+    /// Atlas handle (managed by AssetServer)
     pub atlas: Handle<TextureAtlas>,
-    /// 아틀라스 내 타일 인덱스 (0-based, 왼쪽 위→오른쪽 아래)
+    /// Tile index within the atlas (0-based, top-left → bottom-right)
     pub index: u32,
-    /// RGBA 색상 배율 (기본값 흰색 = 원본 텍스처 색상)
+    /// RGBA color multiplier (default white = original texture color)
     pub color: Color,
 }
 

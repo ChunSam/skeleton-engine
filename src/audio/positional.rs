@@ -3,12 +3,12 @@ use glam::Vec2;
 use super::AudioManager;
 
 impl AudioManager {
-    // ── 위치 오디오 ───────────────────────────────────────────────────────────
+    // ── Positional audio ──────────────────────────────────────────────────
 
-    /// 2D 공간의 `source_pos`에서 소리를 재생한다.
+    /// Plays a sound at `source_pos` in 2D space.
     ///
-    /// - 거리(`source_pos`와 `listener_pos` 사이)가 `max_dist` 이상이면 무음.
-    /// - X 방향 차이로 스테레오 팬을 자동 계산한다.
+    /// - Silent when the distance between `source_pos` and `listener_pos` reaches `max_dist`.
+    /// - Stereo pan is computed automatically from the X-axis difference.
     pub fn play_at(
         &mut self,
         channel: &str,
@@ -24,9 +24,9 @@ impl AudioManager {
         self.play(channel, path, repeat);
     }
 
-    /// 이미 재생 중인 채널의 공간 위치를 실시간으로 업데이트한다.
+    /// Updates the spatial position of an already-playing channel in real time.
     ///
-    /// ECS 시스템에서 매 프레임 호출해 움직이는 소리 발생원에 적용한다.
+    /// Call every frame from an ECS system to track a moving sound source.
     pub fn update_position(
         &mut self,
         channel: &str,
@@ -42,15 +42,15 @@ impl AudioManager {
         }
     }
 
-    // ── 볼륨 / 팬 ────────────────────────────────────────────────────────────
+    // ── Volume / Pan ──────────────────────────────────────────────────────
 
-    /// 채널 스테레오 팬을 설정한다 (-1.0 = 좌, 0.0 = 중앙, 1.0 = 우).
-    /// 다음 `play()` 호출부터 적용된다.
+    /// Sets the stereo pan for a channel (-1.0 = left, 0.0 = center, 1.0 = right).
+    /// Takes effect from the next `play()` call.
     pub fn set_pan(&mut self, channel: &str, pan: f32) {
         self.pans.insert(channel.to_string(), pan.clamp(-1.0, 1.0));
     }
 
-    /// 소리 발생 위치와 리스너 위치로부터 (볼륨, 팬)을 계산한다.
+    /// Computes (volume, pan) from the sound source position and listener position.
     pub(super) fn spatial_params(source_pos: Vec2, listener: Vec2, max_dist: f32) -> (f32, f32) {
         let delta = source_pos - listener;
         let dist = delta.length();

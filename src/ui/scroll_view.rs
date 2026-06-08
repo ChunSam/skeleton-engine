@@ -1,13 +1,13 @@
 use crate::color::Color;
 
-/// 스크롤 가능한 텍스트 목록 위젯.
+/// A scrollable text list widget.
 ///
-/// `UiNode` 와 함께 엔티티에 붙여 사용한다.
-/// 자식 엔티티 없이 `items` Vec 을 직접 렌더링한다.
-/// 커서가 위젯 위에 있을 때 마우스 휠로 스크롤한다.
+/// Attach to an entity alongside `UiNode`.
+/// Renders the `items` Vec directly — no child entities required.
+/// Scrollable via the mouse wheel when the cursor is over the widget.
 pub struct ScrollView {
     pub items: Vec<String>,
-    /// 수직 스크롤 오프셋 (픽셀, 0 = 최상단)
+    /// Vertical scroll offset (pixels, 0 = top).
     pub scroll_offset: f32,
     pub item_height: f32,
     pub font_size: f32,
@@ -37,7 +37,7 @@ impl ScrollView {
         self
     }
 
-    /// scroll_offset 을 유효 범위로 클램프한다.
+    /// Clamps `scroll_offset` to the valid range.
     pub fn clamp_scroll(&mut self, view_height: f32) {
         let total = self.items.len() as f32 * self.item_height;
         let max_offset = (total - view_height).max(0.0);

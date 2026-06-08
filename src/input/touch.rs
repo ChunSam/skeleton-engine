@@ -1,52 +1,52 @@
 use glam::Vec2;
 use std::collections::HashMap;
 
-/// 개별 터치 포인트 정보.
+/// Individual touch point data.
 #[derive(Clone)]
 pub struct TouchPoint {
-    /// 현재 스크린 좌표
+    /// Current screen coordinates.
     pub position: Vec2,
-    /// 터치 시작 좌표 (스와이프 감지용)
+    /// Touch start coordinates (used for swipe detection).
     pub start_position: Vec2,
 }
 
-/// 멀티터치 입력 상태 ECS 리소스.
+/// Multi-touch input state ECS resource.
 ///
-/// `App::new()` 에서 자동 등록된다.
-/// 시스템에서 `world.resource::<TouchState>()` 로 읽는다.
+/// Auto-registered by `App::new()`.
+/// Read in systems via `world.resource::<TouchState>()`.
 ///
-/// # 예제
+/// # Example
 /// ```ignore
 /// if let Some(ts) = world.resource::<TouchState>() {
 ///     if ts.is_touching() {
-///         // 첫 번째 터치 위치
+///         // First touch position.
 ///         if let Some(pos) = ts.primary_position() {
-///             println!("터치 위치: {pos:?}");
+///             println!("touch position: {pos:?}");
 ///         }
 ///     }
 /// }
 /// ```
 pub struct TouchState {
-    /// 현재 활성 터치 포인트 (id → TouchPoint)
+    /// Currently active touch points (id → TouchPoint).
     active: HashMap<u64, TouchPoint>,
 
-    /// 이번 프레임에 새로 시작된 터치 (id, 시작 위치)
+    /// Touches that started this frame (id, start position).
     pub began: Vec<(u64, Vec2)>,
 
-    /// 이번 프레임에 이동된 터치 (id, 현재 위치, 델타)
+    /// Touches that moved this frame (id, current position, delta).
     pub moved: Vec<(u64, Vec2, Vec2)>,
 
-    /// 이번 프레임에 끝난 터치 (id, 끝 위치)
+    /// Touches that ended this frame (id, end position).
     pub ended: Vec<(u64, Vec2)>,
 
-    /// 핀치 줌 델타 (양수 = 두 손가락 벌어짐, 음수 = 좁혀짐).
-    /// 두 손가락이 활성일 때만 업데이트된다.
+    /// Pinch-zoom delta (positive = fingers spreading, negative = pinching).
+    /// Updated only when exactly two fingers are active.
     pub pinch_delta: f32,
 
     prev_pinch_dist: f32,
 
-    /// 이번 프레임 스와이프 벡터 (터치 종료 시 50px 이상 이동한 경우).
-    /// `ended` 이벤트 처리 후 설정된다.
+    /// Swipe vector for this frame (set when a touch ends after moving ≥50 px).
+    /// Set after processing the `ended` event.
     pub swipe: Option<Vec2>,
 }
 
@@ -65,7 +65,7 @@ impl Default for TouchState {
 }
 
 impl TouchState {
-    // ── 내부 업데이트 메서드 (App에서만 호출) ─────────────────────────────────
+    // ── Internal update methods (called only from App) ────────────────────────
 
     pub(crate) fn on_touch_started(&mut self, id: u64, pos: Vec2) {
         self.active.insert(
@@ -85,7 +85,7 @@ impl TouchState {
             point.position = pos;
             self.moved.push((id, pos, delta));
         } else {
-            // 시작 없이 moved가 오는 경우 (예: 윈도우 밖에서 시작된 터치)
+            // moved arrived without a prior started (e.g. touch began outside the window)
             self.active.insert(
                 id,
                 TouchPoint {
@@ -96,7 +96,7 @@ impl TouchState {
             self.moved.push((id, pos, Vec2::ZERO));
         }
 
-        // 핀치 감지: 활성 포인트가 정확히 2개일 때
+        // Pinch detection: only when exactly 2 active points.
         self.update_pinch();
     }
 
@@ -108,12 +108,12 @@ impl TouchState {
             }
         }
         self.ended.push((id, pos));
-        // 핀치 거리 리셋 (손가락이 줄었으므로)
+        // Reset pinch distance (finger count decreased).
         self.prev_pinch_dist = 0.0;
         self.pinch_delta = 0.0;
     }
 
-    /// 매 프레임 끝에 호출하여 프레임 버퍼를 초기화한다.
+    /// Called at the end of every frame to clear per-frame buffers.
     pub(crate) fn flush(&mut self) {
         self.began.clear();
         self.moved.clear();
@@ -122,24 +122,24 @@ impl TouchState {
         self.swipe = None;
     }
 
-    // ── 공개 접근 메서드 ──────────────────────────────────────────────────────
+    // ── Public accessor methods ───────────────────────────────────────────────
 
-    /// 현재 활성 터치 포인트를 이터레이팅한다. `(id, 위치)` 반환.
+    /// Iterates over currently active touch points. Returns `(id, position)`.
     pub fn active_touches(&self) -> impl Iterator<Item = (u64, Vec2)> + '_ {
         self.active.iter().map(|(&id, p)| (id, p.position))
     }
 
-    /// 현재 활성 터치 개수.
+    /// Number of currently active touches.
     pub fn touch_count(&self) -> usize {
         self.active.len()
     }
 
-    /// 하나 이상의 터치가 활성화되어 있는지 여부.
+    /// Whether one or more touches are currently active.
     pub fn is_touching(&self) -> bool {
         !self.active.is_empty()
     }
 
-    /// 가장 낮은 id를 가진 터치 포인트의 위치 (주 포인터).
+    /// Position of the touch point with the lowest id (primary pointer).
     pub fn primary_position(&self) -> Option<Vec2> {
         self.active
             .iter()
@@ -147,7 +147,7 @@ impl TouchState {
             .map(|(_, p)| p.position)
     }
 
-    // ── 내부 핀치 거리 업데이트 ───────────────────────────────────────────────
+    // ── Internal pinch distance update ───────────────────────────────────────
 
     fn update_pinch(&mut self) {
         if self.active.len() != 2 {
@@ -231,7 +231,7 @@ mod tests {
         assert!(ts.moved.is_empty());
         assert_eq!(ts.pinch_delta, 0.0);
         assert!(ts.swipe.is_none());
-        // 활성 포인트는 flush 후에도 유지
+        // Active points persist after flush.
         assert_eq!(ts.touch_count(), 1);
     }
 
@@ -240,12 +240,12 @@ mod tests {
         let mut ts = TouchState::default();
         ts.on_touch_started(0, Vec2::new(0.0, 0.0));
         ts.on_touch_started(1, Vec2::new(100.0, 0.0));
-        // 첫 moved → prev_dist 설정
+        // First moved → sets prev_dist.
         ts.on_touch_moved(0, Vec2::new(0.0, 0.0));
         let delta_after_first = ts.pinch_delta;
-        // 두 번째 moved (손가락 벌어짐)
+        // Second moved (fingers spreading).
         ts.on_touch_moved(0, Vec2::new(-10.0, 0.0));
-        // 두 손가락 거리: 110 - 100 = 10
+        // Two-finger distance: 110 - 100 = 10.
         assert!(ts.pinch_delta > 0.0 || delta_after_first == 0.0);
     }
 

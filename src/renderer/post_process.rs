@@ -1,7 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
-/// 포스트프로세싱 설정. World 리소스로 삽입해 활성화한다.
+/// Post-processing configuration. Insert as a World resource to activate.
 ///
 /// ```rust,no_run
 /// # use engine::{App, PostProcessConfig};
@@ -14,23 +14,23 @@ use wgpu::util::DeviceExt;
 /// ```
 #[derive(Clone, Copy, Debug)]
 pub struct PostProcessConfig {
-    /// false이면 포스트프로세스 패스를 완전히 건너뛴다.
+    /// When false the post-process pass is skipped entirely.
     pub enabled: bool,
-    /// 비네팅 강도 (0.0=없음, 1.0=가장자리 완전 어두움)
+    /// Vignette strength (0.0 = none, 1.0 = edges fully darkened).
     pub vignette_strength: f32,
-    /// 비네팅이 시작되는 반경 (0.0~1.0, 화면 중심 기준)
+    /// Radius at which vignetting begins (0.0~1.0, relative to screen center).
     pub vignette_radius: f32,
-    /// 색수차 강도 (0.0=없음, 0.005 정도가 적절)
+    /// Chromatic aberration strength (0.0 = none; ~0.005 is a subtle amount).
     pub chroma_offset: f32,
-    /// 블룸 발생 휘도 임계값 (0.0~1.0, 0.7~0.9 권장)
+    /// Luminance threshold above which bloom is applied (0.0~1.0; 0.7~0.9 recommended).
     pub bloom_threshold: f32,
-    /// 블룸 밝기 배율
+    /// Bloom brightness multiplier.
     pub bloom_intensity: f32,
-    /// 밝기 오프셋 (-1.0~1.0, 0.0=원본)
+    /// Brightness offset (-1.0~1.0; 0.0 = original).
     pub brightness: f32,
-    /// 대비 배율 (0.0~3.0, 1.0=원본)
+    /// Contrast multiplier (0.0~3.0; 1.0 = original).
     pub contrast: f32,
-    /// 채도 배율 (0.0~3.0, 1.0=원본, 0.0=흑백)
+    /// Saturation multiplier (0.0~3.0; 1.0 = original, 0.0 = grayscale).
     pub saturation: f32,
 }
 
@@ -50,7 +50,7 @@ impl Default for PostProcessConfig {
     }
 }
 
-// GPU로 전송되는 유니폼 구조체 (32바이트, 16B 정렬)
+// Uniform struct sent to the GPU (32 bytes, 16B aligned)
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct PostProcessUniforms {
@@ -79,12 +79,13 @@ impl From<&PostProcessConfig> for PostProcessUniforms {
     }
 }
 
-/// 씬을 중간 텍스처에 받아 포스트프로세싱 후 최종 스왑체인에 출력하는 렌더러.
+/// Renderer that captures the scene into an intermediate texture, applies post-processing,
+/// and outputs the result to the final swapchain.
 pub struct PostProcessRenderer {
-    /// 씬을 먼저 그리는 중간 렌더 타겟 텍스처 뷰
+    /// Texture view of the intermediate render target where the scene is drawn first.
     pub target_view: wgpu::TextureView,
     target_texture: wgpu::Texture,
-    /// 현재 중간 텍스처 해상도
+    /// Current resolution of the intermediate texture.
     pub width: u32,
     pub height: u32,
     format: wgpu::TextureFormat,
@@ -125,7 +126,7 @@ impl PostProcessRenderer {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("post_process bgl"),
             entries: &[
-                // binding 0: 씬 텍스처
+                // binding 0: scene texture
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -136,14 +137,14 @@ impl PostProcessRenderer {
                     },
                     count: None,
                 },
-                // binding 1: 샘플러
+                // binding 1: sampler
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
-                // binding 2: 유니폼
+                // binding 2: uniforms
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -228,7 +229,7 @@ impl PostProcessRenderer {
         *self = Self::new(device, width, height, surface_format);
     }
 
-    /// 창 크기 변경 시 중간 텍스처를 재생성한다.
+    /// Recreates the intermediate texture when the window is resized.
     pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {
         let (tex, view) = Self::create_target(device, width, height, self.format);
         self.target_texture = tex;
@@ -244,13 +245,13 @@ impl PostProcessRenderer {
         );
     }
 
-    /// 유니폼 버퍼를 현재 설정으로 업데이트한다.
+    /// Updates the uniform buffer with the current configuration.
     pub fn update_uniforms(&self, queue: &wgpu::Queue, config: &PostProcessConfig) {
         let uni: PostProcessUniforms = config.into();
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uni));
     }
 
-    /// 중간 텍스처 → 최종 스왑체인 뷰로 포스트프로세스 패스를 실행한다.
+    /// Runs the post-process pass from the intermediate texture into the final swapchain view.
     pub fn run_pass(&self, enc: &mut wgpu::CommandEncoder, final_view: &wgpu::TextureView) {
         let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("post_process pass"),
@@ -269,11 +270,11 @@ impl PostProcessRenderer {
 
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.bind_group, &[]);
-        // 풀스크린 삼각형: 버텍스 버퍼 없이 3개 꼭짓점
+        // Fullscreen triangle: 3 vertices, no vertex buffer
         pass.draw(0..3, 0..1);
     }
 
-    // ── 내부 헬퍼 ─────────────────────────────────────────────────────────────
+    // ── Internal helpers ──────────────────────────────────────────────────────
 
     fn create_target(
         device: &wgpu::Device,

@@ -9,7 +9,7 @@ use winit::{
 };
 
 impl ApplicationHandler for App {
-    /// 앱이 활성화될 때 호출 (macOS: Resumed, 기타: 시작 시 1회)
+    /// Called when the app becomes active (macOS: Resumed; other platforms: once at startup).
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let (init_w, init_h, title) = self
             .world
@@ -20,7 +20,7 @@ impl ApplicationHandler for App {
             .with_title(&title)
             .with_inner_size(winit::dpi::LogicalSize::new(init_w, init_h));
 
-        // WASM: HTML 내 <canvas id="game-canvas"> 를 winit 창에 연결한다.
+        // WASM: attach the <canvas id="game-canvas"> element in the HTML page to the winit window.
         #[cfg(target_arch = "wasm32")]
         let attrs = {
             use wasm_bindgen::JsCast;
@@ -39,7 +39,7 @@ impl ApplicationHandler for App {
         let window = match event_loop.create_window(attrs) {
             Ok(window) => Arc::new(window),
             Err(err) => {
-                log::error!("창 생성 실패: {err}");
+                log::error!("window creation failed: {err}");
                 event_loop.exit();
                 return;
             }
@@ -50,14 +50,15 @@ impl ApplicationHandler for App {
             match pollster::block_on(GpuContext::new(window.clone())) {
                 Ok(gpu) => self.finish_init(gpu, window),
                 Err(err) => {
-                    log::error!("GPU 초기화 실패: {err}");
+                    log::error!("GPU initialization failed: {err}");
                     event_loop.exit();
                 }
             }
         }
 
-        // WASM: WebGPU/WebGL2 adapter 요청이 Promise 기반이므로 spawn_local로 비동기 처리한다.
-        // GPU 준비 완료 시 PENDING_GPU thread_local에 저장 → about_to_wait()에서 finish_init 호출.
+        // WASM: the WebGPU/WebGL2 adapter request is Promise-based, so handle it
+        // asynchronously with spawn_local. When the GPU is ready it is stored in
+        // PENDING_GPU thread_local → finish_init is called from about_to_wait().
         #[cfg(target_arch = "wasm32")]
         {
             self.window = Some(window.clone());
@@ -68,27 +69,28 @@ impl ApplicationHandler for App {
                             *p.borrow_mut() = Some((gpu, window));
                         });
                     }
-                    Err(err) => log::error!("GPU 초기화 실패: {err}"),
+                    Err(err) => log::error!("GPU initialization failed: {err}"),
                 }
             });
         }
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
-        // egui에 이벤트 선전달
+        // Forward the event to egui first
         if let (Some(state), Some(window)) = (&mut self.egui_state, &self.window) {
             let _ = state.on_window_event(window, &event);
         }
 
         match event {
-            // ── 창 닫기 ──────────────────────────────────────────────────────
+            // ── Close window ──────────────────────────────────────────────────────
             WindowEvent::CloseRequested => event_loop.exit(),
 
-            // ── 창 크기 변경 ─────────────────────────────────────────────────
+            // ── Window resize ─────────────────────────────────────────────────
             WindowEvent::Resized(size) => {
                 if let Some(gpu) = &mut self.gpu {
-                    // WASM: Retina DPR 때문에 winit이 CSS 픽셀 × DPR(= 2560×1440)을 보고한다.
-                    // WebGL2의 최대 텍스처 크기(2048)를 초과하므로, DOM에서 canvas 크기를 직접 읽는다.
+                    // WASM: due to Retina DPR, winit reports CSS pixels × DPR (e.g. 2560×1440),
+                    // which exceeds WebGL2's max texture size (2048), so read the canvas size
+                    // directly from the DOM instead.
                     #[cfg(target_arch = "wasm32")]
                     let size = {
                         use wasm_bindgen::JsCast;
@@ -103,13 +105,13 @@ impl ApplicationHandler for App {
                     };
                     gpu.resize(size);
                 }
-                // 라이브 리사이즈 드래그 중에도 한 프레임 그려 멈춤을 완화한다.
-                // (macOS 모달 루프 동안 RedrawRequested 가 멈춰도 Resized 는 들어온다.)
+                // Render one frame during a live resize drag to reduce visual stutter.
+                // (On macOS, Resized fires during the modal resize loop even when RedrawRequested stalls.)
                 #[cfg(not(target_arch = "wasm32"))]
                 self.step_frame(event_loop);
             }
 
-            // ── 키보드 입력 ──────────────────────────────────────────────────
+            // ── Keyboard input ──────────────────────────────────────────────────
             WindowEvent::KeyboardInput {
                 event:
                     KeyEvent {
@@ -120,7 +122,7 @@ impl ApplicationHandler for App {
                     },
                 ..
             } => {
-                // F1 → DebugUi 토글
+                // F1 → toggle DebugUi
                 if key == winit::keyboard::KeyCode::F1 && state == ElementState::Pressed {
                     if let Some(debug_ui) = self.world.resource_mut::<DebugUi>() {
                         debug_ui.toggle();
@@ -160,10 +162,11 @@ impl ApplicationHandler for App {
                 }
             }
 
-            // ── 마우스 커서 이동 ─────────────────────────────────────────────
-            // winit이 주는 좌표는 물리 픽셀이지만, UI 히트테스트·`ViewportSize`·
-            // `Camera::screen_to_world`는 모두 논리 픽셀 기준이다. HiDPI(예: Retina 2×)
-            // 에서 어긋나지 않도록 scale factor로 나눠 논리 좌표로 저장한다.
+            // ── Mouse cursor move ─────────────────────────────────────────────
+            // winit provides physical pixels, but UI hit-testing, `ViewportSize`, and
+            // `Camera::screen_to_world` all work in logical pixels. Divide by the
+            // scale factor to store logical coordinates so HiDPI (e.g. Retina 2×)
+            // does not cause a mismatch.
             WindowEvent::CursorMoved { position, .. } => {
                 let scale = self
                     .window
@@ -178,7 +181,7 @@ impl ApplicationHandler for App {
                 }
             }
 
-            // ── 마우스 버튼 ──────────────────────────────────────────────────
+            // ── Mouse button ──────────────────────────────────────────────────
             WindowEvent::MouseInput { state, button, .. } => {
                 if let Some(input) = self.world.resource_mut::<InputState>() {
                     match state {
@@ -188,18 +191,18 @@ impl ApplicationHandler for App {
                 }
             }
 
-            // ── 마우스 휠 ────────────────────────────────────────────────────
+            // ── Mouse wheel ────────────────────────────────────────────────────
             WindowEvent::MouseWheel { delta, .. } => {
                 if let Some(input) = self.world.resource_mut::<InputState>() {
                     match delta {
                         MouseScrollDelta::LineDelta(_, y) => input.add_scroll(y),
-                        // 픽셀 단위 휠(트랙패드 등)을 line 단위로 환산: 20px ≈ 1 line (경험적 근사값)
+                        // Convert pixel-delta scroll (trackpad etc.) to lines: 20px ≈ 1 line (empirical)
                         MouseScrollDelta::PixelDelta(p) => input.add_scroll(p.y as f32 / 20.0),
                     }
                 }
             }
 
-            // ── 터치 입력 ────────────────────────────────────────────────────
+            // ── Touch input ────────────────────────────────────────────────────
             WindowEvent::Touch(winit::event::Touch {
                 phase,
                 location,
@@ -216,9 +219,9 @@ impl ApplicationHandler for App {
                         }
                     }
                 }
-                // 터치를 마우스 왼쪽 버튼으로 에뮬레이션 (기존 UI 시스템 호환).
-                // UI 히트테스트가 쓰는 `InputState` 커서는 마우스와 동일하게 논리
-                // 좌표여야 하므로 scale factor로 나눈다 (`TouchState`는 물리 좌표 유지).
+                // Emulate touch as left mouse button (for compatibility with existing UI systems).
+                // The `InputState` cursor used by UI hit-testing must be in logical pixels, same
+                // as the mouse, so divide by the scale factor (`TouchState` keeps physical coords).
                 let scale = self
                     .window
                     .as_ref()
@@ -239,9 +242,9 @@ impl ApplicationHandler for App {
                 }
             }
 
-            // ── 프레임 렌더 ──────────────────────────────────────────────────
+            // ── Frame render ──────────────────────────────────────────────────
             WindowEvent::RedrawRequested => {
-                // WASM: about_to_wait 타이밍에 GPU가 준비되지 않은 경우를 대비해 여기서도 체크
+                // WASM: also check here in case the GPU is not ready by the time about_to_wait fires
                 #[cfg(target_arch = "wasm32")]
                 if self.gpu.is_none() {
                     if let Some((gpu, window)) = PENDING_GPU.with(|p| p.borrow_mut().take()) {
@@ -249,10 +252,10 @@ impl ApplicationHandler for App {
                     }
                 }
 
-                // update + render 를 한 RedrawRequested 안에서 연속 실행한다.
-                // (한때 update 를 about_to_wait 로 분리했으나 update→render 사이에
-                // 한 프레임 지연이 생겨 입력 반응이 늦었다. 클릭 정확성은 press/release
-                // 시점 커서 기록으로 보장된다.) 동일 시퀀스를 Resized 에서도 재사용한다.
+                // Run update + render together inside one RedrawRequested handler.
+                // (Splitting update into about_to_wait introduced a one-frame delay that
+                // made input feel sluggish. Click accuracy is preserved by recording the
+                // cursor position at press/release time.) The same sequence is reused in Resized.
                 self.step_frame(event_loop);
             }
 
@@ -260,12 +263,12 @@ impl ApplicationHandler for App {
         }
     }
 
-    /// 이벤트 큐가 비었을 때 → 게임패드 폴링 후 매 프레임 redraw 요청.
+    /// Called when the event queue is empty → poll gamepads then request a redraw every frame.
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
         #[cfg(not(target_arch = "wasm32"))]
         self.poll_gilrs();
 
-        // WASM: spawn_local로 시작한 GPU 비동기 초기화 완료를 여기서 감지한다.
+        // WASM: detect completion of the async GPU initialization started by spawn_local.
         #[cfg(target_arch = "wasm32")]
         if self.gpu.is_none() {
             if let Some((gpu, window)) = PENDING_GPU.with(|p| p.borrow_mut().take()) {
@@ -280,23 +283,23 @@ impl ApplicationHandler for App {
 }
 
 impl App {
-    /// 이벤트 루프를 시작한다. 창이 닫힐 때까지 블로킹된다.
+    /// Starts the event loop. Blocks until the window is closed.
     #[allow(unused_mut)]
     pub fn run(mut self) {
         let event_loop = match EventLoop::new() {
             Ok(event_loop) => event_loop,
             Err(err) => {
-                log::error!("이벤트 루프 생성 실패: {err}");
+                log::error!("event loop creation failed: {err}");
                 return;
             }
         };
-        // 게임/인터랙티브 앱이므로 매 프레임 연속 갱신한다. 기본값 `Wait` 는 입력이
-        // 있을 때만 깨어나 드래그·호버 반응이 한 박자 늦게 느껴진다. `Poll` 은
-        // about_to_wait 의 request_redraw 와 함께 vsync 한계까지 연속 루프를 돈다.
+        // This is a game/interactive app that needs continuous per-frame updates.
+        // The default `Wait` policy only wakes on input, causing noticeable drag/hover lag.
+        // `Poll` combined with request_redraw in about_to_wait runs a tight loop up to the vsync limit.
         event_loop.set_control_flow(ControlFlow::Poll);
         #[cfg(not(target_arch = "wasm32"))]
         if let Err(err) = event_loop.run_app(&mut self) {
-            log::error!("이벤트 루프 오류: {err}");
+            log::error!("event loop error: {err}");
         }
         #[cfg(target_arch = "wasm32")]
         {
@@ -305,8 +308,8 @@ impl App {
         }
     }
 
-    /// GPU 컨텍스트와 창이 준비된 후 렌더러·egui를 초기화한다.
-    /// 네이티브: resumed()에서 직접 호출. WASM: about_to_wait()에서 PENDING_GPU 확인 후 호출.
+    /// Initializes the renderer and egui once the GPU context and window are ready.
+    /// Native: called directly from resumed(). WASM: called from about_to_wait() after checking PENDING_GPU.
     fn finish_init(&mut self, gpu: GpuContext, window: Arc<Window>) {
         // WASM: winit sizes the canvas's CSS *display* box to the window's logical size, which
         // can differ from the drawing buffer and stretch the canvas — shifting fixed-position
@@ -337,7 +340,7 @@ impl App {
                 }
             }
         }
-        // pending_render_targets: GPU 초기화 전에 등록된 RT를 여기서 실제 생성
+        // pending_render_targets: create RTs registered before GPU initialization
         for (name, w, h) in self.pending_render_targets.drain(..) {
             let rt = crate::renderer::render_target::RenderTarget::new(
                 &gpu.device,
@@ -386,10 +389,10 @@ impl App {
         self.sprite_renderer = Some(sprite_renderer);
         self.text_renderer = text_renderer;
         self.gpu = Some(gpu);
-        // IME 허용 여부는 `ImeConfig` 리소스로 제어한다 (기본 off — `src/resources.rs`).
-        // 켜면 macOS 등에서 한글/일어/중국어가 `Ime::Preedit/Commit` 으로 조합돼 들어오지만,
-        // CJK 입력기가 활성일 때 게임 키의 keyUp 이벤트가 흡수돼 키가 고착될 수 있으므로
-        // 텍스트 입력이 필요한 앱만 `ImeConfig { allowed: true }` 로 켠다.
+        // IME support is controlled by the `ImeConfig` resource (default: off — see `src/resources.rs`).
+        // When enabled, CJK input on macOS etc. arrives via `Ime::Preedit/Commit`, but active CJK
+        // input methods can swallow keyUp events and cause keys to stick. Only enable it via
+        // `ImeConfig { allowed: true }` for apps that need text input.
         let ime_allowed = self
             .world
             .resource::<crate::resources::ImeConfig>()
@@ -398,7 +401,7 @@ impl App {
         window.set_ime_allowed(ime_allowed);
         self.window = Some(window);
         self.last_frame = Some(Instant::now());
-        log::info!("엔진 초기화 완료");
+        log::info!("engine initialized");
     }
 
     #[cfg(not(target_arch = "wasm32"))]

@@ -1,8 +1,8 @@
-// ─── UV 좌표 ──────────────────────────────────────────────────────────────────
+// ─── UV coordinates ───────────────────────────────────────────────────────────
 
-/// 텍스처 내 한 프레임 영역을 UV 좌표로 표현
+/// Represents a single frame region within a texture as UV coordinates.
 ///
-/// 예) 4열 2행 스프라이트시트의 (2열, 1행) 프레임:
+/// Example: frame at (col 2, row 1) of a 4-column × 2-row spritesheet:
 /// `UvRect::from_grid(2, 1, 4, 2)`
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct UvRect {
@@ -13,7 +13,7 @@ pub struct UvRect {
 }
 
 impl UvRect {
-    /// 텍스처 전체를 사용하는 기본값
+    /// Default value covering the entire texture.
     pub const FULL: Self = Self {
         u_offset: 0.0,
         v_offset: 0.0,
@@ -21,7 +21,7 @@ impl UvRect {
         v_size: 1.0,
     };
 
-    /// 정규화된 UV 좌표로 영역을 만든다.
+    /// Creates a region from normalized UV coordinates.
     pub const fn new(u_offset: f32, v_offset: f32, u_size: f32, v_size: f32) -> Self {
         Self {
             u_offset,
@@ -31,7 +31,7 @@ impl UvRect {
         }
     }
 
-    /// 그리드 형태 스프라이트시트에서 특정 프레임의 UV를 계산한다.
+    /// Computes the UV for a specific frame in a uniform-grid spritesheet.
     pub fn from_grid(col: u32, row: u32, cols: u32, rows: u32) -> Self {
         if cols == 0 || rows == 0 {
             return Self::FULL;
@@ -46,7 +46,7 @@ impl UvRect {
         }
     }
 
-    /// 픽셀 단위 crop 영역을 정규화된 UV로 변환한다.
+    /// Converts a pixel-space crop region to normalized UV.
     pub fn from_pixels(
         x: f32,
         y: f32,
@@ -66,14 +66,14 @@ impl UvRect {
         }
     }
 
-    /// 같은 영역을 가로 방향으로 뒤집어 샘플링한다.
+    /// Samples the same region flipped horizontally.
     pub fn flipped_x(mut self) -> Self {
         self.u_offset += self.u_size;
         self.u_size = -self.u_size;
         self
     }
 
-    /// 같은 영역을 세로 방향으로 뒤집어 샘플링한다.
+    /// Samples the same region flipped vertically.
     pub fn flipped_y(mut self) -> Self {
         self.v_offset += self.v_size;
         self.v_size = -self.v_size;
@@ -120,32 +120,33 @@ mod uv_tests {
     }
 }
 
-// ─── 블렌드 가중치 컴포넌트 ───────────────────────────────────────────────────
+// ─── Blend-weight component ───────────────────────────────────────────────────
 
-/// 크로스페이드 진행도를 나타내는 컴포넌트. `AnimationSystem`이 매 프레임 갱신한다.
+/// Component indicating crossfade progress. Updated every frame by `AnimationSystem`.
 ///
-/// - `1.0`: 크로스페이드 없음 (또는 완료)
-/// - `0.0 ~ 1.0`: 전환 진행 중 (0 = from 클립, 1 = to 클립)
+/// - `1.0`: no crossfade (or completed)
+/// - `0.0 ~ 1.0`: transition in progress (0 = from clip, 1 = to clip)
 ///
-/// 게임 코드에서 스프라이트 알파 보간 등에 활용할 수 있다.
+/// Game code can use this for sprite-alpha interpolation and similar effects.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BlendWeight(pub f32);
 
-/// 크로스페이드 중 렌더러가 두 프레임을 알파 보간(lerp)하기 위한 컴포넌트.
+/// Component used by the renderer to alpha-lerp two frames during a crossfade.
 ///
-/// `AnimationSystem`이 매 프레임 갱신한다. 크로스페이드 중이면 `to`에 to-클립의 현재
-/// 프레임 UV를, `weight`에 진행도(0.0→1.0)를 담는다. 전환 중이 아니면 `weight = 0.0`이며
-/// (`to`는 from과 동일) 렌더러는 단일 프레임으로 처리한다. 스프라이트 셰이더가
-/// `mix(from_uv, to_uv, weight)`로 두 프레임을 합성해 부드러운 크로스페이드를 만든다.
+/// Updated every frame by `AnimationSystem`. During a crossfade `to` holds the current
+/// frame UV of the to-clip and `weight` holds the progress (0.0→1.0). When no transition
+/// is active `weight = 0.0` (`to` equals from) and the renderer treats it as a single
+/// frame. The sprite shader composites both frames via `mix(from_uv, to_uv, weight)` to
+/// produce a smooth crossfade.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BlendUv {
-    /// to-클립의 현재 프레임 UV.
+    /// Current frame UV of the to-clip.
     pub to: UvRect,
-    /// 크로스페이드 진행도 [0.0..=1.0]. 0이면 블렌드 없음(단일 프레임).
+    /// Crossfade progress [0.0..=1.0]. 0 means no blend (single frame).
     pub weight: f32,
 }
 
-// ─── 크로스페이드 상태 ────────────────────────────────────────────────────────
+// ─── Crossfade state ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub(crate) struct CrossfadeState {
@@ -156,9 +157,9 @@ pub(crate) struct CrossfadeState {
     pub duration: f32,
 }
 
-// ─── 애니메이션 데이터 ────────────────────────────────────────────────────────
+// ─── Animation data ───────────────────────────────────────────────────────────
 
-/// 하나의 애니메이션 클립: 프레임 목록과 재생 속도
+/// A single animation clip: list of frames and playback speed.
 #[derive(Debug, Clone)]
 pub struct AnimationClip {
     pub frames: Vec<UvRect>,
@@ -166,13 +167,13 @@ pub struct AnimationClip {
     pub looping: bool,
 }
 
-/// 엔티티에 붙이는 애니메이션 플레이어 컴포넌트
+/// Animation player component attached to an entity.
 #[derive(Debug, Clone)]
 pub struct AnimationPlayer {
     pub clips: Vec<AnimationClip>,
     pub current_clip: usize,
     pub current_frame: usize,
-    /// 다음 프레임까지 누적된 시간(초)
+    /// Accumulated time (seconds) until the next frame.
     pub timer: f32,
     pub(crate) crossfade: Option<CrossfadeState>,
 }
@@ -188,7 +189,7 @@ impl AnimationPlayer {
         }
     }
 
-    /// 클립을 즉시 전환한다. 이미 재생 중인 클립이면 아무것도 하지 않는다.
+    /// Switches to a clip immediately. Does nothing if that clip is already playing.
     pub fn play(&mut self, clip_index: usize) {
         if self.current_clip != clip_index {
             self.current_clip = clip_index;
@@ -198,10 +199,10 @@ impl AnimationPlayer {
         }
     }
 
-    /// `duration`(초) 동안 부드럽게 크로스페이드하며 클립을 전환한다.
+    /// Switches to a clip with a smooth crossfade over `duration` seconds.
     ///
-    /// 전환 중에는 `BlendWeight` 컴포넌트가 0.0→1.0으로 갱신된다.
-    /// `duration <= 0.0`이면 즉시 전환(`play`와 동일).
+    /// The `BlendWeight` component is updated from 0.0→1.0 during the transition.
+    /// If `duration <= 0.0` the switch is immediate (same as `play`).
     pub fn play_with_crossfade(&mut self, clip_index: usize, duration: f32) {
         if self.current_clip == clip_index {
             return;
@@ -219,7 +220,7 @@ impl AnimationPlayer {
         });
     }
 
-    /// 크로스페이드 진행도 [0.0..=1.0]. 전환 중이 아니면 `1.0`.
+    /// Crossfade progress [0.0..=1.0]. Returns `1.0` when no transition is active.
     pub fn blend_weight(&self) -> f32 {
         match &self.crossfade {
             None => 1.0,
@@ -227,12 +228,12 @@ impl AnimationPlayer {
         }
     }
 
-    /// 현재 크로스페이드 전환 중인지 여부.
+    /// Returns `true` while a crossfade transition is in progress.
     pub fn is_crossfading(&self) -> bool {
         self.crossfade.is_some()
     }
 
-    /// 현재 프레임의 UV를 반환한다. 클립·프레임이 없으면 전체 텍스처를 사용한다.
+    /// Returns the UV of the current frame. Falls back to the full texture if there are no clips or frames.
     pub fn current_uv(&self) -> UvRect {
         self.clips
             .get(self.current_clip)
@@ -241,7 +242,7 @@ impl AnimationPlayer {
             .unwrap_or(UvRect::FULL)
     }
 
-    /// 현재 클립이 끝났는지 반환한다. 루핑 클립은 항상 false.
+    /// Returns whether the current clip has finished. Always `false` for looping clips.
     pub fn is_finished(&self) -> bool {
         let Some(clip) = self.clips.get(self.current_clip) else {
             return true;

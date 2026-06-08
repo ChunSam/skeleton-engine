@@ -22,31 +22,31 @@ type EmitterSnapshot = (
 // (entity, pos, lifetime, velocity_spread, color_start, color_end, size, texture)
 type BurstSnapshot = (Entity, Vec2, f32, Vec2, Color, Color, Vec2, Option<String>);
 
-// ─── 컴포넌트 ─────────────────────────────────────────────────────────────────
+// ─── Components ───────────────────────────────────────────────────────────────
 
-/// 파티클을 방출하는 이미터 컴포넌트.
+/// Emitter component that spawns particles.
 ///
-/// 엔티티에 `Transform`과 함께 붙이면 `ParticleSystem`이 파티클을 생성한다.
+/// Attach to an entity together with `Transform`; `ParticleSystem` will create particles.
 pub struct ParticleEmitter {
-    /// 초당 파티클 생성 수
+    /// Particles spawned per second.
     pub spawn_rate: f32,
-    /// 파티클 생존 시간 (초)
+    /// Particle lifetime in seconds.
     pub lifetime: f32,
-    /// 기본 속도 (픽셀/초)
+    /// Base velocity (pixels/second).
     pub velocity: Vec2,
-    /// 속도에 추가되는 랜덤 범위 (±각 축)
+    /// Random range added to velocity (±per axis).
     pub velocity_spread: Vec2,
-    /// 생성 시 색상 (RGBA)
+    /// Color at spawn (RGBA).
     pub color_start: Color,
-    /// 소멸 시 색상 (RGBA) — 생존 시간에 따라 보간
+    /// Color at death (RGBA) — interpolated over lifetime.
     pub color_end: Color,
-    /// 파티클 크기 (픽셀)
+    /// Particle size in pixels.
     pub size: Vec2,
-    /// 텍스처 경로. None이면 단색 사각형.
+    /// Texture path. None means a solid-color rectangle.
     pub texture: Option<String>,
-    /// false이면 방출 중단
+    /// Set to false to stop emitting.
     pub emit: bool,
-    /// 내부 타이머 (직접 수정 불필요)
+    /// Internal timer (no need to modify directly).
     pub(crate) timer: f32,
 }
 
@@ -68,14 +68,14 @@ impl Default for ParticleEmitter {
 }
 
 impl ParticleEmitter {
-    /// 일회성 버스트(폭발/타격) 전용 이미터 설정.
+    /// Emitter preset for one-shot bursts (explosions, hit effects).
     ///
-    /// 연속 방출을 끄고(`emit = false`, `spawn_rate = 0`) 짧은 수명·방사형
-    /// 확산에 어울리는 기본값을 채운다. 반드시 [`ParticleBurst`]와 함께 한
-    /// 엔티티에 붙여야 한다 — [`ParticleSystem`]이 다음 틱에 `remaining`개를
-    /// 한꺼번에 방출한 뒤 그 엔티티를 despawn한다.
+    /// Disables continuous emission (`emit = false`, `spawn_rate = 0`) and fills
+    /// in defaults suited for short-lived radial spread. Must be attached to the
+    /// same entity as [`ParticleBurst`] — [`ParticleSystem`] will emit all
+    /// `remaining` particles at once on the next tick, then despawn the entity.
     ///
-    /// 연속 이미터의 동작에는 영향을 주지 않는 순수 추가 API다.
+    /// This is a purely additive API and does not affect continuous emitter behavior.
     pub fn for_burst() -> Self {
         Self {
             spawn_rate: 0.0,
@@ -92,7 +92,7 @@ impl ParticleEmitter {
     }
 }
 
-/// 활성 파티클 컴포넌트.
+/// Active particle component.
 pub struct Particle {
     pub lifetime: f32,
     pub age: f32,
@@ -101,27 +101,29 @@ pub struct Particle {
     pub color_end: Color,
 }
 
-/// 일회성 파티클 버스트 마커.
+/// One-shot particle burst marker.
 ///
-/// [`ParticleEmitter`]와 함께 한 엔티티에 붙이면 [`ParticleSystem`]이 다음
-/// 틱에 `remaining`개의 파티클을 방사형으로 한꺼번에 방출한 뒤, **그 엔티티를
-/// despawn한다.** 폭발·타격 이펙트처럼 전용 단발 엔티티에 사용한다.
+/// Attach alongside [`ParticleEmitter`] on an entity; [`ParticleSystem`] will
+/// emit all `remaining` particles radially at once on the next tick, then
+/// **despawn the entity.** Use on a dedicated single-use entity for explosion or
+/// hit effects.
 ///
-/// 연속 방출(`ParticleEmitter::emit`)과 독립적이며, 기존 연속 이미터 동작을
-/// 전혀 바꾸지 않는 순수 추가 컴포넌트다. 방출 속도(픽셀/초)는 이미터의
-/// `velocity_spread` 크기를 반지름으로 사용한다.
+/// Independent of continuous emission (`ParticleEmitter::emit`) — it is a
+/// purely additive component that does not change existing emitter behavior.
+/// Emission speed (pixels/second) uses the emitter's `velocity_spread` magnitude
+/// as the radius.
 pub struct ParticleBurst {
-    /// 이번 버스트에서 방출할 파티클 수.
+    /// Number of particles to emit in this burst.
     pub remaining: u32,
 }
 
-// ─── 시스템 ──────────────────────────────────────────────────────────────────
+// ─── System ───────────────────────────────────────────────────────────────────
 
 pub struct ParticleSystem;
 
 impl System for ParticleSystem {
     fn run(&mut self, world: &mut World, dt: f32) {
-        // 1. 기존 파티클 이동·색상 업데이트, 만료된 것은 수집
+        // 1. Move and update color of existing particles; collect expired ones.
         let updates: Vec<ParticleUpdate> = world
             .query::<Particle>()
             .map(|(e, p)| (e, p.age, p.lifetime, p.velocity, p.color_start, p.color_end))
@@ -155,7 +157,7 @@ impl System for ParticleSystem {
             world.despawn(e);
         }
 
-        // 2. 이미터에서 새 파티클 방출
+        // 2. Emit new particles from emitters.
         let emitter_data: Vec<EmitterSnapshot> = world
             .query2::<Transform, ParticleEmitter>()
             .map(|(e, tr, em)| {
@@ -197,14 +199,14 @@ impl System for ParticleSystem {
                 let em = world.get_mut::<ParticleEmitter>(emitter_entity).unwrap();
                 em.timer += dt;
                 let interval = 1.0 / spawn_rate;
-                // 느린 프레임에서 timer 가 interval 의 여러 배면 그만큼 스폰한다.
-                // (기존엔 프레임당 1개만 스폰해 방출 밀도가 프레임레이트에 의존했다)
+                // On a slow frame where timer exceeds interval multiple times, spawn that many.
+                // (Previously only one was spawned per frame, making density framerate-dependent.)
                 let mut count = 0u32;
                 while em.timer >= interval {
                     em.timer -= interval;
                     count += 1;
                 }
-                // 폭주 방지: 한 프레임 최대 64개 (매우 큰 spawn_rate + 긴 dt 대비)
+                // Runaway guard: at most 64 per frame (handles very large spawn_rate + long dt).
                 count.min(64)
             };
 
@@ -227,8 +229,8 @@ impl System for ParticleSystem {
             }
         }
 
-        // 3. 일회성 버스트 방출 (ParticleEmitter + ParticleBurst). 연속 방출과
-        //    독립적이며, 방출 후 이미터 엔티티를 despawn한다.
+        // 3. One-shot burst emission (ParticleEmitter + ParticleBurst). Independent of
+        //    continuous emission; despawns the emitter entity after firing.
         let burst_emitters: Vec<BurstSnapshot> = world
             .query2::<Transform, ParticleEmitter>()
             .map(|(e, tr, em)| {
@@ -270,7 +272,7 @@ impl System for ParticleSystem {
     }
 }
 
-/// 단일 파티클 엔티티를 스폰한다 (연속 방출과 버스트가 공유).
+/// Spawns a single particle entity (shared by continuous emission and burst).
 #[allow(clippy::too_many_arguments)]
 fn spawn_particle(
     world: &mut World,
@@ -328,9 +330,9 @@ mod tests {
 
         ParticleSystem.run(&mut world, 0.016);
 
-        // 한 틱에 정확히 8개의 파티클이 방출된다.
+        // Exactly 8 particles are emitted in one tick.
         assert_eq!(world.query::<Particle>().count(), 8);
-        // 버스트 후 이미터 엔티티는 despawn된다 (일회성).
+        // The emitter entity is despawned after the burst (one-shot).
         assert!(!world.is_alive(emitter));
     }
 
@@ -339,7 +341,7 @@ mod tests {
         let mut world = World::new();
         let emitter = world.spawn();
         world.add_component(emitter, Transform::default());
-        // 연속 이미터: emit=true, 높은 spawn_rate. ParticleBurst 없음.
+        // Continuous emitter: emit=true, high spawn_rate. No ParticleBurst.
         world.add_component(
             emitter,
             ParticleEmitter {
@@ -351,8 +353,8 @@ mod tests {
 
         ParticleSystem.run(&mut world, 0.05);
 
-        // 연속 이미터는 dt(0.05) / interval(1/100 = 0.01) = 5개를 내고,
-        // despawn되지 않고 살아남는다. (예전엔 프레임당 1개만 내 under-emit 했다)
+        // Continuous emitter produces dt(0.05) / interval(1/100 = 0.01) = 5 particles
+        // and survives (not despawned). (Previously only 1 per frame → under-emit.)
         assert_eq!(world.query::<Particle>().count(), 5);
         assert!(world.is_alive(emitter));
     }

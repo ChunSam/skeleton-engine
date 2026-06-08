@@ -1,6 +1,6 @@
 use crate::color::Color;
 
-/// 버튼의 상호작용 상태
+/// Interaction state of a button.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub enum ButtonState {
     #[default]
@@ -10,11 +10,11 @@ pub enum ButtonState {
     Disabled,
 }
 
-/// 클릭 가능한 버튼 컴포넌트.
+/// A clickable button component.
 ///
-/// `UiNode` 와 함께 엔티티에 붙여 사용한다.
-/// `UiSystem` 이 매 프레임 히트 테스트 후 `state` 를 갱신하고
-/// 배경 사각형 + 레이블 텍스트를 렌더링한다.
+/// Attach alongside `UiNode` on an entity.
+/// `UiSystem` updates `state` each frame after hit-testing and renders
+/// the background rectangle and label text.
 pub struct Button {
     pub label: String,
     pub state: ButtonState,
@@ -27,7 +27,7 @@ pub struct Button {
 }
 
 impl Button {
-    /// 기본 색상 preset 으로 버튼을 생성한다.
+    /// Creates a button with the default color preset.
     pub fn new(label: impl Into<String>) -> Self {
         Self {
             label: label.into(),
@@ -41,7 +41,7 @@ impl Button {
         }
     }
 
-    /// 현재 상태에 대응하는 배경 색상을 반환한다.
+    /// Returns the background color corresponding to the current state.
     pub fn current_color(&self) -> Color {
         match self.state {
             ButtonState::Normal => self.color_normal,

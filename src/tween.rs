@@ -1,25 +1,25 @@
 use crate::timer::Timer;
 
-/// 보간 곡선.
+/// Interpolation curve.
 #[derive(Clone, Debug, Default)]
 pub enum Easing {
-    /// 선형
+    /// Linear.
     #[default]
     Linear,
-    /// 처음이 느리고 끝이 빠름
+    /// Slow start, fast end.
     EaseIn,
-    /// 처음이 빠르고 끝이 느림
+    /// Fast start, slow end.
     EaseOut,
-    /// 양끝이 느리고 중간이 빠름
+    /// Slow at both ends, fast in the middle.
     EaseInOut,
-    /// 뒤로 당겼다가 앞으로 튕김 (시작 오버슈팅)
+    /// Pulls back then springs forward (overshoot at start).
     EaseInBack,
-    /// 앞으로 갔다가 조금 더 나가고 돌아옴 (끝 오버슈팅)
+    /// Goes forward, overshoots slightly, then settles back (overshoot at end).
     EaseOutBack,
 }
 
 impl Easing {
-    /// t(0.0 ~ 1.0)에 이징 곡선을 적용한 값을 반환한다.
+    /// Applies the easing curve to `t` (0.0–1.0) and returns the result.
     pub fn apply(&self, t: f32) -> f32 {
         match self {
             Easing::Linear => t,
@@ -45,15 +45,15 @@ impl Easing {
     }
 }
 
-/// f32 값을 시간에 따라 보간하는 트윈.
+/// Tween that interpolates an f32 value over time.
 ///
-/// # 사용 예
+/// # Example
 /// ```rust
 /// use engine::{Tween, Easing};
 ///
 /// let mut tween = Tween::new(0.0, 100.0, 1.0).with_easing(Easing::EaseOut);
 /// let v = tween.tick(0.5);
-/// assert!(v > 50.0); // EaseOut은 초반이 빠름
+/// assert!(v > 50.0); // EaseOut is fast at the start
 /// ```
 #[derive(Clone, Debug)]
 pub struct Tween {
@@ -64,7 +64,7 @@ pub struct Tween {
 }
 
 impl Tween {
-    /// start에서 end까지 duration초 동안 선형 보간하는 트윈.
+    /// Creates a tween that linearly interpolates from `start` to `end` over `duration` seconds.
     pub fn new(start: f32, end: f32, duration: f32) -> Self {
         Self {
             start,
@@ -74,35 +74,35 @@ impl Tween {
         }
     }
 
-    /// 이징 곡선을 설정한다 (빌더 패턴).
+    /// Sets the easing curve (builder pattern).
     pub fn with_easing(mut self, easing: Easing) -> Self {
         self.easing = easing;
         self
     }
 
-    /// dt만큼 진행하고 현재 보간값을 반환한다.
+    /// Advances by `dt` and returns the current interpolated value.
     pub fn tick(&mut self, dt: f32) -> f32 {
         self.timer.tick(dt);
         self.value()
     }
 
-    /// 현재 보간값 (tick 없이 조회만).
+    /// Returns the current interpolated value without advancing time.
     pub fn value(&self) -> f32 {
         let t = self.easing.apply(self.timer.fraction());
         self.start + (self.end - self.start) * t
     }
 
-    /// 트윈이 완료됐는지.
+    /// Returns true if the tween has finished.
     pub fn finished(&self) -> bool {
         self.timer.finished()
     }
 
-    /// 진행률 0.0 ~ 1.0.
+    /// Progress from 0.0 to 1.0.
     pub fn fraction(&self) -> f32 {
         self.timer.fraction()
     }
 
-    /// 트윈을 처음 상태로 되돌린다.
+    /// Resets the tween to its initial state.
     pub fn reset(&mut self) {
         self.timer.reset();
     }

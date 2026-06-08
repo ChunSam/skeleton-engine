@@ -1,6 +1,6 @@
-//! 타임라인/컷씬 시스템 — 키프레임 기반 엔티티 애니메이션.
+//! Timeline/cutscene system — keyframe-driven entity animation.
 //!
-//! # 사용 예
+//! # Example
 //! ```rust,ignore
 //! use engine::{Timeline, TimelineSystem, Easing};
 //! use glam::Vec2;
@@ -15,9 +15,9 @@
 
 use crate::tween::Easing;
 
-// ── Lerp 트레잇 ─────────────────────────────────────────────────────────────
+// ── Lerp trait ─────────────────────────────────────────────────────────────
 
-/// 두 값 사이를 선형 보간하는 트레잇.
+/// Trait for linearly interpolating between two values.
 pub trait Lerp: Clone {
     fn lerp(a: &Self, b: &Self, t: f32) -> Self;
 }
@@ -58,7 +58,7 @@ impl Lerp for crate::color::Color {
 
 // ── Keyframe<T> ──────────────────────────────────────────────────────────────
 
-/// 특정 시간에 특정 값을 갖도록 하는 키프레임.
+/// A keyframe that sets a specific value at a specific time.
 #[derive(Debug, Clone)]
 pub struct Keyframe<T: Clone> {
     pub time: f32,
@@ -68,7 +68,7 @@ pub struct Keyframe<T: Clone> {
 
 // ── Track<T> ─────────────────────────────────────────────────────────────────
 
-/// 같은 타입의 키프레임 시퀀스. 시간 순으로 정렬 유지.
+/// A sequence of keyframes of the same type, kept sorted by time.
 #[derive(Debug, Clone)]
 pub struct Track<T: Clone + Lerp> {
     keyframes: Vec<Keyframe<T>>,
@@ -87,7 +87,7 @@ impl<T: Clone + Lerp> Track<T> {
         track
     }
 
-    /// 키프레임을 추가한다. 삽입 후 시간 순으로 재정렬.
+    /// Adds a keyframe and re-sorts by time.
     pub fn add(&mut self, time: f32, value: T, easing: Easing) -> &mut Self {
         self.keyframes.push(Keyframe {
             time,
@@ -98,8 +98,8 @@ impl<T: Clone + Lerp> Track<T> {
         self
     }
 
-    /// 시간 `t`에서 보간된 값을 반환한다.
-    /// 키프레임이 없으면 `None`, 범위 밖이면 첫/마지막 값을 클램프.
+    /// Returns the interpolated value at time `t`.
+    /// Returns `None` if there are no keyframes; clamps to the first/last value outside range.
     pub fn sample(&self, t: f32) -> Option<T> {
         if t.is_nan() {
             return None;
@@ -120,8 +120,8 @@ impl<T: Clone + Lerp> Track<T> {
         }
 
         // Find the last keyframe with time <= t.
-        // 모든 키프레임 time 이 NaN 인 퇴화 트랙에서는 rposition 이 None 을 반환한다
-        // (NaN <= t == false). 이 경우 panic 대신 첫 값으로 폴백한다.
+        // In a degenerate track where all keyframe times are NaN, rposition returns None
+        // (NaN <= t == false). Fall back to the first value instead of panicking.
         let Some(idx) = self.keyframes.iter().rposition(|kf| kf.time <= t) else {
             return Some(self.keyframes[0].value.clone());
         };
@@ -139,7 +139,7 @@ impl<T: Clone + Lerp> Track<T> {
         Some(T::lerp(&a.value, &b.value, eased_t))
     }
 
-    /// 트랙의 전체 재생 시간 (마지막 키프레임의 time).
+    /// Total duration of the track (the time of the last keyframe).
     pub fn duration(&self) -> f32 {
         self.keyframes.last().map(|kf| kf.time).unwrap_or(0.0)
     }
@@ -155,7 +155,7 @@ impl<T: Clone + Lerp> Default for Track<T> {
     }
 }
 
-// ── CameraTarget 마커 ─────────────────────────────────────────────────────────
+// ── CameraTarget marker ─────────────────────────────────────────────────────────
 
 /// Marker that redirects a [`Timeline`] from the entity's own `Transform`/`Sprite`
 /// to the global [`Camera`](crate::camera::Camera) resource. With this component
@@ -177,13 +177,13 @@ impl<T: Clone + Lerp> Default for Track<T> {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CameraTarget;
 
-// ── Timeline 컴포넌트 ─────────────────────────────────────────────────────────
+// ── Timeline component ─────────────────────────────────────────────────────────
 
-/// 엔티티에 붙이는 타임라인 컴포넌트. `TimelineSystem`이 매 프레임 구동한다.
+/// Timeline component attached to an entity. `TimelineSystem` drives it every frame.
 ///
-/// # 예시
+/// # Example
 /// ```rust,ignore
-/// let mut tl = Timeline::new(2.0); // 2초 타임라인
+/// let mut tl = Timeline::new(2.0); // 2-second timeline
 /// tl.position.add(0.0, Vec2::new(0., 0.), Easing::Linear);
 /// tl.position.add(1.0, Vec2::new(200., 0.), Easing::EaseInOut);
 /// tl.position.add(2.0, Vec2::new(200., 200.), Easing::EaseOut);
@@ -192,16 +192,16 @@ pub struct CameraTarget;
 /// ```
 #[derive(Debug, Clone)]
 pub struct Timeline {
-    /// 타임라인 전체 재생 시간 (초)
+    /// Total playback duration in seconds.
     pub duration: f32,
-    /// 현재 재생 위치 (초)
+    /// Current playback position in seconds.
     pub time: f32,
-    /// 반복 재생 여부
+    /// Whether the timeline loops.
     pub looping: bool,
-    /// 재생 중 여부 (false이면 시스템이 시간을 진행하지 않음)
+    /// Whether the timeline is playing (the system does not advance time when false).
     pub playing: bool,
 
-    // ── 트랙 ──────────────────────────────────────────────────────────────────
+    // ── Tracks ──────────────────────────────────────────────────────────────────
     pub position: Track<glam::Vec2>,
     pub rotation: Track<f32>,
     pub scale: Track<glam::Vec2>,
@@ -229,7 +229,7 @@ impl Timeline {
         }
     }
 
-    /// 반복 재생을 활성화한 채로 반환 (빌더 패턴).
+    /// Enables looping and returns self (builder pattern).
     pub fn looping(mut self) -> Self {
         self.looping = true;
         self
@@ -246,7 +246,7 @@ impl Timeline {
         self.playing = true;
     }
 
-    /// 비반복 타임라인이 끝까지 재생되었는지.
+    /// Returns `true` if a non-looping timeline has played to the end.
     pub fn is_finished(&self) -> bool {
         !self.looping && self.time >= self.duration
     }
@@ -352,7 +352,7 @@ impl crate::ecs::System for TimelineSystem {
     }
 }
 
-// ── 단위 테스트 ───────────────────────────────────────────────────────────────
+// ── Unit tests ───────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -395,8 +395,8 @@ mod tests {
 
     #[test]
     fn all_nan_keyframe_times_do_not_panic() {
-        // 모든 키프레임 time 이 NaN 인 퇴화 트랙: rposition 이 None 을 반환해
-        // 이전엔 .unwrap() 이 panic 했다. 지금은 첫 값으로 폴백한다.
+        // Degenerate track where all keyframe times are NaN: rposition returns None,
+        // which previously caused a .unwrap() panic. Now falls back to the first value.
         let mut track: Track<f32> = Track::new();
         track.add(f32::NAN, 1.0, Easing::Linear);
         track.add(f32::NAN, 2.0, Easing::Linear);
@@ -461,7 +461,7 @@ mod tests {
         track.add(f32::NAN, 99.0, Easing::Linear);
         track.add(0.0, 0.0, Easing::Linear);
         track.add(1.0, 1.0, Easing::Linear);
-        // NaN keyframe 존재해도 정상 시간 샘플링은 panic 없이 값 반환
+        // Normal time sampling should return a value without panicking even with a NaN keyframe
         let v = track.sample(0.5);
         assert!(
             v.is_some(),
@@ -507,7 +507,7 @@ mod tests {
         assert!(tl.playing);
     }
 
-    // ── CameraTarget 카메라 구동 ──────────────────────────────────────────────
+    // ── CameraTarget camera driving ──────────────────────────────────────────────
 
     fn pan_timeline() -> Timeline {
         let mut tl = Timeline::new(2.0);

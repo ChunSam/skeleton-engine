@@ -5,16 +5,16 @@ use crate::asset::{Handle, ImageAsset};
 use crate::color::Color;
 use crate::reflect::{Reflect, ReflectValue};
 
-// ─── 렌더 컴포넌트 ────────────────────────────────────────────────────────────
+// ─── Render components ────────────────────────────────────────────────────────────
 
-/// 위치·크기·회전을 담는 컴포넌트
+/// Component holding position, scale, and rotation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Transform {
     pub position: Vec2,
     pub scale: Vec2,
-    /// 회전 각도 (라디안, Z축)
+    /// Rotation angle in radians, around the Z axis
     pub rotation: f32,
-    // z 가 클수록 화면에 위로 그려짐 (그림은 작은 z 부터 큰 z 순서로).
+    // Higher z is drawn on top (sprites are rendered in ascending z order).
     pub z: f32,
 }
 
@@ -28,7 +28,7 @@ impl Transform {
         }
     }
 
-    /// ECS → GPU에 넘길 4×4 모델 행렬 생성
+    /// Builds the 4×4 model matrix to send from ECS to the GPU
     pub fn to_matrix(&self) -> Mat4 {
         Mat4::from_scale_rotation_translation(
             Vec3::new(self.scale.x, self.scale.y, 1.0),
@@ -49,15 +49,15 @@ impl Default for Transform {
     }
 }
 
-/// 스프라이트 외형을 담는 컴포넌트
+/// Component holding sprite appearance
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sprite {
-    /// 텍스처 파일 경로 (None이면 단색 사각형). RON 직렬화 지원.
+    /// Texture file path (None renders a solid-color rectangle). RON serialization supported.
     pub texture: Option<String>,
-    /// RGBA 색상 배율 (흰색 = 텍스처 원본)
+    /// RGBA color multiplier (white = original texture color)
     pub color: Color,
-    /// AssetServer를 통해 로드한 이미지 핸들. 직렬화 제외 — 런타임 전용.
-    /// `texture`보다 우선 적용된다.
+    /// Image handle loaded through AssetServer. Not serialized — runtime only.
+    /// Takes priority over `texture`.
     #[serde(skip)]
     pub image_handle: Option<Handle<ImageAsset>>,
 }
@@ -79,7 +79,7 @@ impl Sprite {
         }
     }
 
-    /// AssetServer 핸들로 텍스처를 지정한다. `texture` 경로보다 우선 적용된다.
+    /// Specifies a texture via an AssetServer handle. Takes priority over the `texture` path.
     pub fn with_handle(handle: Handle<ImageAsset>) -> Self {
         Self {
             texture: None,
@@ -88,7 +88,7 @@ impl Sprite {
         }
     }
 
-    /// 경로 fallback을 보존하면서, 있으면 이미지 핸들을 우선 사용한다.
+    /// Preserves the path fallback while preferring the image handle when present.
     pub fn textured_with_handle(
         path: impl Into<String>,
         handle: Option<Handle<ImageAsset>>,
@@ -129,7 +129,7 @@ mod sprite_tests {
     }
 }
 
-// ─── Reflect 구현 ─────────────────────────────────────────────────────────────
+// ─── Reflect impls ─────────────────────────────────────────────────────────────
 
 impl Reflect for Transform {
     fn fields(&self) -> Vec<(&'static str, ReflectValue)> {
@@ -206,20 +206,20 @@ impl Reflect for Sprite {
 
 // ─── RenderLayer ──────────────────────────────────────────────────────────────
 
-/// 스프라이트 렌더링 레이어 (선택 컴포넌트, 기본값 0).
+/// Sprite rendering layer (optional component, default 0).
 ///
-/// 낮은 값이 먼저(뒤에) 그려진다. 같은 layer 안에서는
-/// 텍스처 키 기준으로 배칭한 뒤 z 오름차순으로 렌더링한다.
+/// Lower values are drawn first (further back). Within the same layer,
+/// sprites are batched by texture key and then rendered in ascending z order.
 ///
-/// # 예
+/// # Example
 /// ```rust,no_run
 /// # use engine::{RenderLayer, ecs::World};
 /// # let mut world = World::new();
 /// # let bg = world.spawn();
 /// # let effect = world.spawn();
-/// // 배경 레이어 (-1): 게임플레이보다 항상 뒤에 그려짐
-/// // 기본 레이어  ( 0): 대부분의 게임오브젝트
-/// // 전경 레이어  ( 1): HUD, 이펙트 등 항상 앞에 그려져야 하는 것들
+/// // Background layer (-1): always drawn behind gameplay
+/// // Default layer   ( 0): most game objects
+/// // Foreground layer ( 1): HUD, effects, etc. that must always appear in front
 /// world.add_component(bg, RenderLayer(-1));
 /// world.add_component(effect, RenderLayer(1));
 /// ```
@@ -228,10 +228,10 @@ pub struct RenderLayer(pub i32);
 
 // ─── PointLight ───────────────────────────────────────────────────────────────
 
-/// 월드 공간 포인트 라이트 컴포넌트.
+/// World-space point light component.
 ///
-/// `AmbientLight` 리소스와 함께 사용한다. `Transform`과 함께 엔티티에 추가하면
-/// `LightingRenderer`가 자동으로 라이팅 패스에 포함한다.
+/// Used together with the `AmbientLight` resource. Adding it to an entity alongside
+/// `Transform` causes `LightingRenderer` to include it in the lighting pass automatically.
 ///
 /// ```rust,no_run
 /// # use engine::{App, PointLight, AmbientLight, components::Transform};
@@ -249,13 +249,13 @@ pub struct RenderLayer(pub i32);
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub struct PointLight {
-    /// RGB 색상 (0.0~1.0)
+    /// RGB color (0.0–1.0)
     pub color: Color,
-    /// 월드 좌표 픽셀 반경
+    /// Radius in world-space pixels
     pub radius: f32,
-    /// 밝기 배율
+    /// Brightness multiplier
     pub intensity: f32,
-    /// 광원의 가상 Z 높이 (flat-normal lighting 방향성 계산에 사용). 0.05~1.0 범위 권장.
+    /// Virtual Z height of the light source (used for flat-normal lighting direction). Recommended range: 0.05–1.0.
     pub light_height: f32,
 }
 
@@ -272,45 +272,46 @@ impl Default for PointLight {
 
 // ─── OffscreenCamera ──────────────────────────────────────────────────────────
 
-/// 엔티티에 이 컴포넌트를 붙이면 매 프레임 지정된 `RenderTarget`에
-/// `camera` 시점으로 오프스크린 렌더링을 수행한다.
+/// Attaching this component to an entity causes offscreen rendering every frame
+/// to the specified `RenderTarget` from the perspective of `camera`.
 ///
 /// # Layer Mask
 ///
-/// `layer_mask`는 렌더할 `RenderLayer` 값들의 비트마스크다.
-/// 0(기본값)이면 레이어 필터링 없이 전체를 렌더한다.
+/// `layer_mask` is a bitmask of `RenderLayer` values to render.
+/// When 0 (the default), all layers are rendered without filtering.
 ///
 /// ```rust,no_run
 /// # use engine::{OffscreenCamera, RenderLayer};
-/// // 레이어 0(게임 월드)만 렌더 — 레이어 1(HUD/미니맵 UI)은 제외
+/// // Render only layer 0 (game world) — excludes layer 1 (HUD/minimap UI)
 /// let cam = OffscreenCamera {
 ///     target: "minimap".to_string(),
 ///     camera: Default::default(),
-///     layer_mask: 1 << 0,  // 비트 0 = RenderLayer(0)
+///     layer_mask: 1 << 0,  // bit 0 = RenderLayer(0)
 /// };
 /// ```
 #[derive(Clone, Default)]
 pub struct OffscreenCamera {
-    /// `App::create_render_target`에 등록한 이름 (RenderTarget 키)
+    /// Name registered with `App::create_render_target` (the RenderTarget key)
     pub target: String,
-    /// 이 시점 전용 카메라 (메인 카메라와 독립적으로 동작)
+    /// Dedicated camera for this view (operates independently of the main camera)
     pub camera: crate::camera::Camera,
-    /// 렌더할 RenderLayer 비트마스크. 0 = 전체 레이어 허용 (기본값, 하위 호환).
-    /// `RenderLayer(n)` (n ∈ 0..=31) 은 비트 n 에 대응한다. 0..=31 범위를 벗어난
-    /// 레이어(음수나 31 초과)는 32-bit 마스크로 지정할 수 없으므로, 0 이 아닌
-    /// 마스크에서는 항상 제외된다 (마스크 0 에서는 정상 렌더). 예: `RenderLayer(-1)`
-    /// 배경은 `layer_mask: 1 << 0` (레이어 0 전용) 패스에서 제외된다.
+    /// Bitmask of RenderLayer values to render. 0 = allow all layers (default, backward-compatible).
+    /// `RenderLayer(n)` (n ∈ 0..=31) maps to bit n. Layers outside 0..=31
+    /// (negative or above 31) cannot be expressed in a 32-bit mask, so they are
+    /// always excluded from non-zero masks (they render normally when mask is 0).
+    /// Example: a `RenderLayer(-1)` background is excluded from a `layer_mask: 1 << 0`
+    /// (layer-0-only) pass.
     pub layer_mask: u32,
 }
 
-// ─── 하위 호환 재수출 ─────────────────────────────────────────────────────────
-// resources.rs로 이동한 타입들을 engine::components::* 경로로도 접근할 수 있도록 유지.
+// ─── Backward-compatible re-exports ─────────────────────────────────────────────────────────
+// Keep types moved to resources.rs accessible via the engine::components::* path.
 pub use crate::animation::player::{AnimationClip, AnimationPlayer, UvRect};
 pub use crate::resources::{
     FontData, GameState, PendingResize, ShouldQuit, ViewportSize, WindowConfig,
 };
 
-// ─── 단위 테스트 ───────────────────────────────────────────────────────────────
+// ─── Unit tests ───────────────────────────────────────────────────────────────
 #[cfg(test)]
 mod tests {
     use super::*;

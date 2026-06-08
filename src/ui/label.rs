@@ -1,10 +1,10 @@
 use crate::color::Color;
 use crate::renderer::TextAlign;
 
-/// 텍스트 레이블 컴포넌트.
+/// Text label component.
 ///
-/// `UiNode` 와 함께 사용한다. `UiSystem` 이 매 프레임
-/// `TextQueue` 에 `DrawText` 를 제출해 렌더링한다.
+/// Use alongside `UiNode`. `UiSystem` submits a `DrawText` to `TextQueue` every frame
+/// to render it.
 pub struct Label {
     pub text: String,
     /// RGBA (0~255)

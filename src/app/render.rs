@@ -7,7 +7,7 @@ impl App {
         use crate::resources::DebugShape;
         const Z: f32 = 999.0;
 
-        // 선분 근사 헬퍼: 두 점 사이를 thickness×thickness 점들로 채운다.
+        // Line-segment approximation helper: fills the segment between two points with thickness×thickness dots.
         let mut push_line =
             |start: glam::Vec2, end: glam::Vec2, color: crate::color::Color, thickness: f32| {
                 let delta = end - start;
@@ -32,13 +32,13 @@ impl App {
                 let t = 1.5_f32;
                 let w = max.x - min.x;
                 let h = max.y - min.y;
-                // 위
+                // top
                 q.push(DrawRect::new(min.x, min.y, w, t, color).with_z(Z));
-                // 아래
+                // bottom
                 q.push(DrawRect::new(min.x, max.y - t, w, t, color).with_z(Z));
-                // 왼쪽
+                // left
                 q.push(DrawRect::new(min.x, min.y, t, h, color).with_z(Z));
-                // 오른쪽
+                // right
                 q.push(DrawRect::new(max.x - t, min.y, t, h, color).with_z(Z));
             }
             DebugShape::Line {
@@ -128,12 +128,12 @@ impl App {
             None => return Ok(()),
         };
 
-        // PostProcessConfig 리소스 확인 (enabled=true일 때만 중간 텍스처 사용)
+        // Check PostProcessConfig resource (intermediate texture is used only when enabled=true)
         let pp_config: Option<PostProcessConfig> =
             self.world.resource::<PostProcessConfig>().copied();
         let use_post = pp_config.map(|c| c.enabled).unwrap_or(false);
 
-        // 포스트프로세스 렌더러 초기화 / 리사이즈
+        // Initialize / resize the post-process renderer
         if use_post {
             let (w, h, fmt) = (gpu.config.width, gpu.config.height, gpu.config.format);
             match &mut self.post_renderer {
@@ -150,7 +150,7 @@ impl App {
             }
         }
 
-        // 라이팅 렌더러 초기화 / 리사이즈 / 비활성화
+        // Initialize / resize / disable the lighting renderer
         #[cfg(not(target_arch = "wasm32"))]
         let use_lighting = {
             let has_lighting = self
@@ -177,7 +177,7 @@ impl App {
                     }
                     _ => {}
                 }
-                // 씬 중간 텍스처 생성 / 리사이즈 (post_renderer가 없을 때만 필요)
+                // Create / resize the scene intermediate texture (only needed when post_renderer is absent)
                 if !use_post {
                     Self::ensure_intermediate_texture(
                         &mut self.scene_texture_for_lighting,
@@ -219,12 +219,12 @@ impl App {
                 label: Some("frame encoder"),
             });
 
-        // ── 오프스크린 패스: OffscreenCamera 엔티티마다 RT에 렌더 ─────────────
+        // ── Offscreen pass: render each OffscreenCamera entity into its RT ─────────────
         {
-            // 1단계: (target_name, camera, rt_width, rt_height, view_ptr, bind_group_clone) 수집
-            // render_targets와 sprite_renderer를 동시에 borrow할 수 없으므로
-            // raw pointer로 view 참조를 보관한다.
-            // Safety: render_targets HashMap은 이 루프 안에서 수정되지 않는다.
+            // Step 1: collect (target_name, camera, rt_width, rt_height, view_ptr, bind_group_clone)
+            // render_targets and sprite_renderer cannot be borrowed simultaneously,
+            // so we store the view reference as a raw pointer.
+            // Safety: the render_targets HashMap is not modified inside this loop.
             let offscreen_cams: Vec<(String, crate::camera::Camera, u32)> = self
                 .world
                 .query::<crate::components::OffscreenCamera>()
@@ -249,26 +249,27 @@ impl App {
                 .collect();
 
             for (target_name, cam, rt_w, rt_h, view_ptr, bg, layer_mask) in rt_info {
-                // ① 카메라 교체 — 기존 카메라가 없으면 렌더 후 제거, 있으면 원복
+                // ① Swap camera — if no prior camera existed remove it after render, otherwise restore
                 let saved_cam = self.world.resource::<crate::camera::Camera>().copied();
                 self.world.insert_resource(cam);
 
-                // ② Safety: render_targets는 이 루프에서 수정되지 않는다.
+                // ② Safety: render_targets is not modified during this loop.
                 let rt_view = unsafe { &*view_ptr };
 
-                // 각 오프스크린 타겟은 **자체 command submission**으로 렌더한다.
-                // SpriteRenderer 의 카메라 유니폼은 `queue.write_buffer` 로 갱신되는 단일 공유
-                // 버퍼(`camera_buf`)다. 한 번의 submit 안에서는 같은 버퍼에 대한 write 중
-                // **마지막 것만** 적용되므로, 오프스크린 드로우와 메인 패스를 같은 submit 에
-                // 기록하면 오프스크린 타겟이 (나중에 쓰이는) **메인 카메라**로 렌더되어 버린다.
-                // 여기서 바로 submit 해 이 타겟의 카메라 write 와 그 드로우를 한 쌍으로 묶는다.
+                // Each offscreen target is rendered with its **own command submission**.
+                // The SpriteRenderer's camera uniform is a single shared buffer (`camera_buf`)
+                // updated via `queue.write_buffer`. Within a single submit only the **last**
+                // write to that buffer takes effect, so recording the offscreen draw and the main
+                // pass in the same submit would cause the offscreen target to render with the
+                // (later-written) **main camera**.
+                // Submitting here ties this target's camera write and its draw together as a pair.
                 let mut oenc = gpu
                     .device
                     .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                         label: Some("offscreen encoder"),
                     });
 
-                // ③ RT clear
+                // ③ Clear the RT
                 {
                     let _pass = oenc.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("offscreen clear"),
@@ -291,7 +292,7 @@ impl App {
                     });
                 }
 
-                // ④ 스프라이트 렌더 → RT (layer_mask로 자기캡처 방지)
+                // ④ Render sprites → RT (layer_mask prevents self-capture)
                 if let Some(sr) = &mut self.sprite_renderer {
                     sr.render(
                         &mut FrameContext {
@@ -307,11 +308,11 @@ impl App {
                     );
                 }
 
-                // 이 타겟의 카메라 write + 드로우를 즉시 flush. (메인 패스의 카메라 write 보다
-                // 먼저 적용되며, RT 텍스처는 메인 패스가 샘플하기 전에 채워진다.)
+                // Immediately flush this target's camera write + draw. (Applied before the main
+                // pass's camera write; the RT texture is filled before the main pass samples it.)
                 gpu.queue.submit(std::iter::once(oenc.finish()));
 
-                // ⑤ 카메라 복원 — 원래 없던 경우 제거해 World 오염 방지
+                // ⑤ Restore camera — remove it if it was absent before to avoid polluting the World
                 match saved_cam {
                     Some(c) => self.world.insert_resource(c),
                     None => {
@@ -319,17 +320,17 @@ impl App {
                     }
                 }
 
-                // ⑥ RT bind_group을 스프라이트 렌더러에 등록 (Sprite.texture 키로 샘플 가능)
+                // ⑥ Register the RT bind_group with the sprite renderer (sampleable via Sprite.texture key)
                 if let Some(sr) = &mut self.sprite_renderer {
                     sr.register_render_target(&target_name, bg);
                 }
             }
         }
 
-        // 렌더 타겟 선택:
-        //   라이팅 있고 포스트 없음 → 중간 씬 텍스처
-        //   포스트 있음 (라이팅 여부 무관) → post_renderer.target_view
-        //   둘 다 없음 → 스왑체인 직접
+        // Select render target:
+        //   lighting without post → intermediate scene texture
+        //   post enabled (regardless of lighting) → post_renderer.target_view
+        //   neither → swapchain directly
         let render_view: &wgpu::TextureView = if use_lighting && !use_post {
             #[cfg(not(target_arch = "wasm32"))]
             {
@@ -359,7 +360,7 @@ impl App {
             &final_view
         };
 
-        // 1단계: 배경 Clear
+        // Step 1: Clear background
         let [cr, cg, cb, ca] = self
             .world
             .resource::<WindowConfig>()
@@ -395,7 +396,7 @@ impl App {
         let logical_w = viewport.width.round().max(1.0) as u32;
         let logical_h = viewport.height.round().max(1.0) as u32;
 
-        // 2단계: 스프라이트 그리기 (메인 패스 — 레이어 필터 없음)
+        // Step 2: Draw sprites (main pass — no layer filter)
         if let Some(sr) = &mut self.sprite_renderer {
             let render_stats = sr.render(
                 &mut FrameContext {
@@ -407,14 +408,14 @@ impl App {
                 &self.world,
                 logical_w,
                 logical_h,
-                0, // layer_mask = 0: 전체 레이어 렌더
+                0, // layer_mask = 0: render all layers
             );
             if let Some(prof) = self.world.resource_mut::<crate::resources::ProfilerData>() {
                 prof.render = render_stats;
             }
         }
 
-        // 2.5단계: UI 사각형 그리기 (DebugDrawQueue → UiQueue 변환)
+        // Step 2.5: Draw UI rectangles (convert DebugDrawQueue → UiQueue)
         let debug_rects: Vec<DrawRect> = self
             .world
             .resource_mut::<DebugDrawQueue>()
@@ -438,7 +439,7 @@ impl App {
             q.items.extend(debug_rects);
         }
 
-        // 2.6단계: DebugDraw 도형 → UiQueue 변환 (Rect/Line/Circle/Cross)
+        // Step 2.6: Convert DebugDraw shapes → UiQueue (Rect/Line/Circle/Cross)
         let debug_shapes: Vec<crate::resources::DebugShape> = self
             .world
             .resource_mut::<DebugDraw>()
@@ -479,7 +480,7 @@ impl App {
             }
         }
 
-        // 2.8단계: GPU 파티클 렌더링 (네이티브 전용)
+        // Step 2.8: GPU particle rendering (native only)
         #[cfg(not(target_arch = "wasm32"))]
         {
             let has_emitters = self
@@ -516,7 +517,7 @@ impl App {
             }
         }
 
-        // 4단계: 포스트프로세스 패스 (중간 텍스처 → 스왑체인 또는 라이팅 중간 텍스처)
+        // Step 4: Post-process pass (intermediate texture → swapchain or lighting intermediate texture)
         if use_post {
             #[cfg(not(target_arch = "wasm32"))]
             let post_output: &wgpu::TextureView = if use_lighting {
@@ -536,7 +537,7 @@ impl App {
             }
         }
 
-        // 4.5단계: 라이팅 패스
+        // Step 4.5: Lighting pass
         #[cfg(not(target_arch = "wasm32"))]
         if use_lighting {
             if let Some(lr) = &self.lighting_renderer {
@@ -545,10 +546,10 @@ impl App {
                 // HiDPI display (scale > 1) lights drift from their sprites and shrink.
                 lr.update(&gpu.queue, &self.world, logical_w, logical_h);
 
-                // 노멀 버퍼를 평면 노멀(0.5, 0.5, 1.0)으로 초기화한다.
+                // Initialize the normal buffer to a flat normal (0.5, 0.5, 1.0).
                 lr.clear_normal_buffer(&mut enc);
 
-                // scene input: post가 있으면 post output, 없으면 씬 중간 텍스처
+                // scene input: post output if post is enabled, otherwise the scene intermediate texture
                 let scene_input: Option<&wgpu::TextureView> = if use_post {
                     self.post_texture_for_lighting
                         .as_ref()
@@ -566,9 +567,9 @@ impl App {
             }
         }
 
-        // 4.7단계: HUD/텍스트 패스 — post·lighting 이후 final_view 에 그린다. 화면공간
-        // HUD/텍스트가 월드 라이팅·포스트프로세스에 어두워지지 않게 하기 위함이다
-        // (페이드 오버레이보다는 아래, egui 보다도 아래).
+        // Step 4.7: HUD/text pass — drawn onto final_view after post and lighting. This keeps
+        // screen-space HUD/text from being darkened by world lighting/post-process
+        // (below the fade overlay and below egui).
         {
             let (w, h) = (gpu.config.width, gpu.config.height);
             if let Some(tr) = &mut self.text_renderer {
@@ -584,10 +585,10 @@ impl App {
             }
         }
 
-        // 5단계 (pre): 페이드 오버레이 패스 (다른 모든 패스 이후 최상위)
+        // Step 5 (pre): Fade overlay pass (topmost, after all other passes)
         #[cfg(not(target_arch = "wasm32"))]
         {
-            // 필요 시 lazy init
+            // Lazy init if needed
             if self.fade_renderer.is_none() {
                 self.fade_renderer = Some(crate::renderer::fade::FadeRenderer::new(
                     &gpu.device,
@@ -605,10 +606,10 @@ impl App {
             }
         }
 
-        // 씬+포스트프로세스+라이팅+페이드 완료 후 제출
+        // Submit after scene + post-process + lighting + fade are complete
         gpu.queue.submit(std::iter::once(enc.finish()));
 
-        // 5단계: egui 오버레이 패스
+        // Step 5: egui overlay pass
         if let (Some(mut er), Some((paint_jobs, textures_delta, ppp))) =
             (self.egui_renderer.take(), self.egui_output.take())
         {
@@ -636,8 +637,8 @@ impl App {
                     "egui paint callbacks are unsupported and were skipped to preserve render-pass lifetime safety"
                 );
             } else {
-                // Renderer::render<'rp>(&'rp self, &mut RenderPass<'rp>) 의 lifetime 제약 때문에
-                // 독립 함수에서 &er 와 &mut egui_enc 를 동일 lifetime 'a 로 묶는다.
+                // Due to the Renderer::render<'rp>(&'rp self, &mut RenderPass<'rp>) lifetime constraint,
+                // we tie &er and &mut egui_enc to the same lifetime 'a in a standalone function.
                 egui_render_pass(&er, &mut egui_enc, &paint_jobs, &screen_desc, &final_view);
             }
             gpu.queue.submit(std::iter::once(egui_enc.finish()));
@@ -647,7 +648,7 @@ impl App {
             self.egui_renderer = Some(er);
         }
 
-        // winit 권장: present 직전 컴포지터에 통지해 표시 지연을 줄인다.
+        // winit recommendation: notify the compositor just before present to reduce display latency.
         if let Some(window) = &self.window {
             window.pre_present_notify();
         }
@@ -661,8 +662,8 @@ impl App {
             .last_frame
             .map(|t| (now - t).as_secs_f32().min(0.1))
             .unwrap_or(1.0 / 60.0);
-        // 계측: 프레임 간격이 ~30fps(33ms)보다 벌어지면 기록한다. 라이브 드래그
-        // 중 멈춤을 정량화하기 위한 디버그 로그 (RUST_LOG=debug 로 게이트됨).
+        // Telemetry: log when the frame gap exceeds ~30fps (33ms). Debug log to quantify
+        // stalls during live drag (gated by RUST_LOG=debug).
         if dt > 0.033 {
             log::debug!("frame gap {:.1}ms (drag/stall?)", dt * 1000.0);
         }
@@ -671,7 +672,7 @@ impl App {
 
         self.update(dt);
 
-        // 시스템이 ShouldQuit(true) 를 설정했으면 종료
+        // Exit if a system set ShouldQuit(true)
         if self
             .world
             .resource::<ShouldQuit>()
@@ -682,7 +683,7 @@ impl App {
             return;
         }
 
-        // PendingResize: 게임이 요청한 해상도로 창 크기 변경
+        // PendingResize: resize the window to the resolution requested by the game
         let pending = self.world.resource::<PendingResize>().and_then(|r| r.0);
         if let Some((w, h)) = pending {
             if let Some(window) = &self.window {
@@ -700,7 +701,7 @@ impl App {
                     gpu.reconfigure();
                 }
             }
-            Err(e) => log::error!("렌더링 오류: {e:?}"),
+            Err(e) => log::error!("render error: {e:?}"),
         }
     }
 }

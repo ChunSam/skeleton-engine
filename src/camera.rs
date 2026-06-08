@@ -1,44 +1,44 @@
 use glam::{Mat4, Vec2};
 
-/// 2D 카메라 리소스.
+/// 2D camera resource.
 ///
-/// # 좌표 규약 (top-left anchored)
+/// # Coordinate convention (top-left anchored)
 ///
-/// `position` 은 뷰포트의 **좌상단** 월드 좌표(픽셀 단위)를 가리킨다.
-/// 보이는 영역:
+/// `position` points to the **top-left** world coordinate of the viewport (in pixels).
+/// Visible region:
 ///   - X: `[position.x, position.x + width / zoom]`
-///   - Y: `[position.y, position.y + height / zoom]`  (Y 아래가 +)
+///   - Y: `[position.y, position.y + height / zoom]`  (Y increases downward)
 ///
-/// 플레이어를 화면 중앙에 놓으려면:
+/// To center the player on screen:
 ///   `camera.position = player_pos - Vec2::new(viewport_w, viewport_h) / (2.0 * zoom)`
 ///
-/// 기본값 `position = Vec2::ZERO, zoom = 1.0` 일 때
-/// `view_proj(w, h)` 는 기존 `Mat4::orthographic_rh(0, w, h, 0, -1, 1)` 과 동일하다.
+/// With default `position = Vec2::ZERO, zoom = 1.0`,
+/// `view_proj(w, h)` is equivalent to `Mat4::orthographic_rh(0, w, h, 0, -1, 1)`.
 #[derive(Debug, Clone, Copy)]
 pub struct Camera {
-    /// 뷰포트 좌상단 월드 좌표 (픽셀 단위)
+    /// Top-left world coordinate of the viewport (in pixels)
     pub position: Vec2,
-    /// 줌 배율. 1.0 = 정상, 2.0 = 2배 확대 (보이는 영역 절반)
+    /// Zoom multiplier. 1.0 = normal, 2.0 = 2× in (visible area halved)
     pub zoom: f32,
 
     // --- Shake ---
-    /// 현재 shake 진폭 (픽셀 단위)
+    /// Current shake amplitude (pixels)
     shake_strength: f32,
-    /// 남은 shake 지속 시간 (초)
+    /// Remaining shake duration (seconds)
     shake_duration: f32,
-    /// shake 샘플링용 경과 시간
+    /// Elapsed time for shake sampling
     shake_timer: f32,
 
     // --- Smooth Follow ---
-    /// 따라갈 엔티티 (`Entity` 타입은 Copy이므로 `Option<Entity>` 도 Copy)
+    /// Entity to follow (`Entity` is Copy, so `Option<Entity>` is also Copy)
     pub follow_entity: Option<crate::ecs::Entity>,
-    /// 초당 lerp 강도. 0.0 = 추적 없음, 1.0 = 즉시 스냅. 기본값 5.0
+    /// Lerp strength per second. 0.0 = no tracking, 1.0 = instant snap. Default 5.0
     pub lerp_factor: f32,
 
     // --- Zoom Tween ---
-    /// 목표 줌 값
+    /// Target zoom value
     zoom_target: f32,
-    /// 초당 zoom 변화량. 0 = 트윈 비활성
+    /// Zoom change per second. 0 = tween inactive
     zoom_tween_speed: f32,
 }
 
@@ -67,12 +67,12 @@ impl Camera {
         }
     }
 
-    /// 화면(픽셀) 좌표를 월드 좌표로 변환한다.
+    /// Converts screen (pixel) coordinates to world coordinates.
     ///
-    /// `screen_pos`: `InputState::cursor()` 가 반환하는 좌상단 기준 픽셀 좌표.
-    /// `viewport_w/h`: `ViewportSize` 리소스의 width/height.
+    /// `screen_pos`: pixel coordinate relative to the top-left corner, as returned by `InputState::cursor()`.
+    /// `viewport_w/h`: width/height from the `ViewportSize` resource.
     ///
-    /// 역연산: world = position + screen / zoom
+    /// Inverse: world = position + screen / zoom
     pub fn screen_to_world(&self, screen_pos: Vec2) -> Vec2 {
         let zoom = self.safe_zoom();
         Vec2::new(
@@ -81,21 +81,22 @@ impl Camera {
         )
     }
 
-    /// 월드 좌표를 화면(픽셀) 좌표로 변환한다 — [`screen_to_world`](Self::screen_to_world)
-    /// 의 역연산.
+    /// Converts world coordinates to screen (pixel) coordinates — the inverse of
+    /// [`screen_to_world`](Self::screen_to_world).
     ///
-    /// 월드 공간 엔티티 위치에 화면 텍스트/UI 를 배치할 때 쓴다. 반환값은 좌상단
-    /// 기준 픽셀 좌표라 `DrawText`/`TextQueue` 에 그대로 넘길 수 있다 (이들은
-    /// 카메라의 영향을 받지 않는 스크린 공간이다).
+    /// Useful for placing screen-space text/UI at a world-space entity position.
+    /// The return value is a top-left-relative pixel coordinate that can be passed
+    /// directly to `DrawText`/`TextQueue` (which operate in screen space, unaffected
+    /// by the camera).
     ///
-    /// 연산: screen = (world - position) * zoom
+    /// Formula: screen = (world - position) * zoom
     pub fn world_to_screen(&self, world_pos: Vec2) -> Vec2 {
         (world_pos - self.position) * self.zoom
     }
 
-    /// 0 나눗셈/NaN을 막기 위한 안전 줌 배율. `zoom` 이 0(또는 비정상적으로 작은 값)
-    /// 으로 설정돼도 `screen_to_world`/`visible_rect`/`view_proj` 가 NaN 좌표를
-    /// 내보내지 않도록 한다.
+    /// Safe zoom multiplier to prevent division-by-zero/NaN. Even if `zoom` is set to
+    /// 0 (or an abnormally small value), `screen_to_world`/`visible_rect`/`view_proj`
+    /// will not emit NaN coordinates.
     #[inline]
     fn safe_zoom(&self) -> f32 {
         if self.zoom.abs() < f32::EPSILON {
@@ -105,9 +106,9 @@ impl Camera {
         }
     }
 
-    /// 현재 카메라의 월드 공간 가시 AABB를 `(min, max)` 로 반환한다.
+    /// Returns the world-space visible AABB of the current camera as `(min, max)`.
     ///
-    /// 이 직사각형 밖에 있는 스프라이트는 렌더링해도 화면에 보이지 않으므로 컬링 가능.
+    /// Sprites outside this rectangle are not visible on screen and can be culled.
     pub fn visible_rect(&self, viewport_w: f32, viewport_h: f32) -> (Vec2, Vec2) {
         let zoom = self.safe_zoom();
         let min = self.position;
@@ -115,9 +116,9 @@ impl Camera {
         (min, max)
     }
 
-    /// 뷰포트 크기 `(width, height)` 를 받아 MVP 용 직교 투영 행렬을 반환한다.
+    /// Returns an orthographic projection matrix for MVP, given viewport `(width, height)`.
     ///
-    /// shake_offset 이 활성화된 경우 position에 더해 화면을 흔든다.
+    /// When shake_offset is active it is added to position to shake the screen.
     ///
     /// left = position.x,  right = position.x + width/zoom
     /// top  = position.y,  bottom = position.y + height/zoom
@@ -133,41 +134,41 @@ impl Camera {
 
     // ── Camera Effects ────────────────────────────────────────────────────────
 
-    /// 카메라 흔들기.
+    /// Shake the camera.
     ///
-    /// - `strength`: 최대 진폭 (픽셀 단위)
-    /// - `duration`: 지속 시간 (초)
+    /// - `strength`: maximum amplitude (pixels)
+    /// - `duration`: duration (seconds)
     pub fn shake(&mut self, strength: f32, duration: f32) {
         self.shake_strength = strength;
         self.shake_duration = duration;
         self.shake_timer = 0.0;
     }
 
-    /// target_zoom으로 부드럽게 줌.
+    /// Smoothly zoom toward target_zoom.
     ///
-    /// - `target_zoom`: 목표 줌 배율
-    /// - `speed`: 초당 zoom 변화량 (양수)
+    /// - `target_zoom`: target zoom multiplier
+    /// - `speed`: zoom change per second (positive)
     pub fn zoom_to(&mut self, target_zoom: f32, speed: f32) {
         self.zoom_target = target_zoom;
         self.zoom_tween_speed = speed;
     }
 
-    /// 현재 프레임의 shake 오프셋을 반환한다 (view_proj 내부에서 자동 적용됨).
+    /// Returns the shake offset for the current frame (automatically applied inside `view_proj`).
     pub fn shake_offset(&self) -> Vec2 {
         if self.shake_duration <= 0.0 || self.shake_strength <= 0.0 {
             return Vec2::ZERO;
         }
-        // 결정론적 의사 난수 오프셋 — 서로 다른 주파수의 sin/cos로 자연스러운 흔들림 연출
+        // Deterministic pseudo-random offset — sin/cos at different frequencies for natural-feeling shake
         let t = self.shake_timer * 30.0; // ~30 Hz shake frequency
         let ox = (t * 1.7).sin() * self.shake_strength;
         let oy = (t * 2.3).cos() * self.shake_strength;
         Vec2::new(ox, oy)
     }
 
-    /// 카메라 이펙트를 dt 초 진행한다.
+    /// Advances all camera effects by `dt` seconds.
     ///
-    /// `follow_pos`: 이번 프레임에 따라갈 엔티티의 월드 좌표 (없으면 `None`).
-    /// App이 매 프레임 자동 호출한다.
+    /// `follow_pos`: world position of the entity to follow this frame (`None` if none).
+    /// Called automatically every frame by App.
     pub fn update(&mut self, dt: f32, follow_pos: Option<Vec2>) {
         // 1. Smooth follow
         if let Some(pos) = follow_pos {
@@ -237,14 +238,14 @@ mod tests {
     fn camera_position_translates_view() {
         let cam = Camera::new(Vec2::new(100.0, 50.0), 1.0);
         let m = cam.view_proj(W, H);
-        // 카메라가 (100, 50) 이동하면 월드 원점(0,0)은 화면 밖으로 나간다.
-        // 즉, view_proj 는 default 와 달라야 한다.
+        // When the camera moves to (100, 50) the world origin (0,0) is off-screen.
+        // Therefore view_proj must differ from the default.
         let default_m = Camera::default().view_proj(W, H);
         assert!(
             !m.abs_diff_eq(default_m, 1e-6),
             "camera position had no effect on view_proj"
         );
-        // 직접 검증: 이동한 카메라의 left/right/top/bottom 확인
+        // Direct verification: check left/right/top/bottom for the translated camera
         let expected = Mat4::orthographic_rh(100.0, 100.0 + W, 50.0 + H, 50.0, -1.0, 1.0);
         assert!(
             m.abs_diff_eq(expected, 1e-6),
@@ -263,14 +264,14 @@ mod tests {
     fn screen_to_world_with_camera_offset() {
         let cam = Camera::new(Vec2::new(50.0, 80.0), 1.0);
         let world = cam.screen_to_world(Vec2::new(0.0, 0.0));
-        // 화면 좌상단(0,0)은 카메라 position과 같아야 한다
+        // The screen top-left (0,0) must equal the camera position
         assert_eq!(world, Vec2::new(50.0, 80.0));
     }
 
     #[test]
     fn screen_to_world_with_zoom() {
         let cam = Camera::new(Vec2::ZERO, 2.0);
-        // zoom=2 → 화면 픽셀 1개 = 월드 0.5 단위
+        // zoom=2 → 1 screen pixel = 0.5 world units
         let world = cam.screen_to_world(Vec2::new(100.0, 60.0));
         assert_eq!(world, Vec2::new(50.0, 30.0));
     }
@@ -279,7 +280,7 @@ mod tests {
     fn zoom_scales_visible_region() {
         let cam = Camera::new(Vec2::ZERO, 2.0);
         let m = cam.view_proj(W, H);
-        // zoom=2 → 보이는 영역이 절반: right = W/2, bottom = H/2
+        // zoom=2 → visible area is halved: right = W/2, bottom = H/2
         let expected = Mat4::orthographic_rh(0.0, W / 2.0, H / 2.0, 0.0, -1.0, 1.0);
         assert!(
             m.abs_diff_eq(expected, 1e-6),
@@ -377,7 +378,7 @@ mod tests {
 
     #[test]
     fn zoom_zero_does_not_produce_nan() {
-        // zoom == 0 이어도 좌표 변환/투영이 NaN 을 내보내지 않아야 한다.
+        // Even when zoom == 0, coordinate transforms/projection must not produce NaN.
         let cam = Camera::new(Vec2::new(10.0, 20.0), 0.0);
         let w = cam.screen_to_world(Vec2::new(100.0, 50.0));
         assert!(

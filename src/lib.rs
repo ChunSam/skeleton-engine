@@ -43,7 +43,7 @@ pub mod timer;
 pub mod tween;
 pub mod ui;
 
-// ── 편의 재수출 ────────────────────────────────────────────────────────────────
+// ── Convenience re-exports ─────────────────────────────────────────────────────
 
 pub use glam::{IVec2, Mat4, Vec2, Vec3};
 pub use winit::event::MouseButton;
@@ -98,8 +98,8 @@ pub use skeletal::{
     BoneKeyframe, BoneTrack, SkeletalAnimationSystem, SkeletalAnimator, SkeletalClip,
     SkeletonBuilder,
 };
-// par_query_for_each / par_query_map / par_query2_for_each / par_query2_map 은
-// World 메서드이므로 World re-export를 통해 자동 접근 가능 (별도 re-export 불필요)
+// par_query_for_each / par_query_map / par_query2_for_each / par_query2_map are
+// World methods, so they are accessible via the World re-export (no separate re-export needed)
 pub use reflect::{Reflect, ReflectValue};
 pub use renderer::texture::TextureError;
 pub use renderer::{
@@ -125,7 +125,7 @@ pub use ui::{
     VirtualJoystick,
 };
 
-// ── WASM 패닉 훅 ─────────────────────────────────────────────────────────────
+// ── WASM panic hook ───────────────────────────────────────────────────────────
 #[cfg(target_arch = "wasm32")]
 pub use wasm_bindgen;
 
@@ -135,7 +135,7 @@ pub fn wasm_init() {
     console_error_panic_hook::set_once();
 }
 
-// ── WASM 데모 진입점 ──────────────────────────────────────────────────────────
+// ── WASM demo entry point ─────────────────────────────────────────────────────
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub fn run_demo() {
@@ -157,7 +157,7 @@ pub fn run_demo() {
     struct DemoSystem;
     impl System for DemoSystem {
         fn run(&mut self, world: &mut World, dt: f32) {
-            // 좌표계: (0,0) = 좌상단, (width, height) = 우하단
+            // Coordinate system: (0,0) = top-left, (width, height) = bottom-right
             let (w, h) = world
                 .resource::<ViewportSize>()
                 .map(|v| (v.width, v.height))
@@ -243,7 +243,7 @@ pub fn run_demo() {
         (-155.0, 125.0),
     ];
 
-    // 화면 중앙(640, 360) 기준으로 원형 배치
+    // Arrange entities in a circle around the screen center (640, 360)
     let cx = 640.0_f32;
     let cy = 360.0_f32;
     for (i, (&[r, g, b], &(vx, vy))) in colors.iter().zip(velocities.iter()).enumerate() {

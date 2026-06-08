@@ -1,7 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
-/// GPU 유니폼 (16바이트: RGB + alpha)
+/// GPU uniform (16 bytes: RGB + alpha)
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct FadeUniforms {
@@ -9,11 +9,11 @@ struct FadeUniforms {
     alpha: f32,
 }
 
-/// 전체 화면 색상 오버레이를 그리는 렌더러.
+/// Renderer that draws a full-screen color overlay.
 ///
-/// `FadeTransition` 리소스의 alpha > 0.001 일 때 App이 자동으로 호출한다.
-/// 알파 블렌딩을 사용하므로 스프라이트·UI·텍스트·조명·포스트프로세스 패스
-/// 이후 마지막에 실행해야 한다.
+/// The App calls this automatically when the `FadeTransition` resource has alpha > 0.001.
+/// Because it uses alpha blending, it must run last — after the sprite, UI, text,
+/// lighting, and post-process passes.
 pub struct FadeRenderer {
     pipeline: wgpu::RenderPipeline,
     uniform_buffer: wgpu::Buffer,
@@ -125,13 +125,13 @@ impl FadeRenderer {
         }
     }
 
-    /// 유니폼 버퍼를 현재 페이드 값으로 업데이트한다.
+    /// Updates the uniform buffer with the current fade values.
     pub fn update(&self, queue: &wgpu::Queue, color: [f32; 3], alpha: f32) {
         let uniforms = FadeUniforms { color, alpha };
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
     }
 
-    /// 페이드 패스를 실행한다. 다른 모든 렌더 패스 이후에 호출해야 한다.
+    /// Executes the fade pass. Must be called after all other render passes.
     pub fn run_pass(&self, encoder: &mut wgpu::CommandEncoder, output_view: &wgpu::TextureView) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("fade_pass"),
@@ -139,7 +139,7 @@ impl FadeRenderer {
                 view: output_view,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load, // 기존 렌더 위에 오버레이
+                    load: wgpu::LoadOp::Load, // overlay on top of existing render
                     store: wgpu::StoreOp::Store,
                 },
             })],

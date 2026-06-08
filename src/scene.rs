@@ -1,39 +1,39 @@
 use crate::ecs::{System, World};
 
-/// 씬 트레잇. 각 게임 화면(메뉴, 플레이, 게임오버 등)이 구현한다.
+/// Scene trait. Implemented by each game screen (menu, play, game-over, etc.).
 ///
-/// # 사용 예
+/// # Example
 /// ```rust,no_run
 /// # use engine::{scene::{Scene, SceneCmd, SceneChange}, ecs::{System, World}};
 /// struct GamePlay;
 ///
 /// impl Scene for GamePlay {
 ///     fn on_enter(&mut self, world: &mut World, systems: &mut Vec<Box<dyn System>>) {
-///         // 엔티티 스폰, 리소스 삽입
+///         // spawn entities, insert resources
 ///     }
 ///     fn on_exit(&mut self, _world: &mut World) {}
 /// }
 /// ```
 pub trait Scene: 'static {
-    /// 씬 진입 시 호출. 엔티티 스폰·리소스 삽입·시스템 등록을 여기서 한다.
+    /// Called when the scene is entered. Spawn entities, insert resources, and register systems here.
     fn on_enter(&mut self, world: &mut World, systems: &mut Vec<Box<dyn System>>);
-    /// 씬 종료 시 호출. 정리 작업이 필요할 때만 구현한다.
+    /// Called when the scene is exited. Implement only when cleanup is needed.
     fn on_exit(&mut self, _world: &mut World) {}
 }
 
-/// 씬 전환 명령.
+/// Scene transition command.
 pub enum SceneCmd {
-    /// 현재 씬 스택을 전부 비우고 새 씬으로 교체한다 (월드 리셋 포함).
+    /// Clears the entire scene stack and replaces it with a new scene (includes world reset).
     Replace(Box<dyn Scene>),
-    /// 현재 씬 위에 새 씬을 쌓는다 (월드 유지, 일시정지 메뉴 등에 사용).
+    /// Pushes a new scene on top of the current one (world is preserved; useful for pause menus).
     Push(Box<dyn Scene>),
-    /// 최상위 씬을 꺼낸다.
+    /// Pops the top scene off the stack.
     Pop,
 }
 
-/// 시스템이 씬 전환을 요청하기 위해 쓰는 리소스.
+/// Resource used by systems to request a scene transition.
 ///
-/// # 사용 예
+/// # Example
 /// ```rust,no_run
 /// # use engine::{ecs::World, scene::{SceneChange, SceneCmd}};
 /// # struct NextScene;
@@ -53,7 +53,7 @@ pub enum SceneCmd {
 pub struct SceneChange(pub(crate) Option<SceneCmd>);
 
 impl SceneChange {
-    /// 씬 전환 명령을 등록한다. 같은 프레임에 여러 번 호출하면 마지막 명령만 유효하다.
+    /// Registers a scene transition command. If called multiple times in the same frame, only the last command takes effect.
     pub fn request(&mut self, cmd: SceneCmd) {
         self.0 = Some(cmd);
     }

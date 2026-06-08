@@ -10,9 +10,9 @@ use super::script_loading::compile_script_file;
 use super::AssetServer;
 
 impl AssetServer {
-    /// 변경된 파일 경로 목록을 반환하고 내부 CPU 캐시를 갱신한다.
+    /// Returns a list of changed file paths and refreshes the internal CPU cache.
     ///
-    /// `App`이 매 프레임 이를 호출하고, 반환된 경로들에 대해 GPU 텍스처를 재업로드한다.
+    /// `App` calls this every frame and re-uploads GPU textures for the returned paths.
     pub fn poll_reloads(&mut self) -> Vec<String> {
         #[cfg(target_arch = "wasm32")]
         {

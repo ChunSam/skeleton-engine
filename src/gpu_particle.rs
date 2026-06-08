@@ -6,11 +6,11 @@ use crate::components::Transform;
 use crate::ecs::{Entity, World};
 use crate::renderer::gpu_particle::GpuParticle;
 
-/// GPU 컴퓨트 셰이더로 업데이트되는 파티클 이미터 컴포넌트.
+/// Particle emitter component updated via a GPU compute shader.
 ///
-/// 네이티브 전용 (WASM에서는 CPU `ParticleEmitter` 사용).
+/// Native only (use CPU `ParticleEmitter` for WASM).
 ///
-/// # 예시
+/// # Example
 /// ```rust,no_run
 /// # use engine::{App, GpuParticleEmitter, Transform};
 /// # use glam::Vec2;
@@ -30,25 +30,25 @@ use crate::renderer::gpu_particle::GpuParticle;
 /// world.add_component(entity, emitter);
 /// ```
 pub struct GpuParticleEmitter {
-    /// 초당 방출 파티클 수
+    /// Particles emitted per second.
     pub spawn_rate: f32,
-    /// 파티클 수명 (초)
+    /// Particle lifetime (seconds).
     pub lifetime: f32,
-    /// 기본 속도 (픽셀/초)
+    /// Base velocity (pixels/second).
     pub velocity: Vec2,
-    /// 속도 랜덤 범위 (±각 축)
+    /// Random velocity spread (±per axis).
     pub velocity_spread: Vec2,
-    /// 시작 색상 (RGBA)
+    /// Start color (RGBA).
     pub color_start: Color,
-    /// 종료 색상 (RGBA)
+    /// End color (RGBA).
     pub color_end: Color,
-    /// 파티클 크기 (픽셀)
+    /// Particle size (pixels).
     pub size: f32,
-    /// false이면 방출 중단
+    /// When false, emission is paused.
     pub emit: bool,
-    /// 내부 방출 타이머
+    /// Internal emission timer.
     pub(crate) timer: f32,
-    /// 다음 방출할 링 버퍼 슬롯
+    /// Next ring-buffer slot to emit into.
     pub(crate) next_slot: u32,
 }
 
@@ -69,9 +69,9 @@ impl Default for GpuParticleEmitter {
     }
 }
 
-/// GPU 파티클 이미터를 처리해 새 파티클 데이터를 수집한다.
+/// Processes GPU particle emitters and collects new particle data.
 ///
-/// `App`의 렌더 루프에서 `GpuParticleRenderer::upload_particles`와 함께 사용한다.
+/// Used alongside `GpuParticleRenderer::upload_particles` in the `App` render loop.
 pub(crate) fn collect_new_particles(
     world: &mut World,
     capacity: u32,

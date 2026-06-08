@@ -44,7 +44,7 @@ impl<T> Handle<T> {
         self.id
     }
 
-    /// 이 핸들이 가리키는 파일 경로.
+    /// The file path this handle points to.
     pub fn path(&self) -> &str {
         &self.path
     }
@@ -89,7 +89,7 @@ pub struct ImageAsset {
     pub height: u32,
 }
 
-/// 에셋 브라우저에서 표시할 이미지 항목 정보.
+/// Image entry info displayed in the asset browser.
 #[derive(Debug, Clone)]
 pub struct ImageEntry {
     pub path: String,
@@ -100,11 +100,11 @@ pub struct ImageEntry {
 
 // ─── ScriptAsset ─────────────────────────────────────────────────────────────
 
-/// CPU-side Rhai 스크립트 에셋.
+/// CPU-side Rhai script asset.
 ///
-/// `ast` 는 `Arc` 로 감싸 둔다. `ScriptingSystem` 이 매 프레임 스크립트 엔티티마다
-/// AST 핸들을 복제(`clone`)하는데, `Arc` 라면 트리 전체 deep-clone 대신 refcount 만
-/// 증가한다.
+/// `ast` is wrapped in an `Arc`. `ScriptingSystem` clones the AST handle for every
+/// script entity each frame; with `Arc` only the refcount is bumped instead of
+/// deep-cloning the entire tree.
 pub struct ScriptAsset {
     pub source: String,
     pub ast: Arc<rhai::AST>,
@@ -112,36 +112,36 @@ pub struct ScriptAsset {
 
 // ─── AssetLoadState ───────────────────────────────────────────────────────────
 
-/// 에셋 로드 결과 상태. `AssetServer::load_state()`로 조회한다.
+/// Asset load result state. Query via `AssetServer::load_state()`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AssetLoadState {
-    /// 비동기 로드 진행 중. 마젠타 폴백 텍스처가 표시된다.
+    /// Async load in progress. A magenta fallback texture is displayed.
     Loading,
-    /// 정상 로드됨.
+    /// Successfully loaded.
     Loaded,
-    /// 로드 실패 (파일 없음, 디코딩 오류 등). 마젠타 폴백 텍스처로 대체된 상태.
+    /// Load failed (file not found, decode error, etc.). Replaced by the magenta fallback texture.
     Failed(String),
 }
 
 // ─── AssetServer ──────────────────────────────────────────────────────────────
 
-/// 에셋 관리자 — 이미지 로드·캐싱·핫 리로딩.
+/// Asset manager — image loading, caching, and hot reloading.
 ///
-/// ECS World에 Resource로 삽입해 사용하거나 `App::load_image`를 통해 간접적으로 접근한다.
-/// 네이티브 빌드에서는 존재하는 파일 경로를 canonical path로 정규화해 캐시 키로 사용한다.
-/// 존재하지 않는 경로는 입력 문자열을 그대로 보존해 기존 fallback 동작을 유지하고, WASM에서는
-/// URL/상대경로 의미를 보존하기 위해 정규화하지 않는다.
+/// Insert as a Resource into the ECS World, or access indirectly via `App::load_image`.
+/// On native builds, existing file paths are canonicalized and used as cache keys.
+/// Non-existent paths are preserved as-is to maintain legacy fallback behavior.
+/// On WASM, paths are never canonicalized to preserve URL/relative-path semantics.
 ///
-/// # 핫 리로딩
-/// 파일이 변경되면 `poll_reloads()`가 변경된 경로 목록을 반환한다.
-/// `App`이 매 프레임 이를 호출해 GPU 텍스처를 재업로드한다.
+/// # Hot reloading
+/// When a file changes, `poll_reloads()` returns the list of changed paths.
+/// `App` calls this every frame and re-uploads the affected GPU textures.
 ///
-/// # 예시
+/// # Example
 /// ```rust,no_run
 /// # use engine::App;
 /// let mut app = App::new();
 /// let handle = app.load_image("assets/player.png");
-/// // 로드 실패 여부 확인
+/// // Check for load failure
 /// # use engine::asset::AssetLoadState;
 /// # let assets = app.world.resource::<engine::AssetServer>().unwrap();
 /// // if assets.load_state(&handle) == AssetLoadState::Failed { ... }
@@ -158,7 +158,7 @@ pub struct AssetServer {
     reload_rx: Option<Receiver<PathBuf>>,
     #[cfg(not(target_arch = "wasm32"))]
     _watcher: Option<RecommendedWatcher>,
-    // 비동기 로드용 채널 (네이티브 전용)
+    // Channel for async loading (native only)
     #[cfg(not(target_arch = "wasm32"))]
     async_tx: std::sync::mpsc::SyncSender<async_loading::AsyncImageResult>,
     #[cfg(not(target_arch = "wasm32"))]
@@ -211,7 +211,7 @@ impl AssetServer {
                     async_rx,
                 },
                 Err(e) => {
-                    log::warn!("파일 감시 초기화 실패 (핫 리로딩 비활성): {e}");
+                    log::warn!("file watcher initialization failed (hot reloading disabled): {e}");
                     let (async_tx2, async_rx2) =
                         std::sync::mpsc::sync_channel::<async_loading::AsyncImageResult>(128);
                     Self {

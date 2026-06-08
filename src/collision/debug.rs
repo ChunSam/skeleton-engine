@@ -2,18 +2,18 @@ use crate::collision::grid::SpatialGrid;
 use crate::ecs::{System, World};
 use crate::resources::{DebugDrawQueue, DebugRect};
 
-// ─── 리소스 ──────────────────────────────────────────────────────────────────
+// ─── Resource ─────────────────────────────────────────────────────────────────
 
-/// 디버그 렌더링 설정 리소스.
+/// Debug rendering configuration resource.
 ///
-/// `world.insert_resource(DebugConfig { show_colliders: true })` 로 활성화.
+/// Activate with `world.insert_resource(DebugConfig { show_colliders: true })`.
 #[derive(Debug, Clone, Default)]
 pub struct DebugConfig {
-    /// true이면 충돌 영역을 반투명 사각형으로 시각화한다.
+    /// When true, visualizes collision areas as translucent rectangles.
     pub show_colliders: bool,
 }
 
-// ─── 시스템 ──────────────────────────────────────────────────────────────────
+// ─── System ───────────────────────────────────────────────────────────────────
 
 /// Collision-debug visualization system.
 ///

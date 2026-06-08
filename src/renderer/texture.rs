@@ -1,6 +1,6 @@
 use wgpu::util::DeviceExt;
 
-/// 텍스처 로드 실패 원인
+/// Reason a texture load failed
 #[derive(Debug)]
 pub enum TextureError {
     Io(std::io::Error),
@@ -10,13 +10,13 @@ pub enum TextureError {
 impl std::fmt::Display for TextureError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TextureError::Io(e) => write!(f, "IO 오류: {e}"),
-            TextureError::Decode(e) => write!(f, "디코딩 오류: {e}"),
+            TextureError::Io(e) => write!(f, "IO error: {e}"),
+            TextureError::Decode(e) => write!(f, "decode error: {e}"),
         }
     }
 }
 
-/// GPU에 올라간 텍스처와 샘플러, 바인드 그룹을 묶은 구조체
+/// A GPU-resident texture together with its sampler and bind group
 pub struct Texture {
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
@@ -25,7 +25,7 @@ pub struct Texture {
 }
 
 impl Texture {
-    /// PNG 파일을 읽어 GPU 텍스처를 만든다. 실패 시 magenta 1×1 fallback + warn 로그.
+    /// Reads a PNG file and creates a GPU texture. Falls back to a magenta 1×1 texture + warn log on failure.
     pub fn from_path(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -33,8 +33,8 @@ impl Texture {
         path: &str,
     ) -> Self {
         Self::try_from_path(device, queue, layout, path).unwrap_or_else(|e| {
-            log::warn!("텍스처 로드 실패 ({path}): {e}, magenta fallback 사용");
-            // magenta 1×1: 누락된 텍스처를 시각적으로 즉시 식별 가능
+            log::warn!("texture load failed ({path}): {e}, using magenta fallback");
+            // magenta 1×1: makes missing textures visually identifiable at a glance
             Self::from_rgba(
                 device,
                 queue,
@@ -47,7 +47,7 @@ impl Texture {
         })
     }
 
-    /// PNG 파일을 읽어 GPU 텍스처를 만든다. 실패 시 `TextureError` 반환.
+    /// Reads a PNG file and creates a GPU texture. Returns `TextureError` on failure.
     pub fn try_from_path(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -69,7 +69,7 @@ impl Texture {
         ))
     }
 
-    /// CPU-side `ImageAsset` 데이터를 GPU 텍스처로 업로드한다 (비동기 로딩 완료 시 사용).
+    /// Uploads CPU-side `ImageAsset` data as a GPU texture (used when async loading completes).
     pub fn from_image_asset(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -88,7 +88,7 @@ impl Texture {
         )
     }
 
-    /// 흰색 1×1 픽셀 기본 텍스처 생성 (색상 스프라이트용)
+    /// Creates a default white 1×1 pixel texture (used for solid-color sprites)
     pub fn white(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -164,7 +164,7 @@ impl Texture {
         }
     }
 
-    /// 텍스처 바인드 그룹 레이아웃 (렌더 파이프라인 생성 시 공유)
+    /// Returns the texture bind group layout (shared when creating render pipelines)
     pub fn bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("texture layout"),
@@ -190,7 +190,7 @@ impl Texture {
     }
 }
 
-/// GPU 없이 파일→RGBA 디코딩만 검증하는 순수 helper (테스트·진단용)
+/// Pure helper that validates file-to-RGBA decoding without a GPU (for tests and diagnostics)
 pub fn decode_image_bytes(bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), TextureError> {
     let img = image::load_from_memory(bytes).map_err(TextureError::Decode)?;
     let rgba = img.to_rgba8();
@@ -204,7 +204,7 @@ mod tests {
 
     #[test]
     fn try_from_path_missing_file_returns_io_error() {
-        // GPU 없이 파일 읽기 실패를 검증
+        // Verify file-read failure without a GPU
         let result = std::fs::read("/nonexistent/__does_not_exist__.png").map_err(TextureError::Io);
         assert!(matches!(result, Err(TextureError::Io(_))));
     }
@@ -218,7 +218,7 @@ mod tests {
 
     #[test]
     fn decode_valid_png_returns_rgba() {
-        // 1×1 빨간 픽셀 PNG (최소 유효 PNG)
+        // 1×1 red pixel PNG (minimal valid PNG)
         let png_bytes: &[u8] = &[
             0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, // signature
             0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, // IHDR length+type
@@ -229,7 +229,7 @@ mod tests {
             0x21, 0xbc, 0x33, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, // IEND
             0x44, 0xae, 0x42, 0x60, 0x82,
         ];
-        // 위 PNG가 실제 유효한지 라이브러리에 위임 — 최소한 panic 없이 시도
-        let _ = decode_image_bytes(png_bytes); // Ok or Err 모두 허용, panic만 금지
+        // Delegate to the library to check whether the PNG is actually valid — at minimum it must not panic
+        let _ = decode_image_bytes(png_bytes); // Ok or Err both acceptable, only panic is forbidden
     }
 }

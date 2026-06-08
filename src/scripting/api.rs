@@ -16,7 +16,7 @@ impl ScriptingSystem {
         // Same cap for global and in-function expression depth.
         engine.set_max_expr_depths(limits.max_expr_depth, limits.max_expr_depth);
 
-        // ── 모든 함수를 1회만 등록 (thread_local로 실행 컨텍스트 전달) ──────
+        // ── Register all functions once (execution context passed via thread_local) ──────
 
         engine.register_fn("log", |msg: &str| println!("[Script] {msg}"));
 

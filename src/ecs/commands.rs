@@ -1,15 +1,15 @@
 use crate::ecs::{Entity, World};
 
-/// 지연 실행할 World 수정 함수의 타입 별칭.
+/// Type alias for a deferred World-mutation function.
 type DeferredFn = Box<dyn FnOnce(&mut World) + Send>;
 
-/// ECS 시스템 실행 중 엔티티/컴포넌트 변경을 안전하게 지연 예약하는 버퍼.
+/// A buffer that safely defers entity/component changes while an ECS system is running.
 ///
-/// 시스템이 `world`를 이미 빌리고 있는 도중에는 `world.spawn()` 등을 직접 호출할 수
-/// 없다. `Commands`는 수정 명령을 클로저로 큐에 쌓아두었다가 시스템 실행이 끝난 뒤
-/// `world.apply_commands(cmds)` 로 일괄 적용한다.
+/// A system cannot call `world.spawn()` etc. directly while it already holds a borrow
+/// on `world`. `Commands` enqueues mutation closures and applies them all at once after
+/// the system finishes, via `world.apply_commands(cmds)`.
 ///
-/// # 예시
+/// # Example
 ///
 /// ```rust,ignore
 /// use engine::{Commands, System, World};
@@ -19,12 +19,12 @@ type DeferredFn = Box<dyn FnOnce(&mut World) + Send>;
 ///     fn run(&mut self, world: &mut World, _dt: f32) {
 ///         let mut cmds = Commands::new();
 ///
-///         // 새 엔티티 스폰
+///         // Spawn a new entity
 ///         cmds.spawn(|world, e| {
 ///             world.add_component(e, MyTag);
 ///         });
 ///
-///         // 기존 엔티티에 컴포넌트 추가
+///         // Add a component to an existing entity
 ///         let entities: Vec<_> = world.query::<MyComp>().map(|(e, _)| e).collect();
 ///         for entity in entities {
 ///             cmds.insert(entity, NewComp { value: 42 });
@@ -39,17 +39,17 @@ pub struct Commands {
 }
 
 impl Commands {
-    /// 빈 Commands 버퍼를 생성한다.
+    /// Creates an empty Commands buffer.
     pub fn new() -> Self {
         Self {
             deferred: Vec::new(),
         }
     }
 
-    /// 새 엔티티를 스폰하는 명령을 예약한다.
+    /// Schedules a command to spawn a new entity.
     ///
-    /// 클로저는 `apply` 시 실제 생성된 `Entity`와 `&mut World`를 인수로 받으므로,
-    /// 클로저 안에서 컴포넌트를 자유롭게 추가할 수 있다.
+    /// The closure receives the newly created `Entity` and `&mut World` at apply time,
+    /// so components can be added freely inside it.
     ///
     /// ```rust,ignore
     /// cmds.spawn(|world, e| {
@@ -64,37 +64,37 @@ impl Commands {
         }));
     }
 
-    /// 기존 엔티티를 삭제하는 명령을 예약한다.
+    /// Schedules a command to despawn an existing entity.
     ///
-    /// `apply` 시점에 엔티티가 이미 삭제되어 있으면 조용히 무시된다 (멱등성 보장).
+    /// If the entity has already been despawned by the time `apply` runs, this is silently ignored (idempotent).
     pub fn despawn(&mut self, entity: Entity) {
         self.deferred.push(Box::new(move |world: &mut World| {
             world.despawn(entity);
         }));
     }
 
-    /// 기존 엔티티에 컴포넌트를 추가하는 명령을 예약한다.
+    /// Schedules a command to insert a component into an existing entity.
     ///
-    /// 이미 동일 타입의 컴포넌트가 있으면 교체된다.
-    /// `apply` 시점에 엔티티가 존재하지 않으면 조용히 무시된다.
+    /// If a component of the same type already exists, it is replaced.
+    /// If the entity no longer exists at apply time, this is silently ignored.
     pub fn insert<T: Send + Sync + 'static>(&mut self, entity: Entity, comp: T) {
         self.deferred.push(Box::new(move |world: &mut World| {
             world.add_component(entity, comp);
         }));
     }
 
-    /// 기존 엔티티에서 컴포넌트를 제거하는 명령을 예약한다.
+    /// Schedules a command to remove a component from an existing entity.
     ///
-    /// 컴포넌트가 없거나 엔티티가 존재하지 않으면 조용히 무시된다 (멱등성 보장).
+    /// Silently ignored if the component is absent or the entity does not exist (idempotent).
     pub fn remove<T: Send + Sync + 'static>(&mut self, entity: Entity) {
         self.deferred.push(Box::new(move |world: &mut World| {
             world.remove_component::<T>(entity);
         }));
     }
 
-    /// 버퍼에 쌓인 모든 명령을 순서대로 World에 적용한다.
+    /// Applies all buffered commands to the World in order.
     ///
-    /// 일반적으로는 `world.apply_commands(cmds)` 를 사용한다.
+    /// Prefer `world.apply_commands(cmds)` in normal usage.
     pub fn apply(self, world: &mut World) {
         for f in self.deferred {
             f(world);
@@ -108,7 +108,7 @@ impl Default for Commands {
     }
 }
 
-// ─── 단위 테스트 ──────────────────────────────────────────────────────────────
+// ─── Unit tests ──────────────────────────────────────────────────────────────
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -122,7 +122,7 @@ mod tests {
         y: f32,
     }
 
-    /// 1. spawn — Commands::spawn 후 apply 하면 새 엔티티가 월드에 생성됨
+    /// 1. spawn — after Commands::spawn + apply, a new entity exists in the world
     #[test]
     fn spawn_creates_entity() {
         let mut world = World::new();
@@ -143,7 +143,7 @@ mod tests {
         assert_eq!(health, 100);
     }
 
-    /// 2. despawn — Commands::despawn 후 apply 하면 엔티티 제거됨
+    /// 2. despawn — after Commands::despawn + apply, the entity is removed
     #[test]
     fn despawn_removes_entity() {
         let mut world = World::new();
@@ -159,7 +159,7 @@ mod tests {
         assert!(!world.is_alive(e));
     }
 
-    /// 3. insert — 기존 엔티티에 컴포넌트 추가됨
+    /// 3. insert — component is added to an existing entity
     #[test]
     fn insert_adds_component() {
         let mut world = World::new();
@@ -176,7 +176,7 @@ mod tests {
         assert_eq!(pos.y, 2.0);
     }
 
-    /// 4. remove — 기존 엔티티에서 컴포넌트 제거됨
+    /// 4. remove — component is removed from an existing entity
     #[test]
     fn remove_removes_component() {
         let mut world = World::new();
@@ -190,17 +190,17 @@ mod tests {
         assert!(world.get::<Position>(e).is_some());
         world.apply_commands(cmds);
         assert!(world.get::<Position>(e).is_none());
-        // Health는 그대로 유지
+        // Health should remain unchanged
         assert_eq!(world.get::<Health>(e).unwrap().0, 99);
     }
 
-    /// 5. 순서 보장 — spawn → insert 순서로 apply될 때 정상 동작
+    /// 5. ordering guarantee — spawn → insert applied in order works correctly
     #[test]
     fn spawn_then_insert_ordering() {
         let mut world = World::new();
         let mut cmds = Commands::new();
 
-        // spawn과 동시에 컴포넌트 추가 (클로저 내에서)
+        // Add components during spawn (inside the closure)
         cmds.spawn(|world, e| {
             world.add_component(e, Health(42));
             world.add_component(e, Position { x: 10.0, y: 20.0 });
@@ -215,7 +215,7 @@ mod tests {
         assert_eq!(results[0].2.y, 20.0);
     }
 
-    /// 6. 복수 spawn — 여러 엔티티를 한 번에 예약해도 모두 생성됨
+    /// 6. multiple spawns — all entities are created when several are scheduled at once
     #[test]
     fn multiple_spawns() {
         let mut world = World::new();
@@ -232,19 +232,19 @@ mod tests {
         assert_eq!(world.query::<Health>().count(), 5);
     }
 
-    /// 7. despawn이 존재하지 않는 엔티티에도 panic 하지 않음 (멱등성)
+    /// 7. despawn on a non-existent entity does not panic (idempotent)
     #[test]
     fn despawn_nonexistent_is_noop() {
         let mut world = World::new();
         let e = world.spawn();
-        world.despawn(e); // 직접 제거
+        world.despawn(e); // removed directly
 
         let mut cmds = Commands::new();
-        cmds.despawn(e); // 이미 없는 엔티티
-        world.apply_commands(cmds); // panic 없음
+        cmds.despawn(e); // entity no longer exists
+        world.apply_commands(cmds); // should not panic
     }
 
-    /// 8. insert가 존재하지 않는 엔티티에도 panic 하지 않음
+    /// 8. insert on a non-existent entity does not panic
     #[test]
     fn insert_nonexistent_entity_is_noop() {
         let mut world = World::new();
@@ -253,6 +253,6 @@ mod tests {
 
         let mut cmds = Commands::new();
         cmds.insert(e, Health(1));
-        world.apply_commands(cmds); // panic 없음
+        world.apply_commands(cmds); // should not panic
     }
 }

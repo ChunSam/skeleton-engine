@@ -1,24 +1,24 @@
 use crate::ecs::{Entity, World};
 use std::collections::VecDeque;
 
-/// ECS 엔티티 재사용 풀.
+/// An ECS entity reuse pool.
 ///
-/// 총알·파티클처럼 자주 생성/소멸되는 엔티티를 재활용해
-/// archetype 재할당 비용을 줄인다.
+/// Recycles frequently created/destroyed entities (bullets, particles, etc.)
+/// to reduce archetype reallocation costs.
 ///
-/// # 사용 패턴
+/// # Usage pattern
 ///
 /// ```rust,ignore
-/// // 리소스로 등록
+/// // Register as a resource
 /// world.insert_resource(Pool::new(32));
 ///
-/// // 획득 (없으면 새 엔티티 스폰)
+/// // Acquire (spawns a new entity if none are available)
 /// let bullet = pool.acquire(world, |w, e| {
 ///     w.add_component(e, Bullet::default());
 ///     w.add_component(e, Transform::default());
 /// });
 ///
-/// // 반납 (엔티티 유지, 비활성 마커 추가)
+/// // Release (entity is kept alive; an inactive marker is added)
 /// pool.release(bullet, world);
 /// ```
 pub struct Pool {
@@ -27,7 +27,7 @@ pub struct Pool {
 }
 
 impl Pool {
-    /// 최대 `capacity` 개 엔티티를 저장하는 풀을 생성한다.
+    /// Creates a pool that stores up to `capacity` entities.
     pub fn new(capacity: usize) -> Self {
         Self {
             available: VecDeque::with_capacity(capacity),
@@ -35,10 +35,10 @@ impl Pool {
         }
     }
 
-    /// 풀에서 엔티티를 가져온다.
+    /// Acquires an entity from the pool.
     ///
-    /// 사용 가능한 엔티티가 없으면 `world.spawn()`으로 새로 생성한다.
-    /// `setup` 클로저에서 컴포넌트를 초기화한다.
+    /// If no entity is available, a new one is created with `world.spawn()`.
+    /// The `setup` closure initializes the entity's components.
     pub fn acquire(&mut self, world: &mut World, setup: impl FnOnce(&mut World, Entity)) -> Entity {
         // Try to reuse an existing entity
         while let Some(entity) = self.available.pop_front() {
@@ -56,10 +56,10 @@ impl Pool {
         entity
     }
 
-    /// 엔티티를 풀에 반납한다.
+    /// Returns an entity to the pool.
     ///
-    /// 풀이 가득 차면(`capacity` 초과) 엔티티를 despawn한다.
-    /// `Pooled` 마커 컴포넌트를 추가해 비활성 상태를 표시한다.
+    /// If the pool is full (exceeds `capacity`), the entity is despawned.
+    /// A `Pooled` marker component is added to indicate the inactive state.
     pub fn release(&mut self, entity: Entity, world: &mut World) {
         if self.available.len() >= self.capacity {
             world.despawn(entity);
@@ -69,17 +69,17 @@ impl Pool {
         self.available.push_back(entity);
     }
 
-    /// 현재 풀에서 사용 가능한 엔티티 수.
+    /// Returns the number of entities currently available in the pool.
     pub fn available_count(&self) -> usize {
         self.available.len()
     }
 
-    /// 풀의 최대 용량.
+    /// Returns the maximum capacity of the pool.
     pub fn capacity(&self) -> usize {
         self.capacity
     }
 
-    /// 풀에 있는 모든 엔티티를 despawn하고 풀을 비운다.
+    /// Despawns all entities in the pool and empties it.
     pub fn clear(&mut self, world: &mut World) {
         for entity in self.available.drain(..) {
             if world.is_alive(entity) {
@@ -89,10 +89,10 @@ impl Pool {
     }
 }
 
-/// 오브젝트 풀에 반납된 엔티티를 표시하는 마커 컴포넌트.
+/// Marker component that tags an entity returned to the object pool.
 ///
-/// 이 컴포넌트를 가진 엔티티는 "비활성" 상태다.
-/// 렌더링/시스템에서 `query_without::<Pooled>()` 로 제외할 수 있다.
+/// Entities with this component are in an "inactive" state.
+/// Exclude them from rendering/systems with `query_without::<Pooled>()`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Pooled;
 

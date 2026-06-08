@@ -1,9 +1,9 @@
-/// egui 인게임 디버그 오버레이 리소스.
+/// In-game egui debug overlay resource.
 ///
-/// ECS World에 Resource로 삽입되어 `System` 안에서 `debug_ui.ctx()`로 egui 윈도우를 그릴 수 있다.
-/// F1 키로 토글한다. 비활성 상태에서는 draw call을 스킵한다.
+/// Inserted as a Resource into the ECS World; draw egui windows from a `System` via `debug_ui.ctx()`.
+/// Toggle with the F1 key. Draw calls are skipped when disabled.
 ///
-/// # 사용법
+/// # Usage
 /// ```rust,no_run
 /// # use engine::{DebugUi, System, World};
 /// struct MyDebugPanel;
@@ -30,7 +30,7 @@ impl DebugUi {
         }
     }
 
-    /// egui 드로 컨텍스트를 반환한다. `begin_frame`/`end_frame` 사이에만 사용해야 한다.
+    /// Returns the egui draw context. Must only be used between `begin_frame` and `end_frame`.
     ///
     /// Custom paint callbacks are currently unsupported by the engine renderer and are skipped
     /// at render time to preserve the internal render-pass lifetime safety boundary.

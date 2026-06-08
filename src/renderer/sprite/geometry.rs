@@ -1,6 +1,6 @@
 use super::*;
 
-// ─── GPU에 올라가는 버텍스 구조체 ─────────────────────────────────────────────
+// ─── Vertex struct uploaded to the GPU ────────────────────────────────────────
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 pub(super) struct Vertex {
@@ -8,7 +8,7 @@ pub(super) struct Vertex {
     pub(super) uv: [f32; 2],
 }
 
-// 단위 쿼드: 중심 (0,0), 크기 1×1
+// Unit quad: center (0,0), size 1×1
 pub(super) const VERTICES: &[Vertex] = &[
     Vertex {
         position: [-0.5, -0.5],
@@ -29,26 +29,26 @@ pub(super) const VERTICES: &[Vertex] = &[
 ];
 pub(super) const INDICES: &[u16] = &[0, 1, 2, 2, 3, 0];
 
-// ─── 인스턴스(스프라이트 1개)의 GPU 데이터 ────────────────────────────────────
-// 구조: [모델행렬 64B][color 16B][uv_offset 8B][uv_size 8B][to_uv_offset 8B][to_uv_size 8B][blend 4B] = 116B
+// ─── GPU data for a single sprite instance ────────────────────────────────────
+// Layout: [model matrix 64B][color 16B][uv_offset 8B][uv_size 8B][to_uv_offset 8B][to_uv_size 8B][blend 4B] = 116B
 //
-// `to_uv_*` + `blend`는 애니메이션 크로스페이드용 추가 필드다. `blend == 0`이면
-// 셰이더가 `uv_offset/uv_size`만 샘플링하므로 기존 단일 프레임 렌더와 결과가 동일하다
-// (추가형 — 비크로스페이드 스프라이트는 바이트 단위로 동일하게 렌더된다).
+// `to_uv_*` + `blend` are extra fields for animation crossfade. When `blend == 0`
+// the shader samples only `uv_offset/uv_size`, giving identical output to the original
+// single-frame render (additive — non-crossfading sprites are byte-for-byte identical).
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 pub(super) struct InstanceRaw {
     pub(super) model: [[f32; 4]; 4],   // offset   0 — 64 bytes
     pub(super) color: [f32; 4],        // offset  64 — 16 bytes (shader_location 6)
-    pub(super) uv_offset: [f32; 2],    // offset  80 —  8 bytes (shader_location 7)  from 프레임
+    pub(super) uv_offset: [f32; 2],    // offset  80 —  8 bytes (shader_location 7)  from frame
     pub(super) uv_size: [f32; 2],      // offset  88 —  8 bytes (shader_location 8)
-    pub(super) to_uv_offset: [f32; 2], // offset  96 —  8 bytes (shader_location 9)  to 프레임
+    pub(super) to_uv_offset: [f32; 2], // offset  96 —  8 bytes (shader_location 9)  to frame
     pub(super) to_uv_size: [f32; 2],   // offset 104 —  8 bytes (shader_location 10)
-    pub(super) blend: f32,             // offset 112 —  4 bytes (shader_location 11) 0=단일,1=to
+    pub(super) blend: f32,             // offset 112 —  4 bytes (shader_location 11) 0=single,1=to
 }
 
 impl InstanceRaw {
-    /// 단일 프레임(블렌드 없음) 인스턴스. `to`를 `from`과 동일하게 두고 `blend = 0`.
+    /// Single-frame instance (no blend). Sets `to` equal to `from` and `blend = 0`.
     pub(super) fn single(model: [[f32; 4]; 4], color: [f32; 4], uv: UvRect) -> Self {
         Self {
             model,
@@ -61,7 +61,7 @@ impl InstanceRaw {
         }
     }
 
-    /// `from`→`to` 프레임을 `weight`로 크로스페이드하는 인스턴스. 셰이더가 `mix(from, to, weight)`.
+    /// Instance that crossfades `from`→`to` frames by `weight`. The shader computes `mix(from, to, weight)`.
     pub(super) fn blended(
         model: [[f32; 4]; 4],
         color: [f32; 4],
@@ -156,7 +156,7 @@ impl InstanceRaw {
     }
 }
 
-// ─── 카메라 유니폼 ─────────────────────────────────────────────────────────────
+// ─── Camera uniform ────────────────────────────────────────────────────────────
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 pub(super) struct CameraUniform {

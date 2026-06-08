@@ -1,10 +1,10 @@
-//! 2D 컷아웃(리그드) 스켈레탈 애니메이션.
+//! 2D cutout (rigged) skeletal animation.
 //!
-//! 본은 계층 엔티티(`Transform` + [`Parent`](crate::hierarchy::Parent))이고, 각 본에
-//! 스프라이트 조각을 붙인다. [`SkeletalClip`]은 본의 **로컬 `Transform`**을 키프레임으로
-//! 움직이며, 이후 자동 실행되는 [`HierarchySystem`](crate::hierarchy::HierarchySystem)이
-//! `GlobalTransform`을 합성한다. 렌더러는 `GlobalTransform`을 우선 사용하므로 본 스프라이트는
-//! 별도 렌더 변경 없이 그려진다.
+//! Bones are hierarchy entities (`Transform` + [`Parent`](crate::hierarchy::Parent)), with
+//! sprite pieces attached to each bone. [`SkeletalClip`] animates the bone's **local
+//! `Transform`** via keyframes; the [`HierarchySystem`](crate::hierarchy::HierarchySystem)
+//! that runs automatically afterward composes `GlobalTransform`. The renderer prefers
+//! `GlobalTransform`, so bone sprites are drawn without any extra render changes.
 //!
 //! ```no_run
 //! use engine::{App, SkeletonBuilder, SkeletalClip, BoneTrack, BoneKeyframe,
@@ -38,29 +38,30 @@ use crate::components::{Sprite, Transform};
 use crate::ecs::{Entity, System, World};
 use crate::hierarchy::attach;
 
-/// 한 본의 한 시점 포즈(로컬 `Transform` 값).
+/// The pose of a single bone at a single point in time (local `Transform` values).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BoneKeyframe {
-    /// 클립 시작 기준 시간(초).
+    /// Time in seconds from the start of the clip.
     pub time: f32,
     pub position: Vec2,
-    /// 라디안, Z축.
+    /// Radians, Z-axis.
     pub rotation: f32,
     pub scale: Vec2,
 }
 
-/// 한 본의 키프레임 트랙. `keys`는 `time` 오름차순이어야 한다.
+/// A keyframe track for a single bone. `keys` must be sorted in ascending `time` order.
 #[derive(Debug, Clone)]
 pub struct BoneTrack {
-    /// [`SkeletalAnimator`]의 본 이름 맵 키.
+    /// Key into the [`SkeletalAnimator`] bone-name map.
     pub bone: String,
     pub keys: Vec<BoneKeyframe>,
 }
 
 impl BoneTrack {
-    /// 주어진 시간의 포즈를 보간한다. 위치/스케일은 선형, 회전은 최단 경로 각도 보간.
+    /// Interpolates the pose at the given time. Position/scale use linear interpolation;
+    /// rotation uses shortest-path angular interpolation.
     ///
-    /// 키가 없으면 `None`, 범위를 벗어나면 양 끝 키로 클램프한다.
+    /// Returns `None` if there are no keys; clamps to the first/last key outside range.
     pub fn sample(&self, time: f32) -> Option<(Vec2, f32, Vec2)> {
         if self.keys.is_empty() {
             return None;
@@ -73,7 +74,7 @@ impl BoneTrack {
         if time >= last.time {
             return Some((last.position, last.rotation, last.scale));
         }
-        // time을 감싸는 두 키 [a, b] 탐색
+        // Find the two keys [a, b] bracketing time
         let i = self
             .keys
             .iter()
@@ -95,30 +96,30 @@ impl BoneTrack {
     }
 }
 
-/// 본 트랙 모음으로 구성된 하나의 스켈레탈 애니메이션 클립.
+/// A single skeletal animation clip composed of bone tracks.
 #[derive(Debug, Clone)]
 pub struct SkeletalClip {
     pub name: String,
-    /// 클립 길이(초).
+    /// Clip length in seconds.
     pub duration: f32,
     pub looping: bool,
     pub tracks: Vec<BoneTrack>,
 }
 
-/// 스켈레톤 루트 엔티티에 부착하는 애니메이터 컴포넌트.
+/// Animator component attached to the skeleton root entity.
 ///
-/// [`SkeletalAnimationSystem`]이 매 프레임 `time`을 진행하고, 현재 클립의 각 트랙을 샘플해
-/// 해당 본 엔티티의 로컬 `Transform`을 갱신한다.
+/// [`SkeletalAnimationSystem`] advances `time` each frame, samples each track of the
+/// current clip, and updates the local `Transform` of the corresponding bone entities.
 #[derive(Debug, Clone)]
 pub struct SkeletalAnimator {
     pub clips: Vec<SkeletalClip>,
     pub current: usize,
-    /// 현재 클립 내 재생 시간(초).
+    /// Playback time within the current clip, in seconds.
     pub time: f32,
-    /// 재생 속도 배율.
+    /// Playback speed multiplier.
     pub speed: f32,
     pub playing: bool,
-    /// 본 이름 → 엔티티. [`SkeletonBuilder`]가 채운다.
+    /// Bone name → entity. Populated by [`SkeletonBuilder`].
     pub bones: HashMap<String, Entity>,
 }
 
@@ -134,7 +135,7 @@ impl SkeletalAnimator {
         }
     }
 
-    /// 클립을 전환하고 시간을 0으로 되돌린다. 이미 재생 중인 클립이면 무시한다.
+    /// Switches to the given clip index and resets time to 0. No-op if already playing that clip.
     pub fn play(&mut self, clip_index: usize) {
         if self.current != clip_index {
             self.current = clip_index;
@@ -143,7 +144,7 @@ impl SkeletalAnimator {
         }
     }
 
-    /// 이름으로 클립을 전환한다. 찾으면 `true`.
+    /// Switches to a clip by name. Returns `true` if found.
     pub fn play_named(&mut self, name: &str) -> bool {
         if let Some(i) = self.clips.iter().position(|c| c.name == name) {
             self.play(i);
@@ -153,7 +154,7 @@ impl SkeletalAnimator {
         }
     }
 
-    /// non-looping 클립이 끝까지 재생됐는지. looping 클립은 항상 `false`.
+    /// Returns `true` if a non-looping clip has played to the end. Always `false` for looping clips.
     pub fn is_finished(&self) -> bool {
         match self.clips.get(self.current) {
             Some(c) => !c.looping && self.time >= c.duration,
@@ -162,10 +163,10 @@ impl SkeletalAnimator {
     }
 }
 
-/// 매 프레임 [`SkeletalAnimator`]를 진행하고 본의 로컬 `Transform`을 갱신하는 시스템.
+/// System that advances every [`SkeletalAnimator`] each frame and updates bone local `Transform`s.
 ///
-/// 유저 시스템 단계에서 실행되어야 한다(`app.add_system(SkeletalAnimationSystem)`).
-/// 이후 자동 실행되는 `HierarchySystem`이 `GlobalTransform`을 합성한다.
+/// Must be registered in the user system stage (`app.add_system(SkeletalAnimationSystem)`).
+/// The `HierarchySystem` that runs automatically afterward composes `GlobalTransform`.
 pub struct SkeletalAnimationSystem;
 
 impl System for SkeletalAnimationSystem {
@@ -173,7 +174,7 @@ impl System for SkeletalAnimationSystem {
         let animators: Vec<Entity> = world.query::<SkeletalAnimator>().map(|(e, _)| e).collect();
 
         for animator_entity in animators {
-            // 1) 시간 진행 + 샘플 수집 (animator 빌림은 이 블록 안에서 끝낸다)
+            // 1) Advance time + collect samples (animator borrow ends inside this block)
             let samples: Vec<(Entity, Vec2, f32, Vec2)> = {
                 let Some(anim) = world.get_mut::<SkeletalAnimator>(animator_entity) else {
                     continue;
@@ -195,7 +196,7 @@ impl System for SkeletalAnimationSystem {
                 }
                 let time = anim.time;
 
-                // borrow 우회: 트랙을 다시 읽어 (bone_entity, TRS) 목록을 만든다
+                // borrow workaround: re-read tracks to build a (bone_entity, TRS) list
                 let clip = &anim.clips[anim.current];
                 clip.tracks
                     .iter()
@@ -207,7 +208,7 @@ impl System for SkeletalAnimationSystem {
                     .collect()
             };
 
-            // 2) animator 빌림 해제 후 각 본 Transform 갱신
+            // 2) After releasing the animator borrow, update each bone Transform
             for (bone, position, rotation, scale) in samples {
                 if let Some(t) = world.get_mut::<Transform>(bone) {
                     t.position = position;
@@ -219,16 +220,16 @@ impl System for SkeletalAnimationSystem {
     }
 }
 
-/// 본 계층을 스폰하고 이름→엔티티 맵을 구성하는 저작 헬퍼.
+/// Authoring helper that spawns the bone hierarchy and builds the name→entity map.
 ///
-/// 내부적으로 [`crate::hierarchy::attach`]를 사용해 `Parent`/`Children`을 관리한다.
+/// Internally uses [`crate::hierarchy::attach`] to manage `Parent`/`Children`.
 pub struct SkeletonBuilder {
     root: Entity,
     bones: HashMap<String, Entity>,
 }
 
 impl SkeletonBuilder {
-    /// 루트 본을 스폰한다. `root_transform`은 스켈레톤 전체의 월드 기준 위치다.
+    /// Spawns the root bone. `root_transform` is the world-space origin of the entire skeleton.
     pub fn new(world: &mut World, root_name: impl Into<String>, root_transform: Transform) -> Self {
         let root = world.spawn();
         world.add_component(root, root_transform);
@@ -237,19 +238,19 @@ impl SkeletonBuilder {
         Self { root, bones }
     }
 
-    /// 루트 엔티티.
+    /// The root entity.
     pub fn root(&self) -> Entity {
         self.root
     }
 
-    /// 이미 추가된 본 엔티티를 이름으로 조회한다.
+    /// Looks up a previously added bone entity by name.
     pub fn bone(&self, name: &str) -> Option<Entity> {
         self.bones.get(name).copied()
     }
 
-    /// 본을 추가하고 `parent_name` 본에 붙인다. `sprite`가 있으면 함께 부착한다.
+    /// Adds a bone and attaches it to the `parent_name` bone. Attaches `sprite` if provided.
     ///
-    /// `parent_name`이 아직 없으면 루트에 붙인다.
+    /// Falls back to the root if `parent_name` is not yet registered.
     pub fn add_bone(
         &mut self,
         world: &mut World,
@@ -269,14 +270,14 @@ impl SkeletonBuilder {
         bone
     }
 
-    /// 루트에 [`SkeletalAnimator`]를 삽입하고 루트 엔티티를 반환한다.
+    /// Inserts a [`SkeletalAnimator`] on the root entity and returns it.
     pub fn finish(self, world: &mut World, clips: Vec<SkeletalClip>) -> Entity {
         world.add_component(self.root, SkeletalAnimator::new(clips, self.bones));
         self.root
     }
 }
 
-/// 최단 경로 각도 선형 보간(라디안).
+/// Shortest-path linear interpolation between two angles (radians).
 fn lerp_angle(a: f32, b: f32, t: f32) -> f32 {
     let mut diff = (b - a).rem_euclid(TAU);
     if diff > PI {
@@ -320,11 +321,11 @@ mod tests {
 
     #[test]
     fn lerp_angle_takes_shortest_path() {
-        // 350° → 10° 는 +20°가 최단경로(360을 넘지 않고 -340이 아님)
+        // 350° → 10° shortest path is +20° (not -340° going the long way)
         let a = 350f32.to_radians();
         let b = 10f32.to_radians();
         let mid = lerp_angle(a, b, 0.5);
-        // 중간값은 0°(=360°) 근처여야 한다
+        // midpoint should be near 0° (=360°)
         let mid_deg = mid.to_degrees().rem_euclid(360.0);
         assert!(
             !(5.0..=355.0).contains(&mid_deg),
@@ -374,17 +375,17 @@ mod tests {
         let arm = b.bone("arm").unwrap();
         let root = b.finish(&mut world, vec![clip]);
 
-        // 1초 진행 → arm.x ≈ 10
+        // Advance 1 s → arm.x ≈ 10
         SkeletalAnimationSystem.run(&mut world, 1.0);
         let x = world.get::<Transform>(arm).unwrap().position.x;
         assert!((x - 10.0).abs() < 1e-3, "expected 10, got {x}");
 
-        // 추가 1.5초(누적 2.5 → 루프되어 0.5) → arm.x ≈ 5
+        // Advance another 1.5 s (cumulative 2.5 → wraps to 0.5 after loop) → arm.x ≈ 5
         SkeletalAnimationSystem.run(&mut world, 1.5);
         let x = world.get::<Transform>(arm).unwrap().position.x;
         assert!((x - 5.0).abs() < 1e-3, "expected 5 after loop, got {x}");
 
-        // play_named로 전환 확인
+        // Verify clip switching via play_named
         let anim = world.get_mut::<SkeletalAnimator>(root).unwrap();
         assert!(anim.play_named("wave"));
         assert!(!anim.play_named("nope"));

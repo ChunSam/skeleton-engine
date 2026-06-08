@@ -29,8 +29,8 @@ pub(super) fn run(
             continue;
         }
 
-        // Button 과 동일하게 release 시점에 토글한다(press·release 모두 박스 안일 때).
-        // 누른 뒤 박스 밖으로 드래그해서 떼면 토글이 취소된다.
+        // Toggle on release, just like a Button (only when both press and release are inside the box).
+        // Dragging outside the box before releasing cancels the toggle.
         let toggled = input.just_released
             && in_bounds(input.press_cursor, pos, size)
             && in_bounds(input.release_cursor, pos, size);

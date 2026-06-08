@@ -2,26 +2,26 @@ use super::types::Fade;
 use super::AudioManager;
 
 impl AudioManager {
-    // ── 오디오 버스 ───────────────────────────────────────────────────────────
+    // ── Audio bus ─────────────────────────────────────────────────────────────
 
-    /// 채널을 버스에 할당한다.
+    /// Assigns a channel to a bus.
     ///
-    /// 예: `assign_bus("bgm", "music")` → `set_bus_volume("music", v)` 로 일괄 제어.
+    /// Example: `assign_bus("bgm", "music")` → control all channels at once via `set_bus_volume("music", v)`.
     pub fn assign_bus(&mut self, channel: &str, bus: &str) {
         self.channel_buses
             .insert(channel.to_string(), bus.to_string());
-        // 즉시 버스 볼륨 반영
+        // Apply bus volume immediately
         let eff = self.effective_volume(channel);
         if let Some(sink) = self.sinks.get(channel) {
             sink.set_volume(eff);
         }
     }
 
-    /// 버스 전체 볼륨을 설정한다. 버스에 속한 모든 채널에 즉시 적용된다.
+    /// Sets the master volume for a bus. Applied immediately to all channels in the bus.
     pub fn set_bus_volume(&mut self, bus: &str, volume: f32) {
         self.bus_volumes
             .insert(bus.to_string(), volume.clamp(0.0, 1.0));
-        // 버스에 속한 모든 채널 싱크 업데이트
+        // Update sinks for all channels in the bus
         let channels: Vec<String> = self
             .channel_buses
             .iter()
@@ -36,13 +36,13 @@ impl AudioManager {
         }
     }
 
-    /// 버스 볼륨을 반환한다 (없으면 1.0).
+    /// Returns the bus volume (1.0 if not set).
     pub fn bus_volume(&self, bus: &str) -> f32 {
         self.bus_volumes.get(bus).copied().unwrap_or(1.0)
     }
 
-    /// 채널 볼륨을 즉시 설정한다 (0.0 = 무음, 1.0 = 원본).
-    /// 버스 볼륨과 곱해진 값이 실제 음량이 된다.
+    /// Sets the channel volume immediately (0.0 = silent, 1.0 = original).
+    /// The effective volume is this value multiplied by the bus volume.
     pub fn set_volume(&mut self, channel: &str, volume: f32) {
         let vol = volume.clamp(0.0, 1.0);
         self.volume_overrides.insert(channel.to_string(), vol);
@@ -52,9 +52,9 @@ impl AudioManager {
         }
     }
 
-    /// 채널 재생을 `duration_secs` 초에 걸쳐 페이드아웃 후 정지한다.
+    /// Fades out the channel playback over `duration_secs` seconds, then stops it.
     ///
-    /// 매 프레임 [`update`](Self::update)를 호출해야 동작한다.
+    /// Requires [`update`](Self::update) to be called every frame.
     pub fn fade_out(&mut self, channel: &str, duration_secs: f32) {
         let current_vol = self.effective_volume(channel);
         self.fades.insert(
@@ -69,9 +69,9 @@ impl AudioManager {
         );
     }
 
-    /// 채널 볼륨을 `duration_secs` 초에 걸쳐 `target` 까지 변경한다.
+    /// Fades the channel volume to `target` over `duration_secs` seconds.
     ///
-    /// 매 프레임 [`update`](Self::update)를 호출해야 동작한다.
+    /// Requires [`update`](Self::update) to be called every frame.
     pub fn fade_volume(&mut self, channel: &str, target: f32, duration_secs: f32) {
         let current_vol = self.effective_volume(channel);
         self.fades.insert(

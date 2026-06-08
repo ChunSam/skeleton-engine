@@ -12,7 +12,7 @@ use super::types::{is_finished_state, is_playing_state, playback_state_from_sink
 use super::{AudioChannelState, AudioManager};
 
 impl AudioManager {
-    /// 오디오 장치를 초기화한다. 실패 시 `None` 반환, 게임은 무음으로 계속 실행된다.
+    /// Initializes the audio device. Returns `None` on failure; the game continues silently.
     pub fn new() -> Option<Self> {
         use rodio::OutputStream;
         match OutputStream::try_default() {
@@ -29,25 +29,25 @@ impl AudioManager {
                 file_cache: HashMap::new(),
             }),
             Err(e) => {
-                log::warn!("오디오 초기화 실패 (오디오 없이 실행됩니다): {e}");
+                log::warn!("Audio initialization failed (running without audio): {e}");
                 None
             }
         }
     }
 
-    // ── 기본 재생 ─────────────────────────────────────────────────────────────
+    // ── Basic playback ────────────────────────────────────────────────────────
 
-    /// 오디오 파일을 채널에서 재생한다. 같은 채널이 있으면 먼저 정지한다.
+    /// Plays an audio file on a channel. Stops any existing playback on that channel first.
     pub fn play(&mut self, channel: &str, path: &str, repeat: bool) {
         self.play_internal(channel, path, repeat, None);
     }
 
-    /// 페이드인을 적용해 재생한다.
+    /// Plays with a fade-in applied.
     pub fn play_fade_in(&mut self, channel: &str, path: &str, repeat: bool, fade_secs: f32) {
         self.play_internal(channel, path, repeat, Some(fade_secs));
     }
 
-    /// 채널 재생을 즉시 정지한다.
+    /// Immediately stops playback on a channel.
     pub fn stop(&mut self, channel: &str) {
         self.fades.remove(channel);
         if let Some(sink) = self.sinks.remove(channel) {
@@ -77,11 +77,11 @@ impl AudioManager {
         is_playing_state(self.playback_state(channel))
     }
 
-    /// 순수 사인파 톤을 재생한다.
+    /// Plays a pure sine-wave tone.
     ///
-    /// `volume` 은 톤 자체의 진폭이고, 채널이 속한 버스 볼륨은 `play_internal` 과
-    /// 동일하게 sink 볼륨(`effective_volume`)으로 곱해진다. `set_effect` 로 지정한
-    /// 채널 이펙트(로우패스·피치·페이드인)도 톤에 적용된다.
+    /// `volume` is the amplitude of the tone itself. The bus volume for the channel
+    /// is multiplied in via the sink volume (`effective_volume`), same as `play_internal`.
+    /// Channel effects set via `set_effect` (low-pass, pitch, fade-in) are also applied.
     pub fn play_tone(&mut self, channel: &str, freq: f32, duration_secs: f32, volume: f32) {
         if let Some(old) = self.sinks.remove(channel) {
             old.stop();
@@ -90,14 +90,14 @@ impl AudioManager {
             Ok(s) => s,
             Err(_) => return,
         };
-        // 버스/채널 볼륨을 sink 에 반영 (set_bus_volume 이 즉시 갱신할 수 있도록).
+        // Apply bus/channel volume to the sink (so set_bus_volume can update it immediately).
         sink.set_volume(self.effective_volume(channel));
 
         let base = SineWave::new(freq)
             .take_duration(Duration::from_secs_f32(duration_secs))
             .amplify(volume);
 
-        // SineWave 는 f32 샘플이라 low_pass/speed/fade_in 을 변환 없이 직접 적용한다.
+        // SineWave produces f32 samples, so low_pass/speed/fade_in can be applied directly without conversion.
         let source: Box<dyn Source<Item = f32> + Send + 'static> =
             match self.effects.get(channel).cloned() {
                 Some(eff) => {
@@ -118,9 +118,9 @@ impl AudioManager {
         self.sinks.insert(channel.to_string(), sink);
     }
 
-    /// 페이드 처리를 진행한다. 매 프레임 System에서 호출한다.
+    /// Advances all active fades. Called every frame by the system.
     ///
-    /// `fade_out` / `fade_volume`을 사용할 경우 반드시 이 메서드를 호출해야 한다.
+    /// Must be called when using `fade_out` / `fade_volume`.
     pub fn update(&mut self, dt: f32) {
         let channels: Vec<String> = self.fades.keys().cloned().collect();
         for ch in channels {
@@ -160,7 +160,7 @@ impl AudioManager {
         }
     }
 
-    // ── 내부 헬퍼 ─────────────────────────────────────────────────────────────
+    // ── Internal helpers ──────────────────────────────────────────────────────
 
     pub(super) fn play_internal(
         &mut self,
@@ -177,7 +177,7 @@ impl AudioManager {
         let sink = match Sink::try_new(&self.stream_handle) {
             Ok(s) => s,
             Err(e) => {
-                log::warn!("오디오 싱크 생성 실패: {e}");
+                log::warn!("Failed to create audio sink: {e}");
                 return;
             }
         };
@@ -197,13 +197,13 @@ impl AudioManager {
         let source = match Decoder::new(Cursor::new(bytes)) {
             Ok(s) => s,
             Err(e) => {
-                log::warn!("오디오 디코딩 실패 '{path}': {e}");
+                log::warn!("Audio decoding failed for '{path}': {e}");
                 return;
             }
         };
 
-        // ── 이펙트 적용 ──────────────────────────────────────────────────────
-        // Box<dyn Source<Item=i16> + Send>로 통일해 타입 복잡도를 줄인다.
+        // ── Apply effects ─────────────────────────────────────────────────────
+        // Unified as Box<dyn Source<Item=i16> + Send> to reduce type complexity.
         let effect = self.effects.get(channel).cloned();
         let effected: Box<dyn Source<Item = i16> + Send + 'static> = if let Some(eff) = effect {
             if (eff.pitch - 1.0).abs() > 0.001 {
@@ -245,9 +245,9 @@ impl AudioManager {
             Box::new(source)
         };
 
-        // ── 팬 / 페이드인 / 반복 적용 ────────────────────────────────────────
-        // 팬 없고 페이드인 없을 때는 BufReader 경로가 더 효율적이지만,
-        // 여기서는 Cursor 경로로 통일 (이미 bytes로 읽었으므로 비용 동일)
+        // ── Apply pan / fade-in / repeat ──────────────────────────────────────
+        // BufReader would be more efficient without pan or fade-in, but we unify
+        // on the Cursor path here (bytes are already in memory, so the cost is identical).
         if pan.abs() > 0.001 {
             let panned = PannedSource::new(effected.convert_samples::<f32>(), pan);
             if let Some(fade_dur) = fade_in_secs {
@@ -278,7 +278,7 @@ impl AudioManager {
         self.sinks.insert(channel.to_string(), sink);
     }
 
-    /// 채널의 실효 볼륨 = 기본 볼륨 × 버스 볼륨
+    /// Effective volume for a channel = base volume × bus volume.
     pub(super) fn effective_volume(&self, channel: &str) -> f32 {
         let base = self.volume_overrides.get(channel).copied().unwrap_or(1.0);
         self.effective_volume_params(base, channel)
@@ -294,9 +294,9 @@ impl AudioManager {
         base * bus_vol
     }
 
-    // ── 호환성 유지 (이전 직접 read+BufReader 패턴) ──────────────────────────
+    // ── Compatibility (legacy direct read + BufReader pattern) ───────────────
 
-    /// `play` 의 낮은 수준 버전. 팬 없을 때 BufReader로 스트리밍한다.
+    /// Lower-level version of `play`. Streams via BufReader when there is no pan.
     #[allow(dead_code)]
     fn play_streaming(&mut self, channel: &str, path: &str, repeat: bool) {
         if let Some(old) = self.sinks.remove(channel) {
@@ -310,14 +310,14 @@ impl AudioManager {
         let file = match File::open(path) {
             Ok(f) => f,
             Err(e) => {
-                log::warn!("오디오 파일을 열 수 없습니다 '{path}': {e}");
+                log::warn!("Cannot open audio file '{path}': {e}");
                 return;
             }
         };
         let source = match Decoder::new(BufReader::new(file)) {
             Ok(s) => s,
             Err(e) => {
-                log::warn!("오디오 디코딩 실패 '{path}': {e}");
+                log::warn!("Audio decoding failed for '{path}': {e}");
                 return;
             }
         };
@@ -349,7 +349,7 @@ pub(super) fn read_cached_bytes(
             Some(arc)
         }
         Err(e) => {
-            log::warn!("오디오 파일을 열 수 없습니다 '{path}': {e}");
+            log::warn!("Cannot open audio file '{path}': {e}");
             None
         }
     }

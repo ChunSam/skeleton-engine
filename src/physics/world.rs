@@ -7,7 +7,7 @@ mod joints;
 mod raycast;
 mod tile_collider;
 
-// ── 조인트 핸들 ──────────────────────────────────────────────────────────────
+// ── Joint handle ─────────────────────────────────────────────────────────────
 
 /// Opaque handle to a physics joint created by one of the
 /// `PhysicsWorld::add_*_joint` methods.
@@ -20,12 +20,13 @@ mod tile_collider;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct JointHandle(pub(crate) ImpulseJointHandle);
 
-// ── 충돌 그룹 ────────────────────────────────────────────────────────────────
+// ── Collision groups ──────────────────────────────────────────────────────────
 
-/// Rapier `InteractionGroups`를 감싼 엔진용 충돌 레이어/마스크.
+/// Engine-level collision layer/mask wrapping Rapier's `InteractionGroups`.
 ///
-/// `memberships`는 이 콜라이더가 속한 레이어 비트, `filter`는 상호작용을 허용할
-/// 상대 레이어 비트다. 두 콜라이더가 모두 서로를 허용해야 충돌/센서 교차가 발생한다.
+/// `memberships` is the layer bitmask this collider belongs to; `filter` is the
+/// bitmask of layers it is allowed to interact with. Both colliders must permit
+/// each other for a collision or sensor overlap to occur.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CollisionGroups {
     pub memberships: u32,
@@ -88,35 +89,36 @@ impl Default for CollisionGroups {
     }
 }
 
-// ── 레이캐스트 결과 ──────────────────────────────────────────────────────────
+// ── Raycast result ────────────────────────────────────────────────────────────
 
-/// 레이캐스트 충돌 결과.
+/// Result of a raycast hit.
 #[derive(Debug, Clone, Copy)]
 pub struct RaycastHit {
-    /// 충돌한 콜라이더 핸들.
+    /// Handle of the collider that was hit.
     pub collider_handle: ColliderHandle,
-    /// 월드 공간 충돌 지점 (물리 단위).
+    /// Hit point in world space (physics units).
     pub point: Vec2,
-    /// 충돌 면의 법선 벡터 (정규화됨).
+    /// Normal vector of the hit surface (normalized).
     pub normal: Vec2,
-    /// 레이 시작점으로부터의 거리 배율 (`origin + direction * toi` = 충돌 지점).
+    /// Distance multiplier from the ray origin (`origin + direction * toi` = hit point).
     pub toi: f32,
 }
 
-/// [`PhysicsWorld::add_static_from_tilemap`]이 타일마다 만들 콜라이더의 종류.
+/// Kind of collider that [`PhysicsWorld::add_static_from_tilemap`] creates per tile.
 ///
-/// 충돌 그룹과 one-way 여부를 함께 지정한다. 편의 생성자로 흔한 경우를 만든다:
-/// [`TileCollider::solid`](전체 충돌), [`TileCollider::one_way`](위에서만 막음).
+/// Specifies the collision group and whether the tile is one-way.
+/// Convenience constructors cover the common cases:
+/// [`TileCollider::solid`] (blocks all directions), [`TileCollider::one_way`] (blocks from above only).
 #[derive(Debug, Clone, Copy)]
 pub struct TileCollider {
-    /// 콜라이더 충돌 그룹.
+    /// Collision groups for this collider.
     pub groups: CollisionGroups,
-    /// `true`면 위에서 내려올 때만 막는 one-way 플랫폼.
+    /// When `true`, acts as a one-way platform that only blocks from above.
     pub one_way: bool,
 }
 
 impl TileCollider {
-    /// 모든 방향을 막는 일반 솔리드 타일 (`CollisionGroups::all`).
+    /// A solid tile that blocks all directions (`CollisionGroups::all`).
     pub fn solid() -> Self {
         Self {
             groups: CollisionGroups::all(),
@@ -124,7 +126,7 @@ impl TileCollider {
         }
     }
 
-    /// 충돌 그룹을 지정한 솔리드 타일.
+    /// A solid tile with a specific collision group.
     pub fn solid_with(groups: CollisionGroups) -> Self {
         Self {
             groups,
@@ -132,7 +134,7 @@ impl TileCollider {
         }
     }
 
-    /// 위에서 내려올 때만 막고 아래/위 통과를 허용하는 one-way 플랫폼 타일.
+    /// A one-way platform tile that blocks only from above; passable from below and through.
     pub fn one_way() -> Self {
         Self {
             groups: CollisionGroups::all(),
@@ -141,9 +143,9 @@ impl TileCollider {
     }
 }
 
-/// rapier2d 2D 물리 시뮬레이션 세계.
+/// rapier2d 2D physics simulation world.
 ///
-/// `PhysicsSystem`이 소유하거나 직접 시스템 구조체에 넣어 사용한다.
+/// Owned by `PhysicsSystem` or embedded directly in a system struct.
 pub struct PhysicsWorld {
     pub(crate) rigid_body_set: RigidBodySet,
     pub(crate) collider_set: ColliderSet,
@@ -157,8 +159,8 @@ pub struct PhysicsWorld {
     pub(crate) multibody_joint_set: MultibodyJointSet,
     ccd_solver: CCDSolver,
     query_pipeline: QueryPipeline,
-    /// 위에서만 막는 one-way 플랫폼으로 표시된 콜라이더 집합.
-    /// `move_character`가 이동 방향에 따라 이 콜라이더와의 충돌을 동적으로 무시한다.
+    /// Set of colliders marked as one-way platforms (block from above only).
+    /// `move_character` dynamically ignores collisions with these based on movement direction.
     one_way_colliders: std::collections::HashSet<ColliderHandle>,
 }
 
@@ -181,11 +183,11 @@ impl PhysicsWorld {
         }
     }
 
-    /// 콜라이더를 one-way(위에서만 막는) 플랫폼으로 표시하거나 해제한다.
+    /// Marks or unmarks a collider as a one-way (blocks from above only) platform.
     ///
-    /// one-way로 표시된 콜라이더는 [`PhysicsWorld::move_character`]에서 캐릭터가
-    /// **아래로 내려오며 그 윗면 위에 있을 때만** 충돌하고, 위로 상승 중이거나
-    /// drop 요청(`CharacterController::request_drop`) 중에는 통과한다.
+    /// A one-way collider only collides in [`PhysicsWorld::move_character`] when the
+    /// character is **descending and above the platform's top surface**. It is passed
+    /// through while ascending or during a drop request (`CharacterController::request_drop`).
     pub fn set_one_way(&mut self, handle: ColliderHandle, one_way: bool) {
         if one_way {
             self.one_way_colliders.insert(handle);
@@ -194,12 +196,12 @@ impl PhysicsWorld {
         }
     }
 
-    /// 콜라이더가 one-way 플랫폼으로 표시되어 있는지 여부.
+    /// Returns whether a collider is marked as a one-way platform.
     pub fn is_one_way(&self, handle: ColliderHandle) -> bool {
         self.one_way_colliders.contains(&handle)
     }
 
-    /// dt초 만큼 물리 시뮬레이션을 진행한다.
+    /// Advances the physics simulation by `dt` seconds.
     pub fn step(&mut self, dt: f32) {
         self.integration_params.dt = dt;
         self.physics_pipeline.step(
@@ -219,36 +221,36 @@ impl PhysicsWorld {
         );
     }
 
-    /// 콜라이더가 다른 오브젝트와 접촉 중인지 확인 (착지 판정에 사용).
+    /// Returns whether a collider is currently in contact with another object (used for ground detection).
     pub fn has_contact(&self, col_handle: ColliderHandle) -> bool {
         self.narrow_phase
             .contact_pairs_with(col_handle)
             .any(|pair| pair.has_any_active_contact)
     }
 
-    // ── 타입 안전 접근자 ──────────────────────────────────────────────────────
+    // ── Type-safe accessors ───────────────────────────────────────────────────
 
-    /// 핸들로 강체(rigid body)를 불변 참조로 가져온다.
+    /// Returns an immutable reference to the rigid body for the given handle.
     pub fn rigid_body(&self, handle: RigidBodyHandle) -> Option<&RigidBody> {
         self.rigid_body_set.get(handle)
     }
 
-    /// 핸들로 강체를 가변 참조로 가져온다.
+    /// Returns a mutable reference to the rigid body for the given handle.
     pub fn rigid_body_mut(&mut self, handle: RigidBodyHandle) -> Option<&mut RigidBody> {
         self.rigid_body_set.get_mut(handle)
     }
 
-    /// 핸들로 rapier 콜라이더를 불변 참조로 가져온다.
+    /// Returns an immutable reference to the rapier collider for the given handle.
     pub fn get_collider(&self, handle: ColliderHandle) -> Option<&Collider> {
         self.collider_set.get(handle)
     }
 
-    /// 핸들로 rapier 콜라이더를 가변 참조로 가져온다.
+    /// Returns a mutable reference to the rapier collider for the given handle.
     pub fn get_collider_mut(&mut self, handle: ColliderHandle) -> Option<&mut Collider> {
         self.collider_set.get_mut(handle)
     }
 
-    /// 콜라이더의 충돌 그룹을 변경한다. 핸들이 없으면 `false`를 반환한다.
+    /// Changes the collision groups of a collider. Returns `false` if the handle is not found.
     pub fn set_collision_groups(
         &mut self,
         handle: ColliderHandle,
@@ -261,7 +263,7 @@ impl PhysicsWorld {
         true
     }
 
-    /// 콜라이더의 현재 충돌 그룹을 반환한다.
+    /// Returns the current collision groups of a collider.
     pub fn collision_groups(&self, handle: ColliderHandle) -> Option<CollisionGroups> {
         self.collider_set
             .get(handle)

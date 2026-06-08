@@ -79,7 +79,7 @@ impl SpriteRenderer {
         for alias in aliases {
             self.texture_cache.insert(alias, Arc::clone(&tex));
         }
-        log::info!("텍스처 핫 리로드: {path}");
+        log::info!("texture hot-reload: {path}");
     }
 
     pub fn register_render_target(&mut self, key: &str, bg: Arc<wgpu::BindGroup>) {

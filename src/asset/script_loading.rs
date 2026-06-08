@@ -8,7 +8,7 @@ use notify::{RecursiveMode, Watcher};
 use super::{alloc_id, asset_key, AssetId, AssetServer, Handle, ScriptAsset};
 
 impl AssetServer {
-    /// 스크립트를 로드해 핸들을 반환한다. 같은 경로 재호출 시 캐시된 핸들 반환.
+    /// Loads a script and returns a handle. Returns the cached handle on repeated calls with the same path.
     pub fn load_script(&mut self, path: impl AsRef<Path>) -> Handle<ScriptAsset> {
         let key = asset_key(path.as_ref());
         if let Some(&id) = self.script_path_to_id.get(&key) {
@@ -33,7 +33,7 @@ impl AssetServer {
         }
     }
 
-    /// 스크립트 에셋을 id로 조회한다 (ScriptingSystem 내부용).
+    /// Looks up a script asset by id (internal use by `ScriptingSystem`).
     pub fn get_script_by_id(&self, id: AssetId) -> Option<&ScriptAsset> {
         self.scripts.get(&id)
     }
@@ -44,22 +44,22 @@ pub(super) fn compile_script_file(path: &str) -> ScriptAsset {
     let source = match std::fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
-            log::error!("스크립트 파일 읽기 실패 '{path}': {e}");
+            log::error!("failed to read script file '{path}': {e}");
             String::new()
         }
     };
-    // wasm: 파일시스템이 없어 경로 기반 스크립트 로딩을 지원하지 않는다.
-    // (조용히 빈 스크립트로 떨어지던 동작을 명시적 경고로 바꾼다)
+    // wasm: no filesystem, so path-based script loading is not supported.
+    // (replaces the previous silent empty-script fallback with an explicit warning)
     #[cfg(target_arch = "wasm32")]
     let source = {
         log::warn!(
-            "load_script('{path}'): wasm 타깃은 파일시스템 스크립트 로딩을 지원하지 않습니다"
+            "load_script('{path}'): filesystem script loading is not supported on the wasm target"
         );
         String::new()
     };
     let engine = rhai::Engine::new();
     let ast = engine.compile(&source).unwrap_or_else(|e| {
-        log::error!("스크립트 컴파일 실패 '{path}': {e}");
+        log::error!("script compile failed '{path}': {e}");
         engine.compile("").unwrap()
     });
     ScriptAsset {

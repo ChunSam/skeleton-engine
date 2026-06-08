@@ -4,11 +4,11 @@ use rapier2d::prelude::*;
 use super::{PhysicsWorld, RaycastHit};
 
 impl PhysicsWorld {
-    /// 단순 레이캐스트. 최초 충돌 콜라이더 핸들과 toi(레이 이동 거리 배율)를 반환한다.
+    /// Simple raycast. Returns the first hit collider handle and toi (ray travel distance multiplier).
     ///
-    /// - `origin` / `direction` — 물리 단위 (픽셀 ÷ pixels_per_unit).
-    /// - `max_toi` — 최대 레이 길이 배율 (보통 최대 거리 / direction.length()).
-    /// - `solid` — `true`이면 레이 시작점이 콜라이더 내부일 때도 교차로 처리.
+    /// - `origin` / `direction` — in physics units (pixels ÷ pixels_per_unit).
+    /// - `max_toi` — maximum ray length multiplier (typically max_distance / direction.length()).
+    /// - `solid` — if `true`, a ray starting inside a collider is treated as an intersection.
     pub fn cast_ray(
         &self,
         origin: Vec2,
@@ -30,10 +30,11 @@ impl PhysicsWorld {
         )
     }
 
-    /// 레이캐스트 — 충돌 지점과 법선 벡터를 포함한 `RaycastHit`를 반환한다.
+    /// Raycast that returns a `RaycastHit` including the hit point and normal vector.
     ///
-    /// 물리 단위 기준. 픽셀 단위를 쓰려면 `origin`과 `direction`을 `pixels_per_unit`으로 나눠 전달하고,
-    /// 반환된 `RaycastHit::point`에 `pixels_per_unit`을 곱해 변환한다.
+    /// Uses physics units. To work in pixel units, divide `origin` and `direction` by
+    /// `pixels_per_unit` before passing them in, then multiply the returned `RaycastHit::point`
+    /// by `pixels_per_unit` to convert back.
     pub fn cast_ray_with_normal(
         &self,
         origin: Vec2,

@@ -4,9 +4,9 @@ use rapier2d::prelude::*;
 use super::{JointHandle, PhysicsWorld};
 
 impl PhysicsWorld {
-    /// 두 바디 사이에 DistanceJoint를 생성한다.
-    /// `anchor1/2` — 각 바디 로컬 공간의 연결점 (월드 단위).
-    /// 내부적으로 `SpringJointBuilder`(stiffness=1000, damping=10)를 사용해 고정 거리를 유지한다.
+    /// Creates a DistanceJoint between two bodies.
+    /// `anchor1/2` — attachment point in each body's local space (world units).
+    /// Internally uses `SpringJointBuilder` (stiffness=1000, damping=10) to maintain a fixed distance.
     pub fn add_distance_joint(
         &mut self,
         body1: RigidBodyHandle,
@@ -22,7 +22,7 @@ impl PhysicsWorld {
         JointHandle(self.impulse_joint_set.insert(body1, body2, data, true))
     }
 
-    /// RevoluteJoint (힌지) — 두 바디가 공통 피벗점을 기준으로 자유 회전.
+    /// RevoluteJoint (hinge) — two bodies rotate freely around a shared pivot point.
     pub fn add_revolute_joint(
         &mut self,
         body1: RigidBodyHandle,
@@ -37,7 +37,7 @@ impl PhysicsWorld {
         JointHandle(self.impulse_joint_set.insert(body1, body2, data, true))
     }
 
-    /// PrismaticJoint (슬라이더) — 특정 축 방향으로만 상대 이동 허용.
+    /// PrismaticJoint (slider) — allows relative movement along a specific axis only.
     pub fn add_prismatic_joint(
         &mut self,
         body1: RigidBodyHandle,
@@ -54,7 +54,7 @@ impl PhysicsWorld {
         JointHandle(self.impulse_joint_set.insert(body1, body2, data, true))
     }
 
-    /// 조인트를 제거한다.
+    /// Removes a joint.
     pub fn remove_joint(&mut self, handle: JointHandle) {
         self.impulse_joint_set.remove(handle.0, true);
     }

@@ -25,7 +25,7 @@ pub(super) fn egui_render_pass(
         occlusion_query_set: None,
         timestamp_writes: None,
     });
-    // Safety: 위 doc comment의 불변 조건 참조.
+    // Safety: see the invariant documented in the doc comment above.
     unsafe {
         let er_s: &'static egui_wgpu::Renderer = &*(er as *const _);
         let mut rpass_s: wgpu::RenderPass<'static> = std::mem::transmute(rpass);

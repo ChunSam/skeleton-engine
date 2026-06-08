@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use crate::ecs::Entity;
 
-/// 스크립트 실행 중 수집된 ECS 명령.
+/// ECS commands collected during script execution.
 #[derive(Default)]
 pub(super) struct ScriptCommands {
     pub(super) despawn: Vec<Entity>,
@@ -34,11 +34,12 @@ pub(super) enum SteeringCmd {
     Stop,
 }
 
-// 엔티티마다 register_fn을 반복 호출하는 대신, with_limits()에서 1회만 등록하고
-// 실행 컨텍스트(버퍼)를 thread_local로 전달한다.
-// ECS 시스템은 단일 스레드이므로 `Arc<Mutex<_>>` 없이 plain 버퍼를 RefCell 안에서
-// 직접 빌려 쓴다. 버퍼는 `ScriptingSystem::run`이 엔티티마다 move-in/move-out 하며
-// 재사용하므로(할당 재사용) 엔티티당 힙 할당이 발생하지 않는다.
+// Instead of calling register_fn for every entity, functions are registered once inside
+// with_limits() and the execution context (buffer) is passed via thread_local.
+// Since the ECS system is single-threaded, plain buffers are borrowed directly inside a
+// RefCell without needing `Arc<Mutex<_>>`. The buffer is moved in/out by
+// `ScriptingSystem::run` for each entity (allocation reuse), so no per-entity heap
+// allocation occurs.
 pub(super) struct ScriptCtx {
     pub(super) entity: Entity,
     pub(super) cmd_buf: ScriptCommands,
@@ -51,12 +52,12 @@ thread_local! {
     pub(super) static SCRIPT_CTX: RefCell<Option<ScriptCtx>> = const { RefCell::new(None) };
 }
 
-/// thread_local 컨텍스트를 설정한다. 스크립트 실행 전 호출.
+/// Sets the thread_local context. Call before executing a script.
 pub(super) fn set_script_ctx(ctx: ScriptCtx) {
     SCRIPT_CTX.with(|c| *c.borrow_mut() = Some(ctx));
 }
 
-/// thread_local 컨텍스트를 꺼내 돌려준다(버퍼 회수). 스크립트 실행 후 호출.
+/// Takes and returns the thread_local context (buffer reclaim). Call after executing a script.
 pub(super) fn take_script_ctx() -> Option<ScriptCtx> {
     SCRIPT_CTX.with(|c| c.borrow_mut().take())
 }

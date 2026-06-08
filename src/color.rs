@@ -1,12 +1,12 @@
-//! 엔진 전역에서 쓰는 단일 색상 타입 [`Color`].
+//! The single color type used throughout the engine: [`Color`].
 
 use serde::{Deserialize, Serialize};
 
-/// RGBA 색상 (각 채널 0.0–1.0).
+/// RGBA color (each channel 0.0–1.0).
 ///
-/// 엔진의 모든 색상 API가 이 타입을 쓴다. 다양한 입력을 받도록 `From` 변환을
-/// 제공한다: `[f32; 4]`, `[f32; 3]`(알파 1.0), `[u8; 4]`. 렌더 경계에서는
-/// [`Color::to_array`]/[`Color::to_u8`]/[`Color::to_rgb`] 로 변환한다.
+/// Used by every color API in the engine. `From` conversions are provided for
+/// various inputs: `[f32; 4]`, `[f32; 3]` (alpha 1.0), `[u8; 4]`. At render
+/// boundaries, convert with [`Color::to_array`]/[`Color::to_u8`]/[`Color::to_rgb`].
 ///
 /// ```
 /// use engine::Color;
@@ -32,17 +32,17 @@ impl Color {
     pub const GREEN: Self = Self::rgb(0.0, 1.0, 0.0);
     pub const BLUE: Self = Self::rgb(0.0, 0.0, 1.0);
 
-    /// 불투명 색 (알파 1.0).
+    /// Opaque color (alpha 1.0).
     pub const fn rgb(r: f32, g: f32, b: f32) -> Self {
         Self { r, g, b, a: 1.0 }
     }
 
-    /// 알파를 포함한 색.
+    /// Color including alpha.
     pub const fn rgba(r: f32, g: f32, b: f32, a: f32) -> Self {
         Self { r, g, b, a }
     }
 
-    /// 0–255 정수 채널로 생성.
+    /// Constructs from 0–255 integer channels.
     pub fn rgba_u8(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self {
             r: r as f32 / 255.0,
@@ -52,7 +52,7 @@ impl Color {
         }
     }
 
-    /// `0xRRGGBB` 16진수 색 (알파 1.0).
+    /// `0xRRGGBB` hex color (alpha 1.0).
     pub fn hex(rgb: u32) -> Self {
         Self::rgba_u8(
             ((rgb >> 16) & 0xff) as u8,
@@ -62,12 +62,12 @@ impl Color {
         )
     }
 
-    /// 렌더/인스턴스 데이터용 `[f32; 4]`.
+    /// `[f32; 4]` for render/instance data.
     pub fn to_array(self) -> [f32; 4] {
         [self.r, self.g, self.b, self.a]
     }
 
-    /// 텍스트 등 8비트 채널용 `[u8; 4]`.
+    /// `[u8; 4]` for 8-bit channel uses such as text rendering.
     pub fn to_u8(self) -> [u8; 4] {
         [
             (self.r.clamp(0.0, 1.0) * 255.0).round() as u8,
@@ -77,7 +77,7 @@ impl Color {
         ]
     }
 
-    /// 라이팅 등 알파 없는 `[f32; 3]`.
+    /// `[f32; 3]` without alpha, for uses such as lighting.
     pub fn to_rgb(self) -> [f32; 3] {
         [self.r, self.g, self.b]
     }

@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-/// 게임패드 버튼 식별자.
+/// Gamepad button identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GamepadButton {
     South,        // A (Xbox) / Cross (PS)
@@ -9,8 +9,8 @@ pub enum GamepadButton {
     West,         // X (Xbox) / Square (PS)
     LeftBumper,   // LB / L1
     RightBumper,  // RB / R1
-    LeftTrigger,  // LT / L2 (디지털)
-    RightTrigger, // RT / R2 (디지털)
+    LeftTrigger,  // LT / L2 (digital)
+    RightTrigger, // RT / R2 (digital)
     Select,
     Start,
     LeftThumb,
@@ -21,15 +21,15 @@ pub enum GamepadButton {
     DPadRight,
 }
 
-/// 게임패드 축 식별자.
+/// Gamepad axis identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GamepadAxis {
     LeftStickX,
     LeftStickY,
     RightStickX,
     RightStickY,
-    LeftTrigger,  // L2/LT 아날로그 (0.0 ~ 1.0)
-    RightTrigger, // R2/RT 아날로그 (0.0 ~ 1.0)
+    LeftTrigger,  // L2/LT analog (0.0 ~ 1.0)
+    RightTrigger, // R2/RT analog (0.0 ~ 1.0)
     DPadX,
     DPadY,
 }
@@ -58,16 +58,16 @@ impl Slot {
     }
 }
 
-/// 게임패드 입력 상태를 담는 ECS 리소스.
+/// ECS resource holding gamepad input state.
 ///
-/// 최대 4개 게임패드(슬롯 0~3)를 지원한다.
-/// `App::new()` 에서 자동 삽입되므로 별도 등록 불필요.
+/// Supports up to 4 gamepads (slots 0–3).
+/// Automatically inserted by `App::new()`; no manual registration required.
 ///
-/// # 예제
+/// # Example
 /// ```ignore
-/// // 슬롯 0 (첫 번째 연결된 패드)
+/// // Slot 0 (first connected pad)
 /// if let Some(gs) = world.resource::<GamepadState>() {
-///     if gs.just_pressed(0, GamepadButton::South) { /* 점프 */ }
+///     if gs.just_pressed(0, GamepadButton::South) { /* jump */ }
 ///     let lx = gs.axis(0, GamepadAxis::LeftStickX);
 /// }
 /// ```
@@ -79,41 +79,41 @@ pub struct GamepadState {
 }
 
 impl GamepadState {
-    // ── 공개 쿼리 메서드 ──────────────────────────────────────────────────────
+    // ── Public query methods ───────────────────────────────────────────────────
 
-    /// `pad` 슬롯이 연결되어 있으면 true.
+    /// Returns `true` if the `pad` slot is connected.
     pub fn is_connected(&self, pad: usize) -> bool {
         pad < 4 && self.slots[pad].is_some()
     }
 
-    /// 최소 한 개의 게임패드가 연결되어 있으면 true.
+    /// Returns `true` if at least one gamepad is connected.
     pub fn any_connected(&self) -> bool {
         self.slots.iter().any(|s| s.is_some())
     }
 
-    /// 첫 번째 연결된 게임패드의 슬롯 인덱스.
+    /// Slot index of the first connected gamepad.
     pub fn primary(&self) -> Option<usize> {
         self.slots.iter().position(|s| s.is_some())
     }
 
-    /// `pad` 슬롯에서 `button`이 눌려 있으면 true.
+    /// Returns `true` if `button` is held in slot `pad`.
     pub fn is_pressed(&self, pad: usize, button: GamepadButton) -> bool {
         self.slot(pad).is_some_and(|s| s.pressed.contains(&button))
     }
 
-    /// `pad` 슬롯에서 `button`이 이번 프레임에 눌렸으면 true.
+    /// Returns `true` if `button` was pressed this frame in slot `pad`.
     pub fn just_pressed(&self, pad: usize, button: GamepadButton) -> bool {
         self.slot(pad)
             .is_some_and(|s| s.just_pressed.contains(&button))
     }
 
-    /// `pad` 슬롯에서 `button`이 이번 프레임에 떼어졌으면 true.
+    /// Returns `true` if `button` was released this frame in slot `pad`.
     pub fn just_released(&self, pad: usize, button: GamepadButton) -> bool {
         self.slot(pad)
             .is_some_and(|s| s.just_released.contains(&button))
     }
 
-    /// `pad` 슬롯의 `axis` 값 (−1.0 ~ 1.0, 데드존 미적용).
+    /// Returns the `axis` value for slot `pad` (−1.0 ~ 1.0, no dead-zone applied).
     pub fn axis(&self, pad: usize, axis: GamepadAxis) -> f32 {
         self.slot(pad)
             .and_then(|s| s.axes.get(&axis).copied())
@@ -124,7 +124,7 @@ impl GamepadState {
         self.slots.get(pad)?.as_ref()
     }
 
-    // ── 내부 이벤트 처리 (App에서만 호출) ────────────────────────────────────
+    // ── Internal event handling (called only from App) ─────────────────────────
 
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn process_event(&mut self, event: gilrs::Event) {

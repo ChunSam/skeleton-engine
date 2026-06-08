@@ -9,20 +9,23 @@ use crate::physics::body::PhysicsBody;
 use crate::physics::events::{CollisionEvent, TriggerEvent};
 use crate::physics::world::PhysicsWorld;
 
-/// 범용 물리 시스템: 매 프레임 step → Transform 동기화.
+/// General-purpose physics system: steps the simulation every frame and syncs transforms.
 ///
-/// `PhysicsWorld`에 바디를 만들 때의 위치/크기는 물리 단위이고, 이 시스템은 Rapier 결과에
-/// `pixels_per_unit`을 곱해 `Transform.position` 픽셀 좌표로 반영한다. 예를 들어
-/// `pixels_per_unit = 50.0`이면 물리 1 unit이 화면 50px에 해당한다.
+/// Positions and sizes used when creating bodies in `PhysicsWorld` are in physics units.
+/// This system multiplies Rapier results by `pixels_per_unit` to write pixel coordinates
+/// into `Transform.position`. For example, `pixels_per_unit = 50.0` means 1 physics unit
+/// equals 50 screen pixels.
 ///
-/// 위치뿐 아니라 바디의 **회전각도 `Transform.rotation`(라디안)에 동기화**한다 — 조인트로
-/// 자유 회전하는 바디(힌지 암 등)의 스프라이트가 물리와 함께 돌도록. 회전을 잠근 바디
-/// (`lock_rotation: true`)는 각도가 항상 0이라 영향이 없다.
+/// In addition to position, it also **syncs the body's rotation angle to `Transform.rotation`
+/// (radians)** — so sprites on freely-rotating bodies (hinge arms, etc.) turn with the
+/// physics simulation. Bodies with `lock_rotation: true` always have angle 0, so syncing
+/// them is a no-op.
 ///
 /// # Setup
 ///
-/// `PhysicsWorld`는 이 시스템이 아닌 **World 리소스**로 관리된다. 사용 전 반드시
-/// `world.insert_resource(physics)` 로 삽입하고, `PhysicsSystem::new(ppu)` 만 시스템에 등록한다.
+/// `PhysicsWorld` is managed as a **World resource**, not inside this system. Before use,
+/// insert it via `world.insert_resource(physics)` and register only `PhysicsSystem::new(ppu)`
+/// as a system.
 ///
 /// ```ignore
 /// let physics = PhysicsWorld::new(gravity);
@@ -30,10 +33,10 @@ use crate::physics::world::PhysicsWorld;
 /// app.add_system(PhysicsSystem::new(50.0));
 /// ```
 ///
-/// 다른 시스템이나 게임 코드에서 물리 월드에 접근하려면 `world.resource_mut::<PhysicsWorld>()`
-/// 를 사용한다.
+/// To access the physics world from other systems or game code, use
+/// `world.resource_mut::<PhysicsWorld>()`.
 pub struct PhysicsSystem {
-    /// 화면 픽셀당 물리 단위 비율. 예: 50.0 → 1 unit = 50px
+    /// Pixels per physics unit ratio. Example: 50.0 → 1 unit = 50 px.
     pub pixels_per_unit: f32,
     active_contacts: HashSet<(ColliderHandle, ColliderHandle)>,
     active_intersections: HashSet<(ColliderHandle, ColliderHandle)>,
@@ -69,13 +72,13 @@ impl System for PhysicsSystem {
 
         physics.step(dt);
 
-        // ── 충돌 이벤트 diff ──────────────────────────────────────────────────
+        // ── Collision event diff ──────────────────────────────────────────────
         let col_map: HashMap<ColliderHandle, Entity> = world
             .query::<PhysicsBody>()
             .map(|(e, b)| (b.collider_handle, e))
             .collect();
 
-        // Rapier는 동일 쌍의 collider1/collider2 순서를 프레임 간 유지한다
+        // Rapier preserves the collider1/collider2 order for the same pair across frames.
         let current: HashSet<(ColliderHandle, ColliderHandle)> = physics
             .narrow_phase
             .contact_pairs()
@@ -111,9 +114,9 @@ impl System for PhysicsSystem {
                 }
             }
         }
-        // ── end 충돌 이벤트 diff ─────────────────────────────────────────────
+        // ── end collision event diff ──────────────────────────────────────────
 
-        // ── 센서 이벤트 diff ──────────────────────────────────────────────────
+        // ── Sensor event diff ─────────────────────────────────────────────────
         let current_intersections: HashSet<(ColliderHandle, ColliderHandle)> = physics
             .narrow_phase
             .intersection_pairs()
@@ -149,9 +152,9 @@ impl System for PhysicsSystem {
                 }
             }
         }
-        // ── end 센서 이벤트 diff ─────────────────────────────────────────────
+        // ── end sensor event diff ─────────────────────────────────────────────
 
-        // borrow checker: (entity, handle) 를 먼저 수집해야 world를 다시 빌릴 수 있다
+        // borrow checker: collect (entity, handle) pairs first so we can re-borrow world
         let pairs: Vec<(Entity, RigidBodyHandle)> = world
             .query::<PhysicsBody>()
             .map(|(e, b)| (e, b.rigid_body_handle))
@@ -224,7 +227,7 @@ mod tests {
 
     #[test]
     fn syncs_body_rotation_to_transform() {
-        // 회전하는 동적 바디의 각도가 Transform.rotation으로 동기화되어야 한다.
+        // The angle of a rotating dynamic body must be synced to Transform.rotation.
         let mut physics = PhysicsWorld::new(Vec2::ZERO);
         let (rb, col) = physics.add_dynamic_box(Vec2::ZERO, 0.5, 0.5, false);
         physics.rigid_body_mut(rb).unwrap().set_angvel(3.0, true);
@@ -246,16 +249,16 @@ mod tests {
         system.run(&mut world, dt);
 
         let rotation = world.get_mut::<Transform>(e).unwrap().rotation;
-        // angvel 3.0 rad/s 가 dt만큼 적분 → 약 0.05 rad. 동기화 안 하면 0으로 남는다.
+        // angvel 3.0 rad/s integrated over dt → ~0.05 rad. Without sync it stays at 0.
         assert!(
             (rotation - 3.0 * dt).abs() < 1e-2,
-            "rotation 은 body 각도(≈angvel*dt)와 일치해야 함: {rotation}"
+            "rotation must match body angle (≈angvel*dt): {rotation}"
         );
     }
 
     #[test]
     fn locked_rotation_body_keeps_zero_rotation() {
-        // 회전 잠금 바디는 토크를 줘도 각도 0 — 동기화가 무해함을 보장.
+        // A rotation-locked body stays at angle 0 even with torque — verifies syncing is harmless.
         let mut physics = PhysicsWorld::new(Vec2::ZERO);
         let (rb, col) = physics.add_dynamic_box(Vec2::ZERO, 0.5, 0.5, true);
         physics
@@ -281,7 +284,7 @@ mod tests {
         let rotation = world.get_mut::<Transform>(e).unwrap().rotation;
         assert!(
             rotation.abs() < 1e-6,
-            "회전 잠금 바디는 rotation 0을 유지해야 함: {rotation}"
+            "rotation-locked body must keep rotation 0: {rotation}"
         );
     }
 }

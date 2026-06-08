@@ -2,21 +2,21 @@ use super::*;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ScheduleErrorPolicy {
-    /// 에러를 로그에 남기고 시스템 삽입 순서로 실행한다.
+    /// Logs the error and runs systems in insertion order.
     #[default]
     LogAndFallback,
-    /// 에러를 로그에 남기고 해당 프레임의 사용자 시스템 실행을 건너뛴다.
+    /// Logs the error and skips user system execution for that frame.
     DisableRunOnCycle,
-    /// 순환 의존성을 panic으로 처리한다. 테스트/개발 환경에서 빠른 실패가 필요할 때 쓴다.
+    /// Panics on a circular dependency. Use in tests/dev when you want fast failure.
     PanicOnCycle,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum SystemPanicPolicy {
-    /// panic을 기록하고 해당 시스템을 이후 프레임에서 비활성화한 뒤 계속 실행한다.
+    /// Logs the panic, disables the system for future frames, and continues running.
     #[default]
     DisableSystemAndContinue,
-    /// panic을 기록한 뒤 다시 panic시켜 호출자가 실패를 즉시 볼 수 있게 한다.
+    /// Logs the panic, then re-panics so the caller sees the failure immediately.
     AbortAfterLog,
 }
 
@@ -26,7 +26,7 @@ pub(super) fn format_panic_payload(payload: &Box<dyn std::any::Any + Send>) -> S
     } else if let Some(s) = payload.downcast_ref::<String>() {
         s.clone()
     } else {
-        "알 수 없는 패닉".to_string()
+        "unknown panic".to_string()
     }
 }
 
@@ -45,7 +45,7 @@ pub(super) fn write_crash_log(system_name: &str, message: &str) {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        let content = format!("[{timestamp}] 시스템 패닉: {system_name}\n오류: {message}\n\n");
+        let content = format!("[{timestamp}] system panic: {system_name}\nerror: {message}\n\n");
         if let Ok(mut file) = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -129,7 +129,7 @@ impl App {
             self.world.insert_resource(DisplayScaleFactor(scale_factor));
         }
 
-        // egui 프레임 시작
+        // Begin egui frame
         let egui_ctx: Option<egui::Context> = {
             let window = self.window.as_ref();
             let state = self.egui_state.as_mut();
@@ -147,9 +147,9 @@ impl App {
             }
         };
 
-        // 스케줄 재계산 (라벨/순서 변경 시)
+        // Recompute the schedule (when labels/ordering changed)
         if self.schedule_dirty {
-            // 안전: 씬 직접 push 흡수
+            // Safety: absorb systems pushed directly onto the scene
             if self.system_meta.len() != self.systems.len() {
                 self.system_meta.resize(
                     self.systems.len(),
@@ -162,18 +162,18 @@ impl App {
                     match self.schedule_error_policy {
                         ScheduleErrorPolicy::LogAndFallback => {
                             log::error!(
-                                "시스템 순서 순환 의존성 감지 — 삽입 순서로 폴백 (영향 인덱스: {remaining:?})"
+                                "system order circular dependency detected — falling back to insertion order (affected indices: {remaining:?})"
                             );
                             self.exec_order = (0..self.systems.len()).collect();
                         }
                         ScheduleErrorPolicy::DisableRunOnCycle => {
                             log::error!(
-                                "시스템 순서 순환 의존성 감지 — 사용자 시스템 실행 건너뜀 (영향 인덱스: {remaining:?})"
+                                "system order circular dependency detected — skipping user system execution (affected indices: {remaining:?})"
                             );
                             self.exec_order.clear();
                         }
                         ScheduleErrorPolicy::PanicOnCycle => {
-                            panic!("시스템 순서 순환 의존성 감지 (영향 인덱스: {remaining:?})");
+                            panic!("system order circular dependency detected (affected indices: {remaining:?})");
                         }
                     }
                 }
@@ -181,7 +181,7 @@ impl App {
             self.schedule_dirty = false;
         }
 
-        // 시스템 실행 + 프로파일러 계측 (exec_order 순회, 비활성 set 스킵)
+        // Execute systems + profiler instrumentation (iterate exec_order, skip disabled sets)
         {
             let system_count = self.systems.len();
             let mut timings: Vec<(usize, &'static str, u64)> = Vec::with_capacity(system_count);
@@ -190,7 +190,7 @@ impl App {
                 if i >= self.systems.len() {
                     continue;
                 }
-                // 패닉으로 비활성화된 시스템 건너뜀
+                // Skip systems disabled due to a prior panic
                 if self.panicked_systems.contains(&i) {
                     continue;
                 }
@@ -201,10 +201,10 @@ impl App {
                 }
                 let name = self.systems[i].name();
                 let t0 = Instant::now();
-                // 패닉 격리: 시스템 패닉 시 엔진이 계속 실행되도록 catch_unwind로 감싼다.
-                // AssertUnwindSafe: World는 패닉 후 일관성을 보장하지 않을 수 있으나,
-                // 해당 시스템을 비활성화하면 추가 피해를 막는다.
-                // 주의: panic = "abort" 빌드 또는 FFI 패닉에서는 동작하지 않음.
+                // Panic isolation: wrap in catch_unwind so the engine keeps running if a system panics.
+                // AssertUnwindSafe: World consistency is not guaranteed after a panic, but
+                // disabling the offending system prevents further damage.
+                // Note: does not work with panic = "abort" builds or FFI panics.
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     self.systems[i].run(&mut self.world, dt);
                 }));
@@ -214,7 +214,7 @@ impl App {
                     }
                     Err(panic) => {
                         let msg = format_panic_payload(&panic);
-                        log::error!("시스템 패닉 [{name}]: {msg}");
+                        log::error!("system panic [{name}]: {msg}");
                         #[cfg(not(target_arch = "wasm32"))]
                         write_crash_log(name, &msg);
                         match self.system_panic_policy {
@@ -244,10 +244,10 @@ impl App {
                 prof.frame_ms = dt * 1000.0;
             }
         }
-        // 계층 변환 전파 — 유저 시스템(물리 포함) 이후, 렌더 직전에 실행
+        // Propagate hierarchy transforms — after user systems (including physics), just before render
         HierarchySystem.run(&mut self.world, dt);
 
-        // 카메라 이펙트 업데이트 (shake decay, zoom tween, smooth follow)
+        // Update camera effects (shake decay, zoom tween, smooth follow)
         {
             let follow_pos = self
                 .world
@@ -262,7 +262,7 @@ impl App {
 
         self.update_editor_ui(&egui_ctx, dt);
 
-        // egui 프레임 종료 + tessellate → render() 로 전달
+        // End egui frame + tessellate → hand off to render()
         if let Some(ctx) = egui_ctx {
             let ppp = self
                 .window
@@ -273,8 +273,8 @@ impl App {
             let paint_jobs = ctx.tessellate(full_output.shapes, ppp);
             self.egui_output = Some((paint_jobs, full_output.textures_delta, ppp));
         }
-        // 모든 시스템 실행 후 이벤트 큐를 비운다.
-        // std::mem::take 으로 꺼내야 &mut self.world 와 충돌하지 않는다.
+        // Flush the event queue after all systems have run.
+        // Must use std::mem::take to avoid conflicting borrows of &mut self.world.
         let flushers = std::mem::take(&mut self.event_flushers);
         for flush in &flushers {
             flush(&mut self.world);
@@ -289,7 +289,7 @@ impl App {
         if let Some(ts) = self.world.resource_mut::<TouchState>() {
             ts.flush();
         }
-        // 씬 전환 명령 처리 (이벤트/입력 flush 이후)
+        // Process scene-transition command (after event/input flush)
         let cmd = self
             .world
             .resource_mut::<SceneChange>()
@@ -298,7 +298,7 @@ impl App {
             self.apply_scene_cmd(cmd);
         }
 
-        // FadeTransition 알파 진행
+        // Advance FadeTransition alpha
         if let Some(fade) = self
             .world
             .resource_mut::<crate::resources::FadeTransition>()
@@ -306,7 +306,7 @@ impl App {
             fade.update(dt);
         }
 
-        // 핫 리로딩: 변경된 파일 목록을 받아 GPU 텍스처를 재업로드한다.
+        // Hot reload: receive list of changed files and re-upload their GPU textures.
         let reloaded: Vec<String> = self
             .world
             .resource_mut::<AssetServer>()
@@ -320,7 +320,7 @@ impl App {
             }
         }
 
-        // 비동기 로드 완료 처리: 완료된 에셋을 GPU에 업로드하고 LoadProgress를 갱신한다.
+        // Async load completion: upload finished assets to the GPU and update LoadProgress.
         let async_completed: Vec<(String, ImageAsset)> = self
             .world
             .resource_mut::<AssetServer>()
@@ -332,7 +332,7 @@ impl App {
                     sr.load_texture_from_image(&gpu.device, &gpu.queue, path, asset);
                 }
             }
-            // LoadProgress.loaded 갱신
+            // Update LoadProgress.loaded
             if let Some(prog) = self.world.resource_mut::<LoadProgress>() {
                 prog.loaded += async_completed.len();
             }

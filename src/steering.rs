@@ -1,15 +1,16 @@
-//! 스티어링 행동 (Steering Behaviors) 시스템 (Phase 37a)
+//! Steering Behaviors system (Phase 37a)
 //!
-//! 엔티티의 `Transform.position`을 읽어 목표 방향으로 속도 벡터를 계산하고
-//! `SteeringVelocity`에 저장한다. `SteeringSystem`이 매 프레임 Transform을 실제로 이동시킨다.
+//! Reads each entity's `Transform.position`, computes a velocity vector toward the
+//! desired direction, and stores it in `SteeringVelocity`. `SteeringSystem` then
+//! applies the velocity to `Transform` every frame.
 //!
-//! # 포함 행동
-//! - [`Seek`]   — 목표 위치를 향해 최대 속도로 이동
-//! - [`Flee`]   — 목표 위치로부터 도망 (flee_radius 이내일 때만)
-//! - [`Arrive`] — 목표에 가까워지면 감속, stop_radius 이내에서 정지
-//! - [`Wander`] — 무작위 방향으로 배회 (change_interval마다 방향 변경)
+//! # Included behaviors
+//! - [`Seek`]   — move toward a target at full speed
+//! - [`Flee`]   — flee from a target (only when within `flee_radius`)
+//! - [`Arrive`] — decelerate as the target nears; stop within `stop_radius`
+//! - [`Wander`] — roam in a random direction (changes every `change_interval`)
 //!
-//! # 등록 예시
+//! # Registration example
 //! ```rust,no_run
 //! use engine::steering::{Seek, SteeringSystem, SteeringVelocity};
 //! use engine::{App, Transform};
@@ -31,10 +32,10 @@ use crate::System;
 
 // ─── SteeringVelocity ─────────────────────────────────────────────────────────
 
-/// 스티어링 계산 결과를 저장하는 컴포넌트.
+/// Component that stores the result of steering calculations.
 ///
-/// `SteeringSystem`이 각 스티어링 행동 컴포넌트(Seek/Flee/Arrive/Wander)를 평가해
-/// 이 필드를 갱신하고, 최종적으로 `Transform.position`에 적용한다.
+/// `SteeringSystem` evaluates each steering behavior component (Seek/Flee/Arrive/Wander),
+/// updates this field, and finally applies it to `Transform.position`.
 #[derive(Debug, Clone, Default)]
 pub struct SteeringVelocity {
     pub velocity: Vec2,
@@ -43,7 +44,7 @@ pub struct SteeringVelocity {
 
 // ─── Seek ─────────────────────────────────────────────────────────────────────
 
-/// 목표 위치를 향해 최대 속도로 직선 이동.
+/// Move in a straight line toward the target at full speed.
 #[derive(Debug, Clone)]
 pub struct Seek {
     pub target: Vec2,
@@ -52,35 +53,35 @@ pub struct Seek {
 
 // ─── Flee ─────────────────────────────────────────────────────────────────────
 
-/// 목표 위치로부터 도망. `flee_radius` 이내일 때만 활성화된다.
+/// Flee from a target position. Only activates when within `flee_radius`.
 #[derive(Debug, Clone)]
 pub struct Flee {
     pub target: Vec2,
     pub max_speed: f32,
-    /// 이 거리 이내일 때만 도망 속도가 생성된다.
+    /// Flee velocity is only generated when within this distance.
     pub flee_radius: f32,
 }
 
 // ─── Arrive ───────────────────────────────────────────────────────────────────
 
-/// 목표에 가까워지면 감속. `stop_radius` 이내에서 정지.
+/// Decelerate as the target nears. Come to a full stop within `stop_radius`.
 #[derive(Debug, Clone)]
 pub struct Arrive {
     pub target: Vec2,
     pub max_speed: f32,
-    /// 이 거리 이내에서 감속을 시작한다.
+    /// Begin decelerating within this distance.
     pub slow_radius: f32,
-    /// 이 거리 이내에서 속도를 0으로 만든다.
+    /// Zero out velocity within this distance.
     pub stop_radius: f32,
 }
 
 // ─── Wander ───────────────────────────────────────────────────────────────────
 
-/// 무작위 방향으로 배회. `change_interval`마다 방향을 바꾼다.
+/// Roam in a random direction, changing direction every `change_interval`.
 #[derive(Debug, Clone)]
 pub struct Wander {
     pub max_speed: f32,
-    /// 방향 변경 주기 (초).
+    /// Direction change interval (seconds).
     pub change_interval: f32,
     pub(crate) timer: f32,
     pub(crate) current_dir: Vec2,
@@ -99,10 +100,10 @@ impl Wander {
 
 // ─── SteeringSystem ───────────────────────────────────────────────────────────
 
-/// 스티어링 행동 컴포넌트를 매 프레임 평가해 `Transform`을 이동시키는 시스템.
+/// System that evaluates steering behavior components every frame and moves `Transform`.
 ///
-/// 한 엔티티에 여러 스티어링 컴포넌트가 있을 경우 마지막에 계산된 행동이 적용된다.
-/// 등록 순서: Seek → Flee → Arrive → Wander.
+/// When an entity has multiple steering components, the last one evaluated wins.
+/// Evaluation order: Seek → Flee → Arrive → Wander.
 pub struct SteeringSystem;
 
 impl System for SteeringSystem {
@@ -187,7 +188,7 @@ impl System for SteeringSystem {
                 let velocity = if dist <= stop_radius {
                     Vec2::ZERO
                 } else if dist <= slow_radius {
-                    // 선형 감속
+                    // Linear deceleration
                     let ratio = (dist - stop_radius) / (slow_radius - stop_radius);
                     dir.normalize() * max_speed * ratio
                 } else if dist > 1e-6 {
@@ -208,7 +209,7 @@ impl System for SteeringSystem {
             let entities: Vec<Entity> = world.query::<Wander>().map(|(e, _)| e).collect();
 
             for entity in entities {
-                // 타이머 갱신 및 방향 결정
+                // Advance timer and determine direction
                 let (max_speed, current_dir) = {
                     let wander = match world.get_mut::<Wander>(entity) {
                         Some(w) => w,
@@ -217,8 +218,8 @@ impl System for SteeringSystem {
                     wander.timer += dt;
                     if wander.timer >= wander.change_interval {
                         wander.timer = 0.0;
-                        // 의사 난수 방향: entity id 기반의 단순한 결정론적 계산
-                        // (실제 프로젝트에서는 rand 크레이트 활용 권장)
+                        // Pseudo-random direction: simple deterministic calculation based on entity id
+                        // (use the `rand` crate in a real project)
                         let seed =
                             (entity.index() as f32 * 1.6180339) + wander.current_dir.x * 31.7;
                         let angle = (seed.sin() * 6283.185).abs() % std::f32::consts::TAU;
@@ -234,7 +235,7 @@ impl System for SteeringSystem {
             }
         }
 
-        // ── 5. Transform 이동 적용 ─────────────────────────────────────────────
+        // ── 5. Apply movement to Transform ────────────────────────────────────
         {
             let entities: Vec<Entity> = world.query::<SteeringVelocity>().map(|(e, _)| e).collect();
 
@@ -256,7 +257,7 @@ impl System for SteeringSystem {
     }
 }
 
-// ─── 테스트 ───────────────────────────────────────────────────────────────────
+// ─── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -301,7 +302,7 @@ mod tests {
             .map(|(_, sv)| sv.velocity)
             .unwrap();
 
-        // 오른쪽(+x)으로 이동해야 함
+        // Should move right (+x)
         assert!(sv.x > 0.0, "velocity.x should be positive, got {}", sv.x);
         assert!(sv.y.abs() < 1e-4, "velocity.y should be ~0, got {}", sv.y);
         let speed = sv.length();
@@ -313,13 +314,13 @@ mod tests {
 
     #[test]
     fn arrive_stops_within_stop_radius() {
-        // 목표와 동일한 위치 — stop_radius(5.0) 이내
+        // Same position as target — within stop_radius(5.0)
         let (mut world, e) = make_world_with_transform(Vec2::new(1.0, 0.0));
         world.add_component(e, SteeringVelocity::default());
         world.add_component(
             e,
             Arrive {
-                target: Vec2::new(2.0, 0.0), // 거리 1.0 < stop_radius=5.0
+                target: Vec2::new(2.0, 0.0), // distance 1.0 < stop_radius=5.0
                 max_speed: 200.0,
                 slow_radius: 50.0,
                 stop_radius: 5.0,
@@ -343,7 +344,7 @@ mod tests {
 
     #[test]
     fn flee_zero_velocity_outside_radius() {
-        // flee_radius = 50, 엔티티는 target으로부터 100 떨어져 있음
+        // flee_radius = 50, entity is 100 away from target
         let (mut world, e) = make_world_with_transform(Vec2::new(100.0, 0.0));
         world.add_component(e, SteeringVelocity::default());
         world.add_component(
@@ -372,7 +373,7 @@ mod tests {
 
     #[test]
     fn flee_generates_velocity_inside_radius() {
-        // 거리 30 < flee_radius 50
+        // distance 30 < flee_radius 50
         let (mut world, e) = make_world_with_transform(Vec2::new(30.0, 0.0));
         world.add_component(e, SteeringVelocity::default());
         world.add_component(
@@ -393,7 +394,7 @@ mod tests {
             .map(|(_, sv)| sv.velocity)
             .unwrap();
 
-        // 도망 방향 = +x (target이 원점, 위치가 +x이므로)
+        // Flee direction = +x (target is origin, position is at +x)
         assert!(
             sv.x > 0.0,
             "flee velocity.x should be positive (away from origin)"

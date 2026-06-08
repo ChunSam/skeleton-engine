@@ -43,7 +43,7 @@ impl App {
                 self.selected_entities.clear();
             }
         }
-        // Ctrl+C: 선택된 엔티티를 EntityDef 클립보드에 복사
+        // Ctrl+C: copy selected entities to the EntityDef clipboard
         if want_copy && !self.selected_entities.is_empty() {
             let to_copy: Vec<Entity> = self.selected_entities.clone();
             self.copy_clipboard = to_copy
@@ -51,7 +51,7 @@ impl App {
                 .filter_map(|&e| entity_to_def(&self.world, e))
                 .collect();
         }
-        // Ctrl+V: 클립보드에서 엔티티 붙여넣기 (20px 오프셋)
+        // Ctrl+V: paste entities from clipboard (20 px offset)
         if want_paste && !self.copy_clipboard.is_empty() {
             let defs: Vec<crate::prefab::EntityDef> = self.copy_clipboard.clone();
             let mut pasted: Vec<Entity> = Vec::new();
@@ -62,7 +62,7 @@ impl App {
                 let e = crate::prefab::spawn_entity_def(&mut self.world, &def);
                 pasted.push(e);
             }
-            // 붙여넣은 첫 번째 엔티티를 주 선택으로 설정
+            // set the first pasted entity as the primary selection
             if let Some(&first) = pasted.first() {
                 self.inspector_selected = Some(first);
                 self.selected_entities = pasted;

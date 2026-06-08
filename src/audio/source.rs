@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use rodio::Source;
 
-// ─── 스테레오 팬 소스 래퍼 ────────────────────────────────────────────────────
+// ─── Stereo pan source wrapper ────────────────────────────────────────────────
 
 pub(super) struct PannedSource<S: Source<Item = f32>> {
     pub(super) inner: S,

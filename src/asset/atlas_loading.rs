@@ -5,9 +5,9 @@ use std::sync::Arc;
 use super::{alloc_id, asset_key, AssetServer, Handle};
 
 impl AssetServer {
-    /// 텍스처 아틀라스를 로드하고 핸들을 반환한다. 같은 경로를 다시 호출하면 캐시된 핸들을 반환한다.
+    /// Loads a texture atlas and returns a handle. Returns the cached handle if the same path is loaded again.
     ///
-    /// 내부적으로 이미지(`Handle<ImageAsset>`)도 함께 로드한다.
+    /// Also loads the underlying image (`Handle<ImageAsset>`) internally.
     pub fn load_atlas(
         &mut self,
         path: impl AsRef<Path>,
@@ -38,7 +38,7 @@ impl AssetServer {
         }
     }
 
-    /// 아틀라스 핸들로 `TextureAtlas` 데이터를 조회한다.
+    /// Looks up `TextureAtlas` data by its handle.
     pub fn get_atlas(
         &self,
         handle: &Handle<crate::atlas::TextureAtlas>,

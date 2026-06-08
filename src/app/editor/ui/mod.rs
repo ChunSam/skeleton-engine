@@ -5,7 +5,7 @@ mod shortcuts;
 
 impl App {
     pub(in crate::app) fn update_editor_ui(&mut self, egui_ctx: &Option<egui::Context>, dt: f32) {
-        // Inspector: 선택된 엔티티 유효성 확인 + 필드 스테이징
+        // Inspector: validate selected entity + stage fields
         if let Some(sel) = self.inspector_selected {
             if !self.world.is_alive(sel) {
                 self.inspector_selected = None;
@@ -13,7 +13,7 @@ impl App {
                 self.selected_entities.clear();
             }
         }
-        // 멀티 선택 목록에서 죽은 엔티티 제거 (네이티브 전용)
+        // Remove dead entities from the multi-select list (native only)
         #[cfg(not(target_arch = "wasm32"))]
         self.selected_entities.retain(|&e| self.world.is_alive(e));
         let entity_list: Vec<Entity> = self.world.entities().to_vec();
@@ -30,14 +30,14 @@ impl App {
                 }
             }
         }
-        // 선택 엔티티가 가진 Reflect 등록 컴포넌트 이름 목록 (네이티브 전용, 컴포넌트 관리 UI용).
-        // comp_fields에서 이름을 추출하면 borrow 충돌 없이 안전하다.
+        // List of Reflect-registered component names on the selected entity (native only, for the component management UI).
+        // Extracting names from comp_fields avoids a borrow conflict.
         #[cfg(not(target_arch = "wasm32"))]
         let selected_comp_names: Vec<&'static str> =
             comp_fields.iter().map(|(name, _)| *name).collect();
 
-        // ── 씬 그래프 데이터 사전 수집 (네이티브 전용) ──────────────────────────
-        // borrow checker 우회: egui 클로저 진입 전에 계층 구조를 모두 복사해 둔다.
+        // ── Pre-collect scene graph data (native only) ───────────────────────────
+        // Borrow-checker workaround: copy the entire hierarchy before entering the egui closure.
         #[cfg(not(target_arch = "wasm32"))]
         let scene_graph_data: Vec<(Entity, Option<Entity>)> = {
             // (entity, parent_entity_or_none)
@@ -49,7 +49,7 @@ impl App {
                 })
                 .collect()
         };
-        // children_map: 부모 → 자식 목록
+        // children_map: parent → list of children
         #[cfg(not(target_arch = "wasm32"))]
         let children_map: HashMap<Entity, Vec<Entity>> = {
             let mut map: HashMap<Entity, Vec<Entity>> = HashMap::new();
@@ -60,14 +60,14 @@ impl App {
             }
             map
         };
-        // 루트 엔티티 = Parent 컴포넌트 없는 것
+        // Root entities = those without a Parent component
         #[cfg(not(target_arch = "wasm32"))]
         let root_entities: Vec<Entity> = scene_graph_data
             .iter()
             .filter_map(|&(e, p)| if p.is_none() { Some(e) } else { None })
             .collect();
 
-        // 내장 EngineStats 패널 + Inspector
+        // Built-in EngineStats panel + Inspector
         if let Some(ctx) = egui_ctx {
             // ── Undo (Ctrl+Z) / Redo (Ctrl+Shift+Z) / Copy (Ctrl+C) / Paste (Ctrl+V) ─
             #[cfg(not(target_arch = "wasm32"))]
@@ -121,12 +121,12 @@ impl App {
                         }
                     });
 
-                // Inspector 패널: 엔티티 목록 + 컴포넌트 필드 편집기 + 에셋 브라우저
+                // Inspector panel: entity list + component field editor + asset browser
                 egui::Window::new("Inspector")
                     .default_pos([10.0, 130.0])
                     .default_size([440.0, 380.0])
                     .show(ctx, |ui| {
-                        // ── 탭 선택 ──────────────────────────────────────────────
+                        // ── Tab selection ────────────────────────────────────────
                         ui.horizontal(|ui| {
                             if ui
                                 .selectable_label(self.inspector_tab == 0, "Entities")
@@ -150,7 +150,7 @@ impl App {
                         });
                         ui.separator();
 
-                        // ── Grid Snap 컨트롤 (Entities 탭, 네이티브 전용) ─────────
+                        // ── Grid Snap controls (Entities tab, native only) ────────
                         #[cfg(not(target_arch = "wasm32"))]
                         if self.inspector_tab == 0 {
                             ui.horizontal(|ui| {
@@ -166,10 +166,10 @@ impl App {
                             });
                         }
 
-                        // ── 씬 그래프 탭 (네이티브 전용) ─────────────────────────
+                        // ── Scene graph tab (native only) ────────────────────────
                         #[cfg(not(target_arch = "wasm32"))]
                         if self.inspector_tab == 2 {
-                            // 씬 그래프: 루트 → 자식 들여쓰기 트리
+                            // Scene graph: root → children indented tree
                             let mut clicked_entity: Option<Entity> = None;
                             let mut ctrl_clicked: bool = false;
 
@@ -177,7 +177,7 @@ impl App {
                                 .id_salt("scene_graph")
                                 .max_height(300.0)
                                 .show(ui, |ui| {
-                                    // 재귀 대신 스택 기반 DFS (클로저 안에서 fn 호출 불가 제약 우회)
+                                    // Stack-based DFS instead of recursion (can't call fn inside a closure)
                                     let mut stack: Vec<(Entity, usize)> =
                                         root_entities.iter().rev().map(|&e| (e, 0)).collect();
                                     while let Some((entity, depth)) = stack.pop() {
@@ -189,7 +189,7 @@ impl App {
                                                     entity.generation()
                                                 )
                                             });
-                                        // 멀티 선택: selected_entities 기준으로 강조
+                                        // Multi-select: highlight based on selected_entities
                                         let is_selected = self.selected_entities.contains(&entity);
                                         let has_children = children_map
                                             .get(&entity)
@@ -206,7 +206,7 @@ impl App {
                                             ctrl_clicked = ui.input(|i| i.modifiers.ctrl);
                                         }
 
-                                        // 자식을 역순으로 스택에 push (DFS 순서 유지)
+                                        // Push children in reverse order (to maintain DFS order)
                                         if let Some(ch) = children_map.get(&entity) {
                                             for &child in ch.iter().rev() {
                                                 stack.push((child, depth + 1));
@@ -217,12 +217,12 @@ impl App {
 
                             if let Some(e) = clicked_entity {
                                 if ctrl_clicked {
-                                    // Ctrl+클릭: 멀티 선택 토글
+                                    // Ctrl+click: toggle multi-select
                                     if let Some(pos) =
                                         self.selected_entities.iter().position(|&x| x == e)
                                     {
                                         self.selected_entities.remove(pos);
-                                        // inspector_selected를 마지막 선택 또는 None으로
+                                        // Set inspector_selected to the last selection, or None
                                         self.inspector_selected =
                                             self.selected_entities.last().copied();
                                     } else {
@@ -230,13 +230,13 @@ impl App {
                                         self.inspector_selected = Some(e);
                                     }
                                 } else {
-                                    // 일반 클릭: 단일 선택
+                                    // Regular click: single selection
                                     self.inspector_selected = Some(e);
                                     self.selected_entities = vec![e];
                                 }
                             }
 
-                            // 선택된 엔티티의 Tag 이름 편집
+                            // Edit the Tag name of the selected entity
                             ui.separator();
                             if let Some(sel) = self.inspector_selected {
                                 let current_name = tag_map.get(&sel).cloned().unwrap_or_default();
@@ -272,7 +272,7 @@ impl App {
                         }
 
                         if self.inspector_tab == 1 {
-                            // ── 에셋 브라우저 ─────────────────────────────────────
+                            // ── Asset browser ─────────────────────────────────────
                             let entries = self
                                 .world
                                 .resource::<AssetServer>()
@@ -311,7 +311,7 @@ impl App {
                                     });
                             }
                         } else {
-                            // ── 에디터 액션 버튼 ─────────────────────────────────────
+                            // ── Editor action buttons ────────────────────────────────
                             ui.horizontal(|ui| {
                                 if ui.button("＋ New Entity").clicked() {
                                     let e = self.world.spawn();
@@ -380,7 +380,7 @@ impl App {
                             });
                             ui.separator();
                             ui.horizontal_top(|ui| {
-                                // 왼쪽: 엔티티 목록
+                                // Left: entity list
                                 ui.vertical(|ui| {
                                     ui.set_min_width(130.0);
                                     ui.strong("Entities");
@@ -393,7 +393,7 @@ impl App {
                                                     tag_map.get(&e).cloned().unwrap_or_else(|| {
                                                         format!("E{}:{}", e.index(), e.generation())
                                                     });
-                                                // 멀티 선택 강조 (네이티브) 또는 단일 선택 (WASM)
+                                                // Multi-select highlight (native) or single selection (WASM)
                                                 #[cfg(not(target_arch = "wasm32"))]
                                                 let is_sel = self.selected_entities.contains(&e);
                                                 #[cfg(target_arch = "wasm32")]
@@ -403,7 +403,7 @@ impl App {
                                                     #[cfg(not(target_arch = "wasm32"))]
                                                     {
                                                         if ui.input(|i| i.modifiers.ctrl) {
-                                                            // Ctrl+클릭: 토글
+                                                            // Ctrl+click: toggle
                                                             if let Some(pos) = self
                                                                 .selected_entities
                                                                 .iter()
@@ -432,7 +432,7 @@ impl App {
                                         });
                                 });
                                 ui.separator();
-                                // 오른쪽: 컴포넌트 필드 편집기
+                                // Right: component field editor
                                 ui.vertical(|ui| {
                                     ui.strong("Components");
                                     egui::ScrollArea::vertical()
@@ -526,15 +526,15 @@ impl App {
                                 });
                             });
 
-                            // ── 컴포넌트 추가/제거 (네이티브 전용, Phase 39b) ────────────
+                            // ── Add/remove components (native only, Phase 39b) ───────────
                             #[cfg(not(target_arch = "wasm32"))]
                             if let Some(sel) = self.inspector_selected {
                                 ui.separator();
                                 ui.strong("Component List");
 
-                                // 제거할 컴포넌트 이름 (클로저 밖에서 결정).
-                                // 제거 클로저가 등록된 컴포넌트만 "✕" 버튼을 노출/동작시킨다
-                                // (register_component_remover 로 등록한 커스텀 컴포넌트 포함).
+                                // Determine which component to remove (decided outside the closure).
+                                // Only components registered via register_component_remover expose
+                                // a working "✕" button (including custom components).
                                 let mut to_remove: Option<&'static str> = None;
                                 for &comp_name in &selected_comp_names {
                                     let removable = comp_name != "Transform"
@@ -547,7 +547,7 @@ impl App {
                                     });
                                 }
 
-                                // 클로저 종료 후 실제 제거 — 등록된 제거 클로저로 디스패치.
+                                // Perform the actual removal after the closure ends — dispatch to the registered remover.
                                 if let Some(name) = to_remove {
                                     if let Some(remover) = self.component_removers.get(name) {
                                         remover(&mut self.world, sel);
@@ -555,7 +555,7 @@ impl App {
                                 }
 
                                 ui.separator();
-                                // Add Component 드롭다운
+                                // Add Component dropdown
                                 let factory_names: Vec<String> = {
                                     let mut names: Vec<String> =
                                         self.component_factories.keys().cloned().collect();
@@ -588,7 +588,7 @@ impl App {
                                 }
                             }
 
-                            // ── PrefabInstance / Break Prefab (네이티브 전용) ─────────
+                            // ── PrefabInstance / Break Prefab (native only) ───────────
                             #[cfg(not(target_arch = "wasm32"))]
                             if let Some(sel) = self.inspector_selected {
                                 let prefab_path = self
@@ -609,7 +609,7 @@ impl App {
                                 }
                             }
 
-                            // ── 선택 엔티티 이름(Tag) 편집 (네이티브 전용) ──────────────
+                            // ── Edit selected entity name (Tag) (native only) ───────────
                             #[cfg(not(target_arch = "wasm32"))]
                             if let Some(sel) = self.inspector_selected {
                                 ui.separator();
@@ -641,7 +641,7 @@ impl App {
                                     }
                                 });
                             }
-                            // ── 씬 저장 (Phase 28) ───────────────────────────────────
+                            // ── Scene save (Phase 28) ────────────────────────────────
                             #[cfg(not(target_arch = "wasm32"))]
                             {
                                 ui.separator();
@@ -655,7 +655,7 @@ impl App {
                                         let path = std::path::Path::new(&self.editor_save_path);
                                         match crate::prefab::SceneDef::load(path) {
                                             Ok(scene_def) => {
-                                                // 기존 에디터 엔티티(Transform 또는 Tag 보유) 제거
+                                                // Remove existing editor entities (those with Transform or Tag)
                                                 let to_remove: Vec<Entity> = self
                                                     .world
                                                     .query::<crate::components::Transform>()
@@ -684,7 +684,7 @@ impl App {
                                     }
                                     if ui.button("💾 Save Scene").clicked() {
                                         let mut scene_def = crate::prefab::SceneDef::default();
-                                        // 부모가 자식보다 먼저 나오도록 위상 정렬
+                                        // Topological sort so parents appear before children
                                         let sorted = crate::prefab::topological_sort_entities(
                                             &entity_list,
                                             &self.world,
@@ -702,7 +702,7 @@ impl App {
                                                 .world
                                                 .get::<crate::components::Sprite>(e)
                                                 .cloned();
-                                            // Parent 컴포넌트 → 부모의 tag 문자열
+                                            // Parent component → parent's tag string
                                             let parent = self
                                                 .world
                                                 .get::<crate::hierarchy::Parent>(e)
@@ -742,7 +742,7 @@ impl App {
             }
         }
 
-        // Inspector: 스테이징 값을 World에 적용 (egui 프레임 종료 전)
+        // Inspector: apply staged values to the World (before the egui frame ends)
         if let Some(sel) = self.inspector_selected {
             let type_ids = self.world.reflected_components(sel);
             for (i, tid) in type_ids.iter().enumerate() {
@@ -756,7 +756,7 @@ impl App {
             }
         }
 
-        // ── SelectedEntity 리소스 동기화 ─────────────────────────────────────────
+        // ── Sync SelectedEntity resource ─────────────────────────────────────────
         if let Some(res) = self
             .world
             .resource_mut::<crate::resources::SelectedEntity>()

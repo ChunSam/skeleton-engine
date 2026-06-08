@@ -2,29 +2,29 @@ use glam::Vec2;
 
 use crate::color::Color;
 
-// ─── 패닉 복구 ──────────────────────────────────────────────────────────────
+// ─── Panic Recovery ──────────────────────────────────────────────────────────
 
-/// 패닉이 발생해 비활성화된 시스템 목록.
+/// List of systems disabled due to a panic.
 ///
-/// `App`이 `catch_unwind`로 패닉을 포착하면 해당 시스템 이름을 여기에 기록하고
-/// 이후 프레임에서 해당 시스템을 건너뛴다.
+/// When `App` catches a panic via `catch_unwind`, it records the system name here
+/// and skips that system in subsequent frames.
 ///
 /// ```rust,ignore
 /// if let Some(ps) = world.resource::<PanickedSystems>() {
 ///     for name in &ps.disabled {
-///         log::warn!("비활성화된 시스템: {name}");
+///         log::warn!("disabled system: {name}");
 ///     }
 /// }
 /// ```
 #[derive(Default)]
 pub struct PanickedSystems {
-    /// 패닉으로 비활성화된 시스템 이름 목록.
+    /// Names of systems disabled due to a panic.
     pub disabled: Vec<String>,
 }
 
-// ─── 디버그 드로우 큐 ─────────────────────────────────────────────────────────
+// ─── Debug Draw Queue ─────────────────────────────────────────────────────────
 
-/// 충돌 디버그 시각화용 순수 데이터 사각형 (렌더러 타입 미포함).
+/// Plain-data rectangle for collision debug visualization (no renderer types).
 #[derive(Debug, Clone, Copy)]
 pub struct DebugRect {
     pub min: Vec2,
@@ -33,43 +33,43 @@ pub struct DebugRect {
     pub z: f32,
 }
 
-/// 디버그 렌더링 큐. `CollisionDebugSystem`이 채우고, `App`이 drain해 `UiQueue`로 변환한다.
+/// Debug rendering queue. Populated by `CollisionDebugSystem`; `App` drains it and converts entries to `UiQueue`.
 #[derive(Debug, Clone, Default)]
 pub struct DebugDrawQueue {
     pub items: Vec<DebugRect>,
 }
 
-// ─── 범용 디버그 드로우 API ──────────────────────────────────────────────────
+// ─── General Debug Draw API ──────────────────────────────────────────────────
 
-/// 단일 디버그 도형.
+/// A single debug shape.
 #[derive(Debug, Clone)]
 pub enum DebugShape {
-    /// 축 정렬 사각형 (외곽선)
+    /// Axis-aligned rectangle (outline)
     Rect { min: Vec2, max: Vec2, color: Color },
-    /// 직선 (시작점 → 끝점, 두께 thickness px)
+    /// Line segment (start → end, `thickness` px wide)
     Line {
         start: Vec2,
         end: Vec2,
         color: Color,
         thickness: f32,
     },
-    /// 원 (24각형 근사)
+    /// Circle (24-sided polygon approximation)
     Circle {
         center: Vec2,
         radius: f32,
         color: Color,
     },
-    /// 십자 마커 (두 직선 교차)
+    /// Cross marker (two intersecting lines)
     Cross { pos: Vec2, size: f32, color: Color },
 }
 
-/// 매 프레임 디버그 도형을 수집하는 리소스.
+/// Resource that collects debug shapes each frame.
 ///
-/// App이 렌더링 후 자동으로 `clear()`를 호출하므로 매 프레임 새로 그리면 된다.
+/// `App` automatically calls `clear()` after rendering, so simply re-draw each frame.
 ///
-/// # 사용 예
+/// # Example
 /// ```rust,ignore
-/// // 시스템 내부에서
+/// // inside a system
 /// if let Some(dbg) = world.resource_mut::<DebugDraw>() {
 ///     dbg.rect(Vec2::new(0., 0.), Vec2::new(64., 64.), [1., 0., 0., 1.]);
 ///     dbg.circle(player_pos, 32., [0., 1., 0., 0.8]);
@@ -86,7 +86,7 @@ impl DebugDraw {
         Self::default()
     }
 
-    /// 축 정렬 사각형 외곽선을 그린다.
+    /// Draws an axis-aligned rectangle outline.
     pub fn rect(&mut self, min: Vec2, max: Vec2, color: impl Into<Color>) {
         self.shapes.push(DebugShape::Rect {
             min,
@@ -95,7 +95,7 @@ impl DebugDraw {
         });
     }
 
-    /// 직선을 그린다 (기본 두께 1.5px).
+    /// Draws a line segment (default thickness 1.5 px).
     pub fn line(&mut self, start: Vec2, end: Vec2, color: impl Into<Color>) {
         self.shapes.push(DebugShape::Line {
             start,
@@ -105,7 +105,7 @@ impl DebugDraw {
         });
     }
 
-    /// 두께를 지정해 직선을 그린다.
+    /// Draws a line segment with the given thickness.
     pub fn line_thick(&mut self, start: Vec2, end: Vec2, color: impl Into<Color>, thickness: f32) {
         self.shapes.push(DebugShape::Line {
             start,
@@ -115,7 +115,7 @@ impl DebugDraw {
         });
     }
 
-    /// 원을 그린다 (24각형 근사).
+    /// Draws a circle (24-sided polygon approximation).
     pub fn circle(&mut self, center: Vec2, radius: f32, color: impl Into<Color>) {
         self.shapes.push(DebugShape::Circle {
             center,
@@ -124,7 +124,7 @@ impl DebugDraw {
         });
     }
 
-    /// 십자 마커를 그린다.
+    /// Draws a cross marker.
     pub fn cross(&mut self, pos: Vec2, size: f32, color: impl Into<Color>) {
         self.shapes.push(DebugShape::Cross {
             pos,
@@ -133,12 +133,12 @@ impl DebugDraw {
         });
     }
 
-    /// 이번 프레임의 모든 도형을 지운다. App이 렌더링 후 자동 호출.
+    /// Clears all shapes for this frame. Called automatically by `App` after rendering.
     pub fn clear(&mut self) {
         self.shapes.clear();
     }
 
-    /// 수집된 도형 슬라이스.
+    /// Returns the slice of collected shapes.
     pub fn shapes(&self) -> &[DebugShape] {
         &self.shapes
     }
@@ -187,28 +187,28 @@ mod debug_draw_tests {
     }
 }
 
-// ─── 비동기 에셋 로딩 진행 상황 ───────────────────────────────────────────────
+// ─── Async Asset Loading Progress ───────────────────────────────────────────
 
-/// 비동기 에셋 로딩 진행 상황.
+/// Async asset loading progress.
 ///
-/// `App::load_image_async()`로 요청한 이미지의 로딩 완료 비율을 추적한다.
+/// Tracks the completion ratio of images requested via `App::load_image_async()`.
 ///
-/// # 사용 예
+/// # Example
 /// ```rust,ignore
 /// let prog = world.resource::<LoadProgress>().unwrap();
 /// draw_bar(prog.fraction()); // 0.0 ~ 1.0
-/// if prog.is_complete() { /* 로딩 완료 → 게임 씬으로 전환 */ }
+/// if prog.is_complete() { /* loading done → transition to game scene */ }
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct LoadProgress {
-    /// 총 비동기 로드 요청 수.
+    /// Total number of async load requests.
     pub total: usize,
-    /// 완료 수 (Loaded 또는 Failed 포함).
+    /// Number completed (includes both Loaded and Failed).
     pub loaded: usize,
 }
 
 impl LoadProgress {
-    /// 0.0 ~ 1.0 사이의 진행률을 반환한다. 요청이 없으면 1.0.
+    /// Returns progress in the range 0.0–1.0. Returns 1.0 when there are no requests.
     pub fn fraction(&self) -> f32 {
         if self.total == 0 {
             1.0
@@ -217,15 +217,15 @@ impl LoadProgress {
         }
     }
 
-    /// 모든 비동기 로드가 완료되었으면 true.
+    /// Returns `true` when all async loads have completed.
     pub fn is_complete(&self) -> bool {
         self.loaded >= self.total
     }
 }
 
-// ─── 게임 상태 리소스 ────────────────────────────────────────────────────────
+// ─── Game State Resource ─────────────────────────────────────────────────────
 
-/// 게임 상태 머신 값 (ECS 리소스로 삽입)
+/// Game state machine value (inserted as an ECS resource).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GameState {
     Playing,
@@ -233,16 +233,17 @@ pub enum GameState {
     GameOver,
 }
 
-/// 게임 루프 종료 요청 리소스. 시스템이 true 로 설정하면 App 이 다음 프레임에 종료.
+/// Quit-request resource. When a system sets this to `true`, `App` exits on the next frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ShouldQuit(pub bool);
 
-// ─── 뷰포트 / 창 설정 ────────────────────────────────────────────────────────
+// ─── Viewport / Window Config ────────────────────────────────────────────────
 
-/// 현재 게임 좌표계 기준 뷰포트 크기.
+/// Current viewport size in game-coordinate space.
 ///
-/// 네이티브 Retina/HiDPI 환경에서는 GPU 서피스가 물리 픽셀이고 게임 좌표는
-/// 논리 픽셀이다. 이 값을 논리 픽셀로 유지해야 스프라이트와 UI가 의도한 크기로 보인다.
+/// On native Retina/HiDPI displays, the GPU surface is in physical pixels while game
+/// coordinates are in logical pixels. Keep this value in logical pixels so sprites and
+/// UI render at the intended size.
 #[derive(Debug, Clone, Copy)]
 pub struct ViewportSize {
     pub width: f32,
@@ -267,7 +268,7 @@ impl ViewportSize {
     }
 }
 
-/// 논리 픽셀 1개가 몇 물리 픽셀인지 나타내는 배율.
+/// Scale factor: how many physical pixels correspond to one logical pixel.
 #[derive(Debug, Clone, Copy)]
 pub struct DisplayScaleFactor(pub f32);
 
@@ -277,13 +278,13 @@ impl Default for DisplayScaleFactor {
     }
 }
 
-/// 창 초기 설정. App::run() 전에 삽입하면 해당 값으로 창이 열린다.
+/// Initial window configuration. Insert before `App::run()` to open the window with these settings.
 #[derive(Debug, Clone)]
 pub struct WindowConfig {
     pub width: u32,
     pub height: u32,
     pub title: String,
-    /// 배경 clear 색상 (RGBA, wgpu 선형 공간 f64).
+    /// Background clear color (RGBA, wgpu linear-space f64).
     pub clear_color: [f64; 4],
 }
 
@@ -298,44 +299,45 @@ impl Default for WindowConfig {
     }
 }
 
-/// 텍스트 입력(IME) 허용 여부. 기본은 **꺼짐**.
+/// Whether text input (IME) is allowed. Default is **off**.
 ///
-/// 대부분의 게임은 텍스트 입력이 없다. IME가 켜져 있으면 macOS 등에서 CJK 입력기(한글/
-/// 일어/중국어)가 활성일 때 게임 키의 keyUp 이벤트가 조합 처리에 흡수돼 키가 "눌린 채"
-/// 고착될 수 있다(예: 가속 키가 안 풀려 캐릭터가 계속 달림). 그래서 기본은 off이며,
-/// `TextInput`/대화창 등 실제 텍스트 입력이 필요한 앱만 `App::run()` 전에
-/// `ImeConfig { allowed: true }`를 삽입해 IME를 켠다.
+/// Most games do not need text input. When IME is enabled, on macOS and similar
+/// platforms, keyUp events for game keys can be absorbed by CJK composition (Korean,
+/// Japanese, Chinese), leaving a key "stuck" (e.g. an acceleration key never releases
+/// and the character keeps running). Therefore the default is off; only apps that
+/// actually need text input — `TextInput` widgets, dialog boxes, etc. — should insert
+/// `ImeConfig { allowed: true }` before `App::run()`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ImeConfig {
     pub allowed: bool,
 }
 
-/// 게임이 사용할 폰트 바이트. App::run() 전에 삽입하면 TextRenderer 가 이를 사용한다.
+/// Font bytes used by the game. Insert before `App::run()` for `TextRenderer` to pick it up.
 pub struct FontData(pub Vec<u8>);
 
-/// 해상도 변경 요청. 게임 시스템이 Some((w, h)) 으로 설정하면 App 이 창 크기를 조정한다.
+/// Pending resize request. When a game system sets this to `Some((w, h))`, `App` resizes the window.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PendingResize(pub Option<(u32, u32)>);
 
-// ─── 렌더링 최적화 ──────────────────────────────────────────────────────────
+// ─── Rendering Optimization ──────────────────────────────────────────────────
 
-/// 뷰 프러스텀 컬링 + 거리 기반 LOD 설정.
+/// View frustum culling + distance-based LOD settings.
 ///
-/// `App::run()` 전에 삽입하거나, 시스템 내에서 `world.resource_mut::<CullConfig>()` 로 조작.
-/// 삽입하지 않으면 엔진 기본값(`frustum_culling: true, min_pixel_size: 0.0`)이 적용된다.
+/// Insert before `App::run()`, or modify at runtime via `world.resource_mut::<CullConfig>()`.
+/// If not inserted, the engine defaults apply (`frustum_culling: true, min_pixel_size: 0.0`).
 ///
 /// ```text
 /// world.insert_resource(CullConfig {
 ///     frustum_culling: true,
-///     min_pixel_size: 1.0,  // 화면 1px 미만 스프라이트 스킵
+///     min_pixel_size: 1.0,  // skip sprites smaller than 1 px on screen
 /// });
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub struct CullConfig {
-    /// true이면 카메라 뷰포트 밖 스프라이트를 GPU 제출 전에 컬링한다.
+    /// When `true`, sprites outside the camera viewport are culled before GPU submission.
     pub frustum_culling: bool,
-    /// 화면 픽셀 단위 스프라이트 크기(min(w,h))가 이 값 미만이면 렌더링 스킵.
-    /// `0.0`이면 거리 LOD 비활성화.
+    /// Sprites whose screen-space size (min(w, h) in pixels) is below this value are skipped.
+    /// `0.0` disables distance LOD.
     pub min_pixel_size: f32,
 }
 
@@ -348,12 +350,12 @@ impl Default for CullConfig {
     }
 }
 
-// ─── 라이팅 ─────────────────────────────────────────────────────────────────
+// ─── Lighting ────────────────────────────────────────────────────────────────
 
-/// 씬 전체 환경광 리소스.
+/// Scene-wide ambient light resource.
 ///
-/// `world.insert_resource(AmbientLight::default())` 으로 등록하면
-/// `LightingRenderer`가 활성화된다. `PointLight` 컴포넌트와 함께 사용한다.
+/// Registering via `world.insert_resource(AmbientLight::default())` activates
+/// `LightingRenderer`. Use together with the `PointLight` component.
 ///
 /// ```rust,no_run
 /// # use engine::{App, AmbientLight};
@@ -365,9 +367,9 @@ impl Default for CullConfig {
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub struct AmbientLight {
-    /// 환경광 RGB 색상 (0.0~1.0)
+    /// Ambient light RGB color (0.0–1.0).
     pub color: Color,
-    /// 0.0 = 완전 어두움, 1.0 = 원본 밝기
+    /// 0.0 = fully dark, 1.0 = original brightness.
     pub intensity: f32,
 }
 
@@ -380,48 +382,48 @@ impl Default for AmbientLight {
     }
 }
 
-/// Inspector에서 현재 선택된 엔티티를 World 리소스로 노출한다.
+/// Exposes the currently selected entity in the Inspector as a World resource.
 ///
-/// `App`이 매 프레임 `inspector_selected`와 동기화한다.
-/// 시스템에서 읽어 선택 강조, 경로 계획 등 에디터 연동에 사용한다.
+/// `App` synchronizes this with `inspector_selected` every frame.
+/// Read from systems for selection highlighting, path planning, and other editor integrations.
 ///
 /// ```text
 /// if let Some(e) = world.resource::<SelectedEntity>().and_then(|s| s.0) {
-///     // e 가 현재 Inspector에서 선택된 엔티티
+///     // e is the entity currently selected in the Inspector
 /// }
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelectedEntity(pub Option<crate::ecs::world::Entity>);
 
-// ─── 프로파일러 ─────────────────────────────────────────────────────────────
+// ─── Profiler ────────────────────────────────────────────────────────────────
 
-/// 시스템 하나의 프로파일링 항목.
+/// Profiling entry for a single system.
 #[derive(Debug, Clone, Default)]
 pub struct SystemProfile {
     pub name: String,
-    /// 직전 프레임 실행 시간 (마이크로초).
+    /// Execution time of the previous frame (microseconds).
     pub last_us: u64,
-    /// 최근 60프레임 지수 이동 평균 (마이크로초).
+    /// Exponential moving average over the last 60 frames (microseconds).
     pub avg_us: f32,
 }
 
-/// 렌더러 패스 통계.
+/// Renderer pass statistics.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RenderStats {
-    /// 텍스처 전환 횟수 (draw call 수).
+    /// Number of texture switches (draw call count).
     pub draw_calls: u32,
-    /// GPU에 제출된 스프라이트 인스턴스 수.
+    /// Number of sprite instances submitted to the GPU.
     pub sprites_rendered: u32,
-    /// 뷰 컬링/LOD로 스킵된 스프라이트 수.
+    /// Number of sprites skipped by view culling / LOD.
     pub sprites_culled: u32,
 }
 
-/// 프로파일러 전체 데이터. `App`이 매 프레임 갱신하고 Engine Stats 패널이 읽는다.
+/// Complete profiler data. Updated every frame by `App` and read by the Engine Stats panel.
 #[derive(Debug, Clone, Default)]
 pub struct ProfilerData {
     pub systems: Vec<SystemProfile>,
     pub render: RenderStats,
-    /// 전체 프레임 시간 (ms).
+    /// Total frame time (ms).
     pub frame_ms: f32,
 }
 
@@ -429,7 +431,7 @@ impl ProfilerData {
     /// EMA α = 1/60
     const ALPHA: f32 = 1.0 / 60.0;
 
-    /// 시스템 실행 결과를 기록한다. idx 가 범위를 벗어나면 자동 확장.
+    /// Records a system execution result. Automatically expands if `idx` is out of range.
     pub fn record_system(&mut self, idx: usize, name: &str, elapsed_us: u64) {
         if idx >= self.systems.len() {
             self.systems.resize(idx + 1, SystemProfile::default());
@@ -441,36 +443,36 @@ impl ProfilerData {
     }
 }
 
-// ─── 씬 전환 페이드 이펙트 ──────────────────────────────────────────────────
+// ─── Scene Transition Fade Effect ───────────────────────────────────────────
 
-/// 씬 전환 페이드 이펙트 리소스.
+/// Scene transition fade effect resource.
 ///
-/// `FadeState`를 설정하면 App이 자동으로 전체 화면에 색상 오버레이를 애니메이션한다.
+/// Setting a `FadeState` causes `App` to automatically animate a full-screen color overlay.
 ///
-/// # 사용 예
+/// # Example
 /// ```rust,ignore
-/// // 검정으로 페이드 아웃 (0.5초)
+/// // fade out to black (0.5 s)
 /// world.insert_resource(FadeTransition::fade_out(0.5));
 ///
-/// // 현재 색에서 투명으로 페이드 인 (0.3초)
+/// // fade in from the current color to transparent (0.3 s)
 /// world.insert_resource(FadeTransition::fade_in(0.3));
 /// ```
 #[derive(Debug, Clone)]
 pub struct FadeTransition {
-    /// 현재 알파값 (0.0 = 투명, 1.0 = 완전 불투명)
+    /// Current alpha (0.0 = transparent, 1.0 = fully opaque).
     pub alpha: f32,
-    /// 목표 알파값
+    /// Target alpha value.
     pub target_alpha: f32,
-    /// 초당 알파 변화량
+    /// Alpha change per second.
     pub speed: f32,
-    /// 오버레이 RGB 색상
+    /// Overlay RGB color.
     pub color: Color,
-    /// 페이드 완료 여부 (App이 매 프레임 업데이트)
+    /// Whether the fade has finished (updated by `App` each frame).
     pub finished: bool,
 }
 
 impl FadeTransition {
-    /// 투명 → 불투명으로 페이드 아웃 (화면이 어두워짐)
+    /// Fade out from transparent to opaque (screen darkens).
     pub fn fade_out(duration: f32) -> Self {
         Self {
             alpha: 0.0,
@@ -481,7 +483,7 @@ impl FadeTransition {
         }
     }
 
-    /// 불투명 → 투명으로 페이드 인 (화면이 밝아짐)
+    /// Fade in from opaque to transparent (screen brightens).
     pub fn fade_in(duration: f32) -> Self {
         Self {
             alpha: 1.0,
@@ -492,13 +494,13 @@ impl FadeTransition {
         }
     }
 
-    /// 커스텀 색상으로 페이드
+    /// Fade with a custom color.
     pub fn with_color(mut self, r: f32, g: f32, b: f32) -> Self {
         self.color = Color::rgb(r, g, b);
         self
     }
 
-    /// 알파값을 dt 초 진행한다. App이 자동 호출.
+    /// Advances the alpha by `dt` seconds. Called automatically by `App`.
     pub fn update(&mut self, dt: f32) {
         if self.finished {
             return;

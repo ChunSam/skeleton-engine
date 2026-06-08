@@ -7,18 +7,18 @@ use crate::resources::ViewportSize;
 
 use super::node::{Anchor, UiNode};
 
-/// 자식 엔티티 배치 방향
+/// Layout direction for child entities.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LayoutDir {
     Vertical,
     Horizontal,
 }
 
-/// 자식 엔티티를 자동 배치하는 레이아웃 컨테이너.
+/// Layout container that automatically positions child entities.
 ///
-/// `UiNode` 와 함께 엔티티에 붙여 사용한다.
-/// `LayoutSystem` 이 매 프레임 `children` 의 `UiNode` 를 재배치한다.
-/// `UiSystem` 이 배경 사각형을 렌더링한다.
+/// Attach alongside a `UiNode` on the same entity.
+/// `LayoutSystem` repositions the `children`'s `UiNode`s every frame.
+/// `UiSystem` renders the background rectangle.
 pub struct Panel {
     pub children: Vec<Entity>,
     pub gap: f32,
@@ -49,13 +49,13 @@ impl Panel {
     }
 }
 
-/// Panel 자식 엔티티 위치를 UiSystem 실행 전에 갱신하는 시스템.
+/// System that updates Panel child entity positions before UiSystem runs.
 ///
-/// `app.add_system(Box::new(LayoutSystem))` 을 `UiSystem` 보다 먼저 등록해야 한다.
+/// Register with `app.add_system(Box::new(LayoutSystem))` before `UiSystem`.
 pub struct LayoutSystem;
 
 impl LayoutSystem {
-    /// 스케줄 라벨. 권장 순서: `UiSystem::LABEL` **이전**
+    /// Schedule label. Recommended order: **before** `UiSystem::LABEL`
     /// (`SystemConfig::new().label(LayoutSystem::LABEL).before(UiSystem::LABEL)`).
     pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::ui_layout";
 }
@@ -70,7 +70,7 @@ impl System for LayoutSystem {
             None => return,
         };
 
-        // Step 1: 패널 데이터 수집 — 이터레이터를 살아있는 채로 get_mut 불가하므로 먼저 collect
+        // Step 1: collect panel data — can't call get_mut while the iterator is live, so collect first
         let panel_data: Vec<(Vec<Entity>, f32, LayoutDir, f32, Vec2)> = world
             .query2::<UiNode, Panel>()
             .map(|(_, node, panel)| {
@@ -85,7 +85,7 @@ impl System for LayoutSystem {
             })
             .collect();
 
-        // Step 2: 수집 후 이터레이터 해제 → get_mut 안전
+        // Step 2: iterator released after collect → get_mut is safe
         for (children, gap, direction, padding, panel_pos) in panel_data {
             let start_x = panel_pos.x + padding;
             let start_y = panel_pos.y + padding;
@@ -113,7 +113,7 @@ impl System for LayoutSystem {
             }
         }
 
-        // Step 3: 패널 배경 렌더링 (자식보다 낮은 z로)
+        // Step 3: render panel backgrounds (at a lower z than children)
         let panel_entities: Vec<Entity> =
             world.query2::<UiNode, Panel>().map(|(e, _, _)| e).collect();
 

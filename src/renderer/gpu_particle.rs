@@ -4,7 +4,7 @@ use wgpu::util::DeviceExt;
 use crate::camera::Camera;
 use crate::ecs::World;
 
-// ─── GPU 파티클 데이터 (64 바이트, 16B 정렬) ──────────────────────────────────
+// ─── GPU Particle Data (64 bytes, 16 B aligned) ───────────────────────────────
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable, Debug)]
 pub struct GpuParticle {
@@ -18,7 +18,7 @@ pub struct GpuParticle {
     pub color_end: [f32; 4],
 }
 
-// ─── 컴퓨트 유니폼 ────────────────────────────────────────────────────────────
+// ─── Compute Uniforms ────────────────────────────────────────────────────────
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 struct ComputeUniforms {
@@ -26,25 +26,25 @@ struct ComputeUniforms {
     _pad: [f32; 3],
 }
 
-// ─── 카메라 유니폼 ────────────────────────────────────────────────────────────
+// ─── Camera Uniform ──────────────────────────────────────────────────────────
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 struct CameraUniform {
     view_proj: [[f32; 4]; 4],
 }
 
-/// GPU 컴퓨트 셰이더 기반 파티클 렌더러 (네이티브 전용).
+/// GPU compute-shader based particle renderer (native only).
 ///
-/// `App`이 내부적으로 관리한다. 사용자는 `GpuParticleEmitter` 컴포넌트만 붙이면 된다.
+/// Managed internally by `App`. Users only need to attach a `GpuParticleEmitter` component.
 pub struct GpuParticleRenderer {
-    // ── 컴퓨트 파이프라인 ──────────────────────────────────────────────────
+    // ── Compute pipeline ───────────────────────────────────────────────────
     compute_pipeline: wgpu::ComputePipeline,
     compute_bind_group: wgpu::BindGroup,
     compute_uniform_buf: wgpu::Buffer,
-    // ── 파티클 버퍼 (STORAGE | VERTEX 겸용) ──────────────────────────────
+    // ── Particle buffer (STORAGE | VERTEX dual-use) ───────────────────────
     particle_buf: wgpu::Buffer,
     particle_capacity: u32,
-    // ── 렌더 파이프라인 ────────────────────────────────────────────────────
+    // ── Render pipeline ────────────────────────────────────────────────────
     render_pipeline: wgpu::RenderPipeline,
     camera_buf: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
@@ -52,9 +52,9 @@ pub struct GpuParticleRenderer {
 }
 
 impl GpuParticleRenderer {
-    /// `capacity` 개의 파티클을 동시에 처리할 수 있는 렌더러를 생성한다.
+    /// Creates a renderer capable of processing `capacity` particles simultaneously.
     pub fn new(device: &wgpu::Device, surface_format: wgpu::TextureFormat, capacity: u32) -> Self {
-        // ── 컴퓨트 셰이더 ────────────────────────────────────────────────
+        // ── Compute shader ───────────────────────────────────────────────
         let compute_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("gpu particle compute"),
             source: wgpu::ShaderSource::Wgsl(
@@ -62,7 +62,7 @@ impl GpuParticleRenderer {
             ),
         });
 
-        // ── 파티클 버퍼 ──────────────────────────────────────────────────
+        // ── Particle buffer ───────────────────────────────────────────────
         let particle_size = (capacity as usize) * std::mem::size_of::<GpuParticle>();
         let particle_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("gpu particle buf"),
@@ -73,7 +73,7 @@ impl GpuParticleRenderer {
             mapped_at_creation: false,
         });
 
-        // ── 컴퓨트 유니폼 ────────────────────────────────────────────────
+        // ── Compute uniforms ─────────────────────────────────────────────
         let compute_uniform_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("gpu particle compute uniforms"),
             contents: bytemuck::bytes_of(&ComputeUniforms {
@@ -83,7 +83,7 @@ impl GpuParticleRenderer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        // ── 컴퓨트 바인드 그룹 레이아웃 ──────────────────────────────────
+        // ── Compute bind group layout ─────────────────────────────────────
         let compute_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("gpu particle compute bgl"),
             entries: &[
@@ -125,7 +125,7 @@ impl GpuParticleRenderer {
             ],
         });
 
-        // ── 컴퓨트 파이프라인 ─────────────────────────────────────────────
+        // ── Compute pipeline ──────────────────────────────────────────────
         let compute_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("gpu particle compute layout"),
@@ -142,7 +142,7 @@ impl GpuParticleRenderer {
             cache: None,
         });
 
-        // ── 렌더 셰이더 ──────────────────────────────────────────────────
+        // ── Render shader ─────────────────────────────────────────────────
         let render_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("gpu particle render"),
             source: wgpu::ShaderSource::Wgsl(
@@ -150,7 +150,7 @@ impl GpuParticleRenderer {
             ),
         });
 
-        // ── 카메라 유니폼 (group 0) ───────────────────────────────────────
+        // ── Camera uniform (group 0) ──────────────────────────────────────
         let camera_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("gpu particle camera buf"),
             size: std::mem::size_of::<CameraUniform>() as u64,
@@ -181,7 +181,7 @@ impl GpuParticleRenderer {
             }],
         });
 
-        // ── 파티클 버퍼 바인드 그룹 (group 1) ────────────────────────────
+        // ── Particle buffer bind group (group 1) ──────────────────────────
         let particle_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("gpu particle render particle bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
@@ -205,7 +205,7 @@ impl GpuParticleRenderer {
             }],
         });
 
-        // ── 렌더 파이프라인 ───────────────────────────────────────────────
+        // ── Render pipeline ───────────────────────────────────────────────
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("gpu particle render layout"),
@@ -255,7 +255,7 @@ impl GpuParticleRenderer {
         }
     }
 
-    /// 새 파티클 데이터를 GPU 버퍼에 업로드한다 (방출 슬롯에 덮어쓴다).
+    /// Uploads new particle data to the GPU buffer (overwrites the emission slot).
     pub fn upload_particles(&self, queue: &wgpu::Queue, particles: &[GpuParticle], offset: u32) {
         if particles.is_empty() {
             return;
@@ -269,7 +269,7 @@ impl GpuParticleRenderer {
         }
     }
 
-    /// 컴퓨트 셰이더로 파티클 위치/수명을 업데이트한다.
+    /// Updates particle positions and lifetimes via the compute shader.
     pub fn dispatch_compute(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -291,7 +291,7 @@ impl GpuParticleRenderer {
         pass.dispatch_workgroups(workgroups, 1, 1);
     }
 
-    /// 파티클을 화면에 렌더링한다.
+    /// Renders particles to the screen.
     pub fn render(
         &self,
         queue: &wgpu::Queue,

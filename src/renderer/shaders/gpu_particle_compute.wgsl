@@ -1,14 +1,14 @@
-// GPU 파티클 컴퓨트 셰이더 — 파티클 수명 + 위치 업데이트
+// GPU particle compute shader — particle lifetime + position update
 
 struct Particle {
-    pos:        vec2<f32>,  //  0: 위치
-    vel:        vec2<f32>,  //  8: 속도
-    life:       f32,        // 16: 현재 수명 (0이면 비활성)
-    max_life:   f32,        // 20: 최대 수명
-    size:       f32,        // 24: 크기 (픽셀)
-    _pad:       f32,        // 28: 패딩
-    color_start: vec4<f32>, // 32: 시작 색상
-    color_end:   vec4<f32>, // 48: 종료 색상
+    pos:        vec2<f32>,  //  0: position
+    vel:        vec2<f32>,  //  8: velocity
+    life:       f32,        // 16: current lifetime (0 = inactive)
+    max_life:   f32,        // 20: maximum lifetime
+    size:       f32,        // 24: size (pixels)
+    _pad:       f32,        // 28: padding
+    color_start: vec4<f32>, // 32: start color
+    color_end:   vec4<f32>, // 48: end color
 }                           // 64 bytes total
 
 struct ComputeUniforms {

@@ -3,70 +3,70 @@ use std::collections::HashMap;
 use crate::animation::player::AnimationPlayer;
 use crate::ecs::{Entity, System, World};
 
-// ─── 파라미터 ─────────────────────────────────────────────────────────────────
+// ─── Parameters ───────────────────────────────────────────────────────────────
 
-/// 상태 머신이 보유하는 파라미터 값
+/// Parameter value held by the state machine.
 #[derive(Debug, Clone)]
 pub enum AnimParam {
     Bool(bool),
     Float(f32),
-    /// 한 프레임만 유효한 트리거. `fire_trigger()` 로 활성화하고 매 프레임 소비된다.
+    /// Trigger that is valid for one frame only. Activated via `fire_trigger()` and consumed each frame.
     Trigger(bool),
 }
 
-// ─── 전환 조건 ────────────────────────────────────────────────────────────────
+// ─── Transition conditions ────────────────────────────────────────────────────
 
-/// 상태 전환이 일어나기 위해 충족해야 하는 단일 조건
+/// A single condition that must be satisfied for a state transition to occur.
 #[derive(Debug, Clone)]
 pub enum TransitionCond {
-    /// 불 파라미터가 기대값과 일치할 때
+    /// When a bool parameter matches the expected value.
     BoolEq(String, bool),
-    /// 실수 파라미터가 임계값을 초과할 때
+    /// When a float parameter exceeds a threshold.
     FloatGt(String, f32),
-    /// 실수 파라미터가 임계값 미만일 때
+    /// When a float parameter is below a threshold.
     FloatLt(String, f32),
-    /// 트리거 파라미터가 활성화됐을 때
+    /// When a trigger parameter is active.
     Trigger(String),
-    /// 현재 클립이 끝(non-looping 마지막 프레임)에 도달했을 때
+    /// When the current clip has reached its end (last frame of a non-looping clip).
     AnimationEnd,
 }
 
-// ─── 전환 ─────────────────────────────────────────────────────────────────────
+// ─── Transitions ─────────────────────────────────────────────────────────────
 
-/// 하나의 상태 전환 엣지: 대상 상태 + 충족해야 할 조건 목록 (AND)
+/// A single state transition edge: target state + list of conditions that must all be met (AND).
 #[derive(Debug, Clone)]
 pub struct AnimTransition {
-    /// 전환될 상태 이름
+    /// Name of the state to transition to.
     pub to: String,
-    /// 모두 충족해야 전환이 일어난다
+    /// All conditions must be satisfied for the transition to occur.
     pub conditions: Vec<TransitionCond>,
 }
 
-// ─── 상태 노드 ────────────────────────────────────────────────────────────────
+// ─── State node ───────────────────────────────────────────────────────────────
 
-/// 상태 머신의 한 노드: `AnimationPlayer`의 클립 인덱스와 전환 목록
+/// One node in the state machine: an `AnimationPlayer` clip index and a list of transitions.
 #[derive(Debug, Clone)]
 pub struct AnimState {
-    /// 이 상태에서 재생할 `AnimationPlayer` 클립 인덱스
+    /// `AnimationPlayer` clip index to play in this state.
     pub clip_index: usize,
-    /// 이 상태에서 평가될 전환 엣지들 (등록 순서대로 우선 평가)
+    /// Transition edges evaluated in this state (evaluated in registration order).
     pub transitions: Vec<AnimTransition>,
 }
 
-// ─── 상태 머신 컴포넌트 ───────────────────────────────────────────────────────
+// ─── State machine component ──────────────────────────────────────────────────
 
-/// 엔티티에 붙이는 애니메이션 상태 머신 컴포넌트.
+/// Animation state machine component attached to an entity.
 ///
-/// `AnimationPlayer`와 같은 엔티티에 추가한 뒤, `StateMachineSystem`을
-/// `AnimationSystem` **이후에** 등록하면 된다.
+/// Add it to the same entity as an `AnimationPlayer`, then register `StateMachineSystem`
+/// **after** `AnimationSystem`.
 ///
-/// # 등록 순서
+/// # Registration order
 /// ```text
-/// app.add_system(Box::new(AnimationSystem));     // 프레임 진행
-/// app.add_system(Box::new(StateMachineSystem));  // 상태 전환
+/// app.add_system(Box::new(AnimationSystem));     // advance frames
+/// app.add_system(Box::new(StateMachineSystem));  // evaluate transitions
 /// ```
 ///
-/// # 예시
+/// # Example
 /// ```rust,ignore
 /// let mut sm = AnimationStateMachine::new("idle", 0);
 /// sm.add_state("run", 1)
@@ -87,7 +87,7 @@ pub struct AnimationStateMachine {
 }
 
 impl AnimationStateMachine {
-    /// 초기 상태 이름과 해당 클립 인덱스로 상태 머신을 생성한다.
+    /// Creates a state machine with the given initial state name and clip index.
     pub fn new(initial_state: impl Into<String>, initial_clip: usize) -> Self {
         let initial_state = initial_state.into();
         let mut states = HashMap::new();
@@ -105,9 +105,9 @@ impl AnimationStateMachine {
         }
     }
 
-    // ── 상태/전환 등록 ──────────────────────────────────────────────────────────
+    // ── State / transition registration ────────────────────────────────────────
 
-    /// 새 상태를 추가한다. 이미 존재하는 이름이면 무시한다.
+    /// Adds a new state. If a state with that name already exists, it is left unchanged.
     pub fn add_state(&mut self, name: impl Into<String>, clip_index: usize) -> &mut Self {
         self.states.entry(name.into()).or_insert(AnimState {
             clip_index,
@@ -116,8 +116,8 @@ impl AnimationStateMachine {
         self
     }
 
-    /// `from` 상태에서 `to` 상태로의 전환 엣지를 등록한다.
-    /// `from` 상태가 없으면 아무것도 하지 않는다.
+    /// Registers a transition edge from `from` to `to`.
+    /// Does nothing if the `from` state does not exist.
     pub fn add_transition(
         &mut self,
         from: impl Into<String>,
@@ -132,14 +132,14 @@ impl AnimationStateMachine {
         self
     }
 
-    // ── 파라미터 읽기/쓰기 ─────────────────────────────────────────────────────
+    // ── Parameter read / write ─────────────────────────────────────────────────
 
-    /// 불 파라미터를 설정하거나 업데이트한다.
+    /// Sets or updates a bool parameter.
     pub fn set_bool(&mut self, name: impl Into<String>, value: bool) {
         self.params.insert(name.into(), AnimParam::Bool(value));
     }
 
-    /// 불 파라미터 값을 읽는다. 없거나 타입이 다르면 `None`.
+    /// Reads a bool parameter. Returns `None` if missing or the wrong type.
     pub fn get_bool(&self, name: &str) -> Option<bool> {
         match self.params.get(name) {
             Some(AnimParam::Bool(v)) => Some(*v),
@@ -147,12 +147,12 @@ impl AnimationStateMachine {
         }
     }
 
-    /// 실수 파라미터를 설정하거나 업데이트한다.
+    /// Sets or updates a float parameter.
     pub fn set_float(&mut self, name: impl Into<String>, value: f32) {
         self.params.insert(name.into(), AnimParam::Float(value));
     }
 
-    /// 실수 파라미터 값을 읽는다. 없거나 타입이 다르면 `None`.
+    /// Reads a float parameter. Returns `None` if missing or the wrong type.
     pub fn get_float(&self, name: &str) -> Option<f32> {
         match self.params.get(name) {
             Some(AnimParam::Float(v)) => Some(*v),
@@ -160,26 +160,26 @@ impl AnimationStateMachine {
         }
     }
 
-    /// 트리거 파라미터를 등록한다 (초기값 false).
+    /// Registers a trigger parameter (initial value: false).
     pub fn add_trigger(&mut self, name: impl Into<String>) {
         self.params
             .entry(name.into())
             .or_insert(AnimParam::Trigger(false));
     }
 
-    /// 트리거를 활성화한다. 같은 프레임 안에서 `StateMachineSystem`이 소비한다.
+    /// Activates a trigger. `StateMachineSystem` consumes it within the same frame.
     pub fn fire_trigger(&mut self, name: &str) {
         if let Some(AnimParam::Trigger(v)) = self.params.get_mut(name) {
             *v = true;
         }
     }
 
-    /// 현재 활성 상태 이름을 반환한다.
+    /// Returns the name of the currently active state.
     pub fn current_state(&self) -> &str {
         &self.current
     }
 
-    // ── 내부 평가 ──────────────────────────────────────────────────────────────
+    // ── Internal evaluation ────────────────────────────────────────────────────
 
     fn check_condition(&self, cond: &TransitionCond, anim_finished: bool) -> bool {
         match cond {
@@ -202,7 +202,7 @@ impl AnimationStateMachine {
         }
     }
 
-    /// 현재 상태에서 조건을 만족하는 첫 번째 전환을 찾아 `(대상 상태, 클립 인덱스)` 반환.
+    /// Finds the first satisfied transition in the current state and returns `(target state, clip index)`.
     fn evaluate(&self, anim_finished: bool) -> Option<(String, usize)> {
         let state = self.states.get(&self.current)?;
         for transition in &state.transitions {
@@ -218,7 +218,7 @@ impl AnimationStateMachine {
         None
     }
 
-    /// 모든 트리거 파라미터를 소비(false)한다.
+    /// Consumes all trigger parameters (resets them to false).
     fn consume_triggers(&mut self) {
         for param in self.params.values_mut() {
             if let AnimParam::Trigger(v) = param {
@@ -228,16 +228,17 @@ impl AnimationStateMachine {
     }
 }
 
-// ─── 시스템 ───────────────────────────────────────────────────────────────────
+// ─── System ───────────────────────────────────────────────────────────────────
 
-/// 매 프레임 `AnimationStateMachine`의 전환 조건을 평가하고, 충족 시 `AnimationPlayer`에
-/// 새 클립을 재생하도록 지시한다.
+/// Evaluates `AnimationStateMachine` transition conditions each frame and,
+/// when a condition is met, instructs the `AnimationPlayer` to play the new clip.
 ///
-/// `AnimationSystem` **이후에** 등록해야 `is_finished()` 판정이 같은 프레임에 반영된다.
+/// Must be registered **after** `AnimationSystem` so that `is_finished()` is
+/// reflected in the same frame.
 pub struct StateMachineSystem;
 
 impl StateMachineSystem {
-    /// 스케줄 라벨. 권장 순서: `AnimationSystem::LABEL` **이후**
+    /// Schedule label. Recommended order: **after** `AnimationSystem::LABEL`
     /// (`SystemConfig::new().label(StateMachineSystem::LABEL).after(AnimationSystem::LABEL)`).
     pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::animation_state_machine";
 }
@@ -268,7 +269,7 @@ impl System for StateMachineSystem {
                     player.play(clip_index);
                 }
             } else {
-                // 전환이 없어도 트리거는 한 프레임만 유효하므로 소비
+                // Even without a transition, triggers are only valid for one frame and must be consumed.
                 if let Some(sm) = world.get_mut::<AnimationStateMachine>(entity) {
                     sm.consume_triggers();
                 }

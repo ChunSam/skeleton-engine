@@ -1,9 +1,9 @@
-/// 프레임 경계 이벤트 버스.
+/// Per-frame event bus.
 ///
-/// `App::register_event::<E>()` 로 등록하면 World 리소스로 삽입된다.
-/// 시스템은 `world.resource_mut::<Events<E>>().send(e)` 로 이벤트를 보내고,
-/// 같은 프레임의 이후 시스템(또는 다음 프레임)에서 `world.resource::<Events<E>>().read()` 로 읽는다.
-/// 매 프레임 종료 시 App이 자동으로 `flush()` 를 호출해 큐를 비운다.
+/// Register with `App::register_event::<E>()` to insert it as a World resource.
+/// Systems send events via `world.resource_mut::<Events<E>>().send(e)` and read them
+/// with `world.resource::<Events<E>>().read()` in a later system of the same frame (or the next).
+/// At the end of every frame, `App` automatically calls `flush()` to drain the queue.
 pub struct Events<E: 'static> {
     items: Vec<E>,
 }
@@ -15,19 +15,19 @@ impl<E: 'static> Default for Events<E> {
 }
 
 impl<E: 'static> Events<E> {
-    /// 이벤트를 현재 프레임 큐에 추가한다.
+    /// Appends an event to the current frame's queue.
     pub fn send(&mut self, event: E) {
         self.items.push(event);
     }
 
-    /// 현재 프레임의 이벤트 슬라이스를 반환한다.
+    /// Returns a slice of the current frame's events.
     ///
-    /// 이 슬라이스는 `flush()` 가 호출될 때까지 (= 프레임 종료 시까지) 유효하다.
+    /// The slice is valid until `flush()` is called (i.e., until the end of the frame).
     pub fn read(&self) -> &[E] {
         &self.items
     }
 
-    /// 프레임 종료 시 App이 호출한다. 외부에서 직접 호출할 필요는 없다.
+    /// Called by `App` at end-of-frame. No need to call this directly from outside.
     pub fn flush(&mut self) {
         self.items.clear();
     }

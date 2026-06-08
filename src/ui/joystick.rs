@@ -2,17 +2,17 @@ use glam::Vec2;
 
 use crate::input::TouchState;
 
-/// 가상 조이스틱 컴포넌트.
+/// Virtual joystick component.
 ///
-/// 엔티티에 붙여 사용한다. 매 프레임 `update()` 를 호출하면
-/// 터치(또는 마우스 에뮬레이션) 입력을 받아 `output` 방향 벡터를 갱신한다.
+/// Attach it to an entity. Call `update()` every frame to process touch
+/// (or mouse-emulated) input and refresh the `output` direction vector.
 ///
-/// # 예제
+/// # Example
 /// ```ignore
 /// let joy_e = world.spawn();
 /// world.add_component(joy_e, VirtualJoystick::new(Vec2::new(120.0, 480.0), 60.0));
 ///
-/// // 시스템 내부
+/// // inside a system
 /// if let Some(joy) = world.get_mut::<VirtualJoystick>(joy_e) {
 ///     if let Some(ts) = world.resource::<TouchState>() {
 ///         joy.update(ts);
@@ -21,28 +21,28 @@ use crate::input::TouchState;
 /// }
 /// ```
 pub struct VirtualJoystick {
-    /// 조이스틱 베이스 중심 좌표 (화면/UI 좌표계)
+    /// Center coordinate of the joystick base (screen/UI coordinate space).
     pub center: Vec2,
 
-    /// 스틱이 이동 가능한 최대 반경 (픽셀)
+    /// Maximum radius the stick can travel (pixels).
     pub radius: f32,
 
-    /// 정규화된 출력 방향. 각 축 범위: -1.0 ~ 1.0.
-    /// 입력이 없으면 `Vec2::ZERO`.
+    /// Normalized output direction. Each axis range: -1.0 to 1.0.
+    /// `Vec2::ZERO` when there is no input.
     pub output: Vec2,
 
-    /// 현재 스틱 핵의 화면 좌표 (렌더링/디버그 시각화용)
+    /// Current screen coordinate of the stick knob (for rendering/debug visualization).
     pub stick_pos: Vec2,
 
-    /// `true` 이면 DebugDraw로 조이스틱 원을 시각화한다.
+    /// When `true`, the joystick circle is visualized via DebugDraw.
     pub visible: bool,
 
-    /// 현재 이 조이스틱을 조작 중인 터치 포인트 ID
+    /// ID of the touch point currently controlling this joystick.
     touch_id: Option<u64>,
 }
 
 impl VirtualJoystick {
-    /// 중심 좌표와 반경으로 새 가상 조이스틱을 만든다.
+    /// Creates a new virtual joystick with the given center and radius.
     pub fn new(center: Vec2, radius: f32) -> Self {
         Self {
             center,
@@ -54,11 +54,11 @@ impl VirtualJoystick {
         }
     }
 
-    /// 매 프레임 `TouchState` 로 조이스틱 상태를 업데이트한다.
+    /// Updates the joystick state from `TouchState` each frame.
     ///
-    /// `TouchState::flush()` 전에 호출해야 한다.
+    /// Must be called before `TouchState::flush()`.
     pub fn update(&mut self, touch_state: &TouchState) {
-        // 1. touch_id가 없으면: began 목록에서 반경 안의 터치 찾아 할당
+        // 1. No touch_id: find a touch within the radius in the began list and assign it.
         if self.touch_id.is_none() {
             for &(id, pos) in &touch_state.began {
                 if (pos - self.center).length() <= self.radius {
@@ -69,9 +69,9 @@ impl VirtualJoystick {
             }
         }
 
-        // 2. touch_id가 있으면: 해당 포인트의 현재 위치 추적
+        // 2. touch_id is set: track the current position of that touch point.
         if let Some(active_id) = self.touch_id {
-            // ended 이벤트 확인
+            // Check for an ended event.
             let is_ended = touch_state.ended.iter().any(|&(id, _)| id == active_id);
 
             if is_ended {
@@ -79,7 +79,7 @@ impl VirtualJoystick {
                 self.output = Vec2::ZERO;
                 self.stick_pos = self.center;
             } else {
-                // 현재 활성 포인트 위치 찾기
+                // Find the current position of the active touch point.
                 let pos = touch_state
                     .active_touches()
                     .find(|(id, _)| *id == active_id)
@@ -92,7 +92,7 @@ impl VirtualJoystick {
         }
     }
 
-    /// 스틱 위치와 output 벡터를 주어진 터치 위치로 갱신한다.
+    /// Updates the stick position and output vector to the given touch position.
     fn update_stick(&mut self, pos: Vec2) {
         let delta = pos - self.center;
         let magnitude = delta.length();
@@ -101,38 +101,38 @@ impl VirtualJoystick {
             self.output = Vec2::ZERO;
             self.stick_pos = self.center;
         } else if magnitude > self.radius {
-            // 반경 밖: 방향만 유지
+            // Outside radius: keep direction only.
             self.output = delta / magnitude; // normalize
             self.stick_pos = self.center + self.output * self.radius;
         } else {
-            // 반경 안: 0..1 정규화
+            // Inside radius: normalize to 0..1.
             self.output = delta / self.radius;
             self.stick_pos = pos;
         }
     }
 
-    /// 조이스틱이 현재 눌려 있는지 여부.
+    /// Returns whether the joystick is currently being held.
     pub fn is_active(&self) -> bool {
         self.touch_id.is_some()
     }
 
-    /// `TouchState` 의 원시 데이터를 직접 전달해 업데이트한다.
+    /// Updates the joystick by passing raw `TouchState` data directly.
     ///
-    /// 시스템에서 `world.resource::<TouchState>()` 와 `world.get_mut::<VirtualJoystick>()`
-    /// 를 동시에 borrow 할 수 없을 때 사용한다.
-    /// 먼저 터치 데이터를 owned 값으로 복사한 후 `world.get_mut` 으로 이 메서드를 호출한다.
+    /// Use this when a system cannot simultaneously borrow `world.resource::<TouchState>()`
+    /// and `world.get_mut::<VirtualJoystick>()`.
+    /// Copy the touch data into owned values first, then call this method via `world.get_mut`.
     ///
-    /// # 인수
-    /// - `began`: 이번 프레임 시작 터치 `(id, 위치)`
-    /// - `ended`: 이번 프레임 종료 터치 `(id, 위치)`
-    /// - `active`: 현재 활성 터치 `(id, 위치)`
+    /// # Arguments
+    /// - `began`: touches that started this frame `(id, position)`
+    /// - `ended`: touches that ended this frame `(id, position)`
+    /// - `active`: currently active touches `(id, position)`
     pub fn update_raw(
         &mut self,
         began: &[(u64, Vec2)],
         ended: &[(u64, Vec2)],
         active: &[(u64, Vec2)],
     ) {
-        // 1. touch_id가 없으면: began 에서 반경 안의 터치 찾아 할당
+        // 1. No touch_id: find a touch within the radius in began and assign it.
         if self.touch_id.is_none() {
             for &(id, pos) in began {
                 if (pos - self.center).length() <= self.radius {
@@ -143,7 +143,7 @@ impl VirtualJoystick {
             }
         }
 
-        // 2. touch_id가 있으면: 현재 위치 추적
+        // 2. touch_id is set: track the current position.
         if let Some(active_id) = self.touch_id {
             let is_ended = ended.iter().any(|&(id, _)| id == active_id);
             if is_ended {
@@ -156,9 +156,9 @@ impl VirtualJoystick {
         }
     }
 
-    /// 데드존 적용된 출력 반환.
+    /// Returns the output with a deadzone applied.
     ///
-    /// `deadzone` 범위 안의 작은 입력은 `Vec2::ZERO` 로 처리한다.
+    /// Small inputs within the `deadzone` range are treated as `Vec2::ZERO`.
     pub fn output_with_deadzone(&self, deadzone: f32) -> Vec2 {
         if self.output.length() < deadzone {
             Vec2::ZERO
@@ -178,7 +178,7 @@ mod tests {
         let mut joy = VirtualJoystick::new(Vec2::new(100.0, 100.0), 60.0);
         let mut ts = TouchState::default();
 
-        ts.on_touch_started(0, Vec2::new(110.0, 100.0)); // 반경 안
+        ts.on_touch_started(0, Vec2::new(110.0, 100.0)); // within radius
         joy.update(&ts);
 
         assert!(joy.is_active());
@@ -190,7 +190,7 @@ mod tests {
         let mut joy = VirtualJoystick::new(Vec2::new(100.0, 100.0), 60.0);
         let mut ts = TouchState::default();
 
-        ts.on_touch_started(0, Vec2::new(300.0, 300.0)); // 반경 밖
+        ts.on_touch_started(0, Vec2::new(300.0, 300.0)); // outside radius
         joy.update(&ts);
 
         assert!(!joy.is_active());
@@ -219,18 +219,18 @@ mod tests {
         let mut joy = VirtualJoystick::new(Vec2::new(0.0, 0.0), 50.0);
         let mut ts = TouchState::default();
 
-        // 반경 안에서 시작해 조이스틱 활성화
+        // Start inside radius to activate the joystick.
         ts.on_touch_started(0, Vec2::new(10.0, 0.0));
         joy.update(&ts);
         assert!(joy.is_active());
 
-        // 다음 프레임: 반경 밖으로 이동
+        // Next frame: move outside the radius.
         ts.flush();
-        ts.on_touch_started(0, Vec2::new(10.0, 0.0)); // active에 유지
+        ts.on_touch_started(0, Vec2::new(10.0, 0.0)); // keep in active
         ts.on_touch_moved(0, Vec2::new(200.0, 0.0));
         joy.update(&ts);
 
-        // output 크기는 1.0 (정규화됨)
+        // output magnitude should be 1.0 (normalized)
         assert!((joy.output.length() - 1.0).abs() < 1e-5);
     }
 
@@ -239,7 +239,7 @@ mod tests {
         let mut joy = VirtualJoystick::new(Vec2::new(0.0, 0.0), 100.0);
         let mut ts = TouchState::default();
 
-        ts.on_touch_started(0, Vec2::new(50.0, 0.0)); // 반경의 절반
+        ts.on_touch_started(0, Vec2::new(50.0, 0.0)); // half the radius
         joy.update(&ts);
 
         // output.x ≈ 0.5
@@ -252,7 +252,7 @@ mod tests {
         let mut joy = VirtualJoystick::new(Vec2::new(0.0, 0.0), 100.0);
         let mut ts = TouchState::default();
 
-        ts.on_touch_started(0, Vec2::new(5.0, 0.0)); // 매우 작은 이동
+        ts.on_touch_started(0, Vec2::new(5.0, 0.0)); // very small movement
         joy.update(&ts);
 
         assert_eq!(joy.output_with_deadzone(0.1), Vec2::ZERO);

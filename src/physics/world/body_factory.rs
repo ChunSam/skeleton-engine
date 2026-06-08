@@ -6,7 +6,7 @@ use crate::physics::body::PhysicsBody;
 use super::{CollisionGroups, PhysicsWorld};
 
 impl PhysicsWorld {
-    /// 중력에 반응하는 동적 박스 바디를 추가한다.
+    /// Adds a dynamic box body that responds to gravity.
     pub fn add_dynamic_box(
         &mut self,
         position: Vec2,
@@ -23,7 +23,7 @@ impl PhysicsWorld {
         )
     }
 
-    /// 충돌 그룹을 지정해 중력에 반응하는 동적 박스 바디를 추가한다.
+    /// Adds a dynamic box body that responds to gravity with a specified collision group.
     pub fn add_dynamic_box_with_groups(
         &mut self,
         position: Vec2,
@@ -48,7 +48,7 @@ impl PhysicsWorld {
         (handle, col_handle)
     }
 
-    /// 움직이지 않는 정적 바닥·벽·플랫폼을 추가한다.
+    /// Adds a static (immovable) floor, wall, or platform.
     pub fn add_static_box(
         &mut self,
         position: Vec2,
@@ -58,7 +58,7 @@ impl PhysicsWorld {
         self.add_static_box_with_groups(position, half_w, half_h, CollisionGroups::all())
     }
 
-    /// 충돌 그룹을 지정해 움직이지 않는 정적 박스 바디를 추가한다.
+    /// Adds a static (immovable) box body with a specified collision group.
     pub fn add_static_box_with_groups(
         &mut self,
         position: Vec2,
@@ -79,7 +79,7 @@ impl PhysicsWorld {
         (handle, col_handle)
     }
 
-    /// 중력에 반응하는 동적 원형 바디를 추가한다.
+    /// Adds a dynamic circle body that responds to gravity.
     pub fn add_dynamic_circle(
         &mut self,
         position: Vec2,
@@ -89,7 +89,7 @@ impl PhysicsWorld {
         self.add_dynamic_circle_with_groups(position, radius, lock_rotation, CollisionGroups::all())
     }
 
-    /// 충돌 그룹을 지정해 중력에 반응하는 동적 원형 바디를 추가한다.
+    /// Adds a dynamic circle body that responds to gravity with a specified collision group.
     pub fn add_dynamic_circle_with_groups(
         &mut self,
         position: Vec2,
@@ -113,7 +113,7 @@ impl PhysicsWorld {
         (handle, col_handle)
     }
 
-    /// 키네마틱 박스 바디를 추가한다 (중력 비반응, 수동 위치 제어).
+    /// Adds a kinematic box body (no gravity response; position controlled manually).
     pub fn add_kinematic_box(
         &mut self,
         position: Vec2,
@@ -123,7 +123,7 @@ impl PhysicsWorld {
         self.add_kinematic_box_with_groups(position, half_w, half_h, CollisionGroups::all())
     }
 
-    /// 충돌 그룹을 지정해 키네마틱 박스 바디를 추가한다.
+    /// Adds a kinematic box body with a specified collision group.
     pub fn add_kinematic_box_with_groups(
         &mut self,
         position: Vec2,
@@ -144,7 +144,7 @@ impl PhysicsWorld {
         (handle, col_handle)
     }
 
-    /// 키네마틱 원형 바디를 추가한다 (중력 비반응, 수동 위치 제어).
+    /// Adds a kinematic circle body (no gravity response; position controlled manually).
     pub fn add_kinematic_circle(
         &mut self,
         position: Vec2,
@@ -153,7 +153,7 @@ impl PhysicsWorld {
         self.add_kinematic_circle_with_groups(position, radius, CollisionGroups::all())
     }
 
-    /// 충돌 그룹을 지정해 키네마틱 원형 바디를 추가한다.
+    /// Adds a kinematic circle body with a specified collision group.
     pub fn add_kinematic_circle_with_groups(
         &mut self,
         position: Vec2,
@@ -173,7 +173,7 @@ impl PhysicsWorld {
         (handle, col_handle)
     }
 
-    /// 물리 반응 없이 교차만 감지하는 정적 박스 센서를 추가한다.
+    /// Adds a static box sensor that detects overlaps without physical response.
     pub fn add_sensor_box(
         &mut self,
         position: Vec2,
@@ -183,7 +183,7 @@ impl PhysicsWorld {
         self.add_sensor_box_with_groups(position, half_w, half_h, CollisionGroups::all())
     }
 
-    /// 충돌 그룹을 지정해 정적 박스 센서를 추가한다.
+    /// Adds a static box sensor with a specified collision group.
     pub fn add_sensor_box_with_groups(
         &mut self,
         position: Vec2,
@@ -205,7 +205,7 @@ impl PhysicsWorld {
         (handle, col_handle)
     }
 
-    /// 물리 반응 없이 교차만 감지하는 정적 원형 센서를 추가한다.
+    /// Adds a static circle sensor that detects overlaps without physical response.
     pub fn add_sensor_circle(
         &mut self,
         position: Vec2,
@@ -214,7 +214,7 @@ impl PhysicsWorld {
         self.add_sensor_circle_with_groups(position, radius, CollisionGroups::all())
     }
 
-    /// 충돌 그룹을 지정해 정적 원형 센서를 추가한다.
+    /// Adds a static circle sensor with a specified collision group.
     pub fn add_sensor_circle_with_groups(
         &mut self,
         position: Vec2,
@@ -235,11 +235,12 @@ impl PhysicsWorld {
         (handle, col_handle)
     }
 
-    /// 바디와 연결된 모든 콜라이더를 제거한 뒤 강체를 삭제한다.
+    /// Removes all colliders attached to a body, then deletes the rigid body.
     pub fn remove_body(&mut self, body: &PhysicsBody) {
-        // 제거 전에 이 바디의 콜라이더를 one_way 집합에서 정리한다. rapier 는 콜라이더
-        // 핸들을 재사용하므로, 정리하지 않으면 같은 핸들을 받은 새 콜라이더가 stale
-        // one-way 플래그를 물려받아 의도치 않게 한쪽 통과 동작을 한다.
+        // Clean up this body's colliders from the one_way set before removal.
+        // Rapier reuses collider handles, so without this cleanup a new collider
+        // receiving the same handle would inherit the stale one-way flag and
+        // unintentionally behave as a one-way platform.
         let colliders: Vec<_> = self
             .rigid_body_set
             .get(body.rigid_body_handle)

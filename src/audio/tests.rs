@@ -85,8 +85,8 @@ fn audio_effect_default_pitch() {
 
 #[test]
 fn set_and_clear_effect() {
-    // AudioManager는 오디오 장치 없이 None을 반환할 수 있으므로,
-    // AudioEffect 구조체 자체만 테스트한다.
+    // AudioManager can return None without an audio device,
+    // so only the AudioEffect struct itself is tested here.
     let eff = AudioEffect {
         low_pass_hz: Some(1000),
         pitch: 0.8,

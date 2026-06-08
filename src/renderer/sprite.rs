@@ -32,11 +32,12 @@ use sort::{
     assign_instance_offsets, layer_matches_mask, sort_render_entries, SpriteRenderEntry,
     SpriteRenderKind,
 };
-// ─── 프레임 컨텍스트 ───────────────────────────────────────────────────────────
-/// 한 렌더 패스 호출에 필요한 wgpu 핸들 묶음.
+// ─── Frame context ───────────────────────────────────────────────────────────
+/// Bundle of wgpu handles required for a single render-pass call.
 ///
-/// `device`/`queue`/`view`/`encoder` 4개를 매 호출 인자로 나열하지 않도록 묶는다.
-/// 호출 직전 참조로 즉석 구성한다 (소유하지 않음).
+/// Groups the four recurring arguments `device`/`queue`/`view`/`encoder` so they
+/// don't have to be listed individually on every call.
+/// Constructed by reference immediately before the call (no ownership taken).
 pub struct FrameContext<'a> {
     pub device: &'a wgpu::Device,
     pub queue: &'a wgpu::Queue,
@@ -44,7 +45,7 @@ pub struct FrameContext<'a> {
     pub encoder: &'a mut wgpu::CommandEncoder,
 }
 
-// ─── 스프라이트 렌더러 ─────────────────────────────────────────────────────────
+// ─── Sprite renderer ─────────────────────────────────────────────────────────
 pub struct SpriteRenderer {
     pipeline: wgpu::RenderPipeline,
     vertex_buf: wgpu::Buffer,
@@ -56,12 +57,12 @@ pub struct SpriteRenderer {
     texture_layout: wgpu::BindGroupLayout,
     white_texture: Texture,
     texture_cache: HashMap<String, Arc<Texture>>,
-    // UI screen-space 렌더링용
+    // For UI screen-space rendering
     ui_camera_buf: wgpu::Buffer,
     ui_camera_bind_group: wgpu::BindGroup,
     ui_instance_buf: wgpu::Buffer,
     ui_instance_capacity: usize,
-    // ── ShaderMaterial 커스텀 렌더링용 ────────────────────────────────────────
+    // ── For ShaderMaterial custom rendering ────────────────────────────────────────
     sprite_shader: wgpu::ShaderModule,
     camera_layout: wgpu::BindGroupLayout,
     surface_format: wgpu::TextureFormat,
@@ -70,19 +71,19 @@ pub struct SpriteRenderer {
     mat_instance_capacity: usize,
     custom_pipelines: HashMap<u64, wgpu::RenderPipeline>,
     params_buffers: HashMap<crate::ecs::Entity, (wgpu::Buffer, wgpu::BindGroup)>,
-    /// RenderTarget bind_group 캐시 (키 = RenderTarget 이름)
+    /// RenderTarget bind_group cache (key = RenderTarget name)
     rt_cache: HashMap<String, Arc<wgpu::BindGroup>>,
 }
 
 impl SpriteRenderer {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
-        // ── 셰이더 로드 (컴파일 타임 임베딩) ───────────────────────────────────
+        // ── Load shader (compile-time embed) ───────────────────────────────────
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("sprite shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/sprite.wgsl").into()),
         });
 
-        // ── 카메라 유니폼 버퍼 ──────────────────────────────────────────────
+        // ── Camera uniform buffer ──────────────────────────────────────────────
         let camera_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("camera uniform"),
             size: std::mem::size_of::<CameraUniform>() as u64,
@@ -111,11 +112,11 @@ impl SpriteRenderer {
             }],
         });
 
-        // ── 텍스처 레이아웃 + 기본 흰색 텍스처 ─────────────────────────────
+        // ── Texture layout + default white texture ─────────────────────────────
         let texture_layout = Texture::bind_group_layout(device);
         let white_texture = Texture::white(device, queue, &texture_layout);
 
-        // ── 렌더 파이프라인 ─────────────────────────────────────────────────
+        // ── Render pipeline ─────────────────────────────────────────────────
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("sprite pipeline layout"),
             bind_group_layouts: &[&camera_layout, &texture_layout],
@@ -155,11 +156,11 @@ impl SpriteRenderer {
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
-            // wgpu 22 에서 추가된 파이프라인 캐시 필드 — None 이면 캐시 비활성화
+            // Pipeline cache field added in wgpu 22 — None disables caching
             cache: None,
         });
 
-        // ── 정적 버텍스·인덱스 버퍼 ────────────────────────────────────────
+        // ── Static vertex and index buffers ────────────────────────────────────────
         let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("quad vertex"),
             contents: bytemuck::cast_slice(VERTICES),
@@ -171,7 +172,7 @@ impl SpriteRenderer {
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        // ── 초기 인스턴스 버퍼 (128개 분량 예약) ───────────────────────────
+        // ── Initial instance buffer (pre-allocated for 128 instances) ───────────────────────────
         let capacity = 128;
         let instance_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("instance buffer"),
@@ -180,7 +181,7 @@ impl SpriteRenderer {
             mapped_at_creation: false,
         });
 
-        // ── UI screen-space 카메라 버퍼 + 바인드 그룹 ──────────────────────
+        // ── UI screen-space camera buffer + bind group ──────────────────────
         let ui_camera_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("ui camera uniform"),
             size: std::mem::size_of::<CameraUniform>() as u64,
@@ -196,7 +197,7 @@ impl SpriteRenderer {
             }],
         });
 
-        // ── UI 인스턴스 버퍼 (64개 분량 예약) ─────────────────────────────
+        // ── UI instance buffer (pre-allocated for 64 instances) ─────────────────────────────
         let ui_capacity = 64;
         let ui_instance_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("ui instance buffer"),
@@ -205,7 +206,7 @@ impl SpriteRenderer {
             mapped_at_creation: false,
         });
 
-        // ── ShaderMaterial: params 유니폼 레이아웃 (@group(2)) ──────────────
+        // ── ShaderMaterial: params uniform layout (@group(2)) ──────────────
         let params_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("material params layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
@@ -220,7 +221,7 @@ impl SpriteRenderer {
             }],
         });
 
-        // ── ShaderMaterial: 인스턴스 버퍼 (머티리얼 엔티티 수만큼 동적 재할당) ──
+        // ── ShaderMaterial: instance buffer (dynamically reallocated as material entity count grows) ──
         let mat_capacity = 16usize;
         let mat_instance_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("material instance buffer"),
@@ -269,7 +270,7 @@ impl SpriteRenderer {
         let view = ctx.view;
         let encoder = &mut *ctx.encoder;
         let mut stats = crate::resources::RenderStats::default();
-        // ── 카메라: ECS 리소스에서 Camera 를 읽어 view_proj 를 계산한다 ───
+        // ── Camera: read from the ECS resource and compute view_proj ───
         let fallback = Camera::default();
         let camera = world.resource::<Camera>().unwrap_or(&fallback);
         let view_proj = camera.view_proj(width as f32, height as f32);
@@ -278,12 +279,12 @@ impl SpriteRenderer {
         };
         queue.write_buffer(&self.camera_buf, 0, bytemuck::bytes_of(&cam));
 
-        // ── 컬링 설정 + 가시 영역 ──────────────────────────────────────────
+        // ── Culling config + visible region ──────────────────────────────────────────
         let cull = world.resource::<CullConfig>().copied().unwrap_or_default();
         let (vmin, vmax) = camera.visible_rect(width as f32, height as f32);
 
-        // 회전을 고려한 보수적 AABB 교차 판정 헬퍼.
-        // |cos θ|·w/2 + |sin θ|·h/2 공식으로 회전 후 AABB 반폭을 계산한다.
+        // Conservative AABB intersection helper that accounts for rotation.
+        // Computes the half-width of the rotated AABB using |cos θ|·w/2 + |sin θ|·h/2.
         let is_visible = |pos: glam::Vec2, scale: glam::Vec2, rotation: f32| -> bool {
             if !cull.frustum_culling {
                 return true;
@@ -307,9 +308,9 @@ impl SpriteRenderer {
             px_w.min(px_h) >= cull.min_pixel_size
         };
 
-        // ── 전체 스프라이트 수집: (layer, z) 전역 정렬용 엔트리 ──────
-        // GlobalTransform이 있으면 계층 합성 결과를 사용하고, 없으면 Transform으로 fallback.
-        // RenderLayer(i32)가 없으면 0 으로 취급한다.
+        // ── Collect all sprites into (layer, z) globally-sorted entries ──────
+        // If GlobalTransform is present, use the hierarchy-composed result; otherwise fall back to Transform.
+        // Entities without RenderLayer(i32) are treated as layer 0.
         let mut draw_entries: Vec<SpriteRenderEntry> = Vec::new();
         let mut next_order = 0usize;
         for (entity, sprite) in world.query::<Sprite>() {
@@ -318,7 +319,7 @@ impl SpriteRenderer {
             }
 
             let uv = world.get::<UvRect>(entity).copied().unwrap_or(UvRect::FULL);
-            // 크로스페이드 중이면 to 프레임 + 진행도를 셰이더 lerp용으로 전달한다.
+            // During a crossfade, pass the "to" frame + progress for the shader lerp.
             let blend = world.get::<BlendUv>(entity).copied();
             let make_instance = |model: [[f32; 4]; 4]| match blend {
                 Some(b) if b.weight > 0.0 => {
@@ -333,7 +334,7 @@ impl SpriteRenderer {
             if !layer_matches_mask(layer, layer_mask) {
                 continue;
             }
-            // image_handle이 있으면 그 경로를 우선 사용, 없으면 texture 경로 사용
+            // Prefer image_handle path if present; fall back to the texture path
             let tex_key = sprite
                 .image_handle
                 .as_ref()
@@ -378,8 +379,8 @@ impl SpriteRenderer {
                 ));
             }
         }
-        // ── AtlasSprite 수집: (index, color, atlas handle) 을 먼저 collect ──
-        // query 이터레이터 borrow를 끊은 뒤 AssetServer 와 GlobalTransform 을 읽는다.
+        // ── Collect AtlasSprites: first collect (index, color, atlas handle) ──
+        // Break the query iterator borrow before reading AssetServer and GlobalTransform.
         let atlas_entries: Vec<(
             crate::ecs::Entity,
             u32,
@@ -458,7 +459,7 @@ impl SpriteRenderer {
 
         let mut entries = draw_entries;
 
-        // ── ShaderMaterial 수집: 일반 스프라이트와 같은 (layer, z) 스트림에 합친다.
+        // ── Collect ShaderMaterials: merge into the same (layer, z) stream as regular sprites.
         let mat_ids: Vec<(crate::ecs::Entity, u64, String, [f32; 4])> = world
             .query::<ShaderMaterial>()
             .map(|(e, mat)| {
@@ -468,9 +469,10 @@ impl SpriteRenderer {
             })
             .collect();
 
-        // 살아있는(= 현재 ShaderMaterial 을 가진) 엔티티 집합. 컬링 여부와 무관하게
-        // world 쿼리 결과 전체를 담으므로, 프레임 끝에서 params_buffers 를 이 집합으로
-        // retain 하면 despawn/머티리얼 제거된 엔티티의 GPU 버퍼만 정리된다.
+        // Set of live entities (= currently holding a ShaderMaterial). Populated
+        // from the full world-query result regardless of culling, so retaining
+        // params_buffers to this set at frame end removes GPU buffers only for
+        // despawned or material-removed entities.
         let live_material_entities: std::collections::HashSet<crate::ecs::Entity> =
             mat_ids.iter().map(|(e, ..)| *e).collect();
 
@@ -703,9 +705,10 @@ impl SpriteRenderer {
             }
         }
 
-        // ShaderMaterial 엔티티의 GPU params 버퍼 누수 방지: 더 이상 살아있지 않은
-        // (despawn 되었거나 ShaderMaterial 이 제거된) 엔티티의 버퍼/바인드그룹을 정리한다.
-        // params_buffers 는 그동안 insert 만 되고 제거된 적이 없어 무한히 증가했다.
+        // Prevent GPU params buffer leaks for ShaderMaterial entities: remove
+        // buffers/bind-groups for entities that are no longer alive (despawned or
+        // had their ShaderMaterial removed). params_buffers previously only grew
+        // because nothing ever removed from it.
         self.params_buffers
             .retain(|e, _| live_material_entities.contains(e));
 

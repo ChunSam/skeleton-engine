@@ -4,21 +4,21 @@ use crate::app::editor::{snap_to_grid, EditorCmd};
 
 impl App {
     pub(in crate::app) fn update_editor_gizmo(&mut self, egui_ctx: &Option<egui::Context>) {
-        // ── Gizmo: 선택 엔티티 강조 + 드래그 이동 ────────────────────────────────
+        // ── Gizmo: highlight selected entity + drag to move ──────────────────
         let egui_wants_mouse = egui_ctx
             .as_ref()
             .map(|c| c.wants_pointer_input())
             .unwrap_or(false);
 
         if let Some(sel) = self.inspector_selected {
-            // 선택된 엔티티의 Transform을 복사 (borrow 해방)
+            // Copy the selected entity's Transform (releases the borrow).
             let tr_copy = self.world.get::<crate::components::Transform>(sel).cloned();
 
             if let Some(tr) = tr_copy {
-                // 선택 강조: DebugDrawQueue에 테두리 사각형 추가
+                // Selection highlight: add an outline rectangle to the DebugDrawQueue.
                 if let Some(dq) = self.world.resource_mut::<DebugDrawQueue>() {
                     let half = tr.scale * 0.5;
-                    // 외곽 강조 (3px 두께 효과: 약간 확장)
+                    // Outline highlight (3 px thickness effect: expand slightly).
                     let margin = glam::Vec2::splat(3.0 / tr.scale.x.max(1.0) * tr.scale.x);
                     dq.items.push(DebugRect {
                         min: tr.position - half - margin,
@@ -28,9 +28,9 @@ impl App {
                     });
                 }
 
-                // Gizmo 드래그 — egui가 마우스를 소비하지 않을 때만 동작
+                // Gizmo drag — only when egui is not consuming mouse input.
                 if !egui_wants_mouse {
-                    // 마우스 입력 + 카메라 좌표 변환 (짧은 borrow 블록)
+                    // Mouse input + camera coordinate transform (short borrow block).
                     let cam_default = crate::camera::Camera::default();
                     let gizmo_input = {
                         let cam = self
@@ -63,8 +63,8 @@ impl App {
                                 #[cfg(not(target_arch = "wasm32"))]
                                 {
                                     self.gizmo_drag_start_pos = Some(tr.position);
-                                    // 그룹 이동 undo 기록용: 모든 선택 엔티티의 시작 위치 스냅샷.
-                                    // sel 이 selected_entities 에 없을 수도 있으므로 보장한다.
+                                    // Snapshot start positions of all selected entities for group-move undo.
+                                    // Ensure sel is included even if absent from selected_entities.
                                     let mut starts: Vec<(Entity, glam::Vec2)> = Vec::new();
                                     let mut has_sel = false;
                                     for &e in &self.selected_entities {
@@ -96,7 +96,7 @@ impl App {
                             #[cfg(target_arch = "wasm32")]
                             let final_pos = new_pos;
 
-                            // 드래그 엔티티의 이전 위치를 구해 delta 계산 후 그룹 이동
+                            // Get the drag entity's previous position, compute delta, then move the group.
                             #[cfg(not(target_arch = "wasm32"))]
                             {
                                 let old_pos = self
@@ -105,13 +105,13 @@ impl App {
                                     .map(|t| t.position)
                                     .unwrap_or(final_pos);
                                 let delta = final_pos - old_pos;
-                                // 주 엔티티 이동
+                                // Move the primary entity.
                                 if let Some(t) =
                                     self.world.get_mut::<crate::components::Transform>(sel)
                                 {
                                     t.position = final_pos;
                                 }
-                                // 나머지 선택 엔티티에 같은 delta 적용
+                                // Apply the same delta to the remaining selected entities.
                                 let others: Vec<Entity> = self
                                     .selected_entities
                                     .iter()
@@ -136,9 +136,9 @@ impl App {
                         if just_released {
                             #[cfg(not(target_arch = "wasm32"))]
                             {
-                                // 그룹 이동 전체를 기록한다(기존엔 주 엔티티만 기록되어
-                                // 나머지 선택 엔티티의 이동을 undo 할 수 없었다). 엔티티별로
-                                // MoveEntity 를 쌓으므로 undo 가 엔티티 단위로 동작한다.
+                                // Record the entire group move (previously only the primary
+                                // entity was recorded, making the other selections un-undoable).
+                                // Push one MoveEntity per entity so undo operates entity-by-entity.
                                 let starts = std::mem::take(&mut self.gizmo_drag_start_positions);
                                 for (entity, start_pos) in starts {
                                     let new_pos = self

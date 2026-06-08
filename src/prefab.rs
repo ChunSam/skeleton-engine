@@ -1,12 +1,12 @@
-//! 씬 직렬화 + 프리팹 시스템 (Phase 16)
+//! Scene serialization + prefab system (Phase 16)
 //!
-//! # 핵심 타입
-//! - [`Tag`] — 엔티티 식별용 문자열 컴포넌트
-//! - [`EntityDef`] — 하나의 엔티티를 기술하는 직렬화 가능 구조체
-//! - [`SceneDef`] — 여러 [`EntityDef`]의 컬렉션 (레벨/씬 전체)
-//! - [`Prefab`] — 파일 기반 단일 엔티티 템플릿
+//! # Core types
+//! - [`Tag`] — string component for entity identification
+//! - [`EntityDef`] — serializable struct describing a single entity
+//! - [`SceneDef`] — collection of [`EntityDef`]s (a full level/scene)
+//! - [`Prefab`] — file-backed single-entity template
 //!
-//! # 빠른 사용 예
+//! # Quick usage example
 //! ```rust,no_run
 //! use engine::prefab::{SceneDef, EntityDef, spawn_scene_def};
 //! use engine::{Transform, Sprite, ecs::World};
@@ -15,7 +15,7 @@
 //!
 //! let mut world = World::new();
 //!
-//! // 씬 정의 구성
+//! // Build the scene definition
 //! let scene = SceneDef {
 //!     entities: vec![
 //!         EntityDef {
@@ -28,7 +28,7 @@
 //!     ..SceneDef::default()
 //! };
 //!
-//! // 파일 저장 후 로드
+//! // Save to file then load
 //! scene.save(Path::new("levels/level1.ron")).unwrap();
 //! let loaded = SceneDef::load(Path::new("levels/level1.ron")).unwrap();
 //! let entities = spawn_scene_def(&mut world, &loaded);
@@ -44,14 +44,14 @@ use crate::ecs::{Entity, World};
 use crate::reflect::{Reflect, ReflectValue};
 use crate::save::{load, save, SaveError};
 
-// ─── Tag 컴포넌트 ─────────────────────────────────────────────────────────────
+// ─── Tag component ────────────────────────────────────────────────────────────
 
-/// 엔티티 식별용 문자열 태그 컴포넌트.
+/// String tag component for entity identification.
 ///
-/// 레벨 로드 후 "player", "enemy" 등의 역할을 구분하거나
-/// 특정 엔티티를 쿼리할 때 사용한다.
+/// Use it to distinguish roles such as "player" or "enemy" after level load,
+/// or to query for a specific entity.
 ///
-/// # 예
+/// # Example
 /// ```rust,no_run
 /// # use engine::prefab::Tag;
 /// # use engine::ecs::World;
@@ -59,7 +59,7 @@ use crate::save::{load, save, SaveError};
 /// let e = world.spawn();
 /// world.add_component(e, Tag("player".into()));
 ///
-/// // 나중에 찾기
+/// // Find it later
 /// for (entity, tag) in world.query::<Tag>() {
 ///     if tag.0 == "player" { /* ... */ }
 /// }
@@ -87,33 +87,33 @@ impl Reflect for Tag {
 
 // ─── EntityDef ────────────────────────────────────────────────────────────────
 
-/// 하나의 엔티티를 기술하는 직렬화 가능 구조체.
+/// Serializable struct describing a single entity.
 ///
-/// 각 필드는 `Option`이므로 필요한 컴포넌트만 지정하면 된다.
+/// Every field is `Option`, so only the components you need must be specified.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EntityDef {
-    /// 엔티티 식별 태그 (선택)
+    /// Entity identification tag (optional)
     pub tag: Option<String>,
-    /// 위치·크기·회전 (선택)
+    /// Position, size, and rotation (optional)
     pub transform: Option<Transform>,
-    /// 텍스처·색상 (선택)
+    /// Texture and color (optional)
     pub sprite: Option<Sprite>,
-    /// 부모 엔티티의 tag 문자열. None이면 루트 엔티티.
-    /// 스폰 시 해당 태그를 가진 엔티티에 계층 연결된다.
+    /// Tag string of the parent entity. `None` means a root entity.
+    /// On spawn, the entity is attached as a child of the entity with this tag.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
 }
 
 // ─── SceneDef ─────────────────────────────────────────────────────────────────
 
-/// 현재 `SceneDef` RON 포맷 버전. 구조 변경 시 증가시킨다.
+/// Current RON format version for `SceneDef`. Increment on structural changes.
 pub const SCENE_DEF_VERSION: u32 = 2;
 
-/// 레벨/씬 전체를 기술하는 직렬화 가능 구조체.
+/// Serializable struct describing an entire level/scene.
 ///
-/// RON 파일 한 장이 하나의 `SceneDef`에 대응한다.
+/// One RON file corresponds to one `SceneDef`.
 ///
-/// # RON 예시
+/// # RON example
 /// ```ron
 /// SceneDef(
 ///     version: 2,
@@ -136,7 +136,7 @@ pub const SCENE_DEF_VERSION: u32 = 2;
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SceneDef {
-    /// 파일 포맷 버전. 버전 없는 구 형식 파일은 0으로 역직렬화된다.
+    /// File format version. Old files without a version field deserialize as 0.
     #[serde(default)]
     pub version: u32,
     pub entities: Vec<EntityDef>,
@@ -152,14 +152,14 @@ impl Default for SceneDef {
 }
 
 impl SceneDef {
-    /// RON 파일에서 씬 정의를 로드한다.
+    /// Loads a scene definition from a RON file.
     ///
-    /// 파일 버전이 현재 버전과 다르면 경고를 출력하지만 로드는 계속한다.
+    /// If the file version differs from the current version, a warning is emitted but loading continues.
     pub fn load(path: &Path) -> Result<Self, SaveError> {
         let scene: SceneDef = load(path)?;
         if scene.version != SCENE_DEF_VERSION {
             log::warn!(
-                "씬 파일 버전 불일치: 파일={}, 현재={} ({})",
+                "scene file version mismatch: file={}, current={} ({})",
                 scene.version,
                 SCENE_DEF_VERSION,
                 path.display()
@@ -168,7 +168,7 @@ impl SceneDef {
         Ok(scene)
     }
 
-    /// 씬 정의를 RON 파일에 저장한다. 항상 현재 버전으로 기록된다.
+    /// Saves the scene definition to a RON file. Always written with the current version.
     pub fn save(&self, path: &Path) -> Result<(), SaveError> {
         let versioned = SceneDef {
             version: SCENE_DEF_VERSION,
@@ -177,7 +177,7 @@ impl SceneDef {
         save(path, &versioned)
     }
 
-    /// 씬 정의에 엔티티를 추가하고 빌더 패턴으로 반환한다.
+    /// Adds an entity to the scene definition and returns `self` for builder chaining.
     pub fn with(mut self, def: EntityDef) -> Self {
         self.entities.push(def);
         self
@@ -186,11 +186,11 @@ impl SceneDef {
 
 // ─── PrefabInstance ───────────────────────────────────────────────────────────
 
-/// 엔티티가 어떤 프리팹 파일에서 스폰됐는지 추적한다.
+/// Tracks which prefab file an entity was spawned from.
 ///
-/// Inspector에서 "Break Prefab" 버튼으로 제거할 수 있다.
+/// Can be removed via the "Break Prefab" button in the Inspector.
 ///
-/// # 예
+/// # Example
 /// ```rust,no_run
 /// use engine::prefab::{Prefab, break_prefab_instance};
 /// use engine::ecs::World;
@@ -199,27 +199,27 @@ impl SceneDef {
 /// let mut world = engine::ecs::World::new();
 /// let prefab = Prefab::load(Path::new("prefabs/coin.ron")).unwrap();
 /// let entity = prefab.spawn_with_tracking(&mut world, "prefabs/coin.ron");
-/// // 나중에 링크를 끊으려면:
+/// // To sever the link later:
 /// break_prefab_instance(&mut world, entity);
 /// ```
 #[derive(Clone)]
 pub struct PrefabInstance {
-    /// 소스 프리팹 파일 경로 (정보 표시용)
+    /// Path of the source prefab file (for display purposes)
     pub source_path: String,
 }
 
-/// 엔티티에서 `PrefabInstance` 마커를 제거해 프리팹 링크를 끊는다.
+/// Removes the `PrefabInstance` marker from an entity, severing the prefab link.
 pub fn break_prefab_instance(world: &mut World, entity: Entity) {
     world.remove_component::<PrefabInstance>(entity);
 }
 
 // ─── Prefab ───────────────────────────────────────────────────────────────────
 
-/// 파일 하나에 저장된 단일 엔티티 템플릿.
+/// Single-entity template stored in a file.
 ///
-/// 동일한 엔티티를 여러 번 스폰하거나 에디터에서 재사용할 때 유용하다.
+/// Useful for spawning the same entity multiple times or reusing it in an editor.
 ///
-/// # 예
+/// # Example
 /// ```rust,no_run
 /// use engine::prefab::Prefab;
 /// use engine::ecs::World;
@@ -235,24 +235,24 @@ pub struct Prefab {
 }
 
 impl Prefab {
-    /// RON 파일에서 프리팹을 로드한다.
+    /// Loads a prefab from a RON file.
     pub fn load(path: &Path) -> Result<Self, SaveError> {
         load(path)
     }
 
-    /// 프리팹을 RON 파일에 저장한다.
+    /// Saves the prefab to a RON file.
     pub fn save(&self, path: &Path) -> Result<(), SaveError> {
         save(path, self)
     }
 
-    /// 프리팹을 월드에 스폰하고 생성된 엔티티를 반환한다.
+    /// Spawns the prefab into the world and returns the created entity.
     pub fn spawn(&self, world: &mut World) -> Entity {
         spawn_entity_def(world, &self.def)
     }
 
-    /// 프리팹을 월드에 스폰하고 `PrefabInstance` 마커를 붙여 반환한다.
+    /// Spawns the prefab into the world, attaches a `PrefabInstance` marker, and returns the entity.
     ///
-    /// Inspector의 "Break Prefab" 버튼으로 링크를 끊을 수 있다.
+    /// The link can be severed via the "Break Prefab" button in the Inspector.
     pub fn spawn_with_tracking(&self, world: &mut World, path: impl Into<String>) -> Entity {
         let entity = self.spawn(world);
         world.add_component(
@@ -265,11 +265,11 @@ impl Prefab {
     }
 }
 
-// ─── 자유 함수 ─────────────────────────────────────────────────────────────────
+// ─── Free functions ────────────────────────────────────────────────────────────
 
-/// `EntityDef` 하나를 월드에 스폰하고 엔티티를 반환한다.
+/// Spawns a single `EntityDef` into the world and returns the entity.
 ///
-/// `def`에 지정된 컴포넌트만 삽입된다.
+/// Only the components specified in `def` are inserted.
 pub fn spawn_entity_def(world: &mut World, def: &EntityDef) -> Entity {
     let entity = world.spawn();
 
@@ -286,17 +286,17 @@ pub fn spawn_entity_def(world: &mut World, def: &EntityDef) -> Entity {
     entity
 }
 
-/// `SceneDef`의 모든 엔티티를 월드에 스폰하고 엔티티 목록을 반환한다.
+/// Spawns all entities from a `SceneDef` into the world and returns the entity list.
 ///
-/// `EntityDef.parent`가 설정된 경우, 해당 태그의 엔티티를 부모로 연결한다.
-/// RON 파일에 `parent` 키가 없는 구버전 씬도 그대로 로드된다 (하위 호환).
+/// If `EntityDef.parent` is set, the entity is attached as a child of the entity with that tag.
+/// Legacy scenes without a `parent` key in the RON file are loaded as-is (backward compatible).
 pub fn spawn_scene_def(world: &mut World, scene: &SceneDef) -> Vec<Entity> {
-    // 1패스: 모든 엔티티 생성 + tag → Entity 맵 구축.
+    // Pass 1: spawn all entities and build a tag → Entity map.
     //
-    // 같은 태그가 여러 엔티티에 붙으면 parent 해석이 모호해진다. 예전에는 마지막
-    // 엔티티로 조용히 덮어썼다(last-wins). 이제는 **first-wins** 로 고정하고
-    // 중복을 경고한다. (모든 엔티티는 그대로 스폰되며, parent 해석에만 첫 엔티티를
-    // 사용한다.)
+    // When the same tag appears on multiple entities, parent resolution becomes
+    // ambiguous. Previously the last entity silently won (last-wins). Now we use
+    // **first-wins** and warn on duplicates. (All entities are still spawned; only
+    // parent resolution uses the first entity.)
     let mut tag_to_entity: HashMap<String, Entity> = HashMap::new();
     let entities: Vec<Entity> = scene
         .entities
@@ -321,7 +321,7 @@ pub fn spawn_scene_def(world: &mut World, scene: &SceneDef) -> Vec<Entity> {
         })
         .collect();
 
-    // 2패스: parent 태그가 있는 엔티티에 계층 연결
+    // Pass 2: attach entities that have a parent tag
     for (def, &child) in scene.entities.iter().zip(entities.iter()) {
         if let Some(parent_tag) = &def.parent {
             if let Some(&parent) = tag_to_entity.get(parent_tag) {
@@ -333,13 +333,13 @@ pub fn spawn_scene_def(world: &mut World, scene: &SceneDef) -> Vec<Entity> {
     entities
 }
 
-/// 엔티티 목록을 위상 정렬하여 루트 → 자식 순으로 반환한다.
+/// Topologically sorts the entity list so roots come before their children.
 ///
-/// 씬 저장 시 부모가 자식보다 먼저 나와야 `spawn_scene_def()`의 2패스 attach가 동작한다.
+/// When saving a scene, parents must appear before children so the two-pass attach in `spawn_scene_def()` works correctly.
 pub fn topological_sort_entities(entities: &[Entity], world: &World) -> Vec<Entity> {
     use std::collections::VecDeque;
 
-    // 부모 → 자식 인접 맵
+    // Parent → children adjacency map
     let mut children_map: HashMap<Entity, Vec<Entity>> = HashMap::new();
     let entity_set: std::collections::HashSet<Entity> = entities.iter().copied().collect();
     let mut roots: Vec<Entity> = Vec::new();
@@ -353,7 +353,7 @@ pub fn topological_sort_entities(entities: &[Entity], world: &World) -> Vec<Enti
         }
     }
 
-    // BFS: 루트부터 자식 순으로 수집
+    // BFS: collect from roots down to children
     let mut result = Vec::with_capacity(entities.len());
     let mut queue: VecDeque<Entity> = roots.into_iter().collect();
     while let Some(e) = queue.pop_front() {
@@ -367,7 +367,7 @@ pub fn topological_sort_entities(entities: &[Entity], world: &World) -> Vec<Enti
     result
 }
 
-// ─── 단위 테스트 ───────────────────────────────────────────────────────────────
+// ─── Unit tests ───────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -546,25 +546,25 @@ SceneDef(
         assert_eq!(entities.len(), 3);
     }
 
-    /// #23: 같은 태그가 둘 이상이면 parent 해석은 **첫 번째** 엔티티로 고정된다
-    /// (first-wins). 모든 엔티티는 그대로 스폰된다.
+    /// #23: when the same tag appears on more than one entity, parent resolution
+    /// is fixed to the **first** entity (first-wins). All entities are still spawned.
     #[test]
     fn spawn_scene_def_duplicate_tag_is_first_wins() {
         use crate::hierarchy::Parent;
 
         let scene = SceneDef {
             entities: vec![
-                // 첫 번째 "shared" — parent 해석의 승자
+                // First "shared" — wins for parent resolution
                 EntityDef {
                     tag: Some("shared".into()),
                     ..Default::default()
                 },
-                // 두 번째 "shared" — 중복(경고), parent 해석에서 무시됨
+                // Second "shared" — duplicate (warning), ignored for parent resolution
                 EntityDef {
                     tag: Some("shared".into()),
                     ..Default::default()
                 },
-                // "shared" 를 부모로 참조하는 자식
+                // Child that references "shared" as its parent
                 EntityDef {
                     parent: Some("shared".into()),
                     ..Default::default()
@@ -575,7 +575,7 @@ SceneDef(
 
         let mut world = World::new();
         let entities = spawn_scene_def(&mut world, &scene);
-        // 중복이 있어도 세 엔티티 전부 스폰된다.
+        // All three entities are spawned even with a duplicate tag.
         assert_eq!(entities.len(), 3);
 
         let first = entities[0];
@@ -595,7 +595,7 @@ SceneDef(
 
         let path = tmp_path("hierarchy_scene.ron");
 
-        // parent → child 계층 씬 저장
+        // Save a scene with a parent → child hierarchy
         let scene = SceneDef {
             entities: vec![
                 EntityDef {
@@ -617,10 +617,10 @@ SceneDef(
         scene.save(&path).expect("save should succeed");
         let loaded = SceneDef::load(&path).expect("load should succeed");
 
-        // RON에 parent 필드가 보존됐는지 확인
+        // Verify the parent field is preserved in the RON
         assert_eq!(loaded.entities[1].parent.as_deref(), Some("parent"));
 
-        // 스폰 후 Parent 컴포넌트 확인
+        // Verify the Parent component after spawning
         let mut world = World::new();
         let entities = spawn_scene_def(&mut world, &loaded);
         let parent_entity = entities[0];
@@ -643,14 +643,14 @@ SceneDef(
         let child = world.spawn();
         attach(&mut world, child, parent);
 
-        let entities = vec![child, parent]; // 역순으로 제공
+        let entities = vec![child, parent]; // provided in reverse order
         let sorted = topological_sort_entities(&entities, &world);
 
-        // 부모가 먼저 나와야 함
+        // Parent must come first
         assert_eq!(sorted[0], parent);
         assert_eq!(sorted[1], child);
 
-        // Parent 컴포넌트가 있는 child의 parent.0이 parent임을 재확인
+        // Double-check that the Parent component on child points to parent
         let p = world.get::<Parent>(child).unwrap();
         assert_eq!(p.0, parent);
     }

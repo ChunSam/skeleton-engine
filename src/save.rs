@@ -36,13 +36,13 @@ impl SaveKey {
     pub const DEFAULT: Self = Self(SAVE_KEY_BYTES);
 }
 
-/// 저장/로드 에러 타입.
+/// Save/load error type.
 #[derive(Debug)]
 pub enum SaveError {
     Io(io::Error),
     Ron(String),
     Corrupted,
-    /// 현재 타깃에서 파일 저장/로드를 지원하지 않음 (예: wasm — 파일시스템 없음).
+    /// Save/load is not supported on the current target (e.g. wasm — no filesystem).
     Unsupported,
 }
 
@@ -70,9 +70,9 @@ impl From<io::Error> for SaveError {
     }
 }
 
-/// OS 표준 데이터 디렉토리 하위의 저장 파일 경로를 반환한다.
+/// Returns the save-file path under the OS standard data directory.
 ///
-/// WASM에서는 `{app_name}/{file}` 상대 경로를 반환한다 (파일시스템 미지원).
+/// On WASM returns a relative path `{app_name}/{file}` (filesystem not supported).
 pub fn save_path(app_name: &str, file: &str) -> PathBuf {
     #[cfg(not(target_arch = "wasm32"))]
     return dirs::data_dir()
@@ -83,7 +83,7 @@ pub fn save_path(app_name: &str, file: &str) -> PathBuf {
     PathBuf::from(format!("{app_name}/{file}"))
 }
 
-/// 디렉토리를 만들고 데이터를 RON으로 직렬화한 뒤 AEAD 암호화해 저장한다.
+/// Creates the directory, serializes data to RON, encrypts with AEAD, and writes the file.
 ///
 /// Uses [`SaveKey::DEFAULT`] for backwards compatibility. Prefer [`save_with_key`]
 /// when the application can provide its own stable key material.
@@ -91,7 +91,7 @@ pub fn save<T: Serialize>(path: &Path, data: &T) -> Result<(), SaveError> {
     save_with_key(path, data, SaveKey::DEFAULT)
 }
 
-/// 디렉토리를 만들고 데이터를 지정한 키로 AEAD 암호화해 저장한다.
+/// Creates the directory and saves data encrypted with AEAD using the specified key.
 pub fn save_with_key<T: Serialize>(path: &Path, data: &T, key: SaveKey) -> Result<(), SaveError> {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -104,7 +104,7 @@ pub fn save_with_key<T: Serialize>(path: &Path, data: &T, key: SaveKey) -> Resul
         fs::write(path, encrypted)?;
         Ok(())
     }
-    // wasm: 파일시스템이 없으므로 런타임 IO 에러 대신 명시적 Unsupported 를 반환한다.
+    // wasm: no filesystem, so return explicit Unsupported instead of a runtime IO error.
     #[cfg(target_arch = "wasm32")]
     {
         let _ = (path, data, key);
@@ -112,7 +112,7 @@ pub fn save_with_key<T: Serialize>(path: &Path, data: &T, key: SaveKey) -> Resul
     }
 }
 
-/// 저장 파일을 복호화한 뒤 RON으로 역직렬화한다. 파일 없으면 Err(SaveError::Io(NotFound)).
+/// Decrypts the save file and deserializes it from RON. Returns `Err(SaveError::Io(NotFound))` if the file is absent.
 ///
 /// Uses [`SaveKey::DEFAULT`] for backwards compatibility. Prefer [`load_with_key`]
 /// when loading saves written with [`save_with_key`].
@@ -120,7 +120,7 @@ pub fn load<T: DeserializeOwned>(path: &Path) -> Result<T, SaveError> {
     load_with_key(path, SaveKey::DEFAULT)
 }
 
-/// 지정한 키로 저장 파일을 복호화한 뒤 RON으로 역직렬화한다.
+/// Decrypts the save file with the specified key and deserializes it from RON.
 pub fn load_with_key<T: DeserializeOwned>(path: &Path, key: SaveKey) -> Result<T, SaveError> {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -136,7 +136,7 @@ pub fn load_with_key<T: DeserializeOwned>(path: &Path, key: SaveKey) -> Result<T
     }
 }
 
-/// 파일이 있으면 복호화해 로드, 없으면 `T::default()` 반환. 복호화/파싱 에러는 그대로 전파.
+/// Loads and decrypts the file if it exists; returns `T::default()` if absent. Decryption/parse errors propagate as-is.
 pub fn load_or_default<T: DeserializeOwned + Default>(path: &Path) -> Result<T, SaveError> {
     match load(path) {
         Ok(v) => Ok(v),
@@ -145,7 +145,7 @@ pub fn load_or_default<T: DeserializeOwned + Default>(path: &Path) -> Result<T, 
     }
 }
 
-/// 저장 파일이 존재하는지 확인한다. wasm 에서는 항상 `false`.
+/// Returns whether the save file exists. Always `false` on wasm.
 pub fn exists(path: &Path) -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -158,7 +158,7 @@ pub fn exists(path: &Path) -> bool {
     }
 }
 
-/// 저장 파일을 삭제한다. 파일이 없으면 Ok(()). wasm 에서는 지울 파일이 없으므로 Ok(()).
+/// Deletes the save file. Returns `Ok(())` if the file does not exist. Always `Ok(())` on wasm.
 pub fn delete(path: &Path) -> Result<(), SaveError> {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -350,7 +350,7 @@ mod tests {
         assert!(exists(&path));
         delete(&path).unwrap();
         assert!(!exists(&path));
-        // 이미 없는 파일 삭제 → Ok
+        // Deleting a file that is already gone → Ok
         delete(&path).unwrap();
         fs::remove_dir_all(&dir).ok();
     }

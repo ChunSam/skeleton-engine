@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use winit::{dpi::PhysicalSize, window::Window};
 
-/// GPU 초기화 실패 원인.
+/// Reason for GPU initialization failure.
 #[derive(Debug)]
 pub enum GpuContextError {
     Surface(wgpu::CreateSurfaceError),
@@ -25,7 +25,7 @@ impl std::fmt::Display for GpuContextError {
 
 impl std::error::Error for GpuContextError {}
 
-/// wgpu 핵심 객체를 묶은 GPU 컨텍스트
+/// GPU context bundling the core wgpu objects.
 pub struct GpuContext {
     pub surface: wgpu::Surface<'static>,
     pub device: wgpu::Device,
@@ -35,11 +35,11 @@ pub struct GpuContext {
 }
 
 impl GpuContext {
-    /// 창을 받아 wgpu Surface/Device/Queue를 초기화한다.
-    /// wgpu 초기화는 async이므로 pollster::block_on으로 감싸서 호출한다.
+    /// Initializes a wgpu Surface/Device/Queue from the given window.
+    /// wgpu init is async; wrap with `pollster::block_on` when calling from sync code.
     pub async fn new(window: Arc<Window>) -> Result<Self, GpuContextError> {
-        // WASM: winit이 canvas를 attach한 직후 inner_size()가 1x1을 반환하는 경우가 있다.
-        // canvas의 width/height 속성을 DOM에서 직접 읽어 실제 해상도를 사용한다.
+        // WASM: inner_size() can return 1×1 immediately after winit attaches the canvas.
+        // Read the canvas width/height attributes directly from the DOM for the real size.
         #[cfg(not(target_arch = "wasm32"))]
         let size = window.inner_size();
         #[cfg(target_arch = "wasm32")]
@@ -53,9 +53,9 @@ impl GpuContext {
                 .unwrap_or_else(|| window.inner_size())
         };
 
-        // 1. 인스턴스: 플랫폼별 백엔드 선택
-        // WASM: WebGPU 어댑터가 maxInterStageShaderComponents 등 미지원 limit을 거부하므로
-        //       WebGL2 백엔드(GL)를 강제한다. Cargo.toml의 "webgl" feature로 활성화됨.
+        // 1. Instance: select backend per platform.
+        // WASM: WebGPU adapter rejects unsupported limits like maxInterStageShaderComponents,
+        //       so we force the WebGL2 backend (GL). Enabled via the "webgl" feature in Cargo.toml.
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             #[cfg(target_arch = "wasm32")]
             backends: wgpu::Backends::GL,
@@ -64,12 +64,12 @@ impl GpuContext {
             ..Default::default()
         });
 
-        // 2. 서피스: 창과 연결된 렌더 타겟
+        // 2. Surface: render target tied to the window.
         let surface = instance
             .create_surface(window)
             .map_err(GpuContextError::Surface)?;
 
-        // 3. 어댑터: 물리 GPU 선택
+        // 3. Adapter: select the physical GPU.
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::default(),
@@ -79,8 +79,8 @@ impl GpuContext {
             .await
             .ok_or(GpuContextError::AdapterNotFound)?;
 
-        // 4. 논리 디바이스 + 커맨드 큐
-        // wgpu 22 에서 DeviceDescriptor 에 memory_hints 필드가 추가됐다.
+        // 4. Logical device + command queue.
+        // wgpu 22 added the memory_hints field to DeviceDescriptor.
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
@@ -103,7 +103,7 @@ impl GpuContext {
             .await
             .map_err(GpuContextError::Device)?;
 
-        // 5. 서피스 포맷·설정
+        // 5. Surface format and configuration.
         let caps = surface.get_capabilities(&adapter);
         let format = caps
             .formats
@@ -123,10 +123,11 @@ impl GpuContext {
             format,
             width: size.width.max(1),
             height: size.height.max(1),
-            // AutoVsync + frame_latency=1: 찢김 없이 프레임 큐잉을 최소화한다.
-            // AutoNoVsync(저지연)도 시험했으나 지연 개선이 미미한 반면 프레임이
-            // 무제한으로 돌아(배터리·발열) 기본값으로 부적절했다. macOS 의 잔여
-            // 입력 지연(라이브 창 드래그 중 이벤트 루프 정지 등)은 후속 최적화로 미룸.
+            // AutoVsync + frame_latency=1: minimizes frame queuing without tearing.
+            // AutoNoVsync (low latency) was tested but the latency gain was marginal while
+            // frames ran unbounded (battery/heat), making it unsuitable as a default.
+            // Remaining input latency on macOS (event loop stalling during live window
+            // drag, etc.) is deferred to a follow-up optimization.
             present_mode: wgpu::PresentMode::AutoVsync,
             alpha_mode,
             view_formats: vec![],
@@ -143,7 +144,7 @@ impl GpuContext {
         })
     }
 
-    /// 창 크기 변경 시 서피스를 재구성한다.
+    /// Reconfigures the surface when the window is resized.
     pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
         if new_size.width == 0 || new_size.height == 0 {
             return;
@@ -154,12 +155,12 @@ impl GpuContext {
         self.surface.configure(&self.device, &self.config);
     }
 
-    /// 서피스 유실(SurfaceError::Lost) 시 재구성한다.
+    /// Reconfigures the surface after it is lost (`SurfaceError::Lost`).
     pub fn reconfigure(&self) {
         self.surface.configure(&self.device, &self.config);
     }
 
-    /// 화면을 단색으로 지운다. 스프라이트가 없을 때 배경 표시에 사용.
+    /// Clears the screen to a solid color. Used to show the background when there are no sprites.
     pub fn clear(&mut self, color: wgpu::Color) -> Result<(), wgpu::SurfaceError> {
         let frame = self.surface.get_current_texture()?;
         let view = frame

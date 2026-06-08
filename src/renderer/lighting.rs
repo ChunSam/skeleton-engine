@@ -6,9 +6,9 @@ use crate::components::{PointLight, Transform};
 use crate::ecs::World;
 use crate::resources::AmbientLight;
 
-// ─── GPU 구조체 ───────────────────────────────────────────────────────────────
+// ─── GPU structs ──────────────────────────────────────────────────────────────
 
-/// GPU로 전송되는 단일 포인트 라이트 데이터 (32바이트).
+/// Single point light data sent to the GPU (32 bytes).
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub struct GpuLightData {
@@ -26,7 +26,7 @@ pub struct GpuLightData {
     pub light_height: f32, // virtual Z height for flat-normal lighting (0.05~1.0 typical)
 }
 
-/// GPU 유니폼 전체 (544바이트).
+/// Full GPU uniform block (544 bytes).
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub struct LightingUniforms {
@@ -38,7 +38,7 @@ pub struct LightingUniforms {
     pub lights: [GpuLightData; 16],
 }
 
-// ─── WGSL 셰이더 ──────────────────────────────────────────────────────────────
+// ─── WGSL shader ──────────────────────────────────────────────────────────────
 
 const LIGHTING_SHADER: &str = r#"
 struct GpuLight {
@@ -118,17 +118,17 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
 
 // ─── LightingRenderer ────────────────────────────────────────────────────────
 
-/// 씬 텍스처를 입력받아 포인트 라이트를 적용하는 풀스크린 패스.
+/// Full-screen pass that takes the scene texture as input and applies point lights.
 ///
-/// `AmbientLight` 리소스가 World에 있을 때 `App`이 자동으로 생성·실행한다.
+/// Created and run automatically by `App` when an `AmbientLight` resource is present in the World.
 pub struct LightingRenderer {
-    /// 노멀 버퍼 텍스처 (뷰포트와 같은 크기, Rgba8Unorm).
+    /// Normal buffer texture (same size as the viewport, Rgba8Unorm).
     normal_texture: wgpu::Texture,
-    /// 노멀 버퍼 텍스처 뷰 (라이팅 셰이더 binding 3).
+    /// Normal buffer texture view (lighting shader binding 3).
     pub normal_view: wgpu::TextureView,
-    /// 현재 출력 텍스처 너비.
+    /// Current output texture width.
     pub width: u32,
-    /// 현재 출력 텍스처 높이.
+    /// Current output texture height.
     pub height: u32,
     format: wgpu::TextureFormat,
     pipeline: wgpu::RenderPipeline,
@@ -162,13 +162,14 @@ fn light_position_ndc(
     ([ndc_x, ndc_y], radius_ndc)
 }
 
-/// 라이팅 패스가 한 번에 처리할 수 있는 최대 광원 수 (GPU 유니폼 배열 크기와 일치).
+/// Maximum number of lights the lighting pass can process in one call (matches the GPU uniform array size).
 const MAX_LIGHTS: usize = 16;
 
-/// 카메라에서 가까운 순으로 최대 `MAX_LIGHTS`개 광원의 인덱스를 고른다.
+/// Selects indices of up to `MAX_LIGHTS` lights, nearest to the camera first.
 ///
-/// 광원이 캡을 넘을 때 먼 광원이 조용히 누락되던 기존 동작(쿼리 순서로 앞 16개)을
-/// 대체한다. 반환 순서는 정렬되어 있지 않다 (가법 라이팅이라 16개 내부 순서는 무관).
+/// Replaces the old behavior where distant lights were silently dropped (first 16 in query order)
+/// when the light count exceeded the cap. The return order is not sorted
+/// (additive lighting makes the order within the 16 irrelevant).
 fn select_nearest_lights(positions: &[glam::Vec2], camera_pos: glam::Vec2) -> Vec<usize> {
     let mut idx: Vec<usize> = (0..positions.len()).collect();
     if positions.len() > MAX_LIGHTS {
@@ -183,7 +184,7 @@ fn select_nearest_lights(positions: &[glam::Vec2], camera_pos: glam::Vec2) -> Ve
 }
 
 impl LightingRenderer {
-    /// 새 `LightingRenderer`를 생성한다.
+    /// Creates a new `LightingRenderer`.
     pub fn new(
         device: &wgpu::Device,
         width: u32,
@@ -213,7 +214,7 @@ impl LightingRenderer {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("lighting bgl"),
             entries: &[
-                // binding 0: 씬 텍스처
+                // binding 0: scene texture
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -224,14 +225,14 @@ impl LightingRenderer {
                     },
                     count: None,
                 },
-                // binding 1: 샘플러
+                // binding 1: sampler
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
-                // binding 2: 유니폼 버퍼
+                // binding 2: uniform buffer
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -317,7 +318,7 @@ impl LightingRenderer {
         *self = Self::new(device, width, height, surface_format);
     }
 
-    /// 창 크기 변경 시 노멀 버퍼를 재생성한다.
+    /// Recreates the normal buffer when the window is resized.
     pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {
         if self.width == width && self.height == height {
             return;
@@ -331,7 +332,7 @@ impl LightingRenderer {
         self.height = height;
     }
 
-    /// 매 프레임 노멀 버퍼를 평면 노멀 색상(0.5, 0.5, 1.0, 1.0)으로 초기화한다.
+    /// Clears the normal buffer to the flat-normal color (0.5, 0.5, 1.0, 1.0) each frame.
     pub fn clear_normal_buffer(&self, encoder: &mut wgpu::CommandEncoder) {
         let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("clear_normal"),
@@ -357,10 +358,10 @@ impl LightingRenderer {
         // pass drops here — clear is committed
     }
 
-    /// ECS World에서 라이트 데이터를 수집하고 유니폼 버퍼를 갱신한다.
+    /// Collects light data from the ECS World and updates the uniform buffer.
     ///
-    /// 광원이 `MAX_LIGHTS`(16)를 넘으면 카메라에서 가까운 16개만 전송한다
-    /// (먼 광원을 임의로 누락시키지 않는다).
+    /// When more than `MAX_LIGHTS` (16) lights are present, only the 16 closest to the camera
+    /// are sent (distant lights are not dropped arbitrarily).
     pub fn update(&self, queue: &wgpu::Queue, world: &World, vp_w: u32, vp_h: u32) {
         let ambient = world
             .resource::<AmbientLight>()
@@ -369,7 +370,7 @@ impl LightingRenderer {
 
         let camera = world.resource::<Camera>().copied().unwrap_or_default();
 
-        // 모든 포인트 라이트를 (월드 위치, 라이트 데이터)로 수집한다.
+        // Collect all point lights as (world position, light data).
         let collected: Vec<(glam::Vec2, PointLight)> = world
             .query2::<PointLight, Transform>()
             .map(|(_, light, transform)| (transform.position, *light))
@@ -417,7 +418,7 @@ impl LightingRenderer {
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
     }
 
-    /// 씬 텍스처에 라이팅을 적용해 `output_view`에 출력한다.
+    /// Applies lighting to the scene texture and writes the result to `output_view`.
     pub fn run_pass(
         &self,
         device: &wgpu::Device,
@@ -425,7 +426,7 @@ impl LightingRenderer {
         scene_view: &wgpu::TextureView,
         output_view: &wgpu::TextureView,
     ) {
-        // 씬 텍스처와 노멀 버퍼는 매 프레임 바뀔 수 있으므로 bind group을 즉석 생성한다.
+        // The scene texture and normal buffer may change each frame, so create the bind group on the fly.
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("lighting bind group"),
             layout: &self.bind_group_layout,
@@ -469,7 +470,7 @@ impl LightingRenderer {
         pass.draw(0..6, 0..1);
     }
 
-    // ── 내부 헬퍼 ─────────────────────────────────────────────────────────────
+    // ── Internal helpers ──────────────────────────────────────────────────────
 
     fn create_normal_buffer(
         device: &wgpu::Device,
@@ -495,7 +496,7 @@ impl LightingRenderer {
     }
 }
 
-// ─── 단위 테스트 ───────────────────────────────────────────────────────────────
+// ─── Unit tests ───────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -581,12 +582,12 @@ mod tests {
 
     #[test]
     fn select_nearest_lights_keeps_closest_to_camera() {
-        // 18개 광원을 x = 0,1,..,17 에 배치 → 카메라(원점)에서 인덱스가 작을수록 가깝다.
+        // Place 18 lights at x = 0,1,..,17 → smaller index = closer to the camera at the origin.
         let positions: Vec<glam::Vec2> = (0..18).map(|i| glam::Vec2::new(i as f32, 0.0)).collect();
         let selected = select_nearest_lights(&positions, glam::Vec2::ZERO);
 
         assert_eq!(selected.len(), MAX_LIGHTS);
-        // 가장 가까운 16개(인덱스 0..=15)만 선택되고, 가장 먼 16·17은 빠져야 한다.
+        // Only the 16 closest (indices 0..=15) should be selected; the farthest 16 and 17 must be excluded.
         let mut sorted = selected.clone();
         sorted.sort_unstable();
         assert_eq!(sorted, (0..MAX_LIGHTS).collect::<Vec<usize>>());

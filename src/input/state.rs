@@ -3,23 +3,24 @@ use std::collections::HashSet;
 use winit::event::MouseButton;
 use winit::keyboard::KeyCode;
 
-/// 키보드·마우스 상태를 담는 ECS 리소스
+/// ECS resource holding keyboard and mouse state.
 ///
-/// World에 삽입 후 시스템에서 `world.resource::<InputState>()` 로 접근.
+/// Insert into the World and access from systems via `world.resource::<InputState>()`.
 pub struct InputState {
-    // ── 키보드 ──────────────────────────────────────────────────────────────
+    // ── Keyboard ─────────────────────────────────────────────────────────────
     pressed: HashSet<KeyCode>,
     just_pressed: HashSet<KeyCode>,
     just_released: HashSet<KeyCode>,
 
-    // ── 마우스 ──────────────────────────────────────────────────────────────
+    // ── Mouse ─────────────────────────────────────────────────────────────────
     cursor: Vec2,
     mouse_pressed: [bool; 3],
     mouse_just_pressed: [bool; 3],
     mouse_just_released: [bool; 3],
-    /// 각 버튼이 눌린/떼진 *순간*의 커서 위치. 클릭 히트테스트는 이동으로 갱신되는
-    /// 현재 커서가 아니라 이 값을 써야, press 와 그 직후 move 가 같은 프레임에 묶여도
-    /// 클릭이 엉뚱한 위치로 평가되지 않는다.
+    /// Cursor position at the exact *moment* each button was pressed/released.
+    /// Click hit-tests should use this value rather than the current cursor (which
+    /// is updated by move events), so that a press and a subsequent move in the
+    /// same frame don't shift the hit-test to the wrong position.
     mouse_press_cursor: [Vec2; 3],
     mouse_release_cursor: [Vec2; 3],
     scroll: f32,
@@ -47,7 +48,7 @@ impl Default for InputState {
 }
 
 impl InputState {
-    // ── 키보드 공개 메서드 ────────────────────────────────────────────────────
+    // ── Keyboard public methods ───────────────────────────────────────────────
 
     pub fn just_pressed(&self, key: KeyCode) -> bool {
         self.just_pressed.contains(&key)
@@ -61,7 +62,7 @@ impl InputState {
         self.just_released.contains(&key)
     }
 
-    // ── 마우스 공개 메서드 ────────────────────────────────────────────────────
+    // ── Mouse public methods ──────────────────────────────────────────────────
 
     pub fn cursor(&self) -> Vec2 {
         self.cursor
@@ -79,12 +80,12 @@ impl InputState {
         mouse_button_index(btn).is_some_and(|i| self.mouse_just_released[i])
     }
 
-    /// 버튼이 마지막으로 *눌린 순간*의 커서 위치. 클릭/드래그 시작 히트테스트용.
+    /// Cursor position at the last moment the button was *pressed*. For click/drag-start hit-testing.
     pub fn mouse_press_cursor(&self, btn: MouseButton) -> Vec2 {
         mouse_button_index(btn).map_or(self.cursor, |i| self.mouse_press_cursor[i])
     }
 
-    /// 버튼이 마지막으로 *떼진 순간*의 커서 위치. 클릭 확정 히트테스트용.
+    /// Cursor position at the last moment the button was *released*. For confirming click hit-tests.
     pub fn mouse_release_cursor(&self, btn: MouseButton) -> Vec2 {
         mouse_button_index(btn).map_or(self.cursor, |i| self.mouse_release_cursor[i])
     }
@@ -93,9 +94,9 @@ impl InputState {
         self.scroll
     }
 
-    /// 이번 프레임에 입력된 문자 슬라이스를 반환한다.
+    /// Returns a slice of characters typed this frame.
     ///
-    /// `'\x08'` = Backspace, `'\n'` = Enter, 나머지 = 일반 문자.
+    /// `'\x08'` = Backspace, `'\n'` = Enter, everything else = regular character.
     pub fn text_chars(&self) -> &[char] {
         &self.text_input_chars
     }
@@ -104,7 +105,7 @@ impl InputState {
         &self.ime_preedit
     }
 
-    // ── 내부 업데이트 (App에서만 호출) ───────────────────────────────────────
+    // ── Internal update (called only from App) ────────────────────────────────
 
     pub(crate) fn press(&mut self, key: KeyCode) {
         if self.pressed.insert(key) {
@@ -123,7 +124,7 @@ impl InputState {
 
     pub(crate) fn press_mouse(&mut self, btn: MouseButton) {
         if let Some(i) = mouse_button_index(btn) {
-            // 현재 커서 = 이 press 가 일어난 위치 (CursorMoved 가 먼저 처리됨).
+            // Current cursor = position where this press occurred (CursorMoved is processed first).
             self.mouse_press_cursor[i] = self.cursor;
             if !self.mouse_pressed[i] {
                 self.mouse_pressed[i] = true;

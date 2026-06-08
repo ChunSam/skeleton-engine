@@ -21,7 +21,7 @@ use editor::EditorHistory;
 #[cfg(test)]
 use egui_pass::paint_jobs_contain_callbacks;
 
-// WASM: GPU 초기화는 async(WebGPU Promise 기반)이므로 thread_local로 결과를 전달한다.
+// WASM: GPU init is async (WebGPU Promise-based), so we use thread_local to pass the result.
 #[cfg(target_arch = "wasm32")]
 thread_local! {
     static PENDING_GPU: std::cell::RefCell<Option<(
@@ -66,9 +66,9 @@ type OffscreenRenderInfo = (
     u32, // layer_mask
 );
 
-/// 엔진 진입점.
+/// Engine entry point.
 ///
-/// # 사용법
+/// # Usage
 /// ```rust,no_run
 /// # use engine::App;
 /// let mut app = App::new();
@@ -77,40 +77,40 @@ type OffscreenRenderInfo = (
 /// app.run();
 /// ```
 pub struct App {
-    /// ECS 세계 (엔티티·컴포넌트·리소스)
+    /// ECS world (entities, components, resources).
     pub world: World,
 
     systems: Vec<Box<dyn System>>,
-    /// 시스템별 라벨/순서/그룹 메타데이터. systems와 동일한 인덱스로 평행 보관.
+    /// Per-system label/order/group metadata. Kept in parallel with `systems` by index.
     system_meta: Vec<crate::ecs::schedule::SystemMeta>,
-    /// compute_order가 계산한 실행 순서 (인덱스 목록).
+    /// Execution order computed by `compute_order` (list of indices).
     exec_order: Vec<usize>,
-    /// system_meta가 변경됐을 때 true — 다음 프레임에 재계산.
+    /// True when `system_meta` has changed — triggers a recompute on the next frame.
     schedule_dirty: bool,
-    /// 비활성화된 SystemSet 라벨. 해당 set의 시스템은 실행을 건너뛴다.
+    /// Disabled SystemSet labels. Systems belonging to a disabled set are skipped.
     disabled_sets: std::collections::HashSet<crate::ecs::schedule::SystemLabel>,
-    /// 패닉으로 비활성화된 시스템 인덱스 집합. 해당 시스템은 이후 프레임에서 건너뛴다.
+    /// Set of system indices disabled by a panic. Those systems are skipped in subsequent frames.
     panicked_systems: std::collections::HashSet<usize>,
-    /// 스케줄 순환 의존성 처리 정책.
+    /// Policy for handling cyclic schedule dependencies.
     schedule_error_policy: ScheduleErrorPolicy,
-    /// 시스템 panic 처리 정책.
+    /// Policy for handling system panics.
     system_panic_policy: SystemPanicPolicy,
-    /// (씬, 해당 씬이 등록한 시스템 수). Push/Pop 시 시스템 복원에 사용.
+    /// (scene, number of systems registered by that scene). Used to restore systems on Push/Pop.
     scene_stack: Vec<(Box<dyn Scene>, usize)>,
     window: Option<Arc<Window>>,
     gpu: Option<GpuContext>,
     sprite_renderer: Option<SpriteRenderer>,
-    /// 스프라이트 pass 직후 텍스트를 덮어쓴다. GPU 초기화 이후 Some으로 채워진다.
+    /// Overlays text immediately after the sprite pass. Filled with Some after GPU init.
     text_renderer: Option<TextRenderer>,
-    /// PostProcessConfig 리소스가 enabled=true일 때 활성화된다.
+    /// Activated when the `PostProcessConfig` resource has `enabled = true`.
     post_renderer: Option<PostProcessRenderer>,
-    /// AmbientLight 리소스가 등록된 동안 활성화되는 라이팅 렌더러.
+    /// Lighting renderer active while the `AmbientLight` resource is registered.
     #[cfg(not(target_arch = "wasm32"))]
     lighting_renderer: Option<crate::renderer::lighting::LightingRenderer>,
-    /// FadeTransition 리소스가 alpha > 0 일 때 마지막 패스로 실행되는 페이드 렌더러.
+    /// Fade renderer executed as the final pass when `FadeTransition` has `alpha > 0`.
     #[cfg(not(target_arch = "wasm32"))]
     fade_renderer: Option<crate::renderer::fade::FadeRenderer>,
-    /// 라이팅 패스가 씬을 먼저 그릴 중간 텍스처.
+    /// Intermediate texture the lighting pass renders the scene into first.
     #[cfg(not(target_arch = "wasm32"))]
     scene_texture_for_lighting: Option<(
         wgpu::Texture,
@@ -119,7 +119,7 @@ pub struct App {
         u32,
         wgpu::TextureFormat,
     )>,
-    /// post+lighting 조합에서 post 결과를 lighting 입력으로 넘기는 중간 텍스처.
+    /// Intermediate texture that passes the post-process result as input to the lighting pass.
     #[cfg(not(target_arch = "wasm32"))]
     post_texture_for_lighting: Option<(
         wgpu::Texture,
@@ -128,77 +128,77 @@ pub struct App {
         u32,
         wgpu::TextureFormat,
     )>,
-    /// GPU 컴퓨트 셰이더 기반 파티클 렌더러 (lazy init).
+    /// GPU compute-shader particle renderer (lazy init).
     #[cfg(not(target_arch = "wasm32"))]
     gpu_particle_renderer: Option<crate::renderer::gpu_particle::GpuParticleRenderer>,
     last_frame: Option<Instant>,
     last_dt: f32,
-    /// GPU 초기화 전에 등록된 텍스처 경로를 보관한다. resumed()에서 실제로 로드한다.
+    /// Texture paths registered before GPU init. Actually loaded in `resumed()`.
     pending_textures: Vec<String>,
-    /// 등록된 오프스크린 렌더 타겟 맵 (이름 → RenderTarget).
+    /// Map of registered offscreen render targets (name → RenderTarget).
     render_targets: HashMap<String, crate::renderer::render_target::RenderTarget>,
-    /// GPU 초기화 전에 등록된 렌더 타겟 정보. finish_init()에서 실제 생성한다.
+    /// Render target info registered before GPU init. Actually created in `finish_init()`.
     pending_render_targets: Vec<(String, u32, u32)>,
-    /// 매 프레임 종료 시 이벤트 큐를 비우는 클로저 목록.
+    /// Closures that drain event queues at the end of each frame.
     event_flushers: Vec<EventHook>,
-    /// reload_scene 시 이벤트 리소스를 재삽입하는 클로저 목록.
+    /// Closures that re-insert event resources on `reload_scene`.
     event_initializers: Vec<EventHook>,
-    /// 씬 전환(World 리셋)을 넘어 보존할 리소스 타입 목록 (`register_persistent`).
+    /// Resource types to preserve across scene transitions (World reset) via `register_persistent`.
     persistent_resources: Vec<std::any::TypeId>,
-    /// gilrs 게임패드 컨텍스트. 초기화 실패 시 None (게임패드 없이 동작).
+    /// gilrs gamepad context. None if initialization failed (runs without gamepad).
     #[cfg(not(target_arch = "wasm32"))]
     gilrs: Option<gilrs::Gilrs>,
-    /// egui 렌더러 (wgpu 백엔드).
+    /// egui renderer (wgpu backend).
     egui_renderer: Option<egui_wgpu::Renderer>,
-    /// winit ↔ egui 이벤트 변환기.
+    /// winit ↔ egui event adapter.
     egui_state: Option<egui_winit::State>,
-    /// update() 에서 tessellate 한 결과를 render() 까지 전달하는 임시 버퍼.
+    /// Temporary buffer carrying tessellated output from `update()` to `render()`.
     egui_output: Option<(Vec<egui::ClippedPrimitive>, egui::TexturesDelta, f32)>,
-    /// Inspector 패널에서 현재 선택된 엔티티.
+    /// Entity currently selected in the Inspector panel.
     inspector_selected: Option<Entity>,
-    /// 멀티 선택된 엔티티 목록 (inspector_selected 포함).
+    /// Multi-selected entity list (includes `inspector_selected`).
     #[cfg(not(target_arch = "wasm32"))]
     selected_entities: Vec<Entity>,
-    /// Ctrl+C로 복사된 EntityDef 클립보드.
+    /// EntityDef clipboard copied via Ctrl+C.
     #[cfg(not(target_arch = "wasm32"))]
     copy_clipboard: Vec<crate::prefab::EntityDef>,
-    /// Gizmo 드래그 중인지 여부.
+    /// Whether a gizmo drag is in progress.
     gizmo_dragging: bool,
-    /// 드래그 시작 시 (엔티티 position - 커서 월드 좌표) 오프셋.
+    /// Offset (entity position − cursor world position) captured at drag start.
     gizmo_drag_offset: glam::Vec2,
-    /// Inspector 씬 저장 경로 (네이티브 전용).
+    /// Inspector scene save path (native only).
     #[cfg(not(target_arch = "wasm32"))]
     editor_save_path: String,
-    /// 마지막 씬 저장 결과 메시지.
+    /// Result message of the last scene save.
     editor_save_status: Option<String>,
-    /// 마지막 씬 로드 결과 메시지.
+    /// Result message of the last scene load.
     #[cfg(not(target_arch = "wasm32"))]
     editor_load_status: Option<String>,
-    /// Inspector 현재 탭 인덱스 (0: Entities, 1: Assets).
+    /// Current Inspector tab index (0: Entities, 1: Assets).
     inspector_tab: u8,
-    /// 에디터 실행 취소/다시 실행 히스토리.
+    /// Editor undo/redo history.
     #[cfg(not(target_arch = "wasm32"))]
     cmd_history: EditorHistory,
-    /// Gizmo 드래그 시작 시 엔티티 위치 (undo 기록용).
+    /// Entity position at gizmo drag start (for recording undo).
     #[cfg(not(target_arch = "wasm32"))]
     gizmo_drag_start_pos: Option<glam::Vec2>,
-    /// Gizmo 그룹 드래그 시작 시 각 선택 엔티티의 위치 (그룹 이동 undo 기록용).
+    /// Positions of all selected entities at gizmo group-drag start (for group-move undo).
     #[cfg(not(target_arch = "wasm32"))]
     gizmo_drag_start_positions: Vec<(Entity, glam::Vec2)>,
-    /// 컴포넌트 추가 팩토리 맵 (네이티브 전용). 타입 이름 → World에 컴포넌트를 추가하는 클로저.
+    /// Component add factory map (native only). Type name → closure that adds the component to the World.
     #[cfg(not(target_arch = "wasm32"))]
     component_factories: HashMap<String, ComponentFactory>,
-    /// 컴포넌트 제거 클로저 맵 (네이티브 전용). 타입 이름 → World에서 컴포넌트를 제거하는 클로저.
-    /// 이 맵에 등록된 컴포넌트만 Inspector에서 "✕"(제거) 버튼이 노출/동작한다.
+    /// Component remove closure map (native only). Type name → closure that removes the component from the World.
+    /// Only components registered in this map expose the "✕" (remove) button in the Inspector.
     #[cfg(not(target_arch = "wasm32"))]
     component_removers: HashMap<String, ComponentFactory>,
-    /// "Add Component" 드롭다운에서 현재 선택된 컴포넌트 이름 (네이티브 전용).
+    /// Component name currently selected in the "Add Component" dropdown (native only).
     #[cfg(not(target_arch = "wasm32"))]
     add_component_selected: String,
-    /// Gizmo 드래그 Grid Snap 활성화 여부 (네이티브 전용).
+    /// Whether gizmo drag grid snap is enabled (native only).
     #[cfg(not(target_arch = "wasm32"))]
     snap_enabled: bool,
-    /// Gizmo 드래그 Grid Snap 격자 크기 (픽셀, 네이티브 전용).
+    /// Gizmo drag grid snap cell size in pixels (native only).
     #[cfg(not(target_arch = "wasm32"))]
     snap_size: f32,
 }
@@ -319,7 +319,7 @@ impl Default for App {
     }
 }
 
-// ─── winit ApplicationHandler 구현 ───────────────────────────────────────────
+// ─── winit ApplicationHandler impl ───────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -379,7 +379,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "시스템 순서 순환 의존성 감지")]
+    #[should_panic(expected = "system order circular dependency detected")]
     fn schedule_cycle_can_panic() {
         let mut app = app_with_counter();
         app.set_schedule_error_policy(ScheduleErrorPolicy::PanicOnCycle);
@@ -445,12 +445,12 @@ mod tests {
 
     #[test]
     fn scene_replace_clears_panicked_systems() {
-        // 회귀 테스트: 씬 A 에서 패닉으로 비활성화된 시스템 인덱스가 Replace 이후
-        // 씬 B 의 같은 인덱스 시스템을 잘못 건너뛰면 안 된다.
+        // Regression test: a system index disabled by panic in scene A must not
+        // incorrectly skip the system at the same index in scene B after Replace.
         struct SceneA;
         impl Scene for SceneA {
             fn on_enter(&mut self, _w: &mut World, systems: &mut Vec<Box<dyn System>>) {
-                systems.push(Box::new(PanicSystem)); // idx 0 — 패닉 후 비활성화
+                systems.push(Box::new(PanicSystem)); // idx 0 — disabled after panic
                 systems.push(Box::new(CountSystem)); // idx 1
             }
             fn on_exit(&mut self, _w: &mut World) {}
@@ -469,12 +469,12 @@ mod tests {
         app.world.insert_resource(Counter::default());
         app.set_scene(Box::new(SceneA));
 
-        // 씬 A: PanicSystem(idx0) 패닉→비활성화, CountSystem(idx1) 실행 → +1
+        // Scene A: PanicSystem(idx0) panics → disabled, CountSystem(idx1) runs → +1
         app.update(1.0 / 60.0);
         assert_eq!(app.world.resource::<Counter>().unwrap().0, 1);
         assert!(app.panicked_systems.contains(&0));
 
-        // 씬 B 로 교체: panicked_systems 가 초기화되어 idx0/idx1 모두 실행 → +2
+        // Replace with scene B: panicked_systems is cleared so idx0/idx1 both run → +2
         app.set_scene(Box::new(SceneB));
         app.update(1.0 / 60.0);
         assert_eq!(
@@ -487,13 +487,13 @@ mod tests {
 
     #[test]
     fn builtin_system_labels_compose_for_ordering() {
-        // 내장 시스템의 LABEL 상수가 실제 스케줄러에서 순서 제약으로 동작하는지 검증.
+        // Verify that built-in system LABEL constants enforce ordering in the real scheduler.
         use crate::animation::{AnimationSystem, StateMachineSystem};
         use crate::ecs::schedule::{compute_order, SystemMeta};
         use crate::ui::{LayoutSystem, UiSystem};
 
         let metas = vec![
-            // idx0: StateMachine — Animation 이후
+            // idx0: StateMachine — after Animation
             SystemMeta {
                 label: Some(StateMachineSystem::LABEL),
                 after: vec![AnimationSystem::LABEL],
@@ -504,7 +504,7 @@ mod tests {
                 label: Some(AnimationSystem::LABEL),
                 ..Default::default()
             },
-            // idx2: Ui — Layout 이후
+            // idx2: Ui — after Layout
             SystemMeta {
                 label: Some(UiSystem::LABEL),
                 after: vec![LayoutSystem::LABEL],

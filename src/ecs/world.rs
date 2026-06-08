@@ -31,11 +31,11 @@ impl Entity {
     }
 }
 
-/// 컴포넌트 저장 단위. `Send + Sync`를 요구해 병렬 쿼리를 가능하게 한다.
+/// Storage unit for components. Requires `Send + Sync` to allow parallel queries.
 type ComponentBox = Box<dyn Any + Send + Sync>;
 type CloneComponentFn = Box<dyn Fn(&mut World, Entity, Entity) + Send + Sync>;
 
-// ─── Reflect 레지스트리 헬퍼 ─────────────────────────────────────────────────
+// ─── Reflect registry helpers ────────────────────────────────────────────────
 
 fn get_reflect_impl<T: crate::reflect::Reflect + 'static>(
     b: &ComponentBox,
@@ -60,10 +60,10 @@ struct ReflectEntry {
 
 type ArchetypeId = usize;
 
-/// 동일한 컴포넌트 집합을 가진 엔티티 묶음.
-/// columns[T][i]는 entities[i]의 T 컴포넌트이다 (항상 동일한 길이).
+/// A group of entities that share the same component set.
+/// columns[T][i] is the T component of entities[i] (always the same length).
 struct Archetype {
-    type_set: Vec<TypeId>, // 정렬된 TypeId 목록
+    type_set: Vec<TypeId>, // sorted TypeId list
     entities: Vec<Entity>,
     columns: HashMap<TypeId, Vec<ComponentBox>>,
 }
@@ -86,11 +86,11 @@ impl Archetype {
     }
 }
 
-/// ECS의 중심 저장소
+/// Central ECS storage.
 ///
-/// - 엔티티(Entity): index와 generation을 가진 stale-safe handle
-/// - 컴포넌트: Archetype 기반 밀집 컬럼 스토리지
-/// - 리소스: 전역 싱글턴 데이터
+/// - Entity: stale-safe handle with an index and a generation
+/// - Components: dense column storage backed by Archetypes
+/// - Resources: global singleton data
 pub struct World {
     next_index: u32,
     free_indices: VecDeque<u32>,
@@ -103,7 +103,7 @@ pub struct World {
     reflect_registry: HashMap<TypeId, ReflectEntry>,
     added_this_tick: HashSet<(Entity, TypeId)>,
     changed_this_tick: HashSet<(Entity, TypeId)>,
-    /// clone_entity에서 컴포넌트를 복제할 때 사용하는 함수 레지스트리.
+    /// Function registry used to clone components inside `clone_entity`.
     clone_registry: HashMap<TypeId, CloneComponentFn>,
 }
 
@@ -128,12 +128,12 @@ impl World {
         }
     }
 
-    /// 현재 살아있는 엔티티 수를 반환한다.
+    /// Returns the number of currently alive entities.
     pub fn entity_count(&self) -> usize {
         self.entities.len()
     }
 
-    /// 빈 엔티티를 생성하고 반환한다.
+    /// Spawns an empty entity and returns it.
     pub fn spawn(&mut self) -> Entity {
         let index = if let Some(reused) = self.free_indices.pop_front() {
             reused
@@ -152,7 +152,7 @@ impl World {
         entity
     }
 
-    /// 엔티티를 제거하고 모든 컴포넌트를 해제한다. 멱등성 보장.
+    /// Removes an entity and releases all of its components. Idempotent.
     pub fn despawn(&mut self, entity: Entity) {
         let (arch_id, row) = match self.entity_location.get(&entity) {
             Some(&loc) => loc,
@@ -191,7 +191,7 @@ impl World {
         self.changed_this_tick.retain(|(e, _)| *e != entity);
     }
 
-    /// 엔티티에서 컴포넌트 T를 제거한다. 없어도 panic 하지 않는다.
+    /// Removes component T from an entity. Does not panic if the component is absent.
     pub fn remove_component<T: 'static>(&mut self, entity: Entity) {
         let tid = TypeId::of::<T>();
         let (arch_id, _) = match self.entity_location.get(&entity) {
@@ -216,13 +216,14 @@ impl World {
         self.changed_this_tick.remove(&(entity, tid));
     }
 
-    /// 엔티티에서 컴포넌트 T를 꺼내 반환한다. 없으면 None.
+    /// Removes component T from an entity and returns its value. Returns None if absent.
     ///
-    /// `remove_component`와 달리 컴포넌트 값을 소유권째 돌려준다.
-    /// `BehaviorSystem` 등 컴포넌트를 임시로 빌려서 World와 동시에 사용해야 할 때 쓴다.
+    /// Unlike `remove_component`, this transfers ownership of the component value.
+    /// Use it when code like `BehaviorSystem` needs to borrow a component temporarily
+    /// while still having mutable access to `World`.
     pub fn take_component<T: Send + Sync + 'static>(&mut self, entity: Entity) -> Option<T> {
         let tid = TypeId::of::<T>();
-        // Step 1: 실제 값을 Box<()> placeholder로 교체하고 소유권을 확보
+        // Step 1: swap the real value out with a Box<()> placeholder to gain ownership
         let value: T = {
             let (arch_id, row) = *self.entity_location.get(&entity)?;
             let arch = &mut self.archetypes[arch_id];
@@ -230,20 +231,20 @@ impl World {
                 return None;
             }
             let col = arch.columns.get_mut(&tid)?;
-            // 실제 값을 unit placeholder로 swap
+            // swap the real value for a unit placeholder
             let placeholder: ComponentBox = Box::new(());
             let extracted = std::mem::replace(&mut col[row], placeholder);
             // Box<dyn Any+Send+Sync> → Box<T> → T
             *extracted.downcast::<T>().ok()?
-        }; // archetypes 빌림 해제
-           // Step 2: placeholder를 포함한 슬롯을 아키타입에서 제거
+        }; // archetypes borrow released
+           // Step 2: remove the slot (which now holds the placeholder) from the archetype
         self.remove_component::<T>(entity);
         Some(value)
     }
 
-    /// 엔티티에 컴포넌트를 붙인다. 이미 있으면 교체한다.
+    /// Attaches a component to an entity. Replaces it if one already exists.
     ///
-    /// `T: Send + Sync`가 요구된다 — 병렬 쿼리(`par_query*`)에서 스레드 간 공유를 허용하기 위해서다.
+    /// `T: Send + Sync` is required to allow cross-thread sharing in parallel queries (`par_query*`).
     pub fn add_component<T: Send + Sync + 'static>(&mut self, entity: Entity, component: T) {
         let tid = TypeId::of::<T>();
         let (arch_id, _) = match self.entity_location.get(&entity) {
@@ -278,7 +279,7 @@ impl World {
         self.added_this_tick.insert((entity, tid));
     }
 
-    /// 엔티티의 컴포넌트를 불변 참조로 가져온다.
+    /// Returns an immutable reference to an entity's component.
     pub fn get<T: 'static>(&self, entity: Entity) -> Option<&T> {
         let &(arch_id, row) = self.entity_location.get(&entity)?;
         self.archetypes[arch_id]
@@ -288,11 +289,11 @@ impl World {
             .downcast_ref::<T>()
     }
 
-    /// 엔티티의 컴포넌트를 가변 참조로 가져온다.
+    /// Returns a mutable reference to an entity's component.
     ///
-    /// 이 메서드로 필드를 직접 수정해도 `query_changed<T>()`에는 자동으로 기록되지 않는다.
-    /// 변경 감지가 필요한 시스템에서는 [`World::mark_changed`]를 호출하거나
-    /// [`World::get_mut_tracked`]를 사용한다.
+    /// Directly modifying fields through this method is NOT automatically recorded
+    /// in `query_changed<T>()`. Systems that need change detection should call
+    /// [`World::mark_changed`] or use [`World::get_mut_tracked`].
     pub fn get_mut<T: 'static>(&mut self, entity: Entity) -> Option<&mut T> {
         let &(arch_id, row) = self.entity_location.get(&entity)?;
         self.archetypes[arch_id]
@@ -302,7 +303,7 @@ impl World {
             .downcast_mut::<T>()
     }
 
-    /// T를 가진 모든 (Entity, &T) 쌍을 순회한다.
+    /// Iterates over all (Entity, &T) pairs that have component T.
     pub fn query<T: 'static>(&self) -> impl Iterator<Item = (Entity, &T)> {
         let tid = TypeId::of::<T>();
         self.archetypes
@@ -317,21 +318,22 @@ impl World {
             })
     }
 
-    /// T를 가진 모든 `(Entity, &mut T)` 쌍을 **가변 참조**로 순회한다.
+    /// Iterates over all `(Entity, &mut T)` pairs with **mutable** references.
     ///
-    /// `query::<T>()` 의 가변 버전. 여러 엔티티의 단일 컴포넌트를 직접 수정할 때
-    /// "엔티티를 collect 한 뒤 `get_mut`" 2-패스 우회(매 프레임 할당)가 필요 없다.
+    /// Mutable variant of `query::<T>()`. Avoids the two-pass workaround
+    /// ("collect entities then `get_mut`", which allocates every frame) when you
+    /// want to mutate a single component across many entities.
     ///
-    /// `get_mut` 과 마찬가지로, 여기서 수정해도 `query_changed<T>()` 에는 자동
-    /// 기록되지 않는다. 변경 감지가 필요하면 [`World::mark_changed`] 를 호출한다.
+    /// As with `get_mut`, changes made here are NOT automatically recorded in
+    /// `query_changed<T>()`. Call [`World::mark_changed`] if change detection is needed.
     pub fn query_mut<T: 'static>(&mut self) -> impl Iterator<Item = (Entity, &mut T)> {
         let tid = TypeId::of::<T>();
         self.archetypes
             .iter_mut()
             .filter(move |arch| arch.contains(tid))
             .flat_map(move |arch| {
-                // entities(불변)와 columns(가변)는 Archetype 의 서로 다른 필드이므로
-                // 구조 분해로 disjoint 가변/불변 차용을 동시에 얻는다.
+                // `entities` (immutable) and `columns` (mutable) are distinct fields of
+                // Archetype, so destructuring lets us borrow both disjointly at once.
                 let Archetype {
                     entities, columns, ..
                 } = arch;
@@ -343,7 +345,7 @@ impl World {
             })
     }
 
-    /// A, B 를 모두 가진 엔티티를 순회한다.
+    /// Iterates over entities that have both A and B.
     pub fn query2<A: 'static, B: 'static>(&self) -> impl Iterator<Item = (Entity, &A, &B)> {
         let ta = TypeId::of::<A>();
         let tb = TypeId::of::<B>();
@@ -363,7 +365,7 @@ impl World {
             })
     }
 
-    /// A, B, C 를 모두 가진 엔티티를 순회한다.
+    /// Iterates over entities that have A, B, and C.
     pub fn query3<A: 'static, B: 'static, C: 'static>(
         &self,
     ) -> impl Iterator<Item = (Entity, &A, &B, &C)> {
@@ -388,7 +390,7 @@ impl World {
             })
     }
 
-    /// A, B, C, D 를 모두 가진 엔티티를 순회한다.
+    /// Iterates over entities that have A, B, C, and D.
     pub fn query4<A: 'static, B: 'static, C: 'static, D: 'static>(
         &self,
     ) -> impl Iterator<Item = (Entity, &A, &B, &C, &D)> {
@@ -418,7 +420,7 @@ impl World {
             })
     }
 
-    /// A 를 가지면서 B 도 가진 엔티티만 순회한다.
+    /// Iterates over entities that have A and also have B.
     pub fn query_with<A: 'static, B: 'static>(&self) -> impl Iterator<Item = (Entity, &A)> {
         let ta = TypeId::of::<A>();
         let tb = TypeId::of::<B>();
@@ -434,7 +436,7 @@ impl World {
             })
     }
 
-    /// A 를 가지면서 B 가 없는 엔티티만 순회한다.
+    /// Iterates over entities that have A but do not have B.
     pub fn query_without<A: 'static, B: 'static>(&self) -> impl Iterator<Item = (Entity, &A)> {
         let ta = TypeId::of::<A>();
         let tb = TypeId::of::<B>();
@@ -450,7 +452,7 @@ impl World {
             })
     }
 
-    /// A 를 가진 모든 엔티티를 순회한다. B 는 있으면 Some, 없으면 None.
+    /// Iterates over all entities with A. B is Some if present, None otherwise.
     pub fn query_opt2<A: 'static, B: 'static>(
         &self,
     ) -> impl Iterator<Item = (Entity, &A, Option<&B>)> {
@@ -474,7 +476,7 @@ impl World {
         &self.entities
     }
 
-    // ── 리소스 ────────────────────────────────────────────────────────────────
+    // ── Resources ────────────────────────────────────────────────────────────
 
     pub fn insert_resource<T: 'static>(&mut self, resource: T) {
         self.resources.insert(TypeId::of::<T>(), Box::new(resource));
@@ -490,35 +492,37 @@ impl World {
             .downcast_mut::<T>()
     }
 
-    /// 리소스 `T`를 World에서 제거하고 소유권을 반환한다.
-    /// 리소스가 없으면 `None`.
+    /// Removes resource `T` from the World and returns ownership.
+    /// Returns `None` if the resource does not exist.
     pub fn remove_resource<T: 'static>(&mut self) -> Option<T> {
         self.resources
             .remove(&TypeId::of::<T>())
             .and_then(|b| b.downcast::<T>().ok().map(|b| *b))
     }
 
-    /// `TypeId`로 리소스를 type-erased 박스째 꺼낸다 (소유권 이전).
+    /// Removes a resource by `TypeId` and returns it as a type-erased box (ownership transferred).
     ///
-    /// 정적 타입을 모른 채 리소스를 다른 `World`로 옮길 때 쓴다 (예: 씬 전환 시
-    /// persistent 리소스 보존). 일반적인 게임 코드는 [`World::remove_resource`]를 쓴다.
+    /// Use this to move a resource into another `World` without knowing its static type
+    /// (e.g. preserving persistent resources across scene transitions).
+    /// Normal game code should use [`World::remove_resource`] instead.
     pub fn take_resource_erased(&mut self, type_id: TypeId) -> Option<Box<dyn Any>> {
         self.resources.remove(&type_id)
     }
 
-    /// [`World::take_resource_erased`]로 꺼낸 박스를 다시 삽입한다.
+    /// Re-inserts a box previously removed by [`World::take_resource_erased`].
     ///
-    /// `type_id`는 박스가 담은 실제 타입의 `TypeId`여야 한다 (보통 꺼낼 때 쓴 것과 동일).
+    /// `type_id` must be the `TypeId` of the actual type held in the box
+    /// (typically the same one used when taking it out).
     pub fn insert_resource_erased(&mut self, type_id: TypeId, resource: Box<dyn Any>) {
         self.resources.insert(type_id, resource);
     }
 
-    // ── Reflect 레지스트리 ────────────────────────────────────────────────────
+    // ── Reflect registry ──────────────────────────────────────────────────────
 
-    /// 타입 T를 Reflect 레지스트리에 등록한다.
+    /// Registers type T with the Reflect registry.
     ///
-    /// 등록된 타입은 `get_reflect`, `get_reflect_mut`, `reflected_components`로 접근할 수 있으며
-    /// egui Inspector 패널에 자동으로 표시된다.
+    /// Registered types are accessible via `get_reflect`, `get_reflect_mut`, and
+    /// `reflected_components`, and are automatically displayed in the egui Inspector panel.
     pub fn register_reflect<T: crate::reflect::Reflect + 'static>(&mut self) {
         self.reflect_registry.insert(
             TypeId::of::<T>(),
@@ -530,10 +534,10 @@ impl World {
         );
     }
 
-    /// 타입 T를 Reflect 레지스트리에 표시 이름과 함께 등록한다.
+    /// Registers type T with the Reflect registry under a display name.
     ///
-    /// `register_reflect`와 동일하지만 Inspector 컴포넌트 목록에 표시될 이름을 명시한다.
-    /// `reflect_registered_types()`로 조회할 때 이 이름이 반환된다.
+    /// Same as `register_reflect`, but specifies the name shown in the Inspector component
+    /// list. This name is returned when querying via `reflect_registered_types()`.
     pub fn register_reflect_named<T: crate::reflect::Reflect + 'static>(
         &mut self,
         name: &'static str,
@@ -548,7 +552,7 @@ impl World {
         );
     }
 
-    /// Reflect 레지스트리에 등록된 모든 타입의 `(TypeId, type_name)` 목록을 반환한다.
+    /// Returns a list of `(TypeId, type_name)` for all types registered with the Reflect registry.
     pub fn reflect_registered_types(&self) -> Vec<(TypeId, &'static str)> {
         self.reflect_registry
             .iter()
@@ -556,9 +560,9 @@ impl World {
             .collect()
     }
 
-    /// 엔티티의 특정 컴포넌트를 `&dyn Reflect`로 가져온다.
+    /// Returns a specific component of an entity as `&dyn Reflect`.
     ///
-    /// `type_id`에 해당하는 컴포넌트가 없거나 등록되지 않은 타입이면 `None`.
+    /// Returns `None` if the component for `type_id` is absent or the type is not registered.
     pub fn get_reflect(
         &self,
         entity: Entity,
@@ -570,15 +574,15 @@ impl World {
         (entry.get)(boxed)
     }
 
-    /// 엔티티의 특정 컴포넌트를 `&mut dyn Reflect`로 가져온다.
+    /// Returns a specific component of an entity as `&mut dyn Reflect`.
     ///
-    /// `ReflectEntry`를 Copy로 꺼낸 뒤 Archetype을 가변 접근하므로 borrow 충돌 없음.
+    /// Copies the `ReflectEntry` before mutably accessing the Archetype, so no borrow conflict.
     pub fn get_reflect_mut(
         &mut self,
         entity: Entity,
         type_id: TypeId,
     ) -> Option<&mut dyn crate::reflect::Reflect> {
-        let entry = *self.reflect_registry.get(&type_id)?; // Copy → borrow 해제
+        let entry = *self.reflect_registry.get(&type_id)?; // Copy → borrow released
         let &(arch_id, row) = self.entity_location.get(&entity)?;
         let boxed = self.archetypes[arch_id]
             .columns
@@ -587,7 +591,7 @@ impl World {
         (entry.get_mut)(boxed)
     }
 
-    /// 엔티티가 가진 컴포넌트 중 Reflect 레지스트리에 등록된 타입의 `TypeId` 목록.
+    /// Returns the `TypeId` list of components on the entity that are registered with the Reflect registry.
     pub fn reflected_components(&self, entity: Entity) -> Vec<TypeId> {
         let &(arch_id, _) = match self.entity_location.get(&entity) {
             Some(loc) => loc,
@@ -601,15 +605,15 @@ impl World {
             .collect()
     }
 
-    /// 엔티티가 살아있는지 확인한다 (despawn 또는 미존재이면 false).
+    /// Returns true if the entity is alive (false if despawned or never created).
     pub fn is_alive(&self, entity: Entity) -> bool {
         self.entity_location.contains_key(&entity)
     }
 
-    /// Commands 버퍼에 쌓인 모든 명령을 즉시 World에 적용한다.
+    /// Applies all buffered Commands to the World immediately.
     ///
-    /// 시스템 실행이 끝난 뒤(쿼리 이터레이터가 모두 해제된 뒤) 호출해야
-    /// borrow 충돌 없이 안전하게 엔티티/컴포넌트를 변경할 수 있다.
+    /// Must be called after system execution finishes (i.e. after all query iterators
+    /// have been dropped) to safely mutate entities/components without borrow conflicts.
     ///
     /// ```rust,ignore
     /// fn run(&mut self, world: &mut World, _dt: f32) {
@@ -622,15 +626,15 @@ impl World {
         commands.apply(self);
     }
 
-    // ── 변경 감지 ─────────────────────────────────────────────────────────────
+    // ── Change detection ──────────────────────────────────────────────────────
 
-    /// 이번 틱 변경 추적을 초기화한다. 매 프레임 시작 시 `App`이 호출한다.
+    /// Resets change tracking for this tick. Called by `App` at the start of every frame.
     pub fn clear_change_tracking(&mut self) {
         self.added_this_tick.clear();
         self.changed_this_tick.clear();
     }
 
-    /// 이번 틱에 *처음 추가된* 컴포넌트 T를 가진 엔티티만 조회한다.
+    /// Returns only entities whose component T was *first added* this tick.
     pub fn query_added<T: 'static>(&self) -> impl Iterator<Item = (Entity, &T)> {
         let tid = TypeId::of::<T>();
         let entities: Vec<Entity> = self
@@ -644,7 +648,7 @@ impl World {
             .filter_map(move |e| self.get::<T>(e).map(|c| (e, c)))
     }
 
-    /// 이번 틱에 *교체된* 컴포넌트 T를 가진 엔티티만 조회한다.
+    /// Returns only entities whose component T was *replaced* this tick.
     pub fn query_changed<T: 'static>(&self) -> impl Iterator<Item = (Entity, &T)> {
         let tid = TypeId::of::<T>();
         let entities: Vec<Entity> = self
@@ -658,10 +662,11 @@ impl World {
             .filter_map(move |e| self.get::<T>(e).map(|c| (e, c)))
     }
 
-    /// 엔티티의 컴포넌트 T를 이번 틱에 변경된 것으로 명시 표시한다.
+    /// Explicitly marks component T on an entity as changed this tick.
     ///
-    /// `get_mut<T>()`로 필드를 직접 수정한 뒤 reactive 시스템이 `query_changed<T>()`로
-    /// 감지해야 할 때 사용한다. 엔티티가 없거나 T 컴포넌트가 없으면 `false`를 반환한다.
+    /// Use this after directly mutating fields via `get_mut<T>()` when a reactive
+    /// system needs to detect the change via `query_changed<T>()`.
+    /// Returns `false` if the entity or its T component does not exist.
     pub fn mark_changed<T: 'static>(&mut self, entity: Entity) -> bool {
         let tid = TypeId::of::<T>();
         if !self.has_component_typeid(entity, tid) {
@@ -671,10 +676,11 @@ impl World {
         true
     }
 
-    /// 변경 추적을 함께 기록하는 가변 컴포넌트 접근자.
+    /// Mutable component accessor that also records a change.
     ///
-    /// 반환된 참조를 실제로 수정하지 않아도 changed로 기록된다. 조건부 수정이 필요하면
-    /// `get_mut<T>()`로 수정한 뒤 변경이 일어난 경우에만 [`World::mark_changed`]를 호출한다.
+    /// The returned reference is recorded as changed even if you do not actually modify it.
+    /// For conditional mutation, prefer `get_mut<T>()` and call [`World::mark_changed`]
+    /// only when a change actually occurs.
     pub fn get_mut_tracked<T: 'static>(&mut self, entity: Entity) -> Option<&mut T> {
         if !self.mark_changed::<T>(entity) {
             return None;
@@ -682,12 +688,12 @@ impl World {
         self.get_mut::<T>(entity)
     }
 
-    // ── 엔티티 복제 ───────────────────────────────────────────────────────────
+    // ── Entity cloning ────────────────────────────────────────────────────────
 
-    /// 컴포넌트 T를 `clone_entity`에서 복제할 수 있도록 등록한다.
+    /// Registers component T so it can be cloned by `clone_entity`.
     ///
-    /// T는 Clone + Send + Sync + 'static 이어야 한다.
-    /// 등록되지 않은 컴포넌트는 `clone_entity` 시 복사되지 않는다.
+    /// T must be Clone + Send + Sync + 'static.
+    /// Unregistered components are not copied during `clone_entity`.
     pub fn register_clone<T: Clone + Send + Sync + 'static>(&mut self) {
         self.clone_registry.insert(
             TypeId::of::<T>(),
@@ -700,15 +706,15 @@ impl World {
         );
     }
 
-    /// 엔티티를 복제한다. `register_clone`에 등록된 컴포넌트만 복사된다.
+    /// Clones an entity. Only components registered with `register_clone` are copied.
     ///
-    /// `src`가 alive하지 않으면 `None`을 반환한다.
+    /// Returns `None` if `src` is not alive.
     pub fn clone_entity(&mut self, src: Entity) -> Option<Entity> {
         if !self.is_alive(src) {
             return None;
         }
 
-        // 1. clone_registry에 등록된 TypeId 중 src 엔티티가 보유한 것만 수집
+        // 1. Collect TypeIds from clone_registry that src actually has
         let tids: Vec<TypeId> = self
             .clone_registry
             .keys()
@@ -716,10 +722,10 @@ impl World {
             .copied()
             .collect();
 
-        // 2. 새 엔티티 생성
+        // 2. Spawn the destination entity
         let dst = self.spawn();
 
-        // 3. remove → call → reinsert 패턴으로 borrow 충돌 없이 복제
+        // 3. remove → call → reinsert pattern to clone without borrow conflicts
         for tid in tids {
             self.clone_component_by_typeid(src, dst, tid);
         }
@@ -727,7 +733,7 @@ impl World {
         Some(dst)
     }
 
-    /// entity가 주어진 TypeId의 컴포넌트를 보유하고 있는지 확인한다.
+    /// Returns true if the entity has a component with the given TypeId.
     pub(crate) fn has_component_typeid(&self, entity: Entity, tid: TypeId) -> bool {
         match self.entity_location.get(&entity) {
             Some(&(arch_id, _)) => self.archetypes[arch_id].contains(tid),
@@ -735,7 +741,7 @@ impl World {
         }
     }
 
-    /// remove → clone_fn 호출 → reinsert 패턴으로 단일 TypeId 컴포넌트를 복제한다.
+    /// Clones a single component by TypeId using the remove → call clone_fn → reinsert pattern.
     fn clone_component_by_typeid(&mut self, src: Entity, dst: Entity, tid: TypeId) {
         if let Some(clone_fn) = self.clone_registry.remove(&tid) {
             clone_fn(self, src, dst);
@@ -743,7 +749,7 @@ impl World {
         }
     }
 
-    // ── 내부 헬퍼 ─────────────────────────────────────────────────────────────
+    // ── Internal helpers ──────────────────────────────────────────────────────
 
     fn get_or_create_archetype(&mut self, sig: Vec<TypeId>) -> ArchetypeId {
         if let Some(&id) = self.archetype_index.get(&sig) {
@@ -755,8 +761,8 @@ impl World {
         id
     }
 
-    /// entity를 target_arch_id로 이동한다. 공통 컴포넌트를 이전하며,
-    /// 새로 추가되는 컴포넌트 push는 호출자가 담당한다.
+    /// Moves an entity to target_arch_id, transferring shared components.
+    /// The caller is responsible for pushing any newly added components.
     fn move_entity(&mut self, entity: Entity, target_arch_id: ArchetypeId) {
         let (src_arch_id, src_row) = self.entity_location[&entity];
         if src_arch_id == target_arch_id {
@@ -802,14 +808,14 @@ impl World {
     }
 }
 
-// ─── 병렬 쿼리 (native only — WASM은 단일 스레드) ──────────────────────────────
+// ─── Parallel queries (native only — WASM is single-threaded) ────────────────
 
 #[cfg(not(target_arch = "wasm32"))]
 impl World {
-    /// T를 가진 모든 엔티티에 클로저를 **병렬**로 적용한다 (읽기 전용).
+    /// Applies a closure **in parallel** to all entities with T (read-only).
     ///
-    /// 결과를 수집할 때는 클로저 내에서 `Mutex` 또는 채널을 사용하거나,
-    /// 반환값이 필요하면 `par_query_map`을 사용한다.
+    /// To collect results, use a `Mutex` or channel inside the closure,
+    /// or use `par_query_map` if you need return values.
     ///
     /// ```text
     /// world.par_query_for_each::<Transform, _>(|e, t| {
@@ -835,7 +841,7 @@ impl World {
             });
     }
 
-    /// T를 가진 모든 엔티티에 매핑 클로저를 **병렬**로 적용하고 결과를 `Vec<R>`로 반환한다.
+    /// Applies a mapping closure **in parallel** to all entities with T and returns the results as `Vec<R>`.
     ///
     /// ```text
     /// let positions: Vec<(Entity, Vec2)> =
@@ -862,7 +868,7 @@ impl World {
             .collect()
     }
 
-    /// A, B를 모두 가진 엔티티에 클로저를 **병렬**로 적용한다 (읽기 전용).
+    /// Applies a closure **in parallel** to all entities with both A and B (read-only).
     pub fn par_query2_for_each<A, B, F>(&self, f: F)
     where
         A: Send + Sync + 'static,
@@ -892,7 +898,7 @@ impl World {
             });
     }
 
-    /// A, B를 모두 가진 엔티티에 매핑 클로저를 **병렬**로 적용하고 결과를 `Vec<R>`로 반환한다.
+    /// Applies a mapping closure **in parallel** to all entities with both A and B and returns the results as `Vec<R>`.
     pub fn par_query2_map<A, B, R, F>(&self, f: F) -> Vec<R>
     where
         A: Send + Sync + 'static,

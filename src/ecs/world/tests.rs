@@ -35,7 +35,7 @@ fn query_mut_mutates_all_matching() {
     world.add_component(e0, Position { x: 1.0, y: 2.0 });
     world.add_component(e1, Position { x: 3.0, y: 4.0 });
 
-    // query_mut 로 모든 Position 을 한 번에 가변 순회/수정 (collect+get_mut 우회 불필요)
+    // Mutably iterate and modify all Positions at once via query_mut (no collect+get_mut workaround needed)
     for (_e, p) in world.query_mut::<Position>() {
         p.x += 10.0;
     }
@@ -298,7 +298,7 @@ fn archetype_reuse_across_entities() {
     world.add_component(e2, Position { x: 2.0, y: 0.0 });
     world.add_component(e2, Health(20));
 
-    // 같은 컴포넌트 집합 → 같은 Archetype에 배치되어야 한다
+    // Same component set → should be placed in the same Archetype
     let (arch1, _) = world.entity_location[&e1];
     let (arch2, _) = world.entity_location[&e2];
     assert_eq!(arch1, arch2);
@@ -323,9 +323,9 @@ fn change_tracking_added() {
     let added: Vec<_> = world.query_added::<u32>().collect();
     assert_eq!(added.len(), 1);
     assert_eq!(*added[0].1, 42);
-    // changed 에는 없어야 함
+    // should not appear in changed
     assert_eq!(world.query_changed::<u32>().count(), 0);
-    // clear 후 없어짐
+    // gone after clear
     world.clear_change_tracking();
     assert_eq!(world.query_added::<u32>().count(), 0);
 }
@@ -336,7 +336,7 @@ fn change_tracking_changed() {
     let e = world.spawn();
     world.add_component(e, 1u32);
     world.clear_change_tracking();
-    // 교체
+    // replace
     world.add_component(e, 2u32);
     assert_eq!(world.query_added::<u32>().count(), 0);
     let changed: Vec<_> = world.query_changed::<u32>().collect();
@@ -517,8 +517,8 @@ fn world_remove_resource_missing_returns_none() {
 
 #[test]
 fn erased_resource_roundtrips_between_worlds() {
-    // persistent 리소스 보존 메커니즘(App::register_persistent)의 핵심 단계:
-    // type-erased 박스로 꺼내 새 World에 그대로 넣어도 값이 보존된다.
+    // Core step of the persistent-resource mechanism (App::register_persistent):
+    // a value extracted as a type-erased box and inserted into a new World is preserved.
     #[derive(Debug, PartialEq)]
     struct Score(u32);
 
@@ -526,10 +526,12 @@ fn erased_resource_roundtrips_between_worlds() {
     let mut old = World::new();
     old.insert_resource(Score(42));
 
-    let boxed = old.take_resource_erased(tid).expect("리소스 존재");
+    let boxed = old
+        .take_resource_erased(tid)
+        .expect("resource should exist");
     assert!(
         old.resource::<Score>().is_none(),
-        "꺼낸 뒤 옛 World엔 없어야"
+        "old World should not have the resource after it was taken"
     );
 
     let mut fresh = World::new();

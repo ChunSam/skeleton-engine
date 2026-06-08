@@ -9,7 +9,7 @@ use super::image_loading::decode_image_with_state;
 use super::image_loading::magenta_fallback;
 use super::{alloc_id, asset_key, AssetId, AssetLoadState, AssetServer, Handle, ImageAsset};
 
-// ─── 비동기 로드 결과 (네이티브 채널용) ───────────────────────────────────────
+// ─── Async Load Result (native channel) ──────────────────────────────────────
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) struct AsyncImageResult {
@@ -19,7 +19,7 @@ pub(super) struct AsyncImageResult {
     state: AssetLoadState,
 }
 
-// ─── WASM 비동기 큐 ───────────────────────────────────────────────────────────
+// ─── WASM Async Queue ─────────────────────────────────────────────────────────
 
 #[cfg(target_arch = "wasm32")]
 thread_local! {
@@ -29,16 +29,16 @@ thread_local! {
 }
 
 impl AssetServer {
-    /// 이미지를 백그라운드에서 비동기로 로드한다.
+    /// Loads an image asynchronously in the background.
     ///
-    /// 즉시 마젠타 폴백 텍스처가 등록된 핸들을 반환한다. 로딩 완료 전까지
-    /// `load_state()`는 `AssetLoadState::Loading`을 반환한다.
+    /// Returns a handle immediately registered with a magenta fallback texture.
+    /// `load_state()` returns `AssetLoadState::Loading` until the load completes.
     ///
-    /// - 네이티브: `std::thread::spawn` 백그라운드 스레드에서 로드
+    /// - Native: loads on a background thread via `std::thread::spawn`
     /// - WASM: `wasm_bindgen_futures::spawn_local` + `fetch` API
     pub fn load_image_async(&mut self, path: impl AsRef<Path>) -> Handle<ImageAsset> {
         let key = asset_key(path.as_ref());
-        // 캐시 확인 — 이미 로드됐거나 로딩 중이면 기존 핸들 반환
+        // cache check — return existing handle if already loaded or loading
         if let Some(&id) = self.path_to_id.get(&key) {
             return Handle {
                 id,
@@ -47,7 +47,7 @@ impl AssetServer {
             };
         }
         let id = alloc_id();
-        // 마젠타 폴백 + Loading 상태로 즉시 등록
+        // register immediately with magenta fallback + Loading state
         self.images.insert(id, magenta_fallback());
         self.image_load_states.insert(id, AssetLoadState::Loading);
         self.path_to_id.insert(Arc::clone(&key), id);
@@ -79,9 +79,9 @@ impl AssetServer {
         }
     }
 
-    /// 완료된 비동기 로드 결과를 처리해 내부 캐시를 갱신한다.
+    /// Processes completed async load results and updates the internal cache.
     ///
-    /// `App`이 매 프레임 호출한다. 완료된 에셋의 경로 목록을 반환한다.
+    /// Called by `App` every frame. Returns a list of paths for completed assets.
     pub(crate) fn poll_async_completions(&mut self) -> Vec<(String, ImageAsset)> {
         let mut completed = Vec::new();
 
@@ -105,7 +105,7 @@ impl AssetServer {
         completed
     }
 
-    /// 현재 `AssetLoadState::Loading` 상태인 이미지 수를 반환한다.
+    /// Returns the number of images currently in `AssetLoadState::Loading` state.
     pub fn async_loading_count(&self) -> usize {
         self.image_load_states
             .values()
@@ -114,7 +114,7 @@ impl AssetServer {
     }
 }
 
-// ─── WASM fetch 헬퍼 ─────────────────────────────────────────────────────────
+// ─── WASM Fetch Helper ────────────────────────────────────────────────────────
 
 #[cfg(target_arch = "wasm32")]
 async fn fetch_image_wasm(url: &str) -> (ImageAsset, AssetLoadState) {
@@ -124,7 +124,7 @@ async fn fetch_image_wasm(url: &str) -> (ImageAsset, AssetLoadState) {
     let window = match web_sys::window() {
         Some(w) => w,
         None => {
-            let msg = format!("fetch 실패 '{url}': window 없음");
+            let msg = format!("fetch failed '{url}': no window");
             log::error!("{msg}");
             return (magenta_fallback(), AssetLoadState::Failed(msg));
         }
@@ -133,7 +133,7 @@ async fn fetch_image_wasm(url: &str) -> (ImageAsset, AssetLoadState) {
     let resp_value = match JsFuture::from(window.fetch_with_str(url)).await {
         Ok(v) => v,
         Err(e) => {
-            let msg = format!("fetch 실패 '{url}': {e:?}");
+            let msg = format!("fetch failed '{url}': {e:?}");
             log::error!("{msg}");
             return (magenta_fallback(), AssetLoadState::Failed(msg));
         }
@@ -142,13 +142,13 @@ async fn fetch_image_wasm(url: &str) -> (ImageAsset, AssetLoadState) {
     let resp: web_sys::Response = match resp_value.dyn_into() {
         Ok(r) => r,
         Err(_) => {
-            let msg = format!("fetch 응답 변환 실패 '{url}'");
+            let msg = format!("fetch response cast failed '{url}'");
             return (magenta_fallback(), AssetLoadState::Failed(msg));
         }
     };
 
     if !resp.ok() {
-        let msg = format!("fetch HTTP 오류 '{url}': {}", resp.status());
+        let msg = format!("fetch HTTP error '{url}': {}", resp.status());
         log::error!("{msg}");
         return (magenta_fallback(), AssetLoadState::Failed(msg));
     }
@@ -156,7 +156,7 @@ async fn fetch_image_wasm(url: &str) -> (ImageAsset, AssetLoadState) {
     let array_buffer_promise = match resp.array_buffer() {
         Ok(p) => p,
         Err(e) => {
-            let msg = format!("array_buffer() 실패 '{url}': {e:?}");
+            let msg = format!("array_buffer() failed '{url}': {e:?}");
             return (magenta_fallback(), AssetLoadState::Failed(msg));
         }
     };
@@ -164,7 +164,7 @@ async fn fetch_image_wasm(url: &str) -> (ImageAsset, AssetLoadState) {
     let array_buffer = match JsFuture::from(array_buffer_promise).await {
         Ok(v) => v,
         Err(e) => {
-            let msg = format!("응답 읽기 실패 '{url}': {e:?}");
+            let msg = format!("response read failed '{url}': {e:?}");
             return (magenta_fallback(), AssetLoadState::Failed(msg));
         }
     };
@@ -186,7 +186,7 @@ async fn fetch_image_wasm(url: &str) -> (ImageAsset, AssetLoadState) {
             )
         }
         Err(e) => {
-            let msg = format!("이미지 디코딩 실패 '{url}': {e}");
+            let msg = format!("image decode failed '{url}': {e}");
             log::error!("{msg}");
             (magenta_fallback(), AssetLoadState::Failed(msg))
         }

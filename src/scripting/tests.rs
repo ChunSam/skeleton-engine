@@ -71,7 +71,7 @@ fn scripting_spawn_entity_works() {
 fn scripting_bb_roundtrip() {
     let sys = make_engine();
     let mut ctx = empty_ctx(test_entity());
-    // 사전에 스냅샷에 값 넣기 (get 테스트용)
+    // Pre-populate the snapshot with a value (for get testing)
     ctx.bb_snap.insert(
         "score".to_string(),
         BbEntry::Float("score".to_string(), 42.0),
@@ -100,21 +100,21 @@ fn scripting_bb_roundtrip() {
 fn scripting_two_entities_no_buffer_cross_contamination() {
     let sys = make_engine();
 
-    // 엔티티 A 실행
+    // Run entity A
     let ctx_a = eval_with_ctx(
         &sys,
         empty_ctx(test_entity()),
         r#"bb_set_bool("flag_a", true);"#,
     );
 
-    // 엔티티 B 실행
+    // Run entity B
     let ctx_b = eval_with_ctx(
         &sys,
         empty_ctx(Entity::from_raw_parts(8, 4)),
         r#"bb_set_bool("flag_b", true);"#,
     );
 
-    // A 버퍼에는 flag_a만, B 버퍼에는 flag_b만 있어야 한다
+    // A's buffer should contain only flag_a; B's buffer should contain only flag_b
     let a = &ctx_a.bb_buf;
     let b = &ctx_b.bb_buf;
     assert!(a

@@ -4,7 +4,7 @@ impl App {
     pub fn create_render_target(&mut self, name: impl Into<String>, width: u32, height: u32) {
         let name = name.into();
         if let (Some(gpu), Some(sr)) = (&self.gpu, &self.sprite_renderer) {
-            // GPU가 이미 초기화된 경우 즉시 생성
+            // GPU already initialized — create immediately
             let rt = crate::renderer::render_target::RenderTarget::new(
                 &gpu.device,
                 width,
@@ -14,7 +14,7 @@ impl App {
             );
             self.render_targets.insert(name, rt);
         } else {
-            // GPU 초기화 전이면 pending에 보관
+            // GPU not yet initialized — defer to pending
             self.pending_render_targets.push((name, width, height));
         }
     }
@@ -28,7 +28,7 @@ impl App {
         self.pending_textures.push(path.clone());
         self.world
             .resource_mut::<AssetServer>()
-            .expect("AssetServer 리소스 누락")
+            .expect("AssetServer resource missing")
             .load_image(&path)
     }
 
@@ -37,9 +37,9 @@ impl App {
         let handle = self
             .world
             .resource_mut::<AssetServer>()
-            .expect("AssetServer 없음")
+            .expect("AssetServer missing")
             .load_image_async(&path);
-        // LoadProgress.total 증가
+        // Increment LoadProgress.total
         if let Some(prog) = self.world.resource_mut::<LoadProgress>() {
             prog.total += 1;
         }
@@ -56,7 +56,7 @@ impl App {
         self.pending_textures.push(path.clone());
         self.world
             .resource_mut::<AssetServer>()
-            .expect("AssetServer 없음")
+            .expect("AssetServer missing")
             .load_atlas(&path, cols, rows)
     }
 
@@ -66,7 +66,7 @@ impl App {
     ) -> Handle<crate::asset::ScriptAsset> {
         self.world
             .resource_mut::<AssetServer>()
-            .expect("AssetServer 없음")
+            .expect("AssetServer missing")
             .load_script(path)
     }
 

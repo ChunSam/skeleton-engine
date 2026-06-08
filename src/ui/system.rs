@@ -12,22 +12,22 @@ mod text_input_pass;
 pub use event::UiEvent;
 use state::{submit_output, viewport_from_world, InputSnapshot, UiOutput};
 
-/// `UiNode` + `Button` / `Label` / `TextInput` / `ScrollView` / `Slider` / `CheckBox` 엔티티를 처리하는 시스템.
+/// System that processes `UiNode` + `Button` / `Label` / `TextInput` / `ScrollView` / `Slider` / `CheckBox` entities.
 ///
-/// 매 프레임 실행 순서:
-/// 1. 입력 상태 스냅샷
-/// 2. 버튼 히트 테스트 -> `ButtonState` 갱신 + `UiEvent` 발행
-/// 3. TextInput 패스 - 포커스, 문자 입력, 커서 깜빡임
-/// 4. ScrollView 패스 - 휠 스크롤, 아이템 렌더
-/// 5. Label 패스
-/// 6. Slider 패스
-/// 7. CheckBox 패스
-/// 8. 렌더 큐 제출
-/// 9. 이벤트 일괄 발행
+/// Per-frame execution order:
+/// 1. Input state snapshot
+/// 2. Button hit-test → update `ButtonState` + emit `UiEvent`
+/// 3. TextInput pass — focus, character input, cursor blink
+/// 4. ScrollView pass — wheel scroll, item render
+/// 5. Label pass
+/// 6. Slider pass
+/// 7. CheckBox pass
+/// 8. Submit render queue
+/// 9. Batch-emit events
 pub struct UiSystem;
 
 impl UiSystem {
-    /// 스케줄 라벨. 권장 순서: `LayoutSystem::LABEL` **이후**
+    /// Schedule label. Recommended order: **after** `LayoutSystem::LABEL`
     /// (`SystemConfig::new().label(UiSystem::LABEL).after(LayoutSystem::LABEL)`).
     pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::ui";
 }

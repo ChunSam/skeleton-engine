@@ -1,18 +1,18 @@
 use rodio::Sink;
 
-// ─── 오디오 이펙트 ────────────────────────────────────────────────────────────
+// ─── Audio effects ────────────────────────────────────────────────────────────
 
-/// 채널별 오디오 이펙트 설정.
-/// `set_effect()` 후 다음 `play_*` 호출 시 자동 적용된다.
+/// Per-channel audio effect settings.
+/// Automatically applied on the next `play_*` call after `set_effect()`.
 #[derive(Debug, Clone)]
 pub struct AudioEffect {
-    /// 로우패스 컷오프 주파수 (Hz). `None` = 필터 없음.
+    /// Low-pass cutoff frequency (Hz). `None` = no filter.
     pub low_pass_hz: Option<u32>,
-    /// 재생 속도 배율 (피치 비례). 1.0 = 원속도.
+    /// Playback speed multiplier (proportional to pitch). 1.0 = original speed.
     pub pitch: f32,
-    /// 재생 시작 시 페이드인 시간 (초). 0.0 = 즉시.
+    /// Fade-in duration at playback start (seconds). 0.0 = immediate.
     pub attack_secs: f32,
-    /// 볼륨 엔벨로프 지속 시간 (초). 0.0 = 무제한.
+    /// Volume envelope sustain duration (seconds). 0.0 = unlimited.
     pub release_secs: f32,
 }
 
@@ -63,13 +63,13 @@ pub(crate) fn is_playing_state(state: AudioChannelState) -> bool {
     state == AudioChannelState::Playing
 }
 
-// ─── 페이드 상태 ──────────────────────────────────────────────────────────────
+// ─── Fade state ───────────────────────────────────────────────────────────────
 
 pub(super) struct Fade {
     pub(super) start_vol: f32,
     pub(super) target_vol: f32,
     pub(super) duration: f32,
     pub(super) elapsed: f32,
-    /// 페이드 완료 시 싱크를 정지할지 여부 (fade_out에서 true)
+    /// Whether to stop the sink when the fade completes (true for fade_out).
     pub(super) stop_when_done: bool,
 }

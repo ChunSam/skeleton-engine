@@ -1,12 +1,12 @@
 use crate::ecs::{events::Events, system::System, world::World};
 
 pub const DEFAULT_MAX_MESSAGE_BYTES: usize = 64 * 1024;
-/// 기본 송신 큐 최대 메시지 수. 큐가 가득 차면 새 메시지를 드롭하고 warn 로그를 남긴다.
+/// Default max outbound queue size. When the queue is full, new messages are dropped and a warn log is emitted.
 pub const DEFAULT_MAX_PENDING_MESSAGES: usize = 256;
-/// 기본 수신 이벤트 큐 최대 이벤트 수. 초과 시 새 수신 이벤트를 드롭한다.
+/// Default max inbound event queue size. New events are dropped when the limit is exceeded.
 pub const DEFAULT_MAX_PENDING_EVENTS: usize = 1024;
 
-/// 매 프레임 [`NetworkSystem`]이 생성하는 ECS 이벤트.
+/// ECS events emitted by [`NetworkSystem`] every frame.
 #[derive(Clone, Debug)]
 pub enum NetworkEvent {
     Connected,
@@ -22,9 +22,9 @@ pub enum NetworkEvent {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NetworkConfig {
     pub max_message_bytes: usize,
-    /// 송신 큐 최대 메시지 수. 초과 시 `send_text`/`send_bytes`는 메시지를 드롭한다.
+    /// Max outbound queue size. When exceeded, `send_text`/`send_bytes` drops the message.
     pub max_pending_messages: usize,
-    /// 수신 이벤트 큐 최대 이벤트 수. 초과 시 새 이벤트는 드롭되고 초과 이벤트가 보고된다.
+    /// Max inbound event queue size. When exceeded, new events are dropped and an overflow event is reported.
     pub max_pending_events: usize,
 }
 
@@ -77,7 +77,7 @@ fn push_event_bounded(
     }
 }
 
-// ── 네이티브 구현 ────────────────────────────────────────────────────────────
+// ── Native implementation ────────────────────────────────────────────────────────────
 
 #[cfg(not(target_arch = "wasm32"))]
 mod native {
@@ -97,8 +97,8 @@ mod native {
     }
 
     impl NetworkClient {
-        /// 백그라운드 스레드에서 WebSocket 연결을 시작한다.
-        /// 연결 성공 시 [`NetworkEvent::Connected`], 실패 시 [`NetworkEvent::Error`]가 발행된다.
+        /// Starts a WebSocket connection on a background thread.
+        /// Emits [`NetworkEvent::Connected`] on success or [`NetworkEvent::Error`] on failure.
         pub fn connect(url: &str) -> Self {
             Self::connect_with_config(url, NetworkConfig::default())
         }
@@ -125,15 +125,15 @@ mod native {
                     }
                 };
 
-                // 5 ms read timeout → loop가 5 ms마다 발신 채널을 확인한다.
-                // Plain TCP와 rustls TLS 양쪽 모두 내부 TcpStream에 직접 설정한다.
+                // 5 ms read timeout → the loop checks the outbound channel every 5 ms.
+                // Set directly on the inner TcpStream for both plain TCP and rustls TLS.
                 const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(5);
                 let stream = socket.get_mut();
                 if let tungstenite::stream::MaybeTlsStream::Plain(tcp) = stream {
                     tcp.set_read_timeout(Some(READ_TIMEOUT)).ok();
                 } else if let tungstenite::stream::MaybeTlsStream::Rustls(tls) = stream {
-                    // rustls::StreamOwned.sock 은 pub 필드 (rustls 0.22+)
-                    // wss:// 연결에서도 5 ms 주기로 발신 채널을 확인할 수 있게 한다.
+                    // rustls::StreamOwned.sock is a pub field (rustls 0.22+)
+                    // so wss:// connections also check the outbound channel every 5 ms.
                     tls.sock.set_read_timeout(Some(READ_TIMEOUT)).ok();
                 }
 
@@ -144,7 +144,7 @@ mod native {
                 );
 
                 loop {
-                    // 발신 메시지 처리
+                    // Process outbound messages
                     loop {
                         match msg_rx.try_recv() {
                             Ok(OutMsg::Binary(data)) => {
@@ -179,7 +179,7 @@ mod native {
                         }
                     }
 
-                    // 수신 메시지 처리 (timeout 시 WouldBlock / TimedOut)
+                    // Process inbound messages (WouldBlock / TimedOut on timeout)
                     match socket.read() {
                         Ok(tungstenite::Message::Binary(data)) => {
                             if data.len() > max_message_bytes {
@@ -226,12 +226,12 @@ mod native {
                             );
                             return;
                         }
-                        Ok(_) => {} // Ping / Pong / Frame — tungstenite 내부 처리
+                        Ok(_) => {} // Ping / Pong / Frame — handled internally by tungstenite
                         Err(tungstenite::Error::Io(e))
                             if e.kind() == std::io::ErrorKind::WouldBlock
                                 || e.kind() == std::io::ErrorKind::TimedOut =>
                         {
-                            // 데이터 없음 — 루프 재시작
+                            // No data available — restart the loop
                         }
                         Err(e) => {
                             super::push_event_bounded(
@@ -261,7 +261,7 @@ mod native {
         pub fn send_bytes(&self, data: &[u8]) {
             if self.msg_tx.try_send(OutMsg::Binary(data.to_vec())).is_err() {
                 log::warn!(
-                    "network: 송신 큐 만원 — binary 메시지 드롭 ({} bytes)",
+                    "network: send queue full — binary message dropped ({} bytes)",
                     data.len()
                 );
             }
@@ -271,18 +271,18 @@ mod native {
             let text = text.into();
             if self.msg_tx.try_send(OutMsg::Text(text.clone())).is_err() {
                 log::warn!(
-                    "network: 송신 큐 만원 — text 메시지 드롭 ({} bytes)",
+                    "network: send queue full — text message dropped ({} bytes)",
                     text.len()
                 );
             }
         }
 
-        /// 송신 큐가 가득 차지 않은 경우에만 전송하고 성공 여부를 반환한다.
+        /// Sends only if the outbound queue is not full; returns whether the send succeeded.
         pub fn try_send_bytes(&self, data: &[u8]) -> bool {
             self.msg_tx.try_send(OutMsg::Binary(data.to_vec())).is_ok()
         }
 
-        /// 송신 큐가 가득 차지 않은 경우에만 전송하고 성공 여부를 반환한다.
+        /// Sends only if the outbound queue is not full; returns whether the send succeeded.
         pub fn try_send_text(&self, text: impl Into<String>) -> bool {
             self.msg_tx.try_send(OutMsg::Text(text.into())).is_ok()
         }
@@ -300,7 +300,7 @@ mod native {
     }
 }
 
-// ── WASM 구현 ────────────────────────────────────────────────────────────────
+// ── WASM implementation ────────────────────────────────────────────────────────────────
 
 #[cfg(target_arch = "wasm32")]
 mod wasm_impl {
@@ -312,7 +312,7 @@ mod wasm_impl {
     pub struct NetworkClient {
         socket: Option<web_sys::WebSocket>,
         buffer: Rc<RefCell<Vec<NetworkEvent>>>,
-        // 클로저를 살아있게 유지
+        // Keep closures alive
         _on_open: Option<Closure<dyn FnMut()>>,
         _on_message: Option<Closure<dyn FnMut(web_sys::MessageEvent)>>,
         _on_error: Option<Closure<dyn FnMut(web_sys::Event)>>,
@@ -438,14 +438,14 @@ mod wasm_impl {
 
         pub fn send_bytes(&self, data: &[u8]) {
             if !self.try_send_bytes(data) {
-                log::warn!("network: binary 메시지 전송 실패 ({} bytes)", data.len());
+                log::warn!("network: binary message send failed ({} bytes)", data.len());
             }
         }
 
         pub fn send_text(&self, text: impl Into<String>) {
             let text = text.into();
             if !self.try_send_text(text.clone()) {
-                log::warn!("network: text 메시지 전송 실패 ({} bytes)", text.len());
+                log::warn!("network: text message send failed ({} bytes)", text.len());
             }
         }
 
@@ -470,7 +470,7 @@ mod wasm_impl {
             }
         }
 
-        /// `web_sys::WebSocket::OPEN(1)` 상태인지 확인
+        /// Returns true if the socket is in `web_sys::WebSocket::OPEN(1)` state
         pub fn is_connected(&self) -> bool {
             match &self.socket {
                 Some(socket) => socket.ready_state() == web_sys::WebSocket::OPEN,
@@ -488,7 +488,7 @@ mod wasm_impl {
     }
 }
 
-// ── 플랫폼별 re-export ────────────────────────────────────────────────────────
+// ── Platform re-exports ────────────────────────────────────────────────────────
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::NetworkClient;
@@ -498,9 +498,9 @@ pub use wasm_impl::NetworkClient;
 
 // ── NetworkSystem ─────────────────────────────────────────────────────────────
 
-/// 매 프레임 [`NetworkClient`] 수신 버퍼를 폴링해 [`Events<NetworkEvent>`]로 전달한다.
+/// Polls the [`NetworkClient`] receive buffer every frame and forwards events to [`Events<NetworkEvent>`].
 ///
-/// 등록 방법:
+/// Registration:
 /// ```text
 /// app.world.insert_resource(NetworkClient::connect("ws://localhost:9001"));
 /// app.world.register_event::<NetworkEvent>();

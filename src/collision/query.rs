@@ -4,13 +4,13 @@ use super::grid::{Collider, CollisionLayer, SpatialGrid};
 use crate::ecs::Entity;
 
 impl SpatialGrid {
-    /// 원 영역 내의 모든 엔티티를 반환한다.
+    /// Returns all entities within a circular region.
     ///
-    /// - `mask` 와 엔티티 레이어의 AND 가 0 이면 제외.
-    /// - Circle 콜라이더: 중심 간 거리 ≤ radius + collider.radius
-    /// - Aabb 콜라이더: 쿼리 원과 AABB 의 교차 여부
+    /// - Excludes entities where `mask` AND entity layer equals 0.
+    /// - Circle collider: passes when center distance ≤ radius + collider.radius
+    /// - Aabb collider: passes when the query circle intersects the AABB
     pub fn query_radius(&self, center: Vec2, radius: f32, mask: CollisionLayer) -> Vec<Entity> {
-        // 쿼리 원을 감싸는 AABB 로 후보 셀 범위를 좁힌다
+        // Narrow candidate cell range using the AABB that wraps the query circle
         let search_min = Vec2::new(center.x - radius, center.y - radius);
         let search_max = Vec2::new(center.x + radius, center.y + radius);
 
@@ -23,12 +23,12 @@ impl SpatialGrid {
                 None => continue,
             };
 
-            // 레이어 마스크 확인
+            // Check layer mask
             if !mask.matches(entry.layer) {
                 continue;
             }
 
-            // 실제 거리/교차 판정
+            // Exact distance / intersection test
             if circle_hits_collider(center, radius, entry.center, entry.collider) {
                 result.push(entity);
             }
@@ -37,9 +37,9 @@ impl SpatialGrid {
         result
     }
 
-    /// AABB 영역과 겹치는 모든 엔티티를 반환한다.
+    /// Returns all entities overlapping the given AABB region.
     ///
-    /// - `mask` 와 엔티티 레이어의 AND 가 0 이면 제외.
+    /// - Excludes entities where `mask` AND entity layer equals 0.
     pub fn query_aabb(&self, min: Vec2, max: Vec2, mask: CollisionLayer) -> Vec<Entity> {
         let candidates = self.candidates_in_aabb(min, max);
         let mut result = Vec::new();
@@ -63,9 +63,9 @@ impl SpatialGrid {
     }
 }
 
-// ─── 내부 교차 판정 헬퍼 ──────────────────────────────────────────────────────
+// ─── Internal intersection helpers ──────────────────────────────────────────────────────
 
-/// 쿼리 원(center, radius) 이 collider 와 겹치는지 판정한다.
+/// Tests whether the query circle (center, radius) overlaps a collider.
 fn circle_hits_collider(
     query_center: Vec2,
     query_radius: f32,
@@ -78,7 +78,7 @@ fn circle_hits_collider(
             dist <= query_radius + radius
         }
         Collider::Aabb { half_extents } => {
-            // 원과 AABB 교차: 원 중심에서 AABB 까지의 최소 거리 ≤ 반경
+            // Circle vs AABB: minimum distance from circle center to AABB ≤ radius
             let aabb_min = entity_center - half_extents;
             let aabb_max = entity_center + half_extents;
             let closest = Vec2::new(
@@ -90,17 +90,17 @@ fn circle_hits_collider(
     }
 }
 
-/// 쿼리 AABB(min, max) 가 collider 와 겹치는지 판정한다.
+/// Tests whether the query AABB (min, max) overlaps a collider.
 fn aabb_hits_collider(
     query_min: Vec2,
     query_max: Vec2,
     entity_center: Vec2,
     collider: Collider,
 ) -> bool {
-    // collider 의 AABB 를 구하고 두 AABB 가 겹치는지 확인
+    // Compute the collider's AABB and check whether the two AABBs overlap
     let (col_min, col_max) = collider.aabb(entity_center);
 
-    // AABB vs AABB 교차: 두 축 모두 겹쳐야 한다
+    // AABB vs AABB intersection: both axes must overlap
     let overlap_x = query_min.x <= col_max.x && query_max.x >= col_min.x;
     let overlap_y = query_min.y <= col_max.y && query_max.y >= col_min.y;
     overlap_x && overlap_y

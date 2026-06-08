@@ -5,7 +5,7 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use crate::tilemap::Tilemap;
 
-/// 통행 가능 여부를 저장하는 격자 (row-major 배열)
+/// Grid storing walkability (row-major array).
 pub struct PathGrid {
     pub width: i32,
     pub height: i32,
@@ -15,7 +15,7 @@ pub struct PathGrid {
 const MAX_PATH_GRID_CELLS: usize = 10_000_000;
 
 impl PathGrid {
-    /// 전부 통행 가능 상태로 초기화
+    /// Creates a grid with all cells walkable.
     pub fn new(width: i32, height: i32) -> Self {
         let size = grid_cell_count(width, height);
         Self {
@@ -25,7 +25,7 @@ impl PathGrid {
         }
     }
 
-    /// 전부 막힌 상태로 초기화
+    /// Creates a grid with all cells blocked.
     pub fn new_blocked(width: i32, height: i32) -> Self {
         let size = grid_cell_count(width, height);
         Self {
@@ -41,7 +41,7 @@ impl PathGrid {
         }
     }
 
-    /// 범위 밖 좌표는 `false` 반환 (패닉 없음)
+    /// Returns `false` for out-of-bounds coordinates (no panic).
     pub fn is_walkable(&self, x: i32, y: i32) -> bool {
         self.index(x, y).map(|i| self.cells[i]).unwrap_or(false)
     }
@@ -108,7 +108,7 @@ fn grid_cell_count(width: i32, height: i32) -> usize {
     }
 }
 
-// ── A* 내부 구조 ──────────────────────────────────────────────────────────────
+// ── A* Internals ──────────────────────────────────────────────────────────────
 
 #[derive(Eq, PartialEq)]
 struct Node {
@@ -116,7 +116,7 @@ struct Node {
     pos: IVec2,
 }
 
-// BinaryHeap은 최대 힙 → f가 작을수록 우선순위 높게 역순 비교
+// BinaryHeap is a max-heap → reverse comparison so smaller f has higher priority
 impl Ord for Node {
     fn cmp(&self, other: &Self) -> Ordering {
         other.f.cmp(&self.f).then_with(|| {
@@ -152,11 +152,11 @@ const NEIGHBORS: [IVec2; 4] = [
 #[derive(Default)]
 struct AStarScratch {
     open: BinaryHeap<Node>,
-    /// g_score: 시작점에서 각 노드까지의 실제 비용
+    /// g_score: actual cost from start to each node
     g_score: HashMap<IVec2, i32>,
-    /// came_from: 경로 역추적용
+    /// came_from: used for path reconstruction
     came_from: HashMap<IVec2, IVec2>,
-    /// closed: 이미 최적 비용으로 확정(expand)된 노드. 중복 힙 엔트리를 거른다.
+    /// closed: nodes already expanded with their optimal cost; filters duplicate heap entries
     closed: HashSet<IVec2>,
 }
 
@@ -173,19 +173,19 @@ thread_local! {
     static ASTAR_SCRATCH: RefCell<AStarScratch> = RefCell::new(AStarScratch::default());
 }
 
-/// A* 경로 탐색.
-/// 반환: 시작점 제외, 목표점 포함한 경로. 경로 없으면 `None`.
+/// A* pathfinding.
+/// Returns the path excluding the start and including the goal, or `None` if no path exists.
 ///
-/// Manhattan 휴리스틱은 4-방향 균일 격자에서 consistent 하므로, 노드를 처음 pop 할 때
-/// 그 노드의 g 값이 최적이다. 따라서 closed set 으로 이미 확정된 노드의 stale 한 중복
-/// 힙 엔트리를 건너뛰어도 최단 경로 보장이 유지된다.
+/// The Manhattan heuristic is consistent on a 4-directional uniform grid, so a node's g
+/// value is optimal the first time it is popped. Skipping stale duplicate heap entries for
+/// already-closed nodes therefore preserves shortest-path guarantees.
 pub fn find_path(grid: &PathGrid, start: IVec2, goal: IVec2) -> Option<Vec<IVec2>> {
-    // 시작 == 목표
+    // start == goal
     if start == goal {
         return Some(vec![goal]);
     }
 
-    // 목표가 막혀 있으면 즉시 None
+    // goal is blocked — return None immediately
     if !grid.is_walkable(goal.x, goal.y) {
         return None;
     }
@@ -202,7 +202,7 @@ pub fn find_path(grid: &PathGrid, start: IVec2, goal: IVec2) -> Option<Vec<IVec2
 
         while let Some(Node { pos: current, .. }) = s.open.pop() {
             if current == goal {
-                // 경로 역추적
+                // reconstruct path
                 let mut path = Vec::new();
                 let mut cur = current;
                 while let Some(&prev) = s.came_from.get(&cur) {
@@ -213,7 +213,7 @@ pub fn find_path(grid: &PathGrid, start: IVec2, goal: IVec2) -> Option<Vec<IVec2
                 return Some(path);
             }
 
-            // 이미 확정된 노드면 stale 한 중복 엔트리이므로 재확장하지 않는다.
+            // already closed — stale duplicate entry, skip re-expansion
             if !s.closed.insert(current) {
                 continue;
             }
@@ -222,7 +222,7 @@ pub fn find_path(grid: &PathGrid, start: IVec2, goal: IVec2) -> Option<Vec<IVec2
 
             for &dir in &NEIGHBORS {
                 let next = current + dir;
-                // 확정된 이웃은 비용 개선 여지가 없다.
+                // already-closed neighbor cannot be improved
                 if s.closed.contains(&next) {
                     continue;
                 }
@@ -245,7 +245,7 @@ pub fn find_path(grid: &PathGrid, start: IVec2, goal: IVec2) -> Option<Vec<IVec2
     })
 }
 
-// ── 테스트 ────────────────────────────────────────────────────────────────────
+// ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -253,18 +253,18 @@ mod tests {
 
     #[test]
     fn test_straight_path() {
-        // 5x1 격자, 장애물 없음 → start(0,0)에서 goal(4,0)까지 직선
+        // 5x1 grid, no obstacles → straight line from start(0,0) to goal(4,0)
         let grid = PathGrid::new(5, 1);
         let path = find_path(&grid, IVec2::new(0, 0), IVec2::new(4, 0)).unwrap();
         assert_eq!(path.last(), Some(&IVec2::new(4, 0)));
-        // start 미포함, goal 포함
+        // start excluded, goal included
         assert!(!path.contains(&IVec2::new(0, 0)));
         assert_eq!(path.len(), 4);
     }
 
     #[test]
     fn test_obstacle_detour() {
-        // 3x3 격자에서 (0,1) 장애물로 인해 우회
+        // 3x3 grid with obstacle at (0,1) forcing a detour
         // S . .
         // X X .
         // . . G
@@ -273,9 +273,12 @@ mod tests {
         grid.set_walkable(1, 1, false);
 
         let path = find_path(&grid, IVec2::new(0, 0), IVec2::new(2, 2)).unwrap();
-        // 경로가 존재하고 모든 셀이 통행 가능해야 함
+        // path must exist and every cell must be walkable
         for pos in &path {
-            assert!(grid.is_walkable(pos.x, pos.y), "막힌 셀 포함: {pos:?}");
+            assert!(
+                grid.is_walkable(pos.x, pos.y),
+                "path includes blocked cell: {pos:?}"
+            );
         }
         assert_eq!(path.last(), Some(&IVec2::new(2, 2)));
         assert!(!path.contains(&IVec2::new(0, 0)));
@@ -283,12 +286,12 @@ mod tests {
 
     #[test]
     fn test_no_path() {
-        // 3x3 격자, 오른쪽 열 전체 막음 → 목표(2,0) 도달 불가
+        // 3x3 grid with entire right column blocked → goal(2,0) unreachable
         let mut grid = PathGrid::new(3, 3);
         grid.set_walkable(1, 0, false);
         grid.set_walkable(1, 1, false);
         grid.set_walkable(1, 2, false);
-        // 목표도 막힌 열에 있으므로 즉시 None
+        // goal itself is in the blocked column so result is immediately None
         let result = find_path(&grid, IVec2::new(0, 0), IVec2::new(2, 0));
         assert!(result.is_none());
     }
@@ -345,32 +348,32 @@ mod tests {
         // break optimality.
         let grid = PathGrid::new(5, 5);
         let path = find_path(&grid, IVec2::new(0, 0), IVec2::new(4, 4)).unwrap();
-        assert_eq!(path.len(), 8, "최단 경로 길이가 8이어야 함: {path:?}");
+        assert_eq!(path.len(), 8, "shortest path length must be 8: {path:?}");
         assert_eq!(path.last(), Some(&IVec2::new(4, 4)));
-        // 인접 셀 간 이동은 항상 거리 1 (대각선 없음)
+        // each step between adjacent cells is always distance 1 (no diagonals)
         let mut prev = IVec2::new(0, 0);
         for &p in &path {
-            assert_eq!(manhattan(prev, p), 1, "인접하지 않은 점프: {prev:?}→{p:?}");
+            assert_eq!(manhattan(prev, p), 1, "non-adjacent jump: {prev:?}→{p:?}");
             prev = p;
         }
     }
 
     #[test]
     fn repeated_calls_reuse_scratch_without_contamination() {
-        // 같은 thread_local scratch 를 재사용해도 직전 호출의 상태가 다음 결과를
-        // 오염시키면 안 된다. 막힌 경우와 뚫린 경우를 번갈아 호출한다.
+        // Reusing the same thread_local scratch must not let the previous call's state
+        // contaminate the next result. Alternates between blocked and open cases.
         let mut grid = PathGrid::new(3, 3);
         grid.set_walkable(1, 0, false);
         grid.set_walkable(1, 1, false);
         grid.set_walkable(1, 2, false);
-        // 막힌 열로 인해 도달 불가
+        // blocked column makes goal unreachable
         assert!(find_path(&grid, IVec2::new(0, 0), IVec2::new(2, 0)).is_none());
 
-        // 동일 grid 의 통행 가능한 목표 — 직전 None 호출의 scratch 가 남아있어도 정상.
+        // reachable goal on the same grid — must work even with leftover scratch from previous None call
         let path = find_path(&grid, IVec2::new(0, 0), IVec2::new(0, 2)).unwrap();
         assert_eq!(path, vec![IVec2::new(0, 1), IVec2::new(0, 2)]);
 
-        // 장애물을 치우고 다시 — 캐시된 closed/g_score 가 비워져야 새 경로가 나온다.
+        // remove obstacle and retry — cached closed/g_score must be cleared so a new path is found
         grid.set_walkable(1, 0, true);
         let again = find_path(&grid, IVec2::new(0, 0), IVec2::new(2, 0)).unwrap();
         assert_eq!(again.last(), Some(&IVec2::new(2, 0)));

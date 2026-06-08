@@ -1,18 +1,20 @@
 use crate::animation::player::{AnimationPlayer, BlendUv, BlendWeight};
 use crate::ecs::{Entity, System, World};
 
-/// 매 프레임 `AnimationPlayer` 타이머를 진행하고 `UvRect`/`BlendWeight`/`BlendUv` 컴포넌트를 동기화한다.
+/// Advances the `AnimationPlayer` timer every frame and synchronizes
+/// `UvRect` / `BlendWeight` / `BlendUv` components.
 ///
-/// 크로스페이드 중에는 두 클립(from·to)을 병렬로 진행하고, `UvRect`에 from 프레임을,
-/// `BlendUv`에 to 프레임 UV + 진행도(weight)를 출력한다. 스프라이트 셰이더가
-/// `mix(from, to, weight)`로 두 프레임을 합성해 부드러운 크로스페이드를 렌더한다.
-/// `BlendWeight` 컴포넌트도 항상 갱신되며(전환 없으면 1.0), 게임 코드에서 활용할 수 있다.
+/// During a crossfade both clips (from and to) advance in parallel.
+/// The from-frame is written to `UvRect` and the to-frame UV plus progress (weight)
+/// to `BlendUv`. The sprite shader blends them with `mix(from, to, weight)` for a
+/// smooth crossfade. `BlendWeight` is always updated (1.0 when not transitioning)
+/// and can be read by game code.
 pub struct AnimationSystem;
 
 impl AnimationSystem {
-    /// 스케줄 라벨. 다른 시스템이 `SystemConfig::new().after(AnimationSystem::LABEL)`
-    /// 로 이 시스템 이후 실행을 요청할 수 있다(예: StateMachineSystem 은 이후,
-    /// BlendTreeSystem 은 이전에 실행되어야 한다).
+    /// Schedule label. Other systems can request execution after this one via
+    /// `SystemConfig::new().after(AnimationSystem::LABEL)`
+    /// (e.g. StateMachineSystem must run after; BlendTreeSystem must run before).
     pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::animation";
 }
 
@@ -26,16 +28,16 @@ impl System for AnimationSystem {
                     continue;
                 };
 
-                // ── 크로스페이드 진행 ───────────────────────────────────────────
+                // ── Advance crossfade ────────────────────────────────────────────
                 if let Some(cf) = player.crossfade.as_mut() {
                     cf.elapsed += dt;
 
-                    // to_clip 프레임 진행
+                    // Advance to_clip frames
                     if let Some(to_clip) = player.clips.get(cf.to_clip) {
                         if !to_clip.frames.is_empty() {
-                            // fps <= 0 (정지/비정상값)이면 frame_dur = +inf 로 두어
-                            // while 루프가 실행되지 않게 한다. fps < 0 일 때 frame_dur 가
-                            // 음수가 되어 무한 루프(행)에 빠지던 것을 방지.
+                            // If fps <= 0 (stopped / invalid value), set frame_dur = +inf so
+                            // the while loop never executes. Prevents an infinite loop (hang)
+                            // when fps < 0 would make frame_dur negative.
                             let frame_dur = if to_clip.fps > 0.0 {
                                 1.0 / to_clip.fps
                             } else {
@@ -54,7 +56,7 @@ impl System for AnimationSystem {
                         }
                     }
 
-                    // 전환 완료 여부 확인
+                    // Check whether the transition has finished
                     if cf.elapsed >= cf.duration {
                         let to_clip = cf.to_clip;
                         let to_frame = cf.to_frame;
@@ -65,15 +67,15 @@ impl System for AnimationSystem {
                     }
                 }
 
-                // ── 현재 클립(from) 프레임 진행 ──────────────────────────────
+                // ── Advance current clip (from) frames ───────────────────────
                 let Some(clip) = player.clips.get(player.current_clip) else {
                     continue;
                 };
                 if clip.frames.is_empty() {
                     continue;
                 }
-                // fps <= 0 이면 frame_dur = +inf — 프레임을 진행하지 않는다(0 = 정지,
-                // 음수 = 무한 루프 방지). clip 빌림은 이 줄에서 끝난다.
+                // fps <= 0 → frame_dur = +inf — do not advance frames (0 = paused,
+                // negative = prevent infinite loop). The clip borrow ends at this line.
                 let frame_dur = if clip.fps > 0.0 {
                     1.0 / clip.fps
                 } else {
@@ -90,9 +92,9 @@ impl System for AnimationSystem {
                     }
                 }
 
-                // ── 출력 UV 결정 ─────────────────────────────────────────────
-                // from 프레임을 항상 UvRect로 출력하고, 크로스페이드 중이면 to 프레임 UV +
-                // 진행도(weight)를 BlendUv로 전달한다. 셰이더가 두 프레임을 mix해 블렌딩한다.
+                // ── Determine output UV ───────────────────────────────────────
+                // Always write the from-frame to UvRect; if crossfading, also pass the
+                // to-frame UV + progress (weight) via BlendUv. The shader blends the two.
                 let weight = player.blend_weight();
                 let uv = player.current_uv();
                 let blend_uv = if let Some(cf) = &player.crossfade {
@@ -103,7 +105,7 @@ impl System for AnimationSystem {
                         .unwrap_or(crate::animation::player::UvRect::FULL);
                     BlendUv { to, weight }
                 } else {
-                    // 전환 중이 아니면 weight 0 — 렌더러는 단일 프레임으로 처리.
+                    // Not transitioning — weight 0 so the renderer treats it as a single frame.
                     BlendUv {
                         to: uv,
                         weight: 0.0,
@@ -113,7 +115,7 @@ impl System for AnimationSystem {
                 (uv, weight, blend_uv)
             };
 
-            // AnimationPlayer 빌림 해제 후 컴포넌트 기록
+            // Write components after the AnimationPlayer borrow is released
             world.add_component(entity, uv);
             world.add_component(entity, BlendWeight(weight));
             world.add_component(entity, blend_uv);

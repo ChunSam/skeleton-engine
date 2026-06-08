@@ -9,7 +9,7 @@ impl App {
     }
 
     pub fn reload_scene(&mut self) {
-        // 리셋 전에 보존 대상 리소스를 type-erased 박스로 꺼내 둔다.
+        // Extract preserved resources into type-erased boxes before the reset.
         let preserved: Vec<(std::any::TypeId, Box<dyn std::any::Any>)> = self
             .persistent_resources
             .iter()
@@ -19,7 +19,7 @@ impl App {
 
         self.world = World::new();
         Self::insert_core_resources(&mut self.world);
-        // 등록된 이벤트 리소스 재삽입
+        // Re-insert registered event resources
         let inits = std::mem::take(&mut self.event_initializers);
         for init in &inits {
             init(&mut self.world);
@@ -29,8 +29,8 @@ impl App {
         if let Some(debug_ui) = debug_ui {
             self.world.insert_resource(debug_ui);
         }
-        // 보존 대상 리소스를 마지막에 재삽입 — 엔진 기본 리소스보다 우선시되도록
-        // (같은 타입이면 보존본이 기본본을 덮어쓴다).
+        // Re-insert preserved resources last — so they take precedence over engine defaults
+        // (a preserved resource of the same type overwrites the default).
         for (tid, boxed) in preserved {
             self.world.insert_resource_erased(tid, boxed);
         }
@@ -41,10 +41,11 @@ impl App {
             self.copy_clipboard.clear();
         }
         self.editor_save_status = None;
-        // 패닉으로 비활성화된 시스템 인덱스 집합을 초기화한다.
-        // 월드가 리셋되면 시스템에 다시 기회를 주고, Replace 로 systems 가 통째로
-        // 교체될 때 옛 인덱스가 새 씬의 무관한 시스템을 잘못 건너뛰는 것을 막는다.
-        // (새 월드에는 빈 PanickedSystems 리소스가 재삽입되므로 표시도 함께 초기화됨)
+        // Clear the set of system indices disabled by panics.
+        // After a world reset, systems get another chance; this also prevents stale
+        // indices from incorrectly skipping unrelated systems when Replace swaps out
+        // the entire systems list.
+        // (The new world re-inserts an empty PanickedSystems resource, clearing the display too.)
         self.panicked_systems.clear();
     }
 
@@ -70,31 +71,31 @@ impl App {
                     scene.on_exit(&mut self.world);
                 }
                 self.systems.clear();
-                self.reconcile_meta(); // systems.clear() 후 meta 동기화
+                self.reconcile_meta(); // sync meta after systems.clear()
                 self.reload_scene();
                 let before = self.systems.len();
                 new_scene.on_enter(&mut self.world, &mut self.systems);
                 let owned = self.systems.len() - before;
                 self.scene_stack.push((new_scene, owned));
-                self.reconcile_meta(); // on_enter 후 씬이 직접 push한 시스템 흡수
+                self.reconcile_meta(); // absorb systems pushed directly by the scene in on_enter
             }
             SceneCmd::Push(mut new_scene) => {
                 let before = self.systems.len();
                 new_scene.on_enter(&mut self.world, &mut self.systems);
                 let owned = self.systems.len() - before;
                 self.scene_stack.push((new_scene, owned));
-                self.reconcile_meta(); // on_enter 후 씬이 직접 push한 시스템 흡수
+                self.reconcile_meta(); // absorb systems pushed directly by the scene in on_enter
             }
             SceneCmd::Pop => {
                 if let Some((mut scene, owned)) = self.scene_stack.pop() {
                     scene.on_exit(&mut self.world);
                     let new_len = self.systems.len().saturating_sub(owned);
                     self.systems.truncate(new_len);
-                    // Pop 으로 사라진 시스템 인덱스를 패닉 집합에서 제거한다(남은 인덱스는
-                    // 그대로 유효). 이렇게 하지 않으면 잘려나간 인덱스가 그대로 남아
-                    // 이후 같은 인덱스에 들어오는 시스템을 잘못 건너뛴다.
+                    // Remove indices of systems removed by Pop from the panic set
+                    // (remaining indices stay valid). Without this, a truncated index
+                    // persists and would incorrectly skip a new system at that same index.
                     self.panicked_systems.retain(|&i| i < new_len);
-                    // 표시용 PanickedSystems 리소스도 남은 인덱스 기준으로 재구성.
+                    // Rebuild the display PanickedSystems resource based on the remaining indices.
                     let names: Vec<String> = self
                         .panicked_systems
                         .iter()
@@ -106,7 +107,7 @@ impl App {
                     {
                         ps.disabled = names;
                     }
-                    self.reconcile_meta(); // truncate 후 meta 동기화
+                    self.reconcile_meta(); // sync meta after truncate
                 }
             }
         }

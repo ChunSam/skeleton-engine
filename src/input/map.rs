@@ -5,7 +5,7 @@ use winit::keyboard::KeyCode;
 
 use crate::input::state::InputState;
 
-/// 게임 액션 → `KeyCode` 매핑 리소스.
+/// Resource that maps game actions to `KeyCode` bindings.
 ///
 /// ```rust,no_run
 /// use engine::InputMap;

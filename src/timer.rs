@@ -1,6 +1,6 @@
-/// 카운트다운 또는 반복 타이머.
+/// Countdown or repeating timer.
 ///
-/// # 사용 예
+/// # Example
 /// ```rust
 /// use engine::Timer;
 ///
@@ -19,7 +19,7 @@ pub struct Timer {
 }
 
 impl Timer {
-    /// 지정한 시간(초) 후 한 번만 완료되는 타이머.
+    /// Creates a timer that fires once after the specified duration (seconds).
     pub fn once(duration: f32) -> Self {
         Self {
             duration,
@@ -29,7 +29,7 @@ impl Timer {
         }
     }
 
-    /// 지정한 시간(초)마다 반복 완료되는 타이머.
+    /// Creates a timer that fires repeatedly every specified duration (seconds).
     pub fn repeating(duration: f32) -> Self {
         Self {
             duration,
@@ -39,7 +39,7 @@ impl Timer {
         }
     }
 
-    /// dt만큼 진행한다. 매 프레임 시스템에서 호출한다.
+    /// Advances the timer by `dt`. Call this every frame from a system.
     pub fn tick(&mut self, dt: f32) {
         if self.finished() {
             self.just_finished = false;
@@ -49,9 +49,9 @@ impl Timer {
         if self.elapsed >= self.duration {
             self.just_finished = true;
             if self.repeating {
-                // duration <= 0 (예: repeating(0.0)) 이면 elapsed 가 무한히 누적되지
-                // 않도록 0으로 리셋한다. 양수 duration 에서는 modulo 로 wrap 하여
-                // dt > duration 인 느린 프레임에서도 elapsed 가 경계 안에 머문다.
+                // When duration <= 0 (e.g. repeating(0.0)) reset elapsed to 0 to prevent
+                // unbounded accumulation. For positive durations wrap with modulo so elapsed
+                // stays within bounds even on slow frames where dt > duration.
                 if self.duration > 0.0 {
                     self.elapsed %= self.duration;
                 } else {
@@ -65,27 +65,27 @@ impl Timer {
         }
     }
 
-    /// 타이머가 완료됐는지 (반복 타이머는 항상 false).
+    /// Returns whether the timer has finished. Always `false` for repeating timers.
     pub fn finished(&self) -> bool {
         !self.repeating && self.elapsed >= self.duration
     }
 
-    /// 이 tick에서 방금 완료됐는지 (반복 포함, 1 프레임만 true).
+    /// Returns `true` only on the tick the timer fired (including repeating; true for one frame only).
     pub fn just_finished(&self) -> bool {
         self.just_finished
     }
 
-    /// 경과 시간(초).
+    /// Elapsed time in seconds.
     pub fn elapsed(&self) -> f32 {
         self.elapsed
     }
 
-    /// 전체 지속 시간(초).
+    /// Total duration in seconds.
     pub fn duration(&self) -> f32 {
         self.duration
     }
 
-    /// 진행률 0.0 ~ 1.0.
+    /// Completion fraction from 0.0 to 1.0.
     pub fn fraction(&self) -> f32 {
         if self.duration <= 0.0 {
             1.0
@@ -94,7 +94,7 @@ impl Timer {
         }
     }
 
-    /// 타이머를 처음 상태로 되돌린다.
+    /// Resets the timer to its initial state.
     pub fn reset(&mut self) {
         self.elapsed = 0.0;
         self.just_finished = false;
@@ -114,7 +114,7 @@ mod tests {
         t.tick(0.6);
         assert!(t.finished());
         assert!(t.just_finished());
-        // 완료 후 tick해도 just_finished는 false
+        // just_finished is false after ticking past completion
         t.tick(0.1);
         assert!(t.finished());
         assert!(!t.just_finished());
@@ -140,8 +140,8 @@ mod tests {
 
     #[test]
     fn repeating_zero_duration_stays_bounded() {
-        // repeating(0.0) 는 매 tick just_finished 가 되지만 elapsed 가 무한히
-        // 누적되면 안 된다(이전엔 elapsed -= 0 으로 wrap 되지 않아 무한 증가했다).
+        // repeating(0.0) fires just_finished every tick but elapsed must not grow
+        // unboundedly (previously elapsed -= 0 failed to wrap, causing infinite growth).
         let mut t = Timer::repeating(0.0);
         for _ in 0..1000 {
             t.tick(0.016);
@@ -152,7 +152,7 @@ mod tests {
 
     #[test]
     fn repeating_catches_up_when_dt_exceeds_duration() {
-        // dt > duration 인 느린 프레임에서도 elapsed 가 modulo 로 경계 안에 머문다.
+        // elapsed stays within bounds via modulo even on slow frames where dt > duration.
         let mut t = Timer::repeating(1.0);
         t.tick(3.5);
         assert!(t.just_finished());
