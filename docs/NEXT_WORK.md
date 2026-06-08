@@ -283,10 +283,13 @@ ends the wasm work left behind:
 
 These are tracked in the seq-3 PLAN for a future (monitor-on) session; none are breadth gaps:
 
-1. **wasm Retina crispness** *(concrete, primary)* — the engine renders wasm at the canvas
-   logical size, so it's slightly soft on Retina; a DPR-aware backing buffer (capped at the
-   WebGL2 2048 limit) would sharpen it. Touches the same surface-sizing path as the 3 fixed
-   wasm bugs → needs real-GPU eyeball, not just headless SwiftShader.
+1. **wasm Retina crispness** ✅ *done (2026-06-09)* — the wasm drawing buffer is now sized to
+   logical × devicePixelRatio (uniform, capped at the WebGL2 2048 limit) while the canvas CSS box
+   stays logical, so the browser maps it 1:1 (crisp) instead of upscaling a logical-size buffer.
+   `ViewportSize` stays logical; `DisplayScaleFactor = buffer/logical`, so text renders at device
+   resolution. Logical size = the authored `<canvas>` attributes (`WASM_LOGICAL_SIZE`), not
+   `WindowConfig` (which a scene reset reverts). Verified on a real-GPU Retina browser + headless
+   DPR=2 (coin_race 800→1600; run_demo 1280→2048 clamp path). (`dce44ae`)
 2. **Reusable remote-entity helper** *(blocked — needs signal)* — both `mp_client` and
    `coin_race` reimplement `HashMap<id, Entity>` bookkeeping inline; extract a helper only after
    a *3rd distinct* networked example confirms the abstraction shape.
