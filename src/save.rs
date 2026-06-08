@@ -80,7 +80,7 @@ pub fn save_path(app_name: &str, file: &str) -> PathBuf {
         .join(app_name)
         .join(file);
     #[cfg(target_arch = "wasm32")]
-    PathBuf::from(format!("{}/{}", app_name, file))
+    PathBuf::from(format!("{app_name}/{file}"))
 }
 
 /// 디렉토리를 만들고 데이터를 RON으로 직렬화한 뒤 AEAD 암호화해 저장한다.

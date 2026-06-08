@@ -245,6 +245,14 @@ standalone demos or none). The densest, most universally-needed cluster — UI d
     `tungstenite` probe against the real server binary (contested-coin rejection, position relay,
     `bye` on disconnect — all confirmed); engine client render + live multiplayer scoreboard +
     remote-player sync confirmed by a 2-window playtest screenshot. Server has 5 unit tests.
+  - **Browser follow-up (wasm, v4.1.0):** `coin_race_game` now also runs on the web — a
+    `#[wasm_bindgen] run_coin_race` entry in the example + `examples/games/coin_race/web/`
+    (`index.html` + `build.sh`). This closes friction point 3 (no example ran a networked game on
+    wasm) and establishes the reusable "ship an engine *example* to the web" path
+    (`cargo build --example` + `wasm-bindgen`), distinct from the lib-only `wasm-pack` demo
+    (`examples/wasm/`). The game code stays in the example, not the engine library. Verified: a
+    browser tab's wasm WebSocket connects to the native authoritative server and renders the
+    player avatar + the server-spawned coin field via WebGL2 (headless-Chrome screenshot).
 
 Remaining never-in-a-game subsystems (candidates for later dogfooding cycles, none scheduled):
 none — every engine subsystem now has at least one playable example.

@@ -4,6 +4,22 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 4.1.0
+
+### Added
+
+- **`coin_race` runs in the browser (wasm).** The `coin_race_game` client now compiles to
+  wasm and connects to the native `coin_race_server` over `ws://127.0.0.1:9002`, so native
+  windows and browser tabs share one authoritative game. A `#[wasm_bindgen] run_coin_race`
+  entry point lives in the example (not the engine library, keeping the engine a
+  genre-agnostic skeleton), and `examples/games/coin_race/web/` adds an `index.html` plus a
+  `build.sh` that drives `cargo build --example` + `wasm-bindgen`. This establishes the
+  reusable path for shipping an engine *example game* to the web: previously only the bundled
+  library demo (`examples/wasm/`, built with `wasm-pack`) could run in a browser, because
+  `wasm-pack` builds only the library crate. Verified end-to-end — a browser tab's wasm
+  WebSocket connects to the authoritative server and renders the player avatar and the
+  server-spawned coin field via WebGL2.
+
 ## 4.0.0
 
 ### Added

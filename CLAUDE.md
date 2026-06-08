@@ -1,7 +1,8 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.4.0 | package `skeleton-engine` v4.0.0, library crate `engine` | wgpu-based Rust 2D game engine  
-> WASM support: `cargo build --target wasm32-unknown-unknown` passes  
+> Version v1.4.0 | package `skeleton-engine` v4.1.0, library crate `engine` | wgpu-based Rust 2D game engine  
+> WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example game ships to
+> the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`
 
 ---

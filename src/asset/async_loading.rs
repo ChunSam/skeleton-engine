@@ -133,7 +133,7 @@ async fn fetch_image_wasm(url: &str) -> (ImageAsset, AssetLoadState) {
     let resp_value = match JsFuture::from(window.fetch_with_str(url)).await {
         Ok(v) => v,
         Err(e) => {
-            let msg = format!("fetch 실패 '{url}': {:?}", e);
+            let msg = format!("fetch 실패 '{url}': {e:?}");
             log::error!("{msg}");
             return (magenta_fallback(), AssetLoadState::Failed(msg));
         }
@@ -156,7 +156,7 @@ async fn fetch_image_wasm(url: &str) -> (ImageAsset, AssetLoadState) {
     let array_buffer_promise = match resp.array_buffer() {
         Ok(p) => p,
         Err(e) => {
-            let msg = format!("array_buffer() 실패 '{url}': {:?}", e);
+            let msg = format!("array_buffer() 실패 '{url}': {e:?}");
             return (magenta_fallback(), AssetLoadState::Failed(msg));
         }
     };
@@ -164,7 +164,7 @@ async fn fetch_image_wasm(url: &str) -> (ImageAsset, AssetLoadState) {
     let array_buffer = match JsFuture::from(array_buffer_promise).await {
         Ok(v) => v,
         Err(e) => {
-            let msg = format!("응답 읽기 실패 '{url}': {:?}", e);
+            let msg = format!("응답 읽기 실패 '{url}': {e:?}");
             return (magenta_fallback(), AssetLoadState::Failed(msg));
         }
     };
