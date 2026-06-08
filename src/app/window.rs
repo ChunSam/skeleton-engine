@@ -335,26 +335,22 @@ impl App {
             .resource::<FontData>()
             .map(|f| f.0.clone())
             .unwrap_or_default();
-        // WASM: 시스템 폰트가 없으므로 font_bytes가 비어있으면 텍스트 렌더러를 생성하지 않는다.
-        // cosmic-text는 폰트 없이 shape를 시도할 때 패닉한다.
-        #[cfg(not(target_arch = "wasm32"))]
+        // WASM: the browser sandbox has no system fonts, so cosmic-text would panic when it
+        // shapes text against an empty font db. Fall back to the engine's embedded default font
+        // when the game supplies no `FontData`, so `DrawText`/HUD text renders out of the box.
+        // Native loads system fonts inside `FontSystem::new()` and does not embed the default.
+        #[cfg(target_arch = "wasm32")]
+        let font_bytes = if font_bytes.is_empty() {
+            crate::renderer::DEFAULT_FONT.to_vec()
+        } else {
+            font_bytes
+        };
         let text_renderer = Some(TextRenderer::new(
             &gpu.device,
             &gpu.queue,
             gpu.config.format,
             &font_bytes,
         ));
-        #[cfg(target_arch = "wasm32")]
-        let text_renderer = if !font_bytes.is_empty() {
-            Some(TextRenderer::new(
-                &gpu.device,
-                &gpu.queue,
-                gpu.config.format,
-                &font_bytes,
-            ))
-        } else {
-            None
-        };
         let egui_ctx = egui::Context::default();
         let egui_state = egui_winit::State::new(
             egui_ctx.clone(),

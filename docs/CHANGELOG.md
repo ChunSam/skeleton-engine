@@ -19,6 +19,14 @@ The package follows semantic versioning beginning with 1.0.0.
   `wasm-pack` builds only the library crate. Verified end-to-end — a browser tab's wasm
   WebSocket connects to the authoritative server and renders the player avatar and the
   server-spawned coin field via WebGL2.
+- **Embedded default font for wasm text.** The browser sandbox has no system fonts, so
+  `FontSystem::new()` loads an empty font db and the engine previously skipped creating the
+  text renderer on wasm entirely (cosmic-text panics shaping with no fonts), meaning
+  `DrawText`/HUD text silently did not render unless the game supplied a `FontData`. The engine
+  now embeds DejaVu Sans (`assets/fonts/DejaVuSans.ttf`, Bitstream Vera / Arev license) and
+  falls back to it on wasm when no `FontData` is set, so HUD text renders out of the box. The
+  font is `include_bytes!`'d under a wasm-only `cfg`, so native binaries (which use OS fonts)
+  do not embed it.
 
 ### Fixed
 
