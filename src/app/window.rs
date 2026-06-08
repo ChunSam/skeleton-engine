@@ -308,6 +308,24 @@ impl App {
     /// GPU 컨텍스트와 창이 준비된 후 렌더러·egui를 초기화한다.
     /// 네이티브: resumed()에서 직접 호출. WASM: about_to_wait()에서 PENDING_GPU 확인 후 호출.
     fn finish_init(&mut self, gpu: GpuContext, window: Arc<Window>) {
+        // WASM: winit sizes the canvas's CSS *display* box to the window's logical size, which
+        // can differ from the drawing buffer and stretch the canvas — shifting fixed-position
+        // HUD text off-screen (sprites stay centred, but left-edge text falls off). Lock the CSS
+        // display size to the buffer so the canvas shows 1:1 with what the engine renders. Set
+        // after winit has sized the canvas; a game can still override with `!important` CSS.
+        #[cfg(target_arch = "wasm32")]
+        {
+            use wasm_bindgen::JsCast;
+            if let Some(canvas) = web_sys::window()
+                .and_then(|w| w.document())
+                .and_then(|d| d.get_element_by_id("game-canvas"))
+                .and_then(|el| el.dyn_into::<web_sys::HtmlCanvasElement>().ok())
+            {
+                let style = canvas.style();
+                let _ = style.set_property("width", &format!("{}px", canvas.width()));
+                let _ = style.set_property("height", &format!("{}px", canvas.height()));
+            }
+        }
         let mut sprite_renderer = SpriteRenderer::new(&gpu.device, &gpu.queue, gpu.config.format);
         for path in self.pending_textures.drain(..) {
             sprite_renderer.load_texture(&gpu.device, &gpu.queue, &path);

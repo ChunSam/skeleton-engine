@@ -40,6 +40,14 @@ The package follows semantic versioning beginning with 1.0.0.
   playtesting the `coin_race` wasm example on a real Retina display — sprites that were pushed
   off-screen now render in place. (The `examples/wasm/` lib demo masked this because it adapts
   its layout to `ViewportSize` instead of using fixed coordinates.)
+- **Wasm canvas was stretched, clipping HUD text.** winit sizes the canvas's CSS *display* box
+  to the window's logical size (the 1280 default when `WindowConfig` isn't applied at canvas
+  creation), which can differ from the drawing buffer — so the browser stretched an 800px buffer
+  across a 1280px display and, being wider than the window, centred and clipped it. Fixed-position
+  HUD text fell off the left edge while sprites (mid-canvas) stayed visible. `finish_init` now
+  sets the canvas CSS width/height to its drawing-buffer size (after winit has sized it) so the
+  canvas displays 1:1 with what the engine renders; a game can still override with `!important`
+  CSS. Surfaced once the embedded default font made wasm text render for the first time.
 
 ## 4.0.0
 
