@@ -4,6 +4,116 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 4.0.0
+
+### Added
+
+- `coin_race` example (`examples/games/coin_race/` — `coin_race_game` client +
+  `coin_race_server`): first playable-game use of `NetworkClient` / `NetworkSystem` /
+  `NetworkEvent` in an **authoritative** design, not the position-relay model of
+  `mp_client`/`mp_server`. Two or more players race to collect coins; the standalone server
+  owns the coin field and the scoreboard, arbitrates contested pickups (first `grab` claim
+  wins), keeps the field full, and announces the winner. Closes the last engine subsystem —
+  networking — that had no playable-game example. No engine source changed: `NetworkClient`
+  and `NetworkSystem` carried a full authoritative game as-is, confirming the API is
+  sufficient for this pattern.
+
+### Breaking
+
+- **`engine::ImpulseJointHandle` (a re-export of `rapier2d`'s `ImpulseJointHandle`) is
+  removed and replaced by the opaque `engine::JointHandle` newtype.**
+  `PhysicsWorld::add_revolute_joint`, `add_distance_joint`, and `add_prismatic_joint` now
+  return `engine::JointHandle`, and `remove_joint` takes it. The inner rapier handle is
+  engine-private: a `JointHandle` can only be produced by an `add_*_joint` call, decoupling
+  game code from the rapier type. Migration: replace `use engine::ImpulseJointHandle` (or
+  `use rapier2d::dynamics::ImpulseJointHandle`) with `use engine::JointHandle`, and update
+  return-type annotations / stored fields accordingly. Call sites that discard the return
+  value need no change.
+
+## 3.0.0
+
+### Added
+
+- `Color` newtype (`engine::Color`): a single unified RGBA color type with `rgb` / `rgba` /
+  `rgba_u8` constructors, `From<[f32; 4]>` / `From<[f32; 3]>` / `From<[u8; 4]>` conversions,
+  and `to_array` / `to_u8` / `to_rgb` helpers for the GPU / glyphon boundaries. Replaces the
+  previous mix of raw color arrays throughout the public API (see Breaking).
+- `AudioSystem` (`engine::AudioSystem`): a built-in system — register it like any other —
+  that calls `AudioManager::update(dt)` every frame so scheduled fades (`fade_out` /
+  `fade_volume`) actually advance. Previously fades were silently inert unless the game
+  manually drove `update()`. Also adds an SFX file-bytes cache (path → `Arc<[u8]>`) so
+  replaying the same sound effect no longer re-reads the file from disk on every `play()`;
+  streaming BGM is unchanged.
+- `DrawText::centered` + `TextAnchor` enum (`engine::TextAnchor`, `TopLeft` / `Center`): a
+  draw position can now anchor at the measured text center, computed from the shaped buffer
+  at render time with no manual `-width/2` math. Paired with `Camera::world_to_screen` (the
+  inverse of `screen_to_world`) for placing screen-space text at a world position.
+- `MouseButton` re-exported as `engine::MouseButton`, so games can import it from the crate
+  root instead of reaching into `winit::event::`.
+- `ReflectValue::I32` variant + `#[non_exhaustive]` on `ReflectValue`: integer fields are now
+  inspectable in the egui Inspector alongside `F32`. `#[non_exhaustive]` means downstream
+  exhaustive `match`es over `ReflectValue` must add a `_` arm.
+- `ScriptingLimits` extended with `max_string_size`, `max_array_size`, `max_map_size`,
+  `max_call_levels`, and `max_expr_depth`, all applied to the Rhai engine alongside the
+  existing `max_operations`, with conservative defaults for trusted-local scripts.
+- `spawn_scene_def` duplicate-`Tag` detection: duplicate tag keys are now first-wins with a
+  `log::warn!` instead of silently overwriting. All entities still spawn; only parent-tag
+  resolution is affected.
+- `audio_fades` example (`examples/audio_fades.rs`): a small native demo confirming the new
+  built-in `AudioSystem` drives fades in real play (Space to play, F to fade out, 1/2/3 to
+  fade to a target volume) — previously the same sequence produced no audible change.
+- `minimap` example gained a `WorldLabelSystem` that draws floating `"ENEMY"` nameplates
+  above each enemy via `Camera::world_to_screen` + `DrawText::centered`, tracking them as the
+  camera follows the player — the first live exercise of those two APIs with a moving camera.
+
+### Breaking
+
+- **`PhysicsWorld` is now a `World` resource**, not a field owned by `PhysicsSystem`.
+  `PhysicsSystem::run` takes the resource out of the world, steps it, and re-inserts it, so
+  game systems reach physics symmetrically with `world.resource_mut::<PhysicsWorld>()` —
+  matching how `SpatialGrid` is exposed. Migration:
+
+  ```rust
+  // before
+  let physics = PhysicsWorld::new();
+  app.add_system(PhysicsSystem::new(physics, pixels_per_unit));
+
+  // after
+  app.world.insert_resource(PhysicsWorld::new());
+  app.add_system(PhysicsSystem::new(pixels_per_unit));
+  ```
+
+- **All public color fields changed to `engine::Color`.** `Sprite`, `AtlasSprite`,
+  `PointLight`, `AmbientLight`, `DrawRect`, `DrawText`, `DrawImage`, `ParticleEmitter`,
+  `GpuParticleEmitter`, the `Timeline` color track, all UI widgets (`Button` / `CheckBox` /
+  `Panel` / `ScrollView` / `Slider` / `TextInput` / `Label`), and `DebugDraw` previously held
+  a mix of `[f32; 4]` / `[f32; 3]` / `[u8; 4]`. Color-accepting constructors and builders take
+  `impl Into<Color>`, so call sites passing raw arrays still compile; only struct-literal
+  `color:` initializers need updating (e.g. `color: [r, g, b, a]` → `color: Color::rgba(r, g,
+  b, a)`). Raw arrays remain only at the GPU/glyphon boundaries via `to_array` / `to_u8` /
+  `to_rgb`. Scene RON now serializes color as `(r:.., g:.., b:.., a:..)` struct form.
+
+### Fixed
+
+- **Per-frame hot-path costs removed.** `SpatialGrid` / `CollisionGridSystem` rebuild the
+  world resource in place (remove → rebuild → insert) instead of deep-cloning two `HashMap`s
+  into the resource every frame. `ScriptAsset.ast` is now `Arc<rhai::AST>` (clone = refcount
+  bump, not a full AST deep-clone per scripted entity per frame), and `ScriptingSystem` reuses
+  thread-local scratch buffers. A\* pathfinding (`find_path`) gained a closed set to prevent
+  re-expanding stale heap entries and reuses its open list / score maps across calls (public
+  signature unchanged). The sprite renderer opens a single render pass for the whole pre-sorted
+  sprite stream and issues per-texture-run draws within it, instead of a new pass per batch.
+- **`RenderLayer` negative values no longer fold to bit 0.** Layer→mask matching previously
+  `clamp(0, 31)`-ed the layer index, so a `RenderLayer(-1)` background sprite mapped onto bit 0
+  and leaked into `layer_mask: 1 << 0` offscreen passes. Layers outside `0..=31` cannot be
+  addressed by a 32-bit mask and now simply never match under any non-zero mask (they still
+  render under mask `0` = all layers); the engine warns once on an unmaskable layer.
+- **Point-light radius falloff locked by a contract test.** A code-analysis pass flagged the
+  CPU `radius * zoom / viewport_w` calculation as a possible unit mismatch; re-derivation
+  confirmed it a false positive (the value is already in the shader's UV-fraction-of-width
+  space and the falloff reaches zero at the world radius). A regression test now pins the
+  correct behavior so a future "fix" cannot reintroduce a 2× error.
+
 ## 2.0.0
 
 ### Added
