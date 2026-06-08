@@ -105,15 +105,23 @@ impl App {
 
     pub(super) fn update(&mut self, dt: f32) {
         self.world.clear_change_tracking();
-        // GPU 실제 크기는 물리 픽셀이고, 게임 좌표계는 논리 픽셀이다.
-        // Retina/HiDPI에서 이 둘을 분리해야 스프라이트와 UI가 절반 크기로 보이지 않는다.
+        // The world coordinate system is logical pixels; the GPU surface is physical.
+        // Native: the surface is CSS-size × DPR, so divide by the DPR to recover the logical
+        // viewport (otherwise sprites/UI look half-size on Retina/HiDPI).
+        // Wasm: the surface is sized to the canvas DOM (CSS-logical) size — the Resized handler
+        // caps it there to stay under the WebGL2 texture limit — so it is ALREADY logical.
+        // Dividing again would halve the viewport and push fixed-coordinate scenes off-screen on
+        // a Retina display (the coin_race wasm example surfaced this: it rendered only at DPR=1).
         if let Some(gpu) = &self.gpu {
+            #[cfg(not(target_arch = "wasm32"))]
             let scale_factor = self
                 .window
                 .as_ref()
                 .map(|w| w.scale_factor() as f32)
                 .unwrap_or(1.0)
                 .max(1.0);
+            #[cfg(target_arch = "wasm32")]
+            let scale_factor = 1.0_f32;
             self.world.insert_resource(ViewportSize {
                 width: gpu.config.width as f32 / scale_factor,
                 height: gpu.config.height as f32 / scale_factor,

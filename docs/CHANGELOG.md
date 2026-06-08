@@ -20,6 +20,19 @@ The package follows semantic versioning beginning with 1.0.0.
   WebSocket connects to the authoritative server and renders the player avatar and the
   server-spawned coin field via WebGL2.
 
+### Fixed
+
+- **Wasm HiDPI viewport was halved on Retina displays.** The logical `ViewportSize` was
+  computed as `surface_size / devicePixelRatio` for all targets, but on wasm the surface is
+  already sized to the canvas DOM (CSS-logical) size — the resize handler caps it there to
+  respect the WebGL2 texture limit — so dividing by the DPR again halved the world viewport.
+  On a Retina display (DPR 2) a fixed-coordinate scene was projected into a half-size viewport
+  and rendered almost entirely off-screen; the engine only rendered correctly at DPR 1. The
+  DPR division now applies on native only (where the surface is physical pixels). Surfaced by
+  playtesting the `coin_race` wasm example on a real Retina display — sprites that were pushed
+  off-screen now render in place. (The `examples/wasm/` lib demo masked this because it adapts
+  its layout to `ViewportSize` instead of using fixed coordinates.)
+
 ## 4.0.0
 
 ### Added
