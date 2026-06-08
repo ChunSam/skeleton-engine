@@ -105,13 +105,17 @@ impl App {
 
     pub(super) fn update(&mut self, dt: f32) {
         self.world.clear_change_tracking();
-        // The world coordinate system is logical pixels; the GPU surface is physical.
-        // Native: the surface is CSS-size × DPR, so divide by the DPR to recover the logical
-        // viewport (otherwise sprites/UI look half-size on Retina/HiDPI).
-        // Wasm: the surface is sized to the canvas DOM (CSS-logical) size — the Resized handler
-        // caps it there to stay under the WebGL2 texture limit — so it is ALREADY logical.
-        // Dividing again would halve the viewport and push fixed-coordinate scenes off-screen on
-        // a Retina display (the coin_race wasm example surfaced this: it rendered only at DPR=1).
+        // The world coordinate system is logical pixels; the GPU surface (gpu.config) is the
+        // physical drawing buffer. Divide the buffer by the render scale to recover the logical
+        // viewport (otherwise sprites/UI look half-size on Retina/HiDPI) and expose the scale as
+        // DisplayScaleFactor so text renders at device resolution.
+        // Native: render scale = the window DPR.
+        // Wasm: the buffer is uniformly DPR-scaled (logical × devicePixelRatio, capped so neither
+        // axis exceeds WebGL2's 2048 limit) by window.rs while the canvas CSS box stays logical, so
+        // the render scale = buffer / logical (= DPR when uncapped, less when capped). Logical size
+        // = the authored canvas attributes (WASM_LOGICAL_SIZE, captured in finish_init). (Pre-fix,
+        // wasm forced scale = 1 on a logical-size buffer, which rendered correctly but soft on
+        // Retina.)
         if let Some(gpu) = &self.gpu {
             #[cfg(not(target_arch = "wasm32"))]
             let scale_factor = self
@@ -121,7 +125,16 @@ impl App {
                 .unwrap_or(1.0)
                 .max(1.0);
             #[cfg(target_arch = "wasm32")]
-            let scale_factor = 1.0_f32;
+            let scale_factor = {
+                // Logical size = the authored canvas attributes captured in finish_init (stable
+                // across scene resets, unlike WindowConfig). render scale = buffer / logical.
+                let logical_w = super::WASM_LOGICAL_SIZE.with(|c| c.get()).0;
+                if logical_w >= 1 {
+                    (gpu.config.width as f32 / logical_w as f32).max(1.0)
+                } else {
+                    1.0
+                }
+            };
             self.world.insert_resource(ViewportSize {
                 width: gpu.config.width as f32 / scale_factor,
                 height: gpu.config.height as f32 / scale_factor,

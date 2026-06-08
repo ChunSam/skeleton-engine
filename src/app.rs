@@ -66,6 +66,19 @@ type OffscreenRenderInfo = (
     u32, // layer_mask
 );
 
+// WASM: the logical (CSS) canvas size, captured from the authored `<canvas>` width/height
+// attributes in `finish_init`. The drawing buffer is this × devicePixelRatio (uniform, capped so
+// neither axis exceeds WebGL2's 2048 limit) for a crisp Retina render, while the CSS display box
+// stays at the logical size. The per-frame viewport math (`schedule.rs`) divides the buffer by
+// `buffer / logical` to recover the logical viewport. Stored here rather than read from
+// `WindowConfig` because a scene transition (`World` reset) can revert `WindowConfig` to its
+// default, whereas the canvas attributes are stable.
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    pub(crate) static WASM_LOGICAL_SIZE: std::cell::Cell<(u32, u32)> =
+        const { std::cell::Cell::new((0, 0)) };
+}
+
 /// Engine entry point.
 ///
 /// # Usage

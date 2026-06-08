@@ -88,20 +88,38 @@ impl ApplicationHandler for App {
             // ── Window resize ─────────────────────────────────────────────────
             WindowEvent::Resized(size) => {
                 if let Some(gpu) = &mut self.gpu {
-                    // WASM: due to Retina DPR, winit reports CSS pixels × DPR (e.g. 2560×1440),
-                    // which exceeds WebGL2's max texture size (2048), so read the canvas size
-                    // directly from the DOM instead.
+                    // WASM: keep the drawing buffer at the logical size × devicePixelRatio (uniform
+                    // scale, capped so neither axis exceeds WebGL2's 2048 max texture size) for a
+                    // crisp Retina render, and keep the canvas buffer attributes in sync with the
+                    // surface. The CSS display box stays at the logical size. Logical size comes from
+                    // WASM_LOGICAL_SIZE (the authored canvas attributes captured in finish_init); a
+                    // genuine resize only changes the DPR, not the logical game size.
                     #[cfg(target_arch = "wasm32")]
                     let size = {
                         use wasm_bindgen::JsCast;
-                        web_sys::window()
-                            .and_then(|w| w.document())
-                            .and_then(|d| d.get_element_by_id("game-canvas"))
-                            .and_then(|el| el.dyn_into::<web_sys::HtmlCanvasElement>().ok())
-                            .map(|c| {
-                                winit::dpi::PhysicalSize::new(c.width().max(1), c.height().max(1))
-                            })
-                            .unwrap_or(size)
+                        let dpr = web_sys::window()
+                            .map(|w| w.device_pixel_ratio())
+                            .unwrap_or(1.0)
+                            .max(1.0);
+                        let (logical_w, logical_h) = super::WASM_LOGICAL_SIZE.with(|c| c.get());
+                        if logical_w >= 1 && logical_h >= 1 {
+                            let scale = dpr
+                                .min(2048.0 / logical_w as f64)
+                                .min(2048.0 / logical_h as f64);
+                            let buf_w = ((logical_w as f64 * scale).round() as u32).clamp(1, 2048);
+                            let buf_h = ((logical_h as f64 * scale).round() as u32).clamp(1, 2048);
+                            if let Some(c) = web_sys::window()
+                                .and_then(|w| w.document())
+                                .and_then(|d| d.get_element_by_id("game-canvas"))
+                                .and_then(|el| el.dyn_into::<web_sys::HtmlCanvasElement>().ok())
+                            {
+                                c.set_width(buf_w);
+                                c.set_height(buf_h);
+                            }
+                            winit::dpi::PhysicalSize::new(buf_w, buf_h)
+                        } else {
+                            size
+                        }
                     };
                     gpu.resize(size);
                 }
@@ -311,22 +329,44 @@ impl App {
     /// Initializes the renderer and egui once the GPU context and window are ready.
     /// Native: called directly from resumed(). WASM: called from about_to_wait() after checking PENDING_GPU.
     fn finish_init(&mut self, gpu: GpuContext, window: Arc<Window>) {
-        // WASM: winit sizes the canvas's CSS *display* box to the window's logical size, which
-        // can differ from the drawing buffer and stretch the canvas — shifting fixed-position
-        // HUD text off-screen (sprites stay centred, but left-edge text falls off). Lock the CSS
-        // display size to the buffer so the canvas shows 1:1 with what the engine renders. Set
-        // after winit has sized the canvas; a game can still override with `!important` CSS.
+        // WASM: rebind the GPU context as mutable so the surface can be resized to the DPR-scaled
+        // buffer below. Native never resizes here, so it keeps the immutable parameter.
+        #[cfg(target_arch = "wasm32")]
+        let mut gpu = gpu;
+        // WASM crisp-Retina sizing: render into a DPR-scaled drawing buffer while the canvas CSS
+        // *display* box stays at the logical size. The browser then maps the larger buffer 1:1 onto
+        // the logical box (sharp) instead of upscaling a logical-size buffer (soft) — and instead of
+        // stretching a buffer that differs from the display box (the old left-clipped-HUD bug). The
+        // LOGICAL size is the canvas's authored width/height attributes (stable across scene resets,
+        // unlike WindowConfig); store it in WASM_LOGICAL_SIZE for the per-frame viewport math. The
+        // scale is uniform (preserves aspect) and capped so neither axis exceeds WebGL2's 2048 max
+        // texture size. Set after winit has sized the canvas; a game can still override the CSS.
         #[cfg(target_arch = "wasm32")]
         {
             use wasm_bindgen::JsCast;
+            let dpr = web_sys::window()
+                .map(|w| w.device_pixel_ratio())
+                .unwrap_or(1.0)
+                .max(1.0);
             if let Some(canvas) = web_sys::window()
                 .and_then(|w| w.document())
                 .and_then(|d| d.get_element_by_id("game-canvas"))
                 .and_then(|el| el.dyn_into::<web_sys::HtmlCanvasElement>().ok())
             {
+                let logical_w = canvas.width().max(1);
+                let logical_h = canvas.height().max(1);
+                super::WASM_LOGICAL_SIZE.with(|c| c.set((logical_w, logical_h)));
+                let scale = dpr
+                    .min(2048.0 / logical_w as f64)
+                    .min(2048.0 / logical_h as f64);
+                let buf_w = ((logical_w as f64 * scale).round() as u32).clamp(1, 2048);
+                let buf_h = ((logical_h as f64 * scale).round() as u32).clamp(1, 2048);
+                canvas.set_width(buf_w);
+                canvas.set_height(buf_h);
                 let style = canvas.style();
-                let _ = style.set_property("width", &format!("{}px", canvas.width()));
-                let _ = style.set_property("height", &format!("{}px", canvas.height()));
+                let _ = style.set_property("width", &format!("{logical_w}px"));
+                let _ = style.set_property("height", &format!("{logical_h}px"));
+                gpu.resize(winit::dpi::PhysicalSize::new(buf_w, buf_h));
             }
         }
         let mut sprite_renderer = SpriteRenderer::new(&gpu.device, &gpu.queue, gpu.config.format);
