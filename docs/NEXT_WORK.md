@@ -257,6 +257,45 @@ standalone demos or none). The densest, most universally-needed cluster — UI d
 Remaining never-in-a-game subsystems (candidates for later dogfooding cycles, none scheduled):
 none — every engine subsystem now has at least one playable example.
 
+## Release/hardening follow-up — v4.1 finalize + repo-wide English (2026-06-09)
+
+Not a breadth candidate — release hygiene, wasm hardening, and a docs pass closing the loose
+ends the wasm work left behind:
+
+- **`v4.1.0` tag moved to `ebd9081`** (was `7c6f9c0`, before the default-font + canvas-size
+  fixes) so the tagged wasm `coin_race` renders a correct HUD on Retina; rust-survivors's
+  v4.1.0 pin (`e6176fa`) pushed to its origin. All 3 wasm fixes are wasm-only/additive, so
+  native consumers are unaffected at any v4.x pin.
+- **`examples/wasm` `run_demo` re-verified** on headless Retina (DPR=2): squares fill the full
+  1280×720 viewport and the HUD text renders in the embedded DejaVu font (its first wasm text
+  render, via the `DEFAULT_FONT` fallback) with no clipping. No engine change needed.
+- **`scripts/wasm_smoke.sh`** added — an optional local headless-Chrome render+network smoke
+  check (connect + non-blank frame + saved screenshot). It guards the *catastrophic* class
+  (CI builds wasm but never runs it); it does **not** auto-catch the subtle 3-bug class
+  (off-screen sprites / missing / shifted text) because each yields a wrong-but-NON-blank frame
+  — eyeball the saved shot for those. Documented in `CLAUDE.md`.
+- **Engine source is now fully English.** All `src/` (~110 files) and example comments plus
+  developer-facing diagnostics (log/panic/expect/assert messages) were translated. Deliberate
+  Korean DATA is kept: the `"ko"` locale values (`locale.rs`/`ui::localized`) and the Hangul/IME
+  test fixtures (`text_input.rs`/`input::state`/`renderer::text`).
+
+## Deferred follow-ups (not breadth) — see `plans/handoffs/PLAN_networking-dogfood_deferred-polish_2026-06-09.md`
+
+These are tracked in the seq-3 PLAN for a future (monitor-on) session; none are breadth gaps:
+
+1. **wasm Retina crispness** *(concrete, primary)* — the engine renders wasm at the canvas
+   logical size, so it's slightly soft on Retina; a DPR-aware backing buffer (capped at the
+   WebGL2 2048 limit) would sharpen it. Touches the same surface-sizing path as the 3 fixed
+   wasm bugs → needs real-GPU eyeball, not just headless SwiftShader.
+2. **Reusable remote-entity helper** *(blocked — needs signal)* — both `mp_client` and
+   `coin_race` reimplement `HashMap<id, Entity>` bookkeeping inline; extract a helper only after
+   a *3rd distinct* networked example confirms the abstraction shape.
+3. **New breadth feature exploration** *(open-ended)* — the breadth program is complete, so this
+   is an audit for a genuinely new capability worth adding (validated, as always, by a small
+   playable example in real play).
+4. **rust-survivors WIP docs cleanup** *(separate repo, user's call)* — ~20 uncommitted doc
+   changes sit in the game repo; organize/commit them only on the maintainer's direction.
+
 ## Alignment check — previously "planned" items vs the reset vision
 
 Vision criteria: (1) fork-friendly skeleton, (2) genre-agnostic 2D, breadth-first,
