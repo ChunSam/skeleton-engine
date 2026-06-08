@@ -30,6 +30,11 @@ Or run all of them in order via `./scripts/verify.sh`.
 - **Why this exists:** a prior refactor shipped declaring "done" on only `fmt --check` +
   `test --lib`, which misses the wasm-build + clippy regressions that the commands above
   catch. Don't narrow the bar.
+- **Optional wasm render check:** `./scripts/wasm_smoke.sh` builds the `coin_race` example
+  to wasm, runs it headless on a simulated Retina (DPR=2) display, and asserts the app
+  **connects + renders a non-blank frame**, saving the screenshot to eyeball for subtle
+  geometry/text bugs. *Not* a CI gate (CI has no Chrome/GPU); needs Chrome + a
+  `wasm-bindgen-cli` matching the `wasm-bindgen` crate. Run it after wasm-affecting changes.
 
 ---
 
