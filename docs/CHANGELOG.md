@@ -4,6 +4,20 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 4.2.0
+
+### Changed
+
+- **Crisp wasm rendering on Retina/HiDPI.** The wasm drawing buffer is now sized to the canvas's
+  logical size × `devicePixelRatio` (uniform scale, capped so neither axis exceeds the WebGL2 2048
+  max texture size) while the canvas CSS display box stays at the logical size, so the browser maps
+  the buffer 1:1 instead of upscaling a logical-size buffer. Previously wasm rendered into a
+  logical-size buffer (a deliberate `scale_factor = 1` workaround) — correct, but soft on Retina.
+  The world viewport stays logical and `DisplayScaleFactor = buffer / logical`, so sprites and UI
+  keep their coordinates and text now renders at device resolution. The logical size is read from
+  the authored `<canvas>` width/height attributes (stable across scene transitions), not
+  `WindowConfig`. Native rendering is unchanged.
+
 ## 4.1.0
 
 ### Added
