@@ -64,6 +64,14 @@ path = "examples/games/settings_menu/settings_menu.rs"
 name = "lit_dungeon_game"
 path = "examples/games/lit_dungeon/lit_dungeon.rs"
 
+[[example]]
+name = "coin_race_game"
+path = "examples/games/coin_race/coin_race.rs"
+
+[[example]]
+name = "coin_race_server"
+path = "examples/games/coin_race/server.rs"
+
 [dependencies]
 winit    = "0.30"
 wgpu     = { version = "22", features = ["webgl"] }

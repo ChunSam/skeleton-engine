@@ -93,6 +93,7 @@ Where to read to find a given thing:
 | Tilemap, TilemapAtlas, TilemapSystem | `src/tilemap.rs` |
 | AudioManager (playback, positional audio, bus mixer, fades), AudioSystem (built-in system that ticks `update(dt)` so fades progress; SFX file-bytes cache) | `src/audio.rs`, `src/audio/` |
 | save / load / load_or_default / exists / delete / save_path / SaveError | `src/save.rs` |
+| NetworkClient (native=tungstenite thread, wasm=web-sys), NetworkSystem (polls → `Events<NetworkEvent>`), NetworkEvent, NetworkConfig (queue/size caps); relay demo `mp_server`/`mp_client`, authoritative game `examples/games/coin_race` (`coin_race_server` + `coin_race_game`) | `src/network.rs` |
 | PostProcessConfig, PostProcessRenderer | `src/renderer/post_process.rs` |
 | PointLight, AmbientLight, LightingRenderer (2D point-light pass, nearest-16 cull; native-only) | `src/renderer/lighting.rs` |
 | RenderTarget, OffscreenCamera, create_render_target (render-to-texture; each offscreen target submits its **own** command buffer so it uses its own camera — exclude RT-display sprites via `layer_mask`; example: `security_camera`) | `src/renderer/render_target.rs`, `src/app/render.rs`, `src/components.rs` |

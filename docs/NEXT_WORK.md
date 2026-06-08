@@ -217,8 +217,37 @@ standalone demos or none). The densest, most universally-needed cluster — UI d
     rotation track (pan + zoom only); no multi-timeline sequencing helper. Add only when an example
     needs them.
 
+## Coverage follow-up — Networking / multiplayer (candidate M, 2026-06-08)
+
+- **M — Coin race** (`coin_race_game` + `coin_race_server`,
+  `examples/games/coin_race/`): first use of `NetworkClient`/`NetworkSystem`/`NetworkEvent` in a
+  **playable** game with a goal and a win condition. Two+ players race to collect coins; the server
+  is **authoritative** (owns the coin field + scoreboard), so contested pickups resolve correctly
+  (two players touch the same coin → only the first `grab` to reach the server scores). This closes
+  the last never-in-a-game subsystem: networking previously had only the `mp_server`/`mp_client`
+  position-relay *demos*, no game.
+  - **Why authoritative (not a dumb relay like `mp_client`):** a relay can sync positions but can't
+    arbitrate a shared resource. The example needed a server that owns state, which exercises the
+    full request→authoritative-decision→broadcast loop the relay never touched. The server is a
+    standalone `[[example]]` binary (raw `tungstenite`, dependency-free xorshift for coin spawns),
+    mirroring the `mp_server` pattern.
+  - **No engine gap forced a change.** The networking API carried a real authoritative game as-is:
+    `NetworkClient::connect` + `NetworkSystem` (polls → `Events<NetworkEvent>`) + `send_text` round-
+    trips, and `NetworkEvent::Disconnected` is emitted on both remote-close and socket error
+    (native), so the client shows "server down" from events alone — **no `is_connected()` needed**
+    on native (it exists only on wasm; the asymmetry stayed unforced, so it was left as-is per the
+    "fix only the gap the example hits" bar).
+  - **Surfaced-but-deferred:** every networked game reimplements the `HashMap<id, Entity>`
+    remote-entity bookkeeping (spawn/update/despawn by network id) inline — both `mp_client` and
+    `coin_race` do it. A reusable helper is a candidate, but two examples isn't enough signal to fix
+    the abstraction shape; deferred to avoid premature API.
+  - **Verification:** server logic + authority + relay + lifecycle proven end-to-end by a throwaway
+    `tungstenite` probe against the real server binary (contested-coin rejection, position relay,
+    `bye` on disconnect — all confirmed); engine client render + live multiplayer scoreboard +
+    remote-player sync confirmed by a 2-window playtest screenshot. Server has 5 unit tests.
+
 Remaining never-in-a-game subsystems (candidates for later dogfooding cycles, none scheduled):
-networking.
+none — every engine subsystem now has at least one playable example.
 
 ## Alignment check — previously "planned" items vs the reset vision
 
