@@ -1,18 +1,18 @@
-/// Phase 47 예제: 터치 입력 + 가상 조이스틱 데모
+/// Phase 47 example: touch input + virtual joystick demo
 ///
-/// - 화면 좌하단 가상 조이스틱 (반경 60px) 으로 플레이어 이동
-/// - 활성 터치 포인트마다 원형 시각화 (DebugDraw)
-/// - 핀치 줌: 두 손가락 거리로 카메라 줌 조절
-/// - 스와이프: 방향에 따라 콘솔 출력
+/// - Virtual joystick in the bottom-left corner (radius 60px) drives player movement
+/// - Active touch points are visualized as circles (DebugDraw)
+/// - Pinch zoom: two-finger spread adjusts the camera zoom
+/// - Swipe: direction is logged to the console
 ///
-/// 데스크톱에서는 마우스 클릭이 터치로 에뮬레이션되어 조이스틱을 조작할 수 있다.
+/// On desktop, mouse clicks are emulated as touches so the joystick can be operated.
 use engine::{
     ecs::{Entity, System, World},
     App, Camera, Color, DebugDraw, Sprite, TouchState, Transform, VirtualJoystick, WindowConfig,
 };
 use glam::Vec2;
 
-// ─── 컴포넌트 ─────────────────────────────────────────────────────────────────
+// ─── Components ───────────────────────────────────────────────────────────────
 
 #[derive(Clone)]
 struct Player;
@@ -20,33 +20,33 @@ struct Player;
 #[derive(Clone)]
 struct JoystickTag;
 
-// ─── 시스템: 터치 피드백 시각화 ───────────────────────────────────────────────
+// ─── System: touch feedback visualization ─────────────────────────────────────
 
 struct TouchVisualSystem;
 
 impl System for TouchVisualSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
-        // 활성 터치 포인트 목록 수집 (owned)
+        // Collect active touch points as owned values
         let touches: Vec<Vec2> = world
             .resource::<TouchState>()
             .map(|ts| ts.active_touches().map(|(_, pos)| pos).collect())
             .unwrap_or_default();
 
-        // 스와이프 감지 로그
+        // Log swipe detection
         let swipe = world.resource::<TouchState>().and_then(|ts| ts.swipe);
         if let Some(dir) = swipe {
             let label = if dir.x.abs() > dir.y.abs() {
                 if dir.x > 0.0 {
-                    "오른쪽"
+                    "right"
                 } else {
-                    "왼쪽"
+                    "left"
                 }
             } else if dir.y > 0.0 {
-                "아래"
+                "down"
             } else {
-                "위"
+                "up"
             };
-            log::info!("스와이프: {} ({:.0}, {:.0})", label, dir.x, dir.y);
+            log::info!("swipe: {} ({:.0}, {:.0})", label, dir.x, dir.y);
         }
 
         if let Some(dbg) = world.resource_mut::<DebugDraw>() {
@@ -61,7 +61,7 @@ impl System for TouchVisualSystem {
     }
 }
 
-// ─── 시스템: 핀치 줌 ─────────────────────────────────────────────────────────
+// ─── System: pinch zoom ──────────────────────────────────────────────────────
 
 struct PinchZoomSystem;
 
@@ -74,7 +74,7 @@ impl System for PinchZoomSystem {
 
         if pinch_delta.abs() > 0.5 {
             if let Some(cam) = world.resource_mut::<Camera>() {
-                // 핀치 델타 1px ≈ 0.002 줌 변화 (경험적 값)
+                // 1px pinch delta ≈ 0.002 zoom change (empirically tuned)
                 let zoom_change = pinch_delta * 0.002;
                 cam.zoom = (cam.zoom + zoom_change).clamp(0.1, 5.0);
             }
@@ -86,7 +86,7 @@ impl System for PinchZoomSystem {
     }
 }
 
-// ─── 시스템: 조이스틱 업데이트 + 플레이어 이동 ───────────────────────────────
+// ─── System: joystick update + player movement ───────────────────────────────
 
 struct JoystickMoveSystem;
 
@@ -95,7 +95,7 @@ impl System for JoystickMoveSystem {
         let speed = 200.0;
 
         type TouchVec = Vec<(u64, Vec2)>;
-        // 1. 터치 데이터를 owned 값으로 추출 (borrow 해제)
+        // 1. Extract touch data as owned values (releases borrow)
         let (began, ended, active): (TouchVec, TouchVec, TouchVec) = world
             .resource::<TouchState>()
             .map(|ts| {
@@ -107,38 +107,38 @@ impl System for JoystickMoveSystem {
             })
             .unwrap_or_default();
 
-        // 2. 조이스틱 엔티티 목록 수집
+        // 2. Collect joystick entity list
         let joy_entities: Vec<Entity> = world.query::<VirtualJoystick>().map(|(e, _)| e).collect();
 
-        // 3. 조이스틱 업데이트 (update_raw 사용, borrow 충돌 없음)
+        // 3. Update joysticks (use update_raw, no borrow conflict)
         for &e in &joy_entities {
             if let Some(joy) = world.get_mut::<VirtualJoystick>(e) {
                 joy.update_raw(&began, &ended, &active);
             }
         }
 
-        // 4. 첫 번째 조이스틱 output 읽기
+        // 4. Read output from the first joystick
         let move_dir: Vec2 = joy_entities
             .first()
             .and_then(|&e| world.get::<VirtualJoystick>(e))
             .map(|joy| joy.output)
             .unwrap_or(Vec2::ZERO);
 
-        // 5. 플레이어 이동
+        // 5. Move player
         if move_dir.length() > 0.01 {
             let player_entities: Vec<Entity> = world.query::<Player>().map(|(e, _)| e).collect();
 
             for e in player_entities {
                 if let Some(t) = world.get_mut::<Transform>(e) {
                     t.position += move_dir * speed * dt;
-                    // 화면 경계 클램프 (800x600 기준)
+                    // Clamp to screen bounds (800x600)
                     t.position.x = t.position.x.clamp(24.0, 776.0);
                     t.position.y = t.position.y.clamp(24.0, 576.0);
                 }
             }
         }
 
-        // 6. 조이스틱 DebugDraw 시각화
+        // 6. DebugDraw visualization for joystick
         let joy_visuals: Vec<(Vec2, f32, Vec2)> = world
             .query::<VirtualJoystick>()
             .filter_map(|(_, joy)| {
@@ -152,9 +152,9 @@ impl System for JoystickMoveSystem {
 
         if let Some(dbg) = world.resource_mut::<DebugDraw>() {
             for (center, radius, stick_pos) in joy_visuals {
-                // 베이스 원 (흰색, 반투명)
+                // Base circle (white, semi-transparent)
                 dbg.circle(center, radius, [1.0, 1.0, 1.0, 0.3]);
-                // 스틱 핵 (노란색)
+                // Stick nub (yellow)
                 dbg.circle(stick_pos, 18.0, [1.0, 0.9, 0.1, 0.8]);
             }
         }
@@ -165,7 +165,7 @@ impl System for JoystickMoveSystem {
     }
 }
 
-// ─── 메인 ────────────────────────────────────────────────────────────────────
+// ─── Main ─────────────────────────────────────────────────────────────────────
 
 fn main() {
     let mut app = App::new();
@@ -177,7 +177,7 @@ fn main() {
         clear_color: [0.07, 0.08, 0.14, 1.0],
     });
 
-    // ─── 플레이어 (파란 사각형) ──────────────────────────────────────────────
+    // ─── Player (blue square) ────────────────────────────────────────────────
     let player = app.world.spawn();
     app.world.add_component(
         player,
@@ -196,7 +196,7 @@ fn main() {
     );
     app.world.add_component(player, Player);
 
-    // ─── 배경 격자 ───────────────────────────────────────────────────────────
+    // ─── Background grid ─────────────────────────────────────────────────────
     for i in 0..8 {
         for j in 0..6 {
             let bg = app.world.spawn();
@@ -220,8 +220,8 @@ fn main() {
         }
     }
 
-    // ─── 가상 조이스틱 엔티티 (화면 좌하단) ──────────────────────────────────
-    // 좌표계: 좌상단 (0,0), 우하단 (800,600)
+    // ─── Virtual joystick entity (bottom-left of screen) ─────────────────────
+    // Coordinate system: top-left (0,0), bottom-right (800,600)
     let joy_entity = app.world.spawn();
     app.world.add_component(joy_entity, JoystickTag);
     app.world.add_component(
@@ -229,7 +229,7 @@ fn main() {
         VirtualJoystick::new(Vec2::new(120.0, 480.0), 60.0),
     );
 
-    // ─── 시스템 등록 ─────────────────────────────────────────────────────────
+    // ─── Register systems ────────────────────────────────────────────────────
     app.add_system(TouchVisualSystem);
     app.add_system(PinchZoomSystem);
     app.add_system(JoystickMoveSystem);

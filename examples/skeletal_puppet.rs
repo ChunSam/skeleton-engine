@@ -1,11 +1,12 @@
-//! 2D 컷아웃 스켈레탈 애니메이션 데모.
+//! 2D cutout skeletal animation demo.
 //!
-//! 색 사각형 본만으로 휴머노이드 퍼펫을 구성한다(아트 에셋 불필요). 깊이 5의 본 체인
-//! (hip→torso→upper_arm→forearm→hand)을 포함해 `HierarchySystem`의 임의 깊이 전파를 검증한다.
+//! Builds a humanoid puppet from colored rectangles only (no art assets required).
+//! Includes a depth-5 bone chain (hip→torso→upper_arm→forearm→hand) to exercise
+//! arbitrary-depth propagation in `HierarchySystem`.
 //!
-//! 조작: Space = idle ↔ wave 토글, Esc = 종료.
+//! Controls: Space = toggle idle ↔ wave, Esc = quit.
 //!
-//! 실행: `cargo run --example skeletal_puppet`
+//! Run: `cargo run --example skeletal_puppet`
 
 use engine::{
     App, BoneKeyframe, BoneTrack, InputState, KeyCode, ShouldQuit, SkeletalAnimationSystem,
@@ -13,10 +14,10 @@ use engine::{
     World,
 };
 
-/// 관절 본(scale=1, 스프라이트 없음)에 시각용 사각형을 자식으로 붙인다.
+/// Attaches a visual rectangle as a child of a joint bone (scale=1, no sprite).
 ///
-/// 관절 scale을 1로 유지하면 계층 합성에서 스케일이 곱해지며 폭발하지 않는다.
-/// 시각 자식은 leaf이므로 자신의 크기(scale)만 가진다.
+/// Keeping the joint scale at 1 prevents scale multiplication from exploding during
+/// hierarchy composition. The visual child is a leaf and carries only its own size (scale).
 fn add_visual(
     builder: &mut SkeletonBuilder,
     world: &mut World,
@@ -39,7 +40,7 @@ fn add_visual(
     );
 }
 
-/// 한 관절의 단일 트랙(회전만 키프레임)을 만든다.
+/// Builds a single track for one joint (rotation-only keyframes).
 fn rot_track(joint: &str, keys: &[(f32, f32)]) -> BoneTrack {
     BoneTrack {
         bone: joint.to_string(),
@@ -55,7 +56,7 @@ fn rot_track(joint: &str, keys: &[(f32, f32)]) -> BoneTrack {
     }
 }
 
-/// Space로 idle ↔ wave 토글, Esc로 종료.
+/// Space toggles idle ↔ wave; Esc quits.
 struct ControlSystem;
 
 impl System for ControlSystem {
@@ -93,7 +94,7 @@ fn main() {
         clear_color: [0.06, 0.07, 0.10, 1.0],
     });
 
-    // ── 관절 본 (scale=1, 위치/회전만) ──────────────────────────────────────────
+    // ── Joint bones (scale=1, position/rotation only) ───────────────────────────
     let joint = |x: f32, y: f32| Transform {
         position: Vec2::new(x, y),
         scale: Vec2::ONE,
@@ -104,7 +105,7 @@ fn main() {
     let mut b = SkeletonBuilder::new(&mut app.world, "hip", joint(480.0, 200.0));
     b.add_bone(&mut app.world, "torso", "hip", joint(0.0, 30.0), None);
     b.add_bone(&mut app.world, "head", "torso", joint(0.0, 95.0), None);
-    // 오른팔 체인: 깊이 hip→torso→r_upper_arm→r_forearm→r_hand (5)
+    // Right arm chain: depth hip→torso→r_upper_arm→r_forearm→r_hand (5)
     b.add_bone(
         &mut app.world,
         "r_upper_arm",
@@ -126,7 +127,7 @@ fn main() {
         joint(0.0, -40.0),
         None,
     );
-    // 왼팔
+    // Left arm
     b.add_bone(
         &mut app.world,
         "l_upper_arm",
@@ -141,11 +142,11 @@ fn main() {
         joint(0.0, -45.0),
         None,
     );
-    // 다리
+    // Legs
     b.add_bone(&mut app.world, "l_leg", "hip", joint(-18.0, -10.0), None);
     b.add_bone(&mut app.world, "r_leg", "hip", joint(18.0, -10.0), None);
 
-    // ── 시각용 사각형 ────────────────────────────────────────────────────────────
+    // ── Visual rectangles ────────────────────────────────────────────────────────
     let skin = [0.90, 0.78, 0.65];
     let shirt = [0.30, 0.55, 0.85];
     let pants = [0.25, 0.28, 0.35];
@@ -222,8 +223,8 @@ fn main() {
         pants,
     );
 
-    // ── 클립 ─────────────────────────────────────────────────────────────────────
-    // idle: 몸통이 천천히 좌우로 흔들리고 팔은 살짝 흔들림 (looping)
+    // ── Clips ────────────────────────────────────────────────────────────────────
+    // idle: torso sways gently side-to-side, arms sway slightly (looping)
     let idle = SkeletalClip {
         name: "idle".into(),
         duration: 2.0,
@@ -234,15 +235,15 @@ fn main() {
             rot_track("l_upper_arm", &[(0.0, -0.05), (1.0, 0.05), (2.0, -0.05)]),
         ],
     };
-    // wave: 오른팔을 들어 forearm을 좌우로 흔든다 (looping)
+    // wave: raises right arm and waves the forearm side-to-side (looping)
     let wave = SkeletalClip {
         name: "wave".into(),
         duration: 1.0,
         looping: true,
         tracks: vec![
-            // 오른 위팔을 위로 들어올림 (약 -2.6 rad ≈ 머리 옆까지)
+            // Raise the right upper arm (~-2.6 rad ≈ beside the head)
             rot_track("r_upper_arm", &[(0.0, -2.6), (1.0, -2.6)]),
-            // forearm을 좌우로 흔들기
+            // Wave the forearm side-to-side
             rot_track("r_forearm", &[(0.0, -0.5), (0.5, 0.5), (1.0, -0.5)]),
             rot_track("torso", &[(0.0, 0.0), (0.5, 0.03), (1.0, 0.0)]),
         ],

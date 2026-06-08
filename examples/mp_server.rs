@@ -1,20 +1,20 @@
-//! Phase 27 — 멀티플레이어 릴레이 서버
+//! Phase 27 — multiplayer relay server
 //!
 //! ```
 //! cargo run --example mp_server
 //! ```
 //!
-//! 127.0.0.1:9001에서 WebSocket 연결을 수락하고, 한 클라이언트의 위치 메시지를
-//! 나머지 모든 클라이언트에게 릴레이한다.
+//! Accepts WebSocket connections on 127.0.0.1:9001 and relays each client's
+//! position message to all other connected clients.
 //!
-//! # 프로토콜 (JSON 텍스트)
+//! # Protocol (JSON text)
 //!
-//! | 방향 | 형식 | 의미 |
+//! | Direction | Format | Meaning |
 //! |------|------|------|
-//! | Server → Client | `{"type":"hello","id":<N>}` | 연결 ID 할당 |
-//! | Client → Server | `{"x":<f32>,"y":<f32>}` | 로컬 플레이어 위치 |
-//! | Server → Others | `{"type":"pos","id":<N>,"x":<f32>,"y":<f32>}` | 원격 플레이어 위치 |
-//! | Server → Client | `{"type":"bye","id":<N>}` | 플레이어 퇴장 |
+//! | Server → Client | `{"type":"hello","id":<N>}` | Assigns a connection ID |
+//! | Client → Server | `{"x":<f32>,"y":<f32>}` | Local player position |
+//! | Server → Others | `{"type":"pos","id":<N>,"x":<f32>,"y":<f32>}` | Remote player position |
+//! | Server → Client | `{"type":"bye","id":<N>}` | Player disconnected |
 
 use std::collections::HashMap;
 use std::net::TcpListener;
@@ -83,7 +83,7 @@ fn main() {
                 }
             };
 
-            // 5 ms read timeout — 발신 큐를 주기적으로 확인하기 위한 논블로킹 루프
+            // 5 ms read timeout — non-blocking loop to periodically drain the outbound queue
             ws.get_mut()
                 .set_read_timeout(Some(Duration::from_millis(5)))
                 .ok();
@@ -97,7 +97,7 @@ fn main() {
                 clients.lock().unwrap().len()
             );
 
-            // 클라이언트에게 할당 ID 전달
+            // Send assigned ID to the client
             let hello = serde_json::to_string(&ServerMessage::Hello { id })
                 .expect("hello message should serialize");
             if ws.send(Message::Text(hello.into())).is_err() {
@@ -106,7 +106,7 @@ fn main() {
             }
 
             'main: loop {
-                // 릴레이 발신 큐 소진
+                // Drain the relay outbound queue
                 loop {
                     match rx.try_recv() {
                         Ok(msg) => {
@@ -119,7 +119,7 @@ fn main() {
                     }
                 }
 
-                // WebSocket 수신
+                // Receive from WebSocket
                 match ws.read() {
                     Ok(Message::Text(text)) => {
                         if text.len() > MAX_JSON_MESSAGE_BYTES {
@@ -157,7 +157,7 @@ fn main() {
                         if e.kind() == std::io::ErrorKind::WouldBlock
                             || e.kind() == std::io::ErrorKind::TimedOut =>
                     {
-                        // read timeout — 계속 루프
+                        // read timeout — keep looping
                     }
                     Err(_) => break,
                 }
