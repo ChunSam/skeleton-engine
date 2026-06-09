@@ -113,8 +113,8 @@ impl<A: Eq + Hash + Clone> InputMap<A> {
 
     // ── Keyboard bindings (unchanged API) ────────────────────────────────────
 
-    /// Bind a keyboard key to an action (replaces any previously bound key for
-    /// this action; multiple keys per action are supported via repeated calls).
+    /// Bind a keyboard key to an action. Additive: repeated calls add more keys
+    /// for the same action, and the action is active when any bound key is held.
     pub fn bind(&mut self, action: A, key: KeyCode) {
         self.bindings
             .entry(action)
@@ -130,7 +130,7 @@ impl<A: Eq + Hash + Clone> InputMap<A> {
 
     /// Returns the first keyboard key bound to `action`, if any.
     ///
-    /// For actions with multiple keyboard keys, use [`keys_for`].
+    /// For actions with multiple keyboard keys, use [`keys_for`](Self::keys_for).
     pub fn key_for(&self, action: &A) -> Option<KeyCode> {
         self.bindings
             .get(action)
@@ -173,8 +173,8 @@ impl<A: Eq + Hash + Clone> InputMap<A> {
 
     /// Returns `true` if any keyboard key bound to `action` is currently held.
     ///
-    /// Does **not** consult gamepad state; use [`is_pressed_with_gamepad`] to
-    /// include gamepad bindings.
+    /// Does **not** consult gamepad state; use
+    /// [`is_pressed_with_gamepad`](Self::is_pressed_with_gamepad) to include gamepad bindings.
     pub fn is_pressed(&self, action: &A, input: &InputState) -> bool {
         self.bindings
             .get(action)

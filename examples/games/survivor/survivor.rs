@@ -20,7 +20,7 @@
 //! reached on demand — single-life play tends to end before the screen fills. `B`
 //! can push past the natural cap toward `MAX_ENEMIES` for stress-testing.
 
-use engine::input::map::AxisBinding;
+use engine::AxisBinding;
 use engine::{
     App, Camera, Collider, CollisionGridSystem, CollisionLayer, Color, DrawText, Entity,
     GamepadAxis, GamepadButton, GamepadState, InputMap, InputState, KeyCode, ParticleBurst,

@@ -78,6 +78,7 @@ pub use ecs::{Commands, Entity, Events, System, World};
 pub use gpu_particle::GpuParticleEmitter;
 pub use hierarchy::{attach, detach, Children, GlobalTransform, HierarchySystem, Parent};
 pub use history::History;
+pub use input::map::AxisBinding;
 pub use input::{GamepadAxis, GamepadButton, GamepadState, InputMap, InputState, TouchState};
 pub use locale::{LocaleBundle, LocaleData, LocaleResource, TextDirection};
 pub use material::ShaderMaterial;
