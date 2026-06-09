@@ -14,12 +14,26 @@ use glam::{Mat4, Vec2};
 ///
 /// With default `position = Vec2::ZERO, zoom = 1.0`,
 /// `view_proj(w, h)` is equivalent to `Mat4::orthographic_rh(0, w, h, 0, -1, 1)`.
+///
+/// # World-bounds clamping
+///
+/// Set `bounds = Some((min, max))` to constrain the camera so the visible viewport never
+/// scrolls outside the world rectangle. Call [`clamp_to_bounds`](Self::clamp_to_bounds)
+/// (or let App call it automatically each frame) after positioning the camera.
 #[derive(Debug, Clone, Copy)]
 pub struct Camera {
     /// Top-left world coordinate of the viewport (in pixels)
     pub position: Vec2,
     /// Zoom multiplier. 1.0 = normal, 2.0 = 2× in (visible area halved)
     pub zoom: f32,
+
+    // --- World bounds clamping ---
+    /// Optional world-space bounding rectangle `(min, max)` that the camera viewport
+    /// must stay inside. Set `Some((Vec2::ZERO, Vec2::new(world_w, world_h)))` to keep
+    /// the camera from scrolling past the level edges.
+    ///
+    /// `None` (the default) disables clamping entirely.
+    pub bounds: Option<(Vec2, Vec2)>,
 
     // --- Shake ---
     /// Current shake amplitude (pixels)
@@ -47,6 +61,7 @@ impl Default for Camera {
         Self {
             position: Vec2::ZERO,
             zoom: 1.0,
+            bounds: None,
             shake_strength: 0.0,
             shake_duration: 0.0,
             shake_timer: 0.0,
@@ -197,6 +212,38 @@ impl Camera {
                 self.shake_strength = 0.0;
             }
         }
+    }
+
+    /// Clamps `position` so the visible viewport stays inside `bounds`, if set.
+    ///
+    /// Call this after any code that repositions the camera (including smooth-follow).
+    /// App calls it automatically each frame right after [`update`](Self::update), so
+    /// callers that rely on the built-in follow mechanism do not need to call it manually.
+    ///
+    /// # Edge case — world smaller than viewport
+    ///
+    /// When the world is narrower (or shorter) than the visible area on an axis
+    /// (`bounds.max - bounds.min < viewport / zoom`), the clamp range would invert
+    /// (min > max). In that case `position` on that axis is pinned to `bounds.min`,
+    /// centering the world content at the top-left corner of the viewport rather than
+    /// producing an undefined result.
+    pub fn clamp_to_bounds(&mut self, viewport_w: f32, viewport_h: f32) {
+        let Some((bmin, bmax)) = self.bounds else {
+            return;
+        };
+        let zoom = self.safe_zoom();
+        let visible_w = viewport_w / zoom;
+        let visible_h = viewport_h / zoom;
+
+        // Allowed range for position.x: [bmin.x, bmax.x - visible_w]
+        // If world < viewport the upper bound goes below the lower bound; pin to bmin.
+        let lo_x = bmin.x;
+        let hi_x = (bmax.x - visible_w).max(bmin.x);
+        let lo_y = bmin.y;
+        let hi_y = (bmax.y - visible_h).max(bmin.y);
+
+        self.position.x = self.position.x.clamp(lo_x, hi_x);
+        self.position.y = self.position.y.clamp(lo_y, hi_y);
     }
 }
 
@@ -395,5 +442,83 @@ mod tests {
             m.to_cols_array().iter().all(|v| v.is_finite()),
             "view_proj NaN: {m:?}"
         );
+    }
+
+    // ── clamp_to_bounds tests ─────────────────────────────────────────────────
+
+    #[test]
+    fn clamp_to_bounds_none_is_noop() {
+        // With no bounds set, position must be unchanged.
+        let mut cam = Camera::new(Vec2::new(500.0, 500.0), 1.0);
+        cam.bounds = None;
+        cam.clamp_to_bounds(W, H);
+        assert_eq!(cam.position, Vec2::new(500.0, 500.0));
+    }
+
+    #[test]
+    fn clamp_to_bounds_clamps_to_min() {
+        // Camera scrolled left/above the world origin: must be pinned at (0, 0).
+        let mut cam = Camera::new(Vec2::new(-100.0, -50.0), 1.0);
+        cam.bounds = Some((Vec2::ZERO, Vec2::new(2000.0, 1500.0)));
+        cam.clamp_to_bounds(W, H);
+        assert_eq!(cam.position.x, 0.0);
+        assert_eq!(cam.position.y, 0.0);
+    }
+
+    #[test]
+    fn clamp_to_bounds_clamps_to_max() {
+        // Camera scrolled past the right/bottom edge.
+        // World 2000×1500, viewport 800×600 → max position = (1200, 900).
+        let mut cam = Camera::new(Vec2::new(1500.0, 1200.0), 1.0);
+        cam.bounds = Some((Vec2::ZERO, Vec2::new(2000.0, 1500.0)));
+        cam.clamp_to_bounds(W, H);
+        assert!(
+            (cam.position.x - 1200.0).abs() < 1e-3,
+            "x={}",
+            cam.position.x
+        );
+        assert!(
+            (cam.position.y - 900.0).abs() < 1e-3,
+            "y={}",
+            cam.position.y
+        );
+    }
+
+    #[test]
+    fn clamp_to_bounds_inside_range_unchanged() {
+        // Position already inside the valid range must not move.
+        let mut cam = Camera::new(Vec2::new(400.0, 300.0), 1.0);
+        cam.bounds = Some((Vec2::ZERO, Vec2::new(2000.0, 1500.0)));
+        cam.clamp_to_bounds(W, H);
+        assert_eq!(cam.position, Vec2::new(400.0, 300.0));
+    }
+
+    #[test]
+    fn clamp_to_bounds_zoom_is_accounted_for() {
+        // zoom=2 halves the visible area (400×300). World 800×600 → max position (400, 300).
+        let mut cam = Camera::new(Vec2::new(600.0, 500.0), 2.0);
+        cam.bounds = Some((Vec2::ZERO, Vec2::new(800.0, 600.0)));
+        cam.clamp_to_bounds(W, H); // viewport W=800, H=600 → visible 400×300
+        assert!(
+            (cam.position.x - 400.0).abs() < 1e-3,
+            "x={}",
+            cam.position.x
+        );
+        assert!(
+            (cam.position.y - 300.0).abs() < 1e-3,
+            "y={}",
+            cam.position.y
+        );
+    }
+
+    #[test]
+    fn clamp_to_bounds_world_smaller_than_viewport_pins_to_min() {
+        // World 400×300 is smaller than the 800×600 viewport at zoom=1.
+        // The clamp hi values go below lo, so position must be pinned to bounds.min.
+        let mut cam = Camera::new(Vec2::new(50.0, 50.0), 1.0);
+        cam.bounds = Some((Vec2::new(10.0, 20.0), Vec2::new(410.0, 320.0)));
+        cam.clamp_to_bounds(W, H); // visible area 800×600, world 400×300 → smaller
+        assert!((cam.position.x - 10.0).abs() < 1e-3, "x={}", cam.position.x);
+        assert!((cam.position.y - 20.0).abs() < 1e-3, "y={}", cam.position.y);
     }
 }

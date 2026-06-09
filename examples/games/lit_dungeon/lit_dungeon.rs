@@ -342,7 +342,8 @@ impl System for TorchSystem {
     }
 }
 
-/// Center the camera on the player, clamped to the level bounds.
+/// Center the camera on the player. Clamping to the level bounds is handled
+/// automatically by the engine each frame via `Camera::bounds`.
 struct CameraFollowSystem;
 impl System for CameraFollowSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
@@ -354,8 +355,8 @@ impl System for CameraFollowSystem {
         };
         if let Some(cam) = world.resource_mut::<Camera>() {
             let half = Vec2::new(WINDOW_W as f32, WINDOW_H as f32) / (2.0 * cam.zoom);
-            let max = Vec2::new(LEVEL_W, LEVEL_H) - Vec2::new(WINDOW_W as f32, WINDOW_H as f32);
-            cam.position = (pos - half).clamp(Vec2::ZERO, max.max(Vec2::ZERO));
+            // Set position to center on the player; Camera::bounds handles edge clamping.
+            cam.position = pos - half;
         }
     }
 
@@ -683,7 +684,10 @@ fn main() {
         saturation: 1.1,
     });
 
-    app.world.insert_resource(Camera::new(Vec2::ZERO, 1.0));
+    // Clamp the camera to the level rectangle so it never scrolls past the edges.
+    let mut camera = Camera::new(Vec2::ZERO, 1.0);
+    camera.bounds = Some((Vec2::ZERO, Vec2::new(LEVEL_W, LEVEL_H)));
+    app.world.insert_resource(camera);
 
     // Order: rebuild grid → move/interact → drain torch → camera → win → HUD.
     app.add_system(CollisionGridSystem::new(TILE * 2.0));

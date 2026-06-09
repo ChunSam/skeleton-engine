@@ -260,7 +260,8 @@ impl App {
         // Propagate hierarchy transforms — after user systems (including physics), just before render
         HierarchySystem.run(&mut self.world, dt);
 
-        // Update camera effects (shake decay, zoom tween, smooth follow)
+        // Update camera effects (shake decay, zoom tween, smooth follow), then apply
+        // world-bounds clamping so position never scrolls outside Camera::bounds.
         {
             let follow_pos = self
                 .world
@@ -268,8 +269,15 @@ impl App {
                 .and_then(|cam| cam.follow_entity)
                 .and_then(|e| self.world.get::<crate::components::Transform>(e))
                 .map(|t| t.position);
+            let viewport = self
+                .world
+                .resource::<ViewportSize>()
+                .map(|v| (v.width, v.height));
             if let Some(cam) = self.world.resource_mut::<Camera>() {
                 cam.update(dt, follow_pos);
+                if let Some((vw, vh)) = viewport {
+                    cam.clamp_to_bounds(vw, vh);
+                }
             }
         }
 
