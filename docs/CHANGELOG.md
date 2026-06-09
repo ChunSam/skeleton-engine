@@ -4,6 +4,20 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 4.3.0
+
+### Added
+
+- **`RemoteEntities<K>`** — a reusable helper for the `id → Entity` lifecycle that networked games
+  repeat: spawn-on-first-sight and despawn-on-removal of server-owned remote entities. Methods:
+  `get_or_spawn`, `get`, `contains_key`, `remove` (despawns the entity), `clear`, `len`,
+  `is_empty`, `iter`. It owns only the mapping plus spawn/despawn lifecycle — what to spawn (a
+  closure), how to update an existing entity, and any parallel game-state maps stay in the game.
+  The `mp_client` and `coin_race` examples now use it instead of inline `HashMap<usize, Entity>`
+  bookkeeping. A richer version (interpolation, client-side prediction, update callbacks) is
+  deliberately deferred until a third distinct networked example reveals its shape — see
+  `docs/REMOTE_ENTITIES_DESIGN.md`.
+
 ## 4.2.0
 
 ### Changed

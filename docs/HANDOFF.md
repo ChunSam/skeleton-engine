@@ -1,7 +1,7 @@
 # Handoff document — skeleton-engine
 
 Written: 2026-05-24 (Phase 45~53 update: 2026-05-26 / Phase 46~59 complete: 2026-05-26 / 7 code-review fixes: 2026-05-26 / doc cleanup: 2026-05-29)
-Engine version: **v4.2.0** (main branch)
+Engine version: **v4.3.0** (main branch)
 
 ## Current v2.0.0 cleanup status
 
