@@ -292,8 +292,9 @@ These are tracked in the seq-3 PLAN for a future (monitor-on) session; none are 
    DPR=2 (coin_race 800→1600; run_demo 1280→2048 clamp path). (`dce44ae`)
 2. **Reusable remote-entity helper** — *minimal slice done (2026-06-09); richer version evaluated
    against the 3rd example → keep minimal.* Shipped `engine::RemoteEntities<K>` (v4.3.0) and
-   migrated `mp_client` + `coin_race`. The **3rd distinct example (the client-prediction shooter)**
-   is now built + real-play-verified, which answered the key open questions: interpolation
+   migrated `mp_client` + `coin_race`. The **3rd distinct example (the client-prediction shooter,
+   `examples/games/predict_shooter/`)** is built, real-play-verified, and ships native + to the
+   browser (`web/` harness), which answered the key open questions: interpolation
    (`client_net::Interp`) is **orthogonal** to the lifecycle map (they compose as parallel maps),
    so it is **not** folded into `RemoteEntities`; and `Interp`/`Prediction` are **not promoted** to
    public engine helpers yet (single call site — same discipline). The v4.3.0 API is the right
