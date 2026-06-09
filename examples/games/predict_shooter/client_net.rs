@@ -3,9 +3,13 @@
 //! wires these into ECS systems; its interactive *feel* (responsiveness, smoothness) is validated
 //! separately in real play.
 //!
-//! Two pieces:
+//! One piece:
 //! - [`Prediction`] — local-player client-side prediction + server reconciliation.
-//! - [`Interp`] — per-remote-entity snapshot interpolation buffer.
+//!
+//! Remote-entity snapshot interpolation, which used to live here as a private `Interp`, is now the
+//! public, generic `engine::SnapshotBuffer<Vec2>` (the client builds it from each snapshot's
+//! position) — see `predict_shooter.rs`. `Prediction` stays example-local: it's a *local* concern
+//! (input replay vs. server correction), not remote-entity bookkeeping.
 #![allow(dead_code)]
 
 use crate::protocol::step_position;
@@ -84,73 +88,6 @@ impl Prediction {
     }
 }
 
-/// A timestamped position sample.
-#[derive(Clone, Copy, Debug)]
-struct Sample {
-    t: f64,
-    x: f32,
-    y: f32,
-}
-
-/// Buffers timestamped snapshots for one remote entity and returns an interpolated position at a
-/// render time in the past (`now - interp_delay`), so remote motion is smooth despite the low
-/// snapshot rate. Clamps at the ends when the render time is outside the buffered range.
-#[derive(Default)]
-pub struct Interp {
-    samples: VecDeque<Sample>,
-}
-
-impl Interp {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Records a snapshot stamped at client time `t` (seconds, monotonic). Out-of-order or
-    /// duplicate stamps are ignored to keep the buffer monotonically increasing.
-    pub fn push(&mut self, t: f64, x: f32, y: f32) {
-        if let Some(back) = self.samples.back() {
-            if t <= back.t {
-                return;
-            }
-        }
-        self.samples.push_back(Sample { t, x, y });
-        while self.samples.len() > 8 {
-            self.samples.pop_front();
-        }
-    }
-
-    /// Interpolated position at render time `rt`. Returns `None` only when no samples exist; clamps
-    /// to the first/last sample when `rt` is before/after the buffered range.
-    pub fn sample(&self, rt: f64) -> Option<(f32, f32)> {
-        let front = self.samples.front()?;
-        if rt <= front.t {
-            return Some((front.x, front.y));
-        }
-        let back = self.samples.back()?;
-        if rt >= back.t {
-            return Some((back.x, back.y));
-        }
-        for i in 0..self.samples.len() - 1 {
-            let a = self.samples[i];
-            let b = self.samples[i + 1];
-            if a.t <= rt && rt <= b.t {
-                let span = b.t - a.t;
-                let f = if span > 0.0 {
-                    ((rt - a.t) / span) as f32
-                } else {
-                    0.0
-                };
-                return Some((a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f));
-            }
-        }
-        Some((back.x, back.y))
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.samples.is_empty()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,32 +140,5 @@ mod tests {
         p.reconcile(500.0, 300.0, 2);
         assert_eq!(p.pending_len(), 0);
         assert_eq!((p.x, p.y), (500.0, 300.0));
-    }
-
-    #[test]
-    fn interp_lerps_between_two_samples() {
-        let mut it = Interp::new();
-        it.push(0.0, 0.0, 0.0);
-        it.push(1.0, 10.0, 20.0);
-        assert_eq!(it.sample(0.5), Some((5.0, 10.0)));
-        assert_eq!(it.sample(0.0), Some((0.0, 0.0)));
-    }
-
-    #[test]
-    fn interp_clamps_outside_range_and_handles_empty() {
-        let mut it = Interp::new();
-        it.push(1.0, 1.0, 1.0);
-        it.push(2.0, 2.0, 2.0);
-        assert_eq!(it.sample(0.0), Some((1.0, 1.0)), "before range → first");
-        assert_eq!(it.sample(9.0), Some((2.0, 2.0)), "after range → last");
-        assert_eq!(Interp::new().sample(0.0), None, "no samples → None");
-    }
-
-    #[test]
-    fn interp_ignores_out_of_order_stamps() {
-        let mut it = Interp::new();
-        it.push(2.0, 2.0, 2.0);
-        it.push(1.0, 9.0, 9.0); // stale → ignored
-        assert_eq!(it.sample(5.0), Some((2.0, 2.0)));
     }
 }

@@ -24,7 +24,7 @@
 
 use engine::{
     App, DrawText, Events, InputState, KeyCode, NetworkClient, NetworkEvent, NetworkSystem, Scene,
-    Sprite, System, TextQueue, Transform, WindowConfig, World,
+    SnapshotBuffer, Sprite, System, TextQueue, Transform, WindowConfig, World,
 };
 use glam::Vec2;
 use std::collections::{HashMap, HashSet};
@@ -37,7 +37,7 @@ mod client_net;
 #[path = "protocol.rs"]
 mod protocol;
 
-use client_net::{Interp, Prediction};
+use client_net::Prediction;
 use protocol::*;
 
 /// Default interpolation delay (seconds): render remote entities this far in the past so there are
@@ -77,9 +77,9 @@ struct ShooterClient {
     /// Remote players + bullets: the `id → Entity` lifecycle (engine::RemoteEntities).
     remote_players: engine::RemoteEntities<usize>,
     bullets: engine::RemoteEntities<usize>,
-    /// Per-remote snapshot buffers for interpolation.
-    player_interp: HashMap<usize, Interp>,
-    bullet_interp: HashMap<usize, Interp>,
+    /// Per-remote snapshot buffers for interpolation (the promoted `engine::SnapshotBuffer<Vec2>`).
+    player_interp: HashMap<usize, SnapshotBuffer<Vec2>>,
+    bullet_interp: HashMap<usize, SnapshotBuffer<Vec2>>,
     client_time: f64,
     /// Interpolation delay (seconds), live-tunable with the bracket keys. Starts at
     /// `INTERP_DELAY_DEFAULT`.
@@ -164,11 +164,10 @@ impl ShooterClient {
                             pred.reconcile(p.x, p.y, ack);
                         }
                     } else {
-                        self.player_interp.entry(p.id).or_default().push(
-                            self.client_time,
-                            p.x,
-                            p.y,
-                        );
+                        self.player_interp
+                            .entry(p.id)
+                            .or_default()
+                            .push(self.client_time, Vec2::new(p.x, p.y));
                         let color = remote_color(p.id);
                         let pos = Vec2::new(p.x, p.y);
                         self.remote_players.get_or_spawn(world, p.id, |w| {
@@ -183,7 +182,7 @@ impl ShooterClient {
                     self.bullet_interp
                         .entry(b.id)
                         .or_default()
-                        .push(self.client_time, b.x, b.y);
+                        .push(self.client_time, Vec2::new(b.x, b.y));
                     let pos = Vec2::new(b.x, b.y);
                     self.bullets.get_or_spawn(world, b.id, |w| {
                         Self::spawn_square(w, pos, BULLET_SIZE, -1.0, [1.0, 0.85, 0.3])
@@ -299,22 +298,12 @@ impl System for ShooterClient {
         let player_updates: Vec<(engine::Entity, Vec2)> = self
             .remote_players
             .iter()
-            .filter_map(|(id, e)| {
-                self.player_interp
-                    .get(id)
-                    .and_then(|it| it.sample(rt))
-                    .map(|(x, y)| (e, Vec2::new(x, y)))
-            })
+            .filter_map(|(id, e)| self.player_interp.get(id)?.sample(rt).map(|pos| (e, pos)))
             .collect();
         let bullet_updates: Vec<(engine::Entity, Vec2)> = self
             .bullets
             .iter()
-            .filter_map(|(id, e)| {
-                self.bullet_interp
-                    .get(id)
-                    .and_then(|it| it.sample(rt))
-                    .map(|(x, y)| (e, Vec2::new(x, y)))
-            })
+            .filter_map(|(id, e)| self.bullet_interp.get(id)?.sample(rt).map(|pos| (e, pos)))
             .collect();
         for (e, pos) in player_updates.into_iter().chain(bullet_updates) {
             if let Some(tr) = world.get_mut::<Transform>(e) {
