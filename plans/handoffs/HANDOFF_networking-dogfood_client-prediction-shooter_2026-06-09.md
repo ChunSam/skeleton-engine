@@ -204,3 +204,8 @@ cargo run --example predict_shooter             # terminals 2, 3 (native windows
 
 ## Session Status
 predict_shooter server (Phase A) + client (Phase B/C) built and headless-verified (13 example tests + full `+1.88.0` gate, native+wasm); v4.2.0 + v4.3.0 released; headless polish batch (#1–5) done. All pushed to `origin/main`; tree clean. Phase D (feel validation + helper-promotion decision + release) deferred to a monitor-on session.
+
+## Session Closed
+**Closed at:** 2026-06-09 12:27 KST
+**Commit:** `5e9df1b` (handoff) — session work in `dce44ae`..`5e9df1b`, all on `origin/main`
+**Session status:** Handed off — resume at **Phase D (monitor ON)**: `predict_shooter/web/` harness → real-play feel → `Interp`→RemoteEntities decision → release.
