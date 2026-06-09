@@ -1,6 +1,6 @@
 [package]
 name        = "skeleton-engine"
-version     = "4.3.1"
+version     = "4.4.0"
 edition     = "2021"
 description = "Lightweight 2D game engine — wgpu rendering, custom ECS, rapier2d physics"
 repository  = "https://github.com/ChunSam/skeleton-engine"
@@ -79,6 +79,14 @@ path = "examples/games/predict_shooter/server.rs"
 [[example]]
 name = "predict_shooter"
 path = "examples/games/predict_shooter/predict_shooter.rs"
+
+[[example]]
+name = "orbital_dodger_server"
+path = "examples/games/orbital_dodger/server.rs"
+
+[[example]]
+name = "orbital_dodger"
+path = "examples/games/orbital_dodger/orbital_dodger.rs"
 
 [dependencies]
 winit    = "0.30"
