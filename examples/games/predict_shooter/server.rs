@@ -108,6 +108,8 @@ impl Server {
                 let (nx, ny) = step_position(player.x, player.y, cmd.mx, cmd.my);
                 player.x = nx;
                 player.y = ny;
+                // WebSocket delivery is ordered, so the last queued command has the highest seq;
+                // assign directly. (Over an unordered transport, guard with `seq > last_seq`.)
                 player.last_seq = cmd.seq;
                 if cmd.mx != 0.0 || cmd.my != 0.0 {
                     let inv = 1.0 / (cmd.mx * cmd.mx + cmd.my * cmd.my).sqrt();
@@ -212,6 +214,8 @@ fn main() {
     // Fixed-tick simulation thread: step at 60 Hz, snapshot at SNAPSHOT_HZ.
     {
         let server = server.clone();
+        // Snapshot every Nth tick. Assumes the tick rate (1/FIXED_DT) is an integer multiple of
+        // SNAPSHOT_HZ; for non-integer ratios the period rounds to the nearest whole tick.
         let snap_every = (1.0 / FIXED_DT / SNAPSHOT_HZ as f32).round().max(1.0) as u32;
         thread::spawn(move || loop {
             thread::sleep(Duration::from_secs_f32(FIXED_DT));
@@ -271,17 +275,20 @@ fn handle_client(server: Shared, stream: std::net::TcpStream) {
         );
         let count = s.players.len();
         println!("[{id}] connected from {peer:?}  (total: {count})");
-        let welcome = ServerMsg::Welcome { id };
-        let Ok(text) = serde_json::to_string(&welcome) else {
-            s.players.remove(&id);
-            return;
-        };
-        if ws.send(Message::Text(text.into())).is_err() {
-            s.players.remove(&id);
-            return;
-        }
         id
     };
+
+    // Send the welcome OUTSIDE the lock: unlike coin_race (event-driven), this server has a fixed
+    // tick thread that needs the lock 60×/s, so blocking a network send under the lock would stall
+    // the whole simulation on one slow client. Welcome carries only the id, so it can't race state.
+    let Ok(text) = serde_json::to_string(&ServerMsg::Welcome { id }) else {
+        cleanup(&server, id);
+        return;
+    };
+    if ws.send(Message::Text(text.into())).is_err() {
+        cleanup(&server, id);
+        return;
+    }
 
     'main: loop {
         loop {
@@ -473,5 +480,37 @@ mod tests {
         })
         .unwrap();
         assert!(snap.contains(r#""t":"snap""#) && snap.contains(r#""ack":7"#));
+    }
+
+    #[test]
+    fn movement_is_clamped_to_the_field() {
+        let mut s = Server::new(5);
+        let id = add_player(&mut s, FIELD_W - PLAYER_HALF, FIELD_H - PLAYER_HALF);
+        // Push hard into the bottom-right corner for many ticks.
+        for seq in 1..=120 {
+            s.players.get_mut(&id).unwrap().inputs.push_back(InputCmd {
+                seq,
+                mx: 1.0,
+                my: 1.0,
+                fire: false,
+            });
+            s.step();
+        }
+        let p = &s.players[&id];
+        assert!(p.x <= FIELD_W - PLAYER_HALF + 1e-3 && p.y <= FIELD_H - PLAYER_HALF + 1e-3);
+        assert!(p.x >= PLAYER_HALF && p.y >= PLAYER_HALF);
+    }
+
+    #[test]
+    fn snapshot_includes_all_players_with_their_positions() {
+        let mut s = Server::new(6);
+        let a = add_player(&mut s, 100.0, 100.0);
+        let b = add_player(&mut s, 700.0, 500.0);
+        let states = s.player_states();
+        assert_eq!(states.len(), 2);
+        let sa = states.iter().find(|p| p.id == a).unwrap();
+        let sb = states.iter().find(|p| p.id == b).unwrap();
+        assert_eq!((sa.x, sa.y), (100.0, 100.0));
+        assert_eq!((sb.x, sb.y), (700.0, 500.0));
     }
 }
