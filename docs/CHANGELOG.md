@@ -4,6 +4,24 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 4.5.0
+
+### Added
+
+- **`salvage_run` example** (`examples/games/salvage_run/`) — an **area-of-interest (AOI)
+  streaming** networked world: a single ship roams a world far larger than the window (2400×1800 vs
+  800×600) while an authoritative server simulates ~120 wandering entities of two typed kinds
+  (slow-drifting salvage, roaming drones) and streams each client **only** the entities within an
+  interest radius of its last-reported position. Entities continuously stream in and out as the
+  player moves — interest management made visible: a live "streaming X / 120" readout, a resizable
+  AOI (`-` / `=`) with an on-screen boundary ring, and entity pop-in/out at the edge. Reuses
+  `engine::SnapshotBuffer<Vec2>` per streamed entity (its third call site) for smooth motion at a
+  low 12 Hz, two `RemoteEntities` maps for the two kinds, example-local last-seen + timeout eviction
+  for entities that leave the AOI (the server signals departure only by *omission*), and
+  `RemoteEntities::clear` on disconnect. The first example to stress AOI churn / staleness and to
+  tear down on disconnect — see `docs/REMOTE_ENTITIES_DESIGN.md` (#4/#5/#7). Ships native + to the
+  browser (`web/`). No engine API change (purely additive example).
+
 ## 4.4.0
 
 ### Added

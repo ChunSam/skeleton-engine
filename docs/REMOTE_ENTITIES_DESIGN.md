@@ -138,6 +138,49 @@ not folded in, so the two snap-only call sites (`mp_client`, `coin_race`) pay no
 - **#3–#7 still open** (per-entity update callbacks, typed entities, staleness/eviction, binary
   protocol, disconnect policy) — none of the two interpolating examples stress them yet.
 
+## 5th example (salvage_run, AOI streaming) — 2026-06-10
+
+The "3rd direction" candidate (a many-entity / interest-managed world) was built as **`salvage_run`**
+(`examples/games/salvage_run/`): a ship roams a world far larger than the window while the server
+simulates ~120 wandering entities of **two typed kinds** (salvage, drones) and streams each client
+**only** the entities within an area-of-interest (AOI) radius of its last-reported position. As the
+player roams, entities continuously stream in and out (churn). It reuses `SnapshotBuffer<Vec2>` (its
+3rd call site) for smooth motion, evicts entities that leave the AOI by an example-local last-seen
+timeout, and calls `RemoteEntities::clear` on disconnect. This is the first example to stress the AOI
+/ staleness / typed-entity questions. **No engine API change** — purely additive (`v4.5.0`).
+
+Findings on the open questions:
+
+- **#3 (per-entity update / `upsert`)** — *still unmotivated.* Each entity's synced state is still a
+  single `Vec2`, and the "update" path is a buffered `SnapshotBuffer::push` consumed later at the
+  interpolated render time, **not** an immediate transform write. An `upsert(world, key, spawn,
+  update)` wouldn't obviously help; the pressure would need an entity with several
+  *immediately-applied* synced scalar fields (health/facing/anim-state). **Keep minimal.**
+- **#4 (typed / multiple entity classes)** — *first real datapoint.* Two kinds are kept as **two
+  `RemoteEntities<usize>` maps** (the "N maps" baseline). The seam it exposes: eviction/collision
+  must probe `contains_key` across both maps to find an id's kind (an O(N-kinds) wart), because the
+  id space is global. The clean candidate answer needs **zero engine change**: `RemoteEntities<(Kind,
+  usize)>` already compiles today (`K: Eq + Hash`), so a future many-kind example could just use a
+  tuple key. Two kinds isn't enough to design a typed-multimap helper → **flag the `(Kind, id)`
+  pattern, don't build.**
+- **#5 (staleness / eviction)** — *the example #5 was waiting for.* AOI churn produces
+  **removal-by-omission**: the server never sends a removal, an entity simply stops appearing in
+  snapshots when it leaves the AOI. The `Bye`-driven `remove` can't express that; the client must
+  infer eviction from "not seen for T seconds." The `last_seen: HashMap<id, f64>` + timeout pattern
+  is clean and example-local. **Candidate additive helper to flag (not build): a generic last-seen
+  eviction tracker** (`touch(key, t)` / `expired(now - timeout) -> Vec<K>`), or an optional eviction
+  policy on `RemoteEntities`. One call site → defer extraction to a 2nd staleness example, exactly
+  as `SnapshotBuffer` was deferred until its 2nd.
+- **#7 (disconnect / reset)** — *first example to exercise `clear` on disconnect; it works.* But the
+  client must also clear the *parallel* maps the engine doesn't own (the two `SnapshotBuffer` maps +
+  `last_seen`), so an automatic on-`Disconnected` engine hook would only do half the job — the same
+  parallel-map reality that kept interpolation orthogonal. **Keep `clear` manual; no auto-hook.**
+
+**Net:** v4.5.0 is purely an example. #5 yields the one genuinely new clean single-call-site pattern
+(last-seen eviction) → next candidate helper, gated on a 2nd example. #4 gains the datapoint that
+`RemoteEntities<(Kind, id)>` is already expressible (a zero-change answer). #3 and #7 reinforce
+"keep `RemoteEntities` minimal." #6 (binary protocol) remains the one untouched direction.
+
 ## Pointers
 
 - Implementation + doctest + unit tests: `src/network.rs` (`RemoteEntities`, `SnapshotBuffer`).
