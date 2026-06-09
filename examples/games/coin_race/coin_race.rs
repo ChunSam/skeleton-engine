@@ -34,8 +34,8 @@
 //! White square = you · colored squares = rivals · gold squares = coins.
 
 use engine::{
-    App, DrawText, Events, InputState, KeyCode, NetworkClient, NetworkEvent, NetworkSystem, Scene,
-    Sprite, System, TextQueue, Transform, WindowConfig, World,
+    App, DrawText, Events, InputState, KeyCode, NetworkClient, NetworkEvent, NetworkSystem,
+    RemoteEntities, Scene, Sprite, System, TextQueue, Transform, WindowConfig, World,
 };
 use glam::Vec2;
 use serde::{Deserialize, Serialize};
@@ -117,8 +117,8 @@ struct CoinRaceSystem {
     local_entity: Option<engine::Entity>,
     local_id: Option<usize>,
     target: u32,
-    remote_players: HashMap<usize, engine::Entity>,
-    coins: HashMap<usize, engine::Entity>,
+    remote_players: RemoteEntities<usize>,
+    coins: RemoteEntities<usize>,
     coin_pos: HashMap<usize, Vec2>,
     scores: HashMap<usize, u32>,
     /// Coins we have already claimed this life — avoids spamming `grab` every frame
@@ -135,8 +135,8 @@ impl CoinRaceSystem {
             local_entity: None,
             local_id: None,
             target: 0,
-            remote_players: HashMap::new(),
-            coins: HashMap::new(),
+            remote_players: RemoteEntities::new(),
+            coins: RemoteEntities::new(),
             coin_pos: HashMap::new(),
             scores: HashMap::new(),
             claimed: HashSet::new(),
@@ -170,15 +170,13 @@ impl CoinRaceSystem {
     fn ensure_coin(&mut self, world: &mut World, coin: usize, x: f32, y: f32) {
         let pos = Vec2::new(x, y);
         self.coin_pos.insert(coin, pos);
-        self.coins
-            .entry(coin)
-            .or_insert_with(|| Self::spawn_square(world, pos, COIN_SIZE, -1.0, [1.0, 0.84, 0.2]));
+        self.coins.get_or_spawn(world, coin, |w| {
+            Self::spawn_square(w, pos, COIN_SIZE, -1.0, [1.0, 0.84, 0.2])
+        });
     }
 
     fn remove_coin(&mut self, world: &mut World, coin: usize) {
-        if let Some(e) = self.coins.remove(&coin) {
-            world.despawn(e);
-        }
+        self.coins.remove(world, &coin);
         self.coin_pos.remove(&coin);
         self.claimed.remove(&coin);
     }
@@ -214,14 +212,12 @@ impl CoinRaceSystem {
             }
             ServerMessage::Position { id, x, y } => {
                 self.scores.entry(id).or_insert(0);
-                if let Some(&e) = self.remote_players.get(&id) {
-                    if let Some(tr) = world.get_mut::<Transform>(e) {
-                        tr.position = Vec2::new(x, y);
-                    }
-                } else {
-                    let color = remote_color(id);
-                    let e = Self::spawn_square(world, Vec2::new(x, y), PLAYER_SIZE, 0.0, color);
-                    self.remote_players.insert(id, e);
+                // Spawn the rival on first sight, then update its position.
+                let e = self.remote_players.get_or_spawn(world, id, |w| {
+                    Self::spawn_square(w, Vec2::new(x, y), PLAYER_SIZE, 0.0, remote_color(id))
+                });
+                if let Some(tr) = world.get_mut::<Transform>(e) {
+                    tr.position = Vec2::new(x, y);
                 }
             }
             ServerMessage::Coin { coin, x, y } => self.ensure_coin(world, coin, x, y),
@@ -238,9 +234,7 @@ impl CoinRaceSystem {
                 };
             }
             ServerMessage::Bye { id } => {
-                if let Some(e) = self.remote_players.remove(&id) {
-                    world.despawn(e);
-                }
+                self.remote_players.remove(world, &id);
                 self.scores.remove(&id);
             }
         }

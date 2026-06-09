@@ -1,4 +1,8 @@
-use crate::ecs::{events::Events, system::System, world::World};
+use crate::ecs::{
+    events::Events,
+    system::System,
+    world::{Entity, World},
+};
 
 pub const DEFAULT_MAX_MESSAGE_BYTES: usize = 64 * 1024;
 /// Default max outbound queue size. When the queue is full, new messages are dropped and a warn log is emitted.
@@ -527,6 +531,113 @@ impl System for NetworkSystem {
     }
 }
 
+/// Tracks server-owned "remote" entities by a network id, handling the spawn-on-first-sight /
+/// despawn-on-removal lifecycle that every networked game otherwise reimplements inline (a
+/// `HashMap<id, Entity>` plus get-or-spawn and remove-and-despawn).
+///
+/// It owns only the `id → Entity` mapping and the spawn/despawn lifecycle. Deciding *what* to spawn
+/// (the `spawn` closure), *how* to update an existing entity (call [`get`](Self::get), then mutate
+/// it through the `World`), and any parallel game-state maps stay in the game — keeping this a thin,
+/// genre-agnostic slice.
+///
+/// ```
+/// # use engine::{RemoteEntities, World};
+/// let mut world = World::new();
+/// let mut remotes: RemoteEntities<u32> = RemoteEntities::new();
+/// // On the first update for network id 7, spawn + insert; later updates reuse the entity.
+/// let e = remotes.get_or_spawn(&mut world, 7, |w| w.spawn());
+/// let again = remotes.get_or_spawn(&mut world, 7, |w| w.spawn());
+/// assert_eq!(again, e);
+/// assert_eq!(remotes.get(&7), Some(e));
+/// assert_eq!(remotes.len(), 1);
+/// // On a "bye" for id 7, remove + despawn.
+/// remotes.remove(&mut world, &7);
+/// assert!(remotes.get(&7).is_none());
+/// ```
+///
+/// # Deliberately minimal — future deep-dive
+///
+/// This is intentionally just the lifecycle map. A *richer* version (state interpolation,
+/// client-side prediction/reconciliation, per-entity update callbacks, staleness/generation
+/// handling) is deferred: the two shipping call sites (`mp_client`, `coin_race`) are structurally
+/// similar (JSON relay, `HashMap<usize, Entity>`, spawn-square-on-update), so they don't yet reveal
+/// the right shape for those features, and a wrong public (semver-bound) API is worse than the small
+/// duplication it removes. Revisit once a *third, distinct* networked example exists — see
+/// `docs/REMOTE_ENTITIES_DESIGN.md`.
+pub struct RemoteEntities<K: Eq + std::hash::Hash> {
+    map: std::collections::HashMap<K, Entity>,
+}
+
+impl<K: Eq + std::hash::Hash> Default for RemoteEntities<K> {
+    fn default() -> Self {
+        Self {
+            map: std::collections::HashMap::new(),
+        }
+    }
+}
+
+impl<K: Eq + std::hash::Hash> RemoteEntities<K> {
+    /// Creates an empty tracker.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns the entity mapped to `key`, spawning and inserting one via `spawn` on first sight.
+    pub fn get_or_spawn(
+        &mut self,
+        world: &mut World,
+        key: K,
+        spawn: impl FnOnce(&mut World) -> Entity,
+    ) -> Entity {
+        if let Some(&entity) = self.map.get(&key) {
+            entity
+        } else {
+            let entity = spawn(world);
+            self.map.insert(key, entity);
+            entity
+        }
+    }
+
+    /// The entity currently mapped to `key`, if any.
+    pub fn get(&self, key: &K) -> Option<Entity> {
+        self.map.get(key).copied()
+    }
+
+    /// Whether `key` is currently tracked.
+    pub fn contains_key(&self, key: &K) -> bool {
+        self.map.contains_key(key)
+    }
+
+    /// Removes `key` and despawns its entity. No-op if `key` is absent.
+    pub fn remove(&mut self, world: &mut World, key: &K) {
+        if let Some(entity) = self.map.remove(key) {
+            world.despawn(entity);
+        }
+    }
+
+    /// Despawns every tracked entity and clears the map (e.g. on disconnect or scene reset).
+    pub fn clear(&mut self, world: &mut World) {
+        for (_, entity) in self.map.drain() {
+            world.despawn(entity);
+        }
+    }
+
+    /// Number of tracked entities.
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    /// Whether no entities are tracked.
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
+    /// Iterates `(&key, entity)` pairs in arbitrary order.
+    pub fn iter(&self) -> impl Iterator<Item = (&K, Entity)> {
+        self.map.iter().map(|(k, &e)| (k, e))
+    }
+}
+
 #[cfg(test)]
 #[cfg(not(target_arch = "wasm32"))]
 mod tests {
@@ -564,5 +675,62 @@ mod tests {
                 capacity: 1
             }]
         ));
+    }
+
+    #[derive(Clone)]
+    struct Marker;
+
+    #[test]
+    fn remote_entities_get_or_spawn_reuses_on_second_sight() {
+        let mut world = World::new();
+        let mut remotes: RemoteEntities<usize> = RemoteEntities::new();
+        assert!(remotes.is_empty());
+
+        let first = remotes.get_or_spawn(&mut world, 1, |w| w.spawn());
+        assert_eq!(remotes.len(), 1);
+        assert!(remotes.contains_key(&1));
+        assert_eq!(remotes.get(&1), Some(first));
+
+        // Same key → same entity; the spawn closure is not run again.
+        let again = remotes.get_or_spawn(&mut world, 1, |w| w.spawn());
+        assert_eq!(again, first);
+        assert_eq!(remotes.len(), 1);
+
+        // Different key → distinct entity.
+        let second = remotes.get_or_spawn(&mut world, 2, |w| w.spawn());
+        assert_ne!(second, first);
+        assert_eq!(remotes.len(), 2);
+    }
+
+    #[test]
+    fn remote_entities_remove_and_clear_despawn() {
+        let mut world = World::new();
+        let mut remotes: RemoteEntities<usize> = RemoteEntities::new();
+        let a = remotes.get_or_spawn(&mut world, 1, |w| {
+            let e = w.spawn();
+            w.add_component(e, Marker);
+            e
+        });
+        let b = remotes.get_or_spawn(&mut world, 2, |w| {
+            let e = w.spawn();
+            w.add_component(e, Marker);
+            e
+        });
+        assert!(world.get_mut::<Marker>(a).is_some());
+
+        remotes.remove(&mut world, &1);
+        assert!(remotes.get(&1).is_none());
+        assert_eq!(remotes.len(), 1);
+        assert!(
+            world.get_mut::<Marker>(a).is_none(),
+            "removed key's entity should be despawned"
+        );
+
+        remotes.clear(&mut world);
+        assert!(remotes.is_empty());
+        assert!(
+            world.get_mut::<Marker>(b).is_none(),
+            "clear should despawn every tracked entity"
+        );
     }
 }

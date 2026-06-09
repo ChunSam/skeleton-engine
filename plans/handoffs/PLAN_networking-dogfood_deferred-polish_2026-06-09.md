@@ -49,18 +49,17 @@ The single most concrete, ready item is **wasm Retina crispness**. The rest are 
 **Rollback:** revert the surface-sizing edits; the logical-size render is the safe baseline.
 **Note:** this is the "Bigger change" flagged in seq 2. Do it in a monitor-on session.
 
-### Phase 2: Reusable remote-entity helper — BLOCKED (needs a 3rd networked example)
+### Phase 2: Reusable remote-entity helper — MINIMAL SLICE DONE (2026-06-09); richer version deferred
 
-**Goal:** Extract the repeated `HashMap<network_id, Entity>` spawn/update/despawn bookkeeping into a reusable engine helper — *only once a 3rd distinct networked example confirms the shape*.
+**Goal:** Extract the repeated `HashMap<network_id, Entity>` spawn/despawn bookkeeping into a reusable engine helper.
 
-**Why this approach:** `mp_client` and `coin_race` both do it inline, but they're too similar to reveal the right abstraction (deferred across seq 1 and 2 for exactly this reason). The precondition is a 3rd networked example with a *different* shape (e.g. client-side prediction, or entity-typed spawns, or interest management).
+**Done (option A, the user's call):** shipped `engine::RemoteEntities<K>` (`src/network.rs`) — the lifecycle slice only: `get_or_spawn` / `get` / `contains_key` / `remove` (despawns) / `clear` / `len` / `is_empty` / `iter`. Migrated `mp_client` (`remote_players`) and `coin_race` (`remote_players` + `coins`) onto it; behavior identical. Doctest + 2 unit tests; full `+1.88.0` gate green (313 lib); `wasm_smoke.sh` confirms coin_race still renders + connects through the helper.
 
-- **Precondition:** build a 3rd distinct networked example first (this is itself a breadth-ish task with a playable-example bar). Capture what its remote-entity bookkeeping needs that the other two didn't.
-- Then design the helper against all three call sites; add it to the engine, migrate the three examples, keep behavior identical.
+**Still deferred (the richer version):** interpolation, client-side prediction/reconciliation, per-entity update callbacks, staleness/generation. The two call sites are too similar to reveal that shape, and a wrong public API on a skeleton engine is worse than the small duplication removed. **Revisit once a 3rd *distinct* networked example exists** — the open design questions + candidate 3rd examples are in **`docs/REMOTE_ENTITIES_DESIGN.md`**.
 
-**Files:** TBD (new `src/network/*` helper + example migrations) — do not scaffold until the precondition is met.
-**Validates with:** all three networked examples compile + run unchanged on the helper; unit tests for the bookkeeping; `cargo +1.88.0` gate.
-**Rollback:** the inline bookkeeping is the baseline; don't migrate until the helper proves itself on all three.
+**Files:** `src/network.rs` (helper + tests), `src/lib.rs` (re-export), `examples/mp_client.rs`, `examples/games/coin_race/coin_race.rs`, `docs/REMOTE_ENTITIES_DESIGN.md`.
+**Validates with:** both examples compile (native + wasm) + run unchanged; `+1.88.0` gate + `wasm_smoke.sh` green. ✅
+**Rollback:** the inline bookkeeping is the baseline (revert the migration commits).
 
 ### Phase 3: New breadth feature exploration — OPEN-ENDED (audit, not build)
 

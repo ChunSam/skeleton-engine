@@ -18,8 +18,8 @@
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
     use engine::{
-        App, DrawText, Events, NetworkClient, NetworkEvent, NetworkSystem, Scene, Sprite, System,
-        TextQueue, Transform, WindowConfig, World,
+        App, DrawText, Events, NetworkClient, NetworkEvent, NetworkSystem, RemoteEntities, Scene,
+        Sprite, System, TextQueue, Transform, WindowConfig, World,
     };
     use glam::Vec2;
     use serde::{Deserialize, Serialize};
@@ -61,7 +61,7 @@ fn main() {
     struct MultiplayerSystem {
         local_entity: Option<engine::Entity>,
         local_id: Option<usize>,
-        remote_players: std::collections::HashMap<usize, engine::Entity>,
+        remote_players: RemoteEntities<usize>,
         send_timer: f32,
         status: String,
     }
@@ -71,7 +71,7 @@ fn main() {
             Self {
                 local_entity: None,
                 local_id: None,
-                remote_players: std::collections::HashMap::new(),
+                remote_players: RemoteEntities::new(),
                 send_timer: 0.0,
                 status: "Connecting to ws://127.0.0.1:9001 ...".into(),
             }
@@ -224,15 +224,11 @@ fn main() {
                     self.status = format!("Connected as Player #{id}");
                 }
                 ServerMessage::Position { id, x, y } => {
-                    if let Some(&entity) = self.remote_players.get(&id) {
-                        if let Some(tr) = world.get_mut::<Transform>(entity) {
-                            tr.position = Vec2::new(x, y);
-                        }
-                    } else {
-                        // Spawn a new remote player
-                        let e = world.spawn();
+                    // Spawn the remote player on first sight, then update its position.
+                    let entity = self.remote_players.get_or_spawn(world, id, |w| {
+                        let e = w.spawn();
                         let [r, g, b] = remote_color(id);
-                        world.add_component(
+                        w.add_component(
                             e,
                             Transform {
                                 position: Vec2::new(x, y),
@@ -241,14 +237,15 @@ fn main() {
                                 z: 0.0,
                             },
                         );
-                        world.add_component(e, Sprite::colored(r, g, b));
-                        self.remote_players.insert(id, e);
+                        w.add_component(e, Sprite::colored(r, g, b));
+                        e
+                    });
+                    if let Some(tr) = world.get_mut::<Transform>(entity) {
+                        tr.position = Vec2::new(x, y);
                     }
                 }
                 ServerMessage::Bye { id } => {
-                    if let Some(entity) = self.remote_players.remove(&id) {
-                        world.despawn(entity);
-                    }
+                    self.remote_players.remove(world, &id);
                 }
             }
         }

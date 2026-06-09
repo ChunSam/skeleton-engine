@@ -290,9 +290,13 @@ These are tracked in the seq-3 PLAN for a future (monitor-on) session; none are 
    resolution. Logical size = the authored `<canvas>` attributes (`WASM_LOGICAL_SIZE`), not
    `WindowConfig` (which a scene reset reverts). Verified on a real-GPU Retina browser + headless
    DPR=2 (coin_race 800→1600; run_demo 1280→2048 clamp path). (`dce44ae`)
-2. **Reusable remote-entity helper** *(blocked — needs signal)* — both `mp_client` and
-   `coin_race` reimplement `HashMap<id, Entity>` bookkeeping inline; extract a helper only after
-   a *3rd distinct* networked example confirms the abstraction shape.
+2. **Reusable remote-entity helper** — *minimal slice done (2026-06-09); richer version still
+   deferred.* Shipped `engine::RemoteEntities<K>` (get_or_spawn / get / remove-despawn / clear /
+   len / iter) and migrated both `mp_client` and `coin_race` (players + coins) onto it — the
+   `HashMap<id, Entity>` lifecycle is no longer duplicated. A *richer* version (interpolation,
+   client-side prediction/reconciliation, per-entity update callbacks, staleness) still needs a
+   **3rd distinct networked example** to confirm the shape; the open questions + candidate 3rd
+   examples are captured in `docs/REMOTE_ENTITIES_DESIGN.md`.
 3. **New breadth feature exploration** *(open-ended)* — the breadth program is complete, so this
    is an audit for a genuinely new capability worth adding (validated, as always, by a small
    playable example in real play).
