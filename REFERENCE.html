@@ -2342,8 +2342,35 @@ remotes.clear(world);       // 연결 끊김 / 씬 리셋 시: 전체 despawn</c
 <tr><td><code>clear(world)</code></td><td>전체 despawn + 맵 비우기</td></tr>
 <tr><td><code>len()</code> / <code>is_empty()</code> / <code>iter()</code></td><td>개수 / 빈 여부 / <code>(&amp;key, Entity)</code> 반복</td></tr>
 </tbody></table></div>
-<blockquote><strong>의도적으로 최소 구현.</strong> 상태 보간·클라이언트 예측·업데이트 콜백 등 더 풍부한 기능은 3번째 독립 네트워크 예제가 올바른 API 형태를 드러낼 때까지 보류한다. <code>docs/REMOTE_ENTITIES_DESIGN.md</code> 참고.</blockquote>
+<blockquote><strong>의도적으로 최소 구현.</strong> 생명주기 매핑만 담당한다. 상태 <em>보간</em>은 별도의 <code>SnapshotBuffer&lt;T&gt;</code>로 분리되어 있고(아래 참고), 클라이언트 예측·업데이트 콜백·타입드 엔티티 등 더 풍부한 기능은 각각을 실제로 요구하는 예제가 나올 때까지 보류한다. <code>docs/REMOTE_ENTITIES_DESIGN.md</code> 참고.</blockquote>
 <p>예제: <code>examples/games/coin_race/</code>(권위 서버 + 클라이언트, 네이티브·wasm), <code>examples/mp_client.rs</code> / <code>mp_server.rs</code>(위치 릴레이).</p>
+<h3 id="snapshotbuffer">SnapshotBuffer&lt;T: Lerp&gt;</h3>
+<p>원격 값을 낮은 스냅샷 레이트(예: 10–30 Hz)로 받아도 60 Hz로 부드럽게 렌더하기 위한 <strong>보간 버퍼</strong>. 스냅샷이 도착할 때마다 클라이언트 단조 시계로 타임스탬프를 찍어 <code>push</code>하고, 매 프레임 약간 과거 시점(<code>now - interp_delay</code>)을 <code>sample</code>하면 항상 실제 샘플 두 개 사이를 보간한다(범위를 벗어나면 양 끝으로 클램프). <code>Lerp</code>를 구현한 모든 <code>T</code>에 대해 제네릭이라 <code>f32</code>(회전각)·<code>Vec2</code>(위치)·<code>Color</code> 등 무엇이든 보간할 수 있다.</p>
+<p><code>RemoteEntities</code>와는 <strong>직교</strong>한다: 생명주기(<code>id → Entity</code>)는 <code>RemoteEntities</code>가, 렌더러가 읽는 값 히스토리는 <code>SnapshotBuffer</code>가 소유하며, 게임은 둘을 병렬 맵으로 둔다.</p>
+<pre><code class="language-rust">use engine::SnapshotBuffer;
+use glam::Vec2;
+
+// 엔티티 id별로 위치·회전 버퍼를 따로 둔다.
+let mut pos: HashMap&lt;usize, SnapshotBuffer&lt;Vec2&gt;&gt; = HashMap::new();
+let mut rot: HashMap&lt;usize, SnapshotBuffer&lt;f32&gt;&gt; = HashMap::new();
+
+// 스냅샷 수신 시: 클라이언트 시계로 타임스탬프를 찍어 기록
+pos.entry(id).or_default().push(client_time, Vec2::new(x, y));
+rot.entry(id).or_default().push(client_time, angle);
+
+// 렌더 시: interp_delay 만큼 과거를 샘플 → 두 스냅샷 사이를 lerp
+let rt = client_time - interp_delay;
+if let Some(p) = pos.get(&amp;id).and_then(|b| b.sample(rt)) {
+    transform.position = p;
+}</code></pre>
+<div class="table-wrap"><table><thead><tr><th>메서드</th><th>설명</th></tr></thead><tbody>
+<tr><td><code>new()</code> / <code>with_capacity(n)</code></td><td>빈 버퍼 생성 (기본 8개 / 최근 <code>n</code>개 유지, 최소 2)</td></tr>
+<tr><td><code>push(t, value)</code></td><td>클라이언트 시각 <code>t</code>(초)로 스냅샷 기록. 역순·중복 타임스탬프는 무시</td></tr>
+<tr><td><code>sample(rt)</code></td><td><code>rt</code> 시점의 보간 값(<code>Option&lt;T&gt;</code>). 범위 밖이면 양 끝 클램프, 비어 있으면 <code>None</code></td></tr>
+<tr><td><code>is_empty()</code> / <code>len()</code></td><td>빈 여부 / 버퍼된 스냅샷 개수</td></tr>
+</tbody></table></div>
+<blockquote><code>interp_delay</code>는 느낌 파라미터다. 너무 작으면 샘플이 모자라 끊기고, 너무 크면 시각 지연이 커진다. 스냅샷 간격의 1–2배가 대체로 무난하다(<code>predict_shooter</code>는 60 ms, <code>orbital_dodger</code>는 120 ms를 기본값으로 쓰며 런타임에 <code>[</code>/<code>]</code>로 조정). <code>orbital_dodger</code>에서 <code>I</code>로 보간을 끄면 원본 스냅샷의 끊김이 그대로 보인다.</blockquote>
+<p>예제: <code>examples/games/orbital_dodger/</code>(보간 전용 — 위치 <code>Vec2</code> + 회전 <code>f32</code> 두 채널), <code>examples/games/predict_shooter/</code>(예측 + 원격 보간).</p>
 <hr>
 <h2 id="배포-패키징-phase-55">배포 패키징 (Phase 55)</h2>
 <pre><code class="language-toml"># Cargo.toml 릴리즈 프로필 (자동 적용됨)

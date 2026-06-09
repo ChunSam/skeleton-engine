@@ -108,11 +108,43 @@ deferral was correct). Open questions #1/#2 are answered: interpolation and pred
 not-yet-promoted concerns. #3–#7 still await examples that stress them (per-entity update callbacks,
 typed entities, staleness, binary protocol, disconnect policy).
 
+## `SnapshotBuffer<T: Lerp>` promoted — 2nd interpolating example (orbital_dodger, 2026-06-09)
+
+The trigger named above ("if a *second* interpolating example appears, `engine::Interp` /
+`SnapshotBuffer<T>` is a clean additive helper to extract then") fired. The second interpolating
+example is **`orbital_dodger`** (`examples/games/orbital_dodger/`): an **interpolation-only** game
+(no prediction) where a broadcast server drifts spinning hazards at a low 10 Hz and the client
+interpolates them; the local player is purely client-side and never round-trips. Crucially it
+interpolates **two channels per hazard** — position (`Vec2`) *and* spin angle (`f32`) — so the
+hardcoded-`(x, y)` `Interp` would not have fit.
+
+**Decision — promote, generically.** `client_net::Interp` is now the public
+**`engine::SnapshotBuffer<T: Lerp>`** (`src/network.rs`), reusing the engine's existing `Lerp` trait
+(`src/timeline.rs`, impls for `f32` / `Vec2` / `[f32; 4]` / `Color`). Generic-over-`Lerp` is a
+*strictly better* shape than the example's `(x, y)`: `orbital_dodger` uses `SnapshotBuffer<Vec2>` +
+`SnapshotBuffer<f32>`, and `predict_shooter` migrated its `Interp` to `SnapshotBuffer<Vec2>`
+(behavior-identical — `Vec2` lerp == per-component lerp). Two real call sites across two examples,
+one of them needing a non-`Vec2` channel, is exactly the evidence that the generic shape is right and
+not over-fit. Additive (`v4.4.0`).
+
+**Open question #1 (interpolation) is now closed.** The buffer is per-entity, timestamped, and
+**orthogonal** to `RemoteEntities` (lifecycle map) — confirmed across both examples, which keep them
+as parallel maps. `RemoteEntities` stays minimal: interpolation was *split out* as a separate type,
+not folded in, so the two snap-only call sites (`mp_client`, `coin_race`) pay nothing.
+
+- **`Prediction` stays example-local** (`predict_shooter/client_net.rs`). Still one call site, and
+  it is a *local* concern (input replay vs. server correction), not remote-entity state. A future
+  `engine::Prediction` only if a second prediction example appears — same discipline.
+- **#3–#7 still open** (per-entity update callbacks, typed entities, staleness/eviction, binary
+  protocol, disconnect policy) — none of the two interpolating examples stress them yet.
+
 ## Pointers
 
-- Implementation + doctest + unit tests: `src/network.rs` (`RemoteEntities`).
+- Implementation + doctest + unit tests: `src/network.rs` (`RemoteEntities`, `SnapshotBuffer`).
 - 3rd example (interpolation + prediction): `examples/games/predict_shooter/client_net.rs`
-  (`Interp`, `Prediction`) + `predict_shooter.rs`.
+  (`Prediction`) + `predict_shooter.rs` (now uses `engine::SnapshotBuffer<Vec2>`).
+- 4th example (interpolation only, the `SnapshotBuffer` promotion trigger):
+  `examples/games/orbital_dodger/` (`SnapshotBuffer<Vec2>` position + `SnapshotBuffer<f32>` spin).
 - Plans: `PLAN_networking-dogfood_deferred-polish_2026-06-09.md` (Phase 2),
   `PLAN_networking-dogfood_client-prediction-shooter_2026-06-09.md` (the shooter, Phase D).
 - The "fix only the gap the example hits" + "playable example validates the feature" bar:

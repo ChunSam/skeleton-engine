@@ -352,6 +352,30 @@ Follow-ups to seq 6 (Phase-3 polish). Engine **4.3.0 → 4.3.1** (the gilrs cras
 - **REFERENCE.html** updated for the seq-6 public APIs (Camera `bounds`/`clamp_to_bounds`, InputMap
   gamepad + `AxisBinding`, gamepad basics) — they were absent from the manual.
 
+## Networking-dogfood seq 8 — 2nd interpolating example + `SnapshotBuffer<T>` promotion (2026-06-09)
+
+Closes the deferred-polish item #2 follow-up ("if a *second* interpolating example appears,
+`engine::SnapshotBuffer<T>` is a clean additive helper to extract then" — `docs/REMOTE_ENTITIES_DESIGN.md`).
+Engine **4.3.1 → 4.4.0** (additive public API).
+
+- **`engine::SnapshotBuffer<T: Lerp>`** (`src/network.rs`) — the per-entity snapshot-interpolation
+  buffer that was `predict_shooter`'s private `Interp`, promoted to a public, generic helper reusing
+  the existing `Lerp` trait (`f32`/`Vec2`/`[f32;4]`/`Color`). `push(t, value)` stamps a snapshot at
+  the client clock; `sample(rt)` returns the lerped value at a past render time (clamps at the ends).
+  Orthogonal to `RemoteEntities` (lifecycle map vs. value history) — games keep them as parallel
+  maps. Doctest + 6 unit tests.
+- **N — Orbital Dodger** (`orbital_dodger_game` via `orbital_dodger` + `orbital_dodger_server`,
+  `examples/games/orbital_dodger/`): the 2nd interpolating example and the promotion's acceptance
+  test. **Interpolation-only** (no prediction): a broadcast server drifts spinning hazards at a low
+  10 Hz; the client interpolates them (`SnapshotBuffer<Vec2>` position + `SnapshotBuffer<f32>` spin
+  angle — two channels per hazard, which is what justified the generic `T`); the local player is
+  purely client-side. `I` toggles interpolation off to reveal the raw 10 Hz judder. Ships native +
+  to the browser (`web/`). Proves interpolation is a standalone concern, orthogonal to `Prediction`.
+- **`predict_shooter` migrated** onto `SnapshotBuffer<Vec2>` (deleted its private `Interp`;
+  behavior-identical). `Prediction` stays example-local (still one call site, a *local* concern).
+- **Open question #1 (interpolation) closed** in `docs/REMOTE_ENTITIES_DESIGN.md`; #3–#7 still await
+  examples that stress them.
+
 ## Alignment check — previously "planned" items vs the reset vision
 
 Vision criteria: (1) fork-friendly skeleton, (2) genre-agnostic 2D, breadth-first,

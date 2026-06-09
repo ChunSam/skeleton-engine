@@ -4,6 +4,39 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 4.4.0
+
+### Added
+
+- **`SnapshotBuffer<T: Lerp>`** — a generic per-entity snapshot-interpolation buffer for smoothing
+  server-owned remote state that arrives at a low snapshot rate. Stamp each snapshot with the
+  client clock (`push`), then `sample` a slightly delayed render time so playback always
+  interpolates between two real samples (clamping at the ends). Generic over any `Lerp` value, so
+  it interpolates `f32` (e.g. a rotation angle), `Vec2` (a position), `Color`, etc. It is
+  **orthogonal** to `RemoteEntities`: that owns the `id → Entity` lifecycle, this owns the value
+  history the renderer reads — games keep them as parallel maps. This is the promotion of
+  `predict_shooter`'s former private `Interp` (now migrated onto it), triggered by a second
+  interpolating example — see `docs/REMOTE_ENTITIES_DESIGN.md`.
+- **`orbital_dodger` example** (`examples/games/orbital_dodger/`) — an interpolation-only networked
+  game: cross the field to a vault while dodging the server's drifting, spinning hazards. The
+  hazards are wholly server-authoritative at a low 10 Hz; the local player never round-trips, so
+  the only netcode is interpolation (no prediction). Each hazard interpolates two channels —
+  position (`SnapshotBuffer<Vec2>`) and spin angle (`SnapshotBuffer<f32>`) — which is what
+  justified making the buffer generic. `I` toggles interpolation off to reveal the raw 10 Hz
+  judder. Ships native + to the browser (`web/`).
+
+## 4.3.1
+
+### Fixed
+
+- **Gamepad backend crash isolated (gilrs).** A controller could panic gilrs inside its event poll
+  (`gamepad(id).unwrap()` on `None`), crashing the whole app ~1 s after launch. `App::poll_gilrs`
+  now wraps the poll in `catch_unwind` (mirroring the per-system isolation in `schedule.rs`) — a
+  flaky controller disables gamepad input for the session instead of crashing — and gilrs was
+  upgraded `0.10 → 0.11.2` (reworked macOS HID backend). Note: on macOS the GameController
+  framework takes *exclusive* ownership of Xbox/PlayStation pads, so gilrs (IOKit HID) sees a
+  `Connected` event but no input; gamepad input works on Linux/Windows or with a generic-HID pad.
+
 ## 4.3.0
 
 ### Added
