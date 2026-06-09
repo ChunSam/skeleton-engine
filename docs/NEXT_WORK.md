@@ -297,9 +297,19 @@ These are tracked in the seq-3 PLAN for a future (monitor-on) session; none are 
    client-side prediction/reconciliation, per-entity update callbacks, staleness) still needs a
    **3rd distinct networked example** to confirm the shape; the open questions + candidate 3rd
    examples are captured in `docs/REMOTE_ENTITIES_DESIGN.md`.
-3. **New breadth feature exploration** *(open-ended)* — the breadth program is complete, so this
-   is an audit for a genuinely new capability worth adding (validated, as always, by a small
-   playable example in real play).
+3. **New breadth feature exploration** — *audit done (2026-06-09).* Conclusion: breadth is genuinely
+   complete in the "every subsystem has a playable example" sense; no high-value *new subsystem* is
+   compelling now. The audit did surface **two small, broadly-useful API gaps** a first-time forker
+   trips on, each worth one focused session (not new subsystems — polish):
+   - **Camera world-bounds clamping** — `Camera` has `follow_entity`/`lerp_factor` but no
+     `bounds: Option<Rect>`; every scrolling game reinvents the ~10-line clamp (e.g. `lit_dungeon`'s
+     `CameraFollowSystem`). Very low effort + a unit test; validate inside an existing scrolling game.
+   - **`InputMap` gamepad binding** — `InputMap` is keyboard-only; `GamepadState` exists separately,
+     so gamepad-capable games dispatch the two inputs by hand. Additive `bind_gamepad`/axis; validate
+     by updating `survivor_game`/`touch_demo`.
+   Other candidates (tilemap autotiling, runtime tilemap mutation, save-migration, data-driven
+   anim/particle assets, diagonal pathfinding, RTL/per-locale fonts, audio ducking) are
+   higher-effort/narrower or already documented-as-deferred — none clear the bar now.
 4. **rust-survivors WIP docs cleanup** *(separate repo, user's call)* — ~20 uncommitted doc
    changes sit in the game repo; organize/commit them only on the maintainer's direction.
 
