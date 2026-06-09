@@ -198,7 +198,11 @@ fn main() {
                     ..Default::default()
                 },
             );
-            let shade = if (i + j) % 2 == 0 { 0.12 } else { 0.18 };
+            let shade = if ((i + j) as u32).is_multiple_of(2) {
+                0.12
+            } else {
+                0.18
+            };
             app.world.add_component(
                 bg,
                 Sprite {
