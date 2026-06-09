@@ -1,6 +1,6 @@
 [package]
 name        = "skeleton-engine"
-version     = "4.4.0"
+version     = "4.5.0"
 edition     = "2021"
 description = "Lightweight 2D game engine — wgpu rendering, custom ECS, rapier2d physics"
 repository  = "https://github.com/ChunSam/skeleton-engine"
@@ -87,6 +87,14 @@ path = "examples/games/orbital_dodger/server.rs"
 [[example]]
 name = "orbital_dodger"
 path = "examples/games/orbital_dodger/orbital_dodger.rs"
+
+[[example]]
+name = "salvage_run_server"
+path = "examples/games/salvage_run/server.rs"
+
+[[example]]
+name = "salvage_run"
+path = "examples/games/salvage_run/salvage_run.rs"
 
 [dependencies]
 winit    = "0.30"
