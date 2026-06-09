@@ -72,6 +72,10 @@ path = "examples/games/coin_race/coin_race.rs"
 name = "coin_race_server"
 path = "examples/games/coin_race/server.rs"
 
+[[example]]
+name = "predict_shooter_server"
+path = "examples/games/predict_shooter/server.rs"
+
 [dependencies]
 winit    = "0.30"
 wgpu     = { version = "22", features = ["webgl"] }
