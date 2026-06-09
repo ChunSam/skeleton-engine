@@ -41,10 +41,11 @@ use client_net::{Interp, Prediction};
 use protocol::*;
 
 /// Default interpolation delay (seconds): render remote entities this far in the past so there are
-/// always two snapshots to interpolate between at the ~33 ms snapshot interval. Live-tunable at
-/// runtime with the bracket keys (see `ShooterClient::interp_delay`) — the one feel parameter
-/// automated tests can't judge.
-const INTERP_DELAY_DEFAULT: f64 = 0.1;
+/// snapshots to interpolate between at the ~33 ms snapshot interval. 60 ms (≈2× the snapshot interval)
+/// was chosen by real-play feel testing — below ~40 ms bullets ghost/trail badly, and above ~70 ms a
+/// bullet lingers at the shooter's old position when moving and firing. Live-tunable at runtime with
+/// the bracket keys (see `ShooterClient::interp_delay`) — the one feel parameter automated tests can't judge.
+const INTERP_DELAY_DEFAULT: f64 = 0.06;
 /// Live-tuning range + step for the interpolation delay (left bracket decreases, right increases).
 const INTERP_DELAY_MIN: f64 = 0.0;
 const INTERP_DELAY_MAX: f64 = 0.30;
@@ -218,7 +219,7 @@ impl ShooterClient {
         ));
         tq.push(DrawText::new(
             format!(
-                "INTERP_DELAY {:.0} ms   ·   [ / ] to tune   ·   default {:.0} ms",
+                "INTERP_DELAY {:.0} ms   ·   [ -10ms   ] +10ms   ·   default {:.0} ms",
                 self.interp_delay * 1000.0,
                 INTERP_DELAY_DEFAULT * 1000.0
             ),
