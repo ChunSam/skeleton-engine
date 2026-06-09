@@ -493,6 +493,46 @@ map.bind(&quot;jump&quot;, KeyCode::KeyW);  // 멀티 바인딩 가능
 let input = world.resource::&lt;InputState&gt;().unwrap();
 if map.just_pressed(&quot;jump&quot;, input) { ... }
 if map.is_pressed(&quot;move_left&quot;, input) { ... }</code></pre>
+<h3 id="게임패드">게임패드</h3>
+<p><code>GamepadState</code> 리소스로 최대 4개 패드(슬롯 0–3)를 읽는다. <code>App::new()</code>에서 자동 삽입되며 네이티브 전용(gilrs)이다 — wasm에서는 항상 미연결로 동작한다.</p>
+<pre><code class="language-rust">use engine::{GamepadButton, GamepadAxis};
+
+if let Some(gs) = world.resource::&lt;GamepadState&gt;() {
+    let pad = gs.primary().unwrap_or(0);            // 첫 연결 패드 슬롯
+    gs.is_pressed(pad, GamepadButton::South);       // 누르고 있는 중 (A / Cross)
+    gs.just_pressed(pad, GamepadButton::Start);     // 이번 프레임에 눌림
+    let lx = gs.axis(pad, GamepadAxis::LeftStickX); // -1.0 ~ 1.0 (데드존 미적용)
+    gs.any_connected();                             // 패드 하나라도 연결됨?
+}</code></pre>
+<blockquote><strong>macOS 주의:</strong> gilrs는 IOKit HID로 패드를 읽지만, 최신 macOS는 Xbox·PlayStation 패드를 <code>GameController</code> 프레임워크로 <em>배타 점유</em>한다. 그런 패드는 연결은 감지돼도(<code>Connected</code> 이벤트) 축·버튼 입력이 gilrs로 전달되지 않는다(무반응). Linux·Windows에서는 정상 동작하며, macOS에서는 Apple 드라이버에 점유되지 않는 일반 HID(DInput) 패드만 읽힌다. (네이티브 게임패드는 native-only — wasm에서는 항상 미연결.)</blockquote>
+<h3 id="inputmap-게임패드-바인딩">InputMap 게임패드 바인딩</h3>
+<p>하나의 액션에 키보드 키·게임패드 버튼·게임패드 축을 함께 묶을 수 있다(가산적 — 바인딩 중 하나라도 활성이면 액션 활성). <code>AxisBinding</code>은 아날로그 축을 임계값 기준의 디지털 액션으로 바꾼다.</p>
+<pre><code class="language-rust">use engine::{InputMap, GamepadButton, GamepadAxis, AxisBinding};
+use winit::keyboard::KeyCode;
+
+let mut map = InputMap::new();
+map.bind("jump", KeyCode::Space);                      // 키보드
+map.bind_gamepad_button("jump", GamepadButton::South); // + 게임패드 버튼
+// 왼쪽 스틱을 왼쪽으로(값 &lt;= -0.5) 밀면 "move_left" 활성
+map.bind_gamepad_axis("move_left", AxisBinding::negative(GamepadAxis::LeftStickX, 0.5));
+map.bind_gamepad_axis("move_right", AxisBinding::positive(GamepadAxis::LeftStickX, 0.5));
+
+// 시스템에서: 키보드 OR 게임패드를 함께 평가 (pad = 슬롯 인덱스)
+let input = world.resource::&lt;InputState&gt;().unwrap();
+let gs = world.resource::&lt;GamepadState&gt;().unwrap();
+if map.is_pressed_with_gamepad("move_left", input, gs, 0) { ... }
+if map.just_pressed_with_gamepad("jump", input, gs, 0) { ... }</code></pre>
+<div class="table-wrap"><table><thead><tr><th>메서드</th><th>설명</th></tr></thead><tbody>
+<tr><td><code>bind_gamepad_button(action, button)</code></td><td>액션에 게임패드 버튼 추가 (가산적)</td></tr>
+<tr><td><code>bind_gamepad_axis(action, AxisBinding)</code></td><td>액션에 축 + 방향 + 임계값 추가</td></tr>
+<tr><td><code>AxisBinding::positive(axis, threshold)</code></td><td><code>값 &gt;= threshold</code>일 때 활성</td></tr>
+<tr><td><code>AxisBinding::negative(axis, threshold)</code></td><td><code>값 &lt;= -threshold</code>일 때 활성</td></tr>
+<tr><td><code>is_pressed_with_gamepad(a, input, gs, pad)</code></td><td>키보드/버튼/축 중 하나라도 활성</td></tr>
+<tr><td><code>just_pressed_with_gamepad(a, input, gs, pad)</code></td><td>이번 프레임 활성화 (축은 "현재 활성"으로만 평가 — 아래 참고)</td></tr>
+<tr><td><code>just_released_with_gamepad(a, input, gs, pad)</code></td><td>이번 프레임 해제 (키 / 버튼만)</td></tr>
+<tr><td><code>keys_for(action)</code></td><td>액션에 묶인 모든 키보드 키 <code>&amp;[KeyCode]</code></td></tr>
+</tbody></table></div>
+<blockquote><code>GamepadState</code>는 디지털 버튼만 <code>just_pressed</code>/<code>just_released</code> 엣지를 추적한다. 따라서 <code>just_pressed_with_gamepad</code>의 <strong>축</strong> 바인딩은 "현재 임계값을 넘었는지"로만 평가되며, 축 엣지 검출이 필요하면 호출 측에서 쿨다운을 둔다. 키보드 전용 메서드(<code>is_pressed</code>/<code>just_pressed</code>/<code>just_released</code>)는 이전과 동일하게 동작한다.</blockquote>
 <hr>
 <h2 id="렌더링">렌더링</h2>
 <h3 id="transform--sprite">Transform + Sprite</h3>
@@ -879,6 +919,23 @@ let world_pos = cam.screen_to_world(input.cursor());</code></pre>
 <pre><code class="language-rust">if let Some(cam) = world.resource_mut::&lt;Camera&gt;() {
     cam.zoom = 2.0;  // 2배 확대 (보이는 영역 절반)
 }</code></pre>
+<h3 id="월드-바운드-클램핑">월드 바운드 클램핑</h3>
+<p><code>bounds: Option&lt;(Vec2, Vec2)&gt;</code>(기본 <code>None</code>)를 설정하면 카메라 뷰포트가 월드 사각형 <code>(min, max)</code> 밖으로 스크롤되지 않도록 제한된다. App이 매 프레임 <code>Camera::update()</code> 직후 <code>clamp_to_bounds()</code>를 자동 호출하므로, 내장 follow를 쓰면 추가 코드가 필요 없다.</p>
+<pre><code class="language-rust">if let Some(cam) = world.resource_mut::&lt;Camera&gt;() {
+    // 레벨 크기가 2000×1500이면 카메라가 그 밖으로 넘어가지 않는다
+    cam.bounds = Some((Vec2::ZERO, Vec2::new(2000.0, 1500.0)));
+}
+
+// 카메라를 수동으로 옮긴 경우 직접 클램프할 수도 있다 (viewport 크기 전달).
+// ViewportSize 불변 차용을 먼저 끝낸 뒤 Camera를 가변 차용한다.
+let (vw, vh) = {
+    let vp = world.resource::&lt;ViewportSize&gt;().unwrap();
+    (vp.width, vp.height)
+};
+if let Some(cam) = world.resource_mut::&lt;Camera&gt;() {
+    cam.clamp_to_bounds(vw, vh);
+}</code></pre>
+<blockquote>월드가 뷰포트보다 작은 축에서는(<code>max - min &lt; viewport / zoom</code>) 클램프 범위가 뒤집히므로, 해당 축의 <code>position</code>은 <code>bounds.min</code>에 고정된다. 보이는 영역은 <code>viewport / zoom</code>이라 <code>zoom</code>도 반영된다.</blockquote>
 <hr>
 <h2 id="이벤트-시스템">이벤트 시스템</h2>
 <p>타입 안전한 프레임 경계 이벤트 버스.</p>
