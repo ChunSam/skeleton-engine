@@ -76,9 +76,44 @@ example** that stresses the abstraction in a new direction.
   relevance. Stresses #4, #5.
 - **Binary-protocol sync** — non-JSON, compact ids/fields. Stresses #6.
 
+## Decision after the 3rd example (predict_shooter, 2026-06-09)
+
+The 3rd distinct networked example — the **client-prediction shooter**
+(`examples/games/predict_shooter/`) — is built and **real-play-verified** (two native clients
+connect, see each other at consistent positions, and one client's input moves its predicted avatar
+*and* the other client's interpolated view of it). It needs both interpolation (remote players +
+bullets) and prediction (local player), so it finally exercises open questions #1 and #2.
+
+**Finding:** interpolation is a *per-entity timestamped position buffer* (`client_net::Interp`) that
+is **orthogonal** to the `id → Entity` lifecycle (`RemoteEntities`). The shooter keeps them as two
+parallel maps — `remote_players: RemoteEntities<usize>` **and** `player_interp: HashMap<usize,
+Interp>` — and they don't overlap: `RemoteEntities` owns spawn/despawn, `Interp` owns the position
+history the renderer samples.
+
+**Decision — keep `RemoteEntities` minimal; do NOT couple interpolation into it.**
+- The two snap-only call sites (`mp_client`, `coin_race`) don't interpolate at all. Folding an
+  interpolation buffer into `RemoteEntities` would force that concept (and cost) onto them, or
+  require a generic value-buffer they'd never use. The shooter shows the **separation is correct**:
+  lifecycle and interpolation are independent concerns that compose as parallel maps.
+- **Do NOT promote `client_net::Interp` to a public engine helper yet** — only one example uses it.
+  That's the same single-call-site discipline that (correctly) deferred the richer `RemoteEntities`.
+  If a *second* interpolating example appears, `engine::Interp` / `SnapshotBuffer<T>` is a clean
+  additive helper to extract then.
+- **`Prediction` (local-player) is explicitly out of `RemoteEntities`' scope** — it's a *local*
+  concern (input replay vs. server correction), not remote-entity bookkeeping. Stays example-local
+  (a future `engine::Prediction` only if reused).
+
+**Net:** the v4.3.0 minimal `RemoteEntities` API is the right shape and stays unchanged (additive
+deferral was correct). Open questions #1/#2 are answered: interpolation and prediction are separate,
+not-yet-promoted concerns. #3–#7 still await examples that stress them (per-entity update callbacks,
+typed entities, staleness, binary protocol, disconnect policy).
+
 ## Pointers
 
 - Implementation + doctest + unit tests: `src/network.rs` (`RemoteEntities`).
-- Plan: `plans/handoffs/PLAN_networking-dogfood_deferred-polish_2026-06-09.md` (Phase 2).
+- 3rd example (interpolation + prediction): `examples/games/predict_shooter/client_net.rs`
+  (`Interp`, `Prediction`) + `predict_shooter.rs`.
+- Plans: `PLAN_networking-dogfood_deferred-polish_2026-06-09.md` (Phase 2),
+  `PLAN_networking-dogfood_client-prediction-shooter_2026-06-09.md` (the shooter, Phase D).
 - The "fix only the gap the example hits" + "playable example validates the feature" bar:
   `docs/VISION.md`.

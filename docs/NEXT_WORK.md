@@ -290,13 +290,16 @@ These are tracked in the seq-3 PLAN for a future (monitor-on) session; none are 
    resolution. Logical size = the authored `<canvas>` attributes (`WASM_LOGICAL_SIZE`), not
    `WindowConfig` (which a scene reset reverts). Verified on a real-GPU Retina browser + headless
    DPR=2 (coin_race 800→1600; run_demo 1280→2048 clamp path). (`dce44ae`)
-2. **Reusable remote-entity helper** — *minimal slice done (2026-06-09); richer version still
-   deferred.* Shipped `engine::RemoteEntities<K>` (get_or_spawn / get / remove-despawn / clear /
-   len / iter) and migrated both `mp_client` and `coin_race` (players + coins) onto it — the
-   `HashMap<id, Entity>` lifecycle is no longer duplicated. A *richer* version (interpolation,
-   client-side prediction/reconciliation, per-entity update callbacks, staleness) still needs a
-   **3rd distinct networked example** to confirm the shape; the open questions + candidate 3rd
-   examples are captured in `docs/REMOTE_ENTITIES_DESIGN.md`.
+2. **Reusable remote-entity helper** — *minimal slice done (2026-06-09); richer version evaluated
+   against the 3rd example → keep minimal.* Shipped `engine::RemoteEntities<K>` (v4.3.0) and
+   migrated `mp_client` + `coin_race`. The **3rd distinct example (the client-prediction shooter)**
+   is now built + real-play-verified, which answered the key open questions: interpolation
+   (`client_net::Interp`) is **orthogonal** to the lifecycle map (they compose as parallel maps),
+   so it is **not** folded into `RemoteEntities`; and `Interp`/`Prediction` are **not promoted** to
+   public engine helpers yet (single call site — same discipline). The v4.3.0 API is the right
+   shape and stays unchanged. Remaining open questions (#3–#7: per-entity update callbacks, typed
+   entities, staleness, binary protocol, disconnect policy) await examples that stress them — see
+   `docs/REMOTE_ENTITIES_DESIGN.md`.
 3. **New breadth feature exploration** — *audit done (2026-06-09).* Conclusion: breadth is genuinely
    complete in the "every subsystem has a playable example" sense; no high-value *new subsystem* is
    compelling now. The audit did surface **two small, broadly-useful API gaps** a first-time forker

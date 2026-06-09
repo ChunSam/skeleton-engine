@@ -221,7 +221,7 @@ fn main() {
             thread::sleep(Duration::from_secs_f32(FIXED_DT));
             let mut s = server.lock().unwrap();
             s.step();
-            if s.tick % snap_every == 0 {
+            if s.tick.is_multiple_of(snap_every) {
                 s.broadcast_snapshot();
             }
         });
