@@ -20,11 +20,12 @@
 //! reached on demand — single-life play tends to end before the screen fills. `B`
 //! can push past the natural cap toward `MAX_ENEMIES` for stress-testing.
 
+use engine::input::map::AxisBinding;
 use engine::{
     App, Camera, Collider, CollisionGridSystem, CollisionLayer, Color, DrawText, Entity,
-    InputState, KeyCode, ParticleBurst, ParticleEmitter, ParticleSystem, Pool, ProfilerData, Seek,
-    ShouldQuit, SpatialGrid, Sprite, SteeringSystem, SteeringVelocity, System, TextQueue, Timer,
-    Transform, WindowConfig, World,
+    GamepadAxis, GamepadButton, GamepadState, InputMap, InputState, KeyCode, ParticleBurst,
+    ParticleEmitter, ParticleSystem, Pool, ProfilerData, Seek, ShouldQuit, SpatialGrid, Sprite,
+    SteeringSystem, SteeringVelocity, System, TextQueue, Timer, Transform, WindowConfig, World,
 };
 // `AudioManager` and `GpuParticleEmitter` are both native-only in the engine
 // (`cfg(not(wasm32))`), so all audio + GPU-particle wiring is target-gated to keep
@@ -69,6 +70,101 @@ const START_GRACE: f32 = 1.0;
 const LAYER_PLAYER: u32 = 1 << 0;
 const LAYER_ENEMY: u32 = 1 << 1;
 const LAYER_BULLET: u32 = 1 << 2;
+
+// ─── Input actions ────────────────────────────────────────────────────────────
+
+/// All gameplay actions understood by `PlayerSystem`.
+///
+/// The `InputMap<Action>` resource is pre-loaded with keyboard bindings (WASD
+/// move, arrow-key aim, R restart, Esc quit) **and** optional gamepad bindings
+/// (left stick move, right stick aim, South button restart) so a connected
+/// controller drives the same actions without any if-gamepad branches in game
+/// systems.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum Action {
+    MoveLeft,
+    MoveRight,
+    MoveUp,
+    MoveDown,
+    AimLeft,
+    AimRight,
+    AimUp,
+    AimDown,
+    Restart,
+    Quit,
+    ToggleGod,
+    SpawnBurst,
+}
+
+fn build_input_map() -> InputMap<Action> {
+    let mut m = InputMap::new();
+
+    // Movement — WASD + left stick
+    m.bind(Action::MoveLeft, KeyCode::KeyA);
+    m.bind_gamepad_button(Action::MoveLeft, GamepadButton::DPadLeft);
+    m.bind_gamepad_axis(
+        Action::MoveLeft,
+        AxisBinding::negative(GamepadAxis::LeftStickX, 0.25),
+    );
+
+    m.bind(Action::MoveRight, KeyCode::KeyD);
+    m.bind_gamepad_button(Action::MoveRight, GamepadButton::DPadRight);
+    m.bind_gamepad_axis(
+        Action::MoveRight,
+        AxisBinding::positive(GamepadAxis::LeftStickX, 0.25),
+    );
+
+    m.bind(Action::MoveUp, KeyCode::KeyW);
+    m.bind_gamepad_button(Action::MoveUp, GamepadButton::DPadUp);
+    m.bind_gamepad_axis(
+        Action::MoveUp,
+        AxisBinding::negative(GamepadAxis::LeftStickY, 0.25),
+    );
+
+    m.bind(Action::MoveDown, KeyCode::KeyS);
+    m.bind_gamepad_button(Action::MoveDown, GamepadButton::DPadDown);
+    m.bind_gamepad_axis(
+        Action::MoveDown,
+        AxisBinding::positive(GamepadAxis::LeftStickY, 0.25),
+    );
+
+    // Aim / fire — Arrow keys + right stick
+    m.bind(Action::AimLeft, KeyCode::ArrowLeft);
+    m.bind_gamepad_axis(
+        Action::AimLeft,
+        AxisBinding::negative(GamepadAxis::RightStickX, 0.3),
+    );
+
+    m.bind(Action::AimRight, KeyCode::ArrowRight);
+    m.bind_gamepad_axis(
+        Action::AimRight,
+        AxisBinding::positive(GamepadAxis::RightStickX, 0.3),
+    );
+
+    m.bind(Action::AimUp, KeyCode::ArrowUp);
+    m.bind_gamepad_axis(
+        Action::AimUp,
+        AxisBinding::negative(GamepadAxis::RightStickY, 0.3),
+    );
+
+    m.bind(Action::AimDown, KeyCode::ArrowDown);
+    m.bind_gamepad_axis(
+        Action::AimDown,
+        AxisBinding::positive(GamepadAxis::RightStickY, 0.3),
+    );
+
+    // Meta actions
+    m.bind(Action::Restart, KeyCode::KeyR);
+    m.bind_gamepad_button(Action::Restart, GamepadButton::Start);
+
+    m.bind(Action::Quit, KeyCode::Escape);
+    m.bind_gamepad_button(Action::Quit, GamepadButton::Select);
+
+    m.bind(Action::ToggleGod, KeyCode::KeyG);
+    m.bind(Action::SpawnBurst, KeyCode::KeyB);
+
+    m
+}
 
 // ─── Marker / data components ──────────────────────────────────────────────────
 
@@ -121,6 +217,9 @@ fn main() {
         clear_color: [0.03, 0.04, 0.07, 1.0],
     });
     app.world.insert_resource(Camera::new(Vec2::ZERO, 1.0));
+
+    // Keyboard + gamepad action map (additive bindings).
+    app.world.insert_resource(build_input_map());
 
     // Bullet object pool (same churn path the shooter exercised).
     app.world.insert_resource(Pool::new(BULLET_POOL_CAP));
@@ -270,47 +369,60 @@ fn fire_bullet(pool: &mut Pool, world: &mut World, muzzle: Vec2, dir: Vec2) {
 struct PlayerSystem;
 impl System for PlayerSystem {
     fn run(&mut self, world: &mut World, dt: f32) {
-        let (move_axis, aim, restart, quit, toggle_god, burst) = world
-            .resource::<InputState>()
-            .map(|input| {
-                let mut mv = Vec2::ZERO;
-                if input.is_pressed(KeyCode::KeyA) {
-                    mv.x -= 1.0;
+        // Collect input from keyboard + gamepad (slot 0) via the action map.
+        // All three resources are read-only; we snapshot what we need before
+        // any mutable access.  The `resource()` method takes `&self` so two
+        // distinct resource types can be borrowed at once through the same
+        // `&World` borrow.
+        let (move_axis, aim, restart, quit, toggle_god, burst) = {
+            let r = world.resource::<InputState>();
+            let g = world.resource::<GamepadState>();
+            let m = world.resource::<InputMap<Action>>();
+            match (r, g, m) {
+                (Some(input), Some(gs), Some(map)) => {
+                    let pad = gs.primary().unwrap_or(0);
+
+                    let mut mv = Vec2::ZERO;
+                    if map.is_pressed_with_gamepad(&Action::MoveLeft, input, gs, pad) {
+                        mv.x -= 1.0;
+                    }
+                    if map.is_pressed_with_gamepad(&Action::MoveRight, input, gs, pad) {
+                        mv.x += 1.0;
+                    }
+                    if map.is_pressed_with_gamepad(&Action::MoveUp, input, gs, pad) {
+                        mv.y -= 1.0;
+                    }
+                    if map.is_pressed_with_gamepad(&Action::MoveDown, input, gs, pad) {
+                        mv.y += 1.0;
+                    }
+
+                    // Aim stick: Arrow keys or right stick (hold = fire).
+                    let mut aim = Vec2::ZERO;
+                    if map.is_pressed_with_gamepad(&Action::AimLeft, input, gs, pad) {
+                        aim.x -= 1.0;
+                    }
+                    if map.is_pressed_with_gamepad(&Action::AimRight, input, gs, pad) {
+                        aim.x += 1.0;
+                    }
+                    if map.is_pressed_with_gamepad(&Action::AimUp, input, gs, pad) {
+                        aim.y -= 1.0;
+                    }
+                    if map.is_pressed_with_gamepad(&Action::AimDown, input, gs, pad) {
+                        aim.y += 1.0;
+                    }
+
+                    (
+                        mv,
+                        aim,
+                        map.just_pressed_with_gamepad(&Action::Restart, input, gs, pad),
+                        map.just_pressed_with_gamepad(&Action::Quit, input, gs, pad),
+                        map.just_pressed(&Action::ToggleGod, input),
+                        map.just_pressed(&Action::SpawnBurst, input),
+                    )
                 }
-                if input.is_pressed(KeyCode::KeyD) {
-                    mv.x += 1.0;
-                }
-                if input.is_pressed(KeyCode::KeyW) {
-                    mv.y -= 1.0;
-                }
-                if input.is_pressed(KeyCode::KeyS) {
-                    mv.y += 1.0;
-                }
-                // Arrow keys are the "aim stick": their direction is both where
-                // the player shoots and the trigger (held = fire).
-                let mut aim = Vec2::ZERO;
-                if input.is_pressed(KeyCode::ArrowLeft) {
-                    aim.x -= 1.0;
-                }
-                if input.is_pressed(KeyCode::ArrowRight) {
-                    aim.x += 1.0;
-                }
-                if input.is_pressed(KeyCode::ArrowUp) {
-                    aim.y -= 1.0;
-                }
-                if input.is_pressed(KeyCode::ArrowDown) {
-                    aim.y += 1.0;
-                }
-                (
-                    mv,
-                    aim,
-                    input.just_pressed(KeyCode::KeyR),
-                    input.just_pressed(KeyCode::Escape),
-                    input.just_pressed(KeyCode::KeyG),
-                    input.just_pressed(KeyCode::KeyB),
-                )
-            })
-            .unwrap_or((Vec2::ZERO, Vec2::ZERO, false, false, false, false));
+                _ => (Vec2::ZERO, Vec2::ZERO, false, false, false, false),
+            }
+        };
 
         if quit {
             if let Some(q) = world.resource_mut::<ShouldQuit>() {
