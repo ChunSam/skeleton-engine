@@ -1,6 +1,6 @@
 [package]
 name        = "skeleton-engine"
-version     = "4.3.0"
+version     = "4.3.1"
 edition     = "2021"
 description = "Lightweight 2D game engine — wgpu rendering, custom ECS, rapier2d physics"
 repository  = "https://github.com/ChunSam/skeleton-engine"
@@ -104,7 +104,7 @@ rhai        = { version = "1", features = ["sync"] }
 rapier2d    = { version = "0.22", features = ["default"] }
 rodio       = { version = "0.19", default-features = false, features = ["wav", "vorbis", "mp3"] }
 dirs        = "5"
-gilrs       = "0.10"
+gilrs       = "0.11"
 notify      = "6"
 tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
 rayon       = "1"

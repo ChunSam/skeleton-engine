@@ -447,10 +447,30 @@ impl App {
     #[cfg(not(target_arch = "wasm32"))]
     fn poll_gilrs(&mut self) {
         let mut events = Vec::new();
+        let mut gilrs_panicked = false;
         if let Some(gilrs) = &mut self.gilrs {
-            while let Some(event) = gilrs.next_event() {
-                events.push(event);
+            // gilrs can panic internally for some controllers (e.g. it processes an axis
+            // event for a gamepad id its backend never registered and unwraps a `None`).
+            // Isolate that panic — mirroring the per-system catch_unwind in `schedule.rs` —
+            // so a flaky controller degrades gamepad input instead of crashing the whole app.
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let mut evs = Vec::new();
+                while let Some(event) = gilrs.next_event() {
+                    evs.push(event);
+                }
+                evs
+            }));
+            match result {
+                Ok(evs) => events = evs,
+                Err(_) => gilrs_panicked = true,
             }
+        }
+        if gilrs_panicked {
+            log::error!(
+                "gamepad backend (gilrs) panicked while polling events — disabling gamepad input for this session"
+            );
+            self.gilrs = None;
+            return;
         }
         if events.is_empty() {
             return;

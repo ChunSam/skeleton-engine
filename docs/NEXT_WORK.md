@@ -316,11 +316,41 @@ These are tracked in the seq-3 PLAN for a future (monitor-on) session; none are 
      keyboard + gamepad; keyboard-only methods unchanged (generic bound widened to
      `A: Eq + Hash + Clone`). `survivor_game` drives every action from keys OR a controller
      (DPad + sticks). 12 unit tests. Additive (minor `Clone` bound), no version bump.
+     **Live-controller validation (seq 7):** keyboard + unit paths verified; live gamepad input
+     could *not* be validated on macOS — modern macOS's GameController framework exclusively owns
+     Xbox/PlayStation pads (`UsbExclusiveOwner`), so gilrs (IOKit HID) sees a `Connected` event but
+     zero input. Validate on Linux/Windows or a generic-HID (DInput) pad. See the seq-7 section below.
    Other candidates (tilemap autotiling, runtime tilemap mutation, save-migration, data-driven
    anim/particle assets, diagonal pathfinding, RTL/per-locale fonts, audio ducking) are
    higher-effort/narrower or already documented-as-deferred — none clear the bar now.
 4. **rust-survivors WIP docs cleanup** *(separate repo, user's call)* — ~20 uncommitted doc
    changes sit in the game repo; organize/commit them only on the maintainer's direction.
+
+## Networking-dogfood seq 7 — INTERP_DELAY settle + gilrs crash fix + macOS gamepad limit (2026-06-09)
+
+Follow-ups to seq 6 (Phase-3 polish). Engine **4.3.0 → 4.3.1** (the gilrs crash fix is a real bug fix).
+
+- **`INTERP_DELAY_DEFAULT` settled at 60 ms** (was 100 ms) by real-play feel testing in
+  `predict_shooter` (server + 2 windows): below ~40 ms bullets ghost/trail; above ~70 ms a bullet
+  lingers at the shooter's old position when moving-and-firing; 60 ms (≈2× the 33 ms snapshot
+  interval) is the sweet spot. The live `[`/`]` tuner stays; its HUD label was clarified to
+  `[ -10ms  ] +10ms` (the old `[ / ]` was misread as the slash key).
+- **gilrs crash fixed (surfaced by the controller test).** With a controller connected, gilrs
+  0.10.10 panicked inside `next_event()` (`gamepad(id).unwrap()` on `None`, gamepad.rs:278/458),
+  crashing every windowed example ~1 s after launch. Two fixes: (a) a `catch_unwind` guard around the
+  gilrs poll in `src/app/window.rs` (mirrors the per-system isolation in `schedule.rs`) — a flaky
+  controller now disables gamepad input for the session instead of crashing; (b) upgraded **gilrs
+  0.10 → 0.11.2** (gilrs-core 0.5.15 → 0.6.8, reworked macOS HID backend) — no more crash. The unwrap
+  path still exists in 0.11.2, so the guard stays as a durable safety net. Full `+1.88.0` gate green.
+- **macOS gamepad limitation documented.** Modern macOS exposes Xbox/PlayStation pads via the
+  GameController framework, which takes *exclusive ownership* (`UsbExclusiveOwner=XboxUSBDevice`,
+  `com.apple.gamecontroller.driver.XboxGamepad`). gilrs uses IOKit HID, so such pads emit a
+  `Connected` event but no input — confirmed across 5 probe runs with a GameSir-G7 Pro (Xbox-licensed)
+  and an Xbox Series pad. Gamepad input works on Linux/Windows and with generic-HID (DInput) pads; a
+  native macOS GCController backend would be a large separate effort. Noted in the REFERENCE.html
+  gamepad section.
+- **REFERENCE.html** updated for the seq-6 public APIs (Camera `bounds`/`clamp_to_bounds`, InputMap
+  gamepad + `AxisBinding`, gamepad basics) — they were absent from the manual.
 
 ## Alignment check — previously "planned" items vs the reset vision
 
