@@ -73,8 +73,8 @@ Where to read to find a given thing:
 | Scene transitions (Scene, SceneCmd, SceneChange) | `src/scene.rs` |
 | Transform, Sprite | `src/components.rs` |
 | WindowConfig, GameState, ShouldQuit, DebugDrawQueue | `src/resources.rs` |
-| Camera (coordinate transforms, zoom; `screen_to_world`/`world_to_screen`) | `src/camera.rs` |
-| InputState, InputMap | `src/input/` |
+| Camera (coordinate transforms, zoom; `screen_to_world`/`world_to_screen`; `bounds` + `clamp_to_bounds` world-bounds clamp, auto-applied by App after follow) | `src/camera.rs` |
+| InputState, InputMap (keyboard + gamepad bindings: `bind_gamepad_button`/`bind_gamepad_axis` + `AxisBinding`, `*_with_gamepad` resolution) | `src/input/` |
 | GamepadState, GamepadButton, GamepadAxis | `src/input/gamepad.rs` |
 | PhysicsWorld, PhysicsBody, PhysicsSystem (syncs body position **and rotation** → Transform), CollisionEvent | `src/physics/` |
 | CharacterController (+ `request_drop`/`is_dropping` for one-way), RaycastHit, cast_ray, cast_ray_with_normal, move_character | `src/physics/character.rs`, `src/physics/world.rs` |

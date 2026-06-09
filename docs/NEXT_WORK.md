@@ -305,12 +305,17 @@ These are tracked in the seq-3 PLAN for a future (monitor-on) session; none are 
    complete in the "every subsystem has a playable example" sense; no high-value *new subsystem* is
    compelling now. The audit did surface **two small, broadly-useful API gaps** a first-time forker
    trips on, each worth one focused session (not new subsystems — polish):
-   - **Camera world-bounds clamping** — `Camera` has `follow_entity`/`lerp_factor` but no
-     `bounds: Option<Rect>`; every scrolling game reinvents the ~10-line clamp (e.g. `lit_dungeon`'s
-     `CameraFollowSystem`). Very low effort + a unit test; validate inside an existing scrolling game.
-   - **`InputMap` gamepad binding** — `InputMap` is keyboard-only; `GamepadState` exists separately,
-     so gamepad-capable games dispatch the two inputs by hand. Additive `bind_gamepad`/axis; validate
-     by updating `survivor_game`/`touch_demo`.
+   - **Camera world-bounds clamping** — ✅ *done (2026-06-09).* Added `Camera::bounds:
+     Option<(Vec2, Vec2)>` + `clamp_to_bounds(viewport_w, viewport_h)`; App auto-clamps each frame
+     right after `Camera::update`, so follow-based cameras need no extra code. `lit_dungeon` dropped
+     its hand-rolled `CameraFollowSystem` clamp for `camera.bounds`. 6 unit tests. Additive, no
+     version bump.
+   - **`InputMap` gamepad binding** — ✅ *done (2026-06-09).* Additive `bind_gamepad_button` /
+     `bind_gamepad_axis` (+ `AxisBinding`, re-exported as `engine::AxisBinding`) and
+     `is_pressed_with_gamepad` / `just_pressed_with_gamepad` / `just_released_with_gamepad` that OR
+     keyboard + gamepad; keyboard-only methods unchanged (generic bound widened to
+     `A: Eq + Hash + Clone`). `survivor_game` drives every action from keys OR a controller
+     (DPad + sticks). 12 unit tests. Additive (minor `Clone` bound), no version bump.
    Other candidates (tilemap autotiling, runtime tilemap mutation, save-migration, data-driven
    anim/particle assets, diagonal pathfinding, RTL/per-locale fonts, audio ducking) are
    higher-effort/narrower or already documented-as-deferred — none clear the bar now.
