@@ -19,7 +19,8 @@
 //! The pure netcode (prediction/reconciliation/interpolation) lives in `client_net.rs` and is
 //! unit-tested headlessly; this file wires it into ECS systems + rendering.
 //!
-//! Controls: WASD / arrows to move, Space to shoot.
+//! Controls: WASD / arrows to move, Space to shoot; the bracket keys live-tune the
+//! interpolation delay so its feel can be judged in real play.
 
 use engine::{
     App, DrawText, Events, InputState, KeyCode, NetworkClient, NetworkEvent, NetworkSystem, Scene,
@@ -39,9 +40,15 @@ mod protocol;
 use client_net::{Interp, Prediction};
 use protocol::*;
 
-/// Render remote entities this far in the past (seconds) so there are always two snapshots to
-/// interpolate between at the ~33 ms snapshot interval.
-const INTERP_DELAY: f64 = 0.1;
+/// Default interpolation delay (seconds): render remote entities this far in the past so there are
+/// always two snapshots to interpolate between at the ~33 ms snapshot interval. Live-tunable at
+/// runtime with the bracket keys (see `ShooterClient::interp_delay`) — the one feel parameter
+/// automated tests can't judge.
+const INTERP_DELAY_DEFAULT: f64 = 0.1;
+/// Live-tuning range + step for the interpolation delay (left bracket decreases, right increases).
+const INTERP_DELAY_MIN: f64 = 0.0;
+const INTERP_DELAY_MAX: f64 = 0.30;
+const INTERP_DELAY_STEP: f64 = 0.01;
 const PLAYER_SIZE: f32 = 2.0 * PLAYER_HALF;
 const BULLET_SIZE: f32 = 10.0;
 /// Cap input catch-up so a long stall (tab backgrounded) can't spiral.
@@ -73,6 +80,9 @@ struct ShooterClient {
     player_interp: HashMap<usize, Interp>,
     bullet_interp: HashMap<usize, Interp>,
     client_time: f64,
+    /// Interpolation delay (seconds), live-tunable with the bracket keys. Starts at
+    /// `INTERP_DELAY_DEFAULT`.
+    interp_delay: f64,
     input_accum: f32,
     status: String,
 }
@@ -88,6 +98,7 @@ impl ShooterClient {
             player_interp: HashMap::new(),
             bullet_interp: HashMap::new(),
             client_time: 0.0,
+            interp_delay: INTERP_DELAY_DEFAULT,
             input_accum: 0.0,
             status: format!("Connecting to {SERVER_ADDR} ..."),
         }
@@ -206,6 +217,16 @@ impl ShooterClient {
             [255, 255, 255, 220],
         ));
         tq.push(DrawText::new(
+            format!(
+                "INTERP_DELAY {:.0} ms   ·   [ / ] to tune   ·   default {:.0} ms",
+                self.interp_delay * 1000.0,
+                INTERP_DELAY_DEFAULT * 1000.0
+            ),
+            Vec2::new(12.0, 34.0),
+            14.0,
+            [140, 220, 255, 220],
+        ));
+        tq.push(DrawText::new(
             "WASD / Arrows move · Space shoots · white = you, colors = rivals",
             Vec2::new(12.0, FIELD_H - 26.0),
             13.0,
@@ -217,6 +238,18 @@ impl ShooterClient {
 impl System for ShooterClient {
     fn run(&mut self, world: &mut World, dt: f32) {
         self.client_time += dt as f64;
+
+        // 0. Live-tune the interpolation delay — the one "feel" parameter automation can't judge.
+        //    `[` shortens it (snappier, but risks a clamp-freeze on jitter); `]` lengthens it
+        //    (smoother under jitter, but more visual lag). Each press steps by INTERP_DELAY_STEP.
+        if let Some(input) = world.resource::<InputState>() {
+            if input.just_pressed(KeyCode::BracketLeft) {
+                self.interp_delay = (self.interp_delay - INTERP_DELAY_STEP).max(INTERP_DELAY_MIN);
+            }
+            if input.just_pressed(KeyCode::BracketRight) {
+                self.interp_delay = (self.interp_delay + INTERP_DELAY_STEP).min(INTERP_DELAY_MAX);
+            }
+        }
 
         // 1. Drain network events.
         let events: Vec<NetworkEvent> = world
@@ -261,7 +294,7 @@ impl System for ShooterClient {
         }
 
         // 4. Render remote players + bullets at the interpolated past position.
-        let rt = self.client_time - INTERP_DELAY;
+        let rt = self.client_time - self.interp_delay;
         let player_updates: Vec<(engine::Entity, Vec2)> = self
             .remote_players
             .iter()
