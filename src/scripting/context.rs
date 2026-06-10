@@ -8,9 +8,21 @@ use crate::ecs::Entity;
 pub(super) struct ScriptCommands {
     pub(super) despawn: Vec<Entity>,
     pub(super) spawn_count: u32,
+    /// Write-only: `spawn_entity()` pushes the negative handle here so the buffer allocation
+    /// is reused across frames, but the values are never read back — `spawn_entity()` already
+    /// returns the handle directly to the calling script. Kept only for buffer-reuse bookkeeping.
+    /// TODO: remove this field once the scripting API exposes a way to map script-side handles
+    /// to real entities (at which point the Vec becomes load-bearing again).
     pub(super) spawned_ids: Vec<i64>,
 }
 
+/// Blackboard entry used in two contexts:
+/// - `bb_buf`: entries written by the script this frame (the `String` key is needed here to
+///   know which blackboard field to set when applying the buffer).
+/// - `bb_snap` (`HashMap<String, BbEntry>`): snapshot read by the script. In this context the
+///   `String` key inside the variant is redundant (the HashMap key already carries it), but
+///   `BbEntry` is shared between both contexts so the field cannot be removed without splitting
+///   the type.
 #[derive(Clone)]
 pub(super) enum BbEntry {
     Bool(String, bool),

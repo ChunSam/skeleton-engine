@@ -344,36 +344,9 @@ pub fn spawn_scene_def(world: &mut World, scene: &SceneDef) -> Vec<Entity> {
 /// Topologically sorts the entity list so roots come before their children.
 ///
 /// When saving a scene, parents must appear before children so the two-pass attach in `spawn_scene_def()` works correctly.
-pub fn topological_sort_entities(entities: &[Entity], world: &World) -> Vec<Entity> {
-    use std::collections::VecDeque;
-
-    // Parent → children adjacency map
-    let mut children_map: HashMap<Entity, Vec<Entity>> = HashMap::new();
-    let entity_set: std::collections::HashSet<Entity> = entities.iter().copied().collect();
-    let mut roots: Vec<Entity> = Vec::new();
-
-    for &e in entities {
-        match world.get::<crate::hierarchy::Parent>(e) {
-            Some(p) if entity_set.contains(&p.0) => {
-                children_map.entry(p.0).or_default().push(e);
-            }
-            _ => roots.push(e),
-        }
-    }
-
-    // BFS: collect from roots down to children
-    let mut result = Vec::with_capacity(entities.len());
-    let mut queue: VecDeque<Entity> = roots.into_iter().collect();
-    while let Some(e) = queue.pop_front() {
-        result.push(e);
-        if let Some(kids) = children_map.get(&e) {
-            for &kid in kids {
-                queue.push_back(kid);
-            }
-        }
-    }
-    result
-}
+///
+/// This is a re-export shim. The implementation lives in [`crate::hierarchy::topological_sort_entities`].
+pub use crate::hierarchy::topological_sort_entities;
 
 // ─── Unit tests ───────────────────────────────────────────────────────────────
 
