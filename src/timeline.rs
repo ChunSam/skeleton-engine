@@ -228,6 +228,11 @@ impl Default for Timeline {
 
 pub struct TimelineSystem;
 
+impl TimelineSystem {
+    /// Schedule label for ordering via `add_system_labeled`.
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::timeline";
+}
+
 impl crate::ecs::System for TimelineSystem {
     fn name(&self) -> &'static str {
         "TimelineSystem"

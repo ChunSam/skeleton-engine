@@ -127,6 +127,12 @@ pub fn topological_sort_entities(entities: &[Entity], world: &World) -> Vec<Enti
 /// **arbitrary-depth** hierarchies (e.g. deep bone chains like hip→torso→upper_arm→forearm→hand).
 pub struct HierarchySystem;
 
+impl HierarchySystem {
+    /// Schedule label. Run **after** systems that mutate `Transform` so
+    /// `GlobalTransform` reflects the current frame's state.
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::hierarchy";
+}
+
 impl System for HierarchySystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
         // Topological sort of all entities with a Transform (root → children order).

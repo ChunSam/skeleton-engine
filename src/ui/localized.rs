@@ -44,6 +44,12 @@ impl LocalizedText {
 /// rendered the same frame. No-op when no [`LocaleResource`] exists.
 pub struct LocalizationSystem;
 
+impl LocalizationSystem {
+    /// Schedule label. Recommended order: **before** `UiSystem::LABEL` so resolved
+    /// text is rendered the same frame.
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::localization";
+}
+
 impl System for LocalizationSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
         // 1. Collect (entity, key) — query borrow released before locale lookup.

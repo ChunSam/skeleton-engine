@@ -37,6 +37,20 @@ for entity in entities {
 }
 ```
 
+### Per-frame scratch buffers (allocation convention)
+
+Collect-then-mutate forces temporary collections; in a **per-frame** system, do not
+allocate them fresh every call. Two sanctioned patterns:
+
+- **Scratch fields** — promote the temporaries to private struct fields and
+  `clear()` + refill each frame (`CollisionGridSystem`, `PhysicsSystem`).
+- **`std::mem::take`** — when a queue/Vec resource is drained each frame, take it
+  instead of cloning, and put it back if it must survive
+  (`TextQueue` drain in `renderer/text.rs`, `exec_order` in `app/schedule.rs`).
+
+One-shot or editor-only paths may allocate freely — this convention is for code that
+runs every frame.
+
 ### Render layer separation
 
 - `AnimationSystem` → syncs the `UvRect` component → the renderer reads only `UvRect`  
@@ -49,8 +63,8 @@ for entity in entities {
 When using `Panel`, register `LayoutSystem` **before** `UiSystem`:
 
 ```rust
-app.add_system(Box::new(LayoutSystem));  // recomputes child UiNode.offset
-app.add_system(Box::new(UiSystem));      // reads positions and renders
+app.add_system(LayoutSystem);  // recomputes child UiNode.offset
+app.add_system(UiSystem);      // reads positions and renders
 ```
 
 `UiEvent` implements `Clone` but not `Copy` (TextChanged/TextSubmitted carry a String).  
@@ -61,8 +75,8 @@ app.add_system(Box::new(UiSystem));      // reads positions and renders
 Register `StateMachineSystem` **after** `AnimationSystem` so `is_finished()` is reflected in the same frame:
 
 ```rust
-app.add_system(Box::new(AnimationSystem));     // frame advance + UvRect sync
-app.add_system(Box::new(StateMachineSystem));  // evaluate transition conditions → call play()
+app.add_system(AnimationSystem);     // frame advance + UvRect sync
+app.add_system(StateMachineSystem);  // evaluate transition conditions → call play()
 ```
 
 Manipulate parameters inside a system via `world.get_mut::<AnimationStateMachine>(entity)`:
@@ -74,6 +88,34 @@ sm.fire_trigger("jump");           // for Trigger conditions (auto-consumed each
 ```
 
 `TransitionCond::AnimationEnd` becomes true when a non-looping clip reaches its last frame.
+
+### System ordering with labels
+
+Insertion order works, but it is implicit — reordering registrations silently breaks the
+constraints above. Every built-in system exposes a `LABEL` constant; declare ordering
+explicitly with `add_system_labeled` (demonstrated in `examples/games/platformer/`):
+
+```rust
+app.add_system_labeled(AnimationSystem, SystemConfig::new().label(AnimationSystem::LABEL));
+app.add_system_labeled(
+    StateMachineSystem,
+    SystemConfig::new().label(StateMachineSystem::LABEL).after(AnimationSystem::LABEL),
+);
+```
+
+Known ordering constraints expressed this way:
+
+| Constraint | Why |
+|---|---|
+| `StateMachineSystem` after `AnimationSystem` | reads frame state produced by the tick |
+| `LayoutSystem` before `UiSystem` | UiSystem reads recomputed offsets |
+| readers of `SpatialGrid` after `CollisionGridSystem` | it mirrors the grid resource |
+| `CollisionDebugSystem` after `CollisionGridSystem` | same |
+| consumers of `Events<NetworkEvent>` after `NetworkSystem` | it polls the socket into the bus |
+| `LocalizationSystem` before `UiSystem` | resolved text rendered same frame |
+
+Note: systems pushed inside `Scene::on_enter` get no labels (the raw `Vec` parameter
+cannot carry `SystemConfig`) — a `SystemRegistrar` wrapper is planned for v5.
 
 ### PhysicsWorld encapsulation
 
@@ -98,7 +140,8 @@ remove_body()
 ### Add a new system
 
 1. Implement the `System` trait
-2. Register with `app.add_system(Box::new(MySystem))` or in `Scene::on_enter`
+2. Register with `app.add_system(MySystem)` (or `add_system_labeled` for explicit
+   ordering), or push in `Scene::on_enter`
 
 ### Add a new resource
 
@@ -131,3 +174,15 @@ world
 // SceneCmd::Push(Box::new(MyScene)) — push onto the stack
 // SceneCmd::Pop                      — return to the previous scene
 ```
+
+### Add a custom asset type (fork extension point)
+
+`AssetServer` is deliberately closed to generic registration — **forking it is the
+intended extension path**. Each asset type is a pair of maps plus load/get methods;
+mirror the existing `scripts`/`atlases` pair in `src/asset.rs`:
+
+1. Storage: `things: HashMap<AssetId, ThingAsset>` + `thing_path_to_id: HashMap<Arc<str>, AssetId>`
+2. `load_thing(path) -> Handle<ThingAsset>` — key via `asset_key`, dedupe through the
+   path map, insert into storage
+3. `get_thing(&Handle<ThingAsset>) -> Option<&ThingAsset>`
+4. Optional hot reload: handle your extension in the `reload_rx` drain (native only)

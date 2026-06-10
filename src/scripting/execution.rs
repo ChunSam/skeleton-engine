@@ -13,6 +13,11 @@ use super::context::{
 };
 use super::{ScriptRunner, ScriptingSystem};
 
+impl ScriptingSystem {
+    /// Schedule label for ordering via `add_system_labeled`.
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::scripting";
+}
+
 impl System for ScriptingSystem {
     fn run(&mut self, world: &mut World, dt: f32) {
         let entities: Vec<Entity> = world.query::<ScriptRunner>().map(|(e, _)| e).collect();

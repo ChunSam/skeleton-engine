@@ -568,6 +568,12 @@ pub use wasm_impl::NetworkClient;
 /// ```
 pub struct NetworkSystem;
 
+impl NetworkSystem {
+    /// Schedule label. Systems consuming `Events<NetworkEvent>` should declare
+    /// `.after(NetworkSystem::LABEL)`.
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::network";
+}
+
 impl System for NetworkSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
         let incoming: Vec<NetworkEvent> = {

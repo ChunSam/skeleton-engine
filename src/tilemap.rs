@@ -101,6 +101,11 @@ impl Default for TilemapSystem {
     }
 }
 
+impl TilemapSystem {
+    /// Schedule label for ordering via `add_system_labeled`.
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::tilemap";
+}
+
 impl System for TilemapSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
         // Collect currently alive tilemap entities

@@ -131,6 +131,11 @@ pub struct ParticleBurst {
 
 pub struct ParticleSystem;
 
+impl ParticleSystem {
+    /// Schedule label for ordering via `add_system_labeled`.
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::particle";
+}
+
 impl System for ParticleSystem {
     fn run(&mut self, world: &mut World, dt: f32) {
         // 1. Move and update color of existing particles; collect expired ones.

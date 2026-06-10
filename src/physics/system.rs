@@ -104,6 +104,11 @@ fn ordered_pair(a: ColliderHandle, b: ColliderHandle) -> (ColliderHandle, Collid
     }
 }
 
+impl PhysicsSystem {
+    /// Schedule label for ordering via `add_system_labeled` (e.g. `.after(PhysicsSystem::LABEL)`).
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::physics";
+}
+
 impl System for PhysicsSystem {
     fn run(&mut self, world: &mut World, dt: f32) {
         let Some(mut physics) = world.remove_resource::<PhysicsWorld>() else {

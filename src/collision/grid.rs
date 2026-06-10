@@ -193,6 +193,12 @@ impl CollisionGridSystem {
     }
 }
 
+impl CollisionGridSystem {
+    /// Schedule label. Systems reading the mirrored `SpatialGrid` resource should
+    /// declare `.after(CollisionGridSystem::LABEL)`.
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::collision_grid";
+}
+
 impl System for CollisionGridSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
         // Take last frame's grid (keeping its allocated buckets) or make a fresh

@@ -48,6 +48,12 @@ impl CollisionDebugSystem {
     }
 }
 
+impl CollisionDebugSystem {
+    /// Schedule label. Recommended order: **after** `CollisionGridSystem::LABEL`
+    /// (this system reads the `SpatialGrid` resource that system mirrors).
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::collision_debug";
+}
+
 impl System for CollisionDebugSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
         let enabled = world

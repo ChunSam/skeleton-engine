@@ -85,6 +85,11 @@ pub struct AudioManager {
 #[derive(Default)]
 pub struct AudioSystem;
 
+impl AudioSystem {
+    /// Schedule label for ordering via `add_system_labeled`.
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::audio";
+}
+
 impl crate::ecs::System for AudioSystem {
     fn run(&mut self, world: &mut crate::ecs::World, dt: f32) {
         if let Some(audio) = world.resource_mut::<AudioManager>() {
