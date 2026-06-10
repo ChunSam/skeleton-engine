@@ -62,75 +62,92 @@ impl LayoutSystem {
 
 impl System for LayoutSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
-        let viewport = match world.resource::<ViewportSize>() {
-            Some(v) => ViewportSize {
-                width: v.width,
-                height: v.height,
-            },
+        let viewport = match world.resource::<ViewportSize>().copied() {
+            Some(v) => v,
             None => return,
         };
 
-        // Step 1: collect panel data — can't call get_mut while the iterator is live, so collect first
-        let panel_data: Vec<(Vec<Entity>, f32, LayoutDir, f32, Vec2)> = world
+        // Step 1: collect panel layout + background data in a single pass.
+        // Can't call get_mut while the query iterator is live, so collect first
+        // (the repo's standard borrow-checker workaround).
+        struct PanelSnapshot {
+            children: Vec<Entity>,
+            gap: f32,
+            direction: LayoutDir,
+            padding: f32,
+            panel_pos: Vec2,
+            // background draw data
+            size: Vec2,
+            z: f32,
+            visible: bool,
+            bg_color: Color,
+        }
+        let snapshots: Vec<PanelSnapshot> = world
             .query2::<UiNode, Panel>()
             .map(|(_, node, panel)| {
-                let pos = node.screen_pos(&viewport);
-                (
-                    panel.children.clone(),
-                    panel.gap,
-                    panel.direction,
-                    panel.padding,
-                    pos,
-                )
+                let panel_pos = node.screen_pos(&viewport);
+                PanelSnapshot {
+                    children: panel.children.clone(),
+                    gap: panel.gap,
+                    direction: panel.direction,
+                    padding: panel.padding,
+                    panel_pos,
+                    size: node.size,
+                    z: node.z,
+                    visible: node.visible,
+                    bg_color: panel.background_color,
+                }
             })
             .collect();
 
-        // Step 2: iterator released after collect → get_mut is safe
-        for (children, gap, direction, padding, panel_pos) in panel_data {
-            let start_x = panel_pos.x + padding;
-            let start_y = panel_pos.y + padding;
+        // Step 2: iterator released after collect → get_mut is safe.
+        let mut rects: Vec<DrawRect> = Vec::new();
+        for snap in snapshots {
+            // Layout children.
+            let start_x = snap.panel_pos.x + snap.padding;
+            let start_y = snap.panel_pos.y + snap.padding;
             let mut cursor_x = start_x;
             let mut cursor_y = start_y;
 
-            for child_entity in children {
+            for child_entity in snap.children {
                 let child_size = match world.get::<UiNode>(child_entity) {
                     Some(n) => n.size,
                     None => continue,
                 };
                 if let Some(child_node) = world.get_mut::<UiNode>(child_entity) {
                     child_node.anchor = Anchor::TopLeft;
-                    match direction {
+                    match snap.direction {
                         LayoutDir::Vertical => {
                             child_node.offset = Vec2::new(start_x, cursor_y);
-                            cursor_y += child_size.y + gap;
+                            cursor_y += child_size.y + snap.gap;
                         }
                         LayoutDir::Horizontal => {
                             child_node.offset = Vec2::new(cursor_x, start_y);
-                            cursor_x += child_size.x + gap;
+                            cursor_x += child_size.x + snap.gap;
                         }
                     }
                 }
             }
-        }
 
-        // Step 3: render panel backgrounds (at a lower z than children)
-        let panel_entities: Vec<Entity> =
-            world.query2::<UiNode, Panel>().map(|(e, _, _)| e).collect();
-
-        let mut rects: Vec<DrawRect> = Vec::new();
-        for entity in panel_entities {
-            let (pos, size, z, visible) = match world.get::<UiNode>(entity) {
-                Some(n) => (n.screen_pos(&viewport), n.size, n.z, n.visible),
-                None => continue,
-            };
-            if !visible {
-                continue;
+            // Collect background rect (rendered beneath children via z − 0.01).
+            //
+            // Note: panel background emission intentionally happens in LayoutSystem
+            // rather than UiSystem. LayoutSystem runs first and pushes background rects
+            // into UiQueue before UiSystem pushes widget rects. Combined with the
+            // `z − 0.01` offset this guarantees backgrounds are drawn under all widgets
+            // without requiring a separate panel pass inside UiSystem.
+            if snap.visible {
+                rects.push(
+                    DrawRect::new(
+                        snap.panel_pos.x,
+                        snap.panel_pos.y,
+                        snap.size.x,
+                        snap.size.y,
+                        snap.bg_color,
+                    )
+                    .with_z(snap.z - 0.01),
+                );
             }
-            let bg_color = match world.get::<Panel>(entity) {
-                Some(p) => p.background_color,
-                None => continue,
-            };
-            rects.push(DrawRect::new(pos.x, pos.y, size.x, size.y, bg_color).with_z(z - 0.01));
         }
 
         if let Some(ui_queue) = world.resource_mut::<UiQueue>() {

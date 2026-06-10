@@ -60,10 +60,7 @@ pub(super) struct UiOutput {
 }
 
 pub(super) fn viewport_from_world(world: &World) -> Option<ViewportSize> {
-    world.resource::<ViewportSize>().map(|v| ViewportSize {
-        width: v.width,
-        height: v.height,
-    })
+    world.resource::<ViewportSize>().copied()
 }
 
 pub(super) fn submit_output(world: &mut World, output: UiOutput) {
