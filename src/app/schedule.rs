@@ -198,8 +198,14 @@ impl App {
         {
             let system_count = self.systems.len();
             let mut timings: Vec<(usize, &'static str, u64)> = Vec::with_capacity(system_count);
-            let order = self.exec_order.clone();
-            for i in order {
+            // Take exec_order out of self so the loop body can mutably borrow self (via
+            // catch_unwind / systems[i].run) without conflicting with a shared borrow of
+            // self.exec_order.  The Vec is put back unchanged after the loop.
+            // A recompute can only happen when schedule_dirty is set by add_system/
+            // add_system_labeled — those are not callable from inside a running system — so
+            // the Vec we restore is always still valid for the current frame.
+            let order = std::mem::take(&mut self.exec_order);
+            for i in order.iter().copied() {
                 if i >= self.systems.len() {
                     continue;
                 }
@@ -245,6 +251,8 @@ impl App {
                     }
                 }
             }
+            // Restore the order Vec (no allocation, just moves the pointer back).
+            self.exec_order = order;
             if let Some(prof) = self.world.resource_mut::<crate::resources::ProfilerData>() {
                 if prof.systems.len() != system_count {
                     prof.systems.clear();

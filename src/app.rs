@@ -120,6 +120,8 @@ pub struct App {
     #[cfg(not(target_arch = "wasm32"))]
     lighting_renderer: Option<crate::renderer::lighting::LightingRenderer>,
     /// Fade renderer executed as the final pass when `FadeTransition` has `alpha > 0`.
+    /// This field exists on native targets only. On wasm, `FadeTransition` is accepted
+    /// without error but the fade effect is silently skipped (no render pass is issued).
     #[cfg(not(target_arch = "wasm32"))]
     fade_renderer: Option<crate::renderer::fade::FadeRenderer>,
     /// Intermediate texture the lighting pass renders the scene into first.
@@ -186,7 +188,19 @@ impl App {
         Self::insert_core_resources(&mut world);
         Self::register_core_component_metadata(&mut world);
 
+        // EditorState::new() (native) registers default component removers; wasm only
+        // has Default (no native-only fields).
         #[cfg(not(target_arch = "wasm32"))]
+        let editor_state = EditorState::new();
+        #[cfg(target_arch = "wasm32")]
+        let editor_state = EditorState::default();
+
+        // Single struct literal covering both targets.  Fields that exist only on
+        // native (lighting/fade/gilrs/…) are gated with #[cfg]; the cfg on the struct
+        // field definition ensures the field is absent on wasm, so this compiles on
+        // both targets without duplication.
+        // `mut` is needed on native for register_default_components(); wasm doesn't use it.
+        #[allow(unused_mut)]
         let mut app = Self {
             world,
             systems: Vec::new(),
@@ -203,10 +217,15 @@ impl App {
             sprite_renderer: None,
             text_renderer: None,
             post_renderer: None,
+            #[cfg(not(target_arch = "wasm32"))]
             lighting_renderer: None,
+            #[cfg(not(target_arch = "wasm32"))]
             fade_renderer: None,
+            #[cfg(not(target_arch = "wasm32"))]
             scene_texture_for_lighting: None,
+            #[cfg(not(target_arch = "wasm32"))]
             post_texture_for_lighting: None,
+            #[cfg(not(target_arch = "wasm32"))]
             gpu_particle_renderer: None,
             last_frame: None,
             last_dt: 1.0 / 60.0,
@@ -216,47 +235,16 @@ impl App {
             event_flushers: Vec::new(),
             event_initializers: Vec::new(),
             persistent_resources: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
             gilrs,
             egui_renderer: None,
             egui_state: None,
             egui_output: None,
-            editor: EditorState::new(),
+            editor: editor_state,
         };
         #[cfg(not(target_arch = "wasm32"))]
         app.register_default_components();
-        #[cfg(not(target_arch = "wasm32"))]
-        return app;
-
-        #[cfg(target_arch = "wasm32")]
-        Self {
-            world,
-            systems: Vec::new(),
-            system_meta: Vec::new(),
-            exec_order: Vec::new(),
-            schedule_dirty: true,
-            disabled_sets: std::collections::HashSet::new(),
-            panicked_systems: std::collections::HashSet::new(),
-            schedule_error_policy: ScheduleErrorPolicy::default(),
-            system_panic_policy: SystemPanicPolicy::default(),
-            scene_stack: Vec::new(),
-            window: None,
-            gpu: None,
-            sprite_renderer: None,
-            text_renderer: None,
-            post_renderer: None,
-            last_frame: None,
-            last_dt: 1.0 / 60.0,
-            pending_textures: Vec::new(),
-            render_targets: HashMap::new(),
-            pending_render_targets: Vec::new(),
-            event_flushers: Vec::new(),
-            event_initializers: Vec::new(),
-            persistent_resources: Vec::new(),
-            egui_renderer: None,
-            egui_state: None,
-            egui_output: None,
-            editor: EditorState::default(),
-        }
+        app
     }
 }
 

@@ -3,6 +3,68 @@ use super::*;
 mod gizmo;
 mod shortcuts;
 
+// ── Private free helpers ──────────────────────────────────────────────────────
+
+/// Render the "Name:" tag-editing row for `sel` inside an existing `ui` horizontal.
+///
+/// Shows a text-edit when the entity already has a `Tag`; otherwise shows the
+/// raw `Entity` id and an "Add Name" button.  Writes back through `world`.
+/// Only used in native-only UI paths.
+#[cfg(not(target_arch = "wasm32"))]
+fn tag_name_editor(
+    ui: &mut egui::Ui,
+    sel: Entity,
+    tag_map: &HashMap<Entity, String>,
+    world: &mut World,
+) {
+    let current_name = tag_map.get(&sel).cloned().unwrap_or_default();
+    let has_tag = world.get::<Tag>(sel).is_some();
+    ui.horizontal(|ui| {
+        ui.label("Name:");
+        if has_tag {
+            let mut name_buf = current_name;
+            if ui.text_edit_singleline(&mut name_buf).changed() {
+                world.add_component(sel, Tag(name_buf));
+            }
+        } else {
+            ui.label(format!("Entity {}:{}", sel.index(), sel.generation()));
+            if ui.button("Add Name").clicked() {
+                world.add_component(
+                    sel,
+                    Tag(format!("Entity {}:{}", sel.index(), sel.generation())),
+                );
+            }
+        }
+    });
+}
+
+/// Apply Ctrl+click multi-select semantics for `entity`.
+///
+/// If `ctrl` is true the entity is toggled in `selected`; otherwise it becomes
+/// the sole selection.  `inspector` is updated to track the primary selection.
+#[cfg(not(target_arch = "wasm32"))]
+fn apply_multiselect(
+    entity: Entity,
+    ctrl: bool,
+    selected: &mut Vec<Entity>,
+    inspector: &mut Option<Entity>,
+) {
+    if ctrl {
+        if let Some(pos) = selected.iter().position(|&x| x == entity) {
+            selected.remove(pos);
+            *inspector = selected.last().copied();
+        } else {
+            selected.push(entity);
+            *inspector = Some(entity);
+        }
+    } else {
+        *inspector = Some(entity);
+        *selected = vec![entity];
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 impl App {
     pub(in crate::app) fn update_editor_ui(&mut self, egui_ctx: &Option<egui::Context>, dt: f32) {
         // Inspector: validate selected entity + stage fields
@@ -18,12 +80,10 @@ impl App {
         self.editor
             .selected_entities
             .retain(|&e| self.world.is_alive(e));
-        let entity_list: Vec<Entity> = self.world.entities().to_vec();
-        let tag_map: HashMap<Entity, String> = self
-            .world
-            .query::<Tag>()
-            .map(|(e, t)| (e, t.0.clone()))
-            .collect();
+        // comp_fields must be built unconditionally: it is consumed after the egui block
+        // for inspector write-back (~line 742).  entity_list / tag_map are only needed
+        // inside the is_enabled() gate and are moved there to avoid per-frame allocations
+        // when the overlay is closed.
         let mut comp_fields: Vec<(&'static str, Vec<(&'static str, ReflectValue)>)> = Vec::new();
         if let Some(sel) = self.editor.inspector_selected {
             for tid in self.world.reflected_components(sel) {
@@ -32,42 +92,6 @@ impl App {
                 }
             }
         }
-        // List of Reflect-registered component names on the selected entity (native only, for the component management UI).
-        // Extracting names from comp_fields avoids a borrow conflict.
-        #[cfg(not(target_arch = "wasm32"))]
-        let selected_comp_names: Vec<&'static str> =
-            comp_fields.iter().map(|(name, _)| *name).collect();
-
-        // ── Pre-collect scene graph data (native only) ───────────────────────────
-        // Borrow-checker workaround: copy the entire hierarchy before entering the egui closure.
-        #[cfg(not(target_arch = "wasm32"))]
-        let scene_graph_data: Vec<(Entity, Option<Entity>)> = {
-            // (entity, parent_entity_or_none)
-            entity_list
-                .iter()
-                .map(|&e| {
-                    let parent = self.world.get::<crate::hierarchy::Parent>(e).map(|p| p.0);
-                    (e, parent)
-                })
-                .collect()
-        };
-        // children_map: parent → list of children
-        #[cfg(not(target_arch = "wasm32"))]
-        let children_map: HashMap<Entity, Vec<Entity>> = {
-            let mut map: HashMap<Entity, Vec<Entity>> = HashMap::new();
-            for &(child, parent_opt) in &scene_graph_data {
-                if let Some(parent) = parent_opt {
-                    map.entry(parent).or_default().push(child);
-                }
-            }
-            map
-        };
-        // Root entities = those without a Parent component
-        #[cfg(not(target_arch = "wasm32"))]
-        let root_entities: Vec<Entity> = scene_graph_data
-            .iter()
-            .filter_map(|&(e, p)| if p.is_none() { Some(e) } else { None })
-            .collect();
 
         // Built-in EngineStats panel + Inspector
         if let Some(ctx) = egui_ctx {
@@ -80,6 +104,53 @@ impl App {
                 .map(|d| d.is_enabled())
                 .unwrap_or(false)
             {
+                // ── Build entity/tag data only when the overlay is visible ───────────
+                // Avoids a Vec + HashMap allocation every frame when the debug overlay
+                // is closed (is_enabled() == false).
+                let entity_list: Vec<Entity> = self.world.entities().to_vec();
+                let tag_map: HashMap<Entity, String> = self
+                    .world
+                    .query::<Tag>()
+                    .map(|(e, t)| (e, t.0.clone()))
+                    .collect();
+
+                // List of Reflect-registered component names on the selected entity (native only).
+                // Extracting names from comp_fields avoids a borrow conflict.
+                #[cfg(not(target_arch = "wasm32"))]
+                let selected_comp_names: Vec<&'static str> =
+                    comp_fields.iter().map(|(name, _)| *name).collect();
+
+                // ── Pre-collect scene graph data (native only) ─────────────────────
+                // Borrow-checker workaround: copy the entire hierarchy before entering
+                // the egui closure.
+                #[cfg(not(target_arch = "wasm32"))]
+                let scene_graph_data: Vec<(Entity, Option<Entity>)> = {
+                    // (entity, parent_entity_or_none)
+                    entity_list
+                        .iter()
+                        .map(|&e| {
+                            let parent = self.world.get::<crate::hierarchy::Parent>(e).map(|p| p.0);
+                            (e, parent)
+                        })
+                        .collect()
+                };
+                // children_map: parent → list of children
+                #[cfg(not(target_arch = "wasm32"))]
+                let children_map: HashMap<Entity, Vec<Entity>> = {
+                    let mut map: HashMap<Entity, Vec<Entity>> = HashMap::new();
+                    for &(child, parent_opt) in &scene_graph_data {
+                        if let Some(parent) = parent_opt {
+                            map.entry(parent).or_default().push(child);
+                        }
+                    }
+                    map
+                };
+                // Root entities = those without a Parent component
+                #[cfg(not(target_arch = "wasm32"))]
+                let root_entities: Vec<Entity> = scene_graph_data
+                    .iter()
+                    .filter_map(|&(e, p)| if p.is_none() { Some(e) } else { None })
+                    .collect();
                 let entity_count = self.world.entity_count();
                 let asset_count = self
                     .world
@@ -219,56 +290,18 @@ impl App {
                                 });
 
                             if let Some(e) = clicked_entity {
-                                if ctrl_clicked {
-                                    // Ctrl+click: toggle multi-select
-                                    if let Some(pos) =
-                                        self.editor.selected_entities.iter().position(|&x| x == e)
-                                    {
-                                        self.editor.selected_entities.remove(pos);
-                                        // Set inspector_selected to the last selection, or None
-                                        self.editor.inspector_selected =
-                                            self.editor.selected_entities.last().copied();
-                                    } else {
-                                        self.editor.selected_entities.push(e);
-                                        self.editor.inspector_selected = Some(e);
-                                    }
-                                } else {
-                                    // Regular click: single selection
-                                    self.editor.inspector_selected = Some(e);
-                                    self.editor.selected_entities = vec![e];
-                                }
+                                apply_multiselect(
+                                    e,
+                                    ctrl_clicked,
+                                    &mut self.editor.selected_entities,
+                                    &mut self.editor.inspector_selected,
+                                );
                             }
 
                             // Edit the Tag name of the selected entity
                             ui.separator();
                             if let Some(sel) = self.editor.inspector_selected {
-                                let current_name = tag_map.get(&sel).cloned().unwrap_or_default();
-                                let has_tag = self.world.get::<Tag>(sel).is_some();
-                                ui.horizontal(|ui| {
-                                    ui.label("Name:");
-                                    if has_tag {
-                                        let mut name_buf = current_name.clone();
-                                        if ui.text_edit_singleline(&mut name_buf).changed() {
-                                            self.world.add_component(sel, Tag(name_buf));
-                                        }
-                                    } else {
-                                        ui.label(format!(
-                                            "Entity {}:{}",
-                                            sel.index(),
-                                            sel.generation()
-                                        ));
-                                        if ui.button("Add Name").clicked() {
-                                            self.world.add_component(
-                                                sel,
-                                                Tag(format!(
-                                                    "Entity {}:{}",
-                                                    sel.index(),
-                                                    sel.generation()
-                                                )),
-                                            );
-                                        }
-                                    }
-                                });
+                                tag_name_editor(ui, sel, &tag_map, &mut self.world);
                             } else {
                                 ui.label("(no entity selected)");
                             }
@@ -407,36 +440,12 @@ impl App {
                                                 let resp = ui.selectable_label(is_sel, &label);
                                                 if resp.clicked() {
                                                     #[cfg(not(target_arch = "wasm32"))]
-                                                    {
-                                                        if ui.input(|i| i.modifiers.ctrl) {
-                                                            // Ctrl+click: toggle
-                                                            if let Some(pos) = self
-                                                                .editor
-                                                                .selected_entities
-                                                                .iter()
-                                                                .position(|&x| x == e)
-                                                            {
-                                                                self.editor
-                                                                    .selected_entities
-                                                                    .remove(pos);
-                                                                self.editor.inspector_selected =
-                                                                    self.editor
-                                                                        .selected_entities
-                                                                        .last()
-                                                                        .copied();
-                                                            } else {
-                                                                self.editor
-                                                                    .selected_entities
-                                                                    .push(e);
-                                                                self.editor.inspector_selected =
-                                                                    Some(e);
-                                                            }
-                                                        } else {
-                                                            self.editor.inspector_selected =
-                                                                Some(e);
-                                                            self.editor.selected_entities = vec![e];
-                                                        }
-                                                    }
+                                                    apply_multiselect(
+                                                        e,
+                                                        ui.input(|i| i.modifiers.ctrl),
+                                                        &mut self.editor.selected_entities,
+                                                        &mut self.editor.inspector_selected,
+                                                    );
                                                     #[cfg(target_arch = "wasm32")]
                                                     {
                                                         self.editor.inspector_selected = Some(e);
@@ -630,33 +639,7 @@ impl App {
                             #[cfg(not(target_arch = "wasm32"))]
                             if let Some(sel) = self.editor.inspector_selected {
                                 ui.separator();
-                                let current_name = tag_map.get(&sel).cloned().unwrap_or_default();
-                                let has_tag = self.world.get::<Tag>(sel).is_some();
-                                ui.horizontal(|ui| {
-                                    ui.label("Name:");
-                                    if has_tag {
-                                        let mut name_buf = current_name;
-                                        if ui.text_edit_singleline(&mut name_buf).changed() {
-                                            self.world.add_component(sel, Tag(name_buf));
-                                        }
-                                    } else {
-                                        ui.label(format!(
-                                            "Entity {}:{}",
-                                            sel.index(),
-                                            sel.generation()
-                                        ));
-                                        if ui.button("Add Name").clicked() {
-                                            self.world.add_component(
-                                                sel,
-                                                Tag(format!(
-                                                    "Entity {}:{}",
-                                                    sel.index(),
-                                                    sel.generation()
-                                                )),
-                                            );
-                                        }
-                                    }
-                                });
+                                tag_name_editor(ui, sel, &tag_map, &mut self.world);
                             }
                             // ── Scene save (Phase 28) ────────────────────────────────
                             #[cfg(not(target_arch = "wasm32"))]
