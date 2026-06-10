@@ -89,6 +89,7 @@ fn push_event_bounded(
 mod native {
     use super::{NetworkConfig, NetworkEvent};
     use std::collections::VecDeque;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
 
     enum OutMsg {
@@ -100,6 +101,7 @@ mod native {
     pub struct NetworkClient {
         event_buffer: Arc<Mutex<VecDeque<NetworkEvent>>>,
         msg_tx: std::sync::mpsc::SyncSender<OutMsg>,
+        connected: Arc<AtomicBool>,
     }
 
     impl NetworkClient {
@@ -117,6 +119,8 @@ mod native {
             let url = url.to_string();
             let max_message_bytes = config.max_message_bytes;
             let max_pending_events = config.max_pending_events;
+            let connected = Arc::new(AtomicBool::new(false));
+            let thread_connected = Arc::clone(&connected);
 
             std::thread::spawn(move || {
                 let (mut socket, _) = match tungstenite::connect(&url) {
@@ -127,6 +131,7 @@ mod native {
                             NetworkEvent::Error(format!("connect failed: {e}")),
                             max_pending_events,
                         );
+                        // connected stays false — no cleanup needed
                         return;
                     }
                 };
@@ -143,6 +148,7 @@ mod native {
                     tls.sock.set_read_timeout(Some(READ_TIMEOUT)).ok();
                 }
 
+                thread_connected.store(true, Ordering::Release);
                 super::push_event_bounded(
                     &thread_event_buffer,
                     NetworkEvent::Connected,
@@ -158,6 +164,7 @@ mod native {
                                     .send(tungstenite::Message::Binary(data.into()))
                                     .is_err()
                                 {
+                                    thread_connected.store(false, Ordering::Release);
                                     return;
                                 }
                             }
@@ -166,10 +173,12 @@ mod native {
                                     .send(tungstenite::Message::Text(text.into()))
                                     .is_err()
                                 {
+                                    thread_connected.store(false, Ordering::Release);
                                     return;
                                 }
                             }
                             Ok(OutMsg::Close) => {
+                                thread_connected.store(false, Ordering::Release);
                                 socket.close(None).ok();
                                 super::push_event_bounded(
                                     &thread_event_buffer,
@@ -181,7 +190,10 @@ mod native {
                                 return;
                             }
                             Err(std::sync::mpsc::TryRecvError::Empty) => break,
-                            Err(std::sync::mpsc::TryRecvError::Disconnected) => return,
+                            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                                thread_connected.store(false, Ordering::Release);
+                                return;
+                            }
                         }
                     }
 
@@ -225,6 +237,7 @@ mod native {
                         }
                         Ok(tungstenite::Message::Close(frame)) => {
                             let reason = frame.map(|f| f.reason.to_string()).unwrap_or_default();
+                            thread_connected.store(false, Ordering::Release);
                             super::push_event_bounded(
                                 &thread_event_buffer,
                                 NetworkEvent::Disconnected { reason },
@@ -240,6 +253,7 @@ mod native {
                             // No data available — restart the loop
                         }
                         Err(e) => {
+                            thread_connected.store(false, Ordering::Release);
                             super::push_event_bounded(
                                 &thread_event_buffer,
                                 NetworkEvent::Error(e.to_string()),
@@ -261,6 +275,7 @@ mod native {
             Self {
                 event_buffer,
                 msg_tx,
+                connected,
             }
         }
 
@@ -295,6 +310,21 @@ mod native {
 
         pub fn disconnect(&self) {
             let _ = self.msg_tx.try_send(OutMsg::Close);
+        }
+
+        /// Returns `true` while the WebSocket handshake has completed and no disconnect or error
+        /// has been observed yet. Mirrors the WASM implementation, which checks
+        /// `WebSocket.readyState === OPEN`.
+        ///
+        /// The flag is set by the background thread immediately before emitting
+        /// [`NetworkEvent::Connected`] and cleared on every exit path (remote close, local
+        /// disconnect, I/O error, or channel drop), so it is safe to poll from the game thread at
+        /// any time. Note that there is an inherent race between setting the flag and the main
+        /// thread reading it (the same race that exists when reacting to [`NetworkEvent::Connected`]
+        /// / [`NetworkEvent::Disconnected`]); treat this as a best-effort snapshot, not a
+        /// synchronisation barrier.
+        pub fn is_connected(&self) -> bool {
+            self.connected.load(Ordering::Acquire)
         }
 
         pub(super) fn poll(&mut self) -> Vec<NetworkEvent> {
@@ -476,7 +506,13 @@ mod wasm_impl {
             }
         }
 
-        /// Returns true if the socket is in `web_sys::WebSocket::OPEN(1)` state
+        /// Returns `true` while the WebSocket is in the `OPEN` (`readyState == 1`) state.
+        /// Mirrors the native implementation, which tracks the same lifecycle via an
+        /// `Arc<AtomicBool>` shared with the background thread.
+        ///
+        /// The value reflects the browser's real-time socket state, so it transitions to `false`
+        /// as soon as the browser fires the `close` event. Treat this as a best-effort snapshot
+        /// consistent with [`NetworkEvent::Connected`] / [`NetworkEvent::Disconnected`].
         pub fn is_connected(&self) -> bool {
             match &self.socket {
                 Some(socket) => socket.ready_state() == web_sys::WebSocket::OPEN,
@@ -914,5 +950,33 @@ mod tests {
     fn snapshot_buffer_capacity_floor_is_two() {
         let buf: SnapshotBuffer<f32> = SnapshotBuffer::with_capacity(0);
         assert_eq!(buf.capacity, 2, "capacity is clamped to a ≥2 floor");
+    }
+
+    // ── NetworkClient::is_connected ───────────────────────────────────────────
+    // We cannot construct a live WebSocket without a running server, so we
+    // verify the two cheapest invariants:
+    //   1. A fresh client reports false immediately (flag starts false).
+    //   2. After the background thread exhausts the failed connect and exits,
+    //      the flag is still false (it was never set to true).
+    //
+    // Both branches that *would* set the flag to true require a successful
+    // TCP+WebSocket handshake, which cannot happen against a non-listening port,
+    // so the test is deterministic once the thread exits.
+    #[test]
+    fn native_client_is_not_connected_before_handshake() {
+        // Port 1 is reserved/non-routable on every platform; connect will fail immediately.
+        let client = native::NetworkClient::connect("ws://127.0.0.1:1");
+        // Flag starts false — readable without waiting.
+        assert!(
+            !client.is_connected(),
+            "is_connected should be false on a freshly created client"
+        );
+        // Give the background thread a moment to finish the failed connect so
+        // we also verify the flag stays false after the thread exits.
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert!(
+            !client.is_connected(),
+            "is_connected should remain false after a failed connection attempt"
+        );
     }
 }
