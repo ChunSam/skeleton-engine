@@ -460,20 +460,17 @@ impl SpriteRenderer {
         let mut entries = draw_entries;
 
         // ── Collect ShaderMaterials: merge into the same (layer, z) stream as regular sprites.
-        // Only clone frag_source for hashes whose pipeline hasn't been compiled yet;
-        // existing pipelines are keyed by hash so the source is no longer needed.
-        let mat_ids: Vec<(crate::ecs::Entity, u64, Option<String>, [f32; 4])> = world
+        // No source clone here — the clone decision happens below, after the layer/cull
+        // filters, so the *first surviving* entity of a new hash carries the source
+        // (cloning per-entity at query time would clone once per entity sharing a new
+        // material; deduping at query time could hand the source to an entity that is
+        // then culled, leaving the pipeline uncompiled).
+        let mat_ids: Vec<(crate::ecs::Entity, u64, [f32; 4])> = world
             .query::<ShaderMaterial>()
             .map(|(e, mat)| {
                 let mut h = std::collections::hash_map::DefaultHasher::new();
                 mat.frag_source.hash(&mut h);
-                let hash = h.finish();
-                let src = if self.custom_pipelines.contains_key(&hash) {
-                    None
-                } else {
-                    Some(mat.frag_source.clone())
-                };
-                (e, hash, src, mat.params)
+                (e, h.finish(), mat.params)
             })
             .collect();
 
@@ -484,7 +481,10 @@ impl SpriteRenderer {
         let live_material_entities: std::collections::HashSet<crate::ecs::Entity> =
             mat_ids.iter().map(|(e, ..)| *e).collect();
 
-        for (entity, hash, frag_source, params) in mat_ids {
+        // Hashes whose source has already been claimed by a surviving entity this
+        // call — keeps frag_source clones to at most one per new pipeline.
+        let mut seen_new_hashes: std::collections::HashSet<u64> = std::collections::HashSet::new();
+        for (entity, hash, params) in mat_ids {
             let uv = world.get::<UvRect>(entity).copied().unwrap_or(UvRect::FULL);
             let sprite = match world.get::<Sprite>(entity) {
                 Some(sprite) => sprite,
@@ -521,14 +521,25 @@ impl SpriteRenderer {
                 continue;
             };
 
+            // Clone the WGSL source only for the first surviving entity of a
+            // not-yet-compiled hash; every other entry carries an empty string.
+            let frag_source =
+                if !self.custom_pipelines.contains_key(&hash) && seen_new_hashes.insert(hash) {
+                    world
+                        .get::<ShaderMaterial>(entity)
+                        .map(|m| m.frag_source.clone())
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
+
             entries.push(SpriteRenderEntry::material(
                 layer,
                 z,
                 next_order,
                 entity,
                 hash,
-                // frag_source is Some only for new pipelines; existing ones use None.
-                frag_source.unwrap_or_default(),
+                frag_source,
                 params,
                 tex_key,
                 instance,
