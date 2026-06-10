@@ -6,16 +6,18 @@ mod shortcuts;
 impl App {
     pub(in crate::app) fn update_editor_ui(&mut self, egui_ctx: &Option<egui::Context>, dt: f32) {
         // Inspector: validate selected entity + stage fields
-        if let Some(sel) = self.inspector_selected {
+        if let Some(sel) = self.editor.inspector_selected {
             if !self.world.is_alive(sel) {
-                self.inspector_selected = None;
+                self.editor.inspector_selected = None;
                 #[cfg(not(target_arch = "wasm32"))]
-                self.selected_entities.clear();
+                self.editor.selected_entities.clear();
             }
         }
         // Remove dead entities from the multi-select list (native only)
         #[cfg(not(target_arch = "wasm32"))]
-        self.selected_entities.retain(|&e| self.world.is_alive(e));
+        self.editor
+            .selected_entities
+            .retain(|&e| self.world.is_alive(e));
         let entity_list: Vec<Entity> = self.world.entities().to_vec();
         let tag_map: HashMap<Entity, String> = self
             .world
@@ -23,7 +25,7 @@ impl App {
             .map(|(e, t)| (e, t.0.clone()))
             .collect();
         let mut comp_fields: Vec<(&'static str, Vec<(&'static str, ReflectValue)>)> = Vec::new();
-        if let Some(sel) = self.inspector_selected {
+        if let Some(sel) = self.editor.inspector_selected {
             for tid in self.world.reflected_components(sel) {
                 if let Some(refl) = self.world.get_reflect(sel, tid) {
                     comp_fields.push((refl.type_name(), refl.fields()));
@@ -129,35 +131,35 @@ impl App {
                         // ── Tab selection ────────────────────────────────────────
                         ui.horizontal(|ui| {
                             if ui
-                                .selectable_label(self.inspector_tab == 0, "Entities")
+                                .selectable_label(self.editor.inspector_tab == 0, "Entities")
                                 .clicked()
                             {
-                                self.inspector_tab = 0;
+                                self.editor.inspector_tab = 0;
                             }
                             if ui
-                                .selectable_label(self.inspector_tab == 1, "Assets")
+                                .selectable_label(self.editor.inspector_tab == 1, "Assets")
                                 .clicked()
                             {
-                                self.inspector_tab = 1;
+                                self.editor.inspector_tab = 1;
                             }
                             #[cfg(not(target_arch = "wasm32"))]
                             if ui
-                                .selectable_label(self.inspector_tab == 2, "Scene")
+                                .selectable_label(self.editor.inspector_tab == 2, "Scene")
                                 .clicked()
                             {
-                                self.inspector_tab = 2;
+                                self.editor.inspector_tab = 2;
                             }
                         });
                         ui.separator();
 
                         // ── Grid Snap controls (Entities tab, native only) ────────
                         #[cfg(not(target_arch = "wasm32"))]
-                        if self.inspector_tab == 0 {
+                        if self.editor.inspector_tab == 0 {
                             ui.horizontal(|ui| {
-                                ui.checkbox(&mut self.snap_enabled, "Snap");
-                                if self.snap_enabled {
+                                ui.checkbox(&mut self.editor.snap_enabled, "Snap");
+                                if self.editor.snap_enabled {
                                     ui.add(
-                                        egui::DragValue::new(&mut self.snap_size)
+                                        egui::DragValue::new(&mut self.editor.snap_size)
                                             .range(1.0..=128.0)
                                             .speed(1.0)
                                             .suffix(" px"),
@@ -168,7 +170,7 @@ impl App {
 
                         // ── Scene graph tab (native only) ────────────────────────
                         #[cfg(not(target_arch = "wasm32"))]
-                        if self.inspector_tab == 2 {
+                        if self.editor.inspector_tab == 2 {
                             // Scene graph: root → children indented tree
                             let mut clicked_entity: Option<Entity> = None;
                             let mut ctrl_clicked: bool = false;
@@ -190,7 +192,8 @@ impl App {
                                                 )
                                             });
                                         // Multi-select: highlight based on selected_entities
-                                        let is_selected = self.selected_entities.contains(&entity);
+                                        let is_selected =
+                                            self.editor.selected_entities.contains(&entity);
                                         let has_children = children_map
                                             .get(&entity)
                                             .map(|c| !c.is_empty())
@@ -219,26 +222,26 @@ impl App {
                                 if ctrl_clicked {
                                     // Ctrl+click: toggle multi-select
                                     if let Some(pos) =
-                                        self.selected_entities.iter().position(|&x| x == e)
+                                        self.editor.selected_entities.iter().position(|&x| x == e)
                                     {
-                                        self.selected_entities.remove(pos);
+                                        self.editor.selected_entities.remove(pos);
                                         // Set inspector_selected to the last selection, or None
-                                        self.inspector_selected =
-                                            self.selected_entities.last().copied();
+                                        self.editor.inspector_selected =
+                                            self.editor.selected_entities.last().copied();
                                     } else {
-                                        self.selected_entities.push(e);
-                                        self.inspector_selected = Some(e);
+                                        self.editor.selected_entities.push(e);
+                                        self.editor.inspector_selected = Some(e);
                                     }
                                 } else {
                                     // Regular click: single selection
-                                    self.inspector_selected = Some(e);
-                                    self.selected_entities = vec![e];
+                                    self.editor.inspector_selected = Some(e);
+                                    self.editor.selected_entities = vec![e];
                                 }
                             }
 
                             // Edit the Tag name of the selected entity
                             ui.separator();
-                            if let Some(sel) = self.inspector_selected {
+                            if let Some(sel) = self.editor.inspector_selected {
                                 let current_name = tag_map.get(&sel).cloned().unwrap_or_default();
                                 let has_tag = self.world.get::<Tag>(sel).is_some();
                                 ui.horizontal(|ui| {
@@ -271,7 +274,7 @@ impl App {
                             }
                         }
 
-                        if self.inspector_tab == 1 {
+                        if self.editor.inspector_tab == 1 {
                             // ── Asset browser ─────────────────────────────────────
                             let entries = self
                                 .world
@@ -319,15 +322,16 @@ impl App {
                                         .add_component(e, crate::components::Transform::default());
                                     self.world
                                         .add_component(e, crate::prefab::Tag("New Entity".into()));
-                                    self.inspector_selected = Some(e);
+                                    self.editor.inspector_selected = Some(e);
                                     #[cfg(not(target_arch = "wasm32"))]
                                     {
-                                        self.selected_entities = vec![e];
-                                        self.cmd_history
+                                        self.editor.selected_entities = vec![e];
+                                        self.editor
+                                            .cmd_history
                                             .push(EditorCmd::CreateEntity { entity: e });
                                     }
                                 }
-                                if let Some(sel) = self.inspector_selected {
+                                if let Some(sel) = self.editor.inspector_selected {
                                     if ui
                                         .add_enabled(true, egui::Button::new("🗑 Delete"))
                                         .clicked()
@@ -346,7 +350,7 @@ impl App {
                                                 .world
                                                 .get::<crate::components::Sprite>(sel)
                                                 .cloned();
-                                            self.cmd_history.push(EditorCmd::DeleteEntity {
+                                            self.editor.cmd_history.push(EditorCmd::DeleteEntity {
                                                 entity: None,
                                                 tag,
                                                 transform,
@@ -354,9 +358,9 @@ impl App {
                                             });
                                         }
                                         self.world.despawn(sel);
-                                        self.inspector_selected = None;
+                                        self.editor.inspector_selected = None;
                                         #[cfg(not(target_arch = "wasm32"))]
-                                        self.selected_entities.retain(|&x| x != sel);
+                                        self.editor.selected_entities.retain(|&x| x != sel);
                                     }
                                     if ui
                                         .add_enabled(true, egui::Button::new("⎘ Duplicate"))
@@ -369,10 +373,10 @@ impl App {
                                             {
                                                 t.position += glam::Vec2::new(16.0, 16.0);
                                             }
-                                            self.inspector_selected = Some(new_entity);
+                                            self.editor.inspector_selected = Some(new_entity);
                                             #[cfg(not(target_arch = "wasm32"))]
                                             {
-                                                self.selected_entities = vec![new_entity];
+                                                self.editor.selected_entities = vec![new_entity];
                                             }
                                         }
                                     }
@@ -395,9 +399,11 @@ impl App {
                                                     });
                                                 // Multi-select highlight (native) or single selection (WASM)
                                                 #[cfg(not(target_arch = "wasm32"))]
-                                                let is_sel = self.selected_entities.contains(&e);
+                                                let is_sel =
+                                                    self.editor.selected_entities.contains(&e);
                                                 #[cfg(target_arch = "wasm32")]
-                                                let is_sel = self.inspector_selected == Some(e);
+                                                let is_sel =
+                                                    self.editor.inspector_selected == Some(e);
                                                 let resp = ui.selectable_label(is_sel, &label);
                                                 if resp.clicked() {
                                                     #[cfg(not(target_arch = "wasm32"))]
@@ -405,27 +411,35 @@ impl App {
                                                         if ui.input(|i| i.modifiers.ctrl) {
                                                             // Ctrl+click: toggle
                                                             if let Some(pos) = self
+                                                                .editor
                                                                 .selected_entities
                                                                 .iter()
                                                                 .position(|&x| x == e)
                                                             {
-                                                                self.selected_entities.remove(pos);
-                                                                self.inspector_selected = self
+                                                                self.editor
                                                                     .selected_entities
-                                                                    .last()
-                                                                    .copied();
+                                                                    .remove(pos);
+                                                                self.editor.inspector_selected =
+                                                                    self.editor
+                                                                        .selected_entities
+                                                                        .last()
+                                                                        .copied();
                                                             } else {
-                                                                self.selected_entities.push(e);
-                                                                self.inspector_selected = Some(e);
+                                                                self.editor
+                                                                    .selected_entities
+                                                                    .push(e);
+                                                                self.editor.inspector_selected =
+                                                                    Some(e);
                                                             }
                                                         } else {
-                                                            self.inspector_selected = Some(e);
-                                                            self.selected_entities = vec![e];
+                                                            self.editor.inspector_selected =
+                                                                Some(e);
+                                                            self.editor.selected_entities = vec![e];
                                                         }
                                                     }
                                                     #[cfg(target_arch = "wasm32")]
                                                     {
-                                                        self.inspector_selected = Some(e);
+                                                        self.editor.inspector_selected = Some(e);
                                                     }
                                                 }
                                             }
@@ -528,7 +542,7 @@ impl App {
 
                             // ── Add/remove components (native only, Phase 39b) ───────────
                             #[cfg(not(target_arch = "wasm32"))]
-                            if let Some(sel) = self.inspector_selected {
+                            if let Some(sel) = self.editor.inspector_selected {
                                 ui.separator();
                                 ui.strong("Component List");
 
@@ -538,7 +552,7 @@ impl App {
                                 let mut to_remove: Option<&'static str> = None;
                                 for &comp_name in &selected_comp_names {
                                     let removable = comp_name != "Transform"
-                                        && self.component_removers.contains_key(comp_name);
+                                        && self.editor.component_removers.contains_key(comp_name);
                                     ui.horizontal(|ui| {
                                         ui.label(comp_name);
                                         if removable && ui.small_button("✕").clicked() {
@@ -549,7 +563,8 @@ impl App {
 
                                 // Perform the actual removal after the closure ends — dispatch to the registered remover.
                                 if let Some(name) = to_remove {
-                                    if let Some(remover) = self.component_removers.get(name) {
+                                    if let Some(remover) = self.editor.component_removers.get(name)
+                                    {
                                         remover(&mut self.world, sel);
                                     }
                                 }
@@ -558,29 +573,31 @@ impl App {
                                 // Add Component dropdown
                                 let factory_names: Vec<String> = {
                                     let mut names: Vec<String> =
-                                        self.component_factories.keys().cloned().collect();
+                                        self.editor.component_factories.keys().cloned().collect();
                                     names.sort();
                                     names
                                 };
                                 if !factory_names.is_empty() {
-                                    if self.add_component_selected.is_empty() {
-                                        self.add_component_selected = factory_names[0].clone();
+                                    if self.editor.add_component_selected.is_empty() {
+                                        self.editor.add_component_selected =
+                                            factory_names[0].clone();
                                     }
-                                    let cur = self.add_component_selected.clone();
+                                    let cur = self.editor.add_component_selected.clone();
                                     egui::ComboBox::from_id_salt("add_comp_combo")
                                         .selected_text(&cur)
                                         .show_ui(ui, |ui| {
                                             for name in &factory_names {
                                                 ui.selectable_value(
-                                                    &mut self.add_component_selected,
+                                                    &mut self.editor.add_component_selected,
                                                     name.clone(),
                                                     name,
                                                 );
                                             }
                                         });
                                     if ui.button("+ Add").clicked() {
-                                        let chosen = self.add_component_selected.clone();
-                                        if let Some(factory) = self.component_factories.get(&chosen)
+                                        let chosen = self.editor.add_component_selected.clone();
+                                        if let Some(factory) =
+                                            self.editor.component_factories.get(&chosen)
                                         {
                                             factory(&mut self.world, sel);
                                         }
@@ -590,7 +607,7 @@ impl App {
 
                             // ── PrefabInstance / Break Prefab (native only) ───────────
                             #[cfg(not(target_arch = "wasm32"))]
-                            if let Some(sel) = self.inspector_selected {
+                            if let Some(sel) = self.editor.inspector_selected {
                                 let prefab_path = self
                                     .world
                                     .get::<crate::prefab::PrefabInstance>(sel)
@@ -611,7 +628,7 @@ impl App {
 
                             // ── Edit selected entity name (Tag) (native only) ───────────
                             #[cfg(not(target_arch = "wasm32"))]
-                            if let Some(sel) = self.inspector_selected {
+                            if let Some(sel) = self.editor.inspector_selected {
                                 ui.separator();
                                 let current_name = tag_map.get(&sel).cloned().unwrap_or_default();
                                 let has_tag = self.world.get::<Tag>(sel).is_some();
@@ -648,11 +665,14 @@ impl App {
                                 ui.horizontal(|ui| {
                                     ui.label("Path:");
                                     ui.add(
-                                        egui::TextEdit::singleline(&mut self.editor_save_path)
-                                            .desired_width(180.0),
+                                        egui::TextEdit::singleline(
+                                            &mut self.editor.editor_save_path,
+                                        )
+                                        .desired_width(180.0),
                                     );
                                     if ui.button("📂 Load Scene").clicked() {
-                                        let path = std::path::Path::new(&self.editor_save_path);
+                                        let path =
+                                            std::path::Path::new(&self.editor.editor_save_path);
                                         match crate::prefab::SceneDef::load(path) {
                                             Ok(scene_def) => {
                                                 // Remove existing editor entities (those with Transform or Tag)
@@ -664,21 +684,22 @@ impl App {
                                                 for e in to_remove {
                                                     self.world.despawn(e);
                                                 }
-                                                self.inspector_selected = None;
-                                                self.selected_entities.clear();
+                                                self.editor.inspector_selected = None;
+                                                self.editor.selected_entities.clear();
                                                 let count = scene_def.entities.len();
                                                 crate::prefab::spawn_scene_def(
                                                     &mut self.world,
                                                     &scene_def,
                                                 );
-                                                self.editor_load_status = Some(format!(
+                                                self.editor.editor_load_status = Some(format!(
                                                     "✓ {count} entities ← {}",
-                                                    self.editor_save_path
+                                                    self.editor.editor_save_path
                                                 ));
-                                                self.editor_save_status = None;
+                                                self.editor.editor_save_status = None;
                                             }
                                             Err(e) => {
-                                                self.editor_load_status = Some(format!("✗ {e}"));
+                                                self.editor.editor_load_status =
+                                                    Some(format!("✗ {e}"));
                                             }
                                         }
                                     }
@@ -721,8 +742,8 @@ impl App {
                                             }
                                         }
                                         let count = scene_def.entities.len();
-                                        let path = self.editor_save_path.clone();
-                                        self.editor_save_status = match scene_def
+                                        let path = self.editor.editor_save_path.clone();
+                                        self.editor.editor_save_status = match scene_def
                                             .save(std::path::Path::new(&path))
                                         {
                                             Ok(()) => Some(format!("✓ {count} entities → {path}")),
@@ -730,10 +751,10 @@ impl App {
                                         };
                                     }
                                 });
-                                if let Some(msg) = &self.editor_save_status {
+                                if let Some(msg) = &self.editor.editor_save_status {
                                     ui.small(msg.as_str());
                                 }
-                                if let Some(msg) = &self.editor_load_status {
+                                if let Some(msg) = &self.editor.editor_load_status {
                                     ui.small(msg.as_str());
                                 }
                             }
@@ -743,7 +764,7 @@ impl App {
         }
 
         // Inspector: apply staged values to the World (before the egui frame ends)
-        if let Some(sel) = self.inspector_selected {
+        if let Some(sel) = self.editor.inspector_selected {
             let type_ids = self.world.reflected_components(sel);
             for (i, tid) in type_ids.iter().enumerate() {
                 if i < comp_fields.len() {
@@ -761,7 +782,7 @@ impl App {
             .world
             .resource_mut::<crate::resources::SelectedEntity>()
         {
-            res.0 = self.inspector_selected;
+            res.0 = self.editor.inspector_selected;
         }
 
         self.update_editor_gizmo(egui_ctx);

@@ -1,6 +1,9 @@
 use super::*;
 
+mod state;
 mod ui;
+
+pub(super) use state::EditorState;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(clippy::enum_variant_names)]
@@ -25,6 +28,7 @@ pub(super) enum EditorCmd {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[derive(Default)]
 pub(super) struct EditorHistory {
     undo: Vec<EditorCmd>,
     redo: Vec<EditorCmd>,
@@ -176,7 +180,8 @@ impl App {
         name: impl Into<String>,
         factory: impl Fn(&mut World, Entity) + Send + Sync + 'static,
     ) {
-        self.component_factories
+        self.editor
+            .component_factories
             .insert(name.into(), Box::new(factory));
     }
 
@@ -188,7 +193,8 @@ impl App {
         name: impl Into<String>,
         remover: impl Fn(&mut World, Entity) + Send + Sync + 'static,
     ) {
-        self.component_removers
+        self.editor
+            .component_removers
             .insert(name.into(), Box::new(remover));
     }
 }

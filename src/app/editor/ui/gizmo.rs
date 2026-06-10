@@ -10,7 +10,7 @@ impl App {
             .map(|c| c.wants_pointer_input())
             .unwrap_or(false);
 
-        if let Some(sel) = self.inspector_selected {
+        if let Some(sel) = self.editor.inspector_selected {
             // Copy the selected entity's Transform (releases the borrow).
             let tr_copy = self.world.get::<crate::components::Transform>(sel).cloned();
 
@@ -51,23 +51,23 @@ impl App {
                     };
 
                     if let Some((world_pos, just_pressed, held, just_released)) = gizmo_input {
-                        if just_pressed && !self.gizmo_dragging {
+                        if just_pressed && !self.editor.gizmo_dragging {
                             let half = tr.scale * 0.5;
                             let hit = world_pos.x >= tr.position.x - half.x
                                 && world_pos.x <= tr.position.x + half.x
                                 && world_pos.y >= tr.position.y - half.y
                                 && world_pos.y <= tr.position.y + half.y;
                             if hit {
-                                self.gizmo_dragging = true;
-                                self.gizmo_drag_offset = tr.position - world_pos;
+                                self.editor.gizmo_dragging = true;
+                                self.editor.gizmo_drag_offset = tr.position - world_pos;
                                 #[cfg(not(target_arch = "wasm32"))]
                                 {
-                                    self.gizmo_drag_start_pos = Some(tr.position);
+                                    self.editor.gizmo_drag_start_pos = Some(tr.position);
                                     // Snapshot start positions of all selected entities for group-move undo.
                                     // Ensure sel is included even if absent from selected_entities.
                                     let mut starts: Vec<(Entity, glam::Vec2)> = Vec::new();
                                     let mut has_sel = false;
-                                    for &e in &self.selected_entities {
+                                    for &e in &self.editor.selected_entities {
                                         if let Some(t) =
                                             self.world.get::<crate::components::Transform>(e)
                                         {
@@ -80,16 +80,16 @@ impl App {
                                     if !has_sel {
                                         starts.push((sel, tr.position));
                                     }
-                                    self.gizmo_drag_start_positions = starts;
+                                    self.editor.gizmo_drag_start_positions = starts;
                                 }
                             }
                         }
 
-                        if self.gizmo_dragging && held {
-                            let new_pos = world_pos + self.gizmo_drag_offset;
+                        if self.editor.gizmo_dragging && held {
+                            let new_pos = world_pos + self.editor.gizmo_drag_offset;
                             #[cfg(not(target_arch = "wasm32"))]
-                            let final_pos = if self.snap_enabled {
-                                snap_to_grid(new_pos, self.snap_size)
+                            let final_pos = if self.editor.snap_enabled {
+                                snap_to_grid(new_pos, self.editor.snap_size)
                             } else {
                                 new_pos
                             };
@@ -113,6 +113,7 @@ impl App {
                                 }
                                 // Apply the same delta to the remaining selected entities.
                                 let others: Vec<Entity> = self
+                                    .editor
                                     .selected_entities
                                     .iter()
                                     .copied()
@@ -139,7 +140,8 @@ impl App {
                                 // Record the entire group move (previously only the primary
                                 // entity was recorded, making the other selections un-undoable).
                                 // Push one MoveEntity per entity so undo operates entity-by-entity.
-                                let starts = std::mem::take(&mut self.gizmo_drag_start_positions);
+                                let starts =
+                                    std::mem::take(&mut self.editor.gizmo_drag_start_positions);
                                 for (entity, start_pos) in starts {
                                     let new_pos = self
                                         .world
@@ -147,24 +149,24 @@ impl App {
                                         .map(|t| t.position)
                                         .unwrap_or(start_pos);
                                     if (new_pos - start_pos).length_squared() > 0.01 {
-                                        self.cmd_history.push(EditorCmd::MoveEntity {
+                                        self.editor.cmd_history.push(EditorCmd::MoveEntity {
                                             entity,
                                             old_pos: start_pos,
                                             new_pos,
                                         });
                                     }
                                 }
-                                self.gizmo_drag_start_pos = None;
+                                self.editor.gizmo_drag_start_pos = None;
                             }
-                            self.gizmo_dragging = false;
+                            self.editor.gizmo_dragging = false;
                         }
                     }
                 } else {
-                    self.gizmo_dragging = false;
+                    self.editor.gizmo_dragging = false;
                 }
             }
         } else {
-            self.gizmo_dragging = false;
+            self.editor.gizmo_dragging = false;
         }
     }
 }

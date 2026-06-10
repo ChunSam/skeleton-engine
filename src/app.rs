@@ -16,8 +16,7 @@ mod window;
 
 pub use schedule::{ScheduleErrorPolicy, SystemPanicPolicy};
 
-#[cfg(not(target_arch = "wasm32"))]
-use editor::EditorHistory;
+use editor::EditorState;
 #[cfg(test)]
 use egui_pass::paint_jobs_contain_callbacks;
 
@@ -167,53 +166,8 @@ pub struct App {
     egui_state: Option<egui_winit::State>,
     /// Temporary buffer carrying tessellated output from `update()` to `render()`.
     egui_output: Option<(Vec<egui::ClippedPrimitive>, egui::TexturesDelta, f32)>,
-    /// Entity currently selected in the Inspector panel.
-    inspector_selected: Option<Entity>,
-    /// Multi-selected entity list (includes `inspector_selected`).
-    #[cfg(not(target_arch = "wasm32"))]
-    selected_entities: Vec<Entity>,
-    /// EntityDef clipboard copied via Ctrl+C.
-    #[cfg(not(target_arch = "wasm32"))]
-    copy_clipboard: Vec<crate::prefab::EntityDef>,
-    /// Whether a gizmo drag is in progress.
-    gizmo_dragging: bool,
-    /// Offset (entity position − cursor world position) captured at drag start.
-    gizmo_drag_offset: glam::Vec2,
-    /// Inspector scene save path (native only).
-    #[cfg(not(target_arch = "wasm32"))]
-    editor_save_path: String,
-    /// Result message of the last scene save.
-    editor_save_status: Option<String>,
-    /// Result message of the last scene load.
-    #[cfg(not(target_arch = "wasm32"))]
-    editor_load_status: Option<String>,
-    /// Current Inspector tab index (0: Entities, 1: Assets).
-    inspector_tab: u8,
-    /// Editor undo/redo history.
-    #[cfg(not(target_arch = "wasm32"))]
-    cmd_history: EditorHistory,
-    /// Entity position at gizmo drag start (for recording undo).
-    #[cfg(not(target_arch = "wasm32"))]
-    gizmo_drag_start_pos: Option<glam::Vec2>,
-    /// Positions of all selected entities at gizmo group-drag start (for group-move undo).
-    #[cfg(not(target_arch = "wasm32"))]
-    gizmo_drag_start_positions: Vec<(Entity, glam::Vec2)>,
-    /// Component add factory map (native only). Type name → closure that adds the component to the World.
-    #[cfg(not(target_arch = "wasm32"))]
-    component_factories: HashMap<String, ComponentFactory>,
-    /// Component remove closure map (native only). Type name → closure that removes the component from the World.
-    /// Only components registered in this map expose the "✕" (remove) button in the Inspector.
-    #[cfg(not(target_arch = "wasm32"))]
-    component_removers: HashMap<String, ComponentFactory>,
-    /// Component name currently selected in the "Add Component" dropdown (native only).
-    #[cfg(not(target_arch = "wasm32"))]
-    add_component_selected: String,
-    /// Whether gizmo drag grid snap is enabled (native only).
-    #[cfg(not(target_arch = "wasm32"))]
-    snap_enabled: bool,
-    /// Gizmo drag grid snap cell size in pixels (native only).
-    #[cfg(not(target_arch = "wasm32"))]
-    snap_size: f32,
+    /// All editor/inspector-only state grouped for clean fork extraction.
+    editor: EditorState,
 }
 
 impl App {
@@ -266,23 +220,7 @@ impl App {
             egui_renderer: None,
             egui_state: None,
             egui_output: None,
-            inspector_selected: None,
-            selected_entities: Vec::new(),
-            copy_clipboard: Vec::new(),
-            gizmo_dragging: false,
-            gizmo_drag_offset: glam::Vec2::ZERO,
-            editor_save_path: "saved_scene.ron".into(),
-            editor_save_status: None,
-            editor_load_status: None,
-            inspector_tab: 0,
-            cmd_history: EditorHistory::new(),
-            gizmo_drag_start_pos: None,
-            gizmo_drag_start_positions: Vec::new(),
-            component_factories: HashMap::new(),
-            component_removers: HashMap::new(),
-            add_component_selected: String::new(),
-            snap_enabled: false,
-            snap_size: 16.0,
+            editor: EditorState::new(),
         };
         #[cfg(not(target_arch = "wasm32"))]
         app.register_default_components();
@@ -317,11 +255,7 @@ impl App {
             egui_renderer: None,
             egui_state: None,
             egui_output: None,
-            inspector_selected: None,
-            gizmo_dragging: false,
-            gizmo_drag_offset: glam::Vec2::ZERO,
-            editor_save_status: None,
-            inspector_tab: 0,
+            editor: EditorState::default(),
         }
     }
 }

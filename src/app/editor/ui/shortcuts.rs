@@ -20,40 +20,40 @@ impl App {
             )
         });
         if want_undo {
-            let mut sel = self.inspector_selected;
-            self.cmd_history.undo(&mut self.world, &mut sel);
-            self.inspector_selected = sel;
-            if let Some(s) = self.inspector_selected {
-                if !self.selected_entities.contains(&s) {
-                    self.selected_entities = vec![s];
+            let mut sel = self.editor.inspector_selected;
+            self.editor.cmd_history.undo(&mut self.world, &mut sel);
+            self.editor.inspector_selected = sel;
+            if let Some(s) = self.editor.inspector_selected {
+                if !self.editor.selected_entities.contains(&s) {
+                    self.editor.selected_entities = vec![s];
                 }
             } else {
-                self.selected_entities.clear();
+                self.editor.selected_entities.clear();
             }
         }
         if want_redo {
-            let mut sel = self.inspector_selected;
-            self.cmd_history.redo(&mut self.world, &mut sel);
-            self.inspector_selected = sel;
-            if let Some(s) = self.inspector_selected {
-                if !self.selected_entities.contains(&s) {
-                    self.selected_entities = vec![s];
+            let mut sel = self.editor.inspector_selected;
+            self.editor.cmd_history.redo(&mut self.world, &mut sel);
+            self.editor.inspector_selected = sel;
+            if let Some(s) = self.editor.inspector_selected {
+                if !self.editor.selected_entities.contains(&s) {
+                    self.editor.selected_entities = vec![s];
                 }
             } else {
-                self.selected_entities.clear();
+                self.editor.selected_entities.clear();
             }
         }
         // Ctrl+C: copy selected entities to the EntityDef clipboard
-        if want_copy && !self.selected_entities.is_empty() {
-            let to_copy: Vec<Entity> = self.selected_entities.clone();
-            self.copy_clipboard = to_copy
+        if want_copy && !self.editor.selected_entities.is_empty() {
+            let to_copy: Vec<Entity> = self.editor.selected_entities.clone();
+            self.editor.copy_clipboard = to_copy
                 .iter()
                 .filter_map(|&e| entity_to_def(&self.world, e))
                 .collect();
         }
         // Ctrl+V: paste entities from clipboard (20 px offset)
-        if want_paste && !self.copy_clipboard.is_empty() {
-            let defs: Vec<crate::prefab::EntityDef> = self.copy_clipboard.clone();
+        if want_paste && !self.editor.copy_clipboard.is_empty() {
+            let defs: Vec<crate::prefab::EntityDef> = self.editor.copy_clipboard.clone();
             let mut pasted: Vec<Entity> = Vec::new();
             for mut def in defs {
                 if let Some(ref mut t) = def.transform {
@@ -64,8 +64,8 @@ impl App {
             }
             // set the first pasted entity as the primary selection
             if let Some(&first) = pasted.first() {
-                self.inspector_selected = Some(first);
-                self.selected_entities = pasted;
+                self.editor.inspector_selected = Some(first);
+                self.editor.selected_entities = pasted;
             }
         }
     }

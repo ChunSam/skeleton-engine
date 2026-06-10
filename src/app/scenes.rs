@@ -34,13 +34,13 @@ impl App {
         for (tid, boxed) in preserved {
             self.world.insert_resource_erased(tid, boxed);
         }
-        self.inspector_selected = None;
+        self.editor.inspector_selected = None;
         #[cfg(not(target_arch = "wasm32"))]
         {
-            self.selected_entities.clear();
-            self.copy_clipboard.clear();
+            self.editor.selected_entities.clear();
+            self.editor.copy_clipboard.clear();
         }
-        self.editor_save_status = None;
+        self.editor.editor_save_status = None;
         // Clear the set of system indices disabled by panics.
         // After a world reset, systems get another chance; this also prevents stale
         // indices from incorrectly skipping unrelated systems when Replace swaps out
