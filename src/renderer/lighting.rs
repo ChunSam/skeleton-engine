@@ -135,6 +135,15 @@ pub struct LightingRenderer {
     sampler: wgpu::Sampler,
     bind_group_layout: wgpu::BindGroupLayout,
     uniform_buffer: wgpu::Buffer,
+    /// Cached bind group for the lighting pass.
+    ///
+    /// Rebuilt lazily in `run_pass` when the scene texture pointer changes (i.e. on
+    /// resize / texture recreation) or when the normal buffer is recreated. Avoids
+    /// a `device.create_bind_group` call every frame on the submit path.
+    cached_bind_group: Option<wgpu::BindGroup>,
+    /// Raw pointer address of the `TextureView` that `cached_bind_group` was built
+    /// from.  Used as a cheap identity check — `wgpu::TextureView` has no `PartialEq`.
+    cached_scene_view_ptr: usize,
 }
 
 fn light_position_ndc(
@@ -301,6 +310,8 @@ impl LightingRenderer {
             sampler,
             bind_group_layout,
             uniform_buffer,
+            cached_bind_group: None,
+            cached_scene_view_ptr: 0,
         }
     }
 
@@ -330,6 +341,11 @@ impl LightingRenderer {
 
         self.width = width;
         self.height = height;
+
+        // normal_view is new; the cached bind group references the old one.
+        // Drop it so run_pass rebuilds it with the new normal and scene views.
+        self.cached_bind_group = None;
+        self.cached_scene_view_ptr = 0;
     }
 
     /// Clears the normal buffer to the flat-normal color (0.5, 0.5, 1.0, 1.0) each frame.
@@ -419,36 +435,47 @@ impl LightingRenderer {
     }
 
     /// Applies lighting to the scene texture and writes the result to `output_view`.
+    ///
+    /// The bind group (scene texture + normal buffer + sampler + uniform buffer) is cached
+    /// and only rebuilt when `scene_view` points to a different texture than last call (i.e.
+    /// after a resize / texture recreation). The normal buffer view lives on `self` and is
+    /// invalidated via `cached_bind_group = None` inside `resize`.
     pub fn run_pass(
-        &self,
+        &mut self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         scene_view: &wgpu::TextureView,
         output_view: &wgpu::TextureView,
     ) {
-        // The scene texture and normal buffer may change each frame, so create the bind group on the fly.
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("lighting bind group"),
-            layout: &self.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(scene_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.uniform_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&self.normal_view),
-                },
-            ],
-        });
+        let scene_ptr = scene_view as *const wgpu::TextureView as usize;
+        if self.cached_bind_group.is_none() || self.cached_scene_view_ptr != scene_ptr {
+            self.cached_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("lighting bind group"),
+                layout: &self.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(scene_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: self.uniform_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::TextureView(&self.normal_view),
+                    },
+                ],
+            }));
+            self.cached_scene_view_ptr = scene_ptr;
+        }
+
+        // SAFETY: we always set cached_bind_group in the branch above when it was None.
+        let bind_group = self.cached_bind_group.as_ref().unwrap();
 
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("lighting pass"),
@@ -466,7 +493,7 @@ impl LightingRenderer {
         });
 
         pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
+        pass.set_bind_group(0, bind_group, &[]);
         pass.draw(0..6, 0..1);
     }
 

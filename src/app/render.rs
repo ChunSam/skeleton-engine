@@ -540,7 +540,17 @@ impl App {
         // Step 4.5: Lighting pass
         #[cfg(not(target_arch = "wasm32"))]
         if use_lighting {
-            if let Some(lr) = &self.lighting_renderer {
+            // scene input: post output if post is enabled, otherwise the scene intermediate texture
+            let scene_input: Option<&wgpu::TextureView> = if use_post {
+                self.post_texture_for_lighting
+                    .as_ref()
+                    .map(|(_, view, _, _, _)| view)
+            } else {
+                self.scene_texture_for_lighting
+                    .as_ref()
+                    .map(|(_, view, _, _, _)| view)
+            };
+            if let Some(lr) = &mut self.lighting_renderer {
                 // Light positions must use the same logical viewport the sprite pass
                 // uses (render.rs:392), not the physical surface size — otherwise on a
                 // HiDPI display (scale > 1) lights drift from their sprites and shrink.
@@ -549,16 +559,6 @@ impl App {
                 // Initialize the normal buffer to a flat normal (0.5, 0.5, 1.0).
                 lr.clear_normal_buffer(&mut enc);
 
-                // scene input: post output if post is enabled, otherwise the scene intermediate texture
-                let scene_input: Option<&wgpu::TextureView> = if use_post {
-                    self.post_texture_for_lighting
-                        .as_ref()
-                        .map(|(_, view, _, _, _)| view)
-                } else {
-                    self.scene_texture_for_lighting
-                        .as_ref()
-                        .map(|(_, view, _, _, _)| view)
-                };
                 if let Some(scene_input) = scene_input {
                     lr.run_pass(&gpu.device, &mut enc, scene_input, &final_view);
                 } else {
