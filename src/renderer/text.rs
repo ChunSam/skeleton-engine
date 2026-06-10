@@ -266,12 +266,11 @@ impl TextRenderer {
         h: u32,
     ) {
         // Pull items from the queue; early-return if empty.
+        // `std::mem::take` drains the Vec in O(1) without cloning — the queue is
+        // re-filled by game systems each frame, so draining here is correct
+        // (same pattern as the DebugDraw drain in app/render.rs).
         let items: Vec<DrawText> = match world.resource_mut::<TextQueue>() {
-            Some(q) if !q.is_empty() => {
-                let taken = q.items.clone();
-                q.clear();
-                taken
-            }
+            Some(q) if !q.is_empty() => std::mem::take(&mut q.items),
             _ => return,
         };
         let scale_factor = world

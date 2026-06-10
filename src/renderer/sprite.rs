@@ -7,7 +7,6 @@ use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Quat, Vec3};
 use wgpu::util::DeviceExt;
 
-use crate::animation::player::{BlendUv, UvRect};
 use crate::asset::AssetServer;
 use crate::atlas::AtlasSprite;
 use crate::camera::Camera;
@@ -17,6 +16,7 @@ use crate::hierarchy::GlobalTransform;
 use crate::material::ShaderMaterial;
 use crate::renderer::texture::Texture;
 use crate::renderer::ui::{DrawImage, DrawRect};
+use crate::renderer::uv::{BlendUv, UvRect};
 use crate::resources::CullConfig;
 
 mod geometry;
@@ -460,12 +460,17 @@ impl SpriteRenderer {
         let mut entries = draw_entries;
 
         // ── Collect ShaderMaterials: merge into the same (layer, z) stream as regular sprites.
-        let mat_ids: Vec<(crate::ecs::Entity, u64, String, [f32; 4])> = world
+        // No source clone here — the clone decision happens below, after the layer/cull
+        // filters, so the *first surviving* entity of a new hash carries the source
+        // (cloning per-entity at query time would clone once per entity sharing a new
+        // material; deduping at query time could hand the source to an entity that is
+        // then culled, leaving the pipeline uncompiled).
+        let mat_ids: Vec<(crate::ecs::Entity, u64, [f32; 4])> = world
             .query::<ShaderMaterial>()
             .map(|(e, mat)| {
                 let mut h = std::collections::hash_map::DefaultHasher::new();
                 mat.frag_source.hash(&mut h);
-                (e, h.finish(), mat.frag_source.clone(), mat.params)
+                (e, h.finish(), mat.params)
             })
             .collect();
 
@@ -476,7 +481,10 @@ impl SpriteRenderer {
         let live_material_entities: std::collections::HashSet<crate::ecs::Entity> =
             mat_ids.iter().map(|(e, ..)| *e).collect();
 
-        for (entity, hash, frag_source, params) in mat_ids {
+        // Hashes whose source has already been claimed by a surviving entity this
+        // call — keeps frag_source clones to at most one per new pipeline.
+        let mut seen_new_hashes: std::collections::HashSet<u64> = std::collections::HashSet::new();
+        for (entity, hash, params) in mat_ids {
             let uv = world.get::<UvRect>(entity).copied().unwrap_or(UvRect::FULL);
             let sprite = match world.get::<Sprite>(entity) {
                 Some(sprite) => sprite,
@@ -512,6 +520,18 @@ impl SpriteRenderer {
             } else {
                 continue;
             };
+
+            // Clone the WGSL source only for the first surviving entity of a
+            // not-yet-compiled hash; every other entry carries an empty string.
+            let frag_source =
+                if !self.custom_pipelines.contains_key(&hash) && seen_new_hashes.insert(hash) {
+                    world
+                        .get::<ShaderMaterial>(entity)
+                        .map(|m| m.frag_source.clone())
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
 
             entries.push(SpriteRenderEntry::material(
                 layer,
@@ -565,18 +585,17 @@ impl SpriteRenderer {
                 bytemuck::cast_slice(&material_instances),
             );
 
-            let material_sources: Vec<(u64, String)> = entries
-                .iter()
-                .filter_map(|entry| match &entry.kind {
-                    SpriteRenderKind::Material {
-                        hash, frag_source, ..
-                    } => Some((*hash, frag_source.clone())),
-                    SpriteRenderKind::Sprite { .. } => None,
-                })
-                .collect();
-            for (hash, frag_source) in material_sources {
-                if !self.custom_pipelines.contains_key(&hash) {
-                    self.compile_material_pipeline(device, hash, &frag_source);
+            // Compile pipelines for new material hashes; borrow frag_source in
+            // place — no clone needed since frag_source is non-empty only for
+            // entries whose pipeline hasn't been compiled yet.
+            for entry in &entries {
+                if let SpriteRenderKind::Material {
+                    hash, frag_source, ..
+                } = &entry.kind
+                {
+                    if !frag_source.is_empty() && !self.custom_pipelines.contains_key(hash) {
+                        self.compile_material_pipeline(device, *hash, frag_source);
+                    }
                 }
             }
 

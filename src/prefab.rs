@@ -42,7 +42,7 @@ use serde::{Deserialize, Serialize};
 use crate::components::{Sprite, Transform};
 use crate::ecs::{Entity, World};
 use crate::reflect::{Reflect, ReflectValue};
-use crate::save::{load, save, SaveError};
+use crate::save::{read_ron, write_ron, SaveError};
 
 // ─── Tag component ────────────────────────────────────────────────────────────
 
@@ -152,11 +152,13 @@ impl Default for SceneDef {
 }
 
 impl SceneDef {
-    /// Loads a scene definition from a RON file.
+    /// Loads a scene definition from a plain-text RON file.
     ///
-    /// If the file version differs from the current version, a warning is emitted but loading continues.
+    /// If the file version differs from the current version, a warning is emitted but loading
+    /// continues. Files written by the engine before v4.6 (AEAD-encrypted binary format) are
+    /// detected automatically and decrypted transparently for backward compatibility.
     pub fn load(path: &Path) -> Result<Self, SaveError> {
-        let scene: SceneDef = load(path)?;
+        let scene: SceneDef = read_ron(path)?;
         if scene.version != SCENE_DEF_VERSION {
             log::warn!(
                 "scene file version mismatch: file={}, current={} ({})",
@@ -168,13 +170,14 @@ impl SceneDef {
         Ok(scene)
     }
 
-    /// Saves the scene definition to a RON file. Always written with the current version.
+    /// Saves the scene definition to a plain-text RON file. Always written with the current
+    /// version. The resulting file is human-readable and can be edited in any text editor.
     pub fn save(&self, path: &Path) -> Result<(), SaveError> {
         let versioned = SceneDef {
             version: SCENE_DEF_VERSION,
             ..self.clone()
         };
-        save(path, &versioned)
+        write_ron(path, &versioned)
     }
 
     /// Adds an entity to the scene definition and returns `self` for builder chaining.
@@ -235,14 +238,19 @@ pub struct Prefab {
 }
 
 impl Prefab {
-    /// Loads a prefab from a RON file.
+    /// Loads a prefab from a plain-text RON file.
+    ///
+    /// Files written by the engine before v4.6 (AEAD-encrypted binary format) are detected
+    /// automatically and decrypted transparently for backward compatibility.
     pub fn load(path: &Path) -> Result<Self, SaveError> {
-        load(path)
+        read_ron(path)
     }
 
-    /// Saves the prefab to a RON file.
+    /// Saves the prefab to a plain-text RON file.
+    ///
+    /// The resulting file is human-readable and can be edited in any text editor.
     pub fn save(&self, path: &Path) -> Result<(), SaveError> {
-        save(path, self)
+        write_ron(path, self)
     }
 
     /// Spawns the prefab into the world and returns the created entity.
@@ -336,36 +344,9 @@ pub fn spawn_scene_def(world: &mut World, scene: &SceneDef) -> Vec<Entity> {
 /// Topologically sorts the entity list so roots come before their children.
 ///
 /// When saving a scene, parents must appear before children so the two-pass attach in `spawn_scene_def()` works correctly.
-pub fn topological_sort_entities(entities: &[Entity], world: &World) -> Vec<Entity> {
-    use std::collections::VecDeque;
-
-    // Parent → children adjacency map
-    let mut children_map: HashMap<Entity, Vec<Entity>> = HashMap::new();
-    let entity_set: std::collections::HashSet<Entity> = entities.iter().copied().collect();
-    let mut roots: Vec<Entity> = Vec::new();
-
-    for &e in entities {
-        match world.get::<crate::hierarchy::Parent>(e) {
-            Some(p) if entity_set.contains(&p.0) => {
-                children_map.entry(p.0).or_default().push(e);
-            }
-            _ => roots.push(e),
-        }
-    }
-
-    // BFS: collect from roots down to children
-    let mut result = Vec::with_capacity(entities.len());
-    let mut queue: VecDeque<Entity> = roots.into_iter().collect();
-    while let Some(e) = queue.pop_front() {
-        result.push(e);
-        if let Some(kids) = children_map.get(&e) {
-            for &kid in kids {
-                queue.push_back(kid);
-            }
-        }
-    }
-    result
-}
+///
+/// This is a re-export shim. The implementation lives in [`crate::hierarchy::topological_sort_entities`].
+pub use crate::hierarchy::topological_sort_entities;
 
 // ─── Unit tests ───────────────────────────────────────────────────────────────
 
@@ -526,6 +507,124 @@ SceneDef(
         let entity = loaded.spawn(&mut world);
         let tag = world.get::<Tag>(entity).unwrap();
         assert_eq!(tag.0, "coin");
+
+        fs::remove_file(&path).ok();
+        fs::remove_dir(path.parent().unwrap()).ok();
+    }
+
+    /// Scene files are human-readable plain-text RON (no binary header).
+    #[test]
+    fn scene_def_file_is_human_readable() {
+        let path = tmp_path("readable_scene.ron");
+
+        let scene = SceneDef {
+            entities: vec![EntityDef {
+                tag: Some("readable_entity".into()),
+                transform: Some(Transform::new(Vec2::ZERO, Vec2::splat(32.0), 0.0)),
+                sprite: None,
+                parent: None,
+            }],
+            ..Default::default()
+        };
+
+        scene.save(&path).expect("save should succeed");
+
+        let raw = fs::read_to_string(&path).expect("file should be valid utf-8");
+        assert!(
+            raw.contains("readable_entity"),
+            "scene file should contain the tag string as plain text"
+        );
+        assert!(
+            raw.contains("entities"),
+            "scene file should contain the field name 'entities'"
+        );
+
+        fs::remove_file(&path).ok();
+        fs::remove_dir(path.parent().unwrap()).ok();
+    }
+
+    /// Prefab files are human-readable plain-text RON (no binary header).
+    #[test]
+    fn prefab_file_is_human_readable() {
+        let path = tmp_path("readable_prefab.ron");
+
+        let prefab = Prefab {
+            def: EntityDef {
+                tag: Some("readable_prefab_tag".into()),
+                transform: None,
+                sprite: None,
+                parent: None,
+            },
+        };
+
+        prefab.save(&path).expect("save should succeed");
+
+        let raw = fs::read_to_string(&path).expect("file should be valid utf-8");
+        assert!(
+            raw.contains("readable_prefab_tag"),
+            "prefab file should contain the tag string as plain text"
+        );
+
+        fs::remove_file(&path).ok();
+        fs::remove_dir(path.parent().unwrap()).ok();
+    }
+
+    /// Files written by pre-4.6 `save()` (AEAD-encrypted) must still load via `SceneDef::load`.
+    #[test]
+    fn scene_def_backcompat_encrypted_load() {
+        use crate::save::save;
+
+        let path = tmp_path("legacy_scene.ron");
+
+        let scene = SceneDef {
+            entities: vec![EntityDef {
+                tag: Some("legacy_tag".into()),
+                transform: None,
+                sprite: None,
+                parent: None,
+            }],
+            ..Default::default()
+        };
+
+        // Simulate a pre-4.6 file written with the encrypted path
+        save(&path, &scene).expect("old encrypted save should succeed");
+
+        let loaded = SceneDef::load(&path).expect("load of encrypted legacy file should succeed");
+        assert_eq!(
+            loaded.entities[0].tag.as_deref(),
+            Some("legacy_tag"),
+            "tag must survive the back-compat encrypted load path"
+        );
+
+        fs::remove_file(&path).ok();
+        fs::remove_dir(path.parent().unwrap()).ok();
+    }
+
+    /// Files written by pre-4.6 `save()` (AEAD-encrypted) must still load via `Prefab::load`.
+    #[test]
+    fn prefab_backcompat_encrypted_load() {
+        use crate::save::save;
+
+        let path = tmp_path("legacy_prefab.ron");
+
+        let prefab = Prefab {
+            def: EntityDef {
+                tag: Some("legacy_prefab_tag".into()),
+                transform: None,
+                sprite: None,
+                parent: None,
+            },
+        };
+
+        // Simulate a pre-4.6 file written with the encrypted path
+        save(&path, &prefab).expect("old encrypted save should succeed");
+
+        let loaded = Prefab::load(&path).expect("load of encrypted legacy file should succeed");
+        assert_eq!(
+            loaded.def.tag.as_deref(),
+            Some("legacy_prefab_tag"),
+            "tag must survive the back-compat encrypted load path"
+        );
 
         fs::remove_file(&path).ok();
         fs::remove_dir(path.parent().unwrap()).ok();

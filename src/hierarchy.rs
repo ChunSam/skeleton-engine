@@ -80,6 +80,44 @@ pub fn detach(world: &mut World, child: Entity) {
     world.add_component(parent, Children(children));
 }
 
+/// Topologically sorts the entity list so roots come before their children.
+///
+/// Uses BFS from root entities (those with no `Parent` in the provided slice) down to
+/// their children. Entities whose parent is not in `entities` are treated as roots.
+///
+/// This is a pure hierarchy utility: it only inspects the `Parent` component and does not
+/// depend on any serialization logic.
+pub fn topological_sort_entities(entities: &[Entity], world: &World) -> Vec<Entity> {
+    use std::collections::{HashMap, HashSet, VecDeque};
+
+    // Parent → children adjacency map
+    let mut children_map: HashMap<Entity, Vec<Entity>> = HashMap::new();
+    let entity_set: HashSet<Entity> = entities.iter().copied().collect();
+    let mut roots: Vec<Entity> = Vec::new();
+
+    for &e in entities {
+        match world.get::<Parent>(e) {
+            Some(p) if entity_set.contains(&p.0) => {
+                children_map.entry(p.0).or_default().push(e);
+            }
+            _ => roots.push(e),
+        }
+    }
+
+    // BFS: collect from roots down to children
+    let mut result = Vec::with_capacity(entities.len());
+    let mut queue: VecDeque<Entity> = roots.into_iter().collect();
+    while let Some(e) = queue.pop_front() {
+        result.push(e);
+        if let Some(kids) = children_map.get(&e) {
+            for &kid in kids {
+                queue.push_back(kid);
+            }
+        }
+    }
+    result
+}
+
 /// System that propagates `GlobalTransform` through the `Transform` hierarchy.
 ///
 /// Run automatically by `App` immediately after user systems; no manual registration needed.
@@ -89,12 +127,18 @@ pub fn detach(world: &mut World, child: Entity) {
 /// **arbitrary-depth** hierarchies (e.g. deep bone chains like hip→torso→upper_arm→forearm→hand).
 pub struct HierarchySystem;
 
+impl HierarchySystem {
+    /// Schedule label. Run **after** systems that mutate `Transform` so
+    /// `GlobalTransform` reflects the current frame's state.
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::hierarchy";
+}
+
 impl System for HierarchySystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
         // Topological sort of all entities with a Transform (root → children order).
         // Parents are always processed before children, so arbitrary depth propagates in a single pass.
         let all: Vec<Entity> = world.query::<Transform>().map(|(e, _)| e).collect();
-        let ordered = crate::prefab::topological_sort_entities(&all, world);
+        let ordered = topological_sort_entities(&all, world);
 
         for entity in ordered {
             let gt = match world.get::<Parent>(entity).map(|p| p.0) {

@@ -1,6 +1,6 @@
 [package]
 name        = "skeleton-engine"
-version     = "4.5.0"
+version     = "4.6.0"
 edition     = "2021"
 description = "Lightweight 2D game engine — wgpu rendering, custom ECS, rapier2d physics"
 repository  = "https://github.com/ChunSam/skeleton-engine"

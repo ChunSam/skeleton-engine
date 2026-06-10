@@ -111,16 +111,19 @@ impl<A: Eq + Hash + Clone> InputMap<A> {
         }
     }
 
+    /// Returns (or inserts) the [`ActionBindings`] entry for `action`.
+    fn bindings_for(&mut self, action: A) -> &mut ActionBindings {
+        self.bindings
+            .entry(action)
+            .or_insert_with(ActionBindings::new)
+    }
+
     // ── Keyboard bindings (unchanged API) ────────────────────────────────────
 
     /// Bind a keyboard key to an action. Additive: repeated calls add more keys
     /// for the same action, and the action is active when any bound key is held.
     pub fn bind(&mut self, action: A, key: KeyCode) {
-        self.bindings
-            .entry(action)
-            .or_insert_with(ActionBindings::new)
-            .keys
-            .push(key);
+        self.bindings_for(action).keys.push(key);
     }
 
     /// Remove **all** bindings (keyboard + gamepad) for an action.
@@ -150,11 +153,7 @@ impl<A: Eq + Hash + Clone> InputMap<A> {
     /// Bind a gamepad button to an action (additive — does not remove existing
     /// keyboard or other gamepad bindings).
     pub fn bind_gamepad_button(&mut self, action: A, button: GamepadButton) {
-        self.bindings
-            .entry(action)
-            .or_insert_with(ActionBindings::new)
-            .gamepad_buttons
-            .push(button);
+        self.bindings_for(action).gamepad_buttons.push(button);
     }
 
     /// Bind a gamepad axis (with direction/threshold) to a digital action.
@@ -162,11 +161,7 @@ impl<A: Eq + Hash + Clone> InputMap<A> {
     /// Use [`AxisBinding::positive`] / [`AxisBinding::negative`] for ergonomic
     /// construction, or build the struct directly for custom thresholds.
     pub fn bind_gamepad_axis(&mut self, action: A, binding: AxisBinding) {
-        self.bindings
-            .entry(action)
-            .or_insert_with(ActionBindings::new)
-            .gamepad_axes
-            .push(binding);
+        self.bindings_for(action).gamepad_axes.push(binding);
     }
 
     // ── Keyboard-only resolution (backward-compatible) ────────────────────────

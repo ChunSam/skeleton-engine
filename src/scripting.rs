@@ -89,6 +89,9 @@ impl ScriptRunner {
 /// flee_from(enemy_x, enemy_y, 200.0, 80.0);      // set Flee component
 /// stop_steering();                                // reset SteeringVelocity speed
 /// ```
+///
+/// Only `Seek` and `Flee` are exposed to scripts. `Arrive` and `Wander` require
+/// Rust-side systems; they are an intentional extension point for engine forks.
 pub struct ScriptingSystem {
     engine: Engine,
 }

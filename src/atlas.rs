@@ -1,6 +1,6 @@
-use crate::animation::player::UvRect;
 use crate::asset::{Handle, ImageAsset};
 use crate::color::Color;
+use crate::renderer::uv::UvRect;
 
 /// Uniform-grid texture atlas.
 ///

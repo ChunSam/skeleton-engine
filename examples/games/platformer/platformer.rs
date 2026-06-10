@@ -1,9 +1,9 @@
 use engine::{
     AnimationClip, AnimationPlayer, AnimationStateMachine, AnimationSystem, App, AtlasSprite,
     Camera, CharacterController, DrawText, Entity, Events, InputState, KeyCode, PhysicsBody,
-    PhysicsSystem, PhysicsWorld, ShouldQuit, Sprite, StateMachineSystem, System, TextQueue,
-    TileCollider, Tilemap, TilemapAtlas, TilemapSystem, Transform, TransitionCond, TriggerEvent,
-    UvRect, WindowConfig, World,
+    PhysicsSystem, PhysicsWorld, ShouldQuit, Sprite, StateMachineSystem, System, SystemConfig,
+    TextQueue, TileCollider, Tilemap, TilemapAtlas, TilemapSystem, Transform, TransitionCond,
+    TriggerEvent, UvRect, WindowConfig, World,
 };
 use glam::Vec2;
 use rapier2d::na as nalgebra;
@@ -650,8 +650,20 @@ fn main() {
     app.add_system(PlatformerPhysicsSystem::new());
     app.add_system(GoalSystem);
     app.add_system(CameraAnchorSystem);
-    app.add_system(AnimationSystem);
-    app.add_system(StateMachineSystem);
+    // Labeled registration: StateMachineSystem must run AFTER AnimationSystem
+    // (it reads frame state the animation tick produces — see docs/PATTERNS.md).
+    // `add_system_labeled` declares that ordering explicitly instead of relying
+    // on insertion order; every built-in system exposes a `LABEL` for this.
+    app.add_system_labeled(
+        AnimationSystem,
+        SystemConfig::new().label(AnimationSystem::LABEL),
+    );
+    app.add_system_labeled(
+        StateMachineSystem,
+        SystemConfig::new()
+            .label(StateMachineSystem::LABEL)
+            .after(AnimationSystem::LABEL),
+    );
     app.add_system(HudSystem);
     app.run();
 }

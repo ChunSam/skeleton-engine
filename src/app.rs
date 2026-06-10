@@ -16,8 +16,7 @@ mod window;
 
 pub use schedule::{ScheduleErrorPolicy, SystemPanicPolicy};
 
-#[cfg(not(target_arch = "wasm32"))]
-use editor::EditorHistory;
+use editor::EditorState;
 #[cfg(test)]
 use egui_pass::paint_jobs_contain_callbacks;
 
@@ -47,8 +46,8 @@ use crate::{
         TextRenderer, UiImageQueue, UiQueue,
     },
     resources::{
-        DebugDraw, DebugDrawQueue, DebugRect, DisplayScaleFactor, FontData, LoadProgress,
-        PendingResize, ShouldQuit, ViewportSize, WindowConfig,
+        DebugDraw, DisplayScaleFactor, FontData, LoadProgress, PendingResize, ShouldQuit,
+        ViewportSize, WindowConfig,
     },
     scene::{Scene, SceneChange, SceneCmd},
 };
@@ -121,6 +120,8 @@ pub struct App {
     #[cfg(not(target_arch = "wasm32"))]
     lighting_renderer: Option<crate::renderer::lighting::LightingRenderer>,
     /// Fade renderer executed as the final pass when `FadeTransition` has `alpha > 0`.
+    /// This field exists on native targets only. On wasm, `FadeTransition` is accepted
+    /// without error but the fade effect is silently skipped (no render pass is issued).
     #[cfg(not(target_arch = "wasm32"))]
     fade_renderer: Option<crate::renderer::fade::FadeRenderer>,
     /// Intermediate texture the lighting pass renders the scene into first.
@@ -167,53 +168,8 @@ pub struct App {
     egui_state: Option<egui_winit::State>,
     /// Temporary buffer carrying tessellated output from `update()` to `render()`.
     egui_output: Option<(Vec<egui::ClippedPrimitive>, egui::TexturesDelta, f32)>,
-    /// Entity currently selected in the Inspector panel.
-    inspector_selected: Option<Entity>,
-    /// Multi-selected entity list (includes `inspector_selected`).
-    #[cfg(not(target_arch = "wasm32"))]
-    selected_entities: Vec<Entity>,
-    /// EntityDef clipboard copied via Ctrl+C.
-    #[cfg(not(target_arch = "wasm32"))]
-    copy_clipboard: Vec<crate::prefab::EntityDef>,
-    /// Whether a gizmo drag is in progress.
-    gizmo_dragging: bool,
-    /// Offset (entity position − cursor world position) captured at drag start.
-    gizmo_drag_offset: glam::Vec2,
-    /// Inspector scene save path (native only).
-    #[cfg(not(target_arch = "wasm32"))]
-    editor_save_path: String,
-    /// Result message of the last scene save.
-    editor_save_status: Option<String>,
-    /// Result message of the last scene load.
-    #[cfg(not(target_arch = "wasm32"))]
-    editor_load_status: Option<String>,
-    /// Current Inspector tab index (0: Entities, 1: Assets).
-    inspector_tab: u8,
-    /// Editor undo/redo history.
-    #[cfg(not(target_arch = "wasm32"))]
-    cmd_history: EditorHistory,
-    /// Entity position at gizmo drag start (for recording undo).
-    #[cfg(not(target_arch = "wasm32"))]
-    gizmo_drag_start_pos: Option<glam::Vec2>,
-    /// Positions of all selected entities at gizmo group-drag start (for group-move undo).
-    #[cfg(not(target_arch = "wasm32"))]
-    gizmo_drag_start_positions: Vec<(Entity, glam::Vec2)>,
-    /// Component add factory map (native only). Type name → closure that adds the component to the World.
-    #[cfg(not(target_arch = "wasm32"))]
-    component_factories: HashMap<String, ComponentFactory>,
-    /// Component remove closure map (native only). Type name → closure that removes the component from the World.
-    /// Only components registered in this map expose the "✕" (remove) button in the Inspector.
-    #[cfg(not(target_arch = "wasm32"))]
-    component_removers: HashMap<String, ComponentFactory>,
-    /// Component name currently selected in the "Add Component" dropdown (native only).
-    #[cfg(not(target_arch = "wasm32"))]
-    add_component_selected: String,
-    /// Whether gizmo drag grid snap is enabled (native only).
-    #[cfg(not(target_arch = "wasm32"))]
-    snap_enabled: bool,
-    /// Gizmo drag grid snap cell size in pixels (native only).
-    #[cfg(not(target_arch = "wasm32"))]
-    snap_size: f32,
+    /// All editor/inspector-only state grouped for clean fork extraction.
+    editor: EditorState,
 }
 
 impl App {
@@ -232,7 +188,19 @@ impl App {
         Self::insert_core_resources(&mut world);
         Self::register_core_component_metadata(&mut world);
 
+        // EditorState::new() (native) registers default component removers; wasm only
+        // has Default (no native-only fields).
         #[cfg(not(target_arch = "wasm32"))]
+        let editor_state = EditorState::new();
+        #[cfg(target_arch = "wasm32")]
+        let editor_state = EditorState::default();
+
+        // Single struct literal covering both targets.  Fields that exist only on
+        // native (lighting/fade/gilrs/…) are gated with #[cfg]; the cfg on the struct
+        // field definition ensures the field is absent on wasm, so this compiles on
+        // both targets without duplication.
+        // `mut` is needed on native for register_default_components(); wasm doesn't use it.
+        #[allow(unused_mut)]
         let mut app = Self {
             world,
             systems: Vec::new(),
@@ -249,10 +217,15 @@ impl App {
             sprite_renderer: None,
             text_renderer: None,
             post_renderer: None,
+            #[cfg(not(target_arch = "wasm32"))]
             lighting_renderer: None,
+            #[cfg(not(target_arch = "wasm32"))]
             fade_renderer: None,
+            #[cfg(not(target_arch = "wasm32"))]
             scene_texture_for_lighting: None,
+            #[cfg(not(target_arch = "wasm32"))]
             post_texture_for_lighting: None,
+            #[cfg(not(target_arch = "wasm32"))]
             gpu_particle_renderer: None,
             last_frame: None,
             last_dt: 1.0 / 60.0,
@@ -262,67 +235,16 @@ impl App {
             event_flushers: Vec::new(),
             event_initializers: Vec::new(),
             persistent_resources: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
             gilrs,
             egui_renderer: None,
             egui_state: None,
             egui_output: None,
-            inspector_selected: None,
-            selected_entities: Vec::new(),
-            copy_clipboard: Vec::new(),
-            gizmo_dragging: false,
-            gizmo_drag_offset: glam::Vec2::ZERO,
-            editor_save_path: "saved_scene.ron".into(),
-            editor_save_status: None,
-            editor_load_status: None,
-            inspector_tab: 0,
-            cmd_history: EditorHistory::new(),
-            gizmo_drag_start_pos: None,
-            gizmo_drag_start_positions: Vec::new(),
-            component_factories: HashMap::new(),
-            component_removers: HashMap::new(),
-            add_component_selected: String::new(),
-            snap_enabled: false,
-            snap_size: 16.0,
+            editor: editor_state,
         };
         #[cfg(not(target_arch = "wasm32"))]
         app.register_default_components();
-        #[cfg(not(target_arch = "wasm32"))]
-        return app;
-
-        #[cfg(target_arch = "wasm32")]
-        Self {
-            world,
-            systems: Vec::new(),
-            system_meta: Vec::new(),
-            exec_order: Vec::new(),
-            schedule_dirty: true,
-            disabled_sets: std::collections::HashSet::new(),
-            panicked_systems: std::collections::HashSet::new(),
-            schedule_error_policy: ScheduleErrorPolicy::default(),
-            system_panic_policy: SystemPanicPolicy::default(),
-            scene_stack: Vec::new(),
-            window: None,
-            gpu: None,
-            sprite_renderer: None,
-            text_renderer: None,
-            post_renderer: None,
-            last_frame: None,
-            last_dt: 1.0 / 60.0,
-            pending_textures: Vec::new(),
-            render_targets: HashMap::new(),
-            pending_render_targets: Vec::new(),
-            event_flushers: Vec::new(),
-            event_initializers: Vec::new(),
-            persistent_resources: Vec::new(),
-            egui_renderer: None,
-            egui_state: None,
-            egui_output: None,
-            inspector_selected: None,
-            gizmo_dragging: false,
-            gizmo_drag_offset: glam::Vec2::ZERO,
-            editor_save_status: None,
-            inspector_tab: 0,
-        }
+        app
     }
 }
 

@@ -106,6 +106,11 @@ impl Wander {
 /// Evaluation order: Seek → Flee → Arrive → Wander.
 pub struct SteeringSystem;
 
+impl SteeringSystem {
+    /// Schedule label for ordering via `add_system_labeled`.
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::steering";
+}
+
 impl System for SteeringSystem {
     fn run(&mut self, world: &mut World, dt: f32) {
         // ── 1. Seek ────────────────────────────────────────────────────────────

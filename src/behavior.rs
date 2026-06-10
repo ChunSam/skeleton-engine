@@ -369,6 +369,11 @@ impl BehaviorTree {
 /// ```
 pub struct BehaviorSystem;
 
+impl BehaviorSystem {
+    /// Schedule label for ordering via `add_system_labeled`.
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::behavior";
+}
+
 impl System for BehaviorSystem {
     fn run(&mut self, world: &mut World, dt: f32) {
         // Borrow-checker workaround: collect entity list first.

@@ -31,6 +31,11 @@ pub struct LocaleBundle {
 }
 
 /// Runtime localization resource.
+///
+/// This is the engine's single source of truth for translation data. UI-side consumers
+/// (`LocalizedText` + `LocalizationSystem` in `src/ui/localized.rs`) call [`Self::t`]
+/// each frame to resolve translation keys into widget text. Switching the active locale
+/// with [`Self::set_locale`] is enough to retranslate the entire UI on the next frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocaleResource {
     current_locale: String,

@@ -96,6 +96,8 @@ pub struct World {
     free_indices: VecDeque<u32>,
     generations: Vec<u32>,
     entities: Vec<Entity>,
+    /// Tracks each entity's index into `entities` for O(1) removal in `despawn`.
+    entities_row: HashMap<Entity, usize>,
     archetypes: Vec<Archetype>,
     archetype_index: HashMap<Vec<TypeId>, ArchetypeId>,
     entity_location: HashMap<Entity, (ArchetypeId, usize)>,
@@ -117,6 +119,7 @@ impl World {
             free_indices: VecDeque::new(),
             generations: Vec::new(),
             entities: Vec::new(),
+            entities_row: HashMap::new(),
             archetypes: vec![empty_arch],
             archetype_index,
             entity_location: HashMap::new(),
@@ -148,7 +151,9 @@ impl World {
         let row = self.archetypes[0].entities.len();
         self.archetypes[0].entities.push(entity);
         self.entity_location.insert(entity, (0, row));
+        let entities_pos = self.entities.len();
         self.entities.push(entity);
+        self.entities_row.insert(entity, entities_pos);
         entity
     }
 
@@ -176,8 +181,15 @@ impl World {
             self.entity_location.insert(swapped, (arch_id, row));
         }
 
-        if let Some(pos) = self.entities.iter().position(|&e| e == entity) {
+        // O(1) removal: look up the entity's position in the flat `entities` list, then
+        // swap_remove and update the row index for the entity that was swapped into that slot.
+        if let Some(pos) = self.entities_row.remove(&entity) {
+            let last = self.entities.len() - 1;
             self.entities.swap_remove(pos);
+            if pos < last {
+                // The entity now at `pos` was previously at `last`; update its tracked row.
+                self.entities_row.insert(self.entities[pos], pos);
+            }
         }
 
         self.entity_location.remove(&entity);
@@ -523,6 +535,15 @@ impl World {
     ///
     /// Registered types are accessible via `get_reflect`, `get_reflect_mut`, and
     /// `reflected_components`, and are automatically displayed in the egui Inspector panel.
+    ///
+    /// **Deprecated:** this overload stores an empty type name, causing the Inspector to
+    /// display a blank entry instead of the component name. Use
+    /// [`register_reflect_named`](Self::register_reflect_named) and pass the display name
+    /// explicitly.
+    #[deprecated(
+        since = "4.6.0",
+        note = "use register_reflect_named — register_reflect stores an empty type name and breaks the Inspector display"
+    )]
     pub fn register_reflect<T: crate::reflect::Reflect + 'static>(&mut self) {
         self.reflect_registry.insert(
             TypeId::of::<T>(),
@@ -635,6 +656,10 @@ impl World {
     }
 
     /// Returns only entities whose component T was *first added* this tick.
+    ///
+    /// **Note:** allocates a `Vec<Entity>` on every call to collect the matching set before
+    /// returning the iterator. Intended for low-frequency use (e.g. one-shot init logic);
+    /// avoid calling in hot per-frame loops with many entities.
     pub fn query_added<T: 'static>(&self) -> impl Iterator<Item = (Entity, &T)> {
         let tid = TypeId::of::<T>();
         let entities: Vec<Entity> = self
@@ -649,6 +674,10 @@ impl World {
     }
 
     /// Returns only entities whose component T was *replaced* this tick.
+    ///
+    /// **Note:** allocates a `Vec<Entity>` on every call to collect the matching set before
+    /// returning the iterator. Intended for low-frequency use (e.g. reactive UI updates);
+    /// avoid calling in hot per-frame loops with many entities.
     pub fn query_changed<T: 'static>(&self) -> impl Iterator<Item = (Entity, &T)> {
         let tid = TypeId::of::<T>();
         let entities: Vec<Entity> = self
@@ -770,6 +799,10 @@ impl World {
         }
 
         let src_len = self.archetypes[src_arch_id].entities.len();
+        // Clone required: we need `type_set` keys to call `columns.get_mut()` on the same
+        // Archetype. Holding `&type_set` while also holding `&mut columns` would alias fields
+        // of the same struct, which the borrow checker disallows. split_at_mut cannot help
+        // here because both borrows are on the same Vec element.
         let src_type_set: Vec<TypeId> = self.archetypes[src_arch_id].type_set.clone();
 
         let mut extracted: HashMap<TypeId, ComponentBox> = HashMap::new();
@@ -792,6 +825,9 @@ impl World {
         let dst_row = self.archetypes[target_arch_id].entities.len();
         self.archetypes[target_arch_id].entities.push(entity);
 
+        // Same borrow-checker constraint as src_type_set above: `type_set` and `columns`
+        // are fields of the same Archetype, so a shared ref to `type_set` cannot coexist
+        // with a mutable borrow of `columns`.
         let dst_type_set: Vec<TypeId> = self.archetypes[target_arch_id].type_set.clone();
         for &tid in &dst_type_set {
             if let Some(comp) = extracted.remove(&tid) {

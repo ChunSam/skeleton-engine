@@ -6,6 +6,8 @@ use crate::components::{Sprite, Transform};
 use crate::ecs::{Entity, System, World};
 
 type ParticleUpdate = (Entity, f32, f32, Vec2, Color, Color);
+// (entity, pos, emit, spawn_rate, lifetime, velocity, velocity_spread,
+//  color_start, color_end, size, texture, has_burst, burst_remaining)
 type EmitterSnapshot = (
     Entity,
     Vec2,
@@ -18,9 +20,9 @@ type EmitterSnapshot = (
     Color,
     Vec2,
     Option<String>,
+    bool,
+    u32,
 );
-// (entity, pos, lifetime, velocity_spread, color_start, color_end, size, texture)
-type BurstSnapshot = (Entity, Vec2, f32, Vec2, Color, Color, Vec2, Option<String>);
 
 // ─── Components ───────────────────────────────────────────────────────────────
 
@@ -76,7 +78,7 @@ impl ParticleEmitter {
     /// `remaining` particles at once on the next tick, then despawn the entity.
     ///
     /// This is a purely additive API and does not affect continuous emitter behavior.
-    pub fn for_burst() -> Self {
+    pub fn burst() -> Self {
         Self {
             spawn_rate: 0.0,
             lifetime: 0.5,
@@ -89,6 +91,14 @@ impl ParticleEmitter {
             emit: false,
             timer: 0.0,
         }
+    }
+
+    /// Emitter preset for one-shot bursts.
+    ///
+    /// Renamed to [`ParticleEmitter::burst`]; this alias will be removed in v5.
+    #[deprecated(since = "4.6.0", note = "renamed to ParticleEmitter::burst")]
+    pub fn for_burst() -> Self {
+        Self::burst()
     }
 }
 
@@ -120,6 +130,11 @@ pub struct ParticleBurst {
 // ─── System ───────────────────────────────────────────────────────────────────
 
 pub struct ParticleSystem;
+
+impl ParticleSystem {
+    /// Schedule label for ordering via `add_system_labeled`.
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::particle";
+}
 
 impl System for ParticleSystem {
     fn run(&mut self, world: &mut World, dt: f32) {
@@ -157,10 +172,16 @@ impl System for ParticleSystem {
             world.despawn(e);
         }
 
-        // 2. Emit new particles from emitters.
+        // 2. Emit new particles from emitters (continuous) and fire one-shot bursts.
+        //    Both passes need (Transform, ParticleEmitter), so we collect a single
+        //    snapshot that includes the burst state — avoiding a second query scan.
         let emitter_data: Vec<EmitterSnapshot> = world
             .query2::<Transform, ParticleEmitter>()
             .map(|(e, tr, em)| {
+                let (has_burst, burst_remaining) = world
+                    .get::<ParticleBurst>(e)
+                    .map(|b| (true, b.remaining))
+                    .unwrap_or((false, 0));
                 (
                     e,
                     tr.position,
@@ -173,11 +194,14 @@ impl System for ParticleSystem {
                     em.color_end,
                     em.size,
                     em.texture.clone(),
+                    has_burst,
+                    burst_remaining,
                 )
             })
             .collect();
 
         let mut rng = rand::thread_rng();
+        let mut burst_despawn = Vec::new();
         for (
             emitter_entity,
             pos,
@@ -190,84 +214,72 @@ impl System for ParticleSystem {
             color_end,
             size,
             texture,
+            has_burst,
+            burst_remaining,
         ) in emitter_data
         {
-            if !emit || spawn_rate <= 0.0 {
-                continue;
-            }
-            let spawn_count = {
-                let em = world.get_mut::<ParticleEmitter>(emitter_entity).unwrap();
-                em.timer += dt;
-                let interval = 1.0 / spawn_rate;
-                // On a slow frame where timer exceeds interval multiple times, spawn that many.
-                // (Previously only one was spawned per frame, making density framerate-dependent.)
-                let mut count = 0u32;
-                while em.timer >= interval {
-                    em.timer -= interval;
-                    count += 1;
+            // ── Continuous emission ──────────────────────────────────────────────
+            if emit && spawn_rate > 0.0 {
+                let spawn_count = {
+                    let em = world.get_mut::<ParticleEmitter>(emitter_entity).unwrap();
+                    em.timer += dt;
+                    let interval = 1.0 / spawn_rate;
+                    // On a slow frame where timer exceeds interval multiple times, spawn
+                    // that many. (Previously only one was spawned per frame, making density
+                    // framerate-dependent.)
+                    let mut count = 0u32;
+                    while em.timer >= interval {
+                        em.timer -= interval;
+                        count += 1;
+                    }
+                    // Runaway guard: at most 64 per frame (handles very large spawn_rate + long dt).
+                    count.min(64)
+                };
+
+                for _ in 0..spawn_count {
+                    let actual_velocity = Vec2::new(
+                        velocity.x + rng.gen_range(-spread.x..=spread.x),
+                        velocity.y + rng.gen_range(-spread.y..=spread.y),
+                    );
+
+                    spawn_particle(
+                        world,
+                        pos,
+                        size,
+                        &texture,
+                        actual_velocity,
+                        lifetime,
+                        color_start,
+                        color_end,
+                    );
                 }
-                // Runaway guard: at most 64 per frame (handles very large spawn_rate + long dt).
-                count.min(64)
-            };
+            }
 
-            for _ in 0..spawn_count {
-                let actual_velocity = Vec2::new(
-                    velocity.x + rng.gen_range(-spread.x..=spread.x),
-                    velocity.y + rng.gen_range(-spread.y..=spread.y),
-                );
-
-                spawn_particle(
-                    world,
-                    pos,
-                    size,
-                    &texture,
-                    actual_velocity,
-                    lifetime,
-                    color_start,
-                    color_end,
-                );
+            // ── One-shot burst emission ──────────────────────────────────────────
+            // Independent of continuous emission; despawns the emitter entity after
+            // firing all particles.
+            if has_burst {
+                let radius = spread.max_element().max(1.0);
+                for _ in 0..burst_remaining {
+                    let angle = rng.gen_range(0.0..std::f32::consts::TAU);
+                    let speed = rng.gen_range(0.2..=1.0) * radius;
+                    let vel = Vec2::new(angle.cos(), angle.sin()) * speed;
+                    spawn_particle(
+                        world,
+                        pos,
+                        size,
+                        &texture,
+                        vel,
+                        lifetime,
+                        color_start,
+                        color_end,
+                    );
+                }
+                burst_despawn.push(emitter_entity);
             }
         }
-
-        // 3. One-shot burst emission (ParticleEmitter + ParticleBurst). Independent of
-        //    continuous emission; despawns the emitter entity after firing.
-        let burst_emitters: Vec<BurstSnapshot> = world
-            .query2::<Transform, ParticleEmitter>()
-            .map(|(e, tr, em)| {
-                (
-                    e,
-                    tr.position,
-                    em.lifetime,
-                    em.velocity_spread,
-                    em.color_start,
-                    em.color_end,
-                    em.size,
-                    em.texture.clone(),
-                )
-            })
-            .collect();
-        for (entity, pos, lifetime, spread, color_start, color_end, size, texture) in burst_emitters
-        {
-            let Some(remaining) = world.get::<ParticleBurst>(entity).map(|b| b.remaining) else {
-                continue;
-            };
-            let radius = spread.max_element().max(1.0);
-            for _ in 0..remaining {
-                let angle = rng.gen_range(0.0..std::f32::consts::TAU);
-                let speed = rng.gen_range(0.2..=1.0) * radius;
-                let vel = Vec2::new(angle.cos(), angle.sin()) * speed;
-                spawn_particle(
-                    world,
-                    pos,
-                    size,
-                    &texture,
-                    vel,
-                    lifetime,
-                    color_start,
-                    color_end,
-                );
-            }
-            world.despawn(entity);
+        for e in burst_despawn {
+            world.despawn(e);
         }
     }
 }
@@ -325,7 +337,7 @@ mod tests {
         let mut world = World::new();
         let emitter = world.spawn();
         world.add_component(emitter, Transform::default());
-        world.add_component(emitter, ParticleEmitter::for_burst());
+        world.add_component(emitter, ParticleEmitter::burst());
         world.add_component(emitter, ParticleBurst { remaining: 8 });
 
         ParticleSystem.run(&mut world, 0.016);

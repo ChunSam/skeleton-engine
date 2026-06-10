@@ -45,6 +45,50 @@ impl Easing {
     }
 }
 
+// ── Lerp trait ─────────────────────────────────────────────────────────────
+
+/// Trait for linearly interpolating between two values.
+///
+/// General interpolation utility — used by [`crate::timeline::Timeline`] tracks
+/// and [`crate::network::SnapshotBuffer`] alike.
+pub trait Lerp: Clone {
+    fn lerp(a: &Self, b: &Self, t: f32) -> Self;
+}
+
+impl Lerp for f32 {
+    fn lerp(a: &f32, b: &f32, t: f32) -> f32 {
+        a + (b - a) * t
+    }
+}
+
+impl Lerp for glam::Vec2 {
+    fn lerp(a: &glam::Vec2, b: &glam::Vec2, t: f32) -> glam::Vec2 {
+        a.lerp(*b, t)
+    }
+}
+
+impl Lerp for [f32; 4] {
+    fn lerp(a: &[f32; 4], b: &[f32; 4], t: f32) -> [f32; 4] {
+        [
+            a[0] + (b[0] - a[0]) * t,
+            a[1] + (b[1] - a[1]) * t,
+            a[2] + (b[2] - a[2]) * t,
+            a[3] + (b[3] - a[3]) * t,
+        ]
+    }
+}
+
+impl Lerp for crate::color::Color {
+    fn lerp(a: &Self, b: &Self, t: f32) -> Self {
+        Self::rgba(
+            a.r + (b.r - a.r) * t,
+            a.g + (b.g - a.g) * t,
+            a.b + (b.b - a.b) * t,
+            a.a + (b.a - a.a) * t,
+        )
+    }
+}
+
 /// Tween that interpolates an f32 value over time.
 ///
 /// # Example

@@ -89,32 +89,32 @@ pub(super) fn run(
                     }
                 }
 
-                for &c in &input.chars {
-                    match c {
-                        '\x08' => {
-                            if let Some(ti) = world.get_mut::<TextInput>(entity) {
+                // Hoist get_mut outside the per-character loop; collect emitted events
+                // in a temporary vec so we can push them to `output` after the borrow ends.
+                let mut char_events: Vec<UiEvent> = Vec::new();
+                if let Some(ti) = world.get_mut::<TextInput>(entity) {
+                    for &c in &input.chars {
+                        match c {
+                            '\x08' => {
                                 ti.backspace();
                                 let text = ti.text.clone();
-                                output.events.push(UiEvent::TextChanged(entity, text));
+                                char_events.push(UiEvent::TextChanged(entity, text));
                             }
-                        }
-                        '\n' => {
-                            if let Some(ti) = world.get_mut::<TextInput>(entity) {
+                            '\n' => {
                                 let text = ti.text.clone();
                                 ti.focused = false;
-                                output.events.push(UiEvent::TextSubmitted(entity, text));
-                                output.events.push(UiEvent::TextBlurred(entity));
+                                char_events.push(UiEvent::TextSubmitted(entity, text));
+                                char_events.push(UiEvent::TextBlurred(entity));
                             }
-                        }
-                        ch => {
-                            if let Some(ti) = world.get_mut::<TextInput>(entity) {
+                            ch => {
                                 ti.insert_char(ch);
                                 let text = ti.text.clone();
-                                output.events.push(UiEvent::TextChanged(entity, text));
+                                char_events.push(UiEvent::TextChanged(entity, text));
                             }
                         }
                     }
                 }
+                output.events.extend(char_events);
                 if let Some(ti) = world.get_mut::<TextInput>(entity) {
                     ti.preedit = if ti.remaining_capacity() >= input.ime_preedit.len() {
                         input.ime_preedit.clone()

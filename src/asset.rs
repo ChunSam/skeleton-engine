@@ -196,38 +196,25 @@ impl AssetServer {
                         }
                     }
                 });
-            match watcher_result {
-                Ok(w) => Self {
-                    images: HashMap::new(),
-                    image_load_states: HashMap::new(),
-                    path_to_id: HashMap::new(),
-                    scripts: HashMap::new(),
-                    script_path_to_id: HashMap::new(),
-                    atlases: HashMap::new(),
-                    atlas_path_to_id: HashMap::new(),
-                    reload_rx: Some(rx),
-                    _watcher: Some(w),
-                    async_tx,
-                    async_rx,
-                },
+            let (watcher, reload_rx) = match watcher_result {
+                Ok(w) => (Some(w), Some(rx)),
                 Err(e) => {
                     log::warn!("file watcher initialization failed (hot reloading disabled): {e}");
-                    let (async_tx2, async_rx2) =
-                        std::sync::mpsc::sync_channel::<async_loading::AsyncImageResult>(128);
-                    Self {
-                        images: HashMap::new(),
-                        image_load_states: HashMap::new(),
-                        path_to_id: HashMap::new(),
-                        scripts: HashMap::new(),
-                        script_path_to_id: HashMap::new(),
-                        atlases: HashMap::new(),
-                        atlas_path_to_id: HashMap::new(),
-                        reload_rx: None,
-                        _watcher: None,
-                        async_tx: async_tx2,
-                        async_rx: async_rx2,
-                    }
+                    (None, None)
                 }
+            };
+            Self {
+                images: HashMap::new(),
+                image_load_states: HashMap::new(),
+                path_to_id: HashMap::new(),
+                scripts: HashMap::new(),
+                script_path_to_id: HashMap::new(),
+                atlases: HashMap::new(),
+                atlas_path_to_id: HashMap::new(),
+                reload_rx,
+                _watcher: watcher,
+                async_tx,
+                async_rx,
             }
         }
         #[cfg(target_arch = "wasm32")]

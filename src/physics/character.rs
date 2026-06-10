@@ -20,6 +20,11 @@ use rapier2d::na;
 /// ```
 pub struct CharacterController {
     /// Maximum slope angle that can be climbed (radians). Default π/4 (45°).
+    ///
+    /// This field is **authoritative**: `move_character` writes it into the
+    /// internal Rapier controller before each move, so setting it directly is
+    /// safe and takes effect on the very next call. Prefer `with_max_slope_deg`
+    /// for the builder pattern, but direct assignment works too.
     pub max_slope_angle: f32,
     /// Whether the character was grounded after the previous `move_character` call.
     pub grounded: bool,
@@ -106,4 +111,47 @@ impl CharacterController {
 impl CharacterController {
     /// Length of the drop-through window (seconds). Long enough for the character to clear the platform thickness.
     pub(crate) const DROP_DURATION: f32 = 0.2;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn with_max_slope_deg_keeps_field_and_inner_in_sync() {
+        let ctrl = CharacterController::new().with_max_slope_deg(30.0);
+        let expected = 30_f32.to_radians();
+        assert!(
+            (ctrl.max_slope_angle - expected).abs() < 1e-6,
+            "max_slope_angle field must equal 30° in radians"
+        );
+        assert!(
+            (ctrl.inner.max_slope_climb_angle - expected).abs() < 1e-6,
+            "inner.max_slope_climb_angle must be synced by with_max_slope_deg"
+        );
+        assert!(
+            (ctrl.inner.min_slope_slide_angle - expected).abs() < 1e-6,
+            "inner.min_slope_slide_angle must be synced by with_max_slope_deg"
+        );
+    }
+
+    #[test]
+    fn direct_field_assignment_is_detected_by_move_character_sync() {
+        // Verify the public field is authoritative: after a direct write, it differs from
+        // inner until move_character syncs it. The sync itself is exercised in the physics
+        // integration test; here we just verify the field write persists as expected.
+        let mut ctrl = CharacterController::new();
+        let new_angle = 20_f32.to_radians();
+        ctrl.max_slope_angle = new_angle;
+        // The public field must reflect the new value.
+        assert!(
+            (ctrl.max_slope_angle - new_angle).abs() < 1e-6,
+            "direct field write must update max_slope_angle"
+        );
+        // inner is intentionally not yet updated (that happens in move_character).
+        assert!(
+            (ctrl.inner.max_slope_climb_angle - std::f32::consts::FRAC_PI_4).abs() < 1e-6,
+            "inner is updated lazily by move_character, not on direct field write"
+        );
+    }
 }

@@ -59,8 +59,7 @@ pub struct AudioManager {
     /// Per-channel audio effects.
     effects: HashMap<String, AudioEffect>,
     /// Path → encoded file bytes cache. Prevents re-reading the disk when the same SFX
-    /// is replayed (`play`/`play_internal` path only; `play_streaming` for large BGM
-    /// streams directly and is not cached).
+    /// is replayed (`play`/`play_internal` path only).
     file_cache: HashMap<String, std::sync::Arc<[u8]>>,
 }
 
@@ -85,6 +84,11 @@ pub struct AudioManager {
 /// Does nothing if the `AudioManager` resource is absent.
 #[derive(Default)]
 pub struct AudioSystem;
+
+impl AudioSystem {
+    /// Schedule label for ordering via `add_system_labeled`.
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::audio";
+}
 
 impl crate::ecs::System for AudioSystem {
     fn run(&mut self, world: &mut crate::ecs::World, dt: f32) {

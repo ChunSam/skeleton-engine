@@ -35,9 +35,20 @@ impl LocalizedText {
 /// Resolves every [`LocalizedText`] through the [`LocaleResource`] and writes the
 /// result into the entity's [`Label`] / [`Button`] / [`CheckBox`] text field.
 ///
+/// [`LocaleResource`] lives in `src/locale.rs` and is the single source of truth for
+/// translation data. Each frame this system calls [`LocaleResource::t`] for every
+/// [`LocalizedText`] key, so switching locales via [`LocaleResource::set_locale`]
+/// automatically retranslates all bound widgets on the next frame.
+///
 /// Register it before [`UiSystem`](super::UiSystem) so freshly translated text is
 /// rendered the same frame. No-op when no [`LocaleResource`] exists.
 pub struct LocalizationSystem;
+
+impl LocalizationSystem {
+    /// Schedule label. Recommended order: **before** `UiSystem::LABEL` so resolved
+    /// text is rendered the same frame.
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::localization";
+}
 
 impl System for LocalizationSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {

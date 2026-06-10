@@ -169,6 +169,11 @@ impl SkeletalAnimator {
 /// The `HierarchySystem` that runs automatically afterward composes `GlobalTransform`.
 pub struct SkeletalAnimationSystem;
 
+impl SkeletalAnimationSystem {
+    /// Schedule label for ordering via `add_system_labeled`.
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::skeletal_animation";
+}
+
 impl System for SkeletalAnimationSystem {
     fn run(&mut self, world: &mut World, dt: f32) {
         let animators: Vec<Entity> = world.query::<SkeletalAnimator>().map(|(e, _)| e).collect();

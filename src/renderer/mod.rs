@@ -11,6 +11,7 @@ pub mod sprite;
 pub mod text;
 pub mod texture;
 pub mod ui;
+pub mod uv;
 
 pub use context::{GpuContext, GpuContextError};
 pub use post_process::{PostProcessConfig, PostProcessRenderer};
@@ -19,6 +20,7 @@ pub use sprite::{FrameContext, SpriteRenderer};
 pub use text::{DrawText, TextAlign, TextAnchor, TextQueue, TextRenderer};
 pub use texture::Texture;
 pub use ui::{DrawImage, DrawRect, UiImageQueue, UiQueue};
+pub use uv::{BlendUv, UvRect};
 
 /// Embedded default font (DejaVu Sans, Bitstream Vera / Arev license — see
 /// `assets/fonts/DejaVuSans-LICENSE.txt`). The browser sandbox has no system fonts, so on

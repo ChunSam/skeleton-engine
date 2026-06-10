@@ -1,6 +1,6 @@
-use crate::animation::player::UvRect;
 use crate::asset::{Handle, ImageAsset};
 use crate::color::Color;
+use crate::renderer::uv::UvRect;
 
 #[derive(Clone, Copy)]
 pub struct DrawRect {
@@ -93,6 +93,10 @@ impl DrawImage {
         }
     }
 
+    /// Create a solid-colored rectangle with no texture — analogous to `Sprite::colored`.
+    ///
+    /// The `color` tints the quad uniformly (RGBA 0.0–1.0). Set `z` via
+    /// [`with_z`](Self::with_z) if draw-order control is needed.
     pub fn colored(x: f32, y: f32, w: f32, h: f32, color: impl Into<Color>) -> Self {
         Self {
             x,

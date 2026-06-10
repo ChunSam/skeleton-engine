@@ -20,7 +20,12 @@ pub struct FadeRenderer {
     bind_group: wgpu::BindGroup,
 }
 
-const FADE_SHADER: &str = r#"
+// Vertex stage shared with lighting.rs — fullscreen 6-vertex quad.
+// Fragment stage is fade-specific (uniform color overlay, alpha blending).
+const FADE_SHADER: &str = concat!(
+    include_str!("shaders/fullscreen_quad.wgsl"),
+    r#"
+
 struct Uniforms {
     color: vec3<f32>,
     alpha: f32,
@@ -28,24 +33,12 @@ struct Uniforms {
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
 
-struct VOut {
-    @builtin(position) pos: vec4<f32>,
-}
-
-@vertex
-fn vs_main(@builtin(vertex_index) idx: u32) -> VOut {
-    var pos = array<vec2<f32>, 6>(
-        vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1.0),
-        vec2(-1.0,  1.0), vec2(1.0, -1.0), vec2( 1.0, 1.0),
-    );
-    return VOut(vec4(pos[idx], 0.0, 1.0));
-}
-
 @fragment
 fn fs_main() -> @location(0) vec4<f32> {
     return vec4(u.color, u.alpha);
 }
-"#;
+"#
+);
 
 impl FadeRenderer {
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {

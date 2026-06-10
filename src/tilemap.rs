@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use glam::Vec2;
 
-use crate::animation::player::UvRect;
 use crate::components::{Sprite, Transform};
 use crate::ecs::{Entity, System, World};
+use crate::renderer::uv::UvRect;
 
 // ─── Data types ───────────────────────────────────────────────────────────────
 
@@ -99,6 +99,11 @@ impl Default for TilemapSystem {
     fn default() -> Self {
         Self::new()
     }
+}
+
+impl TilemapSystem {
+    /// Schedule label for ordering via `add_system_labeled`.
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::tilemap";
 }
 
 impl System for TilemapSystem {

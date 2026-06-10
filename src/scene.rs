@@ -57,4 +57,18 @@ impl SceneChange {
     pub fn request(&mut self, cmd: SceneCmd) {
         self.0 = Some(cmd);
     }
+
+    /// Returns `true` if a scene transition has been requested this frame.
+    pub fn is_pending(&self) -> bool {
+        self.0.is_some()
+    }
+
+    /// Takes the pending [`SceneCmd`] out, leaving the resource empty.
+    ///
+    /// Intended for `App` internals and test code that needs to inspect the pending
+    /// command without holding a mutable reference across frame boundaries.
+    /// Returns `None` if no transition was requested.
+    pub fn take(&mut self) -> Option<SceneCmd> {
+        self.0.take()
+    }
 }

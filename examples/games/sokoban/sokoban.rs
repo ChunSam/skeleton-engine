@@ -8,8 +8,8 @@
 //! private. Grid/board logic stays example-local (genre-specific), and progress
 //! persistence reuses the existing `save` module unchanged.
 //!
-//! Rendering uses immediate-mode filled rects (`DebugDrawQueue`, drained every
-//! frame) rather than persistent ECS sprite entities, because the board is fully
+//! Rendering uses immediate-mode filled rects (`DebugDraw::rect_filled_z`,
+//! drained every frame) rather than persistent ECS sprite entities, because the board is fully
 //! reconstructed from snapshot state each move and levels swap in place — no
 //! entity churn, trivial level switching.
 //!
@@ -18,8 +18,8 @@
 //! progress (furthest level reached) is saved and resumed on the next launch.
 
 use engine::{
-    save, App, Camera, Color, DebugDrawQueue, DebugRect, DrawText, History, InputState, KeyCode,
-    ShouldQuit, System, TextQueue, WindowConfig, World,
+    save, App, Camera, Color, DebugDraw, DrawText, History, InputState, KeyCode, ShouldQuit,
+    System, TextQueue, WindowConfig, World,
 };
 use glam::{IVec2, Vec2};
 use serde::{Deserialize, Serialize};
@@ -360,16 +360,15 @@ impl System for RenderSystem {
         };
         let level = s.level();
 
-        let mut rects: Vec<DebugRect> = Vec::new();
-        let push = |rects: &mut Vec<DebugRect>, c: IVec2, inset: f32, color: Color, z: f32| {
+        let mut rects: Vec<(Vec2, Vec2, Color, f32)> = Vec::new();
+        let push = |rects: &mut Vec<(Vec2, Vec2, Color, f32)>,
+                    c: IVec2,
+                    inset: f32,
+                    color: Color,
+                    z: f32| {
             let origin = cell_origin(level, c) + Vec2::splat(inset);
             let size = TILE - inset * 2.0;
-            rects.push(DebugRect {
-                min: origin,
-                max: origin + Vec2::splat(size),
-                color,
-                z,
-            });
+            rects.push((origin, origin + Vec2::splat(size), color, z));
         };
 
         // Floor under the whole level footprint.
@@ -415,8 +414,10 @@ impl System for RenderSystem {
 
         let (status, index, moves, level_count) = (s.status, s.index, s.moves, s.levels.len());
 
-        if let Some(q) = world.resource_mut::<DebugDrawQueue>() {
-            q.items.extend(rects);
+        if let Some(dbg) = world.resource_mut::<DebugDraw>() {
+            for (min, max, color, z) in rects {
+                dbg.rect_filled_z(min, max, color, z);
+            }
         }
 
         if let Some(tq) = world.resource_mut::<TextQueue>() {

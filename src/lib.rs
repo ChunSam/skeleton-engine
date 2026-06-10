@@ -51,8 +51,8 @@ pub use winit::keyboard::KeyCode;
 
 pub use animation::{
     AnimParam, AnimState, AnimTransition, AnimationClip, AnimationPlayer, AnimationStateMachine,
-    AnimationSystem, BlendEntry, BlendTree1D, BlendTreeSystem, BlendUv, BlendWeight,
-    StateMachineSystem, TransitionCond, UvRect,
+    AnimationSystem, BlendEntry, BlendTree1D, BlendTreeSystem, BlendWeight, StateMachineSystem,
+    TransitionCond,
 };
 pub use app::{App, ScheduleErrorPolicy, SystemPanicPolicy};
 pub use asset::{
@@ -82,7 +82,9 @@ pub use input::map::AxisBinding;
 pub use input::{GamepadAxis, GamepadButton, GamepadState, InputMap, InputState, TouchState};
 pub use locale::{LocaleBundle, LocaleData, LocaleResource, TextDirection};
 pub use material::ShaderMaterial;
-pub use network::{NetworkClient, NetworkEvent, NetworkSystem, RemoteEntities, SnapshotBuffer};
+pub use network::{
+    NetworkClient, NetworkConfig, NetworkEvent, NetworkSystem, RemoteEntities, SnapshotBuffer,
+};
 pub use particle::{Particle, ParticleBurst, ParticleEmitter, ParticleSystem};
 pub use pathfinding::{find_path, PathGrid};
 #[cfg(not(target_arch = "wasm32"))]
@@ -104,22 +106,24 @@ pub use skeletal::{
 pub use reflect::{Reflect, ReflectValue};
 pub use renderer::texture::TextureError;
 pub use renderer::{
-    DrawImage, DrawRect, DrawText, PostProcessConfig, RenderTarget, TextAlign, TextAnchor,
-    TextQueue, TextRenderer, UiImageQueue, UiQueue,
+    BlendUv, DrawImage, DrawRect, DrawText, PostProcessConfig, RenderTarget, TextAlign, TextAnchor,
+    TextQueue, TextRenderer, UiImageQueue, UiQueue, UvRect,
 };
 pub use resources::{
-    AmbientLight, CullConfig, DebugDraw, DebugDrawQueue, DebugRect, DebugShape, DisplayScaleFactor,
-    FadeTransition, FontData, GameState, ImeConfig, LoadProgress, PanickedSystems, PendingResize,
-    ProfilerData, RenderStats, SelectedEntity, ShouldQuit, SystemProfile, ViewportSize,
-    WindowConfig,
+    AmbientLight, CullConfig, DebugDraw, DebugShape, DisplayScaleFactor, FadeTransition, FontData,
+    GameState, ImeConfig, LoadProgress, PanickedSystems, PendingResize, ProfilerData, RenderStats,
+    SelectedEntity, ShouldQuit, SystemProfile, ViewportSize, WindowConfig,
 };
+// Deprecated debug-draw pair — kept exported until removal in v5.
+#[allow(deprecated)]
+pub use resources::{DebugDrawQueue, DebugRect};
 pub use scene::{Scene, SceneChange, SceneCmd};
 pub use scripting::{ScriptRunner, ScriptingSystem};
 pub use steering::{Arrive, Flee, Seek, SteeringSystem, SteeringVelocity, Wander};
 pub use tilemap::{Tilemap, TilemapAtlas, TilemapSystem};
-pub use timeline::{CameraTarget, Keyframe, Lerp, Timeline, TimelineSystem, Track};
+pub use timeline::{CameraTarget, Keyframe, Timeline, TimelineSystem, Track};
 pub use timer::Timer;
-pub use tween::{Easing, Tween};
+pub use tween::{Easing, Lerp, Tween};
 pub use ui::{
     Anchor, Button, ButtonState, CheckBox, Label, LayoutDir, LayoutSystem, LocalizationSystem,
     LocalizedText, Panel, ScrollView, Slider, TextInput, UiEvent, UiNode, UiSystem,

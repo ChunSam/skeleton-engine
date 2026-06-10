@@ -1,6 +1,6 @@
 use crate::collision::grid::SpatialGrid;
 use crate::ecs::{System, World};
-use crate::resources::{DebugDrawQueue, DebugRect};
+use crate::resources::DebugDraw;
 
 // ─── Resource ─────────────────────────────────────────────────────────────────
 
@@ -18,12 +18,20 @@ pub struct DebugConfig {
 /// Collision-debug visualization system.
 ///
 /// When `DebugConfig::show_colliders` is true, draws each collider as a
-/// translucent rectangle into the `DebugDrawQueue`.
+/// translucent filled rectangle via the `DebugDraw` resource.
 ///
 /// If a `CollisionGridSystem` already mirrors a `SpatialGrid` into the World this
 /// frame, that grid's entries are reused (no second rebuild). When used
 /// standalone (no `CollisionGridSystem` registered), it falls back to rebuilding
 /// its own internal grid via `self.grid`.
+///
+/// # System ordering
+///
+/// When both systems are registered, `CollisionDebugSystem` must run **after**
+/// `CollisionGridSystem`. `CollisionGridSystem` mirrors the current frame's
+/// `SpatialGrid` into the World resource; `CollisionDebugSystem` reads that
+/// resource to avoid a redundant rebuild. If it runs first the resource is
+/// stale (or absent) and an unnecessary internal rebuild occurs.
 pub struct CollisionDebugSystem {
     grid: SpatialGrid,
 }
@@ -40,6 +48,12 @@ impl CollisionDebugSystem {
     }
 }
 
+impl CollisionDebugSystem {
+    /// Schedule label. Recommended order: **after** `CollisionGridSystem::LABEL`
+    /// (this system reads the `SpatialGrid` resource that system mirrors).
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::collision_debug";
+}
+
 impl System for CollisionDebugSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
         let enabled = world
@@ -52,22 +66,14 @@ impl System for CollisionDebugSystem {
 
         // Prefer the grid a `CollisionGridSystem` already mirrored this frame.
         // Only rebuild our own when running standalone (no such system present).
-        let build_rects = |grid: &SpatialGrid| -> Vec<DebugRect> {
+        let build_rects = |grid: &SpatialGrid| -> Vec<(glam::Vec2, glam::Vec2)> {
             grid.entries
                 .values()
-                .map(|entry| {
-                    let (aabb_min, aabb_max) = entry.collider.aabb(entry.center);
-                    DebugRect {
-                        min: aabb_min,
-                        max: aabb_max,
-                        color: crate::color::Color::rgba(0.0, 1.0, 0.2, 0.25),
-                        z: 999.0,
-                    }
-                })
+                .map(|entry| entry.collider.aabb(entry.center))
                 .collect()
         };
 
-        let rects: Vec<DebugRect> = match world.resource::<SpatialGrid>() {
+        let rects: Vec<(glam::Vec2, glam::Vec2)> = match world.resource::<SpatialGrid>() {
             Some(grid) => build_rects(grid),
             None => {
                 self.grid.rebuild(world);
@@ -75,8 +81,15 @@ impl System for CollisionDebugSystem {
             }
         };
 
-        if let Some(queue) = world.resource_mut::<DebugDrawQueue>() {
-            queue.items.extend(rects);
+        if let Some(dbg) = world.resource_mut::<DebugDraw>() {
+            for (aabb_min, aabb_max) in rects {
+                dbg.rect_filled_z(
+                    aabb_min,
+                    aabb_max,
+                    crate::color::Color::rgba(0.0, 1.0, 0.2, 0.25),
+                    999.0,
+                );
+            }
         }
     }
 }
