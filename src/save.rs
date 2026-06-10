@@ -136,6 +136,58 @@ pub fn load_with_key<T: DeserializeOwned>(path: &Path, key: SaveKey) -> Result<T
     }
 }
 
+/// Serializes `data` to pretty RON and writes it as **plain text** — no encryption, no
+/// binary header.
+///
+/// Intended for design-time assets such as level files and prefabs that a level designer
+/// should be able to open and edit in a text editor. For player saves (scores, settings)
+/// use [`save`] / [`load`] instead.
+pub fn write_ron<T: Serialize>(path: &Path, data: &T) -> Result<(), SaveError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let text = ron::ser::to_string_pretty(data, ron::ser::PrettyConfig::default())
+            .map_err(|e| SaveError::Ron(e.to_string()))?;
+        fs::write(path, text)?;
+        Ok(())
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (path, data);
+        Err(SaveError::Unsupported)
+    }
+}
+
+/// Reads and deserializes a plain-text RON file written by [`write_ron`].
+///
+/// **Back-compat:** if the file starts with the encrypted-format magic bytes (`R2DAEAD01`)
+/// it falls back to the AEAD-decrypting [`load`] path so files written by older engine
+/// versions (pre-4.6) still load correctly.
+///
+/// Intended for design-time assets such as level files and prefabs. For player saves
+/// (scores, settings) use [`save`] / [`load`] instead.
+pub fn read_ron<T: DeserializeOwned>(path: &Path) -> Result<T, SaveError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let bytes = fs::read(path)?;
+        // If the file was written by the old encrypted path, fall back to decryption.
+        if bytes.starts_with(SAVE_MAGIC) {
+            let plaintext = decrypt_save_bytes(&bytes, SaveKey::DEFAULT)?;
+            let s = std::str::from_utf8(&plaintext).map_err(|_| SaveError::Corrupted)?;
+            return ron::from_str(s).map_err(|e| SaveError::Ron(e.to_string()));
+        }
+        let s = std::str::from_utf8(&bytes).map_err(|_| SaveError::Corrupted)?;
+        ron::from_str(s).map_err(|e| SaveError::Ron(e.to_string()))
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = path;
+        Err(SaveError::Unsupported)
+    }
+}
+
 /// Loads and decrypts the file if it exists; returns `T::default()` if absent. Decryption/parse errors propagate as-is.
 pub fn load_or_default<T: DeserializeOwned + Default>(path: &Path) -> Result<T, SaveError> {
     match load(path) {
@@ -335,6 +387,58 @@ mod tests {
             matches!(wrong, Err(SaveError::Corrupted)),
             "expected wrong key to fail authentication, got {wrong:?}"
         );
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn write_ron_read_ron_roundtrip() {
+        let dir = unique_test_dir();
+        let path = dir.join("settings.ron");
+
+        let original = Settings {
+            sfx: 0.7,
+            music: 0.4,
+            hi_score: 42,
+        };
+
+        write_ron(&path, &original).expect("write_ron should succeed");
+
+        // File must be human-readable plain text containing field names
+        let raw = fs::read_to_string(&path).expect("file should be readable as utf-8");
+        assert!(
+            raw.contains("hi_score"),
+            "written file should contain the field name 'hi_score'"
+        );
+        assert!(
+            raw.contains("sfx"),
+            "written file should contain the field name 'sfx'"
+        );
+
+        let loaded: Settings = read_ron(&path).expect("read_ron should succeed");
+        assert_eq!(original, loaded);
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn read_ron_backcompat_encrypted_file() {
+        // A file written with the old `save` (encrypted) path must still load via `read_ron`.
+        let dir = unique_test_dir();
+        let path = dir.join("legacy.ron");
+
+        let original = Settings {
+            sfx: 0.1,
+            music: 0.9,
+            hi_score: 7,
+        };
+
+        // Write using the AEAD-encrypted path (simulates a pre-4.6 file)
+        save(&path, &original).expect("old save should succeed");
+
+        // read_ron must fall back to the encrypted load path transparently
+        let loaded: Settings = read_ron(&path).expect("read_ron should load encrypted legacy file");
+        assert_eq!(original, loaded);
 
         fs::remove_dir_all(&dir).ok();
     }
