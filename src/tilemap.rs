@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use glam::Vec2;
 
-use crate::animation::player::UvRect;
 use crate::components::{Sprite, Transform};
 use crate::ecs::{Entity, System, World};
+use crate::renderer::uv::UvRect;
 
 // ─── Data types ───────────────────────────────────────────────────────────────
 

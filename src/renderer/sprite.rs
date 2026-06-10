@@ -7,7 +7,6 @@ use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Quat, Vec3};
 use wgpu::util::DeviceExt;
 
-use crate::animation::player::{BlendUv, UvRect};
 use crate::asset::AssetServer;
 use crate::atlas::AtlasSprite;
 use crate::camera::Camera;
@@ -17,6 +16,7 @@ use crate::hierarchy::GlobalTransform;
 use crate::material::ShaderMaterial;
 use crate::renderer::texture::Texture;
 use crate::renderer::ui::{DrawImage, DrawRect};
+use crate::renderer::uv::{BlendUv, UvRect};
 use crate::resources::CullConfig;
 
 mod geometry;

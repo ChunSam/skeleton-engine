@@ -306,7 +306,8 @@ pub struct OffscreenCamera {
 
 // ─── Backward-compatible re-exports ─────────────────────────────────────────────────────────
 // Keep types moved to resources.rs accessible via the engine::components::* path.
-pub use crate::animation::player::{AnimationClip, AnimationPlayer, UvRect};
+pub use crate::animation::player::{AnimationClip, AnimationPlayer};
+pub use crate::renderer::uv::UvRect;
 pub use crate::resources::{
     FontData, GameState, PendingResize, ShouldQuit, ViewportSize, WindowConfig,
 };

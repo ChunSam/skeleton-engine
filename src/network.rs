@@ -3,7 +3,7 @@ use crate::ecs::{
     system::System,
     world::{Entity, World},
 };
-use crate::timeline::Lerp;
+use crate::tween::Lerp;
 use std::collections::VecDeque;
 
 pub const DEFAULT_MAX_MESSAGE_BYTES: usize = 64 * 1024;
