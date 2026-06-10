@@ -415,10 +415,13 @@ impl App {
             }
         }
 
-        // Step 2.5: Draw UI rectangles (convert DebugDrawQueue → UiQueue)
+        // Step 2.5: Draw UI rectangles (convert deprecated DebugDrawQueue → UiQueue).
+        // Kept for backward compatibility until the queue is removed in v5; all
+        // engine-internal producers now go through DebugDraw (step 2.6).
+        #[allow(deprecated)]
         let debug_rects: Vec<DrawRect> = self
             .world
-            .resource_mut::<DebugDrawQueue>()
+            .resource_mut::<crate::resources::DebugDrawQueue>()
             .map(|q| {
                 std::mem::take(&mut q.items)
                     .into_iter()
@@ -439,16 +442,33 @@ impl App {
             q.items.extend(debug_rects);
         }
 
-        // Step 2.6: Convert DebugDraw shapes → UiQueue (Rect/Line/Circle/Cross)
-        let debug_shapes: Vec<crate::resources::DebugShape> = self
+        // Step 2.6: Convert DebugDraw shapes + filled rects → UiQueue
+        let (debug_shapes, debug_filled) = self
             .world
             .resource_mut::<DebugDraw>()
-            .map(|d| std::mem::take(&mut d.shapes))
+            .map(|d| {
+                (
+                    std::mem::take(&mut d.shapes),
+                    std::mem::take(&mut d.filled_rects),
+                )
+            })
             .unwrap_or_default();
-        if !debug_shapes.is_empty() {
+        if !debug_shapes.is_empty() || !debug_filled.is_empty() {
             if let Some(q) = self.world.resource_mut::<UiQueue>() {
                 for shape in debug_shapes {
                     Self::debug_shape_to_draw_rects(shape, q);
+                }
+                for r in debug_filled {
+                    q.items.push(
+                        DrawRect::new(
+                            r.min.x,
+                            r.min.y,
+                            r.max.x - r.min.x,
+                            r.max.y - r.min.y,
+                            r.color,
+                        )
+                        .with_z(r.z),
+                    );
                 }
             }
         }

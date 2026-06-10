@@ -22,9 +22,13 @@ pub struct PanickedSystems {
     pub disabled: Vec<String>,
 }
 
-// ─── Debug Draw Queue ─────────────────────────────────────────────────────────
+// ─── Debug Draw Queue (deprecated) ────────────────────────────────────────────
 
 /// Plain-data rectangle for collision debug visualization (no renderer types).
+#[deprecated(
+    since = "4.6.0",
+    note = "use `DebugDraw::rect_filled_z` instead; DebugRect/DebugDrawQueue will be removed in v5"
+)]
 #[derive(Debug, Clone, Copy)]
 pub struct DebugRect {
     pub min: Vec2,
@@ -33,9 +37,17 @@ pub struct DebugRect {
     pub z: f32,
 }
 
-/// Debug rendering queue. Populated by `CollisionDebugSystem`; `App` drains it and converts entries to `UiQueue`.
+/// Debug rendering queue. `App` drains it and converts entries to `UiQueue`.
+///
+/// Deprecated: this predates [`DebugDraw`], which covers the same filled-rect
+/// case via [`DebugDraw::rect_filled_z`] plus outlines/lines/circles/crosses.
+#[deprecated(
+    since = "4.6.0",
+    note = "use the `DebugDraw` resource instead; DebugRect/DebugDrawQueue will be removed in v5"
+)]
 #[derive(Debug, Clone, Default)]
 pub struct DebugDrawQueue {
+    #[allow(deprecated)]
     pub items: Vec<DebugRect>,
 }
 
@@ -63,6 +75,16 @@ pub enum DebugShape {
     Cross { pos: Vec2, size: f32, color: Color },
 }
 
+/// A filled, z-ordered rectangle collected via [`DebugDraw::rect_filled_z`].
+/// Engine-internal: the renderer drains these into `UiQueue` alongside shapes.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct FilledRect {
+    pub min: Vec2,
+    pub max: Vec2,
+    pub color: Color,
+    pub z: f32,
+}
+
 /// Resource that collects debug shapes each frame.
 ///
 /// `App` automatically calls `clear()` after rendering, so simply re-draw each frame.
@@ -74,11 +96,13 @@ pub enum DebugShape {
 ///     dbg.rect(Vec2::new(0., 0.), Vec2::new(64., 64.), [1., 0., 0., 1.]);
 ///     dbg.circle(player_pos, 32., [0., 1., 0., 0.8]);
 ///     dbg.line(from, to, [1., 1., 0., 1.]);
+///     dbg.rect_filled_z(min, max, [0.2, 0.2, 0.3, 1.0], 0.5); // filled, z-ordered
 /// }
 /// ```
 #[derive(Debug, Default)]
 pub struct DebugDraw {
     pub(crate) shapes: Vec<DebugShape>,
+    pub(crate) filled_rects: Vec<FilledRect>,
 }
 
 impl DebugDraw {
@@ -133,9 +157,29 @@ impl DebugDraw {
         });
     }
 
+    /// Draws a filled rectangle (z = 0.0).
+    pub fn rect_filled(&mut self, min: Vec2, max: Vec2, color: impl Into<Color>) {
+        self.rect_filled_z(min, max, color, 0.0);
+    }
+
+    /// Draws a filled rectangle at the given z-order (higher = drawn on top).
+    ///
+    /// This covers what the deprecated `DebugRect`/`DebugDrawQueue` pair did —
+    /// translucent collision overlays, editor selection highlights, or quick
+    /// rect-based prototype rendering (see the `sokoban` example).
+    pub fn rect_filled_z(&mut self, min: Vec2, max: Vec2, color: impl Into<Color>, z: f32) {
+        self.filled_rects.push(FilledRect {
+            min,
+            max,
+            color: color.into(),
+            z,
+        });
+    }
+
     /// Clears all shapes for this frame. Called automatically by `App` after rendering.
     pub fn clear(&mut self) {
         self.shapes.clear();
+        self.filled_rects.clear();
     }
 
     /// Returns the slice of collected shapes.

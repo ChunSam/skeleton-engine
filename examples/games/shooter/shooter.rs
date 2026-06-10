@@ -8,7 +8,7 @@
 //! `ParticleBurst` one-shot component.
 //!
 //! Rendering uses persistent ECS `Sprite` entities (the maze pattern), not the
-//! immediate-mode `DebugDrawQueue` Sokoban used — a particle-heavy action game
+//! immediate-mode `DebugDraw` filled rects Sokoban uses — a particle-heavy action game
 //! has many moving sprites.
 //!
 //! Controls: A/D or ←/→ and W/S or ↑/↓ to move · Space to fire · R restart ·

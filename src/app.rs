@@ -46,8 +46,8 @@ use crate::{
         TextRenderer, UiImageQueue, UiQueue,
     },
     resources::{
-        DebugDraw, DebugDrawQueue, DebugRect, DisplayScaleFactor, FontData, LoadProgress,
-        PendingResize, ShouldQuit, ViewportSize, WindowConfig,
+        DebugDraw, DisplayScaleFactor, FontData, LoadProgress, PendingResize, ShouldQuit,
+        ViewportSize, WindowConfig,
     },
     scene::{Scene, SceneChange, SceneCmd},
 };

@@ -1,6 +1,6 @@
 use crate::collision::grid::SpatialGrid;
 use crate::ecs::{System, World};
-use crate::resources::{DebugDrawQueue, DebugRect};
+use crate::resources::DebugDraw;
 
 // ─── Resource ─────────────────────────────────────────────────────────────────
 
@@ -18,7 +18,7 @@ pub struct DebugConfig {
 /// Collision-debug visualization system.
 ///
 /// When `DebugConfig::show_colliders` is true, draws each collider as a
-/// translucent rectangle into the `DebugDrawQueue`.
+/// translucent filled rectangle via the `DebugDraw` resource.
 ///
 /// If a `CollisionGridSystem` already mirrors a `SpatialGrid` into the World this
 /// frame, that grid's entries are reused (no second rebuild). When used
@@ -52,22 +52,14 @@ impl System for CollisionDebugSystem {
 
         // Prefer the grid a `CollisionGridSystem` already mirrored this frame.
         // Only rebuild our own when running standalone (no such system present).
-        let build_rects = |grid: &SpatialGrid| -> Vec<DebugRect> {
+        let build_rects = |grid: &SpatialGrid| -> Vec<(glam::Vec2, glam::Vec2)> {
             grid.entries
                 .values()
-                .map(|entry| {
-                    let (aabb_min, aabb_max) = entry.collider.aabb(entry.center);
-                    DebugRect {
-                        min: aabb_min,
-                        max: aabb_max,
-                        color: crate::color::Color::rgba(0.0, 1.0, 0.2, 0.25),
-                        z: 999.0,
-                    }
-                })
+                .map(|entry| entry.collider.aabb(entry.center))
                 .collect()
         };
 
-        let rects: Vec<DebugRect> = match world.resource::<SpatialGrid>() {
+        let rects: Vec<(glam::Vec2, glam::Vec2)> = match world.resource::<SpatialGrid>() {
             Some(grid) => build_rects(grid),
             None => {
                 self.grid.rebuild(world);
@@ -75,8 +67,15 @@ impl System for CollisionDebugSystem {
             }
         };
 
-        if let Some(queue) = world.resource_mut::<DebugDrawQueue>() {
-            queue.items.extend(rects);
+        if let Some(dbg) = world.resource_mut::<DebugDraw>() {
+            for (aabb_min, aabb_max) in rects {
+                dbg.rect_filled_z(
+                    aabb_min,
+                    aabb_max,
+                    crate::color::Color::rgba(0.0, 1.0, 0.2, 0.25),
+                    999.0,
+                );
+            }
         }
     }
 }

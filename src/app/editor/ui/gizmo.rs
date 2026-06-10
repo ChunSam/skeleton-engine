@@ -15,17 +15,17 @@ impl App {
             let tr_copy = self.world.get::<crate::components::Transform>(sel).cloned();
 
             if let Some(tr) = tr_copy {
-                // Selection highlight: add an outline rectangle to the DebugDrawQueue.
-                if let Some(dq) = self.world.resource_mut::<DebugDrawQueue>() {
+                // Selection highlight: add a translucent filled rectangle via DebugDraw.
+                if let Some(dbg) = self.world.resource_mut::<crate::resources::DebugDraw>() {
                     let half = tr.scale * 0.5;
                     // Outline highlight (3 px thickness effect: expand slightly).
                     let margin = glam::Vec2::splat(3.0 / tr.scale.x.max(1.0) * tr.scale.x);
-                    dq.items.push(DebugRect {
-                        min: tr.position - half - margin,
-                        max: tr.position + half + margin,
-                        color: crate::color::Color::rgba(0.2, 0.85, 1.0, 0.65),
-                        z: tr.z + 999.0,
-                    });
+                    dbg.rect_filled_z(
+                        tr.position - half - margin,
+                        tr.position + half + margin,
+                        crate::color::Color::rgba(0.2, 0.85, 1.0, 0.65),
+                        tr.z + 999.0,
+                    );
                 }
 
                 // Gizmo drag — only when egui is not consuming mouse input.
