@@ -6,10 +6,24 @@ use crate::ecs::{Entity, System, World};
 ///
 /// During a crossfade both clips (from and to) advance in parallel.
 /// The from-frame is written to `UvRect` and the to-frame UV plus progress (weight)
-/// to `BlendUv`. The sprite shader blends them with `mix(from, to, weight)` for a
+/// to `BlendUv`. The shader blends them with `mix(from, to, weight)` for a
 /// smooth crossfade. `BlendWeight` is always updated (1.0 when not transitioning)
 /// and can be read by game code.
 pub struct AnimationSystem;
+
+/// Returns the duration of a single frame for the given `fps`.
+///
+/// When `fps <= 0` (stopped or invalid) the result is `+∞` so that `while
+/// timer >= frame_dur` never fires, preventing an infinite loop on negative
+/// fps values.
+#[inline]
+fn frame_dur(fps: f32) -> f32 {
+    if fps > 0.0 {
+        1.0 / fps
+    } else {
+        f32::INFINITY
+    }
+}
 
 impl AnimationSystem {
     /// Schedule label. Other systems can request execution after this one via
@@ -38,14 +52,10 @@ impl System for AnimationSystem {
                             // If fps <= 0 (stopped / invalid value), set frame_dur = +inf so
                             // the while loop never executes. Prevents an infinite loop (hang)
                             // when fps < 0 would make frame_dur negative.
-                            let frame_dur = if to_clip.fps > 0.0 {
-                                1.0 / to_clip.fps
-                            } else {
-                                f32::INFINITY
-                            };
+                            let dur = frame_dur(to_clip.fps);
                             cf.to_timer += dt;
-                            while cf.to_timer >= frame_dur {
-                                cf.to_timer -= frame_dur;
+                            while cf.to_timer >= dur {
+                                cf.to_timer -= dur;
                                 let n = player.clips[cf.to_clip].frames.len();
                                 if player.clips[cf.to_clip].looping {
                                     cf.to_frame = (cf.to_frame + 1) % n;
@@ -76,19 +86,24 @@ impl System for AnimationSystem {
                 }
                 // fps <= 0 → frame_dur = +inf — do not advance frames (0 = paused,
                 // negative = prevent infinite loop). The clip borrow ends at this line.
-                let frame_dur = if clip.fps > 0.0 {
-                    1.0 / clip.fps
-                } else {
-                    f32::INFINITY
-                };
+                let dur = frame_dur(clip.fps);
                 player.timer += dt;
-                if player.timer >= frame_dur {
-                    player.timer -= frame_dur;
+                while player.timer >= dur {
+                    player.timer -= dur;
                     let n = player.clips[player.current_clip].frames.len();
                     if player.clips[player.current_clip].looping {
                         player.current_frame = (player.current_frame + 1) % n;
                     } else {
                         player.current_frame = (player.current_frame + 1).min(n - 1);
+                        // Non-looping: once the last frame is reached the timer has
+                        // already been clamped to that frame; stop draining to avoid
+                        // an infinite loop (dur is finite but frame never advances).
+                        if player.current_frame + 1
+                            >= player.clips[player.current_clip].frames.len()
+                        {
+                            player.timer = 0.0;
+                            break;
+                        }
                     }
                 }
 

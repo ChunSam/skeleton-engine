@@ -535,7 +535,7 @@ fn spawn_explosion(world: &mut World, pos: Vec2, color: impl Into<Color>) {
             z: 2.0,
         },
     );
-    let mut emitter = ParticleEmitter::for_burst();
+    let mut emitter = ParticleEmitter::burst();
     emitter.color_start = color.into();
     emitter.lifetime = 0.45;
     emitter.size = Vec2::splat(5.0);
