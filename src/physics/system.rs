@@ -40,6 +40,11 @@ pub struct PhysicsSystem {
     pub pixels_per_unit: f32,
     active_contacts: HashSet<(ColliderHandle, ColliderHandle)>,
     active_intersections: HashSet<(ColliderHandle, ColliderHandle)>,
+    // Per-frame scratch buffers reused via clear() to avoid per-frame allocations.
+    col_map: HashMap<ColliderHandle, Entity>,
+    current_contacts: HashSet<(ColliderHandle, ColliderHandle)>,
+    current_intersections: HashSet<(ColliderHandle, ColliderHandle)>,
+    body_pairs: Vec<(Entity, RigidBodyHandle)>,
 }
 
 impl PhysicsSystem {
@@ -52,8 +57,43 @@ impl PhysicsSystem {
             pixels_per_unit: pixels_per_unit.max(f32::EPSILON),
             active_contacts: HashSet::new(),
             active_intersections: HashSet::new(),
+            col_map: HashMap::new(),
+            current_contacts: HashSet::new(),
+            current_intersections: HashSet::new(),
+            body_pairs: Vec::new(),
         }
     }
+}
+
+/// Computes the started and stopped entity-pairs by diffing `current` against `previous`,
+/// then advances `previous` to match `current`.
+///
+/// Pairs in `current` but not `previous` → appended to `started`.
+/// Pairs in `previous` but not `current` → appended to `stopped`.
+/// `previous` is replaced with `current` in-place.
+fn diff_pairs(
+    previous: &mut HashSet<(ColliderHandle, ColliderHandle)>,
+    current: &HashSet<(ColliderHandle, ColliderHandle)>,
+    col_map: &HashMap<ColliderHandle, Entity>,
+    started: &mut Vec<(Entity, Entity)>,
+    stopped: &mut Vec<(Entity, Entity)>,
+) {
+    for &(c1, c2) in current {
+        if !previous.contains(&(c1, c2)) {
+            if let (Some(&e1), Some(&e2)) = (col_map.get(&c1), col_map.get(&c2)) {
+                started.push((e1, e2));
+            }
+        }
+    }
+    for &(c1, c2) in previous.iter() {
+        if !current.contains(&(c1, c2)) {
+            if let (Some(&e1), Some(&e2)) = (col_map.get(&c1), col_map.get(&c2)) {
+                stopped.push((e1, e2));
+            }
+        }
+    }
+    previous.clear();
+    previous.extend(current.iter().copied());
 }
 
 fn ordered_pair(a: ColliderHandle, b: ColliderHandle) -> (ColliderHandle, ColliderHandle) {
@@ -72,96 +112,97 @@ impl System for PhysicsSystem {
 
         physics.step(dt);
 
+        // ── Build collider→entity map (reused for both diff passes) ───────────
+        self.col_map.clear();
+        self.col_map.extend(
+            world
+                .query::<PhysicsBody>()
+                .map(|(e, b)| (b.collider_handle, e)),
+        );
+
         // ── Collision event diff ──────────────────────────────────────────────
-        let col_map: HashMap<ColliderHandle, Entity> = world
-            .query::<PhysicsBody>()
-            .map(|(e, b)| (b.collider_handle, e))
-            .collect();
-
         // Rapier preserves the collider1/collider2 order for the same pair across frames.
-        let current: HashSet<(ColliderHandle, ColliderHandle)> = physics
-            .narrow_phase
-            .contact_pairs()
-            .filter(|p| p.has_any_active_contact)
-            .filter_map(|p| {
-                col_map.get(&p.collider1)?;
-                col_map.get(&p.collider2)?;
-                Some((p.collider1, p.collider2))
-            })
-            .collect();
+        self.current_contacts.clear();
+        self.current_contacts.extend(
+            physics
+                .narrow_phase
+                .contact_pairs()
+                .filter(|p| p.has_any_active_contact)
+                .filter_map(|p| {
+                    self.col_map.get(&p.collider1)?;
+                    self.col_map.get(&p.collider2)?;
+                    Some((p.collider1, p.collider2))
+                }),
+        );
 
-        let mut collision_events: Vec<CollisionEvent> = Vec::new();
-        for &(c1, c2) in &current {
-            if !self.active_contacts.contains(&(c1, c2)) {
-                if let (Some(&e1), Some(&e2)) = (col_map.get(&c1), col_map.get(&c2)) {
-                    collision_events.push(CollisionEvent::Started(e1, e2));
-                }
-            }
-        }
-        for &(c1, c2) in &self.active_contacts {
-            if !current.contains(&(c1, c2)) {
-                if let (Some(&e1), Some(&e2)) = (col_map.get(&c1), col_map.get(&c2)) {
-                    collision_events.push(CollisionEvent::Stopped(e1, e2));
-                }
-            }
-        }
-        self.active_contacts = current;
+        let mut col_started: Vec<(Entity, Entity)> = Vec::new();
+        let mut col_stopped: Vec<(Entity, Entity)> = Vec::new();
+        diff_pairs(
+            &mut self.active_contacts,
+            &self.current_contacts,
+            &self.col_map,
+            &mut col_started,
+            &mut col_stopped,
+        );
 
-        if !collision_events.is_empty() {
+        if !col_started.is_empty() || !col_stopped.is_empty() {
             if let Some(bus) = world.resource_mut::<Events<CollisionEvent>>() {
-                for ev in collision_events {
-                    bus.send(ev);
+                for (e1, e2) in col_started {
+                    bus.send(CollisionEvent::Started(e1, e2));
+                }
+                for (e1, e2) in col_stopped {
+                    bus.send(CollisionEvent::Stopped(e1, e2));
                 }
             }
         }
         // ── end collision event diff ──────────────────────────────────────────
 
         // ── Sensor event diff ─────────────────────────────────────────────────
-        let current_intersections: HashSet<(ColliderHandle, ColliderHandle)> = physics
-            .narrow_phase
-            .intersection_pairs()
-            .filter(|(_, _, intersecting)| *intersecting)
-            .filter_map(|(c1, c2, _)| {
-                col_map.get(&c1)?;
-                col_map.get(&c2)?;
-                Some(ordered_pair(c1, c2))
-            })
-            .collect();
+        self.current_intersections.clear();
+        self.current_intersections.extend(
+            physics
+                .narrow_phase
+                .intersection_pairs()
+                .filter(|(_, _, intersecting)| *intersecting)
+                .filter_map(|(c1, c2, _)| {
+                    self.col_map.get(&c1)?;
+                    self.col_map.get(&c2)?;
+                    Some(ordered_pair(c1, c2))
+                }),
+        );
 
-        let mut trigger_events: Vec<TriggerEvent> = Vec::new();
-        for &(c1, c2) in &current_intersections {
-            if !self.active_intersections.contains(&(c1, c2)) {
-                if let (Some(&e1), Some(&e2)) = (col_map.get(&c1), col_map.get(&c2)) {
-                    trigger_events.push(TriggerEvent::Entered(e1, e2));
-                }
-            }
-        }
-        for &(c1, c2) in &self.active_intersections {
-            if !current_intersections.contains(&(c1, c2)) {
-                if let (Some(&e1), Some(&e2)) = (col_map.get(&c1), col_map.get(&c2)) {
-                    trigger_events.push(TriggerEvent::Exited(e1, e2));
-                }
-            }
-        }
-        self.active_intersections = current_intersections;
+        let mut trig_entered: Vec<(Entity, Entity)> = Vec::new();
+        let mut trig_exited: Vec<(Entity, Entity)> = Vec::new();
+        diff_pairs(
+            &mut self.active_intersections,
+            &self.current_intersections,
+            &self.col_map,
+            &mut trig_entered,
+            &mut trig_exited,
+        );
 
-        if !trigger_events.is_empty() {
+        if !trig_entered.is_empty() || !trig_exited.is_empty() {
             if let Some(bus) = world.resource_mut::<Events<TriggerEvent>>() {
-                for ev in trigger_events {
-                    bus.send(ev);
+                for (e1, e2) in trig_entered {
+                    bus.send(TriggerEvent::Entered(e1, e2));
+                }
+                for (e1, e2) in trig_exited {
+                    bus.send(TriggerEvent::Exited(e1, e2));
                 }
             }
         }
         // ── end sensor event diff ─────────────────────────────────────────────
 
         // borrow checker: collect (entity, handle) pairs first so we can re-borrow world
-        let pairs: Vec<(Entity, RigidBodyHandle)> = world
-            .query::<PhysicsBody>()
-            .map(|(e, b)| (e, b.rigid_body_handle))
-            .collect();
+        self.body_pairs.clear();
+        self.body_pairs.extend(
+            world
+                .query::<PhysicsBody>()
+                .map(|(e, b)| (e, b.rigid_body_handle)),
+        );
 
         let scale = self.pixels_per_unit.max(f32::EPSILON);
-        for (entity, handle) in pairs {
+        for &(entity, handle) in &self.body_pairs {
             if let Some(body) = physics.rigid_body(handle) {
                 let t = *body.translation();
                 let angle = body.rotation().angle();

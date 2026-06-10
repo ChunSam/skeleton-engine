@@ -27,6 +27,14 @@ pub struct JointHandle(pub(crate) ImpulseJointHandle);
 /// `memberships` is the layer bitmask this collider belongs to; `filter` is the
 /// bitmask of layers it is allowed to interact with. Both colliders must permit
 /// each other for a collision or sensor overlap to occur.
+///
+/// **Distinction from `collision::CollisionLayer`:** `CollisionGroups` controls
+/// Rapier physics filtering — which rigid bodies and sensors physically interact
+/// inside the physics simulation. `collision::CollisionLayer` is an independent
+/// engine-side tag used by `SpatialGrid` / `CollisionGridSystem` for broad-phase
+/// overlap queries that are entirely outside the physics world (no forces, no
+/// solver). Use `CollisionGroups` when you need physics-accurate responses; use
+/// `CollisionLayer` when you only need fast AABB overlap lookups.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CollisionGroups {
     pub memberships: u32,

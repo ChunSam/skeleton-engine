@@ -26,9 +26,14 @@ impl PhysicsWorld {
         let ppu = pixels_per_unit;
         let desired = vector![desired_translation.x / ppu, desired_translation.y / ppu];
 
-        // Copy collider position and shape type first to split the borrow
-        let (col_pos, shape_type) = match self.collider_set.get(col_handle) {
-            Some(c) => (*c.position(), c.shape().shape_type()),
+        // Make max_slope_angle authoritative: sync the public field into the Rapier
+        // controller before every move so a direct field assignment takes effect immediately.
+        controller.inner.max_slope_climb_angle = controller.max_slope_angle;
+        controller.inner.min_slope_slide_angle = controller.max_slope_angle;
+
+        // Copy collider position first to split the borrow, then re-acquire the shape reference.
+        let col_pos = match self.collider_set.get(col_handle) {
+            Some(c) => *c.position(),
             None => return,
         };
 
@@ -37,7 +42,6 @@ impl PhysicsWorld {
             Some(c) => c.shape(),
             None => return,
         };
-        let _ = shape_type; // stored as a type hint; the actual shape reference is used below
 
         // One-way platform handling: update the drop window and pre-compute this frame's pass-through values.
         // Screen coordinates (Y+ is down): "moving down" = desired.y > 0, character bottom = AABB.maxs.y.

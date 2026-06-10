@@ -24,6 +24,14 @@ pub struct DebugConfig {
 /// frame, that grid's entries are reused (no second rebuild). When used
 /// standalone (no `CollisionGridSystem` registered), it falls back to rebuilding
 /// its own internal grid via `self.grid`.
+///
+/// # System ordering
+///
+/// When both systems are registered, `CollisionDebugSystem` must run **after**
+/// `CollisionGridSystem`. `CollisionGridSystem` mirrors the current frame's
+/// `SpatialGrid` into the World resource; `CollisionDebugSystem` reads that
+/// resource to avoid a redundant rebuild. If it runs first the resource is
+/// stale (or absent) and an unnecessary internal rebuild occurs.
 pub struct CollisionDebugSystem {
     grid: SpatialGrid,
 }
