@@ -7,11 +7,22 @@ The package follows semantic versioning beginning with 1.0.0.
 ## 4.6.0
 
 Non-breaking batch from the 2026-06-10 full-codebase analysis
-(`docs/CODE_ANALYSIS_2026-06-10.md`, Top-10 items #1/#3/#4/#5/#6/#7/#9-partial/#10).
+(`docs/CODE_ANALYSIS_2026-06-10.md`, Top-10 items #1/#3/#4/#5/#6/#7/#9-partial/#10),
+plus a follow-up sweep over ~30 of the remaining non-Top-10 findings (2026-06-11).
 The remaining Top-10 items (#2 rapier handle newtypes, #8 `on_enter` system
 registrar, plus removal of everything deprecated here) form the planned v5 breaking batch.
 
 ### Added
+
+- **`LABEL` constants on all built-in systems** — Physics/CollisionGrid/CollisionDebug/
+  Network/Particle/Tilemap/Audio/SkeletalAnimation/Hierarchy/Steering/Behavior/
+  Localization/Scripting/Timeline join the five systems that already had one, so every
+  engine system can now be referenced in `add_system_labeled` ordering. The platformer
+  example demonstrates labeled registration; `docs/PATTERNS.md` gained a
+  "System ordering with labels" section with the known constraints.
+- **`SceneChange::take` / `is_pending`**, **`ShouldQuit::quit` / `is_quitting`**,
+  **`ParticleEmitter::burst`** (canonical name for `for_burst`), and a root re-export
+  for **`NetworkConfig`** — small API-surface consistency additions.
 
 - **`save::write_ron` / `save::read_ron`** — plaintext pretty-RON read/write for design-time
   assets. `SceneDef`/`Prefab` `save`/`load` now produce human-editable text files instead of
@@ -38,12 +49,33 @@ registrar, plus removal of everything deprecated here) form the planned v5 break
   frame (cached, invalidated on resize/reconfigure); the sprite renderer no longer clones
   WGSL material sources per frame (at most once per *new* pipeline). Remaining per-sprite
   texture-key `String` clones need an API break and are deferred to v5.
+- **Findings-sweep cleanups (2026-06-11)** — per-frame allocation pass (text queue drained
+  via `mem::take`, physics event-diff scratch buffers reused, single-pass particle emitters
+  and panel layout, editor-UI allocations gated behind `is_enabled`, `exec_order` take/swap);
+  `topological_sort_entities` rehomed `prefab` → `hierarchy` (shim kept); O(1) `despawn`;
+  deduplicated `App::new` / `AssetServer::new` struct literals, editor Tag/multi-select UI
+  blocks, input bind methods, and the fullscreen-quad vertex shader; dead private
+  `play_streaming` removed; doc clarifications across modules (wasm no-op fades,
+  CollisionGroups vs CollisionLayer, LocaleResource bridge, system-ordering caveats).
+
+### Fixed
+
+- **Animation frame catch-up** — the main-clip advance now catches up multiple frames on a
+  large `dt` (previously advanced at most one frame per tick; the crossfade path already
+  did this correctly).
+- **`CharacterController::max_slope_angle` desync** — setting the public field directly now
+  takes effect on the next `move_character` call (previously only `with_max_slope_deg`
+  synced the internal rapier controller).
 
 ### Deprecated
 
 - **`DebugDrawQueue` / `DebugRect`** — superseded by `DebugDraw::rect_filled_z`. Still
   registered and drained for compatibility; removal planned for v5. `CollisionDebugSystem`,
   the editor selection highlight, and the `sokoban` example are migrated.
+- **`World::register_reflect`** (stores an empty type name, breaking Inspector display — use
+  `register_reflect_named`), **`NetworkEvent::JsonParseError`** (never emitted by the
+  engine), **`App::load_texture`** (use `load_image`), and **`ParticleEmitter::for_burst`**
+  (renamed `burst`). All removal-planned for v5.
 
 ## 4.5.0
 

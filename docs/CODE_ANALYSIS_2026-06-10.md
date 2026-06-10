@@ -9,6 +9,14 @@
 > **#2(rapier 핸들 newtype)와 #8(`on_enter` SystemRegistrar)은 breaking이라 v5.0.0 배치로 이월** —
 > deprecated `DebugDrawQueue`/`DebugRect` 제거, path shim 제거, `Sprite.texture` 타입 교체도 같은 배치.
 > 아래 본문은 분석 시점 스냅샷 그대로 보존. 정확한 커밋은 git log(`fix/analysis-top10` 브랜치) 참조.
+>
+> **잔여 정리 스윕 (2026-06-11, 같은 브랜치):** §7 부록의 non-Top-10 항목 중 **~30건 처리** (per-frame
+> 할당 정리, 중복 코드 추출, vestigial API deprecate, 문서화 항목, LABEL 상수 전 시스템 추가 + PATTERNS.md
+> ordering 섹션 + platformer 예제 시연). **남긴 것**: pub 가시성 축소류·`SystemConfig`/`SystemMeta` 통합·
+> `ShaderMaterial` source_hash 캐싱(pub 필드 리터럴 생성이라 breaking)·`TouchState` 접근자 → v5 배치;
+> StateMachine crossfade·scripting Arrive/Wander 바인딩·AudioEffect release 구현 → 기능 작업으로 분리;
+> World↔Reflect 분리(설계 변경 규모)·DefaultHasher 안정성(인메모리 캐시라 무관) → 보류/기각.
+> 상세는 `docs/CHANGELOG.md` 4.6.0 항목 참조.
 
 ---
 

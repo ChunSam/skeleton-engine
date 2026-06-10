@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.5.0 | package `skeleton-engine` v4.6.0, library crate `engine` | wgpu-based Rust 2D game engine  
+> Version v1.5.1 | package `skeleton-engine` v4.6.0, library crate `engine` | wgpu-based Rust 2D game engine  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example game ships to
 > the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`
@@ -96,7 +96,7 @@ Where to read to find a given thing:
 | Timer, Tween, Easing, Lerp (general interpolation trait; old `timeline::Lerp` path kept as shim) | `src/timer.rs`, `src/tween.rs` |
 | Timeline, Track, Keyframe, TimelineSystem (keyframe cutscenes → entity Transform/Sprite; **CameraTarget** marker + `zoom` track route a timeline into the **Camera** resource as a virtual rig; example: `timeline_cutscene`) | `src/timeline.rs` |
 | History (generic snapshot undo/redo for grid puzzles, turn-based, editors) | `src/history.rs` |
-| ParticleEmitter, ParticleSystem, ParticleBurst (one-shot burst + `ParticleEmitter::for_burst()`) | `src/particle.rs` |
+| ParticleEmitter, ParticleSystem, ParticleBurst (one-shot burst + `ParticleEmitter::burst()`) | `src/particle.rs` |
 | Tilemap, TilemapAtlas, TilemapSystem | `src/tilemap.rs` |
 | AudioManager (playback, positional audio, bus mixer, fades), AudioSystem (built-in system that ticks `update(dt)` so fades progress; SFX file-bytes cache) | `src/audio.rs`, `src/audio/` |
 | save / load (AEAD, player saves) / write_ron / read_ron (plaintext, design-time assets) / load_or_default / exists / delete / save_path / SaveError | `src/save.rs` |
