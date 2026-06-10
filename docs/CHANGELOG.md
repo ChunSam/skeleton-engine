@@ -4,6 +4,47 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 4.6.0
+
+Non-breaking batch from the 2026-06-10 full-codebase analysis
+(`docs/CODE_ANALYSIS_2026-06-10.md`, Top-10 items #1/#3/#4/#5/#6/#7/#9-partial/#10).
+The remaining Top-10 items (#2 rapier handle newtypes, #8 `on_enter` system
+registrar, plus removal of everything deprecated here) form the planned v5 breaking batch.
+
+### Added
+
+- **`save::write_ron` / `save::read_ron`** — plaintext pretty-RON read/write for design-time
+  assets. `SceneDef`/`Prefab` `save`/`load` now produce human-editable text files instead of
+  AEAD-encrypted binary (a hackability violation for level files); `read_ron` transparently
+  falls back to the encrypted format so pre-4.6 files still load. Encrypted `save`/`load`
+  remain the player-save path.
+- **`DebugDraw::rect_filled` / `rect_filled_z`** — filled, z-ordered rectangles on the modern
+  debug-draw resource, covering everything the legacy queue did.
+- **Native `NetworkClient::is_connected()`** — parity with the wasm client (previously
+  wasm-only, an undocumented platform API split); backed by an `AtomicBool` the socket
+  thread clears on every exit path.
+
+### Changed
+
+- **`UvRect`/`BlendUv` moved to `renderer::uv`**, **`Lerp` moved to `tween`** — semantic
+  homes instead of accidental ones (`animation::player`, `timeline`); six modules no longer
+  compile-depend on `animation`, and `network::SnapshotBuffer` no longer imports the cutscene
+  module. Old paths and all root re-exports keep working via `pub use` shims.
+- **Editor state extracted from `App`** — 17 editor-only fields (gizmo, clipboard, undo
+  history, component factories, snap, selection) now live in one internal `EditorState`
+  struct (`src/app/editor/state.rs`); a fork removes the editor by deleting one field + one
+  module. Internal-only; no public API change.
+- **Per-frame allocation fixes** — the lighting pass no longer creates its bind group every
+  frame (cached, invalidated on resize/reconfigure); the sprite renderer no longer clones
+  WGSL material sources per frame (at most once per *new* pipeline). Remaining per-sprite
+  texture-key `String` clones need an API break and are deferred to v5.
+
+### Deprecated
+
+- **`DebugDrawQueue` / `DebugRect`** — superseded by `DebugDraw::rect_filled_z`. Still
+  registered and drained for compatibility; removal planned for v5. `CollisionDebugSystem`,
+  the editor selection highlight, and the `sokoban` example are migrated.
+
 ## 4.5.0
 
 ### Added

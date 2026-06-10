@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.4.0 | package `skeleton-engine` v4.3.0, library crate `engine` | wgpu-based Rust 2D game engine  
+> Version v1.5.0 | package `skeleton-engine` v4.6.0, library crate `engine` | wgpu-based Rust 2D game engine  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example game ships to
 > the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`
@@ -72,7 +72,7 @@ Where to read to find a given thing:
 | `System` trait | `src/ecs/system.rs` |
 | Scene transitions (Scene, SceneCmd, SceneChange) | `src/scene.rs` |
 | Transform, Sprite | `src/components.rs` |
-| WindowConfig, GameState, ShouldQuit, DebugDrawQueue | `src/resources.rs` |
+| WindowConfig, GameState, ShouldQuit, DebugDraw (`rect_filled_z` covers the deprecated DebugDrawQueue/DebugRect, removal in v5) | `src/resources.rs` |
 | Camera (coordinate transforms, zoom; `screen_to_world`/`world_to_screen`; `bounds` + `clamp_to_bounds` world-bounds clamp, auto-applied by App after follow) | `src/camera.rs` |
 | InputState, InputMap (keyboard + gamepad bindings: `bind_gamepad_button`/`bind_gamepad_axis` + `AxisBinding`, `*_with_gamepad` resolution) | `src/input/` |
 | GamepadState, GamepadButton, GamepadAxis | `src/input/gamepad.rs` |
@@ -84,7 +84,8 @@ Where to read to find a given thing:
 | BehaviorTree, BehaviorNode, Sequence, Selector, Inverter, AlwaysSucceed, BehaviorSystem, Blackboard, BlackboardValue (`Path` variant + `set_path`/`get_path`) | `src/behavior.rs` |
 | Seek, Flee, Arrive, Wander, SteeringVelocity, SteeringSystem (steering behaviors; O(1) per-entity component lookup) | `src/steering.rs` |
 | PathGrid, find_path, PathGrid::from_tilemap | `src/pathfinding.rs` |
-| AnimationPlayer, AnimationClip, AnimationSystem, BlendWeight, BlendUv (crossfade = true 2-UV shader-lerp; renderer `mix`es from/to frames) | `src/animation/player.rs`, `src/animation/system.rs` |
+| AnimationPlayer, AnimationClip, AnimationSystem, BlendWeight (crossfade = true 2-UV shader-lerp; renderer `mix`es from/to frames) | `src/animation/player.rs`, `src/animation/system.rs` |
+| UvRect, BlendUv (GPU UV-region types, consumed engine-wide; old `animation::player` paths kept as re-export shims) | `src/renderer/uv.rs` |
 | AnimationStateMachine, StateMachineSystem, TransitionCond, AnimParam | `src/animation/state_machine.rs` |
 | BlendTree1D, BlendEntry, BlendTreeSystem (1D parameter-driven auto transitions + crossfade) | `src/animation/blend_tree.rs`, `src/animation/blend_system.rs` |
 | SkeletalAnimator, SkeletalClip, BoneTrack, BoneKeyframe, SkeletalAnimationSystem, SkeletonBuilder (2D cutout skeletal animation) | `src/skeletal.rs` (details: `docs/SKELETAL.md`) |
@@ -92,13 +93,13 @@ Where to read to find a given thing:
 | Slider (horizontal slider), CheckBox (toggle checkbox) | `src/ui/slider.rs`, `src/ui/checkbox.rs` |
 | LocalizedText (key bound to a widget), LocalizationSystem (resolves `LocaleResource::t` into Label/Button/CheckBox each frame) | `src/ui/localized.rs` |
 | Tag, EntityDef, SceneDef, Prefab, spawn_entity_def, spawn_scene_def | `src/prefab.rs` |
-| Timer, Tween, Easing | `src/timer.rs`, `src/tween.rs` |
-| Timeline, Track, Keyframe, Lerp, TimelineSystem (keyframe cutscenes → entity Transform/Sprite; **CameraTarget** marker + `zoom` track route a timeline into the **Camera** resource as a virtual rig; example: `timeline_cutscene`) | `src/timeline.rs` |
+| Timer, Tween, Easing, Lerp (general interpolation trait; old `timeline::Lerp` path kept as shim) | `src/timer.rs`, `src/tween.rs` |
+| Timeline, Track, Keyframe, TimelineSystem (keyframe cutscenes → entity Transform/Sprite; **CameraTarget** marker + `zoom` track route a timeline into the **Camera** resource as a virtual rig; example: `timeline_cutscene`) | `src/timeline.rs` |
 | History (generic snapshot undo/redo for grid puzzles, turn-based, editors) | `src/history.rs` |
 | ParticleEmitter, ParticleSystem, ParticleBurst (one-shot burst + `ParticleEmitter::for_burst()`) | `src/particle.rs` |
 | Tilemap, TilemapAtlas, TilemapSystem | `src/tilemap.rs` |
 | AudioManager (playback, positional audio, bus mixer, fades), AudioSystem (built-in system that ticks `update(dt)` so fades progress; SFX file-bytes cache) | `src/audio.rs`, `src/audio/` |
-| save / load / load_or_default / exists / delete / save_path / SaveError | `src/save.rs` |
+| save / load (AEAD, player saves) / write_ron / read_ron (plaintext, design-time assets) / load_or_default / exists / delete / save_path / SaveError | `src/save.rs` |
 | NetworkClient (native=tungstenite thread, wasm=web-sys), NetworkSystem (polls → `Events<NetworkEvent>`), NetworkEvent, NetworkConfig (queue/size caps), RemoteEntities (`id→Entity` lifecycle), SnapshotBuffer<T: Lerp> (generic per-entity interpolation buffer); relay demo `mp_server`/`mp_client`, authoritative game `examples/games/coin_race`, client-prediction `examples/games/predict_shooter`, interpolation-only `examples/games/orbital_dodger`, AOI-streaming/interest-managed `examples/games/salvage_run` | `src/network.rs` |
 | PostProcessConfig, PostProcessRenderer | `src/renderer/post_process.rs` |
 | PointLight, AmbientLight, LightingRenderer (2D point-light pass, nearest-16 cull; native-only) | `src/renderer/lighting.rs` |
