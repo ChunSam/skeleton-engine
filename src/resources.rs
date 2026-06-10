@@ -281,6 +281,18 @@ pub enum GameState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ShouldQuit(pub bool);
 
+impl ShouldQuit {
+    /// Signal that the application should quit on the next frame.
+    pub fn quit(&mut self) {
+        self.0 = true;
+    }
+
+    /// Returns `true` if a quit has been requested.
+    pub fn is_quitting(&self) -> bool {
+        self.0
+    }
+}
+
 // ─── Viewport / Window Config ────────────────────────────────────────────────
 
 /// Current viewport size in game-coordinate space.
@@ -492,6 +504,9 @@ impl ProfilerData {
 /// Scene transition fade effect resource.
 ///
 /// Setting a `FadeState` causes `App` to automatically animate a full-screen color overlay.
+///
+/// **Platform note:** the fade render pass is native-only. On `wasm32` targets the transition
+/// state is still tracked (so `finished` will fire), but the visual overlay is silently skipped.
 ///
 /// # Example
 /// ```rust,ignore

@@ -1,3 +1,4 @@
+use crate::ecs::Entity;
 use glam::{Mat4, Vec2};
 
 /// 2D camera resource.
@@ -45,7 +46,7 @@ pub struct Camera {
 
     // --- Smooth Follow ---
     /// Entity to follow (`Entity` is Copy, so `Option<Entity>` is also Copy)
-    pub follow_entity: Option<crate::ecs::Entity>,
+    pub follow_entity: Option<Entity>,
     /// Lerp strength per second. 0.0 = no tracking, 1.0 = instant snap. Default 5.0
     pub lerp_factor: f32,
 

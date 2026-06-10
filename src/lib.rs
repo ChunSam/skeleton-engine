@@ -82,7 +82,9 @@ pub use input::map::AxisBinding;
 pub use input::{GamepadAxis, GamepadButton, GamepadState, InputMap, InputState, TouchState};
 pub use locale::{LocaleBundle, LocaleData, LocaleResource, TextDirection};
 pub use material::ShaderMaterial;
-pub use network::{NetworkClient, NetworkEvent, NetworkSystem, RemoteEntities, SnapshotBuffer};
+pub use network::{
+    NetworkClient, NetworkConfig, NetworkEvent, NetworkSystem, RemoteEntities, SnapshotBuffer,
+};
 pub use particle::{Particle, ParticleBurst, ParticleEmitter, ParticleSystem};
 pub use pathfinding::{find_path, PathGrid};
 #[cfg(not(target_arch = "wasm32"))]

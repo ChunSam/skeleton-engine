@@ -16,12 +16,31 @@ pub const DEFAULT_MAX_PENDING_EVENTS: usize = 1024;
 #[derive(Clone, Debug)]
 pub enum NetworkEvent {
     Connected,
-    Disconnected { reason: String },
+    Disconnected {
+        reason: String,
+    },
     BinaryMessage(Vec<u8>),
     TextMessage(String),
-    MessageTooLarge { len: usize, limit: usize },
-    ReceiveQueueFull { dropped: usize, capacity: usize },
-    JsonParseError { message: String },
+    MessageTooLarge {
+        len: usize,
+        limit: usize,
+    },
+    ReceiveQueueFull {
+        dropped: usize,
+        capacity: usize,
+    },
+    /// Protocol-level JSON parse error reported by game code.
+    ///
+    /// This variant is never emitted by the engine itself; protocol-level parse errors
+    /// are the game's concern. It is retained only for backward compatibility and will
+    /// be removed in v5.
+    #[deprecated(
+        since = "4.6.0",
+        note = "never emitted by the engine; protocol-level parse errors are the game's concern — removal planned for v5"
+    )]
+    JsonParseError {
+        message: String,
+    },
     Error(String),
 }
 
@@ -290,11 +309,9 @@ mod native {
 
         pub fn send_text(&self, text: impl Into<String>) {
             let text = text.into();
-            if self.msg_tx.try_send(OutMsg::Text(text.clone())).is_err() {
-                log::warn!(
-                    "network: send queue full — text message dropped ({} bytes)",
-                    text.len()
-                );
+            let len = text.len();
+            if self.msg_tx.try_send(OutMsg::Text(text)).is_err() {
+                log::warn!("network: send queue full — text message dropped ({len} bytes)");
             }
         }
 
@@ -480,8 +497,9 @@ mod wasm_impl {
 
         pub fn send_text(&self, text: impl Into<String>) {
             let text = text.into();
-            if !self.try_send_text(text.clone()) {
-                log::warn!("network: text message send failed ({} bytes)", text.len());
+            let len = text.len();
+            if !self.try_send_text(text) {
+                log::warn!("network: text message send failed ({} bytes)", len);
             }
         }
 
