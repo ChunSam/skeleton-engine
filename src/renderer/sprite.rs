@@ -460,12 +460,20 @@ impl SpriteRenderer {
         let mut entries = draw_entries;
 
         // ── Collect ShaderMaterials: merge into the same (layer, z) stream as regular sprites.
-        let mat_ids: Vec<(crate::ecs::Entity, u64, String, [f32; 4])> = world
+        // Only clone frag_source for hashes whose pipeline hasn't been compiled yet;
+        // existing pipelines are keyed by hash so the source is no longer needed.
+        let mat_ids: Vec<(crate::ecs::Entity, u64, Option<String>, [f32; 4])> = world
             .query::<ShaderMaterial>()
             .map(|(e, mat)| {
                 let mut h = std::collections::hash_map::DefaultHasher::new();
                 mat.frag_source.hash(&mut h);
-                (e, h.finish(), mat.frag_source.clone(), mat.params)
+                let hash = h.finish();
+                let src = if self.custom_pipelines.contains_key(&hash) {
+                    None
+                } else {
+                    Some(mat.frag_source.clone())
+                };
+                (e, hash, src, mat.params)
             })
             .collect();
 
@@ -519,7 +527,8 @@ impl SpriteRenderer {
                 next_order,
                 entity,
                 hash,
-                frag_source,
+                // frag_source is Some only for new pipelines; existing ones use None.
+                frag_source.unwrap_or_default(),
                 params,
                 tex_key,
                 instance,
@@ -565,18 +574,17 @@ impl SpriteRenderer {
                 bytemuck::cast_slice(&material_instances),
             );
 
-            let material_sources: Vec<(u64, String)> = entries
-                .iter()
-                .filter_map(|entry| match &entry.kind {
-                    SpriteRenderKind::Material {
-                        hash, frag_source, ..
-                    } => Some((*hash, frag_source.clone())),
-                    SpriteRenderKind::Sprite { .. } => None,
-                })
-                .collect();
-            for (hash, frag_source) in material_sources {
-                if !self.custom_pipelines.contains_key(&hash) {
-                    self.compile_material_pipeline(device, hash, &frag_source);
+            // Compile pipelines for new material hashes; borrow frag_source in
+            // place — no clone needed since frag_source is non-empty only for
+            // entries whose pipeline hasn't been compiled yet.
+            for entry in &entries {
+                if let SpriteRenderKind::Material {
+                    hash, frag_source, ..
+                } = &entry.kind
+                {
+                    if !frag_source.is_empty() && !self.custom_pipelines.contains_key(hash) {
+                        self.compile_material_pipeline(device, *hash, frag_source);
+                    }
                 }
             }
 
