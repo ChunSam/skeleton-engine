@@ -12,7 +12,10 @@ pub struct AudioEffect {
     pub pitch: f32,
     /// Fade-in duration at playback start (seconds). 0.0 = immediate.
     pub attack_secs: f32,
-    /// Volume envelope sustain duration (seconds). 0.0 = unlimited.
+    /// Volume envelope release duration (seconds). 0.0 = unlimited.
+    ///
+    /// **Not yet applied by the engine.** This field is reserved for a future
+    /// release-envelope implementation. Setting it has no effect in the current version.
     pub release_secs: f32,
 }
 

@@ -59,8 +59,7 @@ pub struct AudioManager {
     /// Per-channel audio effects.
     effects: HashMap<String, AudioEffect>,
     /// Path → encoded file bytes cache. Prevents re-reading the disk when the same SFX
-    /// is replayed (`play`/`play_internal` path only; `play_streaming` for large BGM
-    /// streams directly and is not cached).
+    /// is replayed (`play`/`play_internal` path only).
     file_cache: HashMap<String, std::sync::Arc<[u8]>>,
 }
 

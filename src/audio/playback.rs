@@ -1,6 +1,5 @@
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::{BufReader, Cursor};
+use std::io::Cursor;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -292,41 +291,6 @@ impl AudioManager {
             .copied()
             .unwrap_or(1.0);
         base * bus_vol
-    }
-
-    // ── Compatibility (legacy direct read + BufReader pattern) ───────────────
-
-    /// Lower-level version of `play`. Streams via BufReader when there is no pan.
-    #[allow(dead_code)]
-    fn play_streaming(&mut self, channel: &str, path: &str, repeat: bool) {
-        if let Some(old) = self.sinks.remove(channel) {
-            old.stop();
-        }
-        let sink = match Sink::try_new(&self.stream_handle) {
-            Ok(s) => s,
-            Err(_) => return,
-        };
-        sink.set_volume(self.effective_volume(channel));
-        let file = match File::open(path) {
-            Ok(f) => f,
-            Err(e) => {
-                log::warn!("Cannot open audio file '{path}': {e}");
-                return;
-            }
-        };
-        let source = match Decoder::new(BufReader::new(file)) {
-            Ok(s) => s,
-            Err(e) => {
-                log::warn!("Audio decoding failed for '{path}': {e}");
-                return;
-            }
-        };
-        if repeat {
-            sink.append(source.repeat_infinite());
-        } else {
-            sink.append(source);
-        }
-        self.sinks.insert(channel.to_string(), sink);
     }
 }
 
