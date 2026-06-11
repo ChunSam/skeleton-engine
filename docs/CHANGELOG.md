@@ -4,6 +4,45 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 5.1.2
+
+Bug-fix batch from the scheduled 2026-06-12 full-source review
+(`docs/CODE_ANALYSIS_2026-06-12.md` — Top-10 locally re-verified: 8 confirmed,
+2 refuted; the 8 confirmed findings are all addressed here). No migration; one
+small API addition noted below.
+
+### Fixed
+
+- **Network receive-queue overflow accounting** (the round's two high findings) —
+  `ReceiveQueueFull.dropped` now accumulates across every rejected message (was a
+  constant `1`, silently discarding all subsequent overflow), and events already in
+  the queue are never evicted once the marker is installed. When the marker is first
+  installed it displaces the youngest queued event, which is now *counted*
+  (`dropped` starts at 2). Queue length never exceeds the configured capacity.
+  Native and wasm paths are semantically identical.
+- **Crossfade interrupt pop** — calling `play_with_crossfade` toward a *third* clip
+  while a blend is in flight now promotes the in-flight TO side to the new FROM
+  (`mix(B, C, 0)` on the first frame) instead of popping back to the original FROM
+  clip image. The 5.1.1 same-target idempotency guard is unaffected.
+- **Crossfade completion stutter** — completion now carries the to-clip's accumulated
+  sub-frame timer into `AnimationPlayer.timer` (with this tick's `dt` counted exactly
+  once) instead of resetting to `0.0`, which visibly stretched the first post-blend
+  frame on low-fps clips.
+- **Silent collision-event drop warning** — `PhysicsSystem` now `log::warn!`s once
+  when collisions/triggers occur but `Events<CollisionEvent>` /
+  `Events<TriggerEvent>` was never registered, naming the exact
+  `register_event` call to add (previously the events vanished with no signal).
+- **Per-sprite `Arc<str>` re-allocation** — the renderer's `image_handle` path uses
+  the new `Handle::path_arc()` (O(1) refcount bump) instead of `Arc::from(h.path())`
+  (per-sprite per-frame string copy).
+- **Doc gaps** — `docs/PATTERNS.md` ordering table gains the
+  `BlendTreeSystem` before `AnimationSystem` row; `AmbientLight` / `PointLight` /
+  `LightingRenderer` doc comments now state the native-only / wasm32-no-op limitation.
+
+### Added
+
+- `Handle::path_arc() -> Arc<str>` — owned handle path without copying the string.
+
 ## 5.1.1
 
 Bug-fix batch from the post-release code review of the 5.1.0 features (10 confirmed

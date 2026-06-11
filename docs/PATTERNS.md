@@ -108,6 +108,7 @@ Known ordering constraints expressed this way:
 | Constraint | Why |
 |---|---|
 | `StateMachineSystem` after `AnimationSystem` | reads frame state produced by the tick |
+| `BlendTreeSystem` before `AnimationSystem` | clip transitions take effect in the same frame |
 | `LayoutSystem` before `UiSystem` | UiSystem reads recomputed offsets |
 | readers of `SpatialGrid` after `CollisionGridSystem` | it mirrors the grid resource |
 | `CollisionDebugSystem` after `CollisionGridSystem` | same |

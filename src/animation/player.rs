@@ -73,6 +73,11 @@ impl AnimationPlayer {
     /// already in progress are silently ignored (idempotent). This prevents noisy
     /// threshold parameters (e.g. `FloatGt`/`FloatLt`) from resetting `elapsed` to
     /// zero every frame and preventing the blend from ever completing.
+    ///
+    /// When a crossfade A→B is interrupted by a call targeting a third clip C, the
+    /// in-flight TO side (B) is promoted to FROM before starting the new A→C crossfade.
+    /// This prevents a visible one-frame pop back to the original FROM clip (A) and
+    /// ensures the first blended frame is `mix(B, C, 0.0)` = B — a smooth continuation.
     pub fn play_with_crossfade(&mut self, clip_index: usize, duration: f32) {
         if self.current_clip == clip_index {
             return;
@@ -86,6 +91,13 @@ impl AnimationPlayer {
         if duration <= 0.0 {
             self.play(clip_index);
             return;
+        }
+        // If a crossfade A→B is in progress and we now want C, promote B to FROM so
+        // the transition continues from B rather than snapping back to A.
+        if let Some(cf) = self.crossfade.take() {
+            self.current_clip = cf.to_clip;
+            self.current_frame = cf.to_frame;
+            self.timer = cf.to_timer;
         }
         self.crossfade = Some(CrossfadeState {
             to_clip: clip_index,
@@ -145,5 +157,112 @@ impl AnimationPlayer {
             return false;
         }
         self.current_frame >= clip.frames.len() - 1
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_clip(n_frames: usize, fps: f32, looping: bool) -> AnimationClip {
+        AnimationClip {
+            frames: vec![UvRect::FULL; n_frames],
+            fps,
+            looping,
+        }
+    }
+
+    fn make_player() -> AnimationPlayer {
+        // Three clips: A (0), B (1), C (2)
+        AnimationPlayer::new(vec![
+            make_clip(4, 10.0, true),
+            make_clip(4, 10.0, true),
+            make_clip(4, 10.0, true),
+        ])
+    }
+
+    // ── Bug #1: third-clip interrupt should promote B to FROM, not revert to A ──
+
+    /// When A→B crossfade is interrupted at weight 0.7 by C, the new FROM must be
+    /// B (current_clip == 1) — no pop back to A.
+    #[test]
+    fn interrupt_promotes_to_clip_to_from() {
+        let mut player = make_player();
+        // Start A→B crossfade, advance elapsed to 70% of duration
+        player.play_with_crossfade(1, 1.0);
+        {
+            let cf = player.crossfade.as_mut().unwrap();
+            cf.elapsed = 0.7;
+            cf.to_frame = 2;
+            cf.to_timer = 0.05;
+        }
+
+        // Interrupt with C
+        player.play_with_crossfade(2, 0.5);
+
+        // FROM side must be B (clip index 1), not A (clip index 0)
+        assert_eq!(
+            player.current_clip, 1,
+            "interrupt should promote B to FROM clip (was A before fix)"
+        );
+        assert_eq!(
+            player.current_frame, 2,
+            "promoted FROM frame must carry B's to_frame"
+        );
+        assert!(
+            (player.timer - 0.05).abs() < 1e-6,
+            "promoted FROM timer must carry B's to_timer"
+        );
+
+        // A new crossfade toward C must be in place
+        let cf = player
+            .crossfade
+            .as_ref()
+            .expect("crossfade to C must exist");
+        assert_eq!(cf.to_clip, 2);
+        assert_eq!(cf.elapsed, 0.0, "new crossfade starts fresh");
+    }
+
+    /// Idempotent re-fire guard must still hold after the interrupt promotion:
+    /// calling play_with_crossfade(C, _) again while already crossfading to C is a no-op.
+    #[test]
+    fn same_target_guard_survives_after_interrupt() {
+        let mut player = make_player();
+        // A→B in progress
+        player.play_with_crossfade(1, 1.0);
+        {
+            let cf = player.crossfade.as_mut().unwrap();
+            cf.elapsed = 0.3;
+        }
+        // Interrupt to C (promotes B→FROM, starts B→C)
+        player.play_with_crossfade(2, 0.5);
+        let elapsed_before = player.crossfade.as_ref().unwrap().elapsed;
+
+        // Re-fire the same target C — must be a no-op
+        player.play_with_crossfade(2, 0.5);
+        let elapsed_after = player.crossfade.as_ref().unwrap().elapsed;
+        assert_eq!(
+            elapsed_before, elapsed_after,
+            "re-firing the same crossfade target must not reset elapsed"
+        );
+        assert_eq!(
+            player.current_clip, 1,
+            "FROM clip must remain B after no-op re-fire"
+        );
+    }
+
+    /// Interrupting when no crossfade is active starts a normal A→C crossfade.
+    #[test]
+    fn interrupt_with_no_active_crossfade_starts_fresh() {
+        let mut player = make_player();
+        // No crossfade yet — directly play C
+        player.play_with_crossfade(2, 0.5);
+        assert_eq!(
+            player.current_clip, 0,
+            "FROM must remain A (no promotion occurred)"
+        );
+        let cf = player.crossfade.as_ref().expect("crossfade must exist");
+        assert_eq!(cf.to_clip, 2);
+        assert_eq!(cf.elapsed, 0.0);
     }
 }

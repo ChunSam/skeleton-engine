@@ -53,18 +53,36 @@ fn push_event_bounded(
     event: NetworkEvent,
     capacity: usize,
 ) {
+    // Mirror of the wasm path below — keep both semantically identical.
+    // See also: push_event_bounded (wasm32 cfg) in this file.
     let mut events = match buffer.lock() {
         Ok(events) => events,
         Err(_) => return,
     };
     if events.len() < capacity {
         events.push_back(event);
-    } else if !matches!(events.back(), Some(NetworkEvent::ReceiveQueueFull { .. })) {
-        events.pop_back();
-        events.push_back(NetworkEvent::ReceiveQueueFull {
-            dropped: 1,
-            capacity,
-        });
+    } else {
+        // Queue is full — reject `event` without touching earlier entries.
+        //
+        // Invariant: `len ≤ capacity` at all times.  The back slot is reserved
+        // for a ReceiveQueueFull marker once the first overflow occurs.  All
+        // entries at indices 0..back()-1 are never modified or removed after
+        // they are queued.  The marker itself may displace the youngest real
+        // event on first install (counted in `dropped`); after that, subsequent
+        // rejections only increment `dropped`.
+        if let Some(NetworkEvent::ReceiveQueueFull { dropped, .. }) = events.back_mut() {
+            // Marker already present — just accumulate the drop count.
+            *dropped += 1;
+        } else {
+            // First overflow: displace the youngest real event to install the
+            // marker.  Both the displaced event and `event` become invisible to
+            // the consumer, so `dropped` starts at 2.
+            events.pop_back();
+            events.push_back(NetworkEvent::ReceiveQueueFull {
+                dropped: 2,
+                capacity,
+            });
+        }
     }
 }
 
@@ -74,15 +92,33 @@ fn push_event_bounded(
     event: NetworkEvent,
     capacity: usize,
 ) {
+    // Mirror of the native path above — keep both semantically identical.
+    // See also: push_event_bounded (not wasm32 cfg) in this file.
     let mut events = buffer.borrow_mut();
     if events.len() < capacity {
         events.push(event);
-    } else if !matches!(events.last(), Some(NetworkEvent::ReceiveQueueFull { .. })) {
-        events.pop();
-        events.push(NetworkEvent::ReceiveQueueFull {
-            dropped: 1,
-            capacity,
-        });
+    } else {
+        // Queue is full — reject `event` without touching earlier entries.
+        //
+        // Invariant: `len ≤ capacity` at all times.  The back slot is reserved
+        // for a ReceiveQueueFull marker once the first overflow occurs.  All
+        // entries at indices 0..back()-1 are never modified or removed after
+        // they are queued.  The marker itself may displace the youngest real
+        // event on first install (counted in `dropped`); after that, subsequent
+        // rejections only increment `dropped`.
+        if let Some(NetworkEvent::ReceiveQueueFull { dropped, .. }) = events.last_mut() {
+            // Marker already present — just accumulate the drop count.
+            *dropped += 1;
+        } else {
+            // First overflow: displace the youngest real event to install the
+            // marker.  Both the displaced event and `event` become invisible to
+            // the consumer, so `dropped` starts at 2.
+            events.pop();
+            events.push(NetworkEvent::ReceiveQueueFull {
+                dropped: 2,
+                capacity,
+            });
+        }
     }
 }
 
@@ -824,6 +860,9 @@ mod tests {
 
     #[test]
     fn receive_queue_reports_full_when_capacity_reached() {
+        // capacity=1: pushing the first event fills the queue; the second event
+        // triggers first-overflow handling, which displaces the queued event and
+        // installs the marker with dropped=2 (one displaced + one rejected).
         let buffer = std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new()));
         push_event_bounded(&buffer, NetworkEvent::Connected, 1);
         push_event_bounded(&buffer, NetworkEvent::TextMessage("dropped".into()), 1);
@@ -831,10 +870,143 @@ mod tests {
         assert!(matches!(
             events.as_slice(),
             [NetworkEvent::ReceiveQueueFull {
-                dropped: 1,
+                dropped: 2,
                 capacity: 1
             }]
         ));
+    }
+
+    // ── push_event_bounded overflow invariants ────────────────────────────────
+
+    /// Helper: create a fresh native event buffer.
+    fn make_buffer() -> std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<NetworkEvent>>> {
+        std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new()))
+    }
+
+    /// Helper: drain all events from a buffer.
+    fn drain_buffer(
+        buffer: &std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<NetworkEvent>>>,
+    ) -> Vec<NetworkEvent> {
+        buffer.lock().unwrap().drain(..).collect()
+    }
+
+    /// Helper: current length of the buffer.
+    fn buf_len(
+        buffer: &std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<NetworkEvent>>>,
+    ) -> usize {
+        buffer.lock().unwrap().len()
+    }
+
+    #[test]
+    fn overflow_accumulates_dropped_across_multiple_rejections() {
+        // capacity=3: fill with 2 real events, then send 4 overflow events.
+        // First overflow: displaces the 2nd real event, marker installed with dropped=2.
+        // Next 3 overflows: marker incremented to 3, 4, 5.
+        let buf = make_buffer();
+        let cap = 3;
+        push_event_bounded(&buf, NetworkEvent::Connected, cap); // slot 0
+        push_event_bounded(&buf, NetworkEvent::TextMessage("a".into()), cap); // slot 1
+        push_event_bounded(&buf, NetworkEvent::TextMessage("b".into()), cap); // slot 2 (fills queue)
+                                                                              // overflow 1 — displaces "b" (back), installs marker with dropped=2
+        push_event_bounded(&buf, NetworkEvent::TextMessage("ov1".into()), cap);
+        assert_eq!(buf_len(&buf), 3, "len must stay at capacity");
+        // overflow 2, 3, 4 — increment marker
+        push_event_bounded(&buf, NetworkEvent::TextMessage("ov2".into()), cap);
+        push_event_bounded(&buf, NetworkEvent::TextMessage("ov3".into()), cap);
+        push_event_bounded(&buf, NetworkEvent::TextMessage("ov4".into()), cap);
+        assert_eq!(buf_len(&buf), 3, "len must stay at capacity");
+
+        let events = drain_buffer(&buf);
+        assert_eq!(events.len(), 3);
+        assert!(matches!(events[0], NetworkEvent::Connected));
+        assert!(matches!(events[1], NetworkEvent::TextMessage(_)));
+        assert!(
+            matches!(
+                events[2],
+                NetworkEvent::ReceiveQueueFull {
+                    dropped: 5,
+                    capacity: 3
+                }
+            ),
+            "expected dropped=5 (2 on install + 3 increments), got {:?}",
+            events[2]
+        );
+    }
+
+    #[test]
+    fn overflow_does_not_remove_events_queued_before_the_back() {
+        // With capacity=4 fill 3 slots, then overflow multiple times.
+        // Only the event at slot 3 (back) is displaced when the marker is installed;
+        // slots 0-2 must survive intact.
+        let buf = make_buffer();
+        let cap = 4;
+        push_event_bounded(&buf, NetworkEvent::Connected, cap); // slot 0
+        push_event_bounded(&buf, NetworkEvent::TextMessage("s1".into()), cap); // slot 1
+        push_event_bounded(&buf, NetworkEvent::BinaryMessage(vec![1, 2]), cap); // slot 2
+        push_event_bounded(&buf, NetworkEvent::TextMessage("s3".into()), cap); // slot 3 (fills)
+                                                                               // overflow events
+        for _ in 0..5 {
+            push_event_bounded(&buf, NetworkEvent::TextMessage("ov".into()), cap);
+        }
+        assert_eq!(buf_len(&buf), 4, "len must equal capacity");
+
+        let events = drain_buffer(&buf);
+        assert!(
+            matches!(events[0], NetworkEvent::Connected),
+            "slot 0 preserved"
+        );
+        assert!(
+            matches!(events[1], NetworkEvent::TextMessage(_)),
+            "slot 1 preserved"
+        );
+        assert!(
+            matches!(events[2], NetworkEvent::BinaryMessage(_)),
+            "slot 2 preserved"
+        );
+        // slot 3 holds the marker (s3 was displaced + 5 overflow events → dropped=6)
+        assert!(
+            matches!(events[3], NetworkEvent::ReceiveQueueFull { dropped: 6, .. }),
+            "marker at slot 3 with dropped=6, got {:?}",
+            events[3]
+        );
+    }
+
+    #[test]
+    fn queue_length_never_exceeds_capacity() {
+        // Push capacity + 20 events; length must never exceed capacity at any point.
+        let buf = make_buffer();
+        let cap = 5;
+        for i in 0u32..25 {
+            push_event_bounded(&buf, NetworkEvent::TextMessage(i.to_string()), cap);
+            assert!(buf_len(&buf) <= cap, "len exceeded capacity after push {i}");
+        }
+    }
+
+    #[test]
+    fn marker_at_back_then_normal_push_after_drain() {
+        // Fill queue, trigger overflow (installs marker), drain, then push normally.
+        let buf = make_buffer();
+        let cap = 2;
+        push_event_bounded(&buf, NetworkEvent::Connected, cap); // slot 0
+        push_event_bounded(&buf, NetworkEvent::TextMessage("a".into()), cap); // slot 1 (fills)
+                                                                              // overflow — displaces "a", marker installed with dropped=2
+        push_event_bounded(&buf, NetworkEvent::TextMessage("ov".into()), cap);
+        let first_drain = drain_buffer(&buf);
+        assert_eq!(first_drain.len(), 2);
+        assert!(matches!(first_drain[0], NetworkEvent::Connected));
+        assert!(matches!(
+            first_drain[1],
+            NetworkEvent::ReceiveQueueFull {
+                dropped: 2,
+                capacity: 2
+            }
+        ));
+
+        // Queue is now empty — normal pushes must work again.
+        push_event_bounded(&buf, NetworkEvent::TextMessage("after".into()), cap);
+        let second_drain = drain_buffer(&buf);
+        assert_eq!(second_drain.len(), 1);
+        assert!(matches!(second_drain[0], NetworkEvent::TextMessage(ref s) if s == "after"));
     }
 
     #[derive(Clone)]
