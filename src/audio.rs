@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use rodio::{OutputStream, OutputStreamHandle, Sink};
 
@@ -61,6 +61,10 @@ pub struct AudioManager {
     /// Path → encoded file bytes cache. Prevents re-reading the disk when the same SFX
     /// is replayed (`play`/`play_internal` path only).
     file_cache: HashMap<String, std::sync::Arc<[u8]>>,
+    /// Channels currently undergoing a release fade (triggered by `stop()` on a channel
+    /// whose `AudioEffect::release_secs > 0.0`).  A second `stop()` call while the
+    /// channel is in this set tears the sink down immediately.
+    releasing: HashSet<String>,
 }
 
 // ─── AudioSystem ──────────────────────────────────────────────────────────────

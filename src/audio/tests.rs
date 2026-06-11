@@ -143,6 +143,134 @@ fn read_cached_bytes_missing_file_is_none() {
     );
 }
 
+// ─── Release envelope (device-free state-logic tests) ─────────────────────────
+
+/// Minimal stand-in for `AudioManager` state used by the release-logic tests.
+/// These tests exercise the scheduling and state-transition logic without needing
+/// a real audio device.  They use the real `AudioManager` when one is available,
+/// and skip gracefully when it is not.
+
+#[test]
+fn stop_without_release_is_immediate_when_device_exists() {
+    let Some(mut audio) = AudioManager::new() else {
+        return;
+    };
+    audio.set_effect(
+        "ch",
+        AudioEffect {
+            release_secs: 0.0,
+            ..AudioEffect::default()
+        },
+    );
+    audio.play_tone("ch", 440.0, 10.0, 0.5);
+    assert!(audio.is_playing("ch"));
+    audio.stop("ch");
+    // release_secs == 0.0 → immediate stop, no sink left.
+    assert_eq!(audio.playback_state("ch"), AudioChannelState::Missing);
+}
+
+#[test]
+fn stop_with_release_keeps_sink_alive_and_fades_when_device_exists() {
+    use super::AudioSystem;
+    use crate::ecs::{System, World};
+
+    let Some(mut audio) = AudioManager::new() else {
+        return;
+    };
+    audio.set_effect(
+        "ch",
+        AudioEffect {
+            release_secs: 0.1,
+            ..AudioEffect::default()
+        },
+    );
+    audio.play_tone("ch", 440.0, 10.0, 0.5);
+    assert!(audio.is_playing("ch"));
+
+    audio.stop("ch");
+
+    // Immediately after stop(): sink should still be alive (release in progress).
+    assert!(
+        audio.is_playing("ch"),
+        "release_secs > 0.0 → sink lives during the fade"
+    );
+
+    // Drive the release fade to completion via AudioSystem.
+    let mut world = World::new();
+    world.insert_resource(audio);
+    let mut sys = AudioSystem;
+    // 10 × 0.02 s = 0.2 s total, more than the 0.1 s release.
+    for _ in 0..10 {
+        sys.run(&mut world, 0.02);
+    }
+
+    let audio = world.resource::<AudioManager>().unwrap();
+    assert_eq!(
+        audio.playback_state("ch"),
+        AudioChannelState::Missing,
+        "after release fade completes the channel must be torn down"
+    );
+}
+
+#[test]
+fn second_stop_during_release_cuts_immediately_when_device_exists() {
+    let Some(mut audio) = AudioManager::new() else {
+        return;
+    };
+    audio.set_effect(
+        "ch",
+        AudioEffect {
+            release_secs: 10.0, // very long release so the fade won't complete before we act
+            ..AudioEffect::default()
+        },
+    );
+    audio.play_tone("ch", 440.0, 60.0, 0.5);
+    audio.stop("ch"); // starts release fade
+    assert!(
+        audio.is_playing("ch"),
+        "release fade should keep sink alive"
+    );
+
+    // A second stop() while releasing must cut immediately.
+    audio.stop("ch");
+    assert_eq!(
+        audio.playback_state("ch"),
+        AudioChannelState::Missing,
+        "second stop() during release must tear down immediately"
+    );
+}
+
+#[test]
+fn play_during_release_starts_new_sound_immediately_when_device_exists() {
+    let Some(mut audio) = AudioManager::new() else {
+        return;
+    };
+    audio.set_effect(
+        "ch",
+        AudioEffect {
+            release_secs: 10.0,
+            ..AudioEffect::default()
+        },
+    );
+    audio.play_tone("ch", 440.0, 60.0, 0.5);
+    audio.stop("ch"); // starts release fade
+    assert!(audio.is_playing("ch"));
+
+    // A new play_tone() on the same channel must cancel the release fade and
+    // start the new sound cleanly.
+    audio.play_tone("ch", 880.0, 60.0, 0.5);
+    assert!(
+        audio.is_playing("ch"),
+        "new sound should be playing after play_tone overrides a releasing channel"
+    );
+    // Advance one frame to confirm the fade map is clean (no stale release entry).
+    audio.update(0.016);
+    assert!(
+        audio.is_playing("ch"),
+        "channel should still be playing after one update"
+    );
+}
+
 // ─── #20: built-in AudioSystem drives update() ─────────────────────────────────
 
 #[test]

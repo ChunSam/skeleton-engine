@@ -12,10 +12,32 @@ pub struct AudioEffect {
     pub pitch: f32,
     /// Fade-in duration at playback start (seconds). 0.0 = immediate.
     pub attack_secs: f32,
-    /// Volume envelope release duration (seconds). 0.0 = unlimited.
+    /// Volume envelope release duration (seconds). 0.0 = immediate stop.
     ///
-    /// **Not yet applied by the engine.** This field is reserved for a future
-    /// release-envelope implementation. Setting it has no effect in the current version.
+    /// When a channel that has `release_secs > 0.0` is stopped via
+    /// [`AudioManager::stop`](crate::audio::AudioManager::stop), the engine fades its
+    /// volume from the current level to zero over `release_secs` seconds and only then
+    /// tears down the sink.  During the release fade the channel transitions to the
+    /// `Releasing` state (reported as [`AudioChannelState::Playing`] by
+    /// [`playback_state`](crate::audio::AudioManager::playback_state) — the audio is
+    /// still audible).  Once the fade finishes the channel becomes
+    /// [`AudioChannelState::Missing`].
+    ///
+    /// **Stop paths that honor release (`release_secs > 0.0`):**
+    /// - [`AudioManager::stop`](crate::audio::AudioManager::stop) — schedules the fade
+    ///   instead of cutting immediately.
+    ///
+    /// **Stop paths that bypass release (always immediate):**
+    /// - A new `play_*` call on the same channel — the old sound is cut immediately so
+    ///   the new sound starts without delay.
+    /// - Calling `stop` while the channel is already in the middle of its release fade —
+    ///   the sink is torn down immediately.
+    /// - [`AudioManager::fade_out`](crate::audio::AudioManager::fade_out) (explicit
+    ///   fade-out — the caller is already controlling the fade duration).
+    ///
+    /// Requires [`AudioSystem`](crate::audio::AudioSystem) (or manual
+    /// [`AudioManager::update`](crate::audio::AudioManager::update) calls) for the fade
+    /// to progress.  Without it the release fade is scheduled but never advances.
     pub release_secs: f32,
 }
 
