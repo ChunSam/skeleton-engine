@@ -55,7 +55,7 @@ runs every frame.
 
 - `AnimationSystem` → syncs the `UvRect` component → the renderer reads only `UvRect`  
   (the renderer referencing `AnimationPlayer` directly is a layer violation)
-- `DebugDrawQueue` = pure data (`DebugRect`) → converted to `DrawRect` in the `App` render stage
+- `DebugDraw` = pure data (`DebugShape` / filled rects) → converted to `DrawRect` in the `App` render stage
 - Render order: Systems → Events flush → Input flush → Scene command handling → Render (sprites → UI → text)
 
 ### UI system registration order
@@ -114,8 +114,16 @@ Known ordering constraints expressed this way:
 | consumers of `Events<NetworkEvent>` after `NetworkSystem` | it polls the socket into the bus |
 | `LocalizationSystem` before `UiSystem` | resolved text rendered same frame |
 
-Note: systems pushed inside `Scene::on_enter` get no labels (the raw `Vec` parameter
-cannot carry `SystemConfig`) — a `SystemRegistrar` wrapper is planned for v5.
+Scenes order systems the same way (since v5): `Scene::on_enter` receives a
+`SystemRegistrar` whose `add_labeled` takes the same `SystemConfig` builder
+(demonstrated in `examples/games/settings_menu/` — `UiSystem` after `LayoutSystem`):
+
+```rust
+fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar) {
+    systems.add(LayoutSystem);
+    systems.add_labeled(UiSystem, SystemConfig::new().after(LayoutSystem::LABEL));
+}
+```
 
 ### PhysicsWorld encapsulation
 
@@ -141,7 +149,8 @@ remove_body()
 
 1. Implement the `System` trait
 2. Register with `app.add_system(MySystem)` (or `add_system_labeled` for explicit
-   ordering), or push in `Scene::on_enter`
+   ordering), or via the `SystemRegistrar` in `Scene::on_enter` (`systems.add(MySystem)`
+   / `systems.add_labeled(...)`)
 
 ### Add a new resource
 
