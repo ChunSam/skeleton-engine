@@ -1,4 +1,6 @@
-use super::context::{set_script_ctx, take_script_ctx, BbEntry, ScriptCommands, ScriptCtx};
+use super::context::{
+    set_script_ctx, take_script_ctx, BbEntry, ScriptCommands, ScriptCtx, SteeringCmd,
+};
 use super::*;
 use crate::ecs::Entity;
 use rhai::Scope;
@@ -163,4 +165,90 @@ fn scripting_self_despawn_can_use_context_identity() {
     );
 
     assert_eq!(ctx.cmd_buf.despawn, vec![entity]);
+}
+
+#[test]
+fn scripting_arrive_at_sets_arrive_cmd() {
+    let sys = make_engine();
+    let ctx = eval_with_ctx(
+        &sys,
+        empty_ctx(test_entity()),
+        "arrive_at(300.0, 200.0, 150.0, 80.0, 10.0);",
+    );
+    match ctx.steer_buf {
+        Some(SteeringCmd::Arrive {
+            tx,
+            ty,
+            speed,
+            slow_radius,
+            stop_radius,
+        }) => {
+            assert!((tx - 300.0).abs() < 1e-4, "tx mismatch: {tx}");
+            assert!((ty - 200.0).abs() < 1e-4, "ty mismatch: {ty}");
+            assert!((speed - 150.0).abs() < 1e-4, "speed mismatch: {speed}");
+            assert!(
+                (slow_radius - 80.0).abs() < 1e-4,
+                "slow_radius mismatch: {slow_radius}"
+            );
+            assert!(
+                (stop_radius - 10.0).abs() < 1e-4,
+                "stop_radius mismatch: {stop_radius}"
+            );
+        }
+        other => panic!("expected SteeringCmd::Arrive, got {other:?}"),
+    }
+}
+
+#[test]
+fn scripting_wander_sets_wander_cmd() {
+    let sys = make_engine();
+    let ctx = eval_with_ctx(&sys, empty_ctx(test_entity()), "wander(120.0, 2.5);");
+    match ctx.steer_buf {
+        Some(SteeringCmd::Wander {
+            speed,
+            change_interval,
+        }) => {
+            assert!((speed - 120.0).abs() < 1e-4, "speed mismatch: {speed}");
+            assert!(
+                (change_interval - 2.5).abs() < 1e-4,
+                "change_interval mismatch: {change_interval}"
+            );
+        }
+        other => panic!("expected SteeringCmd::Wander, got {other:?}"),
+    }
+}
+
+#[test]
+fn scripting_arrive_at_overwrites_previous_steer_cmd() {
+    // Only one steering command per frame — the last one wins.
+    let sys = make_engine();
+    let ctx = eval_with_ctx(
+        &sys,
+        empty_ctx(test_entity()),
+        r#"
+            seek_target(100.0, 0.0, 50.0);
+            arrive_at(200.0, 100.0, 80.0, 40.0, 5.0);
+        "#,
+    );
+    assert!(
+        matches!(ctx.steer_buf, Some(SteeringCmd::Arrive { .. })),
+        "Arrive should win over the earlier Seek"
+    );
+}
+
+#[test]
+fn scripting_wander_overwrites_previous_steer_cmd() {
+    let sys = make_engine();
+    let ctx = eval_with_ctx(
+        &sys,
+        empty_ctx(test_entity()),
+        r#"
+            seek_target(100.0, 0.0, 50.0);
+            wander(90.0, 1.0);
+        "#,
+    );
+    assert!(
+        matches!(ctx.steer_buf, Some(SteeringCmd::Wander { .. })),
+        "Wander should win over the earlier Seek"
+    );
 }

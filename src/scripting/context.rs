@@ -30,7 +30,7 @@ pub(super) enum BbEntry {
     Int(String, i64),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(super) enum SteeringCmd {
     Seek {
         tx: f32,
@@ -42,6 +42,19 @@ pub(super) enum SteeringCmd {
         ty: f32,
         speed: f32,
         radius: f32,
+    },
+    /// Decelerate toward a point; stop within `stop_radius`.
+    Arrive {
+        tx: f32,
+        ty: f32,
+        speed: f32,
+        slow_radius: f32,
+        stop_radius: f32,
+    },
+    /// Roam randomly; direction changes every `change_interval` seconds.
+    Wander {
+        speed: f32,
+        change_interval: f32,
     },
     Stop,
 }

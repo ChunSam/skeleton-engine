@@ -85,13 +85,16 @@ impl ScriptRunner {
 ///
 /// ### Steering
 /// ```rhai
-/// seek_target(player_x, player_y, 120.0);        // set Seek component
-/// flee_from(enemy_x, enemy_y, 200.0, 80.0);      // set Flee component
-/// stop_steering();                                // reset SteeringVelocity speed
+/// seek_target(player_x, player_y, 120.0);                    // set Seek component
+/// flee_from(enemy_x, enemy_y, 200.0, 80.0);                  // set Flee component
+/// arrive_at(tx, ty, speed, slow_radius, stop_radius);        // set Arrive component
+/// wander(speed, change_interval);                            // set Wander component
+/// stop_steering();                                           // reset SteeringVelocity speed
 /// ```
 ///
-/// Only `Seek` and `Flee` are exposed to scripts. `Arrive` and `Wander` require
-/// Rust-side systems; they are an intentional extension point for engine forks.
+/// All four steering behaviors (`Seek`, `Flee`, `Arrive`, `Wander`) are exposed to scripts.
+/// Each call replaces the entity's current steering command for that frame; the corresponding
+/// ECS component is attached (or updated) during the apply step.
 pub struct ScriptingSystem {
     engine: Engine,
 }
