@@ -3,6 +3,8 @@ use std::io::Cursor;
 use std::sync::Arc;
 use std::time::Duration;
 
+use super::types::Fade;
+
 use rodio::source::SineWave;
 use rodio::{Decoder, Sink, Source};
 
@@ -26,6 +28,7 @@ impl AudioManager {
                 fades: HashMap::new(),
                 effects: HashMap::new(),
                 file_cache: HashMap::new(),
+                releasing: std::collections::HashSet::new(),
             }),
             Err(e) => {
                 log::warn!("Audio initialization failed (running without audio): {e}");
@@ -46,9 +49,54 @@ impl AudioManager {
         self.play_internal(channel, path, repeat, Some(fade_secs));
     }
 
-    /// Immediately stops playback on a channel.
+    /// Stops playback on a channel, honoring the release envelope.
+    ///
+    /// If the channel has an [`AudioEffect`](crate::AudioEffect) with `release_secs > 0.0`
+    /// **and** the channel is not already in the middle of a release fade, the engine
+    /// schedules a volume fade from the current level to zero over `release_secs` seconds.
+    /// The sink is torn down only after that fade completes.
+    ///
+    /// In all other cases (no release configured, `release_secs == 0.0`, or the channel
+    /// is already releasing) the sink is torn down immediately.
+    ///
+    /// Requires [`AudioSystem`](crate::AudioSystem) (or manual
+    /// [`update`](Self::update) calls) for the release fade to progress.
     pub fn stop(&mut self, channel: &str) {
+        let release = self
+            .effects
+            .get(channel)
+            .map(|e| e.release_secs)
+            .unwrap_or(0.0);
+
+        // If already releasing, a second stop() cuts immediately (prevents lingering sinks).
+        let already_releasing = self.releasing.contains(channel);
+
+        if release > 0.001 && !already_releasing && self.sinks.contains_key(channel) {
+            // Schedule a release fade; the sink will be torn down by update() when it completes.
+            let current_vol = self.effective_volume(channel);
+            self.releasing.insert(channel.to_string());
+            self.fades.insert(
+                channel.to_string(),
+                Fade {
+                    start_vol: current_vol,
+                    target_vol: 0.0,
+                    duration: release,
+                    elapsed: 0.0,
+                    stop_when_done: true,
+                },
+            );
+        } else {
+            self.stop_immediate(channel);
+        }
+    }
+
+    /// Tears down a channel's sink immediately, bypassing any release envelope.
+    ///
+    /// Used internally by `play_*` (channel reuse) and by `update()` when a
+    /// `stop_when_done` fade (including a release fade) completes.
+    pub(super) fn stop_immediate(&mut self, channel: &str) {
         self.fades.remove(channel);
+        self.releasing.remove(channel);
         if let Some(sink) = self.sinks.remove(channel) {
             sink.stop();
         }
@@ -82,9 +130,8 @@ impl AudioManager {
     /// is multiplied in via the sink volume (`effective_volume`), same as `play_internal`.
     /// Channel effects set via `set_effect` (low-pass, pitch, fade-in) are also applied.
     pub fn play_tone(&mut self, channel: &str, freq: f32, duration_secs: f32, volume: f32) {
-        if let Some(old) = self.sinks.remove(channel) {
-            old.stop();
-        }
+        // Channel reuse: tear down immediately (same as play_internal).
+        self.stop_immediate(channel);
         let sink = match Sink::try_new(&self.stream_handle) {
             Ok(s) => s,
             Err(_) => return,
@@ -146,8 +193,10 @@ impl AudioManager {
                 }
             };
             if done {
+                // Use stop_immediate: the fade already ran to completion; no release
+                // needed (and calling stop() would re-trigger release for release fades).
                 self.fades.remove(&ch);
-                self.stop(&ch);
+                self.stop_immediate(&ch);
             } else if self
                 .fades
                 .get(&ch)
@@ -168,10 +217,9 @@ impl AudioManager {
         repeat: bool,
         fade_in_secs: Option<f32>,
     ) {
-        if let Some(old) = self.sinks.remove(channel) {
-            old.stop();
-        }
-        self.fades.remove(channel);
+        // Channel reuse: tear down the old sink immediately regardless of release_secs.
+        // The new sound must start cleanly without waiting for a release fade.
+        self.stop_immediate(channel);
 
         let sink = match Sink::try_new(&self.stream_handle) {
             Ok(s) => s,

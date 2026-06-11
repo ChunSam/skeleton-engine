@@ -6,7 +6,7 @@ use crate::asset::AssetServer;
 use crate::behavior::Blackboard;
 use crate::components::Transform;
 use crate::ecs::{Entity, System, World};
-use crate::steering::{Flee, Seek, SteeringVelocity};
+use crate::steering::{Arrive, Flee, Seek, SteeringVelocity, Wander};
 
 use super::context::{
     set_script_ctx, take_script_ctx, BbEntry, ScriptCommands, ScriptCtx, SteeringCmd,
@@ -198,6 +198,48 @@ impl System for ScriptingSystem {
                                 flee_radius: radius,
                             },
                         );
+                    }
+                    SteeringCmd::Arrive {
+                        tx,
+                        ty,
+                        speed,
+                        slow_radius,
+                        stop_radius,
+                    } => {
+                        use glam::Vec2;
+                        if world.get::<SteeringVelocity>(entity).is_none() {
+                            world.add_component(entity, SteeringVelocity::default());
+                        }
+                        world.add_component(
+                            entity,
+                            Arrive {
+                                target: Vec2::new(tx, ty),
+                                max_speed: speed,
+                                slow_radius,
+                                stop_radius,
+                            },
+                        );
+                    }
+                    SteeringCmd::Wander {
+                        speed,
+                        change_interval,
+                    } => {
+                        if world.get::<SteeringVelocity>(entity).is_none() {
+                            world.add_component(entity, SteeringVelocity::default());
+                        }
+                        // Preserve the existing Wander component's timer/direction if present;
+                        // only update speed/interval when the script changes the parameters.
+                        let existing = world.get::<Wander>(entity).cloned();
+                        match existing {
+                            Some(mut w) => {
+                                w.max_speed = speed;
+                                w.change_interval = change_interval;
+                                world.add_component(entity, w);
+                            }
+                            None => {
+                                world.add_component(entity, Wander::new(speed, change_interval));
+                            }
+                        }
                     }
                     SteeringCmd::Stop => {
                         if let Some(sv) = world.get_mut::<SteeringVelocity>(entity) {

@@ -4,6 +4,38 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 5.1.0
+
+The three feature candidates deliberately split out of the 2026-06-10 analysis round,
+each validated by a playable example per the `docs/VISION.md` loop. Fully additive —
+no migration needed from 5.0.0.
+
+### Added
+
+- **Per-transition crossfade on `AnimationStateMachine`** — `AnimTransition` gains a
+  `crossfade_duration: f32` field (default `0.0` = hard switch, the previous behavior)
+  and `add_transition_crossfade(from, to, conditions, duration)` registers a transition
+  that blends into the target clip. `StateMachineSystem` drives the existing
+  `AnimationPlayer::play_with_crossfade` path — the same 2-UV shader-lerp used by
+  `BlendTreeSystem`, no new blend machinery. `add_transition` keeps its signature
+  (now a thin wrapper with `0.0`). Example: `sm_crossfade` (side-by-side hard-switch
+  vs. crossfaded character; run `gen_blend_sheet` first).
+- **Rhai steering bindings for `Arrive` / `Wander`** — scripts can now use the full
+  steering set (previously only Seek/Flee were bound):
+  `arrive_at(tx, ty, speed, slow_radius, stop_radius)` and
+  `wander(speed, change_interval)`, following the existing `seek_target`/`flee_from`
+  conventions (f64 params, last call per frame wins, `SteeringVelocity` auto-attached).
+  The Wander apply step preserves the component's internal timer/direction so per-frame
+  script calls don't reset the direction-change rhythm. Example: `script_steering_game`
+  (mouse-following Arrive agent + autonomous Wander agent, both script-driven).
+- **`AudioEffect::release_secs` implemented** (was a documented no-op stub) —
+  `AudioManager::stop` on a channel whose effect has `release_secs > 0.0` now fades the
+  volume to zero over that duration through the existing fade machinery, then tears the
+  sink down. `0.0` keeps the immediate cut. A second `stop` during the release, or a new
+  `play_*` on the channel, cuts immediately. Requires `AudioSystem` (or manual
+  `update(dt)`) to progress, like all fades. Example: `audio_fades` (extended — R/S/I
+  keys demo release vs. immediate stop).
+
 ## 5.0.0
 
 The breaking batch from the 2026-06-10 analysis (`docs/CODE_ANALYSIS_2026-06-10.md`):

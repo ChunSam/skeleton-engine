@@ -668,6 +668,23 @@ app.add_system(Box::new(AnimationSystem));
 if let Some(tree) = world.get_mut::&lt;BlendTree1D&gt;(entity) {
     tree.set_param(speed);  // speed에 따라 idle / walk / run 자동 전환
 }</code></pre>
+<h3 id="상태-머신-전환-크로스페이드">상태 머신 전환 크로스페이드</h3>
+<p><code>AnimationStateMachine</code>의 전환에 크로스페이드 시간을 지정할 수 있다. <code>add_transition</code>은 기존처럼 즉시 전환(하드 스위치)이고, <code>add_transition_crossfade</code>는 전환이 발동될 때 지정한 시간(초)에 걸쳐 <code>play_with_crossfade</code> 경로(2-UV 셰이더 블렌드, <code>BlendTreeSystem</code>과 동일 메커니즘)로 부드럽게 블렌드한다.</p>
+<pre><code class="language-rust">use engine::{AnimationStateMachine, StateMachineSystem, TransitionCond};
+
+let mut sm = AnimationStateMachine::new("idle", 0);
+sm.add_state("walk", 1);
+
+// 즉시 전환 (기존 동작과 동일)
+sm.add_transition("idle", "walk", vec![TransitionCond::FloatGt("speed".into(), 0.1)]);
+
+// 0.2초 크로스페이드 전환
+sm.add_transition_crossfade(
+    "walk", "idle",
+    vec![TransitionCond::FloatLt("speed".into(), 0.1)],
+    0.2,
+);</code></pre>
+<p>하드 스위치와 크로스페이드를 나란히 비교하는 예제: <code>cargo run --example sm_crossfade</code> (사전에 <code>gen_blend_sheet</code> 실행 필요).</p>
 <p><strong>등록 순서 요약</strong></p>
 <pre><code>BlendTreeSystem → AnimationSystem → StateMachineSystem</code></pre>
 <hr>
@@ -822,6 +839,16 @@ if let Some(audio) = world.resource_mut::&lt;AudioManager&gt;() {
         audio.play(&quot;bgm&quot;, &quot;assets/next_track.mp3&quot;, false);
     }
 }</code></pre>
+<h3 id="이펙트와-릴리스-엔벨로프">이펙트와 릴리스 엔벨로프</h3>
+<p><code>set_effect(channel, AudioEffect)</code>로 채널별 이펙트를 설정한다. <code>low_pass_hz</code>(로우패스 필터) / <code>pitch</code>(재생 속도) / <code>attack_secs</code>(페이드 인)는 <strong>다음 <code>play_*</code> 호출부터</strong> 적용된다. <code>release_secs &gt; 0.0</code>이면 <code>stop(channel)</code>이 즉시 끊는 대신 지정한 시간(초)에 걸쳐 볼륨을 0까지 페이드한 뒤 싱크를 제거한다(릴리스 엔벨로프). 페이드 진행에는 <code>AudioSystem</code> 등록(또는 수동 <code>update(dt)</code> 호출)이 필요하다.</p>
+<pre><code class="language-rust">use engine::AudioEffect;
+
+audio.set_effect(&quot;bgm&quot;, AudioEffect { release_secs: 1.5, ..Default::default() });
+audio.play(&quot;bgm&quot;, &quot;assets/track1.mp3&quot;, true);
+// ...
+audio.stop(&quot;bgm&quot;);   // 1.5초 페이드 아웃 후 채널 제거</code></pre>
+<ul><li>릴리스 페이드 중 <code>stop</code>을 다시 호출하면 즉시 끊는다.</li><li>같은 채널에 새 <code>play_*</code>를 호출하면 릴리스를 건너뛰고 즉시 새 소리를 재생한다.</li><li><code>release_secs == 0.0</code>(기본값)이면 기존처럼 즉시 정지한다.</li></ul>
+<p>릴리스 엔벨로프 데모: <code>cargo run --example audio_fades</code> (R = 릴리스 사운드 시작, S = 릴리스 정지, I = 즉시 정지).</p>
 <hr>
 <h2 id="파티클">파티클</h2>
 <p><code>ParticleEmitter</code> 컴포넌트를 엔티티에 붙이고 <code>ParticleSystem</code>을 등록한다.</p>
@@ -1464,7 +1491,7 @@ app.add_system(ScriptingSystem);</code></pre>
 <h4 id="blackboard-2">Blackboard</h4>
 <div class="table-wrap"><table><thead><tr><th>함수</th><th>설명</th></tr></thead><tbody><tr><td><code>bb_get_bool(key)</code> / <code>bb_set_bool(key, val)</code></td><td>bool 읽기/쓰기</td></tr><tr><td><code>bb_get_float(key)</code> / <code>bb_set_float(key, val)</code></td><td>f32 읽기/쓰기</td></tr><tr><td><code>bb_get_int(key)</code> / <code>bb_set_int(key, val)</code></td><td>i32 읽기/쓰기</td></tr></tbody></table></div>
 <h4 id="steering">Steering</h4>
-<div class="table-wrap"><table><thead><tr><th>함수</th><th>설명</th></tr></thead><tbody><tr><td><code>seek_target(tx, ty, speed)</code></td><td>Seek 컴포넌트 설정</td></tr><tr><td><code>flee_from(tx, ty, speed, radius)</code></td><td>Flee 컴포넌트 설정</td></tr><tr><td><code>stop_steering()</code></td><td>스티어링 속도 0으로 초기화</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>함수</th><th>설명</th></tr></thead><tbody><tr><td><code>seek_target(tx, ty, speed)</code></td><td>Seek 컴포넌트 설정</td></tr><tr><td><code>flee_from(tx, ty, speed, radius)</code></td><td>Flee 컴포넌트 설정</td></tr><tr><td><code>arrive_at(tx, ty, speed, slow_radius, stop_radius)</code></td><td>Arrive 컴포넌트 설정 — <code>slow_radius</code> 안에서 감속, <code>stop_radius</code> 안에서 정지</td></tr><tr><td><code>wander(speed, change_interval)</code></td><td>Wander 컴포넌트 설정 — <code>change_interval</code>초마다 방향 변경 (매 프레임 호출해도 내부 타이머/방향은 유지)</td></tr><tr><td><code>stop_steering()</code></td><td>스티어링 속도 0으로 초기화</td></tr></tbody></table></div>
 <h3 id="스크립트-예시">스크립트 예시</h3>
 <pre><code class="language-rhai">// enemy_ai.rhai
 let in_range = bb_get_bool(&quot;player_in_range&quot;);

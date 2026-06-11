@@ -165,6 +165,42 @@ impl ScriptingSystem {
             });
         });
 
+        // arrive_at(tx, ty, speed, slow_radius, stop_radius)
+        // Decelerate smoothly as the entity nears (tx, ty); stop within stop_radius.
+        engine.register_fn(
+            "arrive_at",
+            |tx: f64, ty: f64, speed: f64, slow_radius: f64, stop_radius: f64| {
+                SCRIPT_CTX.with(|c| {
+                    let mut borrow = c.borrow_mut();
+                    let ctx = borrow
+                        .as_mut()
+                        .expect("SCRIPT_CTX must be set during script execution");
+                    ctx.steer_buf = Some(SteeringCmd::Arrive {
+                        tx: tx as f32,
+                        ty: ty as f32,
+                        speed: speed as f32,
+                        slow_radius: slow_radius as f32,
+                        stop_radius: stop_radius as f32,
+                    });
+                });
+            },
+        );
+
+        // wander(speed, change_interval)
+        // Roam in a random direction; pick a new direction every change_interval seconds.
+        engine.register_fn("wander", |speed: f64, change_interval: f64| {
+            SCRIPT_CTX.with(|c| {
+                let mut borrow = c.borrow_mut();
+                let ctx = borrow
+                    .as_mut()
+                    .expect("SCRIPT_CTX must be set during script execution");
+                ctx.steer_buf = Some(SteeringCmd::Wander {
+                    speed: speed as f32,
+                    change_interval: change_interval as f32,
+                });
+            });
+        });
+
         engine.register_fn("stop_steering", || {
             SCRIPT_CTX.with(|c| {
                 let mut borrow = c.borrow_mut();
