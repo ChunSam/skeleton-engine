@@ -60,7 +60,7 @@ impl VirtualJoystick {
     pub fn update(&mut self, touch_state: &TouchState) {
         // 1. No touch_id: find a touch within the radius in the began list and assign it.
         if self.touch_id.is_none() {
-            for &(id, pos) in &touch_state.began {
+            for &(id, pos) in touch_state.began() {
                 if (pos - self.center).length() <= self.radius {
                     self.touch_id = Some(id);
                     self.update_stick(pos);
@@ -72,7 +72,7 @@ impl VirtualJoystick {
         // 2. touch_id is set: track the current position of that touch point.
         if let Some(active_id) = self.touch_id {
             // Check for an ended event.
-            let is_ended = touch_state.ended.iter().any(|&(id, _)| id == active_id);
+            let is_ended = touch_state.ended().iter().any(|&(id, _)| id == active_id);
 
             if is_ended {
                 self.touch_id = None;

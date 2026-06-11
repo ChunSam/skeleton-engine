@@ -83,11 +83,11 @@ impl From<&PostProcessConfig> for PostProcessUniforms {
 /// and outputs the result to the final swapchain.
 pub struct PostProcessRenderer {
     /// Texture view of the intermediate render target where the scene is drawn first.
-    pub target_view: wgpu::TextureView,
+    pub(crate) target_view: wgpu::TextureView,
     target_texture: wgpu::Texture,
     /// Current resolution of the intermediate texture.
-    pub width: u32,
-    pub height: u32,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
     format: wgpu::TextureFormat,
     pipeline: wgpu::RenderPipeline,
     sampler: wgpu::Sampler,

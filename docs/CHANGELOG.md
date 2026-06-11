@@ -4,6 +4,71 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 5.0.0
+
+The breaking batch from the 2026-06-10 analysis (`docs/CODE_ANALYSIS_2026-06-10.md`):
+Top-10 items #2 and #8, removal of everything deprecated in 4.6.0, the visibility
+narrowings triaged out of the 4.6.0 sweep, and small breaking consistency items.
+Every change below lists its migration.
+
+### Breaking — removed (all deprecated since 4.6.0)
+
+- **`DebugDrawQueue` / `DebugRect`** — migrate to `DebugDraw::rect_filled_z(min, max, color, z)`
+  (or `rect_filled` for z = 0).
+- **`World::register_reflect`** — use `register_reflect_named::<T>("Name")` (the removed
+  overload stored an empty type name and broke the Inspector display).
+- **`NetworkEvent::JsonParseError`** — never emitted by the engine; delete the match arm
+  (protocol-level parse errors are the game's concern).
+- **`App::load_texture`** — use `load_image` (returns a `Handle<ImageAsset>`, participates
+  in hot reload).
+- **`ParticleEmitter::for_burst`** — renamed to `ParticleEmitter::burst` in 4.6.0.
+- **Pre-v5 re-export shims** — `animation::player::{UvRect, BlendUv}` → `renderer::uv`,
+  `timeline::Lerp` → `tween::Lerp`, `prefab::topological_sort_entities` → `hierarchy`,
+  and the `components::*` migration facade (`AnimationClip`, `AnimationPlayer`, `UvRect`,
+  `FontData`, `GameState`, `PendingResize`, `ShouldQuit`, `ViewportSize`, `WindowConfig`).
+  All root re-exports (`engine::UvRect`, `engine::Lerp`, `engine::topological_sort_entities`, …)
+  keep working — only the deep legacy paths are gone.
+
+### Breaking — API changes
+
+- **Physics handle newtypes (analysis #2)** — `PhysicsWorld` no longer leaks rapier types:
+  new `BodyHandle` / `ColliderHandle` newtypes (mirroring `JointHandle`) flow through every
+  factory return, `PhysicsBody`'s fields, `RaycastHit.collider_handle`, raycasts, joints,
+  `move_character`, and the collider accessors. *Migration:* code that only passes handles
+  back into `PhysicsWorld` compiles unchanged via inference; code naming rapier handle types
+  imports `engine::{BodyHandle, ColliderHandle}` instead. Escape hatch for forks that drop
+  to raw rapier: `.raw()` on both newtypes, and `rigid_body[_mut]` / `get_collider[_mut]`
+  still return raw rapier references.
+- **`Scene::on_enter` takes a `SystemRegistrar` (analysis #8)** — scenes can finally
+  register systems with label ordering. *Migration:*
+  `fn on_enter(&mut self, world: &mut World, systems: &mut Vec<Box<dyn System>>)` →
+  `fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar)`;
+  `systems.push(Box::new(X))` → `systems.add(X)`; ordering:
+  `systems.add_labeled(X, SystemConfig::new().after(Y::LABEL))`. The settings_menu example
+  demonstrates a real constraint (`UiSystem` after `LayoutSystem`).
+- **`Sprite.texture` is `Option<Arc<str>>` (analysis #9 remainder)** — per-sprite per-frame
+  batch-key `String` clones become refcount bumps. *Migration:* `Sprite::textured("x.png")`
+  and `textured_with_handle` keep compiling (`impl Into<Arc<str>>`); struct literals need
+  `texture: Some("x.png".into())`. RON/serde wire format unchanged.
+- **`SystemMeta` merged into `SystemConfig`** — they were field-for-field identical.
+  *Migration:* replace the name; `compute_order` now takes `&[SystemConfig]`.
+- **`ShaderMaterial` caches its pipeline hash** — construct via
+  `ShaderMaterial::new(frag_source, params)`; `frag_source` is private behind
+  `frag_source()` / `set_frag_source()` (which re-hashes), so the cached hash can never
+  desync. `params` stays pub. The renderer's per-frame WGSL hashing is gone.
+- **`#[non_exhaustive]` on `DebugShape` and `NetworkEvent`** — external matches need a
+  `_ =>` arm; future variants stop being breaking changes (`ReflectValue` precedent).
+- **Visibility narrowings** — `GpuLightData` / `LightingUniforms` and
+  `PostProcessRenderer.{target_view,width,height}` are `pub(crate)` (GPU internals);
+  `TouchState` event fields are private behind `began()` / `moved()` / `ended()` /
+  `pinch_delta()` / `swipe()` accessors; `input` submodules are private — import from
+  `engine::input::{…}` or the crate root (`engine::AxisBinding` etc. unchanged).
+
+### Changed
+
+- Examples write quits via `ShouldQuit::quit()` instead of `q.0 = true` (field stays pub;
+  examples teach the canonical API).
+
 ## 4.6.0
 
 Non-breaking batch from the 2026-06-10 full-codebase analysis

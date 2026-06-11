@@ -27,7 +27,8 @@
 use engine::Camera;
 use engine::{
     App, DrawText, Entity, Events, InputState, KeyCode, NetworkClient, NetworkEvent, NetworkSystem,
-    Scene, ShouldQuit, SnapshotBuffer, Sprite, System, TextQueue, Transform, WindowConfig, World,
+    Scene, ShouldQuit, SnapshotBuffer, Sprite, System, SystemRegistrar, TextQueue, Transform,
+    WindowConfig, World,
 };
 use glam::Vec2;
 use std::collections::{HashMap, HashSet};
@@ -71,7 +72,7 @@ fn start_pos() -> Vec2 {
 struct SalvageScene;
 
 impl Scene for SalvageScene {
-    fn on_enter(&mut self, world: &mut World, systems: &mut Vec<Box<dyn System>>) {
+    fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar) {
         world.insert_resource(NetworkClient::connect(&format!("ws://{SERVER_ADDR}")));
 
         // Camera: scroll across the large world, clamped to its bounds (App auto-clamps each frame).
@@ -110,8 +111,8 @@ impl Scene for SalvageScene {
             })
             .collect();
 
-        systems.push(Box::new(NetworkSystem));
-        systems.push(Box::new(SalvageClient::new(player, ring)));
+        systems.add(NetworkSystem);
+        systems.add(SalvageClient::new(player, ring));
     }
 }
 

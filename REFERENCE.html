@@ -264,7 +264,7 @@
     </nav>
     <main class="doc">
 <h1 id="skeleton-engine-레퍼런스">skeleton-engine 레퍼런스</h1>
-<blockquote>버전 v4.3.0 기준. 패키지명은 <code>skeleton-engine</code>, 라이브러리 크레이트명은 <code>engine</code>인 wgpu 기반 2D 게임 엔진.</blockquote>
+<blockquote>버전 v5.0.0 기준. 패키지명은 <code>skeleton-engine</code>, 라이브러리 크레이트명은 <code>engine</code>인 wgpu 기반 2D 게임 엔진.</blockquote>
 <hr>
 <h2 id="목차">목차</h2>
 <div class="toc-grid">
@@ -306,7 +306,7 @@ impl System for MySystem {
             .unwrap_or(false);
 
         if should_quit {
-            world.resource_mut::&lt;ShouldQuit&gt;().unwrap().0 = true;
+            world.resource_mut::&lt;ShouldQuit&gt;().unwrap().quit();
         }
     }
 }
@@ -322,8 +322,8 @@ fn main() {
         clear_color: [0.05, 0.05, 0.1, 1.0],
     });
 
-    // 텍스처 로드
-    app.load_texture(&quot;assets/player.png&quot;);
+    // 이미지 로드 (핫 리로드 지원 Handle 반환)
+    app.load_image(&quot;assets/player.png&quot;);
 
     // 엔티티 스폰
     let e = app.world.spawn();
@@ -342,7 +342,7 @@ fn main() {
 <h2 id="app">App</h2>
 <p><code>App</code>은 엔진의 진입점. 시스템·씬·리소스를 조립하고 <code>run()</code>으로 게임 루프를 시작한다.</p>
 <pre><code class="language-rust">let mut app = App::new();</code></pre>
-<div class="table-wrap"><table><thead><tr><th>메서드</th><th>설명</th></tr></thead><tbody><tr><td><code>app.add_system(s)</code></td><td>시스템 등록. 매 프레임 등록 순서대로 실행됨</td></tr><tr><td><code>app.load_texture(&quot;path.png&quot;)</code></td><td>PNG 텍스처 로드 예약 (<code>run()</code> 전에도 호출 가능)</td></tr><tr><td><code>app.register_event::&lt;E&gt;()</code></td><td>이벤트 타입 등록 (자동 flush 포함)</td></tr><tr><td><code>app.set_scene(Box&lt;dyn Scene&gt;)</code></td><td>씬을 즉시 전환 (<code>run()</code> 전·후 모두 가능)</td></tr><tr><td><code>app.run()</code></td><td>이벤트 루프 시작 (블로킹)</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>메서드</th><th>설명</th></tr></thead><tbody><tr><td><code>app.add_system(s)</code></td><td>시스템 등록. 매 프레임 등록 순서대로 실행됨</td></tr><tr><td><code>app.load_image(&quot;path.png&quot;)</code></td><td>PNG 이미지 로드 — <code>Handle&lt;ImageAsset&gt;</code> 반환, 핫 리로드 참여 (<code>run()</code> 전·후 모두 호출 가능)</td></tr><tr><td><code>app.register_event::&lt;E&gt;()</code></td><td>이벤트 타입 등록 (자동 flush 포함)</td></tr><tr><td><code>app.set_scene(Box&lt;dyn Scene&gt;)</code></td><td>씬을 즉시 전환 (<code>run()</code> 전·후 모두 가능)</td></tr><tr><td><code>app.run()</code></td><td>이벤트 루프 시작 (블로킹)</td></tr></tbody></table></div>
 <p><strong>프레임 실행 순서:</strong></p>
 <ol><li>시스템들 순서대로 <code>run(dt)</code> 호출</li><li>이벤트 큐 flush</li><li>입력 상태 flush</li><li>씬 전환 명령 처리</li><li>렌더링 (<code>scene -&gt; post(optional) -&gt; lighting(optional) -&gt; final</code>)</li></ol>
 <hr>
@@ -407,20 +407,27 @@ impl System for MoveSystem {
 <h2 id="씬-시스템">씬 시스템</h2>
 <p>여러 게임 화면(메뉴, 플레이, 게임오버 등)을 씬 트레잇으로 분리한다.</p>
 <h3 id="scene-트레잇">Scene 트레잇</h3>
-<pre><code class="language-rust">use engine::{scene::{Scene, SceneCmd, SceneChange}, ecs::{System, World}};
+<pre><code class="language-rust">use engine::{scene::{Scene, SceneCmd, SceneChange, SystemRegistrar}, ecs::{System, World}, SystemConfig};
 
 struct GamePlay;
 
 impl Scene for GamePlay {
-    fn on_enter(&amp;mut self, world: &amp;mut World, systems: &amp;mut Vec&lt;Box&lt;dyn System&gt;&gt;) {
+    fn on_enter(&amp;mut self, world: &amp;mut World, systems: &mut SystemRegistrar) {
         // 엔티티 스폰, 리소스 삽입, 시스템 등록
-        systems.push(Box::new(MoveSystem));
+        systems.add(MoveSystem);
+        // 순서 제약이 필요할 때:
+        // systems.add_labeled(UiSystem, SystemConfig::new().after(LayoutSystem::LABEL));
     }
 
     fn on_exit(&amp;mut self, world: &amp;mut World) {
         // 정리 작업 (선택적)
     }
 }</code></pre>
+<h3 id="systemregistrar"><code>SystemRegistrar</code></h3>
+<div class="table-wrap"><table><thead><tr><th>메서드</th><th>설명</th></tr></thead><tbody>
+<tr><td><code>systems.add(s)</code></td><td>제약 없이 시스템 등록 (기본 <code>SystemConfig</code>)</td></tr>
+<tr><td><code>systems.add_labeled(s, config)</code></td><td><code>SystemConfig</code>의 라벨·before/after 제약과 함께 등록</td></tr>
+</tbody></table></div>
 <h3 id="씬-전환">씬 전환</h3>
 <p><strong>앱 초기화 시:</strong></p>
 <pre><code class="language-rust">app.set_scene(Box::new(MenuScene));</code></pre>
@@ -439,10 +446,15 @@ impl Scene for GamePlay {
 }</code></pre>
 <div class="table-wrap"><table><thead><tr><th>명령</th><th>동작</th></tr></thead><tbody><tr><td><code>Replace(scene)</code></td><td>스택 전부 종료 → 월드 리셋 → 새 씬 진입</td></tr><tr><td><code>Push(scene)</code></td><td>현재 월드 유지, 새 씬의 <code>on_enter</code>만 호출</td></tr><tr><td><code>Pop</code></td><td>최상위 씬 종료, 해당 씬이 등록한 시스템 제거</td></tr></tbody></table></div>
 <p>같은 프레임에 여러 번 <code>request</code>하면 <strong>마지막 명령만</strong> 실행된다.</p>
+<h3 id="scenechange-조회"><code>SceneChange</code> 조회</h3>
+<div class="table-wrap"><table><thead><tr><th>메서드</th><th>설명</th></tr></thead><tbody>
+<tr><td><code>sc.is_pending()</code></td><td>이번 프레임에 씬 전환 명령이 있으면 <code>true</code></td></tr>
+<tr><td><code>sc.take()</code></td><td>내부 명령을 소비해 <code>Option&lt;SceneCmd&gt;</code>으로 반환. App 내부에서 사용하지만 커스텀 씬 스택 구현에도 유용</td></tr>
+</tbody></table></div>
 <hr>
 <h2 id="내장-리소스">내장 리소스</h2>
 <p><code>App::new()</code>가 자동으로 삽입하는 리소스들.</p>
-<div class="table-wrap"><table><thead><tr><th>타입</th><th>용도</th></tr></thead><tbody><tr><td><code>InputState</code></td><td>키보드·마우스 입력 상태</td></tr><tr><td><code>GameState</code></td><td><code>Playing</code> / <code>Paused</code> / <code>GameOver</code></td></tr><tr><td><code>ShouldQuit(bool)</code></td><td><code>true</code>로 설정하면 다음 프레임에 앱 종료</td></tr><tr><td><code>Camera</code></td><td>뷰포트 오프셋·줌</td></tr><tr><td><code>ViewportSize</code></td><td>현재 창 픽셀 크기 (<code>width</code>, <code>height</code>)</td></tr><tr><td><code>WindowConfig</code></td><td>창 제목·크기·배경색 (초기 설정용)</td></tr><tr><td><code>TextQueue</code></td><td>텍스트 렌더링 큐</td></tr><tr><td><code>UiQueue</code></td><td>UI 사각형 렌더링 큐</td></tr><tr><td><code>DebugDrawQueue</code></td><td>충돌 디버그 사각형 큐</td></tr><tr><td><code>SceneChange</code></td><td>씬 전환 명령</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>타입</th><th>용도</th></tr></thead><tbody><tr><td><code>InputState</code></td><td>키보드·마우스 입력 상태</td></tr><tr><td><code>GameState</code></td><td><code>Playing</code> / <code>Paused</code> / <code>GameOver</code></td></tr><tr><td><code>ShouldQuit(bool)</code></td><td><code>.quit()</code>으로 앱 종료 요청, <code>.is_quitting()</code>으로 상태 확인 (필드 <code>.0</code>은 여전히 pub)</td></tr><tr><td><code>Camera</code></td><td>뷰포트 오프셋·줌</td></tr><tr><td><code>ViewportSize</code></td><td>현재 창 픽셀 크기 (<code>width</code>, <code>height</code>)</td></tr><tr><td><code>WindowConfig</code></td><td>창 제목·크기·배경색 (초기 설정용)</td></tr><tr><td><code>TextQueue</code></td><td>텍스트 렌더링 큐</td></tr><tr><td><code>UiQueue</code></td><td>UI 사각형 렌더링 큐</td></tr><tr><td><code>DebugDraw</code></td><td>디버그 도형 큐. <code>rect_filled</code> / <code>rect_filled_z</code>로 채운 사각형 그리기</td></tr><tr><td><code>SceneChange</code></td><td>씬 전환 명령</td></tr></tbody></table></div>
 <p><strong>사용자가 직접 삽입하는 리소스:</strong></p>
 <pre><code class="language-rust">// 폰트 (run() 전에 삽입)
 app.world.insert_resource(FontData(std::fs::read(&quot;assets/font.ttf&quot;).unwrap()));
@@ -660,7 +672,7 @@ if let Some(tree) = world.get_mut::&lt;BlendTree1D&gt;(entity) {
 <pre><code>BlendTreeSystem → AnimationSystem → StateMachineSystem</code></pre>
 <hr>
 <h2 id="물리-rapier2d">물리 (Rapier2D)</h2>
-<p><code>PhysicsWorld</code>를 시스템 구조체에 직접 소유하거나 ECS 리소스로 삽입한다.</p>
+<p><code>PhysicsWorld</code>를 시스템 구조체에 직접 소유하거나 ECS 리소스로 삽입한다. 팩토리 메서드는 rapier 내부 타입 대신 엔진 newtype인 <code>BodyHandle</code> / <code>ColliderHandle</code>을 반환한다. 코드에서 타입을 명시해야 한다면 <code>engine::{BodyHandle, ColliderHandle}</code>을 임포트한다. rapier 로우 타입이 필요한 포크(fork)는 <code>.raw()</code> 이스케이프 해치를 사용한다.</p>
 <pre><code class="language-rust">use engine::{PhysicsBody, PhysicsSystem, PhysicsWorld};
 use glam::Vec2;
 
@@ -708,7 +720,7 @@ world.add_component(e, PhysicsBody {
     fn run(&amp;mut self, world: &amp;mut World, dt: f32) {
         self.physics.step(dt);
 
-        let bodies: Vec&lt;(Entity, rapier2d::prelude::RigidBodyHandle)&gt; = world
+        let bodies: Vec&lt;(Entity, BodyHandle)&gt; = world
             .query::&lt;PhysicsBody&gt;()
             .map(|(e, b)| (e, b.rigid_body_handle))
             .collect();
@@ -724,10 +736,11 @@ world.add_component(e, PhysicsBody {
     }
 }</code></pre>
 <h3 id="바디-접근자">바디 접근자</h3>
-<pre><code class="language-rust">// 힘/속도 적용
+<pre><code class="language-rust">// 힘/속도 적용 (rigid_body_mut은 rapier &mut RigidBody를 반환)
 if let Some(rb) = physics.rigid_body_mut(handle) {
-    rb.set_linvel(rapier2d::math::Vector::new(100.0, 0.0), true);
-    rb.apply_impulse(rapier2d::math::Vector::new(0.0, -500.0), true);
+    use rapier2d::math::Vector;
+    rb.set_linvel(Vector::new(100.0, 0.0), true);
+    rb.apply_impulse(Vector::new(0.0, -500.0), true);
 }
 
 // 착지 판정
@@ -839,6 +852,14 @@ app.add_system(ParticleSystem);</code></pre>
 <pre><code class="language-rust">if let Some(em) = world.get_mut::&lt;ParticleEmitter&gt;(emitter) {
     em.emit = false;
 }</code></pre>
+<h3 id="일회성-버스트">일회성 버스트 (<code>ParticleEmitter::burst</code> + <code>ParticleBurst</code>)</h3>
+<p>연속 방출 없이 단발 폭발 효과가 필요할 때 <code>burst()</code> 생성자로 이미터를 만들고 <code>ParticleBurst</code> 컴포넌트를 같이 붙인다. <code>ParticleSystem</code>이 다음 틱에 파티클을 한꺼번에 방출하고 엔티티를 자동 despawn한다.</p>
+<pre><code class="language-rust">use engine::{ParticleEmitter, ParticleBurst};
+
+let e = world.spawn();
+world.add_component(e, Transform { position: hit_pos, ..Default::default() });
+world.add_component(e, ParticleEmitter::burst());   // emit=false, 방사형 기본값
+world.add_component(e, ParticleBurst { remaining: 40 });</code></pre>
 <hr>
 <h2 id="타일맵">타일맵</h2>
 <pre><code class="language-rust">use engine::{Tilemap, TilemapAtlas, TilemapSystem};
@@ -1419,7 +1440,8 @@ app.register_component(&quot;Coin&quot;, |world, entity| {
 <pre><code class="language-rust">// Reflect 트레잇을 구현한 타입을 이름과 함께 등록
 world.register_reflect_named::&lt;MyComp&gt;(&quot;MyComp&quot;);
 
-// 기존 register_reflect와 동일하지만 Inspector 목록 표시 이름 지정 가능</code></pre>
+// register_reflect(인수 없음)는 v5에서 제거됨 — 항상 register_reflect_named를 사용할 것
+// (이름 없는 버전은 빈 타입명을 저장해 Inspector 표시가 깨짐)</code></pre>
 <blockquote>WASM 빌드에서는 사용 불가 (<code>#[cfg(not(target_arch = &quot;wasm32&quot;))]</code>로 컴파일 제외).</blockquote>
 <hr>
 <h2 id="rhai-스크립팅">Rhai 스크립팅</h2>
@@ -1751,8 +1773,8 @@ app.world.register_clone::&lt;MyComponent&gt;();</code></pre>
     }
 }</code></pre>
 <h3 id="api-4">API</h3>
-<div class="table-wrap"><table><thead><tr><th>메서드</th><th>설명</th></tr></thead><tbody><tr><td><code>rect(min, max, color)</code></td><td>축 정렬 사각형 외곽선</td></tr><tr><td><code>line(start, end, color)</code></td><td>직선 (두께 1.5px)</td></tr><tr><td><code>line_thick(start, end, color, thickness)</code></td><td>두께 지정 직선</td></tr><tr><td><code>circle(center, radius, color)</code></td><td>원 (24각형 근사)</td></tr><tr><td><code>cross(pos, size, color)</code></td><td>십자 마커</td></tr><tr><td><code>clear()</code></td><td>도형 초기화 (App이 자동 호출)</td></tr></tbody></table></div>
-<p>모든 도형은 z=999로 렌더링되어 게임 오브젝트 위에 표시된다. 색상은 <code>[r, g, b, a]</code> (0.0~1.0).</p>
+<div class="table-wrap"><table><thead><tr><th>메서드</th><th>설명</th></tr></thead><tbody><tr><td><code>rect(min, max, color)</code></td><td>축 정렬 사각형 외곽선</td></tr><tr><td><code>rect_filled(min, max, color)</code></td><td>채운 사각형 (z=0)</td></tr><tr><td><code>rect_filled_z(min, max, color, z)</code></td><td>채운 사각형, z값 지정 (값이 클수록 앞에 표시)</td></tr><tr><td><code>line(start, end, color)</code></td><td>직선 (두께 1.5px)</td></tr><tr><td><code>line_thick(start, end, color, thickness)</code></td><td>두께 지정 직선</td></tr><tr><td><code>circle(center, radius, color)</code></td><td>원 (24각형 근사)</td></tr><tr><td><code>cross(pos, size, color)</code></td><td>십자 마커</td></tr><tr><td><code>clear()</code></td><td>도형 초기화 (App이 자동 호출)</td></tr></tbody></table></div>
+<p>모든 도형은 z=999로 렌더링되어 게임 오브젝트 위에 표시된다 (채운 사각형은 <code>rect_filled_z</code>의 z값 사용). 색상은 <code>[r, g, b, a]</code> (0.0~1.0).</p>
 <hr>
 <h2 id="씬-전환-트랜지션">씬 전환 트랜지션</h2>
 <p><code>FadeTransition</code> 리소스를 등록하면 App이 전체 화면 컬러 오버레이를 자동으로 애니메이션한다.</p>
@@ -1783,7 +1805,7 @@ world.insert_resource(FadeTransition::fade_in(0.3));</code></pre>
 <pre><code class="language-rust">struct GameScene { fade_out_done: bool }
 
 impl Scene for GameScene {
-    fn on_enter(&amp;mut self, world: &amp;mut World, app: &amp;mut App) {
+    fn on_enter(&amp;mut self, world: &amp;mut World, systems: &mut SystemRegistrar) {
         // 씬 진입 시 페이드 인
         world.insert_resource(FadeTransition::fade_in(0.4));
         self.fade_out_done = false;
@@ -1919,6 +1941,20 @@ if show_debug {
     app.set_enabled(&quot;debug&quot;, true);
 }</code></pre>
 <blockquote><code>add_system</code>(무라벨)은 그대로 동작한다. <code>add_system_labeled</code>와 혼용 가능하며, 무라벨 시스템은 제약이 없으므로 삽입 순서로 배치된다.</blockquote>
+<h3 id="내장-label-상수">내장 <code>LABEL</code> 상수</h3>
+<p>모든 내장 시스템에 <code>&amp;'static str</code> 타입의 <code>LABEL</code> 연관 상수가 있다. 게임 시스템을 내장 시스템 앞·뒤에 배치할 때 사용한다.</p>
+<pre><code class="language-rust">use engine::{PhysicsSystem, AudioSystem, UiSystem, LayoutSystem};
+
+// 게임 로직을 물리 처리 이후에 실행
+app.add_system_labeled(
+    MyGameSystem,
+    SystemConfig::new().after(PhysicsSystem::LABEL),
+);
+
+// 씬 on_enter에서도 동일하게 사용
+// systems.add_labeled(UiSystem, SystemConfig::new().after(LayoutSystem::LABEL));
+</code></pre>
+<p>주요 내장 LABEL: <code>PhysicsSystem</code>, <code>CollisionGridSystem</code>, <code>NetworkSystem</code>, <code>ParticleSystem</code>, <code>AudioSystem</code>, <code>TilemapSystem</code>, <code>SkeletalAnimationSystem</code>, <code>HierarchySystem</code>, <code>SteeringSystem</code>, <code>BehaviorSystem</code>, <code>LocalizationSystem</code>, <code>ScriptingSystem</code>, <code>TimelineSystem</code>, <code>AnimationSystem</code>, <code>StateMachineSystem</code>, <code>BlendTreeSystem</code>, <code>LayoutSystem</code>, <code>UiSystem</code>.</p>
 <hr>
 <h2 id="물리-레이어--센서-phase-48">물리 레이어 / 센서 (Phase 48)</h2>
 <h3 id="collisiongroups--비트마스크-레이어">CollisionGroups — 비트마스크 레이어</h3>
@@ -2182,6 +2218,16 @@ match load::&lt;GameProgress&gt;(&amp;path) {
     Ok(data) =&gt; { /* 정상 */ }
 }</code></pre>
 <blockquote><code>save_path</code>는 네이티브에서 OS 표준 데이터 디렉토리(<code>~/Library/Application Support/</code> 등)를 반환한다. WASM에서는 <code>&quot;{app_name}/{file}&quot;</code> 상대 경로를 반환하며, 파일 I/O 호출은 호출자가 별도로 처리해야 한다.</blockquote>
+<h3 id="plaintext-ron-디자인-타임-에셋"><code>write_ron</code> / <code>read_ron</code> — 평문 RON (디자인 타임 에셋)</h3>
+<p>레벨 파일·SceneDef처럼 사람이 편집해야 하는 에셋에는 암호화 없이 예쁘게 포맷된 RON을 사용한다. <code>read_ron</code>은 구 암호화 형식도 투명하게 읽으므로 pre-4.6 파일과 하위 호환된다.</p>
+<pre><code class="language-rust">use engine::save::{write_ron, read_ron};
+use std::path::Path;
+
+// 저장 (평문 RON)
+write_ron(Path::new("assets/level1.ron"), &amp;my_level_def)?;
+
+// 로드 (평문 RON; 구 암호화 형식도 자동 폴백)
+let level: LevelDef = read_ron(Path::new("assets/level1.ron"))?;</code></pre>
 <hr>
 <h2 id="렌더-텍스처-phase-46">렌더 텍스처 (Phase 46)</h2>
 <p>오프스크린 렌더 타겟에 별도 카메라로 씬을 그린 뒤 일반 스프라이트 텍스처처럼 재사용한다.</p>
@@ -2208,7 +2254,7 @@ world.add_component(sprite_entity, Transform {
     ..Default::default()
 });
 world.add_component(sprite_entity, Sprite {
-    texture: Some(&quot;minimap&quot;.to_string()),
+    texture: Some("minimap".into()),  // Sprite.texture: Option&lt;Arc&lt;str&gt;&gt;
     ..Default::default()
 });</code></pre>
 <hr>
@@ -2217,16 +2263,22 @@ world.add_component(sprite_entity, Sprite {
 <pre><code class="language-rust">let touch = world.resource::&lt;TouchState&gt;().unwrap();
 
 // 터치 시작 이번 프레임
-for (id, pos) in &amp;touch.began {
+for (id, pos) in touch.began() {
     println!(&quot;터치 시작 {id}: {:?}&quot;, pos);
 }
+
+// 이동 중인 터치 (id, 현재 위치, 델타)
+for (id, pos, delta) in touch.moved() { /* ... */ }
+
+// 터치 종료
+for (id, pos) in touch.ended() { /* ... */ }
 
 // 활성 터치 목록
 for (id, pos) in touch.active_touches() { /* ... */ }
 
 // 핀치/스와이프
-let pinch_delta: f32 = touch.pinch_delta;  // 양수 = 확대
-let swipe: Option&lt;Vec2&gt; = touch.swipe;     // 50px 이상 이동 시 Some</code></pre>
+let pinch_delta: f32 = touch.pinch_delta();  // 양수 = 확대
+let swipe: Option&lt;Vec2&gt; = touch.swipe();     // 50px 이상 이동 시 Some</code></pre>
 <h3 id="virtualjoystick">VirtualJoystick</h3>
 <pre><code class="language-rust">let mut joystick = VirtualJoystick::new(Vec2::new(150.0, 550.0), 60.0);
 
@@ -2292,20 +2344,26 @@ if let Some(em) = world.get_mut::&lt;GpuParticleEmitter&gt;(entity) {
 <h2 id="네트워크">네트워크</h2>
 <p><code>NetworkClient</code>로 WebSocket 서버에 연결하고, <code>NetworkSystem</code>이 매 프레임 수신 메시지를 <code>Events&lt;NetworkEvent&gt;</code>로 변환한다. 네이티브(tungstenite 스레드)와 wasm(web-sys) 모두 동작한다.</p>
 <h3 id="networkclient-연결-전송">NetworkClient — 연결 / 전송</h3>
-<pre><code class="language-rust">use engine::{NetworkClient, NetworkEvent, NetworkSystem};
+<pre><code class="language-rust">use engine::{NetworkClient, NetworkEvent, NetworkSystem, NetworkConfig};
 
 // 셋업: 리소스로 연결 + 이벤트 등록 + 시스템 추가
 world.insert_resource(NetworkClient::connect("ws://127.0.0.1:9002"));
 app.register_event::&lt;NetworkEvent&gt;();
 app.add_system(NetworkSystem);
 
+// 큐/크기 상한 커스터마이즈 (선택)
+world.insert_resource(NetworkConfig { max_queue: 512, max_message_bytes: 65536 });
+
 // 전송 (시스템 안에서)
 if let Some(client) = world.resource::&lt;NetworkClient&gt;() {
     client.send_text("{\"x\":1.0}");
     client.send_bytes(&amp;[0x01, 0x02]);
     let _ = client.try_send_text("..."); // 큐가 가득 차면 드롭하는 비차단 변형
+    // 연결 상태 확인 (네이티브 + wasm 공통)
+    if client.is_connected() { /* ... */ }
 }</code></pre>
 <h3 id="networkevent-수신">NetworkEvent — 수신</h3>
+<p><code>NetworkEvent</code>는 <code>#[non_exhaustive]</code>이므로 match에 반드시 <code>_ =&gt; {}</code> 와일드카드 암이 필요하다.</p>
 <pre><code class="language-rust">let events: Vec&lt;NetworkEvent&gt; = world
     .resource::&lt;Events&lt;NetworkEvent&gt;&gt;()
     .map(|bus| bus.read().to_vec())

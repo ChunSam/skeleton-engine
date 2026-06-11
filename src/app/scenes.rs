@@ -54,10 +54,10 @@ impl App {
     }
 
     fn reconcile_meta(&mut self) {
-        use crate::ecs::schedule::SystemMeta;
+        use crate::ecs::schedule::SystemConfig;
         if self.system_meta.len() < self.systems.len() {
             self.system_meta
-                .resize(self.systems.len(), SystemMeta::default());
+                .resize(self.systems.len(), SystemConfig::default());
         } else if self.system_meta.len() > self.systems.len() {
             self.system_meta.truncate(self.systems.len());
         }
@@ -65,6 +65,7 @@ impl App {
     }
 
     pub(super) fn apply_scene_cmd(&mut self, cmd: SceneCmd) {
+        use crate::scene::SystemRegistrar;
         match cmd {
             SceneCmd::Replace(mut new_scene) => {
                 for (mut scene, _) in self.scene_stack.drain(..).rev() {
@@ -74,17 +75,25 @@ impl App {
                 self.reconcile_meta(); // sync meta after systems.clear()
                 self.reload_scene();
                 let before = self.systems.len();
-                new_scene.on_enter(&mut self.world, &mut self.systems);
+                {
+                    let mut registrar =
+                        SystemRegistrar::new(&mut self.systems, &mut self.system_meta);
+                    new_scene.on_enter(&mut self.world, &mut registrar);
+                }
                 let owned = self.systems.len() - before;
                 self.scene_stack.push((new_scene, owned));
-                self.reconcile_meta(); // absorb systems pushed directly by the scene in on_enter
+                self.reconcile_meta(); // ensure lengths stay equal (no-op when registrar kept them in sync)
             }
             SceneCmd::Push(mut new_scene) => {
                 let before = self.systems.len();
-                new_scene.on_enter(&mut self.world, &mut self.systems);
+                {
+                    let mut registrar =
+                        SystemRegistrar::new(&mut self.systems, &mut self.system_meta);
+                    new_scene.on_enter(&mut self.world, &mut registrar);
+                }
                 let owned = self.systems.len() - before;
                 self.scene_stack.push((new_scene, owned));
-                self.reconcile_meta(); // absorb systems pushed directly by the scene in on_enter
+                self.reconcile_meta(); // ensure lengths stay equal (no-op when registrar kept them in sync)
             }
             SceneCmd::Pop => {
                 if let Some((mut scene, owned)) = self.scene_stack.pop() {

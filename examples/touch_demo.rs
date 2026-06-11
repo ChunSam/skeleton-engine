@@ -33,7 +33,7 @@ impl System for TouchVisualSystem {
             .unwrap_or_default();
 
         // Log swipe detection
-        let swipe = world.resource::<TouchState>().and_then(|ts| ts.swipe);
+        let swipe = world.resource::<TouchState>().and_then(|ts| ts.swipe());
         if let Some(dir) = swipe {
             let label = if dir.x.abs() > dir.y.abs() {
                 if dir.x > 0.0 {
@@ -69,7 +69,7 @@ impl System for PinchZoomSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
         let pinch_delta = world
             .resource::<TouchState>()
-            .map(|ts| ts.pinch_delta)
+            .map(|ts| ts.pinch_delta())
             .unwrap_or(0.0);
 
         if pinch_delta.abs() > 0.5 {
@@ -100,8 +100,8 @@ impl System for JoystickMoveSystem {
             .resource::<TouchState>()
             .map(|ts| {
                 (
-                    ts.began.clone(),
-                    ts.ended.clone(),
+                    ts.began().to_vec(),
+                    ts.ended().to_vec(),
                     ts.active_touches().collect(),
                 )
             })

@@ -35,7 +35,8 @@
 
 use engine::{
     App, DrawText, Events, InputState, KeyCode, NetworkClient, NetworkEvent, NetworkSystem,
-    RemoteEntities, Scene, Sprite, System, TextQueue, Transform, WindowConfig, World,
+    RemoteEntities, Scene, Sprite, System, SystemRegistrar, TextQueue, Transform, WindowConfig,
+    World,
 };
 use glam::Vec2;
 use serde::{Deserialize, Serialize};
@@ -104,10 +105,10 @@ enum ClientMessage {
 struct CoinRaceScene;
 
 impl Scene for CoinRaceScene {
-    fn on_enter(&mut self, world: &mut World, systems: &mut Vec<Box<dyn System>>) {
+    fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar) {
         world.insert_resource(NetworkClient::connect(SERVER_URL));
-        systems.push(Box::new(NetworkSystem));
-        systems.push(Box::new(CoinRaceSystem::new()));
+        systems.add(NetworkSystem);
+        systems.add(CoinRaceSystem::new());
     }
 }
 

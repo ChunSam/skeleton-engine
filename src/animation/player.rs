@@ -1,10 +1,4 @@
-// ─── UV coordinates ───────────────────────────────────────────────────────────
-
-// `UvRect` and `BlendUv` moved to `crate::renderer::uv` — they are pure GPU UV
-// types consumed engine-wide (atlas, tilemap, sprite/UI renderers), not
-// animation concepts. Re-exported here so existing
-// `animation::player::{UvRect, BlendUv}` paths keep compiling.
-pub use crate::renderer::uv::{BlendUv, UvRect};
+use crate::renderer::uv::UvRect;
 
 // ─── Blend-weight component ───────────────────────────────────────────────────
 

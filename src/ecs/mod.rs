@@ -6,6 +6,6 @@ pub mod world;
 
 pub use commands::Commands;
 pub use events::Events;
-pub use schedule::{compute_order, ScheduleError, SystemConfig, SystemLabel, SystemMeta};
+pub use schedule::{compute_order, ScheduleError, SystemConfig, SystemLabel};
 pub use system::System;
 pub use world::{Entity, World};

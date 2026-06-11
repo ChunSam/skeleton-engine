@@ -19,14 +19,6 @@ impl App {
         }
     }
 
-    #[deprecated(
-        since = "4.6.0",
-        note = "use load_image — returns a Handle<ImageAsset> and participates in hot reload"
-    )]
-    pub fn load_texture(&mut self, path: impl Into<String>) {
-        self.pending_textures.push(path.into());
-    }
-
     pub fn load_image(&mut self, path: impl Into<String>) -> Handle<ImageAsset> {
         let path = path.into();
         self.pending_textures.push(path.clone());

@@ -72,7 +72,7 @@ impl App {
     pub fn add_system<S: System + 'static>(&mut self, system: S) {
         self.systems.push(Box::new(system));
         self.system_meta
-            .push(crate::ecs::schedule::SystemMeta::default());
+            .push(crate::ecs::schedule::SystemConfig::default());
         self.schedule_dirty = true;
     }
 
@@ -82,7 +82,7 @@ impl App {
         config: crate::ecs::schedule::SystemConfig,
     ) {
         self.systems.push(Box::new(system));
-        self.system_meta.push(config.into());
+        self.system_meta.push(config);
         self.schedule_dirty = true;
     }
 
@@ -166,7 +166,7 @@ impl App {
             if self.system_meta.len() != self.systems.len() {
                 self.system_meta.resize(
                     self.systems.len(),
-                    crate::ecs::schedule::SystemMeta::default(),
+                    crate::ecs::schedule::SystemConfig::default(),
                 );
             }
             match crate::ecs::schedule::compute_order(&self.system_meta) {

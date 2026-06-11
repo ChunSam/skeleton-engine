@@ -16,8 +16,8 @@
 use engine::{
     Anchor, App, Button, CheckBox, Color, Entity, Events, GameState, ImeConfig, InputState,
     KeyCode, Label, LayoutDir, LayoutSystem, LocaleResource, LocalizationSystem, LocalizedText,
-    Panel, Scene, SceneChange, SceneCmd, ScrollView, ShouldQuit, Slider, System, TextAlign,
-    TextInput, UiEvent, UiNode, UiSystem, WindowConfig, World,
+    Panel, Scene, SceneChange, SceneCmd, ScrollView, ShouldQuit, Slider, System, SystemConfig,
+    SystemRegistrar, TextAlign, TextInput, UiEvent, UiNode, UiSystem, WindowConfig, World,
 };
 
 // The engine's `AudioManager` / `AudioEffect` are native-only (`cfg(not(wasm32))`),
@@ -420,7 +420,7 @@ impl TitleScene {
 }
 
 impl Scene for TitleScene {
-    fn on_enter(&mut self, world: &mut World, systems: &mut Vec<Box<dyn System>>) {
+    fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar) {
         configure_window(world);
         world.insert_resource(GameState::Paused);
 
@@ -465,10 +465,10 @@ impl Scene for TitleScene {
                 .with_z(0.94),
         );
 
-        systems.push(Box::new(LocalizationSystem));
-        systems.push(Box::new(SpinnerSystem::new()));
-        systems.push(Box::new(UiSystem));
-        systems.push(Box::new(TitleSystem { start, quit }));
+        systems.add(LocalizationSystem);
+        systems.add(SpinnerSystem::new());
+        systems.add(UiSystem);
+        systems.add(TitleSystem { start, quit });
     }
 
     fn on_exit(&mut self, world: &mut World) {
@@ -496,7 +496,7 @@ impl System for TitleSystem {
         }
         if quit {
             if let Some(should_quit) = world.resource_mut::<ShouldQuit>() {
-                should_quit.0 = true;
+                should_quit.quit();
             }
         } else if start {
             blip(world, 660.0);
@@ -520,7 +520,7 @@ impl SettingsScene {
 }
 
 impl Scene for SettingsScene {
-    fn on_enter(&mut self, world: &mut World, systems: &mut Vec<Box<dyn System>>) {
+    fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar) {
         configure_window(world);
         world.insert_resource(GameState::Paused);
 
@@ -718,11 +718,12 @@ impl Scene for SettingsScene {
         set_bus(world, "sfx", settings.sfx);
         play_bgm(world);
 
-        systems.push(Box::new(LocalizationSystem));
-        systems.push(Box::new(LayoutSystem));
-        systems.push(Box::new(SpinnerSystem::new()));
-        systems.push(Box::new(UiSystem));
-        systems.push(Box::new(SettingsSystem {
+        systems.add(LocalizationSystem);
+        systems.add(LayoutSystem);
+        systems.add(SpinnerSystem::new());
+        // UiSystem reads the layout geometry computed by LayoutSystem each frame — must run after it.
+        systems.add_labeled(UiSystem, SystemConfig::new().after(LayoutSystem::LABEL));
+        systems.add(SettingsSystem {
             name_input,
             music_slider,
             sfx_slider,
@@ -735,7 +736,7 @@ impl Scene for SettingsScene {
             back,
             cont,
             last_sfx_step: -1,
-        }));
+        });
     }
 
     fn on_exit(&mut self, world: &mut World) {
@@ -866,7 +867,7 @@ impl DialogueScene {
 }
 
 impl Scene for DialogueScene {
-    fn on_enter(&mut self, world: &mut World, systems: &mut Vec<Box<dyn System>>) {
+    fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar) {
         configure_window(world);
         world.insert_resource(GameState::Playing);
 
@@ -918,16 +919,16 @@ impl Scene for DialogueScene {
 
         play_bgm(world);
 
-        systems.push(Box::new(LocalizationSystem));
-        systems.push(Box::new(LayoutSystem));
-        systems.push(Box::new(SpinnerSystem::new()));
-        systems.push(Box::new(UiSystem));
-        systems.push(Box::new(DialogueSystem {
+        systems.add(LocalizationSystem);
+        systems.add(LayoutSystem);
+        systems.add(SpinnerSystem::new());
+        systems.add(UiSystem);
+        systems.add(DialogueSystem {
             speaker,
             body,
             line: 0,
             muffled: false,
-        }));
+        });
     }
 
     fn on_exit(&mut self, world: &mut World) {

@@ -13,34 +13,18 @@ pub const DEFAULT_MAX_PENDING_MESSAGES: usize = 256;
 pub const DEFAULT_MAX_PENDING_EVENTS: usize = 1024;
 
 /// ECS events emitted by [`NetworkSystem`] every frame.
+///
+/// This enum is `#[non_exhaustive]`: external crates matching on it must include a
+/// wildcard (`_ =>`) arm to remain forward-compatible as new variants are added.
+#[non_exhaustive]
 #[derive(Clone, Debug)]
 pub enum NetworkEvent {
     Connected,
-    Disconnected {
-        reason: String,
-    },
+    Disconnected { reason: String },
     BinaryMessage(Vec<u8>),
     TextMessage(String),
-    MessageTooLarge {
-        len: usize,
-        limit: usize,
-    },
-    ReceiveQueueFull {
-        dropped: usize,
-        capacity: usize,
-    },
-    /// Protocol-level JSON parse error reported by game code.
-    ///
-    /// This variant is never emitted by the engine itself; protocol-level parse errors
-    /// are the game's concern. It is retained only for backward compatibility and will
-    /// be removed in v5.
-    #[deprecated(
-        since = "4.6.0",
-        note = "never emitted by the engine; protocol-level parse errors are the game's concern — removal planned for v5"
-    )]
-    JsonParseError {
-        message: String,
-    },
+    MessageTooLarge { len: usize, limit: usize },
+    ReceiveQueueFull { dropped: usize, capacity: usize },
     Error(String),
 }
 

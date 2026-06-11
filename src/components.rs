@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use glam::{Mat4, Quat, Vec2, Vec3};
 use serde::{Deserialize, Serialize};
 
@@ -53,7 +55,8 @@ impl Default for Transform {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sprite {
     /// Texture file path (None renders a solid-color rectangle). RON serialization supported.
-    pub texture: Option<String>,
+    /// Using `Arc<str>` avoids per-frame heap clones in the render hot-path.
+    pub texture: Option<Arc<str>>,
     /// RGBA color multiplier (white = original texture color)
     pub color: Color,
     /// Image handle loaded through AssetServer. Not serialized — runtime only.
@@ -71,7 +74,7 @@ impl Sprite {
         }
     }
 
-    pub fn textured(path: impl Into<String>) -> Self {
+    pub fn textured(path: impl Into<Arc<str>>) -> Self {
         Self {
             texture: Some(path.into()),
             color: Color::WHITE,
@@ -90,7 +93,7 @@ impl Sprite {
 
     /// Preserves the path fallback while preferring the image handle when present.
     pub fn textured_with_handle(
-        path: impl Into<String>,
+        path: impl Into<Arc<str>>,
         handle: Option<Handle<ImageAsset>>,
     ) -> Self {
         Self {
@@ -182,7 +185,7 @@ impl Reflect for Sprite {
             ("color", ReflectValue::Color(self.color.to_array())),
             (
                 "texture",
-                ReflectValue::String(self.texture.clone().unwrap_or_default()),
+                ReflectValue::String(self.texture.as_deref().unwrap_or_default().to_string()),
             ),
         ]
     }
@@ -193,7 +196,11 @@ impl Reflect for Sprite {
                 true
             }
             ("texture", ReflectValue::String(s)) => {
-                self.texture = if s.is_empty() { None } else { Some(s) };
+                self.texture = if s.is_empty() {
+                    None
+                } else {
+                    Some(Arc::from(s.as_str()))
+                };
                 true
             }
             _ => false,
@@ -303,16 +310,6 @@ pub struct OffscreenCamera {
     /// (layer-0-only) pass.
     pub layer_mask: u32,
 }
-
-// ─── Backward-compatible re-exports ─────────────────────────────────────────────────────────
-// Migration facade: these types were formerly defined here but now live in their canonical
-// modules (animation, renderer, resources).  The re-exports keep existing `components::*`
-// import paths compiling.  Audited for removal in v5 — do not add new items here.
-pub use crate::animation::player::{AnimationClip, AnimationPlayer};
-pub use crate::renderer::uv::UvRect;
-pub use crate::resources::{
-    FontData, GameState, PendingResize, ShouldQuit, ViewportSize, WindowConfig,
-};
 
 // ─── Unit tests ───────────────────────────────────────────────────────────────
 #[cfg(test)]

@@ -72,13 +72,15 @@ pub use collision::{
 pub use color::Color;
 pub use components::{OffscreenCamera, PointLight, RenderLayer, Sprite, Transform};
 pub use debug_ui::DebugUi;
-pub use ecs::schedule::{ScheduleError, SystemConfig, SystemLabel, SystemMeta};
+pub use ecs::schedule::{ScheduleError, SystemConfig, SystemLabel};
 pub use ecs::{Commands, Entity, Events, System, World};
 #[cfg(not(target_arch = "wasm32"))]
 pub use gpu_particle::GpuParticleEmitter;
-pub use hierarchy::{attach, detach, Children, GlobalTransform, HierarchySystem, Parent};
+pub use hierarchy::{
+    attach, detach, topological_sort_entities, Children, GlobalTransform, HierarchySystem, Parent,
+};
 pub use history::History;
-pub use input::map::AxisBinding;
+pub use input::AxisBinding;
 pub use input::{GamepadAxis, GamepadButton, GamepadState, InputMap, InputState, TouchState};
 pub use locale::{LocaleBundle, LocaleData, LocaleResource, TextDirection};
 pub use material::ShaderMaterial;
@@ -89,13 +91,13 @@ pub use particle::{Particle, ParticleBurst, ParticleEmitter, ParticleSystem};
 pub use pathfinding::{find_path, PathGrid};
 #[cfg(not(target_arch = "wasm32"))]
 pub use physics::{
-    CharacterController, CollisionEvent, CollisionGroups, JointHandle, PhysicsBody, PhysicsSystem,
-    PhysicsWorld, RaycastHit, TileCollider, TriggerEvent,
+    BodyHandle, CharacterController, ColliderHandle, CollisionEvent, CollisionGroups, JointHandle,
+    PhysicsBody, PhysicsSystem, PhysicsWorld, RaycastHit, TileCollider, TriggerEvent,
 };
 pub use pool::{Pool, Pooled};
 pub use prefab::{
-    break_prefab_instance, spawn_entity_def, spawn_scene_def, topological_sort_entities, EntityDef,
-    Prefab, PrefabInstance, SceneDef, Tag, SCENE_DEF_VERSION,
+    break_prefab_instance, spawn_entity_def, spawn_scene_def, EntityDef, Prefab, PrefabInstance,
+    SceneDef, Tag, SCENE_DEF_VERSION,
 };
 pub use skeletal::{
     BoneKeyframe, BoneTrack, SkeletalAnimationSystem, SkeletalAnimator, SkeletalClip,
@@ -114,10 +116,7 @@ pub use resources::{
     GameState, ImeConfig, LoadProgress, PanickedSystems, PendingResize, ProfilerData, RenderStats,
     SelectedEntity, ShouldQuit, SystemProfile, ViewportSize, WindowConfig,
 };
-// Deprecated debug-draw pair — kept exported until removal in v5.
-#[allow(deprecated)]
-pub use resources::{DebugDrawQueue, DebugRect};
-pub use scene::{Scene, SceneChange, SceneCmd};
+pub use scene::{Scene, SceneChange, SceneCmd, SystemRegistrar};
 pub use scripting::{ScriptRunner, ScriptingSystem};
 pub use steering::{Arrive, Flee, Seek, SteeringSystem, SteeringVelocity, Wander};
 pub use tilemap::{Tilemap, TilemapAtlas, TilemapSystem};

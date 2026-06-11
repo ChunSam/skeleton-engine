@@ -689,7 +689,7 @@ impl App {
                                     if ui.button("💾 Save Scene").clicked() {
                                         let mut scene_def = crate::prefab::SceneDef::default();
                                         // Topological sort so parents appear before children
-                                        let sorted = crate::prefab::topological_sort_entities(
+                                        let sorted = crate::hierarchy::topological_sort_entities(
                                             &entity_list,
                                             &self.world,
                                         );

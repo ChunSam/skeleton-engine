@@ -94,7 +94,7 @@ pub struct App {
 
     systems: Vec<Box<dyn System>>,
     /// Per-system label/order/group metadata. Kept in parallel with `systems` by index.
-    system_meta: Vec<crate::ecs::schedule::SystemMeta>,
+    system_meta: Vec<crate::ecs::schedule::SystemConfig>,
     /// Execution order computed by `compute_order` (list of indices).
     exec_order: Vec<usize>,
     /// True when `system_meta` has changed — triggers a recompute on the next frame.
@@ -384,17 +384,17 @@ mod tests {
         // incorrectly skip the system at the same index in scene B after Replace.
         struct SceneA;
         impl Scene for SceneA {
-            fn on_enter(&mut self, _w: &mut World, systems: &mut Vec<Box<dyn System>>) {
-                systems.push(Box::new(PanicSystem)); // idx 0 — disabled after panic
-                systems.push(Box::new(CountSystem)); // idx 1
+            fn on_enter(&mut self, _w: &mut World, systems: &mut crate::scene::SystemRegistrar) {
+                systems.add(PanicSystem); // idx 0 — disabled after panic
+                systems.add(CountSystem); // idx 1
             }
             fn on_exit(&mut self, _w: &mut World) {}
         }
         struct SceneB;
         impl Scene for SceneB {
-            fn on_enter(&mut self, _w: &mut World, systems: &mut Vec<Box<dyn System>>) {
-                systems.push(Box::new(CountSystem)); // idx 0
-                systems.push(Box::new(CountSystem)); // idx 1
+            fn on_enter(&mut self, _w: &mut World, systems: &mut crate::scene::SystemRegistrar) {
+                systems.add(CountSystem); // idx 0
+                systems.add(CountSystem); // idx 1
             }
             fn on_exit(&mut self, _w: &mut World) {}
         }
@@ -424,29 +424,29 @@ mod tests {
     fn builtin_system_labels_compose_for_ordering() {
         // Verify that built-in system LABEL constants enforce ordering in the real scheduler.
         use crate::animation::{AnimationSystem, StateMachineSystem};
-        use crate::ecs::schedule::{compute_order, SystemMeta};
+        use crate::ecs::schedule::{compute_order, SystemConfig};
         use crate::ui::{LayoutSystem, UiSystem};
 
         let metas = vec![
             // idx0: StateMachine — after Animation
-            SystemMeta {
+            SystemConfig {
                 label: Some(StateMachineSystem::LABEL),
                 after: vec![AnimationSystem::LABEL],
                 ..Default::default()
             },
             // idx1: Animation
-            SystemMeta {
+            SystemConfig {
                 label: Some(AnimationSystem::LABEL),
                 ..Default::default()
             },
             // idx2: Ui — after Layout
-            SystemMeta {
+            SystemConfig {
                 label: Some(UiSystem::LABEL),
                 after: vec![LayoutSystem::LABEL],
                 ..Default::default()
             },
             // idx3: Layout
-            SystemMeta {
+            SystemConfig {
                 label: Some(LayoutSystem::LABEL),
                 ..Default::default()
             },

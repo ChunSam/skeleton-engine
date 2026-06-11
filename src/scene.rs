@@ -1,14 +1,62 @@
+use crate::ecs::schedule::SystemConfig;
 use crate::ecs::{System, World};
+
+/// A registrar passed to [`Scene::on_enter`] for adding systems with optional ordering.
+///
+/// Systems added via [`SystemRegistrar::add`] receive a default (no-constraint)
+/// [`SystemConfig`]; systems added via [`SystemRegistrar::add_labeled`] receive a
+/// caller-supplied config, enabling label-based ordering (`.after`, `.before`,
+/// `.in_set`) exactly like [`App::add_system_labeled`](crate::App::add_system_labeled).
+pub struct SystemRegistrar<'a> {
+    systems: &'a mut Vec<Box<dyn System>>,
+    configs: &'a mut Vec<SystemConfig>,
+}
+
+impl<'a> SystemRegistrar<'a> {
+    /// Creates a new registrar wrapping the given parallel vecs.
+    pub(crate) fn new(
+        systems: &'a mut Vec<Box<dyn System>>,
+        configs: &'a mut Vec<SystemConfig>,
+    ) -> Self {
+        Self { systems, configs }
+    }
+
+    /// Registers a system with no ordering constraints (insertion order preserved).
+    pub fn add(&mut self, system: impl System + 'static) {
+        self.systems.push(Box::new(system));
+        self.configs.push(SystemConfig::default());
+    }
+
+    /// Registers a system with labels/ordering via [`SystemConfig`].
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// # use engine::{scene::{Scene, SceneCmd, SceneChange, SystemRegistrar}, ecs::{System, World}, SystemConfig, LayoutSystem, UiSystem};
+    /// # struct MyScene;
+    /// # impl Scene for MyScene {
+    /// fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar) {
+    ///     systems.add(LayoutSystem);
+    ///     // UiSystem reads layout results — must run after LayoutSystem.
+    ///     systems.add_labeled(UiSystem, SystemConfig::new().after(LayoutSystem::LABEL));
+    /// }
+    /// # fn on_exit(&mut self, _: &mut World) {}
+    /// # }
+    /// ```
+    pub fn add_labeled(&mut self, system: impl System + 'static, config: SystemConfig) {
+        self.systems.push(Box::new(system));
+        self.configs.push(config);
+    }
+}
 
 /// Scene trait. Implemented by each game screen (menu, play, game-over, etc.).
 ///
 /// # Example
 /// ```rust,no_run
-/// # use engine::{scene::{Scene, SceneCmd, SceneChange}, ecs::{System, World}};
+/// # use engine::{scene::{Scene, SceneCmd, SceneChange, SystemRegistrar}, ecs::{System, World}};
 /// struct GamePlay;
 ///
 /// impl Scene for GamePlay {
-///     fn on_enter(&mut self, world: &mut World, systems: &mut Vec<Box<dyn System>>) {
+///     fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar) {
 ///         // spawn entities, insert resources
 ///     }
 ///     fn on_exit(&mut self, _world: &mut World) {}
@@ -16,7 +64,7 @@ use crate::ecs::{System, World};
 /// ```
 pub trait Scene: 'static {
     /// Called when the scene is entered. Spawn entities, insert resources, and register systems here.
-    fn on_enter(&mut self, world: &mut World, systems: &mut Vec<Box<dyn System>>);
+    fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar);
     /// Called when the scene is exited. Implement only when cleanup is needed.
     fn on_exit(&mut self, _world: &mut World) {}
 }
@@ -35,10 +83,10 @@ pub enum SceneCmd {
 ///
 /// # Example
 /// ```rust,no_run
-/// # use engine::{ecs::World, scene::{SceneChange, SceneCmd}};
+/// # use engine::{ecs::World, scene::{SceneChange, SceneCmd, SystemRegistrar}};
 /// # struct NextScene;
 /// # impl engine::scene::Scene for NextScene {
-/// #     fn on_enter(&mut self, _: &mut World, _: &mut Vec<Box<dyn engine::ecs::System>>) {}
+/// #     fn on_enter(&mut self, _: &mut World, _: &mut SystemRegistrar) {}
 /// # }
 /// # struct MySystem;
 /// # impl engine::ecs::System for MySystem {

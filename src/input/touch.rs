@@ -3,11 +3,11 @@ use std::collections::HashMap;
 
 /// Individual touch point data.
 #[derive(Clone)]
-pub struct TouchPoint {
+pub(crate) struct TouchPoint {
     /// Current screen coordinates.
-    pub position: Vec2,
+    pub(crate) position: Vec2,
     /// Touch start coordinates (used for swipe detection).
-    pub start_position: Vec2,
+    pub(crate) start_position: Vec2,
 }
 
 /// Multi-touch input state ECS resource.
@@ -31,23 +31,23 @@ pub struct TouchState {
     active: HashMap<u64, TouchPoint>,
 
     /// Touches that started this frame (id, start position).
-    pub began: Vec<(u64, Vec2)>,
+    began: Vec<(u64, Vec2)>,
 
     /// Touches that moved this frame (id, current position, delta).
-    pub moved: Vec<(u64, Vec2, Vec2)>,
+    moved: Vec<(u64, Vec2, Vec2)>,
 
     /// Touches that ended this frame (id, end position).
-    pub ended: Vec<(u64, Vec2)>,
+    ended: Vec<(u64, Vec2)>,
 
     /// Pinch-zoom delta (positive = fingers spreading, negative = pinching).
     /// Updated only when exactly two fingers are active.
-    pub pinch_delta: f32,
+    pinch_delta: f32,
 
     prev_pinch_dist: f32,
 
     /// Swipe vector for this frame (set when a touch ends after moving ≥50 px).
     /// Set after processing the `ended` event.
-    pub swipe: Option<Vec2>,
+    swipe: Option<Vec2>,
 }
 
 impl Default for TouchState {
@@ -124,6 +124,32 @@ impl TouchState {
 
     // ── Public accessor methods ───────────────────────────────────────────────
 
+    /// Touches that started this frame (id, start position).
+    pub fn began(&self) -> &[(u64, Vec2)] {
+        &self.began
+    }
+
+    /// Touches that moved this frame (id, current position, delta).
+    pub fn moved(&self) -> &[(u64, Vec2, Vec2)] {
+        &self.moved
+    }
+
+    /// Touches that ended this frame (id, end position).
+    pub fn ended(&self) -> &[(u64, Vec2)] {
+        &self.ended
+    }
+
+    /// Pinch-zoom delta (positive = fingers spreading, negative = pinching).
+    /// Updated only when exactly two fingers are active.
+    pub fn pinch_delta(&self) -> f32 {
+        self.pinch_delta
+    }
+
+    /// Swipe vector for this frame (set when a touch ends after moving ≥50 px).
+    pub fn swipe(&self) -> Option<Vec2> {
+        self.swipe
+    }
+
     /// Iterates over currently active touch points. Returns `(id, position)`.
     pub fn active_touches(&self) -> impl Iterator<Item = (u64, Vec2)> + '_ {
         self.active.iter().map(|(&id, p)| (id, p.position))
@@ -176,7 +202,7 @@ mod tests {
         ts.on_touch_started(0, Vec2::new(100.0, 200.0));
         assert_eq!(ts.touch_count(), 1);
         assert!(ts.is_touching());
-        assert_eq!(ts.began.len(), 1);
+        assert_eq!(ts.began().len(), 1);
         assert_eq!(ts.primary_position(), Some(Vec2::new(100.0, 200.0)));
     }
 
@@ -186,8 +212,8 @@ mod tests {
         ts.on_touch_started(0, Vec2::new(0.0, 0.0));
         ts.on_touch_moved(0, Vec2::new(10.0, 5.0));
         assert_eq!(ts.primary_position(), Some(Vec2::new(10.0, 5.0)));
-        assert_eq!(ts.moved.len(), 1);
-        let (id, pos, delta) = ts.moved[0];
+        assert_eq!(ts.moved().len(), 1);
+        let (id, pos, delta) = ts.moved()[0];
         assert_eq!(id, 0);
         assert_eq!(pos, Vec2::new(10.0, 5.0));
         assert_eq!(delta, Vec2::new(10.0, 5.0));
@@ -200,7 +226,7 @@ mod tests {
         ts.on_touch_ended(0, Vec2::new(0.0, 0.0));
         assert_eq!(ts.touch_count(), 0);
         assert!(!ts.is_touching());
-        assert_eq!(ts.ended.len(), 1);
+        assert_eq!(ts.ended().len(), 1);
     }
 
     #[test]
@@ -208,8 +234,8 @@ mod tests {
         let mut ts = TouchState::default();
         ts.on_touch_started(0, Vec2::new(0.0, 0.0));
         ts.on_touch_ended(0, Vec2::new(100.0, 0.0));
-        assert!(ts.swipe.is_some());
-        let swipe = ts.swipe.unwrap();
+        assert!(ts.swipe().is_some());
+        let swipe = ts.swipe().unwrap();
         assert!((swipe.x - 100.0).abs() < f32::EPSILON);
     }
 
@@ -218,7 +244,7 @@ mod tests {
         let mut ts = TouchState::default();
         ts.on_touch_started(0, Vec2::new(0.0, 0.0));
         ts.on_touch_ended(0, Vec2::new(10.0, 0.0));
-        assert!(ts.swipe.is_none());
+        assert!(ts.swipe().is_none());
     }
 
     #[test]
@@ -227,10 +253,10 @@ mod tests {
         ts.on_touch_started(0, Vec2::ZERO);
         ts.on_touch_moved(0, Vec2::new(5.0, 5.0));
         ts.flush();
-        assert!(ts.began.is_empty());
-        assert!(ts.moved.is_empty());
-        assert_eq!(ts.pinch_delta, 0.0);
-        assert!(ts.swipe.is_none());
+        assert!(ts.began().is_empty());
+        assert!(ts.moved().is_empty());
+        assert_eq!(ts.pinch_delta(), 0.0);
+        assert!(ts.swipe().is_none());
         // Active points persist after flush.
         assert_eq!(ts.touch_count(), 1);
     }
@@ -242,11 +268,11 @@ mod tests {
         ts.on_touch_started(1, Vec2::new(100.0, 0.0));
         // First moved → sets prev_dist.
         ts.on_touch_moved(0, Vec2::new(0.0, 0.0));
-        let delta_after_first = ts.pinch_delta;
+        let delta_after_first = ts.pinch_delta();
         // Second moved (fingers spreading).
         ts.on_touch_moved(0, Vec2::new(-10.0, 0.0));
         // Two-finger distance: 110 - 100 = 10.
-        assert!(ts.pinch_delta > 0.0 || delta_after_first == 0.0);
+        assert!(ts.pinch_delta() > 0.0 || delta_after_first == 0.0);
     }
 
     #[test]

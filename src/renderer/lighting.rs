@@ -11,8 +11,8 @@ use crate::resources::AmbientLight;
 /// Single point light data sent to the GPU (32 bytes).
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-pub struct GpuLightData {
-    pub position_ndc: [f32; 2],
+pub(crate) struct GpuLightData {
+    pub(crate) position_ndc: [f32; 2],
     /// Light radius in the SAME space the shader measures fragment distance in:
     /// UV fraction-of-viewport-width, i.e. `radius * zoom / viewport_w`. The
     /// `_ndc` suffix is a historical misnomer — this value is UV-space, not NDC
@@ -20,22 +20,22 @@ pub struct GpuLightData {
     /// (`*0.5+0.5`) and compares an aspect-corrected UV distance against this, so
     /// the falloff reaches 0 at exactly the light's world-space radius. Do NOT
     /// double it (see the `light_radius_*` unit tests).
-    pub radius_ndc: f32,
-    pub intensity: f32,
-    pub color: [f32; 3],
-    pub light_height: f32, // virtual Z height for flat-normal lighting (0.05~1.0 typical)
+    pub(crate) radius_ndc: f32,
+    pub(crate) intensity: f32,
+    pub(crate) color: [f32; 3],
+    pub(crate) light_height: f32, // virtual Z height for flat-normal lighting (0.05~1.0 typical)
 }
 
 /// Full GPU uniform block (544 bytes).
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-pub struct LightingUniforms {
-    pub ambient_color: [f32; 3],
-    pub ambient_intensity: f32,
-    pub light_count: u32,
-    pub aspect_ratio: f32,
-    pub _pad: [f32; 2],
-    pub lights: [GpuLightData; 16],
+pub(crate) struct LightingUniforms {
+    pub(crate) ambient_color: [f32; 3],
+    pub(crate) ambient_intensity: f32,
+    pub(crate) light_count: u32,
+    pub(crate) aspect_ratio: f32,
+    pub(crate) _pad: [f32; 2],
+    pub(crate) lights: [GpuLightData; 16],
 }
 
 // ─── WGSL shader ──────────────────────────────────────────────────────────────

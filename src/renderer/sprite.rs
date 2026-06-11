@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
@@ -334,13 +333,14 @@ impl SpriteRenderer {
             if !layer_matches_mask(layer, layer_mask) {
                 continue;
             }
-            // Prefer image_handle path if present; fall back to the texture path
-            let tex_key = sprite
+            // Prefer image_handle path if present; fall back to the texture path.
+            // Arc::clone on Option<Arc<str>> is a cheap pointer bump, not a heap copy.
+            let tex_key: Arc<str> = sprite
                 .image_handle
                 .as_ref()
-                .map(|h| h.path().to_string())
+                .map(|h| Arc::from(h.path()))
                 .or_else(|| sprite.texture.clone())
-                .unwrap_or_default();
+                .unwrap_or_else(|| Arc::from(""));
             if let Some(gt) = world.get::<GlobalTransform>(entity) {
                 if !is_visible(gt.position, gt.scale, gt.rotation) {
                     stats.sprites_culled += 1;
@@ -399,7 +399,7 @@ impl SpriteRenderer {
                             .get::<UvRect>(*entity)
                             .copied()
                             .unwrap_or_else(|| atlas.uv_rect(*index));
-                        let tex_key = atlas.texture_path().to_string();
+                        let tex_key: Arc<str> = Arc::from(atlas.texture_path());
                         let layer = world
                             .get::<crate::components::RenderLayer>(*entity)
                             .map(|l| l.0)
@@ -467,11 +467,7 @@ impl SpriteRenderer {
         // then culled, leaving the pipeline uncompiled).
         let mat_ids: Vec<(crate::ecs::Entity, u64, [f32; 4])> = world
             .query::<ShaderMaterial>()
-            .map(|(e, mat)| {
-                let mut h = std::collections::hash_map::DefaultHasher::new();
-                mat.frag_source.hash(&mut h);
-                (e, h.finish(), mat.params)
-            })
+            .map(|(e, mat)| (e, mat.source_hash(), mat.params))
             .collect();
 
         // Set of live entities (= currently holding a ShaderMaterial). Populated
@@ -497,10 +493,10 @@ impl SpriteRenderer {
             if !layer_matches_mask(layer, layer_mask) {
                 continue;
             }
-            let tex_key = sprite
+            let tex_key: Option<Arc<str>> = sprite
                 .image_handle
                 .as_ref()
-                .map(|h| h.path().to_string())
+                .map(|h| Arc::from(h.path()))
                 .or_else(|| sprite.texture.clone());
 
             let (z, instance) = if let Some(gt) = world.get::<GlobalTransform>(entity) {
@@ -527,7 +523,7 @@ impl SpriteRenderer {
                 if !self.custom_pipelines.contains_key(&hash) && seen_new_hashes.insert(hash) {
                     world
                         .get::<ShaderMaterial>(entity)
-                        .map(|m| m.frag_source.clone())
+                        .map(|m| m.frag_source().to_owned())
                         .unwrap_or_default()
                 } else {
                     String::new()
@@ -657,7 +653,7 @@ impl SpriteRenderer {
                         instance_offset,
                         ..
                     } => {
-                        let run_key = texture_key.as_str();
+                        let run_key: &str = texture_key;
                         let run_start_offset = *instance_offset;
                         let mut run_len = 1usize;
                         i += 1;
@@ -667,7 +663,7 @@ impl SpriteRenderer {
                                     texture_key,
                                     instance_offset,
                                     ..
-                                } if texture_key == run_key
+                                } if texture_key.as_ref() == run_key
                                     && *instance_offset == run_start_offset + run_len =>
                                 {
                                     run_len += 1;
@@ -701,7 +697,7 @@ impl SpriteRenderer {
                         let byte_end = byte_start + instance_size;
                         let pipeline = &self.custom_pipelines[hash];
                         let tex_bg = texture_key
-                            .as_ref()
+                            .as_deref()
                             .map(|k| self.bind_group_for_texture_key(Some(k)))
                             .unwrap_or(&self.white_texture.bind_group);
                         let (_, params_bg) = &self.params_buffers[entity];

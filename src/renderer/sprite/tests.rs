@@ -7,7 +7,7 @@ fn raw() -> InstanceRaw {
 }
 
 fn sprite(layer: i32, z: f32, order: usize, texture_key: &str) -> SpriteRenderEntry {
-    SpriteRenderEntry::sprite(layer, z, order, texture_key.to_string(), raw())
+    SpriteRenderEntry::sprite(layer, z, order, Arc::from(texture_key), raw())
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -90,7 +90,7 @@ fn sprite_runs(entries: &[SpriteRenderEntry]) -> Vec<(String, usize)> {
                 instance_offset,
                 ..
             } => {
-                let run_key = texture_key.clone();
+                let run_key = Arc::clone(texture_key);
                 let run_start_offset = *instance_offset;
                 let mut run_len = 1usize;
                 i += 1;
@@ -100,7 +100,7 @@ fn sprite_runs(entries: &[SpriteRenderEntry]) -> Vec<(String, usize)> {
                             texture_key,
                             instance_offset,
                             ..
-                        } if *texture_key == run_key
+                        } if texture_key.as_ref() == run_key.as_ref()
                             && *instance_offset == run_start_offset + run_len =>
                         {
                             run_len += 1;
@@ -109,7 +109,7 @@ fn sprite_runs(entries: &[SpriteRenderEntry]) -> Vec<(String, usize)> {
                         _ => break,
                     }
                 }
-                runs.push((run_key, run_len));
+                runs.push((run_key.to_string(), run_len));
             }
             SpriteRenderKind::Material { .. } => i += 1,
         }

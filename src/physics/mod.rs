@@ -8,4 +8,7 @@ pub use body::PhysicsBody;
 pub use character::CharacterController;
 pub use events::{CollisionEvent, TriggerEvent};
 pub use system::PhysicsSystem;
-pub use world::{CollisionGroups, JointHandle, PhysicsWorld, RaycastHit, TileCollider};
+pub use world::{
+    BodyHandle, ColliderHandle, CollisionGroups, JointHandle, PhysicsWorld, RaycastHit,
+    TileCollider,
+};

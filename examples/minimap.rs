@@ -259,7 +259,7 @@ fn main() {
     app.world.add_component(
         minimap_sprite,
         Sprite {
-            texture: Some("minimap".to_string()), // RT key
+            texture: Some("minimap".into()), // RT key
             color: Color::rgba(1.0, 1.0, 1.0, 0.9),
             ..Default::default()
         },

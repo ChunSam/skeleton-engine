@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::*;
 
 #[derive(Clone, Copy, Debug)]
@@ -9,7 +11,7 @@ pub(super) struct RenderSortKey {
 
 pub(super) enum SpriteRenderKind {
     Sprite {
-        texture_key: String,
+        texture_key: Arc<str>,
         instance: InstanceRaw,
         instance_offset: usize,
     },
@@ -18,7 +20,7 @@ pub(super) enum SpriteRenderKind {
         hash: u64,
         frag_source: String,
         params: [f32; 4],
-        texture_key: Option<String>,
+        texture_key: Option<Arc<str>>,
         instance: InstanceRaw,
         instance_offset: usize,
     },
@@ -34,7 +36,7 @@ impl SpriteRenderEntry {
         layer: i32,
         z: f32,
         order: usize,
-        texture_key: String,
+        texture_key: Arc<str>,
         instance: InstanceRaw,
     ) -> Self {
         Self {
@@ -56,7 +58,7 @@ impl SpriteRenderEntry {
         hash: u64,
         frag_source: String,
         params: [f32; 4],
-        texture_key: Option<String>,
+        texture_key: Option<Arc<str>>,
         instance: InstanceRaw,
     ) -> Self {
         Self {

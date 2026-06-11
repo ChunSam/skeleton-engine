@@ -87,7 +87,7 @@ impl ActionBindings {
 /// ```rust,no_run
 /// use engine::InputMap;
 /// use engine::{GamepadButton, GamepadAxis};
-/// use engine::input::map::AxisBinding;
+/// use engine::AxisBinding;
 /// use winit::keyboard::KeyCode;
 ///
 /// #[derive(Clone, Copy, PartialEq, Eq, Hash)]

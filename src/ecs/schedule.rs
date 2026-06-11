@@ -40,26 +40,6 @@ impl SystemConfig {
     }
 }
 
-/// Per-system-index metadata (stored in parallel with `systems` in app.rs).
-#[derive(Default, Clone)]
-pub struct SystemMeta {
-    pub label: Option<SystemLabel>,
-    pub before: Vec<SystemLabel>,
-    pub after: Vec<SystemLabel>,
-    pub set: Option<SystemLabel>,
-}
-
-impl From<SystemConfig> for SystemMeta {
-    fn from(c: SystemConfig) -> Self {
-        Self {
-            label: c.label,
-            before: c.before,
-            after: c.after,
-            set: c.set,
-        }
-    }
-}
-
 /// Schedule computation error.
 #[derive(Debug, PartialEq)]
 pub enum ScheduleError {
@@ -74,7 +54,7 @@ pub enum ScheduleError {
 ///   `before(Y)` → self runs before systems with label Y.
 /// - Tie-breaker for equal rank is insertion order (ascending index), making the result deterministic.
 /// - Success: `Ok(execution index order)`. Cycle: `Err(Cycle(remaining indices))`.
-pub fn compute_order(metas: &[SystemMeta]) -> Result<Vec<usize>, ScheduleError> {
+pub fn compute_order(metas: &[SystemConfig]) -> Result<Vec<usize>, ScheduleError> {
     use std::collections::HashMap;
 
     let n = metas.len();
@@ -148,35 +128,35 @@ pub fn compute_order(metas: &[SystemMeta]) -> Result<Vec<usize>, ScheduleError> 
 mod tests {
     use super::*;
 
-    fn meta_default() -> SystemMeta {
-        SystemMeta::default()
+    fn meta_default() -> SystemConfig {
+        SystemConfig::default()
     }
 
-    fn meta_label(label: &'static str) -> SystemMeta {
-        SystemMeta {
+    fn meta_label(label: &'static str) -> SystemConfig {
+        SystemConfig {
             label: Some(label),
             ..Default::default()
         }
     }
 
-    fn meta_label_after(label: &'static str, after: &'static str) -> SystemMeta {
-        SystemMeta {
+    fn meta_label_after(label: &'static str, after: &'static str) -> SystemConfig {
+        SystemConfig {
             label: Some(label),
             after: vec![after],
             ..Default::default()
         }
     }
 
-    fn meta_label_before(label: &'static str, before: &'static str) -> SystemMeta {
-        SystemMeta {
+    fn meta_label_before(label: &'static str, before: &'static str) -> SystemConfig {
+        SystemConfig {
             label: Some(label),
             before: vec![before],
             ..Default::default()
         }
     }
 
-    fn meta_after(after: &'static str) -> SystemMeta {
-        SystemMeta {
+    fn meta_after(after: &'static str) -> SystemConfig {
+        SystemConfig {
             after: vec![after],
             ..Default::default()
         }

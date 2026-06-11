@@ -408,7 +408,7 @@ fn main() {
     app.world.add_component(
         monitor,
         Sprite {
-            texture: Some("camfeed".to_string()),
+            texture: Some("camfeed".into()),
             color: Color::WHITE,
             ..Default::default()
         },

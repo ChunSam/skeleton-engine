@@ -1,7 +1,7 @@
 use engine::{
     Anchor, App, Button, ButtonState, Color, Entity, Events, GameState, InputState, KeyCode, Label,
-    Scene, SceneChange, SceneCmd, ShouldQuit, System, TextAlign, UiEvent, UiImageQueue, UiNode,
-    UiQueue, UiSystem, Vec2, ViewportSize, WindowConfig, World,
+    Scene, SceneChange, SceneCmd, ShouldQuit, System, SystemRegistrar, TextAlign, UiEvent,
+    UiImageQueue, UiNode, UiQueue, UiSystem, Vec2, ViewportSize, WindowConfig, World,
 };
 use engine::{DrawImage, DrawRect};
 
@@ -252,7 +252,7 @@ impl MenuScene {
 }
 
 impl Scene for MenuScene {
-    fn on_enter(&mut self, world: &mut World, systems: &mut Vec<Box<dyn System>>) {
+    fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar) {
         configure_window(world);
         mark_enter(world, "Menu");
         world.insert_resource(GameState::Paused);
@@ -287,13 +287,13 @@ impl Scene for MenuScene {
             [170, 225, 215, 255],
         );
 
-        systems.push(Box::new(BackdropSystem));
-        systems.push(Box::new(UiSystem));
-        systems.push(Box::new(MenuSystem {
+        systems.add(BackdropSystem);
+        systems.add(UiSystem);
+        systems.add(MenuSystem {
             start,
             quit,
             stats_label,
-        }));
+        });
     }
 
     fn on_exit(&mut self, world: &mut World) {
@@ -318,7 +318,7 @@ impl System for MenuSystem {
 
         if quit {
             if let Some(should_quit) = world.resource_mut::<ShouldQuit>() {
-                should_quit.0 = true;
+                should_quit.quit();
             }
         } else if start {
             if let Some(scene_change) = world.resource_mut::<SceneChange>() {
@@ -341,7 +341,7 @@ impl PlayScene {
 }
 
 impl Scene for PlayScene {
-    fn on_enter(&mut self, world: &mut World, systems: &mut Vec<Box<dyn System>>) {
+    fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar) {
         configure_window(world);
         mark_enter(world, "Play");
         world.insert_resource(GameState::Playing);
@@ -381,13 +381,13 @@ impl Scene for PlayScene {
             [170, 225, 215, 255],
         );
 
-        systems.push(Box::new(BackdropSystem));
-        systems.push(Box::new(UiSystem));
-        systems.push(Box::new(PlaySystem {
+        systems.add(BackdropSystem);
+        systems.add(UiSystem);
+        systems.add(PlaySystem {
             complete,
             pause,
             stats_label,
-        }));
+        });
     }
 
     fn on_exit(&mut self, world: &mut World) {
@@ -452,7 +452,7 @@ impl PauseScene {
 }
 
 impl Scene for PauseScene {
-    fn on_enter(&mut self, world: &mut World, systems: &mut Vec<Box<dyn System>>) {
+    fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar) {
         configure_window(world);
         mark_enter(world, "Pause");
         world.insert_resource(GameState::Paused);
@@ -485,11 +485,11 @@ impl Scene for PauseScene {
         set_ui_z(world, menu, 0.97);
         set_ui_z(world, stats_label, 0.96);
 
-        systems.push(Box::new(PauseSystem {
+        systems.add(PauseSystem {
             resume,
             menu,
             stats_label,
-        }));
+        });
     }
 
     fn on_exit(&mut self, world: &mut World) {
@@ -544,7 +544,7 @@ impl ResultScene {
 }
 
 impl Scene for ResultScene {
-    fn on_enter(&mut self, world: &mut World, systems: &mut Vec<Box<dyn System>>) {
+    fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar) {
         configure_window(world);
         mark_enter(world, "Result");
         world.insert_resource(GameState::GameOver);
@@ -576,11 +576,11 @@ impl Scene for ResultScene {
         set_ui_z(world, menu, 0.97);
         set_ui_z(world, stats_label, 0.96);
 
-        systems.push(Box::new(ResultSystem {
+        systems.add(ResultSystem {
             retry,
             menu,
             stats_label,
-        }));
+        });
     }
 
     fn on_exit(&mut self, world: &mut World) {

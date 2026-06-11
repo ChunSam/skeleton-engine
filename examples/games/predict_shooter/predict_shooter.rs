@@ -24,7 +24,7 @@
 
 use engine::{
     App, DrawText, Events, InputState, KeyCode, NetworkClient, NetworkEvent, NetworkSystem, Scene,
-    SnapshotBuffer, Sprite, System, TextQueue, Transform, WindowConfig, World,
+    SnapshotBuffer, Sprite, System, SystemRegistrar, TextQueue, Transform, WindowConfig, World,
 };
 use glam::Vec2;
 use std::collections::{HashMap, HashSet};
@@ -60,10 +60,10 @@ const MAX_INPUT_STEPS_PER_FRAME: u32 = 5;
 struct ShooterScene;
 
 impl Scene for ShooterScene {
-    fn on_enter(&mut self, world: &mut World, systems: &mut Vec<Box<dyn System>>) {
+    fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar) {
         world.insert_resource(NetworkClient::connect(&format!("ws://{SERVER_ADDR}")));
-        systems.push(Box::new(NetworkSystem));
-        systems.push(Box::new(ShooterClient::new()));
+        systems.add(NetworkSystem);
+        systems.add(ShooterClient::new());
     }
 }
 
