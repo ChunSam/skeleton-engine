@@ -48,6 +48,15 @@ impl<T> Handle<T> {
     pub fn path(&self) -> &str {
         &self.path
     }
+
+    /// Returns a clone of the internal `Arc<str>` — an O(1) reference-count bump.
+    ///
+    /// Prefer this over `Arc::from(handle.path())` wherever an owned `Arc<str>` is needed
+    /// (e.g. per-sprite texture keys in the renderer). The latter copies the string bytes;
+    /// this only increments a counter.
+    pub fn path_arc(&self) -> Arc<str> {
+        Arc::clone(&self.path)
+    }
 }
 
 impl<T> Clone for Handle<T> {

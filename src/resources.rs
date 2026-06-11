@@ -388,6 +388,9 @@ impl Default for CullConfig {
 /// Registering via `world.insert_resource(AmbientLight::default())` activates
 /// `LightingRenderer`. Use together with the `PointLight` component.
 ///
+/// **Platform note:** lighting is native-only. On `wasm32` targets this resource is
+/// accepted but the lighting render pass is silently skipped (no-op on wasm32).
+///
 /// ```rust,no_run
 /// # use engine::{App, AmbientLight};
 /// # let mut app = App::new();

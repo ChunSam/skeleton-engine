@@ -240,6 +240,9 @@ pub struct RenderLayer(pub i32);
 /// Used together with the `AmbientLight` resource. Adding it to an entity alongside
 /// `Transform` causes `LightingRenderer` to include it in the lighting pass automatically.
 ///
+/// **Platform note:** lighting is native-only. On `wasm32` targets this component is
+/// accepted but ignored (no-op on wasm32).
+///
 /// ```rust,no_run
 /// # use engine::{App, PointLight, AmbientLight, components::Transform};
 /// # use glam::Vec2;

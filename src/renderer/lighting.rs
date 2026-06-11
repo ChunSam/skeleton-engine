@@ -105,6 +105,9 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
 /// Full-screen pass that takes the scene texture as input and applies point lights.
 ///
 /// Created and run automatically by `App` when an `AmbientLight` resource is present in the World.
+///
+/// **Platform note:** lighting is native-only. On `wasm32` targets this renderer is not
+/// compiled in and the lighting pass is silently skipped (no-op on wasm32).
 pub struct LightingRenderer {
     /// Normal buffer texture (same size as the viewport, Rgba8Unorm).
     normal_texture: wgpu::Texture,

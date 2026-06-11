@@ -334,11 +334,11 @@ impl SpriteRenderer {
                 continue;
             }
             // Prefer image_handle path if present; fall back to the texture path.
-            // Arc::clone on Option<Arc<str>> is a cheap pointer bump, not a heap copy.
+            // path_arc() is an O(1) refcount bump; Arc::from(path()) would copy the string.
             let tex_key: Arc<str> = sprite
                 .image_handle
                 .as_ref()
-                .map(|h| Arc::from(h.path()))
+                .map(|h| h.path_arc())
                 .or_else(|| sprite.texture.clone())
                 .unwrap_or_else(|| Arc::from(""));
             if let Some(gt) = world.get::<GlobalTransform>(entity) {
@@ -496,7 +496,7 @@ impl SpriteRenderer {
             let tex_key: Option<Arc<str>> = sprite
                 .image_handle
                 .as_ref()
-                .map(|h| Arc::from(h.path()))
+                .map(|h| h.path_arc())
                 .or_else(|| sprite.texture.clone());
 
             let (z, instance) = if let Some(gt) = world.get::<GlobalTransform>(entity) {

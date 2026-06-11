@@ -35,6 +35,19 @@ use crate::physics::world::{BodyHandle, PhysicsWorld};
 ///
 /// To access the physics world from other systems or game code, use
 /// `world.resource_mut::<PhysicsWorld>()`.
+///
+/// # Event registration
+///
+/// Collision and trigger events are silently discarded if the corresponding event bus has
+/// not been registered. Call the following during app setup to receive them:
+///
+/// ```ignore
+/// app.register_event::<engine::CollisionEvent>();
+/// app.register_event::<engine::TriggerEvent>();
+/// ```
+///
+/// If contacts or intersections are detected but the bus is absent, a `log::warn!` is
+/// emitted once per missing type so the omission is visible in the console.
 pub struct PhysicsSystem {
     /// Pixels per physics unit ratio. Example: 50.0 → 1 unit = 50 px.
     pub pixels_per_unit: f32,
@@ -45,6 +58,9 @@ pub struct PhysicsSystem {
     current_contacts: HashSet<(RapierColliderHandle, RapierColliderHandle)>,
     current_intersections: HashSet<(RapierColliderHandle, RapierColliderHandle)>,
     body_pairs: Vec<(Entity, BodyHandle)>,
+    // Guard flags: emit the missing-registration warning at most once per event type.
+    warned_missing_collision_events: bool,
+    warned_missing_trigger_events: bool,
 }
 
 impl PhysicsSystem {
@@ -61,6 +77,8 @@ impl PhysicsSystem {
             current_contacts: HashSet::new(),
             current_intersections: HashSet::new(),
             body_pairs: Vec::new(),
+            warned_missing_collision_events: false,
+            warned_missing_trigger_events: false,
         }
     }
 }
@@ -161,6 +179,12 @@ impl System for PhysicsSystem {
                 for (e1, e2) in col_stopped {
                     bus.send(CollisionEvent::Stopped(e1, e2));
                 }
+            } else if !self.warned_missing_collision_events {
+                log::warn!(
+                    "PhysicsSystem: CollisionEvent bus not found — collision events are \
+                     being dropped. Call `app.register_event::<CollisionEvent>()` during setup."
+                );
+                self.warned_missing_collision_events = true;
             }
         }
         // ── end collision event diff ──────────────────────────────────────────
@@ -197,6 +221,12 @@ impl System for PhysicsSystem {
                 for (e1, e2) in trig_exited {
                     bus.send(TriggerEvent::Exited(e1, e2));
                 }
+            } else if !self.warned_missing_trigger_events {
+                log::warn!(
+                    "PhysicsSystem: TriggerEvent bus not found — trigger/sensor events are \
+                     being dropped. Call `app.register_event::<TriggerEvent>()` during setup."
+                );
+                self.warned_missing_trigger_events = true;
             }
         }
         // ── end sensor event diff ─────────────────────────────────────────────
@@ -266,6 +296,45 @@ mod tests {
 
         let events = world.resource::<Events<TriggerEvent>>().unwrap().read();
         assert_eq!(events, &[TriggerEvent::Entered(sensor, actor)]);
+    }
+
+    #[test]
+    fn missing_event_bus_does_not_panic() {
+        // Events<CollisionEvent> and Events<TriggerEvent> are NOT registered here.
+        // PhysicsSystem must not panic and must set the warned flags after the first frame
+        // with active contacts/intersections.
+        let mut physics = PhysicsWorld::new(Vec2::ZERO);
+        // Two overlapping boxes → immediate contact on step.
+        let (rb1, col1) = physics.add_dynamic_box(Vec2::ZERO, 0.5, 0.5, false);
+        let (rb2, col2) = physics.add_dynamic_box(Vec2::new(0.1, 0.0), 0.5, 0.5, false);
+
+        let mut world = World::new();
+        world.insert_resource(physics);
+        // Deliberately omit register_event for both types.
+        let mut system = PhysicsSystem::new(1.0);
+
+        let e1 = world.spawn();
+        world.add_component(
+            e1,
+            PhysicsBody {
+                rigid_body_handle: rb1,
+                collider_handle: col1,
+            },
+        );
+        world.add_component(e1, Transform::default());
+
+        let e2 = world.spawn();
+        world.add_component(
+            e2,
+            PhysicsBody {
+                rigid_body_handle: rb2,
+                collider_handle: col2,
+            },
+        );
+        world.add_component(e2, Transform::default());
+
+        // Must not panic even though both event buses are absent.
+        system.run(&mut world, 1.0 / 60.0);
     }
 
     #[test]
