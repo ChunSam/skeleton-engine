@@ -1,4 +1,6 @@
 use glam::Vec2;
+use rapier2d::prelude::ColliderHandle as RapierColliderHandle;
+use rapier2d::prelude::RigidBodyHandle as RapierBodyHandle;
 use rapier2d::prelude::*;
 
 mod body_factory;
@@ -6,6 +8,69 @@ mod character_movement;
 mod joints;
 mod raycast;
 mod tile_collider;
+
+// ── Body handle ───────────────────────────────────────────────────────────────
+
+/// Opaque handle to a rigid body created by one of the `PhysicsWorld::add_*`
+/// factory methods.
+///
+/// Wraps rapier's `RigidBodyHandle` so the rapier type does not leak through
+/// the engine's public API. Pass it back to `PhysicsWorld` accessors such as
+/// [`PhysicsWorld::rigid_body`] or [`PhysicsWorld::move_character`].
+/// The inner handle is engine-private, so it can only be obtained from
+/// `add_*` — not forged.
+///
+/// **Escape hatch for forks:** call [`BodyHandle::raw`] to retrieve the
+/// underlying `rapier2d::prelude::RigidBodyHandle` if you need to drop down
+/// to raw rapier APIs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BodyHandle(pub(crate) RapierBodyHandle);
+
+impl BodyHandle {
+    /// Returns the underlying rapier `RigidBodyHandle`.
+    ///
+    /// This is an escape hatch for forks that need direct rapier access.
+    /// Prefer the engine's `PhysicsWorld` accessors where possible.
+    pub fn raw(self) -> RapierBodyHandle {
+        self.0
+    }
+
+    pub(crate) fn from_raw(h: RapierBodyHandle) -> Self {
+        Self(h)
+    }
+}
+
+// ── Collider handle ───────────────────────────────────────────────────────────
+
+/// Opaque handle to a collider created by one of the `PhysicsWorld::add_*`
+/// factory methods.
+///
+/// Wraps rapier's `ColliderHandle` so the rapier type does not leak through
+/// the engine's public API. Pass it back to `PhysicsWorld` accessors such as
+/// [`PhysicsWorld::get_collider`], [`PhysicsWorld::set_one_way`], or
+/// [`PhysicsWorld::cast_ray`].
+/// The inner handle is engine-private, so it can only be obtained from
+/// `add_*` — not forged.
+///
+/// **Escape hatch for forks:** call [`ColliderHandle::raw`] to retrieve the
+/// underlying `rapier2d::prelude::ColliderHandle` if you need to drop down
+/// to raw rapier APIs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ColliderHandle(pub(crate) RapierColliderHandle);
+
+impl ColliderHandle {
+    /// Returns the underlying rapier `ColliderHandle`.
+    ///
+    /// This is an escape hatch for forks that need direct rapier access.
+    /// Prefer the engine's `PhysicsWorld` accessors where possible.
+    pub fn raw(self) -> RapierColliderHandle {
+        self.0
+    }
+
+    pub(crate) fn from_raw(h: RapierColliderHandle) -> Self {
+        Self(h)
+    }
+}
 
 // ── Joint handle ─────────────────────────────────────────────────────────────
 
@@ -102,7 +167,7 @@ impl Default for CollisionGroups {
 /// Result of a raycast hit.
 #[derive(Debug, Clone, Copy)]
 pub struct RaycastHit {
-    /// Handle of the collider that was hit.
+    /// Engine handle of the collider that was hit.
     pub collider_handle: ColliderHandle,
     /// Hit point in world space (physics units).
     pub point: Vec2,
@@ -169,7 +234,7 @@ pub struct PhysicsWorld {
     query_pipeline: QueryPipeline,
     /// Set of colliders marked as one-way platforms (block from above only).
     /// `move_character` dynamically ignores collisions with these based on movement direction.
-    one_way_colliders: std::collections::HashSet<ColliderHandle>,
+    pub(crate) one_way_colliders: std::collections::HashSet<RapierColliderHandle>,
 }
 
 impl PhysicsWorld {
@@ -198,15 +263,15 @@ impl PhysicsWorld {
     /// through while ascending or during a drop request (`CharacterController::request_drop`).
     pub fn set_one_way(&mut self, handle: ColliderHandle, one_way: bool) {
         if one_way {
-            self.one_way_colliders.insert(handle);
+            self.one_way_colliders.insert(handle.0);
         } else {
-            self.one_way_colliders.remove(&handle);
+            self.one_way_colliders.remove(&handle.0);
         }
     }
 
     /// Returns whether a collider is marked as a one-way platform.
     pub fn is_one_way(&self, handle: ColliderHandle) -> bool {
-        self.one_way_colliders.contains(&handle)
+        self.one_way_colliders.contains(&handle.0)
     }
 
     /// Advances the physics simulation by `dt` seconds.
@@ -232,30 +297,42 @@ impl PhysicsWorld {
     /// Returns whether a collider is currently in contact with another object (used for ground detection).
     pub fn has_contact(&self, col_handle: ColliderHandle) -> bool {
         self.narrow_phase
-            .contact_pairs_with(col_handle)
+            .contact_pairs_with(col_handle.0)
             .any(|pair| pair.has_any_active_contact)
     }
 
     // ── Type-safe accessors ───────────────────────────────────────────────────
 
     /// Returns an immutable reference to the rigid body for the given handle.
-    pub fn rigid_body(&self, handle: RigidBodyHandle) -> Option<&RigidBody> {
-        self.rigid_body_set.get(handle)
+    ///
+    /// Returns the raw rapier [`RigidBody`] — an escape hatch for forks that need
+    /// direct rapier access beyond what the engine API provides.
+    pub fn rigid_body(&self, handle: BodyHandle) -> Option<&RigidBody> {
+        self.rigid_body_set.get(handle.0)
     }
 
     /// Returns a mutable reference to the rigid body for the given handle.
-    pub fn rigid_body_mut(&mut self, handle: RigidBodyHandle) -> Option<&mut RigidBody> {
-        self.rigid_body_set.get_mut(handle)
+    ///
+    /// Returns the raw rapier [`RigidBody`] — an escape hatch for forks that need
+    /// direct rapier access beyond what the engine API provides.
+    pub fn rigid_body_mut(&mut self, handle: BodyHandle) -> Option<&mut RigidBody> {
+        self.rigid_body_set.get_mut(handle.0)
     }
 
     /// Returns an immutable reference to the rapier collider for the given handle.
+    ///
+    /// Returns the raw rapier [`Collider`] — an escape hatch for forks that need
+    /// direct rapier access beyond what the engine API provides.
     pub fn get_collider(&self, handle: ColliderHandle) -> Option<&Collider> {
-        self.collider_set.get(handle)
+        self.collider_set.get(handle.0)
     }
 
     /// Returns a mutable reference to the rapier collider for the given handle.
+    ///
+    /// Returns the raw rapier [`Collider`] — an escape hatch for forks that need
+    /// direct rapier access beyond what the engine API provides.
     pub fn get_collider_mut(&mut self, handle: ColliderHandle) -> Option<&mut Collider> {
-        self.collider_set.get_mut(handle)
+        self.collider_set.get_mut(handle.0)
     }
 
     /// Changes the collision groups of a collider. Returns `false` if the handle is not found.
@@ -264,7 +341,7 @@ impl PhysicsWorld {
         handle: ColliderHandle,
         groups: CollisionGroups,
     ) -> bool {
-        let Some(collider) = self.collider_set.get_mut(handle) else {
+        let Some(collider) = self.collider_set.get_mut(handle.0) else {
             return false;
         };
         collider.set_collision_groups(groups.to_rapier());
@@ -274,7 +351,7 @@ impl PhysicsWorld {
     /// Returns the current collision groups of a collider.
     pub fn collision_groups(&self, handle: ColliderHandle) -> Option<CollisionGroups> {
         self.collider_set
-            .get(handle)
+            .get(handle.0)
             .map(|collider| CollisionGroups::from_rapier(collider.collision_groups()))
     }
 }

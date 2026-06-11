@@ -20,12 +20,13 @@
 //! (Native-only: the `physics` module is gated off wasm, like the platformer example.)
 
 use engine::{
-    App, Camera, Color, DrawText, Entity, InputState, KeyCode, PhysicsBody, PhysicsSystem,
-    PhysicsWorld, ShouldQuit, Sprite, System, TextQueue, Transform, WindowConfig, World,
+    App, BodyHandle, Camera, Color, DrawText, Entity, InputState, KeyCode, PhysicsBody,
+    PhysicsSystem, PhysicsWorld, ShouldQuit, Sprite, System, TextQueue, Transform, WindowConfig,
+    World,
 };
 use glam::Vec2;
 use rapier2d::na as nalgebra;
-use rapier2d::prelude::{vector, RigidBodyHandle};
+use rapier2d::prelude::vector;
 
 const WINDOW_W: u32 = 1000;
 const WINDOW_H: u32 = 720;
@@ -65,14 +66,14 @@ const KNOCKED_COLOR: Color = Color::rgba(0.40, 0.40, 0.45, 1.0);
 
 /// A dynamic body whose position/rotation we restore on reset.
 struct Dynamic {
-    handle: RigidBodyHandle,
+    handle: BodyHandle,
     home: Vec2,
 }
 
 /// A stack block: tracked for the win condition and recolored once knocked off.
 struct Block {
     entity: Entity,
-    handle: RigidBodyHandle,
+    handle: BodyHandle,
     home: Vec2,
     color: [f32; 3],
     knocked: bool,
@@ -83,7 +84,7 @@ struct Block {
 /// the code path that syncs rotation, which this example exists to prove.
 struct CraneSystem {
     physics: PhysicsSystem,
-    cart: RigidBodyHandle,
+    cart: BodyHandle,
     cart_x: f32,
     arm_entity: Entity,
     dynamics: Vec<Dynamic>,
@@ -226,8 +227,8 @@ impl System for CraneSystem {
 /// scale is set once here from the collider's pixel size.
 fn spawn_visual(
     app: &mut App,
-    handle: RigidBodyHandle,
-    collider: rapier2d::prelude::ColliderHandle,
+    handle: BodyHandle,
+    collider: engine::ColliderHandle,
     full_size_px: Vec2,
     color: [f32; 3],
     z: f32,

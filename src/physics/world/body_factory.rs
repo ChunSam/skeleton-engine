@@ -3,7 +3,7 @@ use rapier2d::prelude::*;
 
 use crate::physics::body::PhysicsBody;
 
-use super::{CollisionGroups, PhysicsWorld};
+use super::{BodyHandle, ColliderHandle, CollisionGroups, PhysicsWorld};
 
 impl PhysicsWorld {
     /// Adds a dynamic box body that responds to gravity.
@@ -13,7 +13,7 @@ impl PhysicsWorld {
         half_w: f32,
         half_h: f32,
         lock_rotation: bool,
-    ) -> (RigidBodyHandle, ColliderHandle) {
+    ) -> (BodyHandle, ColliderHandle) {
         self.add_dynamic_box_with_groups(
             position,
             half_w,
@@ -31,7 +31,7 @@ impl PhysicsWorld {
         half_h: f32,
         lock_rotation: bool,
         groups: CollisionGroups,
-    ) -> (RigidBodyHandle, ColliderHandle) {
+    ) -> (BodyHandle, ColliderHandle) {
         let mut builder = RigidBodyBuilder::dynamic().translation(vector![position.x, position.y]);
         if lock_rotation {
             builder = builder.lock_rotations();
@@ -45,7 +45,10 @@ impl PhysicsWorld {
         let col_handle =
             self.collider_set
                 .insert_with_parent(collider, handle, &mut self.rigid_body_set);
-        (handle, col_handle)
+        (
+            BodyHandle::from_raw(handle),
+            ColliderHandle::from_raw(col_handle),
+        )
     }
 
     /// Adds a static (immovable) floor, wall, or platform.
@@ -54,7 +57,7 @@ impl PhysicsWorld {
         position: Vec2,
         half_w: f32,
         half_h: f32,
-    ) -> (RigidBodyHandle, ColliderHandle) {
+    ) -> (BodyHandle, ColliderHandle) {
         self.add_static_box_with_groups(position, half_w, half_h, CollisionGroups::all())
     }
 
@@ -65,7 +68,7 @@ impl PhysicsWorld {
         half_w: f32,
         half_h: f32,
         groups: CollisionGroups,
-    ) -> (RigidBodyHandle, ColliderHandle) {
+    ) -> (BodyHandle, ColliderHandle) {
         let body = RigidBodyBuilder::fixed()
             .translation(vector![position.x, position.y])
             .build();
@@ -76,7 +79,10 @@ impl PhysicsWorld {
         let col_handle =
             self.collider_set
                 .insert_with_parent(collider, handle, &mut self.rigid_body_set);
-        (handle, col_handle)
+        (
+            BodyHandle::from_raw(handle),
+            ColliderHandle::from_raw(col_handle),
+        )
     }
 
     /// Adds a dynamic circle body that responds to gravity.
@@ -85,7 +91,7 @@ impl PhysicsWorld {
         position: Vec2,
         radius: f32,
         lock_rotation: bool,
-    ) -> (RigidBodyHandle, ColliderHandle) {
+    ) -> (BodyHandle, ColliderHandle) {
         self.add_dynamic_circle_with_groups(position, radius, lock_rotation, CollisionGroups::all())
     }
 
@@ -96,7 +102,7 @@ impl PhysicsWorld {
         radius: f32,
         lock_rotation: bool,
         groups: CollisionGroups,
-    ) -> (RigidBodyHandle, ColliderHandle) {
+    ) -> (BodyHandle, ColliderHandle) {
         let mut builder = RigidBodyBuilder::dynamic().translation(vector![position.x, position.y]);
         if lock_rotation {
             builder = builder.lock_rotations();
@@ -110,7 +116,10 @@ impl PhysicsWorld {
         let col_handle =
             self.collider_set
                 .insert_with_parent(collider, handle, &mut self.rigid_body_set);
-        (handle, col_handle)
+        (
+            BodyHandle::from_raw(handle),
+            ColliderHandle::from_raw(col_handle),
+        )
     }
 
     /// Adds a kinematic box body (no gravity response; position controlled manually).
@@ -119,7 +128,7 @@ impl PhysicsWorld {
         position: Vec2,
         half_w: f32,
         half_h: f32,
-    ) -> (RigidBodyHandle, ColliderHandle) {
+    ) -> (BodyHandle, ColliderHandle) {
         self.add_kinematic_box_with_groups(position, half_w, half_h, CollisionGroups::all())
     }
 
@@ -130,7 +139,7 @@ impl PhysicsWorld {
         half_w: f32,
         half_h: f32,
         groups: CollisionGroups,
-    ) -> (RigidBodyHandle, ColliderHandle) {
+    ) -> (BodyHandle, ColliderHandle) {
         let body = RigidBodyBuilder::kinematic_position_based()
             .translation(vector![position.x, position.y])
             .build();
@@ -141,7 +150,10 @@ impl PhysicsWorld {
         let col_handle =
             self.collider_set
                 .insert_with_parent(collider, handle, &mut self.rigid_body_set);
-        (handle, col_handle)
+        (
+            BodyHandle::from_raw(handle),
+            ColliderHandle::from_raw(col_handle),
+        )
     }
 
     /// Adds a kinematic circle body (no gravity response; position controlled manually).
@@ -149,7 +161,7 @@ impl PhysicsWorld {
         &mut self,
         position: Vec2,
         radius: f32,
-    ) -> (RigidBodyHandle, ColliderHandle) {
+    ) -> (BodyHandle, ColliderHandle) {
         self.add_kinematic_circle_with_groups(position, radius, CollisionGroups::all())
     }
 
@@ -159,7 +171,7 @@ impl PhysicsWorld {
         position: Vec2,
         radius: f32,
         groups: CollisionGroups,
-    ) -> (RigidBodyHandle, ColliderHandle) {
+    ) -> (BodyHandle, ColliderHandle) {
         let body = RigidBodyBuilder::kinematic_position_based()
             .translation(vector![position.x, position.y])
             .build();
@@ -170,7 +182,10 @@ impl PhysicsWorld {
         let col_handle =
             self.collider_set
                 .insert_with_parent(collider, handle, &mut self.rigid_body_set);
-        (handle, col_handle)
+        (
+            BodyHandle::from_raw(handle),
+            ColliderHandle::from_raw(col_handle),
+        )
     }
 
     /// Adds a static box sensor that detects overlaps without physical response.
@@ -179,7 +194,7 @@ impl PhysicsWorld {
         position: Vec2,
         half_w: f32,
         half_h: f32,
-    ) -> (RigidBodyHandle, ColliderHandle) {
+    ) -> (BodyHandle, ColliderHandle) {
         self.add_sensor_box_with_groups(position, half_w, half_h, CollisionGroups::all())
     }
 
@@ -190,7 +205,7 @@ impl PhysicsWorld {
         half_w: f32,
         half_h: f32,
         groups: CollisionGroups,
-    ) -> (RigidBodyHandle, ColliderHandle) {
+    ) -> (BodyHandle, ColliderHandle) {
         let body = RigidBodyBuilder::fixed()
             .translation(vector![position.x, position.y])
             .build();
@@ -202,7 +217,10 @@ impl PhysicsWorld {
         let col_handle =
             self.collider_set
                 .insert_with_parent(collider, handle, &mut self.rigid_body_set);
-        (handle, col_handle)
+        (
+            BodyHandle::from_raw(handle),
+            ColliderHandle::from_raw(col_handle),
+        )
     }
 
     /// Adds a static circle sensor that detects overlaps without physical response.
@@ -210,7 +228,7 @@ impl PhysicsWorld {
         &mut self,
         position: Vec2,
         radius: f32,
-    ) -> (RigidBodyHandle, ColliderHandle) {
+    ) -> (BodyHandle, ColliderHandle) {
         self.add_sensor_circle_with_groups(position, radius, CollisionGroups::all())
     }
 
@@ -220,7 +238,7 @@ impl PhysicsWorld {
         position: Vec2,
         radius: f32,
         groups: CollisionGroups,
-    ) -> (RigidBodyHandle, ColliderHandle) {
+    ) -> (BodyHandle, ColliderHandle) {
         let body = RigidBodyBuilder::fixed()
             .translation(vector![position.x, position.y])
             .build();
@@ -232,7 +250,10 @@ impl PhysicsWorld {
         let col_handle =
             self.collider_set
                 .insert_with_parent(collider, handle, &mut self.rigid_body_set);
-        (handle, col_handle)
+        (
+            BodyHandle::from_raw(handle),
+            ColliderHandle::from_raw(col_handle),
+        )
     }
 
     /// Removes all colliders attached to a body, then deletes the rigid body.
@@ -243,14 +264,14 @@ impl PhysicsWorld {
         // unintentionally behave as a one-way platform.
         let colliders: Vec<_> = self
             .rigid_body_set
-            .get(body.rigid_body_handle)
+            .get(body.rigid_body_handle.0)
             .map(|rb| rb.colliders().to_vec())
             .unwrap_or_default();
         for collider in colliders {
             self.one_way_colliders.remove(&collider);
         }
         self.rigid_body_set.remove(
-            body.rigid_body_handle,
+            body.rigid_body_handle.0,
             &mut self.island_manager,
             &mut self.collider_set,
             &mut self.impulse_joint_set,

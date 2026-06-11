@@ -3,7 +3,7 @@ use rapier2d::prelude::*;
 
 use crate::physics::character::CharacterController;
 
-use super::PhysicsWorld;
+use super::{BodyHandle, ColliderHandle, PhysicsWorld};
 
 impl PhysicsWorld {
     /// Moves a kinematic body using `CharacterController` with collision resolution.
@@ -17,7 +17,7 @@ impl PhysicsWorld {
     pub fn move_character(
         &mut self,
         controller: &mut CharacterController,
-        body_handle: RigidBodyHandle,
+        body_handle: BodyHandle,
         col_handle: ColliderHandle,
         desired_translation: Vec2,
         dt: f32,
@@ -31,14 +31,16 @@ impl PhysicsWorld {
         controller.inner.max_slope_climb_angle = controller.max_slope_angle;
         controller.inner.min_slope_slide_angle = controller.max_slope_angle;
 
+        let raw_col = col_handle.0;
+
         // Copy collider position first to split the borrow, then re-acquire the shape reference.
-        let col_pos = match self.collider_set.get(col_handle) {
+        let col_pos = match self.collider_set.get(raw_col) {
             Some(c) => *c.position(),
             None => return,
         };
 
         // Re-acquire shape from collider_set (a second shared reference — allowed by Rust)
-        let shape = match self.collider_set.get(col_handle) {
+        let shape = match self.collider_set.get(raw_col) {
             Some(c) => c.shape(),
             None => return,
         };
@@ -52,17 +54,18 @@ impl PhysicsWorld {
         // Treat anything slightly above the top surface (within skin thickness) as "above" for stable landing.
         const ONE_WAY_TOLERANCE: f32 = 0.05;
         let one_way = &self.one_way_colliders;
-        let predicate = move |handle: ColliderHandle, collider: &Collider| -> bool {
-            if !one_way.contains(&handle) {
-                return true; // Regular solid: always collide.
-            }
-            if drop_active || !moving_down {
-                return false; // Dropping or moving up → pass through.
-            }
-            // Block only when moving down AND the character bottom is above (or nearly touching) the platform top.
-            let platform_top = collider.compute_aabb().mins.y;
-            char_bottom <= platform_top + ONE_WAY_TOLERANCE
-        };
+        let predicate =
+            move |handle: rapier2d::prelude::ColliderHandle, collider: &Collider| -> bool {
+                if !one_way.contains(&handle) {
+                    return true; // Regular solid: always collide.
+                }
+                if drop_active || !moving_down {
+                    return false; // Dropping or moving up → pass through.
+                }
+                // Block only when moving down AND the character bottom is above (or nearly touching) the platform top.
+                let platform_top = collider.compute_aabb().mins.y;
+                char_bottom <= platform_top + ONE_WAY_TOLERANCE
+            };
 
         let output = controller.inner.move_shape(
             dt,
@@ -73,21 +76,22 @@ impl PhysicsWorld {
             &col_pos,
             desired,
             QueryFilter::default()
-                .exclude_collider(col_handle)
+                .exclude_collider(raw_col)
                 .predicate(&predicate),
             |_| {},
         );
 
         controller.grounded = output.grounded;
 
+        let raw_body = body_handle.0;
         // Set next_kinematic_translation to current body position + movement vector
         let body_t = self
             .rigid_body_set
-            .get(body_handle)
+            .get(raw_body)
             .map(|b| *b.translation())
             .unwrap_or_default();
         let new_t = body_t + output.translation;
-        if let Some(body) = self.rigid_body_set.get_mut(body_handle) {
+        if let Some(body) = self.rigid_body_set.get_mut(raw_body) {
             body.set_next_kinematic_translation(new_t);
         }
     }

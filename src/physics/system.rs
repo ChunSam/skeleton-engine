@@ -1,13 +1,13 @@
 use std::collections::{HashMap, HashSet};
 
 use glam::Vec2;
-use rapier2d::prelude::*;
+use rapier2d::prelude::ColliderHandle as RapierColliderHandle;
 
 use crate::components::Transform;
 use crate::ecs::{Entity, Events, System, World};
 use crate::physics::body::PhysicsBody;
 use crate::physics::events::{CollisionEvent, TriggerEvent};
-use crate::physics::world::PhysicsWorld;
+use crate::physics::world::{BodyHandle, PhysicsWorld};
 
 /// General-purpose physics system: steps the simulation every frame and syncs transforms.
 ///
@@ -38,13 +38,13 @@ use crate::physics::world::PhysicsWorld;
 pub struct PhysicsSystem {
     /// Pixels per physics unit ratio. Example: 50.0 → 1 unit = 50 px.
     pub pixels_per_unit: f32,
-    active_contacts: HashSet<(ColliderHandle, ColliderHandle)>,
-    active_intersections: HashSet<(ColliderHandle, ColliderHandle)>,
+    active_contacts: HashSet<(RapierColliderHandle, RapierColliderHandle)>,
+    active_intersections: HashSet<(RapierColliderHandle, RapierColliderHandle)>,
     // Per-frame scratch buffers reused via clear() to avoid per-frame allocations.
-    col_map: HashMap<ColliderHandle, Entity>,
-    current_contacts: HashSet<(ColliderHandle, ColliderHandle)>,
-    current_intersections: HashSet<(ColliderHandle, ColliderHandle)>,
-    body_pairs: Vec<(Entity, RigidBodyHandle)>,
+    col_map: HashMap<RapierColliderHandle, Entity>,
+    current_contacts: HashSet<(RapierColliderHandle, RapierColliderHandle)>,
+    current_intersections: HashSet<(RapierColliderHandle, RapierColliderHandle)>,
+    body_pairs: Vec<(Entity, BodyHandle)>,
 }
 
 impl PhysicsSystem {
@@ -72,9 +72,9 @@ impl PhysicsSystem {
 /// Pairs in `previous` but not `current` → appended to `stopped`.
 /// `previous` is replaced with `current` in-place.
 fn diff_pairs(
-    previous: &mut HashSet<(ColliderHandle, ColliderHandle)>,
-    current: &HashSet<(ColliderHandle, ColliderHandle)>,
-    col_map: &HashMap<ColliderHandle, Entity>,
+    previous: &mut HashSet<(RapierColliderHandle, RapierColliderHandle)>,
+    current: &HashSet<(RapierColliderHandle, RapierColliderHandle)>,
+    col_map: &HashMap<RapierColliderHandle, Entity>,
     started: &mut Vec<(Entity, Entity)>,
     stopped: &mut Vec<(Entity, Entity)>,
 ) {
@@ -96,7 +96,10 @@ fn diff_pairs(
     previous.extend(current.iter().copied());
 }
 
-fn ordered_pair(a: ColliderHandle, b: ColliderHandle) -> (ColliderHandle, ColliderHandle) {
+fn ordered_pair(
+    a: RapierColliderHandle,
+    b: RapierColliderHandle,
+) -> (RapierColliderHandle, RapierColliderHandle) {
     if a.into_raw_parts() <= b.into_raw_parts() {
         (a, b)
     } else {
@@ -122,7 +125,7 @@ impl System for PhysicsSystem {
         self.col_map.extend(
             world
                 .query::<PhysicsBody>()
-                .map(|(e, b)| (b.collider_handle, e)),
+                .map(|(e, b)| (b.collider_handle.0, e)),
         );
 
         // ── Collision event diff ──────────────────────────────────────────────
@@ -208,7 +211,7 @@ impl System for PhysicsSystem {
 
         let scale = self.pixels_per_unit.max(f32::EPSILON);
         for &(entity, handle) in &self.body_pairs {
-            if let Some(body) = physics.rigid_body(handle) {
+            if let Some(body) = physics.rigid_body_set.get(handle.0) {
                 let t = *body.translation();
                 let angle = body.rotation().angle();
                 if let Some(tr) = world.get_mut::<Transform>(entity) {

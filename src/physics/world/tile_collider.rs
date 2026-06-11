@@ -1,9 +1,8 @@
 use glam::Vec2;
-use rapier2d::prelude::*;
 
 use crate::tilemap::Tilemap;
 
-use super::{PhysicsWorld, TileCollider};
+use super::{BodyHandle, ColliderHandle, PhysicsWorld, TileCollider};
 
 impl PhysicsWorld {
     /// Creates a static box collider for each tile in the tilemap.
@@ -18,14 +17,14 @@ impl PhysicsWorld {
     ///
     /// `pixels_per_unit` is the scale factor that converts world (pixel) coordinates
     /// to physics (meter) units.
-    /// The return value is a list of created `(RigidBodyHandle, ColliderHandle)` pairs
+    /// The return value is a list of created `(BodyHandle, ColliderHandle)` pairs
     /// (spawn order: row → column).
     pub fn add_static_from_tilemap(
         &mut self,
         tilemap: &Tilemap,
         pixels_per_unit: f32,
         mut collider_for: impl FnMut(u32) -> Option<TileCollider>,
-    ) -> Vec<(RigidBodyHandle, ColliderHandle)> {
+    ) -> Vec<(BodyHandle, ColliderHandle)> {
         let ppu = pixels_per_unit.max(f32::MIN_POSITIVE);
         let half = (tilemap.tile_size * 0.5) / ppu;
         let mut handles = Vec::new();
@@ -41,7 +40,7 @@ impl PhysicsWorld {
                 let pair =
                     self.add_static_box_with_groups(Vec2::new(x, y) / ppu, half, half, kind.groups);
                 if kind.one_way {
-                    self.one_way_colliders.insert(pair.1);
+                    self.one_way_colliders.insert(pair.1 .0);
                 }
                 handles.push(pair);
             }

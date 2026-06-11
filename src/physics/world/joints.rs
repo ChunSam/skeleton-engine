@@ -1,7 +1,7 @@
 use glam::Vec2;
 use rapier2d::prelude::*;
 
-use super::{JointHandle, PhysicsWorld};
+use super::{BodyHandle, JointHandle, PhysicsWorld};
 
 impl PhysicsWorld {
     /// Creates a DistanceJoint between two bodies.
@@ -9,8 +9,8 @@ impl PhysicsWorld {
     /// Internally uses `SpringJointBuilder` (stiffness=1000, damping=10) to maintain a fixed distance.
     pub fn add_distance_joint(
         &mut self,
-        body1: RigidBodyHandle,
-        body2: RigidBodyHandle,
+        body1: BodyHandle,
+        body2: BodyHandle,
         anchor1: Vec2,
         anchor2: Vec2,
         rest_length: f32,
@@ -19,14 +19,14 @@ impl PhysicsWorld {
             .local_anchor1(point![anchor1.x, anchor1.y])
             .local_anchor2(point![anchor2.x, anchor2.y])
             .build();
-        JointHandle(self.impulse_joint_set.insert(body1, body2, data, true))
+        JointHandle(self.impulse_joint_set.insert(body1.0, body2.0, data, true))
     }
 
     /// RevoluteJoint (hinge) — two bodies rotate freely around a shared pivot point.
     pub fn add_revolute_joint(
         &mut self,
-        body1: RigidBodyHandle,
-        body2: RigidBodyHandle,
+        body1: BodyHandle,
+        body2: BodyHandle,
         anchor1: Vec2,
         anchor2: Vec2,
     ) -> JointHandle {
@@ -34,14 +34,14 @@ impl PhysicsWorld {
             .local_anchor1(point![anchor1.x, anchor1.y])
             .local_anchor2(point![anchor2.x, anchor2.y])
             .build();
-        JointHandle(self.impulse_joint_set.insert(body1, body2, data, true))
+        JointHandle(self.impulse_joint_set.insert(body1.0, body2.0, data, true))
     }
 
     /// PrismaticJoint (slider) — allows relative movement along a specific axis only.
     pub fn add_prismatic_joint(
         &mut self,
-        body1: RigidBodyHandle,
-        body2: RigidBodyHandle,
+        body1: BodyHandle,
+        body2: BodyHandle,
         anchor1: Vec2,
         anchor2: Vec2,
         axis: Vec2,
@@ -51,7 +51,7 @@ impl PhysicsWorld {
             .local_anchor1(point![anchor1.x, anchor1.y])
             .local_anchor2(point![anchor2.x, anchor2.y])
             .build();
-        JointHandle(self.impulse_joint_set.insert(body1, body2, data, true))
+        JointHandle(self.impulse_joint_set.insert(body1.0, body2.0, data, true))
     }
 
     /// Removes a joint.

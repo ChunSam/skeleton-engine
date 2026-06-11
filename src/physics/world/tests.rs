@@ -264,7 +264,7 @@ fn add_static_from_tilemap_creates_collider_per_matching_tile() {
     );
 
     // Tile center for [row=0][col=0] with tile_size 32, ppu 32 → world (16,16) → physics (0.5,0.5).
-    let body = pw.rigid_body_set.get(solids[0].0).unwrap();
+    let body = pw.rigid_body_set.get(solids[0].0 .0).unwrap();
     let t = body.translation();
     assert!((t.x - 0.5).abs() < 1e-5 && (t.y - 0.5).abs() < 1e-5);
 }

@@ -1,7 +1,7 @@
 use glam::Vec2;
 use rapier2d::prelude::*;
 
-use super::{PhysicsWorld, RaycastHit};
+use super::{ColliderHandle, PhysicsWorld, RaycastHit};
 
 impl PhysicsWorld {
     /// Simple raycast. Returns the first hit collider handle and toi (ray travel distance multiplier).
@@ -20,14 +20,16 @@ impl PhysicsWorld {
             point![origin.x, origin.y],
             vector![direction.x, direction.y],
         );
-        self.query_pipeline.cast_ray(
-            &self.rigid_body_set,
-            &self.collider_set,
-            &ray,
-            max_toi,
-            solid,
-            QueryFilter::default(),
-        )
+        self.query_pipeline
+            .cast_ray(
+                &self.rigid_body_set,
+                &self.collider_set,
+                &ray,
+                max_toi,
+                solid,
+                QueryFilter::default(),
+            )
+            .map(|(handle, toi)| (ColliderHandle::from_raw(handle), toi))
     }
 
     /// Raycast that returns a `RaycastHit` including the hit point and normal vector.
@@ -58,7 +60,7 @@ impl PhysicsWorld {
             .map(|(handle, intersection)| {
                 let hit_point = ray.point_at(intersection.time_of_impact);
                 RaycastHit {
-                    collider_handle: handle,
+                    collider_handle: ColliderHandle::from_raw(handle),
                     point: Vec2::new(hit_point.x, hit_point.y),
                     normal: Vec2::new(intersection.normal.x, intersection.normal.y),
                     toi: intersection.time_of_impact,
