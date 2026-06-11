@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
@@ -467,11 +466,7 @@ impl SpriteRenderer {
         // then culled, leaving the pipeline uncompiled).
         let mat_ids: Vec<(crate::ecs::Entity, u64, [f32; 4])> = world
             .query::<ShaderMaterial>()
-            .map(|(e, mat)| {
-                let mut h = std::collections::hash_map::DefaultHasher::new();
-                mat.frag_source.hash(&mut h);
-                (e, h.finish(), mat.params)
-            })
+            .map(|(e, mat)| (e, mat.source_hash(), mat.params))
             .collect();
 
         // Set of live entities (= currently holding a ShaderMaterial). Populated
@@ -527,7 +522,7 @@ impl SpriteRenderer {
                 if !self.custom_pipelines.contains_key(&hash) && seen_new_hashes.insert(hash) {
                     world
                         .get::<ShaderMaterial>(entity)
-                        .map(|m| m.frag_source.clone())
+                        .map(|m| m.frag_source().to_owned())
                         .unwrap_or_default()
                 } else {
                     String::new()
