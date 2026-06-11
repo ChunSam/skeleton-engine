@@ -86,8 +86,6 @@ fn main() {
                 .map(|bus| bus.read().to_vec())
                 .unwrap_or_default();
 
-            #[allow(deprecated)]
-            // JsonParseError is deprecated since 4.6.0; kept for back-compat until v5
             for ev in events {
                 match ev {
                     NetworkEvent::Connected => {
@@ -101,9 +99,6 @@ fn main() {
                     }
                     NetworkEvent::Disconnected { reason } => {
                         self.status = format!("Disconnected: {reason}");
-                    }
-                    NetworkEvent::JsonParseError { message } => {
-                        self.status = format!("Protocol error: {message}");
                     }
                     NetworkEvent::Error(e) => {
                         self.status = format!("Error: {e}");

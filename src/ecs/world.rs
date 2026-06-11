@@ -531,34 +531,11 @@ impl World {
 
     // ── Reflect registry ──────────────────────────────────────────────────────
 
-    /// Registers type T with the Reflect registry.
-    ///
-    /// Registered types are accessible via `get_reflect`, `get_reflect_mut`, and
-    /// `reflected_components`, and are automatically displayed in the egui Inspector panel.
-    ///
-    /// **Deprecated:** this overload stores an empty type name, causing the Inspector to
-    /// display a blank entry instead of the component name. Use
-    /// [`register_reflect_named`](Self::register_reflect_named) and pass the display name
-    /// explicitly.
-    #[deprecated(
-        since = "4.6.0",
-        note = "use register_reflect_named — register_reflect stores an empty type name and breaks the Inspector display"
-    )]
-    pub fn register_reflect<T: crate::reflect::Reflect + 'static>(&mut self) {
-        self.reflect_registry.insert(
-            TypeId::of::<T>(),
-            ReflectEntry {
-                get: get_reflect_impl::<T>,
-                get_mut: get_reflect_mut_impl::<T>,
-                type_name: "",
-            },
-        );
-    }
-
     /// Registers type T with the Reflect registry under a display name.
     ///
-    /// Same as `register_reflect`, but specifies the name shown in the Inspector component
-    /// list. This name is returned when querying via `reflect_registered_types()`.
+    /// Registered types are accessible via `get_reflect`, `get_reflect_mut`, and
+    /// `reflected_components`, and are automatically displayed in the egui Inspector panel
+    /// under `name`. This name is returned when querying via `reflect_registered_types()`.
     pub fn register_reflect_named<T: crate::reflect::Reflect + 'static>(
         &mut self,
         name: &'static str,

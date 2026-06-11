@@ -92,14 +92,6 @@ impl ParticleEmitter {
             timer: 0.0,
         }
     }
-
-    /// Emitter preset for one-shot bursts.
-    ///
-    /// Renamed to [`ParticleEmitter::burst`]; this alias will be removed in v5.
-    #[deprecated(since = "4.6.0", note = "renamed to ParticleEmitter::burst")]
-    pub fn for_burst() -> Self {
-        Self::burst()
-    }
 }
 
 /// Active particle component.

@@ -26,8 +26,8 @@ pub enum ReflectValue {
 /// can also be implemented manually on user-defined components.
 ///
 /// # egui Inspector integration
-/// Registering with `World::register_reflect::<T>()` causes the component's fields
-/// to appear automatically in the F1 Inspector panel for live editing.
+/// Registering with `World::register_reflect_named::<T>("Name")` causes the component's
+/// fields to appear automatically in the F1 Inspector panel for live editing.
 ///
 /// # Example
 /// ```rust,no_run
