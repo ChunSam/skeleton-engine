@@ -37,6 +37,45 @@ impl AssetServer {
     pub fn get_script_by_id(&self, id: AssetId) -> Option<&ScriptAsset> {
         self.scripts.get(&id)
     }
+
+    /// Compiles an inline Rhai source string and returns a handle.
+    ///
+    /// Primarily intended for tests that need a fully-functional `ScriptRunner` without
+    /// loading from disk. Uses a synthetic path key so it participates in the normal
+    /// handle-dedup cache; repeated calls with the same `key` return the cached handle.
+    #[cfg(test)]
+    pub fn load_script_inline(
+        &mut self,
+        key: impl Into<Arc<str>>,
+        source: &str,
+    ) -> Handle<ScriptAsset> {
+        let key: Arc<str> = key.into();
+        if let Some(&id) = self.script_path_to_id.get(&key) {
+            return Handle {
+                id,
+                path: key,
+                _marker: std::marker::PhantomData,
+            };
+        }
+        let id = alloc_id();
+        let engine = rhai::Engine::new();
+        let ast = engine.compile(source).unwrap_or_else(|e| {
+            panic!("load_script_inline: compile failed: {e}");
+        });
+        self.scripts.insert(
+            id,
+            ScriptAsset {
+                source: source.to_string(),
+                ast: Arc::new(ast),
+            },
+        );
+        self.script_path_to_id.insert(Arc::clone(&key), id);
+        Handle {
+            id,
+            path: key,
+            _marker: std::marker::PhantomData,
+        }
+    }
 }
 
 pub(super) fn compile_script_file(path: &str) -> ScriptAsset {

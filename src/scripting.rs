@@ -89,12 +89,25 @@ impl ScriptRunner {
 /// flee_from(enemy_x, enemy_y, 200.0, 80.0);                  // set Flee component
 /// arrive_at(tx, ty, speed, slow_radius, stop_radius);        // set Arrive component
 /// wander(speed, change_interval);                            // set Wander component
-/// stop_steering();                                           // reset SteeringVelocity speed
+/// stop_steering();                                           // remove all steering + zero velocity
 /// ```
 ///
-/// All four steering behaviors (`Seek`, `Flee`, `Arrive`, `Wander`) are exposed to scripts.
-/// Each call replaces the entity's current steering command for that frame; the corresponding
-/// ECS component is attached (or updated) during the apply step.
+/// **Steering commands are mutually exclusive from scripts.** Calling any steering
+/// function removes the other three steering components (`Seek`, `Flee`, `Arrive`,
+/// `Wander`) before attaching its own. This prevents stale components from overriding
+/// the newly requested behavior via `SteeringSystem`'s fixed evaluation order
+/// (Seek → Flee → Arrive → Wander, last-writer-wins). `stop_steering()` removes all
+/// four components *and* zeroes `SteeringVelocity` so the entity stays stopped on
+/// subsequent frames.
+///
+/// Exception: `Wander` preserves its internal `timer`/`current_dir` fields when the
+/// script calls `wander()` on an entity that is already wandering — only `speed` and
+/// `change_interval` are updated — to keep movement smooth across parameter changes.
+///
+/// **This exclusivity applies only to the script apply path.** Rust-side code may still
+/// compose multiple steering components on the same entity; `SteeringSystem` evaluates
+/// them in order (Seek → Flee → Arrive → Wander) and the last one wins, which is a
+/// documented feature for Rust-authored behaviors.
 pub struct ScriptingSystem {
     engine: Engine,
 }

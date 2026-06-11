@@ -12,6 +12,16 @@ use super::source::PannedSource;
 use super::types::{is_finished_state, is_playing_state, playback_state_from_sink};
 use super::{AudioChannelState, AudioManager};
 
+// ── Helper ────────────────────────────────────────────────────────────────────
+
+/// Returns the current interpolated volume of an active fade, if any.
+///
+/// When a fade is in progress this avoids starting a release from a stale
+/// `volume_overrides` value (finding 4 — start-volume pop).
+fn fade_current_vol(fades: &HashMap<String, Fade>, channel: &str) -> Option<f32> {
+    fades.get(channel).map(|f| f.current_vol())
+}
+
 impl AudioManager {
     /// Initializes the audio device. Returns `None` on failure; the game continues silently.
     pub fn new() -> Option<Self> {
@@ -28,7 +38,6 @@ impl AudioManager {
                 fades: HashMap::new(),
                 effects: HashMap::new(),
                 file_cache: HashMap::new(),
-                releasing: std::collections::HashSet::new(),
             }),
             Err(e) => {
                 log::warn!("Audio initialization failed (running without audio): {e}");
@@ -51,13 +60,16 @@ impl AudioManager {
 
     /// Stops playback on a channel, honoring the release envelope.
     ///
-    /// If the channel has an [`AudioEffect`](crate::AudioEffect) with `release_secs > 0.0`
-    /// **and** the channel is not already in the middle of a release fade, the engine
-    /// schedules a volume fade from the current level to zero over `release_secs` seconds.
-    /// The sink is torn down only after that fade completes.
+    /// If the channel has an [`AudioEffect`](crate::AudioEffect) with `release_secs > 0.0`,
+    /// no `stop_when_done` fade is already active, and the sink still has audio queued,
+    /// the engine schedules a release fade from the *current interpolated volume* to zero
+    /// over `release_secs` seconds.  The sink is torn down only after that fade completes.
     ///
-    /// In all other cases (no release configured, `release_secs == 0.0`, or the channel
-    /// is already releasing) the sink is torn down immediately.
+    /// In all other cases the sink is torn down immediately:
+    /// - `release_secs == 0.0` or no effect configured.
+    /// - A `stop_when_done` fade (release *or* `fade_out`) is already active — this
+    ///   second `stop` cuts through it immediately.
+    /// - The sink has already drained (naturally finished).
     ///
     /// Requires [`AudioSystem`](crate::AudioSystem) (or manual
     /// [`update`](Self::update) calls) for the release fade to progress.
@@ -68,23 +80,24 @@ impl AudioManager {
             .map(|e| e.release_secs)
             .unwrap_or(0.0);
 
-        // If already releasing, a second stop() cuts immediately (prevents lingering sinks).
-        let already_releasing = self.releasing.contains(channel);
+        // Cut immediately if any stop_when_done fade is already active (covers both
+        // release fades and explicit fade_out calls — finding 3).
+        let stop_when_done_active = self
+            .fades
+            .get(channel)
+            .map(|f| f.stop_when_done)
+            .unwrap_or(false);
 
-        if release > 0.001 && !already_releasing && self.sinks.contains_key(channel) {
-            // Schedule a release fade; the sink will be torn down by update() when it completes.
-            let current_vol = self.effective_volume(channel);
-            self.releasing.insert(channel.to_string());
-            self.fades.insert(
-                channel.to_string(),
-                Fade {
-                    start_vol: current_vol,
-                    target_vol: 0.0,
-                    duration: release,
-                    elapsed: 0.0,
-                    stop_when_done: true,
-                },
-            );
+        // A naturally-finished sink has no audio to release — cut immediately (finding 5).
+        let sink_has_audio = self.sinks.get(channel).map(|s| !s.empty()).unwrap_or(false);
+
+        if release > 0.001 && !stop_when_done_active && sink_has_audio {
+            // Use the current interpolated fade volume as start_vol so there is no
+            // audible jump when stop() is called mid-fade_volume (finding 4).
+            let start_vol = fade_current_vol(&self.fades, channel)
+                .unwrap_or_else(|| self.effective_volume(channel));
+            self.fades
+                .insert(channel.to_string(), Fade::stop_fade(start_vol, release));
         } else {
             self.stop_immediate(channel);
         }
@@ -96,7 +109,6 @@ impl AudioManager {
     /// `stop_when_done` fade (including a release fade) completes.
     pub(super) fn stop_immediate(&mut self, channel: &str) {
         self.fades.remove(channel);
-        self.releasing.remove(channel);
         if let Some(sink) = self.sinks.remove(channel) {
             sink.stop();
         }
@@ -173,8 +185,7 @@ impl AudioManager {
             let done = {
                 let fade = self.fades.get_mut(&ch).unwrap();
                 fade.elapsed += dt;
-                let t = (fade.elapsed / fade.duration).clamp(0.0, 1.0);
-                let vol = fade.start_vol + (fade.target_vol - fade.start_vol) * t;
+                let vol = fade.current_vol();
                 if let Some(sink) = self.sinks.get(&ch) {
                     let bus_vol = self
                         .channel_buses
@@ -182,11 +193,21 @@ impl AudioManager {
                         .and_then(|b| self.bus_volumes.get(b))
                         .copied()
                         .unwrap_or(1.0);
+                    // update() interpolates the pre-bus volume into the sink directly.
+                    // The bus multiplier is applied here (same as the fade constructor
+                    // which uses effective_volume = base × bus for start_vol).
                     sink.set_volume(vol * bus_vol);
                 }
+                let t = (fade.elapsed / fade.duration).clamp(0.0, 1.0);
                 if t >= 1.0 {
                     let stop = fade.stop_when_done;
-                    self.volume_overrides.insert(ch.clone(), fade.target_vol);
+                    // Only persist target_vol for plain fade_volume (stop_when_done==false).
+                    // For stop_when_done fades (fade_out / release) the sink is being torn
+                    // down; writing 0.0 into volume_overrides would silence the channel's
+                    // NEXT play (finding 1).
+                    if !stop {
+                        self.volume_overrides.insert(ch.clone(), fade.target_vol);
+                    }
                     stop
                 } else {
                     false
@@ -197,13 +218,6 @@ impl AudioManager {
                 // needed (and calling stop() would re-trigger release for release fades).
                 self.fades.remove(&ch);
                 self.stop_immediate(&ch);
-            } else if self
-                .fades
-                .get(&ch)
-                .map(|f| f.elapsed >= f.duration)
-                .unwrap_or(false)
-            {
-                self.fades.remove(&ch);
             }
         }
     }

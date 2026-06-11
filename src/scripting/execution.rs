@@ -165,10 +165,23 @@ impl System for ScriptingSystem {
             }
 
             // ── Apply Steering changes ────────────────────────────────────────────
+            // Script steering commands are mutually exclusive: applying any one behavior
+            // removes the other three from this entity so stale components cannot
+            // override the newly requested behavior via SteeringSystem's fixed evaluation
+            // order (Seek → Flee → Arrive → Wander, last-writer-wins).
+            // SteeringCmd::Stop removes all four AND zeroes SteeringVelocity so the
+            // entity stays stopped on subsequent frames.
+            // NOTE: this exclusivity applies to the SCRIPT apply path only. Rust-side
+            // code may still compose multiple steering components manually (documented
+            // feature of SteeringSystem).
             if let Some(cmd) = steer_buf.take() {
                 match cmd {
                     SteeringCmd::Seek { tx, ty, speed } => {
                         use glam::Vec2;
+                        // Remove competing components before applying Seek.
+                        world.remove_component::<Flee>(entity);
+                        world.remove_component::<Arrive>(entity);
+                        world.remove_component::<Wander>(entity);
                         if world.get::<SteeringVelocity>(entity).is_none() {
                             world.add_component(entity, SteeringVelocity::default());
                         }
@@ -187,6 +200,10 @@ impl System for ScriptingSystem {
                         radius,
                     } => {
                         use glam::Vec2;
+                        // Remove competing components before applying Flee.
+                        world.remove_component::<Seek>(entity);
+                        world.remove_component::<Arrive>(entity);
+                        world.remove_component::<Wander>(entity);
                         if world.get::<SteeringVelocity>(entity).is_none() {
                             world.add_component(entity, SteeringVelocity::default());
                         }
@@ -207,6 +224,10 @@ impl System for ScriptingSystem {
                         stop_radius,
                     } => {
                         use glam::Vec2;
+                        // Remove competing components before applying Arrive.
+                        world.remove_component::<Seek>(entity);
+                        world.remove_component::<Flee>(entity);
+                        world.remove_component::<Wander>(entity);
                         if world.get::<SteeringVelocity>(entity).is_none() {
                             world.add_component(entity, SteeringVelocity::default());
                         }
@@ -224,6 +245,10 @@ impl System for ScriptingSystem {
                         speed,
                         change_interval,
                     } => {
+                        // Remove competing components before applying Wander.
+                        world.remove_component::<Seek>(entity);
+                        world.remove_component::<Flee>(entity);
+                        world.remove_component::<Arrive>(entity);
                         if world.get::<SteeringVelocity>(entity).is_none() {
                             world.add_component(entity, SteeringVelocity::default());
                         }
@@ -242,6 +267,13 @@ impl System for ScriptingSystem {
                         }
                     }
                     SteeringCmd::Stop => {
+                        // Remove all four steering components so they cannot re-apply
+                        // on subsequent frames. Zeroing SteeringVelocity ensures the
+                        // entity stays stopped even if SteeringSystem runs this frame.
+                        world.remove_component::<Seek>(entity);
+                        world.remove_component::<Flee>(entity);
+                        world.remove_component::<Arrive>(entity);
+                        world.remove_component::<Wander>(entity);
                         if let Some(sv) = world.get_mut::<SteeringVelocity>(entity) {
                             sv.velocity = glam::Vec2::ZERO;
                         }

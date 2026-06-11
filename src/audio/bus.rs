@@ -54,18 +54,22 @@ impl AudioManager {
 
     /// Fades out the channel playback over `duration_secs` seconds, then stops it.
     ///
+    /// This is an explicit fade — the release envelope (if any) is **not** applied
+    /// on top.  Calling [`stop`](Self::stop) after `fade_out` has been scheduled
+    /// cuts immediately (because a `stop_when_done` fade is already active).
+    ///
     /// Requires [`update`](Self::update) to be called every frame.
     pub fn fade_out(&mut self, channel: &str, duration_secs: f32) {
-        let current_vol = self.effective_volume(channel);
+        // Use the current interpolated fade volume if a fade is in progress so
+        // there is no audible jump when fade_out is called mid-fade_volume.
+        let start_vol = self
+            .fades
+            .get(channel)
+            .map(|f| f.current_vol())
+            .unwrap_or_else(|| self.effective_volume(channel));
         self.fades.insert(
             channel.to_string(),
-            Fade {
-                start_vol: current_vol,
-                target_vol: 0.0,
-                duration: duration_secs.max(0.001),
-                elapsed: 0.0,
-                stop_when_done: true,
-            },
+            Fade::stop_fade(start_vol, duration_secs),
         );
     }
 
@@ -73,11 +77,17 @@ impl AudioManager {
     ///
     /// Requires [`update`](Self::update) to be called every frame.
     pub fn fade_volume(&mut self, channel: &str, target: f32, duration_secs: f32) {
-        let current_vol = self.effective_volume(channel);
+        // Use the current interpolated fade volume if a fade is in progress so
+        // chaining fade_volume calls doesn't jump to the stale volume_overrides value.
+        let start_vol = self
+            .fades
+            .get(channel)
+            .map(|f| f.current_vol())
+            .unwrap_or_else(|| self.effective_volume(channel));
         self.fades.insert(
             channel.to_string(),
             Fade {
-                start_vol: current_vol,
+                start_vol,
                 target_vol: target.clamp(0.0, 1.0),
                 duration: duration_secs.max(0.001),
                 elapsed: 0.0,
