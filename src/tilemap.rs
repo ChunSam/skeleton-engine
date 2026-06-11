@@ -159,7 +159,7 @@ impl System for TilemapSystem {
                         },
                     );
                     // UV is controlled directly via the UvRect component without an AnimationPlayer.
-                    world.add_component(tile_entity, Sprite::textured(&atlas.texture));
+                    world.add_component(tile_entity, Sprite::textured(atlas.texture.as_str()));
                     world.add_component(tile_entity, uv);
                     spawned.push(tile_entity);
                 }

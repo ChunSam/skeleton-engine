@@ -254,7 +254,7 @@ fn main() {
     app.world.add_component(
         left_sprite,
         Sprite {
-            texture: Some("left_view".to_string()),
+            texture: Some("left_view".into()),
             color: Color::WHITE,
             ..Default::default()
         },
@@ -274,7 +274,7 @@ fn main() {
     app.world.add_component(
         right_sprite,
         Sprite {
-            texture: Some("right_view".to_string()),
+            texture: Some("right_view".into()),
             color: Color::WHITE,
             ..Default::default()
         },
