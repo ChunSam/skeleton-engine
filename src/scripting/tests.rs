@@ -2,7 +2,11 @@ use super::context::{
     set_script_ctx, take_script_ctx, BbEntry, ScriptCommands, ScriptCtx, SteeringCmd,
 };
 use super::*;
-use crate::ecs::Entity;
+use crate::asset::AssetServer;
+use crate::components::Transform;
+use crate::ecs::{Entity, System, World};
+use crate::steering::{Arrive, Flee, Seek, SteeringVelocity, Wander};
+use glam::Vec2;
 use rhai::Scope;
 use std::collections::HashMap;
 
@@ -250,5 +254,194 @@ fn scripting_wander_overwrites_previous_steer_cmd() {
     assert!(
         matches!(ctx.steer_buf, Some(SteeringCmd::Wander { .. })),
         "Wander should win over the earlier Seek"
+    );
+}
+
+// ─── World-level exclusivity tests ───────────────────────────────────────────
+//
+// These tests exercise the full ScriptingSystem::run path so that component
+// mutations on the World are verified — not just the steer_buf in the context.
+//
+// Helper: build a minimal World+entity with a ScriptRunner wired to `source`.
+fn make_world_with_script(source: &str) -> (World, Entity, ScriptingSystem) {
+    let mut world = World::new();
+    let mut assets = AssetServer::new();
+    let handle = assets.load_script_inline(format!("inline::{source}"), source);
+    world.insert_resource(assets);
+    let e = world.spawn();
+    world.add_component(
+        e,
+        Transform {
+            position: Vec2::ZERO,
+            scale: Vec2::ONE,
+            rotation: 0.0,
+            z: 0.0,
+        },
+    );
+    world.add_component(e, ScriptRunner::new(handle));
+    let sys = ScriptingSystem::new();
+    (world, e, sys)
+}
+
+/// (a) wander-then-arrive: after a frame with wander() followed by arrive_at() via
+/// two separate script runs (simulating a previous-frame Wander + this-frame Arrive),
+/// only Arrive should remain and no Wander component should be on the entity.
+#[test]
+fn steering_exclusivity_wander_then_arrive_removes_wander() {
+    // First frame: entity runs wander() → Wander component added
+    let wander_src = "fn on_update(dt) { wander(90.0, 1.5); }";
+    let (mut world, e, mut sys) = make_world_with_script(wander_src);
+    sys.run(&mut world, 0.016);
+    assert!(
+        world.get::<Wander>(e).is_some(),
+        "Wander component should be present after wander() script"
+    );
+
+    // Second frame: swap to arrive_at() script
+    // Simulate switching by overwriting the ScriptRunner with an arrive script.
+    let mut assets = world.remove_resource::<AssetServer>().unwrap();
+    let arrive_handle = assets.load_script_inline(
+        "inline::arrive",
+        "fn on_update(dt) { arrive_at(500.0, 300.0, 120.0, 60.0, 8.0); }",
+    );
+    world.insert_resource(assets);
+    if let Some(runner) = world.get_mut::<ScriptRunner>(e) {
+        runner.script = arrive_handle;
+        runner.started = false;
+    }
+    sys.run(&mut world, 0.016);
+
+    assert!(
+        world.get::<Arrive>(e).is_some(),
+        "Arrive component should be present after arrive_at() script"
+    );
+    assert!(
+        world.get::<Wander>(e).is_none(),
+        "Wander component must be removed when arrive_at() is called"
+    );
+    assert!(world.get::<Seek>(e).is_none(), "Seek must not be present");
+    assert!(world.get::<Flee>(e).is_none(), "Flee must not be present");
+}
+
+/// (b) arrive-then-seek: after an Arrive frame, switching to seek_target() removes Arrive.
+#[test]
+fn steering_exclusivity_arrive_then_seek_removes_arrive() {
+    // First frame: arrive_at()
+    let (mut world, e, mut sys) =
+        make_world_with_script("fn on_update(dt) { arrive_at(100.0, 0.0, 80.0, 40.0, 5.0); }");
+    sys.run(&mut world, 0.016);
+    assert!(
+        world.get::<Arrive>(e).is_some(),
+        "Arrive should be set after first frame"
+    );
+
+    // Second frame: seek_target()
+    let mut assets = world.remove_resource::<AssetServer>().unwrap();
+    let seek_handle = assets.load_script_inline(
+        "inline::seek",
+        "fn on_update(dt) { seek_target(200.0, 150.0, 100.0); }",
+    );
+    world.insert_resource(assets);
+    if let Some(runner) = world.get_mut::<ScriptRunner>(e) {
+        runner.script = seek_handle;
+        runner.started = false;
+    }
+    sys.run(&mut world, 0.016);
+
+    assert!(
+        world.get::<Seek>(e).is_some(),
+        "Seek should be present after seek_target()"
+    );
+    assert!(
+        world.get::<Arrive>(e).is_none(),
+        "Arrive must be removed when seek_target() takes over"
+    );
+    assert!(
+        world.get::<Wander>(e).is_none(),
+        "Wander must not be present"
+    );
+    assert!(world.get::<Flee>(e).is_none(), "Flee must not be present");
+}
+
+/// (c) stop_steering removes all steering components and the entity stays stopped.
+/// On the frame after stop_steering() the entity must have no Seek/Flee/Arrive/Wander
+/// and SteeringVelocity must be zero.
+#[test]
+fn steering_exclusivity_stop_clears_all_and_stays_stopped() {
+    // Frame 1: wander() → Wander + SteeringVelocity added
+    let (mut world, e, mut sys) = make_world_with_script("fn on_update(dt) { wander(90.0, 1.5); }");
+    sys.run(&mut world, 0.016);
+    assert!(
+        world.get::<Wander>(e).is_some(),
+        "Wander present after frame 1"
+    );
+
+    // Frame 2: stop_steering()
+    let mut assets = world.remove_resource::<AssetServer>().unwrap();
+    let stop_handle =
+        assets.load_script_inline("inline::stop", "fn on_update(dt) { stop_steering(); }");
+    world.insert_resource(assets);
+    if let Some(runner) = world.get_mut::<ScriptRunner>(e) {
+        runner.script = stop_handle;
+        runner.started = false;
+    }
+    sys.run(&mut world, 0.016);
+
+    assert!(world.get::<Seek>(e).is_none(), "Seek absent after stop");
+    assert!(world.get::<Flee>(e).is_none(), "Flee absent after stop");
+    assert!(world.get::<Arrive>(e).is_none(), "Arrive absent after stop");
+    assert!(world.get::<Wander>(e).is_none(), "Wander absent after stop");
+    if let Some(sv) = world.get::<SteeringVelocity>(e) {
+        assert!(
+            sv.velocity.length_squared() < 1e-8,
+            "SteeringVelocity must be zeroed by stop_steering()"
+        );
+    }
+
+    // Frame 3: no steering call — entity should remain stopped (no components re-fire).
+    sys.run(&mut world, 0.016);
+    assert!(
+        world.get::<Wander>(e).is_none(),
+        "Wander stays absent on frame 3 (no re-apply)"
+    );
+    if let Some(sv) = world.get::<SteeringVelocity>(e) {
+        assert!(
+            sv.velocity.length_squared() < 1e-8,
+            "SteeringVelocity stays zero on frame 3"
+        );
+    }
+}
+
+/// (d) wander-then-wander: re-calling wander() preserves existing timer/current_dir.
+#[test]
+fn steering_wander_reapply_preserves_timer_and_dir() {
+    let (mut world, e, mut sys) = make_world_with_script("fn on_update(dt) { wander(90.0, 1.5); }");
+
+    // Frame 1: Wander added fresh.
+    sys.run(&mut world, 0.016);
+    // Manually advance timer to a non-zero state to detect preservation.
+    if let Some(w) = world.get_mut::<Wander>(e) {
+        w.timer = 0.7;
+        w.current_dir = Vec2::new(0.5, 0.866);
+    }
+
+    // Frame 2: same wander() call; timer/dir must survive.
+    sys.run(&mut world, 0.016);
+
+    let w = world
+        .get::<Wander>(e)
+        .expect("Wander must still be present after re-apply");
+    // Timer is ticked by SteeringSystem (not running here), so it should still be ≈ 0.7
+    // (ScriptingSystem only calls add_component which preserves the existing value via
+    // the merge-on-reapply path).
+    assert!(
+        w.timer > 0.5,
+        "timer should be preserved (~0.7), got {}",
+        w.timer
+    );
+    assert!(
+        (w.current_dir - Vec2::new(0.5, 0.866)).length() < 1e-3,
+        "current_dir should be preserved, got {:?}",
+        w.current_dir
     );
 }
