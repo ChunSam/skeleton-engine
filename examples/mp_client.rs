@@ -19,7 +19,7 @@
 fn main() {
     use engine::{
         App, DrawText, Events, NetworkClient, NetworkEvent, NetworkSystem, RemoteEntities, Scene,
-        Sprite, System, TextQueue, Transform, WindowConfig, World,
+        Sprite, System, SystemRegistrar, TextQueue, Transform, WindowConfig, World,
     };
     use glam::Vec2;
     use serde::{Deserialize, Serialize};
@@ -48,11 +48,11 @@ fn main() {
     struct MultiScene;
 
     impl Scene for MultiScene {
-        fn on_enter(&mut self, world: &mut World, systems: &mut Vec<Box<dyn System>>) {
+        fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar) {
             let client = NetworkClient::connect("ws://127.0.0.1:9001");
             world.insert_resource(client);
-            systems.push(Box::new(NetworkSystem));
-            systems.push(Box::new(MultiplayerSystem::new()));
+            systems.add(NetworkSystem);
+            systems.add(MultiplayerSystem::new());
         }
     }
 

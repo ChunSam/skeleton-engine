@@ -5,7 +5,7 @@
 //! - Automatically transitions to GameScene once loading completes.
 use engine::{
     App, AssetServer, Color, DrawRect, DrawText, LoadProgress, Scene, SceneChange, SceneCmd,
-    System, TextQueue, UiQueue, ViewportSize, WindowConfig, World,
+    System, SystemRegistrar, TextQueue, UiQueue, ViewportSize, WindowConfig, World,
 };
 
 // ─── Loading Scene ───────────────────────────────────────────────────────────
@@ -13,7 +13,7 @@ use engine::{
 struct LoadingScene;
 
 impl Scene for LoadingScene {
-    fn on_enter(&mut self, world: &mut World, systems: &mut Vec<Box<dyn System>>) {
+    fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar) {
         // Request async loading of several images (missing files fall back to magenta)
         let paths = [
             "assets/bg.png",
@@ -33,7 +33,7 @@ impl Scene for LoadingScene {
             prog.total = count;
             prog.loaded = 0;
         }
-        systems.push(Box::new(LoadingUpdateSystem { done: false }));
+        systems.add(LoadingUpdateSystem { done: false });
     }
 
     fn on_exit(&mut self, _world: &mut World) {}
@@ -117,8 +117,8 @@ impl System for LoadingUpdateSystem {
 struct GameScene;
 
 impl Scene for GameScene {
-    fn on_enter(&mut self, _world: &mut World, systems: &mut Vec<Box<dyn System>>) {
-        systems.push(Box::new(GameUpdateSystem));
+    fn on_enter(&mut self, _world: &mut World, systems: &mut SystemRegistrar) {
+        systems.add(GameUpdateSystem);
     }
     fn on_exit(&mut self, _world: &mut World) {}
 }

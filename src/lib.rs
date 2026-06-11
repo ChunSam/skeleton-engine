@@ -116,7 +116,7 @@ pub use resources::{
     GameState, ImeConfig, LoadProgress, PanickedSystems, PendingResize, ProfilerData, RenderStats,
     SelectedEntity, ShouldQuit, SystemProfile, ViewportSize, WindowConfig,
 };
-pub use scene::{Scene, SceneChange, SceneCmd};
+pub use scene::{Scene, SceneChange, SceneCmd, SystemRegistrar};
 pub use scripting::{ScriptRunner, ScriptingSystem};
 pub use steering::{Arrive, Flee, Seek, SteeringSystem, SteeringVelocity, Wander};
 pub use tilemap::{Tilemap, TilemapAtlas, TilemapSystem};

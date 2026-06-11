@@ -384,17 +384,17 @@ mod tests {
         // incorrectly skip the system at the same index in scene B after Replace.
         struct SceneA;
         impl Scene for SceneA {
-            fn on_enter(&mut self, _w: &mut World, systems: &mut Vec<Box<dyn System>>) {
-                systems.push(Box::new(PanicSystem)); // idx 0 — disabled after panic
-                systems.push(Box::new(CountSystem)); // idx 1
+            fn on_enter(&mut self, _w: &mut World, systems: &mut crate::scene::SystemRegistrar) {
+                systems.add(PanicSystem); // idx 0 — disabled after panic
+                systems.add(CountSystem); // idx 1
             }
             fn on_exit(&mut self, _w: &mut World) {}
         }
         struct SceneB;
         impl Scene for SceneB {
-            fn on_enter(&mut self, _w: &mut World, systems: &mut Vec<Box<dyn System>>) {
-                systems.push(Box::new(CountSystem)); // idx 0
-                systems.push(Box::new(CountSystem)); // idx 1
+            fn on_enter(&mut self, _w: &mut World, systems: &mut crate::scene::SystemRegistrar) {
+                systems.add(CountSystem); // idx 0
+                systems.add(CountSystem); // idx 1
             }
             fn on_exit(&mut self, _w: &mut World) {}
         }

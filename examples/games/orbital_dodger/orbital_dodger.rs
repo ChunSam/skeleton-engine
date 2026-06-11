@@ -28,7 +28,8 @@
 
 use engine::{
     App, DrawText, Entity, Events, InputState, KeyCode, NetworkClient, NetworkEvent, NetworkSystem,
-    Scene, ShouldQuit, SnapshotBuffer, Sprite, System, TextQueue, Transform, WindowConfig, World,
+    Scene, ShouldQuit, SnapshotBuffer, Sprite, System, SystemRegistrar, TextQueue, Transform,
+    WindowConfig, World,
 };
 use glam::Vec2;
 use std::collections::HashMap;
@@ -64,7 +65,7 @@ fn start_pos() -> Vec2 {
 struct DodgerScene;
 
 impl Scene for DodgerScene {
-    fn on_enter(&mut self, world: &mut World, systems: &mut Vec<Box<dyn System>>) {
+    fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar) {
         world.insert_resource(NetworkClient::connect(&format!("ws://{SERVER_ADDR}")));
 
         // The vault door (win zone) — a dim green strip behind everything.
@@ -84,8 +85,8 @@ impl Scene for DodgerScene {
             [1.0, 1.0, 1.0],
         );
 
-        systems.push(Box::new(NetworkSystem));
-        systems.push(Box::new(DodgerClient::new(player)));
+        systems.add(NetworkSystem);
+        systems.add(DodgerClient::new(player));
     }
 }
 
