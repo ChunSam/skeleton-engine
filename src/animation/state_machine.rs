@@ -40,6 +40,8 @@ pub struct AnimTransition {
     pub to: String,
     /// All conditions must be satisfied for the transition to occur.
     pub conditions: Vec<TransitionCond>,
+    /// Crossfade duration in seconds. `0.0` means an instant clip switch (default).
+    pub crossfade_duration: f32,
 }
 
 // ─── State node ───────────────────────────────────────────────────────────────
@@ -116,7 +118,7 @@ impl AnimationStateMachine {
         self
     }
 
-    /// Registers a transition edge from `from` to `to`.
+    /// Registers a transition edge from `from` to `to` with an instant (hard) clip switch.
     /// Does nothing if the `from` state does not exist.
     pub fn add_transition(
         &mut self,
@@ -124,10 +126,40 @@ impl AnimationStateMachine {
         to: impl Into<String>,
         conditions: Vec<TransitionCond>,
     ) -> &mut Self {
+        self.add_transition_crossfade(from, to, conditions, 0.0)
+    }
+
+    /// Registers a transition edge from `from` to `to` with a smooth crossfade.
+    ///
+    /// When the transition fires, the `AnimationPlayer` blends from the old clip to
+    /// the new clip over `crossfade_duration` seconds (same mechanism as
+    /// `AnimationPlayer::play_with_crossfade` and `BlendTree1D`). Pass `0.0` for an
+    /// instant switch, which is equivalent to `add_transition`.
+    ///
+    /// Does nothing if the `from` state does not exist.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// sm.add_transition_crossfade("idle", "run",
+    ///     vec![TransitionCond::BoolEq("is_running".into(), true)],
+    ///     0.1, // 100 ms blend
+    /// );
+    /// ```
+    pub fn add_transition_crossfade(
+        &mut self,
+        from: impl Into<String>,
+        to: impl Into<String>,
+        conditions: Vec<TransitionCond>,
+        crossfade_duration: f32,
+    ) -> &mut Self {
         let from = from.into();
         let to = to.into();
         if let Some(state) = self.states.get_mut(&from) {
-            state.transitions.push(AnimTransition { to, conditions });
+            state.transitions.push(AnimTransition {
+                to,
+                conditions,
+                crossfade_duration,
+            });
         }
         self
     }
@@ -202,8 +234,9 @@ impl AnimationStateMachine {
         }
     }
 
-    /// Finds the first satisfied transition in the current state and returns `(target state, clip index)`.
-    fn evaluate(&self, anim_finished: bool) -> Option<(String, usize)> {
+    /// Finds the first satisfied transition in the current state and returns
+    /// `(target state, clip index, crossfade_duration)`.
+    fn evaluate(&self, anim_finished: bool) -> Option<(String, usize, f32)> {
         let state = self.states.get(&self.current)?;
         for transition in &state.transitions {
             if transition
@@ -212,7 +245,11 @@ impl AnimationStateMachine {
                 .all(|c| self.check_condition(c, anim_finished))
             {
                 let next_clip = self.states.get(&transition.to)?.clip_index;
-                return Some((transition.to.clone(), next_clip));
+                return Some((
+                    transition.to.clone(),
+                    next_clip,
+                    transition.crossfade_duration,
+                ));
             }
         }
         None
@@ -260,13 +297,17 @@ impl System for StateMachineSystem {
                 .get_mut::<AnimationStateMachine>(entity)
                 .and_then(|sm| sm.evaluate(anim_finished));
 
-            if let Some((next_state, clip_index)) = transition {
+            if let Some((next_state, clip_index, crossfade_dur)) = transition {
                 if let Some(sm) = world.get_mut::<AnimationStateMachine>(entity) {
                     sm.current = next_state;
                     sm.consume_triggers();
                 }
                 if let Some(player) = world.get_mut::<AnimationPlayer>(entity) {
-                    player.play(clip_index);
+                    if crossfade_dur > 0.0 {
+                        player.play_with_crossfade(clip_index, crossfade_dur);
+                    } else {
+                        player.play(clip_index);
+                    }
                 }
             } else {
                 // Even without a transition, triggers are only valid for one frame and must be consumed.
@@ -275,5 +316,196 @@ impl System for StateMachineSystem {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::animation::player::AnimationClip;
+    use crate::animation::system::AnimationSystem;
+    use crate::ecs::World;
+    use crate::renderer::uv::UvRect;
+
+    fn loop_clip() -> AnimationClip {
+        AnimationClip {
+            frames: vec![UvRect::FULL, UvRect::FULL],
+            fps: 10.0,
+            looping: true,
+        }
+    }
+
+    fn one_shot_clip() -> AnimationClip {
+        AnimationClip {
+            frames: vec![UvRect::FULL, UvRect::FULL],
+            fps: 10.0,
+            looping: false,
+        }
+    }
+
+    /// `add_transition` (no crossfade) performs an instant hard switch.
+    #[test]
+    fn hard_switch_transitions_instant() {
+        let mut world = World::new();
+        let e = world.spawn();
+        world.add_component(e, AnimationPlayer::new(vec![loop_clip(), loop_clip()]));
+
+        let mut sm = AnimationStateMachine::new("idle", 0);
+        sm.add_state("run", 1);
+        sm.set_bool("is_running", false);
+        sm.add_transition(
+            "idle",
+            "run",
+            vec![TransitionCond::BoolEq("is_running".into(), true)],
+        );
+        world.add_component(e, sm);
+
+        // Fire condition.
+        world
+            .get_mut::<AnimationStateMachine>(e)
+            .unwrap()
+            .set_bool("is_running", true);
+
+        let mut anim = AnimationSystem;
+        let mut stm = StateMachineSystem;
+        anim.run(&mut world, 0.05);
+        stm.run(&mut world, 0.05);
+
+        let player = world.get::<AnimationPlayer>(e).unwrap();
+        assert_eq!(player.current_clip, 1, "should have switched to clip 1");
+        assert!(
+            !player.is_crossfading(),
+            "hard switch must not start a crossfade"
+        );
+    }
+
+    /// `add_transition_crossfade` starts a blend rather than an instant switch.
+    #[test]
+    fn crossfade_transition_starts_blend() {
+        let mut world = World::new();
+        let e = world.spawn();
+        world.add_component(e, AnimationPlayer::new(vec![loop_clip(), loop_clip()]));
+
+        let mut sm = AnimationStateMachine::new("idle", 0);
+        sm.add_state("run", 1);
+        sm.set_bool("is_running", false);
+        sm.add_transition_crossfade(
+            "idle",
+            "run",
+            vec![TransitionCond::BoolEq("is_running".into(), true)],
+            0.2, // 200 ms crossfade
+        );
+        world.add_component(e, sm);
+
+        world
+            .get_mut::<AnimationStateMachine>(e)
+            .unwrap()
+            .set_bool("is_running", true);
+
+        let mut anim = AnimationSystem;
+        let mut stm = StateMachineSystem;
+        anim.run(&mut world, 0.05);
+        stm.run(&mut world, 0.05);
+
+        let player = world.get::<AnimationPlayer>(e).unwrap();
+        // State machine has committed to clip 1, but `current_clip` stays 0 until the
+        // crossfade completes (AnimationSystem promotes the "to" clip when elapsed >= duration).
+        assert!(
+            player.is_crossfading(),
+            "crossfade transition must start a blend"
+        );
+    }
+
+    /// After the crossfade duration elapses, `AnimationSystem` completes the switch.
+    #[test]
+    fn crossfade_transition_completes_after_duration() {
+        let mut world = World::new();
+        let e = world.spawn();
+        world.add_component(e, AnimationPlayer::new(vec![loop_clip(), loop_clip()]));
+
+        let mut sm = AnimationStateMachine::new("idle", 0);
+        sm.add_state("run", 1);
+        sm.set_bool("is_running", false);
+        sm.add_transition_crossfade(
+            "idle",
+            "run",
+            vec![TransitionCond::BoolEq("is_running".into(), true)],
+            0.1, // 100 ms crossfade
+        );
+        world.add_component(e, sm);
+
+        world
+            .get_mut::<AnimationStateMachine>(e)
+            .unwrap()
+            .set_bool("is_running", true);
+
+        let mut anim = AnimationSystem;
+        let mut stm = StateMachineSystem;
+
+        // Tick enough frames to exceed the 0.1 s crossfade.
+        for _ in 0..20 {
+            anim.run(&mut world, 0.01);
+            stm.run(&mut world, 0.01);
+        }
+
+        let player = world.get::<AnimationPlayer>(e).unwrap();
+        assert!(!player.is_crossfading(), "crossfade must be complete");
+        assert_eq!(
+            player.current_clip, 1,
+            "must have settled on the target clip"
+        );
+    }
+
+    /// `AnimationEnd` condition fires correctly for a non-looping clip.
+    #[test]
+    fn animation_end_condition_triggers_transition() {
+        let mut world = World::new();
+        let e = world.spawn();
+        world.add_component(e, AnimationPlayer::new(vec![one_shot_clip(), loop_clip()]));
+
+        let mut sm = AnimationStateMachine::new("attack", 0);
+        sm.add_state("idle", 1);
+        sm.add_transition("attack", "idle", vec![TransitionCond::AnimationEnd]);
+        world.add_component(e, sm);
+
+        let mut anim = AnimationSystem;
+        let mut stm = StateMachineSystem;
+
+        // Advance past the clip's last frame (2 frames at 10 fps -> 0.2 s).
+        for _ in 0..30 {
+            anim.run(&mut world, 0.01);
+            stm.run(&mut world, 0.01);
+        }
+
+        let player = world.get::<AnimationPlayer>(e).unwrap();
+        assert_eq!(player.current_clip, 1, "should have transitioned to idle");
+    }
+
+    /// A `crossfade_duration: 0.0` stored on `AnimTransition` must behave like a hard switch.
+    #[test]
+    fn zero_crossfade_duration_is_hard_switch() {
+        let mut world = World::new();
+        let e = world.spawn();
+        world.add_component(e, AnimationPlayer::new(vec![loop_clip(), loop_clip()]));
+
+        let mut sm = AnimationStateMachine::new("a", 0);
+        sm.add_state("b", 1);
+        sm.add_trigger("go");
+        sm.add_transition_crossfade("a", "b", vec![TransitionCond::Trigger("go".into())], 0.0);
+        world.add_component(e, sm);
+
+        world
+            .get_mut::<AnimationStateMachine>(e)
+            .unwrap()
+            .fire_trigger("go");
+
+        let mut anim = AnimationSystem;
+        let mut stm = StateMachineSystem;
+        anim.run(&mut world, 0.05);
+        stm.run(&mut world, 0.05);
+
+        let player = world.get::<AnimationPlayer>(e).unwrap();
+        assert_eq!(player.current_clip, 1);
+        assert!(!player.is_crossfading());
     }
 }
