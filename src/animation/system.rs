@@ -1,5 +1,6 @@
-use crate::animation::player::{AnimationPlayer, BlendUv, BlendWeight};
+use crate::animation::player::{AnimationPlayer, BlendWeight};
 use crate::ecs::{Entity, System, World};
+use crate::renderer::uv::BlendUv;
 
 /// Advances the `AnimationPlayer` timer every frame and synchronizes
 /// `UvRect` / `BlendWeight` / `BlendUv` components.
@@ -117,7 +118,7 @@ impl System for AnimationSystem {
                         .frames
                         .get(cf.to_frame)
                         .copied()
-                        .unwrap_or(crate::animation::player::UvRect::FULL);
+                        .unwrap_or(crate::renderer::uv::UvRect::FULL);
                     BlendUv { to, weight }
                 } else {
                     // Not transitioning — weight 0 so the renderer treats it as a single frame.

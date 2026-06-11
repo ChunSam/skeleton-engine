@@ -341,13 +341,6 @@ pub fn spawn_scene_def(world: &mut World, scene: &SceneDef) -> Vec<Entity> {
     entities
 }
 
-/// Topologically sorts the entity list so roots come before their children.
-///
-/// When saving a scene, parents must appear before children so the two-pass attach in `spawn_scene_def()` works correctly.
-///
-/// This is a re-export shim. The implementation lives in [`crate::hierarchy::topological_sort_entities`].
-pub use crate::hierarchy::topological_sort_entities;
-
 // ─── Unit tests ───────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -743,7 +736,7 @@ SceneDef(
         attach(&mut world, child, parent);
 
         let entities = vec![child, parent]; // provided in reverse order
-        let sorted = topological_sort_entities(&entities, &world);
+        let sorted = crate::hierarchy::topological_sort_entities(&entities, &world);
 
         // Parent must come first
         assert_eq!(sorted[0], parent);

@@ -76,7 +76,9 @@ pub use ecs::schedule::{ScheduleError, SystemConfig, SystemLabel, SystemMeta};
 pub use ecs::{Commands, Entity, Events, System, World};
 #[cfg(not(target_arch = "wasm32"))]
 pub use gpu_particle::GpuParticleEmitter;
-pub use hierarchy::{attach, detach, Children, GlobalTransform, HierarchySystem, Parent};
+pub use hierarchy::{
+    attach, detach, topological_sort_entities, Children, GlobalTransform, HierarchySystem, Parent,
+};
 pub use history::History;
 pub use input::map::AxisBinding;
 pub use input::{GamepadAxis, GamepadButton, GamepadState, InputMap, InputState, TouchState};
@@ -94,8 +96,8 @@ pub use physics::{
 };
 pub use pool::{Pool, Pooled};
 pub use prefab::{
-    break_prefab_instance, spawn_entity_def, spawn_scene_def, topological_sort_entities, EntityDef,
-    Prefab, PrefabInstance, SceneDef, Tag, SCENE_DEF_VERSION,
+    break_prefab_instance, spawn_entity_def, spawn_scene_def, EntityDef, Prefab, PrefabInstance,
+    SceneDef, Tag, SCENE_DEF_VERSION,
 };
 pub use skeletal::{
     BoneKeyframe, BoneTrack, SkeletalAnimationSystem, SkeletalAnimator, SkeletalClip,

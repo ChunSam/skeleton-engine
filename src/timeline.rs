@@ -13,14 +13,7 @@
 //! app.add_system(TimelineSystem);
 //! ```
 
-use crate::tween::Easing;
-
-// ── Lerp trait ─────────────────────────────────────────────────────────────
-
-// `Lerp` moved to `crate::tween` — it is a general interpolation utility used
-// well beyond cutscenes (e.g. `network::SnapshotBuffer`). Re-exported here so
-// existing `timeline::Lerp` paths keep compiling.
-pub use crate::tween::Lerp;
+use crate::tween::{Easing, Lerp};
 
 // ── Keyframe<T> ──────────────────────────────────────────────────────────────
 

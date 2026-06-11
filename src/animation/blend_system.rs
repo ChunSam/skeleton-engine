@@ -67,8 +67,9 @@ impl System for BlendTreeSystem {
 mod tests {
     use super::*;
     use crate::animation::blend_tree::BlendEntry;
-    use crate::animation::player::{AnimationClip, UvRect};
+    use crate::animation::player::AnimationClip;
     use crate::animation::system::AnimationSystem;
+    use crate::renderer::uv::UvRect;
 
     fn loop_clip() -> AnimationClip {
         AnimationClip {
