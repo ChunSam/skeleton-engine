@@ -182,3 +182,23 @@ v5.1.1 기준 skeleton-engine은 직전 분석 라운드 대비 크게 개선됐
 | `app/schedule.rs:305–311` — 이벤트 플러시가 씬 전환 전 발생 | 의도된 실행 순서: systems → event flush → scene transition; 신씬은 다음 프레임부터 시작 |
 | `asset/hot_reload.rs:34` — dedup `!seen.contains` O(n) 스캔 | 정확성 버그 아님; 핫 리로드는 드물게 발생 → 실질 impact 미미 |
 | `physics/system.rs:131–144` 접촉쌍 순서 보장 가정 | Rapier 문서가 같은 접촉쌍의 핸들 순서를 프레임 간 보존한다고 명시 — 접촉 경로 자체는 설계 의도에 부합; 센서 경로 비대칭 문제(§3)는 별도 PLAUSIBLE로 보존 |
+
+---
+
+## 7. 로컬 재검증 결과 (2026-06-12, 메인 세션)
+
+Top-10 전체를 로컬에서 코드 인용 기반으로 적대적 재검증한 결과. **이 섹션이 위 본문과 다를 경우 이 섹션이 우선한다.**
+
+| # | 판정 | 비고 |
+|---|---|---|
+| 1, 2 | CONFIRMED | native/WASM 양 경로 동일 확인. 수정 방향: 수신 메시지를 reject(기존 큐 불변) + 기존 마커의 `dropped` 누적 |
+| 3 | CONFIRMED | "현재 blend 베이크" 방식은 2-UV 파이프라인상 **구현 불가** — 올바른 수정은 인터럽트 시 `current_clip = cf.to_clip; current_frame = cf.to_frame`으로 FROM을 승격 후 새 crossfade 시작 (~3줄) |
+| 4 | CONFIRMED, **권고 정정** | 본문의 `self.timer = cf.to_timer` 단독 적용은 **틀림** — L57에서 이번 프레임 dt가 이미 `to_timer`에 가산된 뒤라 L91 `timer += dt`와 이중 가산된다. 올바른 수정: 승격 블록을 advance 블록 **뒤로** 재배치하고 `timer = cf.to_timer` 적용 |
+| 5 | **기각** | `character_movement.rs:50`이 감산 **전에** `drop_active` 불리언을 스냅숏하고 충돌 필터(L62)는 그 스냅숏을 읽는다. dt > 0.2s여도 해당 프레임의 통과는 보장됨 — 버그 아님. 수정 불요 |
+| 6 | CONFIRMED (실제론 더 심각) | `CollisionEvent`는 examples/ 전체에 `register_event` 호출 0건 (TriggerEvent는 platformer 1건). `log` crate(0.4)가 이미 의존성·관례 — warn-once 필드가 코드베이스 관례적 수정 |
+| 7 | CONFIRMED | `Handle.path`는 이미 `pub(crate) Arc<str>` — `path_arc()` 추가는 자명하게 컴파일됨 |
+| 8 | CONFIRMED | PATTERNS.md ordering 표에 BlendTree 행 부재, `blend_system.rs:7` doc은 "before AnimationSystem" 명시 |
+| 9 | **부분 기각, 수정 불요** | `HashSet::new()`는 첫 insert까지 무할당이고 size-hint 0인 collect도 무할당 — "엔티티 0개여도 매 프레임 할당" 주장은 틀림. 엔티티 존재 시 O(n) 비용은 retain-GC 로직상 불가피 |
+| 10 | CONFIRMED | resources.rs의 WASM 언급은 L275(HiDPI)·L483(FadeTransition)뿐 — 라이트 타입 doc(L387-414)에 부재 |
+
+**수정 배치 입력 (확정 8건):** #1+#2(네트워크 큐, 한 함수), #3+#4(crossfade 인터럽트/완료, 정정된 권고 적용), #6(warn-once), #7(`path_arc`), #8+#10(문서 2건). #5·#9는 수정하지 않는다.
