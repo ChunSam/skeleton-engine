@@ -68,9 +68,20 @@ impl AnimationPlayer {
     ///
     /// The `BlendWeight` component is updated from 0.0→1.0 during the transition.
     /// If `duration <= 0.0` the switch is immediate (same as `play`).
+    ///
+    /// Calls that re-fire the **same** `clip_index` while a crossfade to that clip is
+    /// already in progress are silently ignored (idempotent). This prevents noisy
+    /// threshold parameters (e.g. `FloatGt`/`FloatLt`) from resetting `elapsed` to
+    /// zero every frame and preventing the blend from ever completing.
     pub fn play_with_crossfade(&mut self, clip_index: usize, duration: f32) {
         if self.current_clip == clip_index {
             return;
+        }
+        // Already crossfading to the same target — do not restart.
+        if let Some(cf) = &self.crossfade {
+            if cf.to_clip == clip_index {
+                return;
+            }
         }
         if duration <= 0.0 {
             self.play(clip_index);
@@ -83,6 +94,24 @@ impl AnimationPlayer {
             elapsed: 0.0,
             duration,
         });
+    }
+
+    /// Returns `true` when the player is actively playing `clip_index` (not crossfading
+    /// away from it) and that clip has reached its last frame.
+    ///
+    /// This is the correct predicate for the `AnimationEnd` transition condition: it
+    /// avoids false positives during a crossfade where `current_clip` is still the FROM
+    /// clip even though the state machine has already committed to a new state.
+    pub fn is_clip_finished(&self, clip_index: usize) -> bool {
+        // During a crossfade, current_clip is the FROM clip — don't report it as finished
+        // for the destination state that is still blending in.
+        if self.crossfade.is_some() {
+            return false;
+        }
+        if self.current_clip != clip_index {
+            return false;
+        }
+        self.is_finished()
     }
 
     /// Crossfade progress [0.0..=1.0]. Returns `1.0` when no transition is active.

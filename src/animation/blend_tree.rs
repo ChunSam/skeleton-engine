@@ -18,6 +18,14 @@ pub struct BlendEntry {
 /// app.add_system(Box::new(AnimationSystem));  // frame advance
 /// ```
 ///
+/// # Interaction with `AnimationStateMachine`
+/// `StateMachineSystem` runs **after** `BlendTreeSystem` in the documented system
+/// order. When both components drive the same `AnimationPlayer`, a state-machine
+/// transition will **interrupt** any in-progress `BlendTree1D` crossfade — the SM
+/// wins because state changes are semantic. This is intentional. Do not attach both
+/// `AnimationStateMachine` and `BlendTree1D` to the same entity simultaneously
+/// unless that interruption behaviour is desired.
+///
 /// # Example
 /// ```rust,ignore
 /// let tree = BlendTree1D::new(
