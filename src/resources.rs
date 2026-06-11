@@ -25,6 +25,10 @@ pub struct PanickedSystems {
 // ─── General Debug Draw API ──────────────────────────────────────────────────
 
 /// A single debug shape.
+///
+/// This enum is `#[non_exhaustive]`: external crates matching on it must include a
+/// wildcard (`_ =>`) arm to remain forward-compatible as new variants are added.
+#[non_exhaustive]
 #[derive(Debug, Clone)]
 pub enum DebugShape {
     /// Axis-aligned rectangle (outline)

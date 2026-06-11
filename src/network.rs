@@ -13,6 +13,10 @@ pub const DEFAULT_MAX_PENDING_MESSAGES: usize = 256;
 pub const DEFAULT_MAX_PENDING_EVENTS: usize = 1024;
 
 /// ECS events emitted by [`NetworkSystem`] every frame.
+///
+/// This enum is `#[non_exhaustive]`: external crates matching on it must include a
+/// wildcard (`_ =>`) arm to remain forward-compatible as new variants are added.
+#[non_exhaustive]
 #[derive(Clone, Debug)]
 pub enum NetworkEvent {
     Connected,

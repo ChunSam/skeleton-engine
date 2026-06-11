@@ -72,7 +72,7 @@ pub use collision::{
 pub use color::Color;
 pub use components::{OffscreenCamera, PointLight, RenderLayer, Sprite, Transform};
 pub use debug_ui::DebugUi;
-pub use ecs::schedule::{ScheduleError, SystemConfig, SystemLabel, SystemMeta};
+pub use ecs::schedule::{ScheduleError, SystemConfig, SystemLabel};
 pub use ecs::{Commands, Entity, Events, System, World};
 #[cfg(not(target_arch = "wasm32"))]
 pub use gpu_particle::GpuParticleEmitter;

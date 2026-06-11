@@ -94,7 +94,7 @@ pub struct App {
 
     systems: Vec<Box<dyn System>>,
     /// Per-system label/order/group metadata. Kept in parallel with `systems` by index.
-    system_meta: Vec<crate::ecs::schedule::SystemMeta>,
+    system_meta: Vec<crate::ecs::schedule::SystemConfig>,
     /// Execution order computed by `compute_order` (list of indices).
     exec_order: Vec<usize>,
     /// True when `system_meta` has changed — triggers a recompute on the next frame.
@@ -424,29 +424,29 @@ mod tests {
     fn builtin_system_labels_compose_for_ordering() {
         // Verify that built-in system LABEL constants enforce ordering in the real scheduler.
         use crate::animation::{AnimationSystem, StateMachineSystem};
-        use crate::ecs::schedule::{compute_order, SystemMeta};
+        use crate::ecs::schedule::{compute_order, SystemConfig};
         use crate::ui::{LayoutSystem, UiSystem};
 
         let metas = vec![
             // idx0: StateMachine — after Animation
-            SystemMeta {
+            SystemConfig {
                 label: Some(StateMachineSystem::LABEL),
                 after: vec![AnimationSystem::LABEL],
                 ..Default::default()
             },
             // idx1: Animation
-            SystemMeta {
+            SystemConfig {
                 label: Some(AnimationSystem::LABEL),
                 ..Default::default()
             },
             // idx2: Ui — after Layout
-            SystemMeta {
+            SystemConfig {
                 label: Some(UiSystem::LABEL),
                 after: vec![LayoutSystem::LABEL],
                 ..Default::default()
             },
             // idx3: Layout
-            SystemMeta {
+            SystemConfig {
                 label: Some(LayoutSystem::LABEL),
                 ..Default::default()
             },

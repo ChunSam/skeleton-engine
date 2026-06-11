@@ -54,10 +54,10 @@ impl App {
     }
 
     fn reconcile_meta(&mut self) {
-        use crate::ecs::schedule::SystemMeta;
+        use crate::ecs::schedule::SystemConfig;
         if self.system_meta.len() < self.systems.len() {
             self.system_meta
-                .resize(self.systems.len(), SystemMeta::default());
+                .resize(self.systems.len(), SystemConfig::default());
         } else if self.system_meta.len() > self.systems.len() {
             self.system_meta.truncate(self.systems.len());
         }
