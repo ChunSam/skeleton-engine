@@ -24,9 +24,6 @@ pub(super) fn insert_core_resources(world: &mut World) {
     world.insert_resource(TextQueue::default());
     world.insert_resource(UiQueue::default());
     world.insert_resource(UiImageQueue::default());
-    // Still registered for backward compatibility until removal in v5.
-    #[allow(deprecated)]
-    world.insert_resource(crate::resources::DebugDrawQueue::default());
     world.insert_resource(DebugDraw::new());
     world.insert_resource(SelectedEntity::default());
     world.insert_resource(ProfilerData::default());

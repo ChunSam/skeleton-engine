@@ -114,9 +114,6 @@ pub use resources::{
     GameState, ImeConfig, LoadProgress, PanickedSystems, PendingResize, ProfilerData, RenderStats,
     SelectedEntity, ShouldQuit, SystemProfile, ViewportSize, WindowConfig,
 };
-// Deprecated debug-draw pair — kept exported until removal in v5.
-#[allow(deprecated)]
-pub use resources::{DebugDrawQueue, DebugRect};
 pub use scene::{Scene, SceneChange, SceneCmd};
 pub use scripting::{ScriptRunner, ScriptingSystem};
 pub use steering::{Arrive, Flee, Seek, SteeringSystem, SteeringVelocity, Wander};

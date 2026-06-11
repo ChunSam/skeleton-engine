@@ -22,35 +22,6 @@ pub struct PanickedSystems {
     pub disabled: Vec<String>,
 }
 
-// ─── Debug Draw Queue (deprecated) ────────────────────────────────────────────
-
-/// Plain-data rectangle for collision debug visualization (no renderer types).
-#[deprecated(
-    since = "4.6.0",
-    note = "use `DebugDraw::rect_filled_z` instead; DebugRect/DebugDrawQueue will be removed in v5"
-)]
-#[derive(Debug, Clone, Copy)]
-pub struct DebugRect {
-    pub min: Vec2,
-    pub max: Vec2,
-    pub color: Color,
-    pub z: f32,
-}
-
-/// Debug rendering queue. `App` drains it and converts entries to `UiQueue`.
-///
-/// Deprecated: this predates [`DebugDraw`], which covers the same filled-rect
-/// case via [`DebugDraw::rect_filled_z`] plus outlines/lines/circles/crosses.
-#[deprecated(
-    since = "4.6.0",
-    note = "use the `DebugDraw` resource instead; DebugRect/DebugDrawQueue will be removed in v5"
-)]
-#[derive(Debug, Clone, Default)]
-pub struct DebugDrawQueue {
-    #[allow(deprecated)]
-    pub items: Vec<DebugRect>,
-}
-
 // ─── General Debug Draw API ──────────────────────────────────────────────────
 
 /// A single debug shape.
@@ -164,7 +135,7 @@ impl DebugDraw {
 
     /// Draws a filled rectangle at the given z-order (higher = drawn on top).
     ///
-    /// This covers what the deprecated `DebugRect`/`DebugDrawQueue` pair did —
+    /// This covers what the pre-v5 `DebugRect`/`DebugDrawQueue` pair did —
     /// translucent collision overlays, editor selection highlights, or quick
     /// rect-based prototype rendering (see the `sokoban` example).
     pub fn rect_filled_z(&mut self, min: Vec2, max: Vec2, color: impl Into<Color>, z: f32) {

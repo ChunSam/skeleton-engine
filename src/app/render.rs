@@ -415,33 +415,6 @@ impl App {
             }
         }
 
-        // Step 2.5: Draw UI rectangles (convert deprecated DebugDrawQueue → UiQueue).
-        // Kept for backward compatibility until the queue is removed in v5; all
-        // engine-internal producers now go through DebugDraw (step 2.6).
-        #[allow(deprecated)]
-        let debug_rects: Vec<DrawRect> = self
-            .world
-            .resource_mut::<crate::resources::DebugDrawQueue>()
-            .map(|q| {
-                std::mem::take(&mut q.items)
-                    .into_iter()
-                    .map(|r| {
-                        DrawRect::new(
-                            r.min.x,
-                            r.min.y,
-                            r.max.x - r.min.x,
-                            r.max.y - r.min.y,
-                            r.color,
-                        )
-                        .with_z(r.z)
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        if let Some(q) = self.world.resource_mut::<UiQueue>() {
-            q.items.extend(debug_rects);
-        }
-
         // Step 2.6: Convert DebugDraw shapes + filled rects → UiQueue
         let (debug_shapes, debug_filled) = self
             .world
