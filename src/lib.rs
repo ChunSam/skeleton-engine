@@ -80,7 +80,7 @@ pub use hierarchy::{
     attach, detach, topological_sort_entities, Children, GlobalTransform, HierarchySystem, Parent,
 };
 pub use history::History;
-pub use input::map::AxisBinding;
+pub use input::AxisBinding;
 pub use input::{GamepadAxis, GamepadButton, GamepadState, InputMap, InputState, TouchState};
 pub use locale::{LocaleBundle, LocaleData, LocaleResource, TextDirection};
 pub use material::ShaderMaterial;
