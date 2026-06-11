@@ -847,7 +847,7 @@ audio.set_effect(&quot;bgm&quot;, AudioEffect { release_secs: 1.5, ..Default::de
 audio.play(&quot;bgm&quot;, &quot;assets/track1.mp3&quot;, true);
 // ...
 audio.stop(&quot;bgm&quot;);   // 1.5초 페이드 아웃 후 채널 제거</code></pre>
-<ul><li>릴리스 페이드 중 <code>stop</code>을 다시 호출하면 즉시 끊는다.</li><li>같은 채널에 새 <code>play_*</code>를 호출하면 릴리스를 건너뛰고 즉시 새 소리를 재생한다.</li><li><code>release_secs == 0.0</code>(기본값)이면 기존처럼 즉시 정지한다.</li></ul>
+<ul><li>진행 중인 <code>stop_when_done</code> 페이드(릴리스 또는 <code>fade_out</code>)가 있을 때 <code>stop</code>을 호출하면 즉시 끊는다 — <code>fade_out</code>은 릴리스 바이패스 경로다.</li><li>같은 채널에 새 <code>play_*</code>를 호출하면 릴리스를 건너뛰고 즉시 새 소리를 재생한다.</li><li>자연 종료(드레인)된 채널에 <code>stop</code>을 호출하면 릴리스 없이 즉시 제거된다.</li><li>릴리스/페이드 완료 후 채널 볼륨은 <code>set_volume</code>으로 설정한 값으로 복원된다 (다음 재생이 무음으로 시작하지 않음).</li><li><code>release_secs == 0.0</code>(기본값)이면 기존처럼 즉시 정지한다.</li></ul>
 <p>릴리스 엔벨로프 데모: <code>cargo run --example audio_fades</code> (R = 릴리스 사운드 시작, S = 릴리스 정지, I = 즉시 정지).</p>
 <hr>
 <h2 id="파티클">파티클</h2>
@@ -1491,7 +1491,8 @@ app.add_system(ScriptingSystem);</code></pre>
 <h4 id="blackboard-2">Blackboard</h4>
 <div class="table-wrap"><table><thead><tr><th>함수</th><th>설명</th></tr></thead><tbody><tr><td><code>bb_get_bool(key)</code> / <code>bb_set_bool(key, val)</code></td><td>bool 읽기/쓰기</td></tr><tr><td><code>bb_get_float(key)</code> / <code>bb_set_float(key, val)</code></td><td>f32 읽기/쓰기</td></tr><tr><td><code>bb_get_int(key)</code> / <code>bb_set_int(key, val)</code></td><td>i32 읽기/쓰기</td></tr></tbody></table></div>
 <h4 id="steering">Steering</h4>
-<div class="table-wrap"><table><thead><tr><th>함수</th><th>설명</th></tr></thead><tbody><tr><td><code>seek_target(tx, ty, speed)</code></td><td>Seek 컴포넌트 설정</td></tr><tr><td><code>flee_from(tx, ty, speed, radius)</code></td><td>Flee 컴포넌트 설정</td></tr><tr><td><code>arrive_at(tx, ty, speed, slow_radius, stop_radius)</code></td><td>Arrive 컴포넌트 설정 — <code>slow_radius</code> 안에서 감속, <code>stop_radius</code> 안에서 정지</td></tr><tr><td><code>wander(speed, change_interval)</code></td><td>Wander 컴포넌트 설정 — <code>change_interval</code>초마다 방향 변경 (매 프레임 호출해도 내부 타이머/방향은 유지)</td></tr><tr><td><code>stop_steering()</code></td><td>스티어링 속도 0으로 초기화</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>함수</th><th>설명</th></tr></thead><tbody><tr><td><code>seek_target(tx, ty, speed)</code></td><td>Seek 컴포넌트 설정</td></tr><tr><td><code>flee_from(tx, ty, speed, radius)</code></td><td>Flee 컴포넌트 설정</td></tr><tr><td><code>arrive_at(tx, ty, speed, slow_radius, stop_radius)</code></td><td>Arrive 컴포넌트 설정 — <code>slow_radius</code> 안에서 감속, <code>stop_radius</code> 안에서 정지</td></tr><tr><td><code>wander(speed, change_interval)</code></td><td>Wander 컴포넌트 설정 — <code>change_interval</code>초마다 방향 변경 (매 프레임 호출해도 내부 타이머/방향은 유지)</td></tr><tr><td><code>stop_steering()</code></td><td>모든 스티어링 컴포넌트 제거 + 속도 0 — 정지가 다음 프레임에도 지속된다</td></tr></tbody></table></div>
+<p>스티어링 함수는 <strong>상호 배타적</strong>이다 — 하나를 호출하면 다른 스티어링 컴포넌트가 엔티티에서 제거된다 (마지막 호출이 이긴다). Rust 코드에서 컴포넌트를 직접 조합하는 경로는 영향받지 않는다.</p>
 <h3 id="스크립트-예시">스크립트 예시</h3>
 <pre><code class="language-rhai">// enemy_ai.rhai
 let in_range = bb_get_bool(&quot;player_in_range&quot;);

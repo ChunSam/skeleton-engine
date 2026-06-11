@@ -4,6 +4,45 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 5.1.1
+
+Bug-fix batch from the post-release code review of the 5.1.0 features (10 confirmed
+findings, three root causes). No migration needed; one small API addition noted below.
+
+### Fixed
+
+- **Audio release envelope redesigned** (root cause: shadow state + stale volume reads).
+  `stop()` during *any* in-progress `stop_when_done` fade (release **or** `fade_out`)
+  now cuts immediately — `fade_out` is a real bypass path as documented, and a second
+  `stop()` mid-release still cuts. The release fade starts from the **current
+  interpolated** fade position instead of the stale override (no more start-of-release
+  pop). Completed teardown fades no longer persist `0.0` into the channel volume, so
+  the next `play_*` on a reused channel starts at the `set_volume` level (regression
+  fix). `stop()` on a naturally-drained sink cuts immediately instead of scheduling a
+  silent release. Internals: the `releasing` HashSet is gone; `Fade` construction is
+  unified (`Fade::stop_fade`) with one consistent minimum-duration rule.
+- **State-machine crossfade guards** (root cause: `current_clip` stays on the FROM clip
+  during a blend). `AnimationPlayer::play_with_crossfade` re-fired with the same target
+  mid-blend is now idempotent — oscillating threshold transitions can no longer reset
+  the blend every frame. `StateMachineSystem` evaluates `AnimationEnd` via the new
+  `AnimationPlayer::is_clip_finished(clip_index)` (returns true only when not
+  crossfading and that clip is the finished current clip), so a crossfaded-into
+  one-shot state plays its clip to completion instead of exiting on the first frame.
+  The `AnimationStateMachine` ↔ `BlendTree1D` interaction is now documented (SM
+  transitions intentionally interrupt an in-progress BT blend; avoid driving the same
+  player with both unless that is desired).
+- **Script steering commands are mutually exclusive** — `seek_target` / `flee_from` /
+  `arrive_at` / `wander` each remove the other three steering components before
+  attaching their own (previously a single `wander()` permanently overrode later
+  commands via the steering system's last-writer-wins order), and `stop_steering()`
+  removes all four so a stopped entity stays stopped. Rust-side multi-component
+  steering composition is unaffected.
+
+### Added
+
+- `AnimationPlayer::is_clip_finished(clip_index)` — crossfade-aware finish check used
+  by the state machine; public for game code with the same need.
+
 ## 5.1.0
 
 The three feature candidates deliberately split out of the 2026-06-10 analysis round,
