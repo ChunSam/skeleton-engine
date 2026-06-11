@@ -17,6 +17,13 @@
 > StateMachine crossfade·scripting Arrive/Wander 바인딩·AudioEffect release 구현 → 기능 작업으로 분리;
 > World↔Reflect 분리(설계 변경 규모)·DefaultHasher 안정성(인메모리 캐시라 무관) → 보류/기각.
 > 상세는 `docs/CHANGELOG.md` 4.6.0 항목 참조.
+>
+> **v5.0.0 배치 출시 (2026-06-11, PR #13, 머지 커밋 `c34b6c1`):** 이월됐던 **#2(BodyHandle/
+> ColliderHandle newtype)·#8(SystemRegistrar)·#9 잔여(`Sprite.texture` `Arc<str>`) 출시 완료** —
+> deprecated API/path shim 전체 제거, 가시성 축소, SystemConfig/SystemMeta 통합, ShaderMaterial
+> source-hash 캐싱, `#[non_exhaustive]`(DebugShape/NetworkEvent) 포함. **이 분석 라운드의 잔여
+> 항목은 0건이며, 기능 작업으로 분리된 후보(StateMachine crossfade·scripting 바인딩·AudioEffect
+> release)만 남았다.** 마이그레이션 가이드: `docs/CHANGELOG.md` 5.0.0 항목.
 
 ---
 
