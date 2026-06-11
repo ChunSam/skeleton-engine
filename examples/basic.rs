@@ -31,7 +31,7 @@ impl System for PlayerSystem {
 
         if should_quit {
             if let Some(quit) = world.resource_mut::<ShouldQuit>() {
-                quit.0 = true;
+                quit.quit();
             }
         }
 

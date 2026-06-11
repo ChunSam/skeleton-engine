@@ -318,7 +318,7 @@ impl System for MenuSystem {
 
         if quit {
             if let Some(should_quit) = world.resource_mut::<ShouldQuit>() {
-                should_quit.0 = true;
+                should_quit.quit();
             }
         } else if start {
             if let Some(scene_change) = world.resource_mut::<SceneChange>() {

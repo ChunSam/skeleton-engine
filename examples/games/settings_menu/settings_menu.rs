@@ -496,7 +496,7 @@ impl System for TitleSystem {
         }
         if quit {
             if let Some(should_quit) = world.resource_mut::<ShouldQuit>() {
-                should_quit.0 = true;
+                should_quit.quit();
             }
         } else if start {
             blip(world, 660.0);

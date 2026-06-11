@@ -158,7 +158,7 @@ impl System for PlatformerPhysicsSystem {
 
         if quit_pressed {
             if let Some(quit) = world.resource_mut::<ShouldQuit>() {
-                quit.0 = true;
+                quit.quit();
             }
         }
         if restart_pressed {
