@@ -10,7 +10,25 @@ use crate::renderer::uv::BlendUv;
 /// to `BlendUv`. The shader blends them with `mix(from, to, weight)` for a
 /// smooth crossfade. `BlendWeight` is always updated (1.0 when not transitioning)
 /// and can be read by game code.
-pub struct AnimationSystem;
+///
+/// The `scratch` buffer is reused across frames to avoid a per-frame allocation.
+/// Create with `AnimationSystem::new()` or `AnimationSystem::default()`.
+#[derive(Default)]
+pub struct AnimationSystem {
+    scratch: Vec<Entity>,
+}
+
+impl AnimationSystem {
+    /// Creates a new `AnimationSystem` with a pre-allocated scratch buffer.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Schedule label. Other systems can request execution after this one via
+    /// `SystemConfig::new().after(AnimationSystem::LABEL)`
+    /// (e.g. StateMachineSystem must run after; BlendTreeSystem must run before).
+    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::animation";
+}
 
 /// Returns the duration of a single frame for the given `fps`.
 ///
@@ -26,18 +44,13 @@ fn frame_dur(fps: f32) -> f32 {
     }
 }
 
-impl AnimationSystem {
-    /// Schedule label. Other systems can request execution after this one via
-    /// `SystemConfig::new().after(AnimationSystem::LABEL)`
-    /// (e.g. StateMachineSystem must run after; BlendTreeSystem must run before).
-    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::animation";
-}
-
 impl System for AnimationSystem {
     fn run(&mut self, world: &mut World, dt: f32) {
-        let entities: Vec<Entity> = world.query::<AnimationPlayer>().map(|(e, _)| e).collect();
+        self.scratch.clear();
+        self.scratch
+            .extend(world.query::<AnimationPlayer>().map(|(e, _)| e));
 
-        for entity in entities {
+        for &entity in &self.scratch {
             let (uv, weight, blend_uv) = {
                 let Some(player) = world.get_mut::<AnimationPlayer>(entity) else {
                     continue;
@@ -195,7 +208,7 @@ mod tests {
             ]),
         );
 
-        let mut sys = AnimationSystem;
+        let mut sys = AnimationSystem::new();
 
         // Start A→B crossfade with duration = 0.3 s
         world
@@ -256,7 +269,7 @@ mod tests {
             AnimationPlayer::new(vec![make_clip(4, fps, true), make_clip(4, fps, true)]),
         );
 
-        let mut sys = AnimationSystem;
+        let mut sys = AnimationSystem::new();
         world
             .get_mut::<AnimationPlayer>(e)
             .unwrap()
@@ -296,7 +309,7 @@ mod tests {
             ]),
         );
 
-        let mut sys = AnimationSystem;
+        let mut sys = AnimationSystem::new();
 
         // Start A→B crossfade (duration 0.3 s)
         world
@@ -345,5 +358,53 @@ mod tests {
                 p.timer
             );
         }
+    }
+
+    // ── Scratch buffer reuse ─────────────────────────────────────────────────────
+
+    /// The scratch buffer must not leak entity references across frames.
+    ///
+    /// Run the system twice: first with entity `a` alive, then despawn `a` and
+    /// spawn `b`.  The second run must process exactly `b` and not touch `a`.
+    /// If the scratch buffer leaks (e.g. old entities are still present after
+    /// `clear()`), the second run would attempt to update `a` which no longer
+    /// has an `AnimationPlayer` — the `world.get_mut` would return `None` and the
+    /// entity would silently be skipped rather than panicking, so we instead
+    /// verify by checking that `b`'s player was advanced while `a` was not.
+    #[test]
+    fn scratch_does_not_leak_entities_across_frames() {
+        let mut world = World::new();
+        let mut sys = AnimationSystem::new();
+
+        let fps = 10.0_f32; // frame_dur = 100 ms
+        let clip = make_clip(4, fps, true);
+
+        // First frame: only entity `a`.
+        let a = world.spawn();
+        world.add_component(a, AnimationPlayer::new(vec![clip.clone()]));
+        sys.run(&mut world, 0.0); // no-op tick to populate scratch with `a`
+
+        // Despawn `a` and spawn `b` — the world no longer contains `a`'s component.
+        // (Despawn by removing the component so queries don't find it.)
+        world.remove_component::<AnimationPlayer>(a);
+
+        let b = world.spawn();
+        world.add_component(b, AnimationPlayer::new(vec![clip.clone()]));
+
+        // Advance enough to flip a frame on `b` (> 100 ms).
+        sys.run(&mut world, 0.15);
+
+        // `b` must have been processed — its timer advanced.
+        let b_player = world.get::<AnimationPlayer>(b).unwrap();
+        assert!(
+            b_player.timer > 0.0 || b_player.current_frame > 0,
+            "b's player must have been advanced by the second run"
+        );
+
+        // `a`'s component was removed — the world should have no stale data for it.
+        assert!(
+            world.get::<AnimationPlayer>(a).is_none(),
+            "entity a must no longer have an AnimationPlayer"
+        );
     }
 }

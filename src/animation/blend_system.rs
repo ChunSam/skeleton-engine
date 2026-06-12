@@ -5,9 +5,20 @@ use crate::ecs::{Entity, System, World};
 /// Evaluates the `BlendTree1D` param every frame and instructs `AnimationPlayer` to transition clips.
 ///
 /// Must be registered **before** `AnimationSystem` so clip transitions take effect in the same frame.
-pub struct BlendTreeSystem;
+///
+/// The `scratch` buffer is reused across frames to avoid a per-frame allocation.
+/// Create with `BlendTreeSystem::new()` or `BlendTreeSystem::default()`.
+#[derive(Default)]
+pub struct BlendTreeSystem {
+    scratch: Vec<Entity>,
+}
 
 impl BlendTreeSystem {
+    /// Creates a new `BlendTreeSystem` with a pre-allocated scratch buffer.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     /// Schedule label. Recommended order: **before** `AnimationSystem::LABEL`
     /// (`SystemConfig::new().label(BlendTreeSystem::LABEL).before(AnimationSystem::LABEL)`).
     pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::blend_tree";
@@ -15,9 +26,11 @@ impl BlendTreeSystem {
 
 impl System for BlendTreeSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
-        let entities: Vec<Entity> = world.query::<BlendTree1D>().map(|(e, _)| e).collect();
+        self.scratch.clear();
+        self.scratch
+            .extend(world.query::<BlendTree1D>().map(|(e, _)| e));
 
-        for entity in entities {
+        for &entity in &self.scratch {
             // Extract the target clip and crossfade duration from BlendTree1D
             let (target_clip, crossfade_dur, already_requested) = {
                 let Some(tree) = world.get_mut::<BlendTree1D>(entity) else {
@@ -125,8 +138,8 @@ mod tests {
         );
         world.add_component(e, locomotion_tree());
 
-        let mut bt = BlendTreeSystem;
-        let mut anim = AnimationSystem;
+        let mut bt = BlendTreeSystem::new();
+        let mut anim = AnimationSystem::new();
 
         // 1) param → walk: start an idle→walk crossfade without letting it finish yet.
         world.get_mut::<BlendTree1D>(e).unwrap().set_param(1.0);
@@ -164,8 +177,8 @@ mod tests {
         );
         world.add_component(e, locomotion_tree());
 
-        let mut bt = BlendTreeSystem;
-        let mut anim = AnimationSystem;
+        let mut bt = BlendTreeSystem::new();
+        let mut anim = AnimationSystem::new();
         let dt = 1.0 / 60.0;
 
         // Accelerate: speed 0 → 2.4 (ACCEL 4.5), then hold briefly to stabilize on run.

@@ -14,8 +14,8 @@ pub struct BlendEntry {
 ///
 /// # Registration order
 /// ```text
-/// app.add_system(Box::new(BlendTreeSystem));  // clip selection
-/// app.add_system(Box::new(AnimationSystem));  // frame advance
+/// app.add_system(BlendTreeSystem::new());  // clip selection
+/// app.add_system(AnimationSystem::new());  // frame advance
 /// ```
 ///
 /// # Interaction with `AnimationStateMachine`
