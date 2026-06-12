@@ -128,6 +128,134 @@ impl App {
             None => return Ok(()),
         };
 
+        // ── Docked editor: manage the game-scene offscreen texture ────────────
+        // The RT is recreated whenever the debounce fires (stable-3-frames rule).
+        // While docked, the scene renders into this texture instead of the surface.
+        #[cfg(not(target_arch = "wasm32"))]
+        let docked_render_view: Option<wgpu::TextureView> = {
+            use crate::app::editor::docked_rt::{compute_central_rect, rect_to_physical};
+            use crate::app::editor::EditorMode;
+
+            if self.editor.mode == EditorMode::Docked {
+                let scale = self
+                    .window
+                    .as_ref()
+                    .map(|w| w.scale_factor() as f32)
+                    .unwrap_or(1.0)
+                    .max(1.0);
+                let win_logical_w = gpu.config.width as f32 / scale;
+                let win_logical_h = gpu.config.height as f32 / scale;
+
+                // Compute the central viewport rect (logical points).
+                // Package 2 writes central_rect from real panel bounds; until then use
+                // the placeholder-margin fallback.
+                let rect = self
+                    .editor
+                    .central_rect
+                    .or_else(|| compute_central_rect(win_logical_w, win_logical_h));
+
+                if let Some(rect) = rect {
+                    if let Some((target_pw, target_ph)) = rect_to_physical(rect, scale) {
+                        // Tick the debounce — only recreate when stable for 3 frames.
+                        let current_size = self
+                            .docked_scene_texture
+                            .as_ref()
+                            .map(|(w, h, _, _, _)| (*w, *h));
+                        if let Some((new_w, new_h)) = self
+                            .editor
+                            .rt_debounce
+                            .tick((target_pw, target_ph), current_size)
+                        {
+                            // Free the old egui texture registration before recreating.
+                            if let (Some(er), Some(old_id)) = (
+                                &mut self.egui_renderer,
+                                self.editor.docked_texture_id.take(),
+                            ) {
+                                er.free_texture(&old_id);
+                            }
+                            // Create new offscreen texture.
+                            let tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
+                                label: Some("docked_scene"),
+                                size: wgpu::Extent3d {
+                                    width: new_w,
+                                    height: new_h,
+                                    depth_or_array_layers: 1,
+                                },
+                                mip_level_count: 1,
+                                sample_count: 1,
+                                dimension: wgpu::TextureDimension::D2,
+                                format: gpu.config.format,
+                                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                                view_formats: &[],
+                            });
+                            let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+                            self.docked_scene_texture =
+                                Some((new_w, new_h, gpu.config.format, tex, view));
+
+                            // Register with egui so CentralPanel can display the texture.
+                            if let (Some(er), Some((_, _, _, _, view))) =
+                                (&mut self.egui_renderer, &self.docked_scene_texture)
+                            {
+                                let id = er.register_native_texture(
+                                    &gpu.device,
+                                    view,
+                                    wgpu::FilterMode::Linear,
+                                );
+                                self.editor.docked_texture_id = Some(id);
+                            }
+                        }
+
+                        // Also refresh the egui registration when format changed (e.g. surface re-created).
+                        if let Some((_, _, fmt, _, _)) = &self.docked_scene_texture {
+                            if *fmt != gpu.config.format {
+                                if let (Some(er), Some(old_id)) = (
+                                    &mut self.egui_renderer,
+                                    self.editor.docked_texture_id.take(),
+                                ) {
+                                    er.free_texture(&old_id);
+                                }
+                                // Force a debounce flush next frame — set stable_count to 0.
+                                self.editor.rt_debounce.reset();
+                                self.docked_scene_texture = None;
+                            }
+                        }
+
+                        // Build a fresh TextureView from the current texture for this frame.
+                        // The view stored in docked_scene_texture is authoritative; we borrow
+                        // it as the render target for the scene pass below.
+                        // We cannot return a &wgpu::TextureView here because it would
+                        // borrow self for the rest of the function. Instead, create a
+                        // second view from the texture (zero-cost, same GPU object).
+                        self.docked_scene_texture.as_ref().map(|(_, _, _, tex, _)| {
+                            tex.create_view(&wgpu::TextureViewDescriptor::default())
+                        })
+                    } else {
+                        // Degenerate central rect (zero physical size) — skip scene render this frame.
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                // Not docked: tear down the RT so it's freed when mode exits.
+                if self.docked_scene_texture.is_some() {
+                    if let (Some(er), Some(old_id)) = (
+                        &mut self.egui_renderer,
+                        self.editor.docked_texture_id.take(),
+                    ) {
+                        er.free_texture(&old_id);
+                    }
+                    self.docked_scene_texture = None;
+                    self.editor.rt_debounce.reset();
+                }
+                None
+            }
+        };
+        // On WASM there is no docked mode; the scene always targets the surface.
+        #[cfg(target_arch = "wasm32")]
+        let docked_render_view: Option<wgpu::TextureView> = None;
+
         // Check PostProcessConfig resource (intermediate texture is used only when enabled=true)
         let pp_config: Option<PostProcessConfig> =
             self.world.resource::<PostProcessConfig>().copied();
@@ -209,6 +337,92 @@ impl App {
         #[cfg(target_arch = "wasm32")]
         let use_lighting = false;
 
+        // In docked mode, skip the scene pass entirely when the RT is not yet ready.
+        // This prevents drawing to a stale/wrong texture during the debounce warm-up.
+        // `docked_render_view` is already computed above; re-check it here by testing
+        // whether the RT is still None while mode == Docked.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use crate::app::editor::EditorMode;
+            if self.editor.mode == EditorMode::Docked && docked_render_view.is_none() {
+                // RT not ready yet — still need to acquire + present the frame so the
+                // window stays responsive, but skip all scene rendering.
+                let (frame, _suboptimal) = match gpu.surface.get_current_texture() {
+                    wgpu::CurrentSurfaceTexture::Success(t) => (t, false),
+                    wgpu::CurrentSurfaceTexture::Suboptimal(t) => (t, true),
+                    e => return Err(e),
+                };
+                let final_view = frame
+                    .texture
+                    .create_view(&wgpu::TextureViewDescriptor::default());
+                // Submit a clear-only pass so egui has a surface to draw on.
+                let mut enc = gpu
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("docked-wait encoder"),
+                    });
+                {
+                    let _pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("docked-wait clear"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &final_view,
+                            resolve_target: None,
+                            depth_slice: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color {
+                                    r: 0.08,
+                                    g: 0.08,
+                                    b: 0.12,
+                                    a: 1.0,
+                                }),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        occlusion_query_set: None,
+                        timestamp_writes: None,
+                        multiview_mask: None,
+                    });
+                }
+                gpu.queue.submit(std::iter::once(enc.finish()));
+                // Egui pass (shows "no game frame yet" placeholder).
+                if let (Some(mut er), Some((paint_jobs, textures_delta, ppp))) =
+                    (self.egui_renderer.take(), self.egui_output.take())
+                {
+                    let screen_desc = egui_wgpu::ScreenDescriptor {
+                        size_in_pixels: [gpu.config.width, gpu.config.height],
+                        pixels_per_point: ppp,
+                    };
+                    for (id, delta) in &textures_delta.set {
+                        er.update_texture(&gpu.device, &gpu.queue, *id, delta);
+                    }
+                    let mut egui_enc =
+                        gpu.device
+                            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                                label: Some("egui encoder"),
+                            });
+                    er.update_buffers(
+                        &gpu.device,
+                        &gpu.queue,
+                        &mut egui_enc,
+                        &paint_jobs,
+                        &screen_desc,
+                    );
+                    egui_render_pass(&er, &mut egui_enc, &paint_jobs, &screen_desc, &final_view);
+                    gpu.queue.submit(std::iter::once(egui_enc.finish()));
+                    for id in &textures_delta.free {
+                        er.free_texture(id);
+                    }
+                    self.egui_renderer = Some(er);
+                }
+                if let Some(window) = &self.window {
+                    window.pre_present_notify();
+                }
+                frame.present();
+                return Ok(());
+            }
+        }
+
         let (frame, _suboptimal) = match gpu.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(t) => (t, false),
             wgpu::CurrentSurfaceTexture::Suboptimal(t) => (t, true),
@@ -217,6 +431,14 @@ impl App {
         let final_view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+        // In docked mode the scene pipeline terminates at the offscreen texture;
+        // the surface only receives egui.  All passes that used to write to
+        // `final_view` now write to `scene_target` instead.
+        // In normal mode, scene_target == final_view.
+        let scene_target: &wgpu::TextureView = match &docked_render_view {
+            Some(drv) => drv,
+            None => &final_view,
+        };
         let mut enc = gpu
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -333,11 +555,23 @@ impl App {
             }
         }
 
+        // In docked mode the scene renders into a separate offscreen texture; the
+        // surface pass then shows only the egui UI (which contains the game image).
+        // When the docked RT is not yet ready (debounce not fired), skip the scene
+        // pass for this frame.
+        let is_docked_with_rt = docked_render_view.is_some();
+
         // Select render target:
+        //   docked mode + RT ready → docked offscreen texture
         //   lighting without post → intermediate scene texture
         //   post enabled (regardless of lighting) → post_renderer.target_view
         //   neither → swapchain directly
-        let render_view: &wgpu::TextureView = if use_lighting && !use_post {
+        //
+        // Note: `docked_render_view` is an owned `wgpu::TextureView` built from
+        // the docked texture each frame, so we can borrow it here.
+        let render_view: &wgpu::TextureView = if let Some(ref drv) = docked_render_view {
+            drv
+        } else if use_lighting && !use_post {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 if let Some((_, view, _, _, _)) = self.scene_texture_for_lighting.as_ref() {
@@ -518,19 +752,19 @@ impl App {
             }
         }
 
-        // Step 4: Post-process pass (intermediate texture → swapchain or lighting intermediate texture)
+        // Step 4: Post-process pass (intermediate texture → scene_target or lighting intermediate texture)
         if use_post {
             #[cfg(not(target_arch = "wasm32"))]
             let post_output: &wgpu::TextureView = if use_lighting {
                 self.post_texture_for_lighting
                     .as_ref()
                     .map(|(_, view, _, _, _)| view)
-                    .unwrap_or(&final_view)
+                    .unwrap_or(scene_target)
             } else {
-                &final_view
+                scene_target
             };
             #[cfg(target_arch = "wasm32")]
-            let post_output: &wgpu::TextureView = &final_view;
+            let post_output: &wgpu::TextureView = scene_target;
 
             if let (Some(pr), Some(cfg)) = (&self.post_renderer, pp_config.as_ref()) {
                 pr.update_uniforms(&gpu.queue, cfg);
@@ -553,7 +787,7 @@ impl App {
             };
             if let Some(lr) = &mut self.lighting_renderer {
                 // Light positions must use the same logical viewport the sprite pass
-                // uses (render.rs:392), not the physical surface size — otherwise on a
+                // uses (render.rs), not the physical surface size — otherwise on a
                 // HiDPI display (scale > 1) lights drift from their sprites and shrink.
                 lr.update(&gpu.queue, &self.world, logical_w, logical_h);
 
@@ -561,24 +795,42 @@ impl App {
                 lr.clear_normal_buffer(&mut enc);
 
                 if let Some(scene_input) = scene_input {
-                    lr.run_pass(&gpu.device, &mut enc, scene_input, &final_view);
+                    lr.run_pass(&gpu.device, &mut enc, scene_input, scene_target);
                 } else {
                     log::warn!("lighting pass skipped because scene input texture is missing");
                 }
             }
         }
 
-        // Step 4.7: HUD/text pass — drawn onto final_view after post and lighting. This keeps
-        // screen-space HUD/text from being darkened by world lighting/post-process
-        // (below the fade overlay and below egui).
+        // Step 4.7: HUD/text pass — drawn onto scene_target after post and lighting. In
+        // normal mode scene_target == final_view; in docked mode it's the offscreen texture
+        // so text renders into the game viewport (not over the editor chrome).
         {
+            #[cfg(not(target_arch = "wasm32"))]
+            let (w, h) = if is_docked_with_rt {
+                // In docked mode, text should lay out to the offscreen texture size (which
+                // matches the viewport logical size × scale).
+                (
+                    self.docked_scene_texture
+                        .as_ref()
+                        .map(|(w, _, _, _, _)| *w)
+                        .unwrap_or(gpu.config.width),
+                    self.docked_scene_texture
+                        .as_ref()
+                        .map(|(_, h, _, _, _)| *h)
+                        .unwrap_or(gpu.config.height),
+                )
+            } else {
+                (gpu.config.width, gpu.config.height)
+            };
+            #[cfg(target_arch = "wasm32")]
             let (w, h) = (gpu.config.width, gpu.config.height);
             if let Some(tr) = &mut self.text_renderer {
                 tr.render(
                     &gpu.device,
                     &gpu.queue,
                     &mut enc,
-                    &final_view,
+                    scene_target,
                     &mut self.world,
                     w,
                     h,
@@ -586,7 +838,7 @@ impl App {
             }
         }
 
-        // Step 5 (pre): Fade overlay pass (topmost, after all other passes)
+        // Step 5 (pre): Fade overlay pass (topmost game-scene pass, before egui)
         #[cfg(not(target_arch = "wasm32"))]
         {
             // Lazy init if needed
@@ -602,9 +854,37 @@ impl App {
             ) {
                 if fade.alpha > 0.001 {
                     fr.update(&gpu.queue, fade.color.to_rgb(), fade.alpha);
-                    fr.run_pass(&mut enc, &final_view);
+                    // Fade covers the game scene; in docked mode that's the offscreen texture.
+                    fr.run_pass(&mut enc, scene_target);
                 }
             }
+        }
+
+        // In docked mode the surface (final_view) has not been cleared yet — the scene
+        // pass wrote to the offscreen texture.  Clear the surface to black so egui has
+        // a clean background.  The egui pass uses LoadOp::Load, so this clear persists.
+        if is_docked_with_rt {
+            let _pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("docked surface clear"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &final_view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.08,
+                            g: 0.08,
+                            b: 0.12,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
         }
 
         // Submit after scene + post-process + lighting + fade are complete

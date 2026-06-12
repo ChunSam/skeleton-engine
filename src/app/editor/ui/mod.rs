@@ -1,7 +1,13 @@
 use super::*;
 
+mod docked;
 mod gizmo;
 mod shortcuts;
+
+#[cfg(not(target_arch = "wasm32"))]
+use crate::app::editor::EditorMode;
+#[cfg(not(target_arch = "wasm32"))]
+use docked::update_docked_ui;
 
 // ── Private free helpers ──────────────────────────────────────────────────────
 
@@ -107,12 +113,24 @@ impl App {
             // ── Undo (Ctrl+Z) / Redo (Ctrl+Shift+Z) / Copy (Ctrl+C) / Paste (Ctrl+V) ─
             #[cfg(not(target_arch = "wasm32"))]
             self.handle_editor_shortcuts(ctx);
-            if self
+
+            // Docked mode: draw the game-viewport panel and nothing else.
+            #[cfg(not(target_arch = "wasm32"))]
+            if self.editor.mode == EditorMode::Docked {
+                update_docked_ui(ctx, self.editor.docked_texture_id, self.editor.central_rect);
+            }
+
+            // Overlay is gated on mode == Overlay (native) or DebugUi.is_enabled() (wasm).
+            #[cfg(not(target_arch = "wasm32"))]
+            let overlay_visible = self.editor.mode == EditorMode::Overlay;
+            #[cfg(target_arch = "wasm32")]
+            let overlay_visible = self
                 .world
                 .resource::<DebugUi>()
                 .map(|d| d.is_enabled())
-                .unwrap_or(false)
-            {
+                .unwrap_or(false);
+
+            if overlay_visible {
                 // ── Build entity/tag data only when the overlay is visible ───────────
                 // Avoids a Vec + HashMap allocation every frame when the debug overlay
                 // is closed (is_enabled() == false).
@@ -767,6 +785,12 @@ impl App {
             res.0 = self.editor.inspector_selected;
         }
 
+        // Gizmo runs only in Overlay mode (native) or when DebugUi is enabled (wasm).
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.editor.mode == EditorMode::Overlay {
+            self.update_editor_gizmo(egui_ctx);
+        }
+        #[cfg(target_arch = "wasm32")]
         self.update_editor_gizmo(egui_ctx);
     }
 }

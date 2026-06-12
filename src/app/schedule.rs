@@ -160,10 +160,57 @@ impl App {
                     1.0
                 }
             };
-            self.world.insert_resource(ViewportSize {
+
+            // In Docked mode the game camera and screen-space UI must see the central
+            // viewport rect, not the full window. Compute the placeholder rect each
+            // frame from the window's logical size; package 2 will overwrite
+            // `editor.central_rect` with the real egui panel rect instead.
+            //
+            // The scale factor always tracks the real window DPR — only the logical
+            // size reported to the game changes.
+            #[cfg(not(target_arch = "wasm32"))]
+            let viewport_size = {
+                use crate::app::editor::docked_rt::compute_central_rect;
+                use crate::app::editor::EditorMode;
+                if self.editor.mode == EditorMode::Docked {
+                    let win_logical_w = gpu.config.width as f32 / scale_factor;
+                    let win_logical_h = gpu.config.height as f32 / scale_factor;
+                    // Use the cached central_rect when package 2 writes it; otherwise
+                    // recompute from the placeholder margins every frame.
+                    let rect = self
+                        .editor
+                        .central_rect
+                        .or_else(|| compute_central_rect(win_logical_w, win_logical_h));
+                    match rect {
+                        Some(r) => ViewportSize {
+                            width: r.width(),
+                            height: r.height(),
+                        },
+                        None => ViewportSize {
+                            width: (win_logical_w
+                                - crate::app::editor::docked_rt::MARGIN_LEFT
+                                - crate::app::editor::docked_rt::MARGIN_RIGHT)
+                                .max(1.0),
+                            height: (win_logical_h
+                                - crate::app::editor::docked_rt::MARGIN_TOP
+                                - crate::app::editor::docked_rt::MARGIN_BOTTOM)
+                                .max(1.0),
+                        },
+                    }
+                } else {
+                    ViewportSize {
+                        width: gpu.config.width as f32 / scale_factor,
+                        height: gpu.config.height as f32 / scale_factor,
+                    }
+                }
+            };
+            #[cfg(target_arch = "wasm32")]
+            let viewport_size = ViewportSize {
                 width: gpu.config.width as f32 / scale_factor,
                 height: gpu.config.height as f32 / scale_factor,
-            });
+            };
+
+            self.world.insert_resource(viewport_size);
             self.world.insert_resource(DisplayScaleFactor(scale_factor));
         }
 

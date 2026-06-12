@@ -140,7 +140,33 @@ impl ApplicationHandler for App {
                     },
                 ..
             } => {
-                // F1 → toggle DebugUi
+                // F1 → Overlay toggle; F2 → Docked toggle.
+                // Both keys are native-only: wasm has no docked mode and keeps the
+                // original DebugUi.toggle() path.
+                //
+                // Transition table (native):
+                //   F1: Off→Overlay, Overlay→Off, Docked→Overlay
+                //   F2: Off→Docked, Overlay→Docked (turns Overlay off), Docked→Off
+                //
+                // DebugUi.enabled is kept in sync so systems that query is_enabled()
+                // continue to work in Overlay mode.
+                #[cfg(not(target_arch = "wasm32"))]
+                if state == ElementState::Pressed
+                    && (key == winit::keyboard::KeyCode::F1 || key == winit::keyboard::KeyCode::F2)
+                {
+                    let new_mode = if key == winit::keyboard::KeyCode::F1 {
+                        crate::app::editor::apply_f1(self.editor.mode)
+                    } else {
+                        crate::app::editor::apply_f2(self.editor.mode)
+                    };
+                    self.editor.mode = new_mode;
+                    // Sync DebugUi.enabled: true only in Overlay mode.
+                    if let Some(debug_ui) = self.world.resource_mut::<DebugUi>() {
+                        debug_ui.set_enabled(new_mode == crate::app::editor::EditorMode::Overlay);
+                    }
+                }
+                // WASM: keep the original F1 = DebugUi.toggle() behaviour (no EditorMode).
+                #[cfg(target_arch = "wasm32")]
                 if key == winit::keyboard::KeyCode::F1 && state == ElementState::Pressed {
                     if let Some(debug_ui) = self.world.resource_mut::<DebugUi>() {
                         debug_ui.toggle();

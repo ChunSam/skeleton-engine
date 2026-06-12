@@ -6,6 +6,58 @@ use super::EditorHistory;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::app::ComponentFactory;
 
+/// Which editor mode is currently active.
+///
+/// # Key bindings
+/// - **F1**: toggles Overlay. If Docked is active, exits Docked and enters Overlay.
+/// - **F2**: toggles Docked. If Overlay is active, turns Overlay off first (mutual exclusion).
+/// - Both modes are native-only; wasm builds compile out all Docked/Overlay state.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(in crate::app) enum EditorMode {
+    /// No editor UI is visible.
+    #[default]
+    Off,
+    /// Floating egui windows overlaid on top of the running game (pre-existing mode).
+    Overlay,
+    /// Full docked layout: egui owns the whole window; the game renders into an
+    /// offscreen texture displayed in the central panel.
+    Docked,
+}
+
+/// Apply the F1 press transition to `mode`.
+///
+/// Extracted as a pure function so the logic is unit-testable without spinning up App.
+///
+/// | Current mode | After F1 |
+/// |---|---|
+/// | Off | Overlay |
+/// | Overlay | Off |
+/// | Docked | Overlay (exits Docked, enters Overlay) |
+#[cfg(not(target_arch = "wasm32"))]
+pub(in crate::app) fn apply_f1(mode: EditorMode) -> EditorMode {
+    match mode {
+        EditorMode::Off => EditorMode::Overlay,
+        EditorMode::Overlay => EditorMode::Off,
+        EditorMode::Docked => EditorMode::Overlay,
+    }
+}
+
+/// Apply the F2 press transition to `mode`.
+///
+/// | Current mode | After F2 |
+/// |---|---|
+/// | Off | Docked |
+/// | Overlay | Docked (Overlay is implicitly off — mutual exclusion) |
+/// | Docked | Off |
+#[cfg(not(target_arch = "wasm32"))]
+pub(in crate::app) fn apply_f2(mode: EditorMode) -> EditorMode {
+    match mode {
+        EditorMode::Off | EditorMode::Overlay => EditorMode::Docked,
+        EditorMode::Docked => EditorMode::Off,
+    }
+}
+
 /// All mutable state that belongs exclusively to the editor/inspector.
 ///
 /// Grouping these fields here means a fork that removes the editor needs only to
@@ -61,6 +113,28 @@ pub(in crate::app) struct EditorState {
     /// Gizmo drag grid snap cell size in pixels (native only).
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) snap_size: f32,
+
+    // ── Docked-mode fields (native only) ─────────────────────────────────────
+    /// Current editor mode (Off / Overlay / Docked).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) mode: EditorMode,
+
+    /// The central viewport rect expressed as `(x, y, width, height)` in logical
+    /// points.  `None` until the first docked frame computes it.
+    ///
+    /// **Package 2 contract**: write this field from the real egui panel rects once
+    /// side panels are laid out.  The docked scene render reads it every frame.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) central_rect: Option<egui::Rect>,
+
+    /// egui `TextureId` of the current editor offscreen texture, if allocated.
+    /// Must be freed (`egui_wgpu::Renderer::free_texture`) before reallocation.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) docked_texture_id: Option<egui::TextureId>,
+
+    /// Debounce state for the docked offscreen render-target size.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) rt_debounce: super::docked_rt::RtDebounce,
 }
 
 impl EditorState {
@@ -84,6 +158,10 @@ impl EditorState {
             add_component_selected: String::new(),
             snap_enabled: false,
             snap_size: 16.0,
+            mode: EditorMode::Off,
+            central_rect: None,
+            docked_texture_id: None,
+            rt_debounce: super::docked_rt::RtDebounce::default(),
         }
     }
 }

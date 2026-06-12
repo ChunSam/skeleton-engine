@@ -3,7 +3,12 @@ use super::*;
 mod state;
 mod ui;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) mod docked_rt;
+
 pub(super) use state::EditorState;
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) use state::{apply_f1, apply_f2, EditorMode};
 
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(clippy::enum_variant_names)]
