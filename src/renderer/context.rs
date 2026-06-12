@@ -61,7 +61,10 @@ impl GpuContext {
             backends: wgpu::Backends::GL,
             #[cfg(not(target_arch = "wasm32"))]
             backends: wgpu::Backends::all(),
-            ..Default::default()
+            flags: wgpu::InstanceFlags::default(),
+            memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
+            backend_options: wgpu::BackendOptions::default(),
+            display: None,
         });
 
         // 2. Surface: render target tied to the window.
@@ -77,29 +80,28 @@ impl GpuContext {
                 force_fallback_adapter: false,
             })
             .await
-            .ok_or(GpuContextError::AdapterNotFound)?;
+            .map_err(|_| GpuContextError::AdapterNotFound)?;
 
         // 4. Logical device + command queue.
         // wgpu 22 added the memory_hints field to DeviceDescriptor.
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("main device"),
-                    required_features: wgpu::Features::empty(),
-                    required_limits: {
-                        #[cfg(not(target_arch = "wasm32"))]
-                        {
-                            wgpu::Limits::default()
-                        }
-                        #[cfg(target_arch = "wasm32")]
-                        {
-                            wgpu::Limits::downlevel_webgl2_defaults()
-                        }
-                    },
-                    memory_hints: wgpu::MemoryHints::default(),
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("main device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        wgpu::Limits::default()
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        wgpu::Limits::downlevel_webgl2_defaults()
+                    }
                 },
-                None,
-            )
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                memory_hints: wgpu::MemoryHints::default(),
+                trace: wgpu::Trace::Off,
+            })
             .await
             .map_err(GpuContextError::Device)?;
 
@@ -161,8 +163,12 @@ impl GpuContext {
     }
 
     /// Clears the screen to a solid color. Used to show the background when there are no sprites.
-    pub fn clear(&mut self, color: wgpu::Color) -> Result<(), wgpu::SurfaceError> {
-        let frame = self.surface.get_current_texture()?;
+    pub fn clear(&mut self, color: wgpu::Color) -> Result<(), String> {
+        let frame = match self.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(t)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
+            e => return Err(format!("{e:?}")),
+        };
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -177,6 +183,7 @@ impl GpuContext {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(color),
                         store: wgpu::StoreOp::Store,
@@ -185,6 +192,7 @@ impl GpuContext {
                 depth_stencil_attachment: None,
                 occlusion_query_set: None,
                 timestamp_writes: None,
+                multiview_mask: None,
             });
         }
         self.queue.submit(std::iter::once(enc.finish()));

@@ -322,21 +322,25 @@ impl TextRenderer {
                 );
                 let default_attrs = Attrs::new().family(Family::SansSerif);
                 if d.rich {
-                    let rich = parse_rich_text(&d.text, default_attrs);
-                    let spans: Vec<(&str, Attrs<'_>)> =
-                        rich.iter().map(|(s, attrs)| (s.as_str(), *attrs)).collect();
+                    let rich = parse_rich_text(&d.text, &default_attrs);
+                    let spans: Vec<(&str, Attrs<'_>)> = rich
+                        .iter()
+                        .map(|(s, attrs)| (s.as_str(), attrs.clone()))
+                        .collect();
                     buf.set_rich_text(
                         &mut self.font_system,
                         spans,
-                        default_attrs,
+                        &default_attrs,
                         Shaping::Advanced,
+                        None,
                     );
                 } else {
                     buf.set_text(
                         &mut self.font_system,
                         &d.text,
-                        default_attrs,
+                        &default_attrs,
                         Shaping::Advanced,
+                        None,
                     );
                 }
                 for line in &mut buf.lines {
@@ -419,6 +423,7 @@ impl TextRenderer {
                 color_attachments: &[Some(RenderPassColorAttachment {
                     view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: Operations {
                         load: LoadOp::Load,
                         store: StoreOp::Store,
@@ -427,6 +432,7 @@ impl TextRenderer {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             let _ = self.renderer.render(&self.atlas, &self.viewport, &mut pass);
         }
@@ -436,7 +442,7 @@ impl TextRenderer {
     }
 }
 
-fn parse_rich_text<'a>(text: &str, default_attrs: Attrs<'a>) -> Vec<(String, Attrs<'a>)> {
+fn parse_rich_text<'a>(text: &str, default_attrs: &Attrs<'a>) -> Vec<(String, Attrs<'a>)> {
     let mut spans = Vec::new();
     let mut current = String::new();
     let mut color_stack: Vec<Option<Color>> = vec![None];
@@ -503,12 +509,12 @@ fn parse_rich_text<'a>(text: &str, default_attrs: Attrs<'a>) -> Vec<(String, Att
 }
 
 fn rich_attrs<'a>(
-    default_attrs: Attrs<'a>,
+    default_attrs: &Attrs<'a>,
     color: Option<Color>,
     bold_depth: usize,
     italic_depth: usize,
 ) -> Attrs<'a> {
-    let mut attrs = default_attrs;
+    let mut attrs = default_attrs.clone();
     if let Some(color) = color {
         attrs = attrs.color(color);
     }
@@ -611,9 +617,10 @@ mod tests {
 
     #[test]
     fn rich_text_parser_strips_supported_tags() {
+        let default_attrs = Attrs::new().family(Family::SansSerif);
         let spans = parse_rich_text(
             "Hello [color=#ff0000][b]red[/b][/color] [i]italic[/i]",
-            Attrs::new().family(Family::SansSerif),
+            &default_attrs,
         );
         let plain: String = spans.iter().map(|(s, _)| s.as_str()).collect();
         assert_eq!(plain, "Hello red italic");

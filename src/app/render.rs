@@ -122,7 +122,7 @@ impl App {
         needs_new
     }
 
-    fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+    fn render(&mut self) -> Result<(), wgpu::CurrentSurfaceTexture> {
         let gpu = match self.gpu.as_mut() {
             Some(g) => g,
             None => return Ok(()),
@@ -209,7 +209,11 @@ impl App {
         #[cfg(target_arch = "wasm32")]
         let use_lighting = false;
 
-        let frame = gpu.surface.get_current_texture()?;
+        let (frame, _suboptimal) = match gpu.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(t) => (t, false),
+            wgpu::CurrentSurfaceTexture::Suboptimal(t) => (t, true),
+            e => return Err(e),
+        };
         let final_view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -276,6 +280,7 @@ impl App {
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                             view: rt_view,
                             resolve_target: None,
+                            depth_slice: None,
                             ops: wgpu::Operations {
                                 load: wgpu::LoadOp::Clear(wgpu::Color {
                                     r: 0.0,
@@ -289,6 +294,7 @@ impl App {
                         depth_stencil_attachment: None,
                         occlusion_query_set: None,
                         timestamp_writes: None,
+                        multiview_mask: None,
                     });
                 }
 
@@ -372,6 +378,7 @@ impl App {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: render_view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
                             r: cr,
@@ -385,6 +392,7 @@ impl App {
                 depth_stencil_attachment: None,
                 occlusion_query_set: None,
                 timestamp_writes: None,
+                multiview_mask: None,
             });
         }
 
@@ -689,7 +697,7 @@ impl App {
 
         match self.render() {
             Ok(()) => {}
-            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+            Err(wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated) => {
                 if let Some(gpu) = &self.gpu {
                     gpu.reconfigure();
                 }

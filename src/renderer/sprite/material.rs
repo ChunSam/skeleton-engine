@@ -14,11 +14,11 @@ impl SpriteRenderer {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("material pipeline layout"),
             bind_group_layouts: &[
-                &self.camera_layout,
-                &self.texture_layout,
-                &self.params_layout,
+                Some(&self.camera_layout),
+                Some(&self.texture_layout),
+                Some(&self.params_layout),
             ],
-            push_constant_ranges: &[],
+            immediate_size: 0,
         });
         let vertex_layout = wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Vertex>() as u64,
@@ -30,13 +30,13 @@ impl SpriteRenderer {
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &self.sprite_shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 buffers: &[vertex_layout, InstanceRaw::layout()],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &frag_module,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: self.surface_format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -51,7 +51,7 @@ impl SpriteRenderer {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
         self.custom_pipelines.insert(hash, pipeline);

@@ -421,8 +421,11 @@ impl App {
             None,
             None,
         );
-        let egui_renderer =
-            egui_wgpu::Renderer::new(&gpu.device, gpu.config.format, None, 1, false);
+        let egui_renderer = egui_wgpu::Renderer::new(
+            &gpu.device,
+            gpu.config.format,
+            egui_wgpu::RendererOptions::default(),
+        );
         self.world.insert_resource(DebugUi::new_with_ctx(egui_ctx));
         self.egui_renderer = Some(egui_renderer);
         self.egui_state = Some(egui_state);

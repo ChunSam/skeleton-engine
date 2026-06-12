@@ -255,8 +255,8 @@ impl LightingRenderer {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("lighting pipeline layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -264,13 +264,13 @@ impl LightingRenderer {
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 buffers: &[],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_format,
                     blend: Some(wgpu::BlendState::REPLACE),
@@ -281,7 +281,7 @@ impl LightingRenderer {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -342,6 +342,7 @@ impl LightingRenderer {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &self.normal_view,
                 resolve_target: None,
+                depth_slice: None,
                 ops: wgpu::Operations {
                     // LoadOp::Clear fills the attachment with the flat normal color.
                     // No draw call needed.
@@ -357,6 +358,7 @@ impl LightingRenderer {
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         // pass drops here — clear is committed
     }
@@ -469,6 +471,7 @@ impl LightingRenderer {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: output_view,
                 resolve_target: None,
+                depth_slice: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                     store: wgpu::StoreOp::Store,
@@ -477,6 +480,7 @@ impl LightingRenderer {
             depth_stencil_attachment: None,
             occlusion_query_set: None,
             timestamp_writes: None,
+            multiview_mask: None,
         });
 
         pass.set_pipeline(&self.pipeline);

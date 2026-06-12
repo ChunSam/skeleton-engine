@@ -129,15 +129,15 @@ impl GpuParticleRenderer {
         let compute_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("gpu particle compute layout"),
-                bind_group_layouts: &[&compute_bgl],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&compute_bgl)],
+                immediate_size: 0,
             });
 
         let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("gpu particle compute pipeline"),
             layout: Some(&compute_pipeline_layout),
             module: &compute_shader,
-            entry_point: "main",
+            entry_point: Some("main"),
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             cache: None,
         });
@@ -209,8 +209,8 @@ impl GpuParticleRenderer {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("gpu particle render layout"),
-                bind_group_layouts: &[&camera_bgl, &particle_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&camera_bgl), Some(&particle_layout)],
+                immediate_size: 0,
             });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -218,13 +218,13 @@ impl GpuParticleRenderer {
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &render_shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 buffers: &[],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &render_shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -238,7 +238,7 @@ impl GpuParticleRenderer {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -318,6 +318,7 @@ impl GpuParticleRenderer {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view,
                 resolve_target: None,
+                depth_slice: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Load,
                     store: wgpu::StoreOp::Store,
@@ -326,6 +327,7 @@ impl GpuParticleRenderer {
             depth_stencil_attachment: None,
             occlusion_query_set: None,
             timestamp_writes: None,
+            multiview_mask: None,
         });
         pass.set_pipeline(&self.render_pipeline);
         pass.set_bind_group(0, &self.camera_bind_group, &[]);
