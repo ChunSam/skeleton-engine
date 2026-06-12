@@ -13,6 +13,9 @@ impl AssetServer {
     /// Returns a list of changed file paths and refreshes the internal CPU cache.
     ///
     /// `App` calls this every frame and re-uploads GPU textures for the returned paths.
+    ///
+    /// **Platform note:** hot reloading is native-only. On `wasm32` targets this method
+    /// always returns an empty `Vec` (no-op on wasm32).
     pub fn poll_reloads(&mut self) -> Vec<String> {
         #[cfg(target_arch = "wasm32")]
         {

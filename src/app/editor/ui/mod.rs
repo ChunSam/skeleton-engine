@@ -5,6 +5,15 @@ mod shortcuts;
 
 // ── Private free helpers ──────────────────────────────────────────────────────
 
+/// Canonical display label for an entity: its `Tag` name when available,
+/// otherwise `"Entity {index}:{generation}"`.
+fn entity_label(e: Entity, tag_map: &HashMap<Entity, String>) -> String {
+    tag_map
+        .get(&e)
+        .cloned()
+        .unwrap_or_else(|| format!("Entity {}:{}", e.index(), e.generation()))
+}
+
 /// Render the "Name:" tag-editing row for `sel` inside an existing `ui` horizontal.
 ///
 /// Shows a text-edit when the entity already has a `Tag`; otherwise shows the
@@ -254,14 +263,7 @@ impl App {
                                     let mut stack: Vec<(Entity, usize)> =
                                         root_entities.iter().rev().map(|&e| (e, 0)).collect();
                                     while let Some((entity, depth)) = stack.pop() {
-                                        let name =
-                                            tag_map.get(&entity).cloned().unwrap_or_else(|| {
-                                                format!(
-                                                    "Entity {}:{}",
-                                                    entity.index(),
-                                                    entity.generation()
-                                                )
-                                            });
+                                        let name = entity_label(entity, &tag_map);
                                         // Multi-select: highlight based on selected_entities
                                         let is_selected =
                                             self.editor.selected_entities.contains(&entity);
@@ -426,10 +428,7 @@ impl App {
                                         .max_height(250.0)
                                         .show(ui, |ui| {
                                             for &e in &entity_list {
-                                                let label =
-                                                    tag_map.get(&e).cloned().unwrap_or_else(|| {
-                                                        format!("E{}:{}", e.index(), e.generation())
-                                                    });
+                                                let label = entity_label(e, &tag_map);
                                                 // Multi-select highlight (native) or single selection (WASM)
                                                 #[cfg(not(target_arch = "wasm32"))]
                                                 let is_sel =
