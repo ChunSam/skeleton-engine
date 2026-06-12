@@ -95,6 +95,14 @@ pub struct App {
     systems: Vec<Box<dyn System>>,
     /// Per-system label/order/group metadata. Kept in parallel with `systems` by index.
     system_meta: Vec<crate::ecs::schedule::SystemConfig>,
+    /// Number of systems at the **tail** of `systems` that are permanent engine built-ins.
+    ///
+    /// These systems are registered by `App::new()` and survive scene transitions
+    /// (`SceneCmd::Replace`). Scene systems occupy `systems[..systems.len() - builtin_tail_count]`;
+    /// built-ins occupy `systems[systems.len() - builtin_tail_count..]`.
+    ///
+    /// Currently always 1: `HierarchySystem` is the only engine-forced built-in.
+    builtin_tail_count: usize,
     /// Execution order computed by `compute_order` (list of indices).
     exec_order: Vec<usize>,
     /// True when `system_meta` has changed — triggers a recompute on the next frame.
@@ -205,6 +213,7 @@ impl App {
             world,
             systems: Vec::new(),
             system_meta: Vec::new(),
+            builtin_tail_count: 0,
             exec_order: Vec::new(),
             schedule_dirty: true,
             disabled_sets: std::collections::HashSet::new(),
@@ -244,6 +253,23 @@ impl App {
         };
         #[cfg(not(target_arch = "wasm32"))]
         app.register_default_components();
+
+        // Register HierarchySystem as the one permanent tail built-in.
+        //
+        // The tail design: built-in systems live at the *end* of `self.systems`.
+        // `builtin_tail_count` tells the engine how many trailing entries are permanent
+        // (i.e. survive `SceneCmd::Replace`).  `add_system` / `add_system_labeled` and
+        // `SystemRegistrar` all insert *before* the tail so the tail indices stay highest.
+        // Kahn's algorithm breaks ties by lowest index, which means unconstrained user
+        // systems (smaller indices) run before HierarchySystem (largest index) by default.
+        // A user system that explicitly declares `.after(HierarchySystem::LABEL)` is placed
+        // after it by the topological sort, so it sees the freshly-propagated GlobalTransforms.
+        app.systems.push(Box::new(HierarchySystem));
+        app.system_meta
+            .push(crate::ecs::schedule::SystemConfig::new().label(HierarchySystem::LABEL));
+        app.builtin_tail_count = 1;
+        app.schedule_dirty = true;
+
         app
     }
 }
@@ -460,6 +486,193 @@ mod tests {
         assert!(
             pos(3) < pos(2),
             "LayoutSystem::LABEL must order before UiSystem::LABEL"
+        );
+    }
+
+    // ─── HierarchySystem pipeline-integration tests ───────────────────────────
+
+    /// A user system that mutates `Transform` then `App::update` must see the updated
+    /// `GlobalTransform` in the same frame — HierarchySystem propagates after user
+    /// systems when running inside the labeled pipeline.
+    #[test]
+    fn hierarchy_propagates_gt_after_user_transform_mutation() {
+        use crate::components::Transform;
+        use crate::hierarchy::GlobalTransform;
+        use glam::Vec2;
+
+        struct MoveParent(Entity);
+        impl System for MoveParent {
+            fn run(&mut self, world: &mut World, _dt: f32) {
+                if let Some(t) = world.get_mut::<Transform>(self.0) {
+                    t.position.x += 1.0;
+                }
+            }
+        }
+
+        let mut app = app_with_counter(); // borrows counter resource but that's fine
+        let parent = app.world.spawn();
+        let child = app.world.spawn();
+        app.world.add_component(
+            parent,
+            Transform {
+                position: Vec2::ZERO,
+                scale: Vec2::ONE,
+                rotation: 0.0,
+                z: 0.0,
+            },
+        );
+        app.world.add_component(
+            child,
+            Transform {
+                position: Vec2::new(5.0, 0.0),
+                scale: Vec2::ONE,
+                rotation: 0.0,
+                z: 0.0,
+            },
+        );
+        crate::hierarchy::attach(&mut app.world, child, parent);
+        app.add_system(MoveParent(parent));
+
+        // Frame 1: MoveParent shifts parent to x=1; HierarchySystem propagates → child GT = 6
+        app.update(1.0 / 60.0);
+        let x1 = app.world.get::<GlobalTransform>(child).unwrap().position.x;
+        assert!(
+            (x1 - 6.0).abs() < 1e-3,
+            "frame 1: child GT.x expected 6.0, got {x1}"
+        );
+
+        // Frame 2: parent at x=2 → child GT = 7
+        app.update(1.0 / 60.0);
+        let x2 = app.world.get::<GlobalTransform>(child).unwrap().position.x;
+        assert!(
+            (x2 - 7.0).abs() < 1e-3,
+            "frame 2: child GT.x expected 7.0, got {x2}"
+        );
+    }
+
+    /// A system declared `.after(HierarchySystem::LABEL)` must see `GlobalTransform`
+    /// values that reflect `Transform` mutations from the same frame.
+    #[test]
+    fn after_hierarchy_label_sees_fresh_global_transform() {
+        use crate::components::Transform;
+        use crate::hierarchy::{GlobalTransform, HierarchySystem};
+        use glam::Vec2;
+        use std::sync::{Arc, Mutex};
+
+        struct SetParentX {
+            parent: Entity,
+        }
+        impl System for SetParentX {
+            fn run(&mut self, world: &mut World, _dt: f32) {
+                if let Some(t) = world.get_mut::<Transform>(self.parent) {
+                    t.position.x = 10.0;
+                }
+            }
+        }
+
+        struct ReadChildGt {
+            child: Entity,
+            sink: Arc<Mutex<f32>>,
+        }
+        impl System for ReadChildGt {
+            fn run(&mut self, world: &mut World, _dt: f32) {
+                if let Some(gt) = world.get::<GlobalTransform>(self.child) {
+                    *self.sink.lock().unwrap() = gt.position.x;
+                }
+            }
+        }
+
+        let sink: Arc<Mutex<f32>> = Arc::new(Mutex::new(0.0));
+        let mut app = App::new();
+        let parent = app.world.spawn();
+        let child = app.world.spawn();
+        app.world.add_component(
+            parent,
+            Transform {
+                position: Vec2::ZERO,
+                scale: Vec2::ONE,
+                rotation: 0.0,
+                z: 0.0,
+            },
+        );
+        app.world.add_component(
+            child,
+            Transform {
+                position: Vec2::new(3.0, 0.0),
+                scale: Vec2::ONE,
+                rotation: 0.0,
+                z: 0.0,
+            },
+        );
+        crate::hierarchy::attach(&mut app.world, child, parent);
+
+        // SetParentX has no ordering constraint — runs before HierarchySystem by default.
+        app.add_system(SetParentX { parent });
+        // ReadChildGt explicitly runs after HierarchySystem: sees GT propagated this frame.
+        app.add_system_labeled(
+            ReadChildGt {
+                child,
+                sink: sink.clone(),
+            },
+            SystemConfig::new().after(HierarchySystem::LABEL),
+        );
+
+        app.update(1.0 / 60.0);
+
+        // parent.x = 10, child local.x = 3 → child GT.x = 13
+        let recorded = *sink.lock().unwrap();
+        assert!(
+            (recorded - 13.0).abs() < 1e-3,
+            "ReadChildGt (after HierarchySystem::LABEL) expected GT.x=13.0, got {recorded}"
+        );
+    }
+
+    /// After `SceneCmd::Replace`, `HierarchySystem` must still propagate `GlobalTransform` —
+    /// it is a permanent built-in that survives scene transitions.
+    #[test]
+    fn hierarchy_survives_scene_replace() {
+        use crate::components::Transform;
+        use crate::hierarchy::GlobalTransform;
+        use crate::scene::SystemRegistrar;
+        use glam::Vec2;
+
+        struct EmptyScene;
+        impl Scene for EmptyScene {
+            fn on_enter(&mut self, _w: &mut World, _s: &mut SystemRegistrar) {}
+            fn on_exit(&mut self, _w: &mut World) {}
+        }
+
+        let mut app = App::new();
+        app.set_scene(Box::new(EmptyScene));
+
+        let parent = app.world.spawn();
+        let child = app.world.spawn();
+        app.world.add_component(
+            parent,
+            Transform {
+                position: Vec2::new(20.0, 0.0),
+                scale: Vec2::ONE,
+                rotation: 0.0,
+                z: 0.0,
+            },
+        );
+        app.world.add_component(
+            child,
+            Transform {
+                position: Vec2::new(5.0, 0.0),
+                scale: Vec2::ONE,
+                rotation: 0.0,
+                z: 0.0,
+            },
+        );
+        crate::hierarchy::attach(&mut app.world, child, parent);
+
+        app.update(1.0 / 60.0);
+
+        let x = app.world.get::<GlobalTransform>(child).unwrap().position.x;
+        assert!(
+            (x - 25.0).abs() < 1e-3,
+            "after scene replace, child GT.x expected 25.0, got {x}"
         );
     }
 }

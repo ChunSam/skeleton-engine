@@ -66,31 +66,52 @@ impl App {
 
     pub(super) fn apply_scene_cmd(&mut self, cmd: SceneCmd) {
         use crate::scene::SystemRegistrar;
+
+        // Scene systems occupy `systems[..scene_len]`; built-in tails occupy
+        // `systems[scene_len..]`.  All insert/truncate operations that touch scene
+        // systems must keep the tail in place.
+        let tail = self.builtin_tail_count;
+
         match cmd {
             SceneCmd::Replace(mut new_scene) => {
                 for (mut scene, _) in self.scene_stack.drain(..).rev() {
                     scene.on_exit(&mut self.world);
                 }
-                self.systems.clear();
-                self.reconcile_meta(); // sync meta after systems.clear()
+                // Remove scene systems while preserving the permanent tail built-ins.
+                // Built-in tail systems occupy `systems[systems.len()-tail..]`.
+                // Scene systems occupy `systems[..systems.len()-tail]`.
+                // Drain the scene portion (everything before the tail) so the tail
+                // built-ins remain and their indices collapse back to the front.
+                let scene_len = self.systems.len().saturating_sub(tail);
+                self.systems.drain(..scene_len);
+                self.system_meta.drain(..scene_len);
+                self.reconcile_meta(); // sync meta (no-op when lengths already equal)
                 self.reload_scene();
-                let before = self.systems.len();
+                let before = self.systems.len(); // = tail (only built-ins remain)
                 {
-                    let mut registrar =
-                        SystemRegistrar::new(&mut self.systems, &mut self.system_meta);
+                    let mut registrar = SystemRegistrar::new_with_tail(
+                        &mut self.systems,
+                        &mut self.system_meta,
+                        tail,
+                    );
                     new_scene.on_enter(&mut self.world, &mut registrar);
                 }
+                // `owned` = scene systems added (tail entries are not counted).
                 let owned = self.systems.len() - before;
                 self.scene_stack.push((new_scene, owned));
                 self.reconcile_meta(); // ensure lengths stay equal (no-op when registrar kept them in sync)
             }
             SceneCmd::Push(mut new_scene) => {
-                let before = self.systems.len();
+                let before = self.systems.len(); // includes tail
                 {
-                    let mut registrar =
-                        SystemRegistrar::new(&mut self.systems, &mut self.system_meta);
+                    let mut registrar = SystemRegistrar::new_with_tail(
+                        &mut self.systems,
+                        &mut self.system_meta,
+                        tail,
+                    );
                     new_scene.on_enter(&mut self.world, &mut registrar);
                 }
+                // `owned` = systems inserted before the tail by this scene.
                 let owned = self.systems.len() - before;
                 self.scene_stack.push((new_scene, owned));
                 self.reconcile_meta(); // ensure lengths stay equal (no-op when registrar kept them in sync)
@@ -98,8 +119,14 @@ impl App {
             SceneCmd::Pop => {
                 if let Some((mut scene, owned)) = self.scene_stack.pop() {
                     scene.on_exit(&mut self.world);
-                    let new_len = self.systems.len().saturating_sub(owned);
-                    self.systems.truncate(new_len);
+                    // Remove `owned` scene systems from just before the tail.
+                    // `scene_len` = total non-tail systems before the pop.
+                    let scene_len = self.systems.len().saturating_sub(tail);
+                    let new_scene_len = scene_len.saturating_sub(owned);
+                    // Drain the popped scene's range: [new_scene_len..scene_len]
+                    self.systems.drain(new_scene_len..scene_len);
+                    self.system_meta.drain(new_scene_len..scene_len);
+                    let new_len = new_scene_len + tail;
                     // Remove indices of systems removed by Pop from the panic set
                     // (remaining indices stay valid). Without this, a truncated index
                     // persists and would incorrectly skip a new system at that same index.
@@ -116,7 +143,7 @@ impl App {
                     {
                         ps.disabled = names;
                     }
-                    self.reconcile_meta(); // sync meta after truncate
+                    self.reconcile_meta(); // sync meta after drain
                 }
             }
         }

@@ -120,7 +120,32 @@ pub fn topological_sort_entities(entities: &[Entity], world: &World) -> Vec<Enti
 
 /// System that propagates `GlobalTransform` through the `Transform` hierarchy.
 ///
-/// Run automatically by `App` immediately after user systems; no manual registration needed.
+/// `App::new()` registers this system automatically as a permanent built-in — it
+/// survives scene transitions and runs **last** among unconstrained systems every
+/// frame, ensuring `GlobalTransform` values are always current before rendering.
+///
+/// # Ordering
+///
+/// By default `HierarchySystem` has the highest insertion index of any system in the
+/// app, so Kahn's topological sort (lowest-index tie-breaker) places it after all
+/// unconstrained user systems.  A system that reads `GlobalTransform` values produced
+/// this frame should declare:
+///
+/// ```rust,no_run
+/// # use engine::{scene::{Scene, SystemRegistrar}, ecs::{System, World}, SystemConfig, HierarchySystem};
+/// # struct ReadGtSystem;
+/// # impl System for ReadGtSystem { fn run(&mut self, _: &mut World, _: f32) {} }
+/// # struct MyScene;
+/// # impl Scene for MyScene {
+/// fn on_enter(&mut self, _world: &mut World, systems: &mut SystemRegistrar) {
+///     systems.add_labeled(
+///         ReadGtSystem,
+///         SystemConfig::new().after(HierarchySystem::LABEL),
+///     );
+/// }
+/// # fn on_exit(&mut self, _: &mut World) {}
+/// # }
+/// ```
 ///
 /// # Depth
 /// Uses topological sort (root → children order) for a single-pass propagation, supporting
@@ -128,8 +153,14 @@ pub fn topological_sort_entities(entities: &[Entity], world: &World) -> Vec<Enti
 pub struct HierarchySystem;
 
 impl HierarchySystem {
-    /// Schedule label. Run **after** systems that mutate `Transform` so
-    /// `GlobalTransform` reflects the current frame's state.
+    /// Schedule label for `HierarchySystem`.
+    ///
+    /// Use this label to declare ordering relative to hierarchy propagation:
+    /// - **`.after(HierarchySystem::LABEL)`** — system runs after propagation and sees
+    ///   the current frame's `GlobalTransform` values (typical for render helpers or
+    ///   systems that composite world-space positions).
+    /// - **`.before(HierarchySystem::LABEL)`** — system runs before propagation; mutated
+    ///   `Transform` values will be picked up by `HierarchySystem` in the same frame.
     pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::hierarchy";
 }
 

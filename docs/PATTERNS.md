@@ -114,6 +114,7 @@ Known ordering constraints expressed this way:
 | `CollisionDebugSystem` after `CollisionGridSystem` | same |
 | consumers of `Events<NetworkEvent>` after `NetworkSystem` | it polls the socket into the bus |
 | `LocalizationSystem` before `UiSystem` | resolved text rendered same frame |
+| readers of `GlobalTransform` after `HierarchySystem` | propagation runs last in the frame; `.after(HierarchySystem::LABEL)` guarantees current-frame world transforms |
 
 Scenes order systems the same way (since v5): `Scene::on_enter` receives a
 `SystemRegistrar` whose `add_labeled` takes the same `SystemConfig` builder

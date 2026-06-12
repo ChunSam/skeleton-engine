@@ -70,9 +70,11 @@ impl App {
     }
 
     pub fn add_system<S: System + 'static>(&mut self, system: S) {
-        self.systems.push(Box::new(system));
+        // Insert before the permanent tail built-ins so their indices stay highest.
+        let insert_at = self.systems.len().saturating_sub(self.builtin_tail_count);
+        self.systems.insert(insert_at, Box::new(system));
         self.system_meta
-            .push(crate::ecs::schedule::SystemConfig::default());
+            .insert(insert_at, crate::ecs::schedule::SystemConfig::default());
         self.schedule_dirty = true;
     }
 
@@ -81,8 +83,10 @@ impl App {
         system: S,
         config: crate::ecs::schedule::SystemConfig,
     ) {
-        self.systems.push(Box::new(system));
-        self.system_meta.push(config);
+        // Insert before the permanent tail built-ins so their indices stay highest.
+        let insert_at = self.systems.len().saturating_sub(self.builtin_tail_count);
+        self.systems.insert(insert_at, Box::new(system));
+        self.system_meta.insert(insert_at, config);
         self.schedule_dirty = true;
     }
 
@@ -265,9 +269,6 @@ impl App {
                 prof.frame_ms = dt * 1000.0;
             }
         }
-        // Propagate hierarchy transforms — after user systems (including physics), just before render
-        HierarchySystem.run(&mut self.world, dt);
-
         // Update camera effects (shake decay, zoom tween, smooth follow), then apply
         // world-bounds clamping so position never scrolls outside Camera::bounds.
         {
