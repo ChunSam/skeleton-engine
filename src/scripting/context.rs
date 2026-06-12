@@ -89,3 +89,35 @@ pub(super) fn set_script_ctx(ctx: ScriptCtx) {
 pub(super) fn take_script_ctx() -> Option<ScriptCtx> {
     SCRIPT_CTX.with(|c| c.borrow_mut().take())
 }
+
+/// Borrows the context mutably and runs `f`.
+///
+/// All registered Rhai functions that write to the context use this helper to
+/// avoid repeating the `with(|c| borrow_mut().as_mut().expect(…))` pattern.
+/// Safe because Rhai evaluation is single-threaded and non-reentrant — no
+/// nested `with()` call can occur while `f` is executing.
+#[inline]
+pub(super) fn with_ctx_mut<R>(f: impl FnOnce(&mut ScriptCtx) -> R) -> R {
+    SCRIPT_CTX.with(|c| {
+        let mut borrow = c.borrow_mut();
+        let ctx = borrow
+            .as_mut()
+            .expect("SCRIPT_CTX must be set during script execution");
+        f(ctx)
+    })
+}
+
+/// Borrows the context immutably and runs `f`.
+///
+/// All registered Rhai functions that only read from the context use this
+/// helper.  Same single-threaded non-reentrant guarantee as [`with_ctx_mut`].
+#[inline]
+pub(super) fn with_ctx<R>(f: impl FnOnce(&ScriptCtx) -> R) -> R {
+    SCRIPT_CTX.with(|c| {
+        let borrow = c.borrow();
+        let ctx = borrow
+            .as_ref()
+            .expect("SCRIPT_CTX must be set during script execution");
+        f(ctx)
+    })
+}
