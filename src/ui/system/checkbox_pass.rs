@@ -6,7 +6,7 @@ use crate::resources::ViewportSize;
 use crate::ui::checkbox::CheckBox;
 use crate::ui::node::UiNode;
 
-use super::state::{in_bounds, InputSnapshot, UiOutput};
+use super::state::{in_bounds, node_layout, InputSnapshot, UiOutput};
 use super::UiEvent;
 
 pub(super) fn run(
@@ -21,8 +21,8 @@ pub(super) fn run(
         .collect();
 
     for entity in checkbox_entities {
-        let (pos, size, z, visible) = match world.get::<UiNode>(entity) {
-            Some(n) => (n.screen_pos(viewport), n.size, n.z, n.visible),
+        let (pos, size, z, visible) = match node_layout(world, entity, viewport) {
+            Some(layout) => layout,
             None => continue,
         };
         if !visible {
