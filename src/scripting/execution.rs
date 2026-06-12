@@ -77,7 +77,9 @@ impl System for ScriptingSystem {
             if let Some(bb) = world.get::<Blackboard>(entity) {
                 for (key, val) in bb.entries() {
                     match val {
-                        BlackboardValue::Bool(_) | BlackboardValue::Float(_) | BlackboardValue::Int(_) => {
+                        BlackboardValue::Bool(_)
+                        | BlackboardValue::Float(_)
+                        | BlackboardValue::Int(_) => {
                             bb_snap.insert(key.to_string(), val.clone());
                         }
                         _ => {}
