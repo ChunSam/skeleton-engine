@@ -4,6 +4,38 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 7.1.0
+
+The docked editor shell: a second editor mode that lays the screen out like a
+commercial engine — side panels around a central game viewport — so editing no
+longer covers the game. First release of the in-engine editor arc (next: UI
+widget editing, then data tables). No breaking changes.
+
+### Added
+
+- **Docked editor mode (`F2`, native only)**: egui owns the window; the left
+  panel holds Entities/Scene tabs, the right panel the Inspector, the bottom
+  panel Assets, and a top toolbar carries play/pause (`▶`/`⏸`), single-frame
+  step (`⏭`), snap controls, and scene save/load. The game renders into an
+  editor-owned offscreen texture shown in the central panel (size follows the
+  panel, 3-frame resize debounce). `F1` keeps the existing floating-window
+  overlay unchanged; the modes are mutually exclusive.
+- **Viewport-local input routing**: while docked, the game receives the cursor
+  translated into viewport coordinates (`viewport_to_game`), and pointer events
+  pass through a layer-aware gate (`docked_game_pointer_allowed`) — clicks
+  inside the viewport reach the game/gizmo, clicks on panels and popups stay in
+  egui, and typing in the Inspector never leaks into game input. The selection
+  gizmo (drag to move, snap, undo) works inside the docked viewport.
+- **Editor pause**: the toolbar pause skips scene systems at the engine level
+  while keeping the builtin tail (`HierarchySystem`) running, so dragging a
+  parent while paused still moves its children. `⏭` advances exactly one full
+  frame. The `GameState` resource is untouched (it remains a game-side
+  convention).
+- **`ViewportSize` delegation**: while docked, `ViewportSize` reports the
+  central panel's logical size, so cameras, screen-space UI, and
+  `Camera::screen_to_world` work unchanged against the viewport; the real
+  window size is restored on exit.
+
 ## 7.0.0
 
 The renderer-dependency major window: the whole wgpu/glyphon/egui stack moves to
