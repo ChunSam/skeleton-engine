@@ -28,7 +28,11 @@ This note records the security and memory-safety hardening work from the May 202
 > because the underlying advisories still exist; revisit if one becomes exploitable in
 > practice or during a deliberate renderer/`wgpu` upgrade.
 
-- `glyphon 0.6.0` still depends on `lru 0.12.5`, which is affected by `RUSTSEC-2026-0002`.
-- `lru >= 0.16.3` cannot be resolved under the current `glyphon 0.6` requirement.
-- `glyphon 0.10+` moves to newer `wgpu` major versions, so fully removing this advisory should be handled as a separate renderer dependency migration.
+- ~~`glyphon 0.6.0` still depends on `lru 0.12.5`, which is affected by `RUSTSEC-2026-0002`.~~
+  **RESOLVED (2026-06-12, v7.0.0)**: the renderer dependency migration anticipated below
+  shipped — wgpu 22 → 29 / glyphon 0.6 → 0.11 / egui 0.29 → 0.34. `lru` now resolves to
+  `0.16.4` (≥ 0.16.3), confirmed in `Cargo.lock`; `RUSTSEC-2026-0002` no longer applies.
+  See `docs/CHANGELOG.md` `## 7.0.0`.
+- ~~`lru >= 0.16.3` cannot be resolved under the current `glyphon 0.6` requirement.~~ (same — resolved by the v7.0.0 migration)
+- ~~`glyphon 0.10+` moves to newer `wgpu` major versions, so fully removing this advisory should be handled as a separate renderer dependency migration.~~ (done in v7.0.0)
 - `paste 1.0.15` remains reported as unmaintained via transitive dependencies; this is not an active vulnerability but should be monitored during future dependency upgrades.

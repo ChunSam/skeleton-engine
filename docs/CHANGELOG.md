@@ -4,6 +4,61 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 7.0.0
+
+The renderer-dependency major window: the whole wgpu/glyphon/egui stack moves to
+current majors, resolving `RUSTSEC-2026-0002` (glyphon 0.6 pinned `lru` < 0.16.3 —
+previously archived as accepted risk in `docs/SECURITY_HARDENING_2026_05.md`, now
+closed). Engine-side rendering behavior is preserved exactly (sRGB-first surface
+format, AutoVsync, frame latency 1, WebGL2 limits on wasm, egui dithering off);
+verified by the full gate suite, `wasm_smoke` (connect + non-blank render, HUD
+correct), and windowed playtests (lighting pass, SM crossfade mid-blend, F1
+inspector overlay).
+
+### Breaking — toolchain & dependencies
+
+- **MSRV 1.88 → 1.92** (`rust-version = "1.92"`): egui 0.34 requires Rust 1.92,
+  cosmic-text 0.18 requires 1.89. CI pins Rust 1.95.0 (current stable, also used
+  for local gates).
+- **wgpu 22 → 29** (`webgl` feature unchanged), **glyphon 0.6 → 0.11**
+  (cosmic-text 0.18), **egui / egui-wgpu / egui-winit 0.29 → 0.34**, winit minimum
+  `0.30.13`. Transitive `lru` resolves to 0.16.4, closing `RUSTSEC-2026-0002`.
+
+### Breaking — API changes
+
+- **`GpuContext::clear()`** returns `Result<(), String>` (was
+  `Result<(), wgpu::SurfaceError>` — wgpu 29 removed `SurfaceError`; surface
+  acquisition reports through the `wgpu::CurrentSurfaceTexture` enum). *Migration:*
+  treat the `Err` as an opaque message. The engine main loop handles
+  reconfigure-on-`Lost`/`Outdated` internally, exactly as before.
+- **`RenderTarget` pub fields and `DebugUi::ctx()` now expose wgpu 29 / egui 0.34
+  types** — code touching `RenderTarget.{texture,view,sampler,bind_group}` or
+  writing custom egui panels compiles against the new majors. Notable for panel
+  code: `Rounding` → `CornerRadius`, `Context::style()` → `global_style()`. egui
+  0.34's skrifa font backend renders text slightly differently (default text size
+  12.5 → 13.0) — debug-UI only, game rendering unaffected. wgpu resources are now
+  `Clone` (internally refcounted); `RenderTarget.bind_group` stays `Arc`-wrapped
+  for API stability.
+
+### Fixed
+
+- **egui texture deltas are no longer dropped on skipped frames** — when surface
+  acquisition failed for one frame (`Lost`/`Outdated`/`Timeout`, e.g. during a
+  live window resize), the unconsumed `textures_delta` was overwritten by the next
+  frame. egui 0.29's ab_glyph backend re-sent the full font atlas on every change,
+  silently self-healing; egui 0.34's incremental skrifa updates made the latent
+  bug fatal (panic on F1: "Tried to update a texture that has not been allocated
+  yet"). Deltas now merge old → new (`merge_textures_delta` in
+  `src/app/schedule.rs`, +2 regression tests). Found by the windowed playtest.
+
+### Changed
+
+- `src/app/egui_pass.rs` dropped its `unsafe` transmute — wgpu 29's
+  `RenderPass::forget_lifetime()` is the supported replacement for the
+  egui-wgpu `RenderPass<'static>` requirement.
+- egui renderer keeps dithering **off**, matching the pre-0.34 explicit arguments
+  (`RendererOptions::default()` would have silently enabled it).
+
 ## 6.0.0
 
 The v6 breaking window: the three "Verified-but-deferred" items recorded in 5.1.3,
