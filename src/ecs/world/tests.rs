@@ -544,3 +544,68 @@ fn take_resource_erased_missing_returns_none() {
     let mut world = World::new();
     assert!(world.take_resource_erased(TypeId::of::<u32>()).is_none());
 }
+
+/// Mass-despawn removes all change-tracking entries for despawned entities in O(1)
+/// per entity. After despawning all entities, `query_added` and `query_changed`
+/// must return empty results (no stale entries).
+#[test]
+fn mass_despawn_clears_change_tracking() {
+    let mut world = World::new();
+
+    // Spawn 64 entities and add/replace components to populate both sets.
+    let entities: Vec<Entity> = (0..64).map(|_| world.spawn()).collect();
+    for &e in &entities {
+        world.add_component(e, Position { x: 1.0, y: 2.0 });
+    }
+    // Replace to also populate `changed_this_tick`.
+    for &e in &entities {
+        world.add_component(e, Position { x: 3.0, y: 4.0 });
+    }
+
+    assert!(world.query_added::<Position>().count() > 0);
+    assert!(world.query_changed::<Position>().count() > 0);
+
+    // Mass-despawn — O(1) per entity thanks to HashMap keyed by Entity.
+    for e in entities {
+        world.despawn(e);
+    }
+
+    // No stale tracking entries should remain.
+    assert_eq!(world.query_added::<Position>().count(), 0);
+    assert_eq!(world.query_changed::<Position>().count(), 0);
+}
+
+/// Change-tracking queries return the same results before and after the
+/// HashSet<(Entity,TypeId)> → HashMap<Entity,HashSet<TypeId>> restructure:
+/// added/changed sets are disjoint for a given component in one tick.
+#[test]
+fn change_tracking_restructure_semantics_preserved() {
+    let mut world = World::new();
+
+    let e_new = world.spawn();
+    world.add_component(e_new, Health(10));
+
+    let e_old = world.spawn();
+    world.add_component(e_old, Health(5));
+    world.clear_change_tracking();
+
+    // Replace on e_old → changed; e_new still in added set for previous tick
+    // (cleared above), so now e_new added → nothing since we cleared.
+    // Add a fresh entity in this tick to be "added".
+    let e_added_now = world.spawn();
+    world.add_component(e_added_now, Health(99));
+
+    // Replace e_old's Health → changed.
+    world.add_component(e_old, Health(77));
+
+    let added: Vec<_> = world.query_added::<Health>().collect();
+    let changed: Vec<_> = world.query_changed::<Health>().collect();
+
+    assert_eq!(added.len(), 1);
+    assert_eq!(added[0].0, e_added_now);
+    assert_eq!(added[0].1 .0, 99);
+
+    assert_eq!(changed.len(), 1);
+    assert_eq!(changed[0].0, e_old);
+    assert_eq!(changed[0].1 .0, 77);
+}
