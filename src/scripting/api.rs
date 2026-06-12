@@ -2,6 +2,8 @@ use rhai::Engine;
 
 use crate::ecs::Entity;
 
+use crate::behavior::BlackboardValue;
+
 use super::context::{BbEntry, SteeringCmd, SCRIPT_CTX};
 use super::{ScriptingLimits, ScriptingSystem};
 
@@ -104,7 +106,7 @@ impl ScriptingSystem {
                     .as_ref()
                     .expect("SCRIPT_CTX must be set during script execution");
                 match ctx.bb_snap.get(key) {
-                    Some(BbEntry::Bool(_, v)) => *v,
+                    Some(BlackboardValue::Bool(v)) => *v,
                     _ => false,
                 }
             })
@@ -117,7 +119,7 @@ impl ScriptingSystem {
                     .as_ref()
                     .expect("SCRIPT_CTX must be set during script execution");
                 match ctx.bb_snap.get(key) {
-                    Some(BbEntry::Float(_, v)) => *v,
+                    Some(BlackboardValue::Float(v)) => *v as f64,
                     _ => 0.0,
                 }
             })
@@ -130,7 +132,7 @@ impl ScriptingSystem {
                     .as_ref()
                     .expect("SCRIPT_CTX must be set during script execution");
                 match ctx.bb_snap.get(key) {
-                    Some(BbEntry::Int(_, v)) => *v,
+                    Some(BlackboardValue::Int(v)) => *v as i64,
                     _ => 0,
                 }
             })

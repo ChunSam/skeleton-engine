@@ -8,6 +8,8 @@ use crate::components::Transform;
 use crate::ecs::{Entity, System, World};
 use crate::steering::{Arrive, Flee, Seek, SteeringVelocity, Wander};
 
+use crate::behavior::BlackboardValue;
+
 use super::context::{
     set_script_ctx, take_script_ctx, BbEntry, ScriptCommands, ScriptCtx, SteeringCmd,
 };
@@ -29,7 +31,7 @@ impl System for ScriptingSystem {
         let mut cmd_buf = ScriptCommands::default();
         let mut bb_buf: Vec<BbEntry> = Vec::new();
         let mut steer_buf: Option<SteeringCmd> = None;
-        let mut bb_snap: HashMap<String, BbEntry> = HashMap::new();
+        let mut bb_snap: HashMap<String, BlackboardValue> = HashMap::new();
 
         for entity in entities {
             // Read script handle id + started flag
@@ -71,18 +73,14 @@ impl System for ScriptingSystem {
             bb_buf.clear();
             bb_snap.clear();
 
-            // Collect Blackboard snapshot
-            {
-                use crate::behavior::BlackboardValue;
-                if let Some(bb) = world.get::<Blackboard>(entity) {
-                    for (key, val) in bb.entries() {
-                        let entry = match val {
-                            BlackboardValue::Bool(v) => BbEntry::Bool(key.to_string(), *v),
-                            BlackboardValue::Float(v) => BbEntry::Float(key.to_string(), *v as f64),
-                            BlackboardValue::Int(v) => BbEntry::Int(key.to_string(), *v as i64),
-                            _ => continue,
-                        };
-                        bb_snap.insert(key.to_string(), entry);
+            // Collect Blackboard snapshot — one to_string() per entry (the map key only).
+            if let Some(bb) = world.get::<Blackboard>(entity) {
+                for (key, val) in bb.entries() {
+                    match val {
+                        BlackboardValue::Bool(_) | BlackboardValue::Float(_) | BlackboardValue::Int(_) => {
+                            bb_snap.insert(key.to_string(), val.clone());
+                        }
+                        _ => {}
                     }
                 }
             }

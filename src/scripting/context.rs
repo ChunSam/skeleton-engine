@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+use crate::behavior::BlackboardValue;
 use crate::ecs::Entity;
 
 /// ECS commands collected during script execution.
@@ -16,13 +17,11 @@ pub(super) struct ScriptCommands {
     pub(super) spawned_ids: Vec<i64>,
 }
 
-/// Blackboard entry used in two contexts:
-/// - `bb_buf`: entries written by the script this frame (the `String` key is needed here to
-///   know which blackboard field to set when applying the buffer).
-/// - `bb_snap` (`HashMap<String, BbEntry>`): snapshot read by the script. In this context the
-///   `String` key inside the variant is redundant (the HashMap key already carries it), but
-///   `BbEntry` is shared between both contexts so the field cannot be removed without splitting
-///   the type.
+/// Blackboard entry used by the write path (`bb_buf`).
+///
+/// The `String` key identifies which blackboard field to set when the buffer is
+/// applied after script execution.  The snapshot read path (`bb_snap`) uses a
+/// plain `BlackboardValue` keyed by the map key, so the key is not duplicated.
 #[derive(Clone)]
 pub(super) enum BbEntry {
     Bool(String, bool),
@@ -70,7 +69,11 @@ pub(super) struct ScriptCtx {
     pub(super) cmd_buf: ScriptCommands,
     pub(super) bb_buf: Vec<BbEntry>,
     pub(super) steer_buf: Option<SteeringCmd>,
-    pub(super) bb_snap: HashMap<String, BbEntry>,
+    /// Read-only snapshot of the entity's Blackboard at the start of the frame.
+    /// Uses `BlackboardValue` directly — the key is already the map key, so no
+    /// duplicate allocation is needed here (unlike `bb_buf` which carries the key
+    /// inside `BbEntry` because the apply loop needs it).
+    pub(super) bb_snap: HashMap<String, BlackboardValue>,
 }
 
 thread_local! {
