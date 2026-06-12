@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use glam::Vec2;
 use rand::Rng;
 
@@ -10,7 +12,7 @@ type ParticleUpdate = (Entity, f32, f32, Vec2, Color, Color);
 //  color_start, color_end, size, has_burst, burst_remaining)
 // NOTE: `texture` is intentionally omitted — it is looked up lazily via
 // `world.get::<ParticleEmitter>(emitter_entity)` only when particles actually spawn,
-// so no `Option<String>` clone occurs on frames where 0 particles are emitted.
+// so no `Arc<str>` refcount bump occurs on frames where 0 particles are emitted.
 type EmitterSnapshot = (
     Entity,
     Vec2,
@@ -46,8 +48,10 @@ pub struct ParticleEmitter {
     pub color_end: Color,
     /// Particle size in pixels.
     pub size: Vec2,
-    /// Texture path. None means a solid-color rectangle.
-    pub texture: Option<String>,
+    /// Texture path. `None` renders a solid-color rectangle.
+    /// Uses `Arc<str>` so per-spawn clones are refcount bumps, consistent with
+    /// [`Sprite::texture`].
+    pub texture: Option<Arc<str>>,
     /// Set to false to stop emitting.
     pub emit: bool,
     /// Internal timer (no need to modify directly).
@@ -292,7 +296,7 @@ fn spawn_particle(
     world: &mut World,
     pos: Vec2,
     size: Vec2,
-    texture: &Option<String>,
+    texture: &Option<Arc<str>>,
     velocity: Vec2,
     lifetime: f32,
     color_start: Color,
@@ -308,8 +312,9 @@ fn spawn_particle(
             z: 0.0,
         },
     );
+    // Arc<str> clone here is a refcount bump, not a heap allocation.
     let sprite = match texture {
-        Some(path) => Sprite::textured(path.as_str()),
+        Some(path) => Sprite::textured(Arc::clone(path)),
         None => Sprite {
             texture: None,
             color: color_start,
@@ -374,7 +379,7 @@ mod tests {
     }
 
     /// Verifies that the lazy-texture path still propagates the texture path to spawned
-    /// Sprites. The `Option<String>` clone now happens only when particles actually spawn
+    /// Sprites. The `Arc<str>` refcount bump now happens only when particles actually spawn
     /// (not at snapshot collection time), so this exercises the post-refactor code path.
     #[test]
     fn continuous_emitter_with_texture_propagates_to_spawned_sprites() {
@@ -386,7 +391,7 @@ mod tests {
             ParticleEmitter {
                 spawn_rate: 100.0,
                 emit: true,
-                texture: Some("textures/particle.png".to_string()),
+                texture: Some("textures/particle.png".into()),
                 ..ParticleEmitter::default()
             },
         );
@@ -423,7 +428,7 @@ mod tests {
             ParticleEmitter {
                 spawn_rate: 1000.0,
                 emit: false,
-                texture: Some("textures/particle.png".to_string()),
+                texture: Some("textures/particle.png".into()),
                 ..ParticleEmitter::default()
             },
         );
