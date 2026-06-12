@@ -10,21 +10,33 @@ use crate::ecs::{System, World};
 pub struct SystemRegistrar<'a> {
     systems: &'a mut Vec<Box<dyn System>>,
     configs: &'a mut Vec<SystemConfig>,
+    /// Number of permanent tail built-in systems at the end of `systems`.
+    /// New systems are inserted at `systems.len() - tail_count` so built-ins stay last.
+    tail_count: usize,
 }
 
 impl<'a> SystemRegistrar<'a> {
-    /// Creates a new registrar wrapping the given parallel vecs.
-    pub(crate) fn new(
+    /// Creates a new registrar that preserves `tail_count` built-in systems at the tail.
+    ///
+    /// All `add` / `add_labeled` calls insert systems *before* the tail, keeping the
+    /// built-ins at the highest indices (so they run last in Kahn's tie-break order).
+    pub(crate) fn new_with_tail(
         systems: &'a mut Vec<Box<dyn System>>,
         configs: &'a mut Vec<SystemConfig>,
+        tail_count: usize,
     ) -> Self {
-        Self { systems, configs }
+        Self {
+            systems,
+            configs,
+            tail_count,
+        }
     }
 
     /// Registers a system with no ordering constraints (insertion order preserved).
     pub fn add(&mut self, system: impl System + 'static) {
-        self.systems.push(Box::new(system));
-        self.configs.push(SystemConfig::default());
+        let insert_at = self.systems.len().saturating_sub(self.tail_count);
+        self.systems.insert(insert_at, Box::new(system));
+        self.configs.insert(insert_at, SystemConfig::default());
     }
 
     /// Registers a system with labels/ordering via [`SystemConfig`].
@@ -43,8 +55,9 @@ impl<'a> SystemRegistrar<'a> {
     /// # }
     /// ```
     pub fn add_labeled(&mut self, system: impl System + 'static, config: SystemConfig) {
-        self.systems.push(Box::new(system));
-        self.configs.push(config);
+        let insert_at = self.systems.len().saturating_sub(self.tail_count);
+        self.systems.insert(insert_at, Box::new(system));
+        self.configs.insert(insert_at, config);
     }
 }
 

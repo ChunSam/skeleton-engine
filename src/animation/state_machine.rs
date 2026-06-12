@@ -64,8 +64,8 @@ pub struct AnimState {
 ///
 /// # Registration order
 /// ```text
-/// app.add_system(Box::new(AnimationSystem));     // advance frames
-/// app.add_system(Box::new(StateMachineSystem));  // evaluate transitions
+/// app.add_system(AnimationSystem::new());     // advance frames
+/// app.add_system(StateMachineSystem::new());  // evaluate transitions
 /// ```
 ///
 /// # Interaction with `BlendTree1D`
@@ -176,8 +176,20 @@ impl AnimationStateMachine {
     // ── Parameter read / write ─────────────────────────────────────────────────
 
     /// Sets or updates a bool parameter.
-    pub fn set_bool(&mut self, name: impl Into<String>, value: bool) {
-        self.params.insert(name.into(), AnimParam::Bool(value));
+    ///
+    /// When the key already exists the value is updated in place without any
+    /// heap allocation. The first call for a new key allocates the `String` key
+    /// via `name.into()`. Accepts `&str`, `String`, `&String`, or any type that
+    /// implements `Into<String> + AsRef<str>`.
+    ///
+    /// **v6 breaking note:** the bound changed from `impl Into<String>` to
+    /// `impl Into<String> + AsRef<str>`. All common string types satisfy both.
+    pub fn set_bool(&mut self, name: impl Into<String> + AsRef<str>, value: bool) {
+        if let Some(p) = self.params.get_mut(name.as_ref()) {
+            *p = AnimParam::Bool(value);
+        } else {
+            self.params.insert(name.into(), AnimParam::Bool(value));
+        }
     }
 
     /// Reads a bool parameter. Returns `None` if missing or the wrong type.
@@ -189,8 +201,20 @@ impl AnimationStateMachine {
     }
 
     /// Sets or updates a float parameter.
-    pub fn set_float(&mut self, name: impl Into<String>, value: f32) {
-        self.params.insert(name.into(), AnimParam::Float(value));
+    ///
+    /// When the key already exists the value is updated in place without any
+    /// heap allocation. The first call for a new key allocates the `String` key
+    /// via `name.into()`. Accepts `&str`, `String`, `&String`, or any type that
+    /// implements `Into<String> + AsRef<str>`.
+    ///
+    /// **v6 breaking note:** the bound changed from `impl Into<String>` to
+    /// `impl Into<String> + AsRef<str>`. All common string types satisfy both.
+    pub fn set_float(&mut self, name: impl Into<String> + AsRef<str>, value: f32) {
+        if let Some(p) = self.params.get_mut(name.as_ref()) {
+            *p = AnimParam::Float(value);
+        } else {
+            self.params.insert(name.into(), AnimParam::Float(value));
+        }
     }
 
     /// Reads a float parameter. Returns `None` if missing or the wrong type.
@@ -202,7 +226,14 @@ impl AnimationStateMachine {
     }
 
     /// Registers a trigger parameter (initial value: false).
-    pub fn add_trigger(&mut self, name: impl Into<String>) {
+    ///
+    /// Uses `entry()` so only the first call for a given key allocates.
+    /// Accepts `&str`, `String`, `&String`, or any type that implements
+    /// `Into<String> + AsRef<str>`.
+    ///
+    /// **v6 breaking note:** the bound changed from `impl Into<String>` to
+    /// `impl Into<String> + AsRef<str>`. All common string types satisfy both.
+    pub fn add_trigger(&mut self, name: impl Into<String> + AsRef<str>) {
         self.params
             .entry(name.into())
             .or_insert(AnimParam::Trigger(false));
@@ -281,9 +312,20 @@ impl AnimationStateMachine {
 ///
 /// Must be registered **after** `AnimationSystem` so that `is_finished()` is
 /// reflected in the same frame.
-pub struct StateMachineSystem;
+///
+/// The `scratch` buffer is reused across frames to avoid a per-frame allocation.
+/// Create with `StateMachineSystem::new()` or `StateMachineSystem::default()`.
+#[derive(Default)]
+pub struct StateMachineSystem {
+    scratch: Vec<Entity>,
+}
 
 impl StateMachineSystem {
+    /// Creates a new `StateMachineSystem` with a pre-allocated scratch buffer.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     /// Schedule label. Recommended order: **after** `AnimationSystem::LABEL`
     /// (`SystemConfig::new().label(StateMachineSystem::LABEL).after(AnimationSystem::LABEL)`).
     pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::animation_state_machine";
@@ -291,12 +333,12 @@ impl StateMachineSystem {
 
 impl System for StateMachineSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
-        let entities: Vec<Entity> = world
-            .query::<AnimationStateMachine>()
-            .map(|(e, _)| e)
-            .collect();
+        self.scratch.clear();
+        self.scratch
+            .extend(world.query::<AnimationStateMachine>().map(|(e, _)| e));
 
-        for entity in entities {
+        for i in 0..self.scratch.len() {
+            let entity = self.scratch[i];
             // `anim_finished` is true only when the player is NOT crossfading and the
             // current state's clip has reached its last frame.  During a crossfade,
             // `current_clip` is still the FROM clip; evaluating `is_finished()` there
@@ -386,8 +428,8 @@ mod tests {
             .unwrap()
             .set_bool("is_running", true);
 
-        let mut anim = AnimationSystem;
-        let mut stm = StateMachineSystem;
+        let mut anim = AnimationSystem::new();
+        let mut stm = StateMachineSystem::new();
         anim.run(&mut world, 0.05);
         stm.run(&mut world, 0.05);
 
@@ -422,8 +464,8 @@ mod tests {
             .unwrap()
             .set_bool("is_running", true);
 
-        let mut anim = AnimationSystem;
-        let mut stm = StateMachineSystem;
+        let mut anim = AnimationSystem::new();
+        let mut stm = StateMachineSystem::new();
         anim.run(&mut world, 0.05);
         stm.run(&mut world, 0.05);
 
@@ -459,8 +501,8 @@ mod tests {
             .unwrap()
             .set_bool("is_running", true);
 
-        let mut anim = AnimationSystem;
-        let mut stm = StateMachineSystem;
+        let mut anim = AnimationSystem::new();
+        let mut stm = StateMachineSystem::new();
 
         // Tick enough frames to exceed the 0.1 s crossfade.
         for _ in 0..20 {
@@ -488,8 +530,8 @@ mod tests {
         sm.add_transition("attack", "idle", vec![TransitionCond::AnimationEnd]);
         world.add_component(e, sm);
 
-        let mut anim = AnimationSystem;
-        let mut stm = StateMachineSystem;
+        let mut anim = AnimationSystem::new();
+        let mut stm = StateMachineSystem::new();
 
         // Advance past the clip's last frame (2 frames at 10 fps -> 0.2 s).
         for _ in 0..30 {
@@ -519,8 +561,8 @@ mod tests {
             .unwrap()
             .fire_trigger("go");
 
-        let mut anim = AnimationSystem;
-        let mut stm = StateMachineSystem;
+        let mut anim = AnimationSystem::new();
+        let mut stm = StateMachineSystem::new();
         anim.run(&mut world, 0.05);
         stm.run(&mut world, 0.05);
 
@@ -588,8 +630,8 @@ mod tests {
         // No back-transition — we just want to test the forward blend.
         world.add_component(e, sm);
 
-        let mut anim = AnimationSystem;
-        let mut stm = StateMachineSystem;
+        let mut anim = AnimationSystem::new();
+        let mut stm = StateMachineSystem::new();
 
         // First tick: push speed above the threshold to start the crossfade.
         world
@@ -686,8 +728,8 @@ mod tests {
         sm.add_transition("attack", "idle_loop", vec![TransitionCond::AnimationEnd]);
         world.add_component(e, sm);
 
-        let mut anim = AnimationSystem;
-        let mut stm = StateMachineSystem;
+        let mut anim = AnimationSystem::new();
+        let mut stm = StateMachineSystem::new();
 
         // Advance clip 0 past its last frame so is_finished() returns true for clip 0.
         // Clip 0: 2 frames at 10 fps → needs > 0.1 s.  Run 15 ticks × 0.01 s = 0.15 s.

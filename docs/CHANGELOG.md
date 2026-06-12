@@ -4,6 +4,49 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 6.0.0
+
+The v6 breaking window: the three "Verified-but-deferred" items recorded in 5.1.3,
+the v5.0.0 `Arc<str>` conversion completed for particles, and the HierarchySystem
+pipeline integration. Every change below lists its migration. The fifth scoped item
+(BehaviorSystem take/add archetype migrations) was investigated and **deliberately
+kept** — the evaluation is recorded as a PERF comment in `BehaviorSystem::run`.
+
+### Breaking — API changes
+
+- **Animation systems own a scratch buffer** — `AnimationSystem`, `BlendTreeSystem`,
+  and `StateMachineSystem` are no longer unit structs (they keep a reused per-frame
+  entity buffer, eliminating three per-frame `Vec` allocations). *Migration:*
+  construct with `::new()` (or `::default()`):
+  `app.add_system(AnimationSystem)` → `app.add_system(AnimationSystem::new())`,
+  `Box::new(BlendTreeSystem)` → `BlendTreeSystem::new()`, same for
+  `StateMachineSystem`. `LABEL` constants and ordering semantics are unchanged.
+- **Allocation-free state-machine parameter setters** —
+  `AnimationStateMachine::{set_bool, set_float, add_trigger}` now take
+  `impl Into<String> + AsRef<str>` and only allocate on first insert (updates are
+  in-place). *Migration:* none for `&str` / `String` / `&String` / `Cow<str>`
+  callers — these satisfy both bounds and compile unchanged. Only an exotic type
+  implementing `Into<String>` but not `AsRef<str>` needs adapting.
+- **`ParticleEmitter.texture` is `Option<Arc<str>>`** — completes the v5.0.0
+  `Sprite.texture` conversion (analysis #9); per-spawn clones become refcount bumps.
+  *Migration:* `texture: None` and `texture: Some("x.png".into())` compile
+  unchanged; `texture: Some(string_var)` becomes `Some(string_var.into())`
+  (std provides `From<String> for Arc<str>`). `ParticleEmitter` has no serde derive,
+  so no save-format impact.
+- **`HierarchySystem` joined the labeled pipeline** — it is registered automatically
+  by `App::new()` as a permanent tail built-in (survives `SceneCmd::Replace`) instead
+  of being force-run outside the scheduler. *Migration:* none for games that do not
+  order around hierarchy propagation — default frame behavior (GlobalTransform
+  updated after all user systems, before render) is identical. New capability:
+  `.after(HierarchySystem::LABEL)` / `.before(...)` constraints now actually take
+  effect (the LABEL previously existed but was a dead symbol). `docs/PATTERNS.md`
+  gained the ordering row.
+
+### Changed
+
+- Examples updated to the `::new()` system constructors (sm_crossfade,
+  blend_locomotion, platformer).
+
 ## 5.1.3
 
 Cleanup batch over the low/leftover findings from the 2026-06-12 full-source review

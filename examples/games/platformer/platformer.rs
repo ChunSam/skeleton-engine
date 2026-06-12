@@ -655,11 +655,11 @@ fn main() {
     // `add_system_labeled` declares that ordering explicitly instead of relying
     // on insertion order; every built-in system exposes a `LABEL` for this.
     app.add_system_labeled(
-        AnimationSystem,
+        AnimationSystem::new(),
         SystemConfig::new().label(AnimationSystem::LABEL),
     );
     app.add_system_labeled(
-        StateMachineSystem,
+        StateMachineSystem::new(),
         SystemConfig::new()
             .label(StateMachineSystem::LABEL)
             .after(AnimationSystem::LABEL),

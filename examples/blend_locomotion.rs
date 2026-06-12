@@ -231,8 +231,8 @@ fn main() {
 
     // Order: input sets the blend param → tree picks the clip → animation advances/blends → HUD.
     app.add_system(ControlSystem);
-    app.add_system(BlendTreeSystem);
-    app.add_system(AnimationSystem);
+    app.add_system(BlendTreeSystem::new());
+    app.add_system(AnimationSystem::new());
     app.add_system(HudSystem);
 
     app.run();

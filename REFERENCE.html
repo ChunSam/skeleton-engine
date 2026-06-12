@@ -631,7 +631,7 @@ world.add_component(e, uv);</code></pre>
     anim.play(1);  // 클립 인덱스 0 = 달리기, 1 = 점프
 }</code></pre>
 <p><code>AnimationSystem</code>을 등록해야 프레임이 자동으로 진행된다:</p>
-<pre><code class="language-rust">app.add_system(AnimationSystem);</code></pre>
+<pre><code class="language-rust">app.add_system(AnimationSystem::new());</code></pre>
 <h3 id="크로스페이드-전환">크로스페이드 전환</h3>
 <p><code>play_with_crossfade(clip_index, duration)</code>으로 지정한 시간(초)에 걸쳐 부드럽게 전환한다.   전환 중 <code>BlendWeight</code> 컴포넌트가 자동으로 갱신되며, 게임 코드에서 알파 보간 등에 활용할 수 있다.</p>
 <pre><code class="language-rust">use engine::{AnimationPlayer, BlendWeight};
@@ -661,8 +661,8 @@ let tree = BlendTree1D::new(
 world.add_component(entity, tree);
 
 // 시스템 등록 (BlendTreeSystem은 AnimationSystem 이전에)
-app.add_system(Box::new(BlendTreeSystem));
-app.add_system(Box::new(AnimationSystem));
+app.add_system(BlendTreeSystem::new());
+app.add_system(AnimationSystem::new());
 
 // 매 프레임 파라미터 갱신
 if let Some(tree) = world.get_mut::&lt;BlendTree1D&gt;(entity) {
@@ -869,7 +869,7 @@ world.add_component(emitter, ParticleEmitter {
     color_start: [1.0, 0.5, 0.0, 1.0],        // 시작 색상 RGBA
     color_end:   [1.0, 0.0, 0.0, 0.0],        // 끝 색상 (알파 0 → 페이드 아웃)
     size: Vec2::splat(6.0),
-    texture: None,   // Some(&quot;assets/particle.png&quot;) 도 가능
+    texture: None,   // Some(&quot;assets/particle.png&quot;.into()) 도 가능 (Arc&lt;str&gt;)
     emit: true,
     ..Default::default()
 });

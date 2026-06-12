@@ -382,6 +382,16 @@ impl System for BehaviorSystem {
         for entity in entities {
             // Temporarily remove BehaviorTree, tick it, then put it back.
             // take_component → tick(world) → add_component avoids a double borrow.
+            //
+            // PERF: this costs two archetype migrations per entity per frame (take +
+            // re-add each call move_entity). Evaluated for v6 and deliberately kept:
+            // it is this ECS's documented idiom for "tick a component that needs
+            // &mut World" (TimelineSystem uses the same shape), the cost is bounded
+            // by AI entity count (small Vec/HashMap per move; negligible at <=100
+            // entities), and the alternatives are worse — a mem::take swap needs a
+            // Default sentinel tree that stays visible on the entity mid-tick, and a
+            // resource side-map breaks the component API with no despawn hook for
+            // cleanup. Revisit only if profiling shows this in a flamegraph.
             if let Some(mut tree) = world.take_component::<BehaviorTree>(entity) {
                 tree.tick(world, entity, dt);
                 world.add_component(entity, tree);

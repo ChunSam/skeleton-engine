@@ -331,9 +331,9 @@ fn main() {
     // System order: input first, then animation (advances frames), then state machine
     // (evaluates transitions on the freshly-advanced state), then HUD.
     app.add_system(InputSystem);
-    app.add_system(AnimationSystem);
+    app.add_system(AnimationSystem::new());
     app.add_system_labeled(
-        StateMachineSystem,
+        StateMachineSystem::new(),
         SystemConfig::new()
             .label(StateMachineSystem::LABEL)
             .after(AnimationSystem::LABEL),
