@@ -4,6 +4,49 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 5.1.3
+
+Cleanup batch over the low/leftover findings from the 2026-06-12 full-source review
+(report §3 — 16 items locally re-verified first: 9 applied here, 2 refuted, 4 deferred
+as breaking-or-architectural, 1 skipped as not worth the churn). Pure internal
+refactors and perf fixes — zero public-API change, no migration.
+
+### Performance
+
+- **Particle emitter texture clone removed from the per-frame path** — the
+  `Option<String>` texture is now looked up lazily only when particles actually spawn
+  (was cloned per emitter per frame regardless of emission).
+- **`World::despawn` change-tracking is O(1) per entity** — `added_this_tick` /
+  `changed_this_tick` restructured from `HashSet<(Entity, TypeId)>` (full-set `retain`
+  per despawn) to `HashMap<Entity, HashSet<TypeId>>`. Mass-despawn sites (tilemap
+  teardown, particle bursts, pool clears) no longer scan the whole tracking set per
+  entity. Query semantics unchanged.
+- **Scripting blackboard snapshot allocates one String per entry instead of two**
+  (`bb_snap` now stores keyless `BlackboardValue`s; the write-path `BbEntry` keeps its
+  key, which the apply loop needs).
+
+### Internal cleanup
+
+- Sprite/AtlasSprite culling block (4 copies) extracted into one helper; UI widget
+  passes' UiNode layout extraction (4 copies) extracted into `node_layout`; the
+  `SCRIPT_CTX` access boilerplate (15 copies) extracted into `with_ctx`/`with_ctx_mut`;
+  audio fade-start-volume logic (3 copies) unified into one `fade_start_vol` method.
+- Editor entity labels standardized to `"Entity {index}:{generation}"` (the entity-list
+  panel used a different short form than every other panel).
+- Doc notes: hot reloading documented as native-only (silent empty result on `wasm32`),
+  matching the lighting platform-note precedent; the physics sensor-pair `ordered_pair`
+  normalization now carries a comment recording that it is defensive (verified against
+  rapier's stable edge-slot order) so future reviews don't re-investigate.
+
+### Verified-but-deferred (recorded, not fixed)
+
+- Per-frame `Vec<Entity>` scratch in the three animation systems — requires turning pub
+  unit structs into field structs (breaking); deferred to the next major.
+- `AnimationStateMachine::set_bool`/`set_float` key allocation — needs a signature-bound
+  change (breaking risk); deferred.
+- `BehaviorSystem` take/add archetype migrations — structural (`tick` needs `&mut World`);
+  acceptable at typical AI entity counts, revisit only if profiling demands.
+
 ## 5.1.2
 
 Bug-fix batch from the scheduled 2026-06-12 full-source review
