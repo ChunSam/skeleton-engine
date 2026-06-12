@@ -7,7 +7,7 @@ impl App {
         // ── Gizmo: highlight selected entity + drag to move ──────────────────
         let egui_wants_mouse = egui_ctx
             .as_ref()
-            .map(|c| c.wants_pointer_input())
+            .map(|c| c.egui_wants_pointer_input())
             .unwrap_or(false);
 
         if let Some(sel) = self.editor.inspector_selected {

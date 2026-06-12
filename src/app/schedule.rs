@@ -30,6 +30,27 @@ pub(super) fn format_panic_payload(payload: &Box<dyn std::any::Any + Send>) -> S
     }
 }
 
+/// Merge a pending (unconsumed) egui textures delta with the current frame's one.
+///
+/// If render() skipped a frame (surface Lost/Outdated/Timeout), the previous
+/// textures_delta was never consumed. egui 0.34's skrifa font atlas sends
+/// incremental per-glyph updates and never re-sends the full image, so a single
+/// dropped delta poisons every later partial update (egui-wgpu panics with
+/// "Tried to update a texture that has not been allocated yet"). Deltas must be
+/// appended old → new, never overwritten; stale paint jobs may be replaced.
+pub(super) fn merge_textures_delta(
+    pending: Option<egui::TexturesDelta>,
+    newer: egui::TexturesDelta,
+) -> egui::TexturesDelta {
+    match pending {
+        Some(mut p) => {
+            p.append(newer);
+            p
+        }
+        None => newer,
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) fn write_crash_log(system_name: &str, message: &str) {
     #[cfg(test)]
@@ -301,7 +322,11 @@ impl App {
                 .unwrap_or(1.0);
             let full_output = ctx.end_pass();
             let paint_jobs = ctx.tessellate(full_output.shapes, ppp);
-            self.egui_output = Some((paint_jobs, full_output.textures_delta, ppp));
+            let textures_delta = merge_textures_delta(
+                self.egui_output.take().map(|(_, pending, _)| pending),
+                full_output.textures_delta,
+            );
+            self.egui_output = Some((paint_jobs, textures_delta, ppp));
         }
         // Flush the event queue after all systems have run.
         // Must use std::mem::take to avoid conflicting borrows of &mut self.world.
@@ -368,5 +393,43 @@ impl App {
             }
         }
         self.upload_asset_server_images_to_gpu();
+    }
+}
+
+#[cfg(test)]
+mod egui_delta_tests {
+    use super::merge_textures_delta;
+    use egui::epaint::image::{ColorImage, ImageDelta};
+    use egui::TextureId;
+
+    #[test]
+    fn pending_texture_deltas_are_merged_not_dropped() {
+        let img = || ColorImage::filled([2, 2], egui::Color32::RED);
+        let full = ImageDelta::full(img(), Default::default());
+        let partial = ImageDelta::partial([1, 1], img(), Default::default());
+
+        let mut older = egui::TexturesDelta::default();
+        older.set.push((TextureId::Managed(0), full));
+        let mut newer = egui::TexturesDelta::default();
+        newer.set.push((TextureId::Managed(0), partial));
+        newer.free.push(TextureId::Managed(7));
+
+        let merged = merge_textures_delta(Some(older), newer);
+        assert_eq!(merged.set.len(), 2, "both deltas must survive the merge");
+        assert!(
+            merged.set[0].1.pos.is_none(),
+            "full allocation must be applied before the partial update"
+        );
+        assert!(merged.set[1].1.pos.is_some());
+        assert_eq!(merged.free, vec![TextureId::Managed(7)]);
+    }
+
+    #[test]
+    fn no_pending_delta_passes_through() {
+        let mut newer = egui::TexturesDelta::default();
+        newer.free.push(TextureId::Managed(3));
+        let merged = merge_textures_delta(None, newer);
+        assert!(merged.set.is_empty());
+        assert_eq!(merged.free, vec![TextureId::Managed(3)]);
     }
 }
