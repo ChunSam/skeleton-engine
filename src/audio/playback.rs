@@ -12,16 +12,6 @@ use super::source::PannedSource;
 use super::types::{is_finished_state, is_playing_state, playback_state_from_sink};
 use super::{AudioChannelState, AudioManager};
 
-// ── Helper ────────────────────────────────────────────────────────────────────
-
-/// Returns the current interpolated volume of an active fade, if any.
-///
-/// When a fade is in progress this avoids starting a release from a stale
-/// `volume_overrides` value (finding 4 — start-volume pop).
-fn fade_current_vol(fades: &HashMap<String, Fade>, channel: &str) -> Option<f32> {
-    fades.get(channel).map(|f| f.current_vol())
-}
-
 impl AudioManager {
     /// Initializes the audio device. Returns `None` on failure; the game continues silently.
     pub fn new() -> Option<Self> {
@@ -94,8 +84,7 @@ impl AudioManager {
         if release > 0.001 && !stop_when_done_active && sink_has_audio {
             // Use the current interpolated fade volume as start_vol so there is no
             // audible jump when stop() is called mid-fade_volume (finding 4).
-            let start_vol = fade_current_vol(&self.fades, channel)
-                .unwrap_or_else(|| self.effective_volume(channel));
+            let start_vol = self.fade_start_vol(channel);
             self.fades
                 .insert(channel.to_string(), Fade::stop_fade(start_vol, release));
         } else {
@@ -337,6 +326,19 @@ impl AudioManager {
         }
 
         self.sinks.insert(channel.to_string(), sink);
+    }
+
+    /// Returns the volume to use as the start of a new fade.
+    ///
+    /// Uses the current interpolated volume of any in-progress fade so that
+    /// chained or mid-fade transitions never produce an audible volume jump
+    /// (finding 4 — start-volume pop).  Falls back to `effective_volume` when
+    /// no fade is active.
+    pub(super) fn fade_start_vol(&self, channel: &str) -> f32 {
+        self.fades
+            .get(channel)
+            .map(|f| f.current_vol())
+            .unwrap_or_else(|| self.effective_volume(channel))
     }
 
     /// Effective volume for a channel = base volume × bus volume.
