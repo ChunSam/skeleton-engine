@@ -25,8 +25,8 @@ jobs:
             libasound2-dev libudev-dev libxkbcommon-dev \
             libwayland-dev libx11-dev pkg-config
 
-      - name: Install Rust 1.88
-        uses: dtolnay/rust-toolchain@1.88.0
+      - name: Install Rust 1.95
+        uses: dtolnay/rust-toolchain@1.95.0
         with:
           components: clippy, rustfmt
 
@@ -59,8 +59,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust 1.88 + wasm32 target
-        uses: dtolnay/rust-toolchain@1.88.0
+      - name: Install Rust 1.95 + wasm32 target
+        uses: dtolnay/rust-toolchain@1.95.0
         with:
           targets: wasm32-unknown-unknown
 
@@ -91,8 +91,8 @@ jobs:
             libasound2-dev libudev-dev libxkbcommon-dev \
             libwayland-dev libx11-dev pkg-config
 
-      - name: Install Rust 1.88
-        uses: dtolnay/rust-toolchain@1.88.0
+      - name: Install Rust 1.95
+        uses: dtolnay/rust-toolchain@1.95.0
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -120,8 +120,8 @@ jobs:
             libasound2-dev libudev-dev libxkbcommon-dev \
             libwayland-dev libx11-dev pkg-config
 
-      - name: Install Rust 1.88
-        uses: dtolnay/rust-toolchain@1.88.0
+      - name: Install Rust 1.95
+        uses: dtolnay/rust-toolchain@1.95.0
 
       - name: Cache cargo
         uses: actions/cache@v4

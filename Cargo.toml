@@ -10,7 +10,7 @@ readme      = "README.md"
 license     = "MIT"
 keywords    = ["game", "engine", "wgpu", "ecs", "2d"]
 categories  = ["game-engines", "rendering", "wasm"]
-rust-version = "1.88"
+rust-version = "1.92"
 include     = [
     ".cargo/config.toml",
     "docs/CHANGELOG.md",
