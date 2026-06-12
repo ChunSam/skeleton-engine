@@ -421,10 +421,17 @@ impl App {
             None,
             None,
         );
+        // Match the pre-0.34 positional args (depth None, msaa 1, dithering FALSE) —
+        // `RendererOptions::default()` flips dithering on, which would silently change
+        // gradient rendering in the debug UI.
         let egui_renderer = egui_wgpu::Renderer::new(
             &gpu.device,
             gpu.config.format,
-            egui_wgpu::RendererOptions::default(),
+            egui_wgpu::RendererOptions {
+                msaa_samples: 1,
+                dithering: false,
+                ..Default::default()
+            },
         );
         self.world.insert_resource(DebugUi::new_with_ctx(egui_ctx));
         self.egui_renderer = Some(egui_renderer);
