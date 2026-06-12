@@ -5,6 +5,26 @@ use crate::app::editor::{snap_to_grid, EditorCmd};
 impl App {
     pub(in crate::app) fn update_editor_gizmo(&mut self, egui_ctx: &Option<egui::Context>) {
         // ── Gizmo: highlight selected entity + drag to move ──────────────────
+        // Docked mode cannot use `egui_wants_pointer_input()` — the game viewport
+        // is itself an egui CentralPanel, so egui always claims the pointer there.
+        // Use the layer-aware gate instead (same rule as the window input routing).
+        #[cfg(not(target_arch = "wasm32"))]
+        let egui_wants_mouse = {
+            use crate::app::editor::{docked_rt::docked_game_pointer_allowed, EditorMode};
+            if self.editor.mode == EditorMode::Docked {
+                !docked_game_pointer_allowed(
+                    self.editor.window_cursor,
+                    self.editor.central_rect,
+                    egui_ctx.as_ref(),
+                )
+            } else {
+                egui_ctx
+                    .as_ref()
+                    .map(|c| c.egui_wants_pointer_input())
+                    .unwrap_or(false)
+            }
+        };
+        #[cfg(target_arch = "wasm32")]
         let egui_wants_mouse = egui_ctx
             .as_ref()
             .map(|c| c.egui_wants_pointer_input())

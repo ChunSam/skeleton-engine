@@ -45,6 +45,66 @@ pub fn rect_to_physical(rect: egui::Rect, scale: f32) -> Option<(u32, u32)> {
     }
 }
 
+/// Translate a window-space logical mouse position into game-viewport coordinates.
+///
+/// Subtracts `central_rect.min` from the window position.  Returns `None` when
+/// the position lies outside the rect — callers should suppress mouse input for
+/// the game when this returns `None`.
+///
+/// # Arguments
+/// - `window_pos` — cursor in logical pixels from the top-left of the OS window.
+/// - `central_rect` — the egui central panel rect in logical points.
+///
+/// # Example
+/// ```rust,ignore
+/// if let Some(game_pos) = viewport_to_game(cursor_logical, central_rect) {
+///     input.set_cursor(game_pos);
+/// }
+/// ```
+pub fn viewport_to_game(window_pos: egui::Pos2, central_rect: egui::Rect) -> Option<egui::Pos2> {
+    if central_rect.contains(window_pos) {
+        let delta = window_pos - central_rect.min;
+        Some(egui::pos2(delta.x, delta.y))
+    } else {
+        None
+    }
+}
+
+/// Decide whether a pointer event (button / wheel / gizmo drag) may reach the
+/// game while docked.
+///
+/// `Context::egui_wants_pointer_input()` cannot be used here: the docked game
+/// viewport lives inside an egui `CentralPanel`, so egui reports the pointer as
+/// "over egui" across the entire viewport, which would swallow every click.
+/// Instead the rule is:
+///
+/// 1. the pointer must be physically inside `central_rect` (window space), and
+/// 2. egui must not be actively using the pointer (dragging a slider, a panel
+///    resize handle, …), and
+/// 3. the topmost egui layer under the pointer must be the `Background` order —
+///    panels live on `Background`, while menus / popups / tooltips / floating
+///    windows that overlap the viewport are higher orders and keep the click.
+pub fn docked_game_pointer_allowed(
+    window_cursor: Option<egui::Pos2>,
+    central_rect: Option<egui::Rect>,
+    ctx: Option<&egui::Context>,
+) -> bool {
+    let (Some(pos), Some(rect)) = (window_cursor, central_rect) else {
+        return false;
+    };
+    if !rect.contains(pos) {
+        return false;
+    }
+    let Some(ctx) = ctx else {
+        return true;
+    };
+    if ctx.egui_is_using_pointer() {
+        return false;
+    }
+    ctx.layer_id_at(pos)
+        .is_none_or(|layer| layer.order == egui::Order::Background)
+}
+
 /// Tracks the "stable for 3 frames" debounce rule for the docked RT.
 ///
 /// The RT is only recreated when the target physical size has been **identical**
@@ -204,5 +264,72 @@ mod tests {
     fn compute_central_rect_zero_guard() {
         // Window too small for the margins.
         assert!(compute_central_rect(10.0, 10.0).is_none());
+    }
+
+    // ── viewport_to_game ─────────────────────────────────────────────────────
+
+    #[test]
+    fn viewport_to_game_inside_translates() {
+        let rect = egui::Rect::from_min_size(egui::pos2(260.0, 36.0), egui::vec2(720.0, 534.0));
+        let result = viewport_to_game(egui::pos2(360.0, 136.0), rect);
+        assert!(result.is_some());
+        let g = result.unwrap();
+        assert!((g.x - 100.0).abs() < 0.01);
+        assert!((g.y - 100.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn viewport_to_game_outside_returns_none() {
+        let rect = egui::Rect::from_min_size(egui::pos2(260.0, 36.0), egui::vec2(720.0, 534.0));
+        // Cursor is to the left of the panel
+        assert!(viewport_to_game(egui::pos2(10.0, 100.0), rect).is_none());
+        // Cursor is above the panel
+        assert!(viewport_to_game(egui::pos2(400.0, 10.0), rect).is_none());
+    }
+
+    #[test]
+    fn viewport_to_game_on_edge_is_inside() {
+        let rect = egui::Rect::from_min_size(egui::pos2(260.0, 36.0), egui::vec2(720.0, 534.0));
+        // egui Rect::contains treats the boundary as included on min, excluded on max
+        let result = viewport_to_game(egui::pos2(260.0, 36.0), rect);
+        assert!(result.is_some());
+    }
+
+    // ── docked_game_pointer_allowed ──────────────────────────────────────────
+
+    #[test]
+    fn pointer_allowed_requires_cursor_and_rect() {
+        let rect = egui::Rect::from_min_size(egui::pos2(260.0, 36.0), egui::vec2(720.0, 534.0));
+        assert!(!docked_game_pointer_allowed(None, Some(rect), None));
+        assert!(!docked_game_pointer_allowed(
+            Some(egui::pos2(300.0, 100.0)),
+            None,
+            None
+        ));
+    }
+
+    #[test]
+    fn pointer_outside_rect_is_blocked() {
+        let rect = egui::Rect::from_min_size(egui::pos2(260.0, 36.0), egui::vec2(720.0, 534.0));
+        // Over the left side panel (x < 260): the inspector keeps the click.
+        assert!(!docked_game_pointer_allowed(
+            Some(egui::pos2(100.0, 300.0)),
+            Some(rect),
+            None
+        ));
+    }
+
+    #[test]
+    fn pointer_inside_rect_with_idle_ctx_is_allowed() {
+        let rect = egui::Rect::from_min_size(egui::pos2(260.0, 36.0), egui::vec2(720.0, 534.0));
+        let pos = egui::pos2(400.0, 200.0);
+        assert!(docked_game_pointer_allowed(Some(pos), Some(rect), None));
+        // A fresh Context has no layers under the pointer and is not using it.
+        let ctx = egui::Context::default();
+        assert!(docked_game_pointer_allowed(
+            Some(pos),
+            Some(rect),
+            Some(&ctx)
+        ));
     }
 }

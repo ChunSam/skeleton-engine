@@ -119,6 +119,23 @@ pub(in crate::app) struct EditorState {
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) mode: EditorMode,
 
+    /// Whether the game simulation is paused while in Docked mode.
+    ///
+    /// When `true`, the system pipeline (scene systems) is skipped each frame.
+    /// The builtin tail systems (e.g. `HierarchySystem`) continue to run so that
+    /// gizmo-driven Transform changes propagate through the hierarchy while paused.
+    /// Leaving Docked mode (F2) clears this flag automatically.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) paused: bool,
+
+    /// Advance exactly one full frame and then remain paused.
+    ///
+    /// Set by the ⏭ step button in the docked toolbar.  The pipeline runs a full
+    /// frame this tick (all systems including scene systems), then `step_once` is
+    /// cleared and `paused` stays true.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) step_once: bool,
+
     /// The central viewport rect expressed as `(x, y, width, height)` in logical
     /// points.  `None` until the first docked frame computes it.
     ///
@@ -131,6 +148,15 @@ pub(in crate::app) struct EditorState {
     /// Must be freed (`egui_wgpu::Renderer::free_texture`) before reallocation.
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) docked_texture_id: Option<egui::TextureId>,
+
+    /// The most recent cursor position in window space (logical points), updated
+    /// on every `CursorMoved` regardless of editor mode.
+    ///
+    /// `InputState::cursor()` holds the *translated* (viewport-local, frozen
+    /// outside the panel) position while docked, so it cannot answer "is the
+    /// pointer physically inside the central rect right now?" — this field can.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) window_cursor: Option<egui::Pos2>,
 
     /// Debounce state for the docked offscreen render-target size.
     #[cfg(not(target_arch = "wasm32"))]
@@ -159,8 +185,11 @@ impl EditorState {
             snap_enabled: false,
             snap_size: 16.0,
             mode: EditorMode::Off,
+            paused: false,
+            step_once: false,
             central_rect: None,
             docked_texture_id: None,
+            window_cursor: None,
             rt_debounce: super::docked_rt::RtDebounce::default(),
         }
     }
