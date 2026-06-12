@@ -74,6 +74,42 @@ pub struct SpriteRenderer {
     rt_cache: HashMap<String, Arc<wgpu::BindGroup>>,
 }
 
+/// Culls a sprite against frustum + LOD thresholds and — if visible — appends a
+/// [`SpriteRenderEntry`] to `draw_entries`.
+///
+/// Returns `true` if the entry was pushed (visible), `false` if culled.
+/// Increments `stats.sprites_culled` on cull and `next_order` on push.
+#[allow(clippy::too_many_arguments)]
+fn push_sprite_if_visible(
+    pos: glam::Vec2,
+    scale: glam::Vec2,
+    rotation: f32,
+    z: f32,
+    layer: i32,
+    tex_key: std::sync::Arc<str>,
+    instance: InstanceRaw,
+    is_visible: &dyn Fn(glam::Vec2, glam::Vec2, f32) -> bool,
+    is_above_lod: &dyn Fn(glam::Vec2) -> bool,
+    stats: &mut crate::resources::RenderStats,
+    next_order: &mut usize,
+    draw_entries: &mut Vec<SpriteRenderEntry>,
+) -> bool {
+    if !is_visible(pos, scale, rotation) {
+        stats.sprites_culled += 1;
+        return false;
+    }
+    if !is_above_lod(scale) {
+        stats.sprites_culled += 1;
+        return false;
+    }
+    let order = *next_order;
+    *next_order += 1;
+    draw_entries.push(SpriteRenderEntry::sprite(
+        layer, z, order, tex_key, instance,
+    ));
+    true
+}
+
 impl SpriteRenderer {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
         // ── Load shader (compile-time embed) ───────────────────────────────────
@@ -342,41 +378,35 @@ impl SpriteRenderer {
                 .or_else(|| sprite.texture.clone())
                 .unwrap_or_else(|| Arc::from(""));
             if let Some(gt) = world.get::<GlobalTransform>(entity) {
-                if !is_visible(gt.position, gt.scale, gt.rotation) {
-                    stats.sprites_culled += 1;
-                    continue;
-                }
-                if !is_above_lod(gt.scale) {
-                    stats.sprites_culled += 1;
-                    continue;
-                }
-                let order = next_order;
-                next_order += 1;
-                draw_entries.push(SpriteRenderEntry::sprite(
-                    layer,
+                push_sprite_if_visible(
+                    gt.position,
+                    gt.scale,
+                    gt.rotation,
                     gt.z,
-                    order,
+                    layer,
                     tex_key,
                     make_instance(gt.to_matrix().to_cols_array_2d()),
-                ));
+                    &is_visible,
+                    &is_above_lod,
+                    &mut stats,
+                    &mut next_order,
+                    &mut draw_entries,
+                );
             } else if let Some(transform) = world.get::<Transform>(entity) {
-                if !is_visible(transform.position, transform.scale, transform.rotation) {
-                    stats.sprites_culled += 1;
-                    continue;
-                }
-                if !is_above_lod(transform.scale) {
-                    stats.sprites_culled += 1;
-                    continue;
-                }
-                let order = next_order;
-                next_order += 1;
-                draw_entries.push(SpriteRenderEntry::sprite(
-                    layer,
+                push_sprite_if_visible(
+                    transform.position,
+                    transform.scale,
+                    transform.rotation,
                     transform.z,
-                    order,
+                    layer,
                     tex_key,
                     make_instance(transform.to_matrix().to_cols_array_2d()),
-                ));
+                    &is_visible,
+                    &is_above_lod,
+                    &mut stats,
+                    &mut next_order,
+                    &mut draw_entries,
+                );
             }
         }
         // ── Collect AtlasSprites: first collect (index, color, atlas handle) ──
@@ -408,49 +438,43 @@ impl SpriteRenderer {
                             continue;
                         }
                         if let Some(gt) = world.get::<GlobalTransform>(*entity) {
-                            if !is_visible(gt.position, gt.scale, gt.rotation) {
-                                stats.sprites_culled += 1;
-                                continue;
-                            }
-                            if !is_above_lod(gt.scale) {
-                                stats.sprites_culled += 1;
-                                continue;
-                            }
-                            let order = next_order;
-                            next_order += 1;
-                            draw_entries.push(SpriteRenderEntry::sprite(
-                                layer,
+                            push_sprite_if_visible(
+                                gt.position,
+                                gt.scale,
+                                gt.rotation,
                                 gt.z,
-                                order,
+                                layer,
                                 tex_key,
                                 InstanceRaw::single(
                                     gt.to_matrix().to_cols_array_2d(),
                                     color.to_array(),
                                     uv,
                                 ),
-                            ));
+                                &is_visible,
+                                &is_above_lod,
+                                &mut stats,
+                                &mut next_order,
+                                &mut draw_entries,
+                            );
                         } else if let Some(tr) = world.get::<Transform>(*entity) {
-                            if !is_visible(tr.position, tr.scale, tr.rotation) {
-                                stats.sprites_culled += 1;
-                                continue;
-                            }
-                            if !is_above_lod(tr.scale) {
-                                stats.sprites_culled += 1;
-                                continue;
-                            }
-                            let order = next_order;
-                            next_order += 1;
-                            draw_entries.push(SpriteRenderEntry::sprite(
-                                layer,
+                            push_sprite_if_visible(
+                                tr.position,
+                                tr.scale,
+                                tr.rotation,
                                 tr.z,
-                                order,
+                                layer,
                                 tex_key,
                                 InstanceRaw::single(
                                     tr.to_matrix().to_cols_array_2d(),
                                     color.to_array(),
                                     uv,
                                 ),
-                            ));
+                                &is_visible,
+                                &is_above_lod,
+                                &mut stats,
+                                &mut next_order,
+                                &mut draw_entries,
+                            );
                         }
                     }
                 }

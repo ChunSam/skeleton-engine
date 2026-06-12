@@ -103,8 +103,12 @@ pub struct World {
     entity_location: HashMap<Entity, (ArchetypeId, usize)>,
     resources: HashMap<TypeId, Box<dyn Any>>,
     reflect_registry: HashMap<TypeId, ReflectEntry>,
-    added_this_tick: HashSet<(Entity, TypeId)>,
-    changed_this_tick: HashSet<(Entity, TypeId)>,
+    /// Change-tracking: component types first added this tick, keyed by entity.
+    /// `HashMap<Entity, HashSet<TypeId>>` gives O(1) removal per entity at despawn
+    /// (vs. the previous `HashSet<(Entity, TypeId)>` which required an O(N) retain).
+    added_this_tick: HashMap<Entity, HashSet<TypeId>>,
+    /// Change-tracking: component types replaced/mutated this tick, keyed by entity.
+    changed_this_tick: HashMap<Entity, HashSet<TypeId>>,
     /// Function registry used to clone components inside `clone_entity`.
     clone_registry: HashMap<TypeId, CloneComponentFn>,
 }
@@ -125,8 +129,8 @@ impl World {
             entity_location: HashMap::new(),
             resources: HashMap::new(),
             reflect_registry: HashMap::new(),
-            added_this_tick: HashSet::new(),
-            changed_this_tick: HashSet::new(),
+            added_this_tick: HashMap::new(),
+            changed_this_tick: HashMap::new(),
             clone_registry: HashMap::new(),
         }
     }
@@ -199,8 +203,8 @@ impl World {
                 self.free_indices.push_back(entity.index);
             }
         }
-        self.added_this_tick.retain(|(e, _)| *e != entity);
-        self.changed_this_tick.retain(|(e, _)| *e != entity);
+        self.added_this_tick.remove(&entity);
+        self.changed_this_tick.remove(&entity);
     }
 
     /// Removes component T from an entity. Does not panic if the component is absent.
@@ -224,8 +228,18 @@ impl World {
 
         let new_arch_id = self.get_or_create_archetype(new_sig);
         self.move_entity(entity, new_arch_id);
-        self.added_this_tick.remove(&(entity, tid));
-        self.changed_this_tick.remove(&(entity, tid));
+        if let Some(s) = self.added_this_tick.get_mut(&entity) {
+            s.remove(&tid);
+            if s.is_empty() {
+                self.added_this_tick.remove(&entity);
+            }
+        }
+        if let Some(s) = self.changed_this_tick.get_mut(&entity) {
+            s.remove(&tid);
+            if s.is_empty() {
+                self.changed_this_tick.remove(&entity);
+            }
+        }
     }
 
     /// Removes component T from an entity and returns its value. Returns None if absent.
@@ -267,7 +281,10 @@ impl World {
         if self.archetypes[arch_id].contains(tid) {
             let (a, row) = self.entity_location[&entity];
             self.archetypes[a].columns.get_mut(&tid).unwrap()[row] = Box::new(component);
-            self.changed_this_tick.insert((entity, tid));
+            self.changed_this_tick
+                .entry(entity)
+                .or_default()
+                .insert(tid);
             return;
         }
 
@@ -288,7 +305,7 @@ impl World {
             .get_mut(&tid)
             .unwrap()
             .push(Box::new(component));
-        self.added_this_tick.insert((entity, tid));
+        self.added_this_tick.entry(entity).or_default().insert(tid);
     }
 
     /// Returns an immutable reference to an entity's component.
@@ -642,7 +659,7 @@ impl World {
         let entities: Vec<Entity> = self
             .added_this_tick
             .iter()
-            .filter(|(_, t)| *t == tid)
+            .filter(|(_, tids)| tids.contains(&tid))
             .map(|(e, _)| *e)
             .collect();
         entities
@@ -660,7 +677,7 @@ impl World {
         let entities: Vec<Entity> = self
             .changed_this_tick
             .iter()
-            .filter(|(_, t)| *t == tid)
+            .filter(|(_, tids)| tids.contains(&tid))
             .map(|(e, _)| *e)
             .collect();
         entities
@@ -678,7 +695,10 @@ impl World {
         if !self.has_component_typeid(entity, tid) {
             return false;
         }
-        self.changed_this_tick.insert((entity, tid));
+        self.changed_this_tick
+            .entry(entity)
+            .or_default()
+            .insert(tid);
         true
     }
 

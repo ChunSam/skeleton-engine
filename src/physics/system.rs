@@ -199,6 +199,10 @@ impl System for PhysicsSystem {
                 .filter_map(|(c1, c2, _)| {
                     self.col_map.get(&c1)?;
                     self.col_map.get(&c2)?;
+                    // ordered_pair is defensive: rapier's intersection_pairs() does not
+                    // guarantee a stable (c1, c2) direction across frames, unlike contact_pairs()
+                    // whose edge slots are fixed at add_edge. Normalizing here ensures the
+                    // HashSet diff works correctly regardless of future rapier internals changes.
                     Some(ordered_pair(c1, c2))
                 }),
         );

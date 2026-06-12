@@ -2,10 +2,11 @@ use glam::Vec2;
 use winit::event::MouseButton;
 use winit::keyboard::KeyCode;
 
-use crate::ecs::{Events, World};
+use crate::ecs::{Entity, Events, World};
 use crate::input::InputState;
 use crate::renderer::{DrawRect, DrawText, TextQueue, UiQueue};
 use crate::resources::ViewportSize;
+use crate::ui::node::UiNode;
 
 use super::UiEvent;
 
@@ -89,4 +90,17 @@ pub(super) fn in_bounds(cursor: Vec2, pos: Vec2, size: Vec2) -> bool {
         && cursor.x <= pos.x + size.x
         && cursor.y >= pos.y
         && cursor.y <= pos.y + size.y
+}
+
+/// Reads the layout fields of the [`UiNode`] attached to `entity`.
+///
+/// Returns `Some((screen_pos, size, z, visible))` if the node exists,
+/// or `None` if the entity has no `UiNode` component.
+pub(super) fn node_layout(
+    world: &World,
+    entity: Entity,
+    viewport: &ViewportSize,
+) -> Option<(Vec2, Vec2, f32, bool)> {
+    let node = world.get::<UiNode>(entity)?;
+    Some((node.screen_pos(viewport), node.size, node.z, node.visible))
 }

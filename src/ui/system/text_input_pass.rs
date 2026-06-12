@@ -6,7 +6,7 @@ use crate::resources::ViewportSize;
 use crate::ui::node::UiNode;
 use crate::ui::text_input::TextInput;
 
-use super::state::{in_bounds, InputSnapshot, UiOutput};
+use super::state::{in_bounds, node_layout, InputSnapshot, UiOutput};
 use super::UiEvent;
 
 pub(super) fn run(
@@ -24,8 +24,8 @@ pub(super) fn run(
     let mut newly_focused: Option<Entity> = None;
     if input.just_pressed {
         for &entity in &text_input_entities {
-            let (pos, size) = match world.get::<UiNode>(entity) {
-                Some(n) => (n.screen_pos(viewport), n.size),
+            let (pos, size, _, _) = match node_layout(world, entity, viewport) {
+                Some(layout) => layout,
                 None => continue,
             };
             if in_bounds(input.press_cursor, pos, size) {
@@ -36,8 +36,8 @@ pub(super) fn run(
     }
 
     for &entity in &text_input_entities {
-        let (pos, size, z, visible) = match world.get::<UiNode>(entity) {
-            Some(n) => (n.screen_pos(viewport), n.size, n.z, n.visible),
+        let (pos, size, z, visible) = match node_layout(world, entity, viewport) {
+            Some(layout) => layout,
             None => continue,
         };
         if !visible {

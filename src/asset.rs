@@ -144,6 +144,7 @@ pub enum AssetLoadState {
 /// # Hot reloading
 /// When a file changes, `poll_reloads()` returns the list of changed paths.
 /// `App` calls this every frame and re-uploads the affected GPU textures.
+/// Hot reloading is native-only; `poll_reloads()` is a no-op on `wasm32`.
 ///
 /// # Example
 /// ```rust,no_run

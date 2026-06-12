@@ -7,7 +7,10 @@ use crate::ecs::{Entity, System, World};
 
 type ParticleUpdate = (Entity, f32, f32, Vec2, Color, Color);
 // (entity, pos, emit, spawn_rate, lifetime, velocity, velocity_spread,
-//  color_start, color_end, size, texture, has_burst, burst_remaining)
+//  color_start, color_end, size, has_burst, burst_remaining)
+// NOTE: `texture` is intentionally omitted — it is looked up lazily via
+// `world.get::<ParticleEmitter>(emitter_entity)` only when particles actually spawn,
+// so no `Option<String>` clone occurs on frames where 0 particles are emitted.
 type EmitterSnapshot = (
     Entity,
     Vec2,
@@ -19,7 +22,6 @@ type EmitterSnapshot = (
     Color,
     Color,
     Vec2,
-    Option<String>,
     bool,
     u32,
 );
@@ -185,7 +187,6 @@ impl System for ParticleSystem {
                     em.color_start,
                     em.color_end,
                     em.size,
-                    em.texture.clone(),
                     has_burst,
                     burst_remaining,
                 )
@@ -205,7 +206,6 @@ impl System for ParticleSystem {
             color_start,
             color_end,
             size,
-            texture,
             has_burst,
             burst_remaining,
         ) in emitter_data
@@ -228,22 +228,28 @@ impl System for ParticleSystem {
                     count.min(64)
                 };
 
-                for _ in 0..spawn_count {
-                    let actual_velocity = Vec2::new(
-                        velocity.x + rng.gen_range(-spread.x..=spread.x),
-                        velocity.y + rng.gen_range(-spread.y..=spread.y),
-                    );
+                if spawn_count > 0 {
+                    // Lazy texture lookup: clone only when particles actually spawn.
+                    let texture = world
+                        .get::<ParticleEmitter>(emitter_entity)
+                        .and_then(|em| em.texture.clone());
+                    for _ in 0..spawn_count {
+                        let actual_velocity = Vec2::new(
+                            velocity.x + rng.gen_range(-spread.x..=spread.x),
+                            velocity.y + rng.gen_range(-spread.y..=spread.y),
+                        );
 
-                    spawn_particle(
-                        world,
-                        pos,
-                        size,
-                        &texture,
-                        actual_velocity,
-                        lifetime,
-                        color_start,
-                        color_end,
-                    );
+                        spawn_particle(
+                            world,
+                            pos,
+                            size,
+                            &texture,
+                            actual_velocity,
+                            lifetime,
+                            color_start,
+                            color_end,
+                        );
+                    }
                 }
             }
 
@@ -251,6 +257,10 @@ impl System for ParticleSystem {
             // Independent of continuous emission; despawns the emitter entity after
             // firing all particles.
             if has_burst {
+                // Lazy texture lookup: clone only when burst actually fires.
+                let texture = world
+                    .get::<ParticleEmitter>(emitter_entity)
+                    .and_then(|em| em.texture.clone());
                 let radius = spread.max_element().max(1.0);
                 for _ in 0..burst_remaining {
                     let angle = rng.gen_range(0.0..std::f32::consts::TAU);
@@ -360,6 +370,67 @@ mod tests {
         // Continuous emitter produces dt(0.05) / interval(1/100 = 0.01) = 5 particles
         // and survives (not despawned). (Previously only 1 per frame → under-emit.)
         assert_eq!(world.query::<Particle>().count(), 5);
+        assert!(world.is_alive(emitter));
+    }
+
+    /// Verifies that the lazy-texture path still propagates the texture path to spawned
+    /// Sprites. The `Option<String>` clone now happens only when particles actually spawn
+    /// (not at snapshot collection time), so this exercises the post-refactor code path.
+    #[test]
+    fn continuous_emitter_with_texture_propagates_to_spawned_sprites() {
+        let mut world = World::new();
+        let emitter = world.spawn();
+        world.add_component(emitter, Transform::default());
+        world.add_component(
+            emitter,
+            ParticleEmitter {
+                spawn_rate: 100.0,
+                emit: true,
+                texture: Some("textures/particle.png".to_string()),
+                ..ParticleEmitter::default()
+            },
+        );
+
+        ParticleSystem.run(&mut world, 0.01);
+
+        // At least one particle should have been spawned.
+        let particles: Vec<_> = world.query::<Particle>().collect();
+        assert!(
+            !particles.is_empty(),
+            "expected at least 1 particle to spawn"
+        );
+
+        // Every spawned Sprite should carry the texture path (lazy clone worked).
+        for (e, _particle) in &particles {
+            let sprite = world.get::<Sprite>(*e).expect("particle must have Sprite");
+            assert_eq!(
+                sprite.texture.as_deref(),
+                Some("textures/particle.png"),
+                "spawned particle sprite should have emitter texture"
+            );
+        }
+    }
+
+    /// An emitter with emit=false (paused) must not produce any clone overhead.
+    /// Behavioral check: no particles spawned, emitter survives.
+    #[test]
+    fn paused_emitter_spawns_no_particles() {
+        let mut world = World::new();
+        let emitter = world.spawn();
+        world.add_component(emitter, Transform::default());
+        world.add_component(
+            emitter,
+            ParticleEmitter {
+                spawn_rate: 1000.0,
+                emit: false,
+                texture: Some("textures/particle.png".to_string()),
+                ..ParticleEmitter::default()
+            },
+        );
+
+        ParticleSystem.run(&mut world, 1.0);
+
+        assert_eq!(world.query::<Particle>().count(), 0);
         assert!(world.is_alive(emitter));
     }
 }

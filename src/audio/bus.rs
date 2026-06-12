@@ -62,11 +62,7 @@ impl AudioManager {
     pub fn fade_out(&mut self, channel: &str, duration_secs: f32) {
         // Use the current interpolated fade volume if a fade is in progress so
         // there is no audible jump when fade_out is called mid-fade_volume.
-        let start_vol = self
-            .fades
-            .get(channel)
-            .map(|f| f.current_vol())
-            .unwrap_or_else(|| self.effective_volume(channel));
+        let start_vol = self.fade_start_vol(channel);
         self.fades.insert(
             channel.to_string(),
             Fade::stop_fade(start_vol, duration_secs),
@@ -79,11 +75,7 @@ impl AudioManager {
     pub fn fade_volume(&mut self, channel: &str, target: f32, duration_secs: f32) {
         // Use the current interpolated fade volume if a fade is in progress so
         // chaining fade_volume calls doesn't jump to the stale volume_overrides value.
-        let start_vol = self
-            .fades
-            .get(channel)
-            .map(|f| f.current_vol())
-            .unwrap_or_else(|| self.effective_volume(channel));
+        let start_vol = self.fade_start_vol(channel);
         self.fades.insert(
             channel.to_string(),
             Fade {

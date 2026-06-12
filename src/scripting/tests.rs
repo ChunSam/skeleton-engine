@@ -3,6 +3,7 @@ use super::context::{
 };
 use super::*;
 use crate::asset::AssetServer;
+use crate::behavior::BlackboardValue;
 use crate::components::Transform;
 use crate::ecs::{Entity, System, World};
 use crate::steering::{Arrive, Flee, Seek, SteeringVelocity, Wander};
@@ -78,10 +79,8 @@ fn scripting_bb_roundtrip() {
     let sys = make_engine();
     let mut ctx = empty_ctx(test_entity());
     // Pre-populate the snapshot with a value (for get testing)
-    ctx.bb_snap.insert(
-        "score".to_string(),
-        BbEntry::Float("score".to_string(), 42.0),
-    );
+    ctx.bb_snap
+        .insert("score".to_string(), BlackboardValue::Float(42.0));
 
     let ctx = eval_with_ctx(
         &sys,
