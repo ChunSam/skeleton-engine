@@ -288,6 +288,54 @@ impl App {
 }
 
 impl App {
+    /// Load a RON data table from `path` and register it under `name`.
+    ///
+    /// Lazily inserts a [`crate::data_table::DataTableRegistry`] resource if one is
+    /// not yet present. On native builds the path is also registered with the
+    /// `AssetServer` file watcher so that disk changes are hot-reloaded.
+    ///
+    /// Errors (file not found, parse failure) are logged via `log::warn!` and
+    /// silently dropped — the registry will simply not contain the table.
+    ///
+    /// This method is a no-op on wasm (file I/O is unsupported there).
+    pub fn load_data_table(&mut self, name: impl Into<String>, path: impl Into<String>) {
+        let name = name.into();
+        let path = path.into();
+
+        // Ensure the registry resource exists.
+        if self
+            .world
+            .resource::<crate::data_table::DataTableRegistry>()
+            .is_none()
+        {
+            self.world
+                .insert_resource(crate::data_table::DataTableRegistry::default());
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(reg) = self
+                .world
+                .resource_mut::<crate::data_table::DataTableRegistry>()
+            {
+                if let Err(e) = reg.load(name, &path) {
+                    log::warn!("load_data_table: failed to load '{path}': {e}");
+                    return;
+                }
+            }
+            // Register with the file watcher for hot-reload.
+            if let Some(assets) = self.world.resource_mut::<crate::asset::AssetServer>() {
+                assets.watch_data_table_path(&path);
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            // File I/O is not supported on wasm; log and return.
+            let _ = (name, path);
+        }
+    }
+
     /// Registers a serde-capable component type so it is included in scene save/load.
     ///
     /// Call this for every component `T` that should survive a round-trip through a

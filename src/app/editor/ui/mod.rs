@@ -1,11 +1,15 @@
 use super::*;
 
+#[cfg(not(target_arch = "wasm32"))]
+mod data_table_panel;
 mod docked;
 mod gizmo;
 mod shortcuts;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::app::editor::EditorMode;
+#[cfg(not(target_arch = "wasm32"))]
+pub(in crate::app) use data_table_panel::data_table_panel_body;
 #[cfg(not(target_arch = "wasm32"))]
 pub(in crate::app) use docked::{
     assets_tab_body, entities_tab_body, inspector_tab_body, save_load_controls, scene_tab_body,
