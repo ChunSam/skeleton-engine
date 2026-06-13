@@ -140,29 +140,79 @@ impl ApplicationHandler for App {
                     },
                 ..
             } => {
-                // F1 → toggle DebugUi
+                // F1 → Overlay toggle; F2 → Docked toggle.
+                // Both keys are native-only: wasm has no docked mode and keeps the
+                // original DebugUi.toggle() path.
+                //
+                // Transition table (native):
+                //   F1: Off→Overlay, Overlay→Off, Docked→Overlay
+                //   F2: Off→Docked, Overlay→Docked (turns Overlay off), Docked→Off
+                //
+                // DebugUi.enabled is kept in sync so systems that query is_enabled()
+                // continue to work in Overlay mode.
+                #[cfg(not(target_arch = "wasm32"))]
+                if state == ElementState::Pressed
+                    && (key == winit::keyboard::KeyCode::F1 || key == winit::keyboard::KeyCode::F2)
+                {
+                    let new_mode = if key == winit::keyboard::KeyCode::F1 {
+                        crate::app::editor::apply_f1(self.editor.mode)
+                    } else {
+                        crate::app::editor::apply_f2(self.editor.mode)
+                    };
+                    self.editor.mode = new_mode;
+                    // Exiting Docked mode clears pause state so the game resumes.
+                    if new_mode != crate::app::editor::EditorMode::Docked {
+                        self.editor.paused = false;
+                        self.editor.step_once = false;
+                    }
+                    // Sync DebugUi.enabled: true only in Overlay mode.
+                    if let Some(debug_ui) = self.world.resource_mut::<DebugUi>() {
+                        debug_ui.set_enabled(new_mode == crate::app::editor::EditorMode::Overlay);
+                    }
+                }
+                // WASM: keep the original F1 = DebugUi.toggle() behaviour (no EditorMode).
+                #[cfg(target_arch = "wasm32")]
                 if key == winit::keyboard::KeyCode::F1 && state == ElementState::Pressed {
                     if let Some(debug_ui) = self.world.resource_mut::<DebugUi>() {
                         debug_ui.toggle();
                     }
                 }
-                if let Some(input) = self.world.resource_mut::<InputState>() {
-                    match state {
-                        ElementState::Pressed => {
-                            input.press(key);
-                            use winit::keyboard::{Key, NamedKey};
-                            match &logical_key {
-                                Key::Character(s) => {
-                                    for c in s.chars() {
-                                        input.push_char(c);
+                // Keyboard: in Docked mode suppress game keys when egui wants keyboard input
+                // (e.g. typing in a text field must not move the player character).
+                // F1/F2 are handled above and are always engine-side — they are not passed
+                // to InputState regardless of mode.
+                #[cfg(not(target_arch = "wasm32"))]
+                let egui_wants_keyboard = {
+                    use crate::app::editor::EditorMode;
+                    self.editor.mode == EditorMode::Docked
+                        && self
+                            .world
+                            .resource::<crate::debug_ui::DebugUi>()
+                            .map(|d| d.ctx().egui_wants_keyboard_input())
+                            .unwrap_or(false)
+                };
+                #[cfg(target_arch = "wasm32")]
+                let egui_wants_keyboard = false;
+
+                if !egui_wants_keyboard {
+                    if let Some(input) = self.world.resource_mut::<InputState>() {
+                        match state {
+                            ElementState::Pressed => {
+                                input.press(key);
+                                use winit::keyboard::{Key, NamedKey};
+                                match &logical_key {
+                                    Key::Character(s) => {
+                                        for c in s.chars() {
+                                            input.push_char(c);
+                                        }
                                     }
+                                    Key::Named(NamedKey::Backspace) => input.push_backspace(),
+                                    Key::Named(NamedKey::Enter) => input.push_enter(),
+                                    _ => {}
                                 }
-                                Key::Named(NamedKey::Backspace) => input.push_backspace(),
-                                Key::Named(NamedKey::Enter) => input.push_enter(),
-                                _ => {}
                             }
+                            ElementState::Released => input.release(key),
                         }
-                        ElementState::Released => input.release(key),
                     }
                 }
             }
@@ -185,22 +235,103 @@ impl ApplicationHandler for App {
             // `Camera::screen_to_world` all work in logical pixels. Divide by the
             // scale factor to store logical coordinates so HiDPI (e.g. Retina 2×)
             // does not cause a mismatch.
+            //
+            // In Docked mode the game's InputState receives the cursor translated into
+            // central-panel-local coordinates via `viewport_to_game`.  When the cursor
+            // is outside the central panel the game cursor position is frozen at its
+            // last valid in-panel position (no update is issued), so systems that read
+            // `input.cursor()` keep the last known in-panel value.
             WindowEvent::CursorMoved { position, .. } => {
                 let scale = self
                     .window
                     .as_ref()
                     .map(|w| w.scale_factor() as f32)
                     .unwrap_or(1.0);
+                let logical = Vec2::new(position.x as f32 / scale, position.y as f32 / scale);
+
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    use crate::app::editor::{docked_rt::viewport_to_game, EditorMode};
+                    // Always track the untranslated window-space cursor; the docked
+                    // pointer gate needs the physical position even while the game
+                    // cursor is frozen outside the panel.
+                    self.editor.window_cursor = Some(egui::pos2(logical.x, logical.y));
+                    if self.editor.mode == EditorMode::Docked {
+                        if let Some(central_rect) = self.editor.central_rect {
+                            let win_pos = egui::pos2(logical.x, logical.y);
+                            if let Some(game_pos) = viewport_to_game(win_pos, central_rect) {
+                                if let Some(input) = self.world.resource_mut::<InputState>() {
+                                    input.set_cursor(Vec2::new(game_pos.x, game_pos.y));
+                                }
+                            }
+                            // Outside the central rect: game cursor is frozen (no update).
+                        } else {
+                            // central_rect not yet computed (first frames) — pass through.
+                            if let Some(input) = self.world.resource_mut::<InputState>() {
+                                input.set_cursor(logical);
+                            }
+                        }
+                    } else {
+                        if let Some(input) = self.world.resource_mut::<InputState>() {
+                            input.set_cursor(logical);
+                        }
+                    }
+                }
+                #[cfg(target_arch = "wasm32")]
                 if let Some(input) = self.world.resource_mut::<InputState>() {
-                    input.set_cursor(Vec2::new(
-                        position.x as f32 / scale,
-                        position.y as f32 / scale,
-                    ));
+                    input.set_cursor(logical);
                 }
             }
 
             // ── Mouse button ──────────────────────────────────────────────────
+            // In Docked mode: buttons only pass through when egui does NOT want the
+            // pointer AND the cursor is inside the central panel.
             WindowEvent::MouseInput { state, button, .. } => {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    use crate::app::editor::EditorMode;
+                    if self.editor.mode == EditorMode::Docked {
+                        // Layer-aware gate: inside the central rect, egui idle, and no
+                        // popup/window floating above the viewport. (The previous
+                        // `egui_wants_pointer_input()` check is wrong here — the game
+                        // viewport IS an egui CentralPanel, so egui always "wants" it.)
+                        let allowed = {
+                            let ctx = self
+                                .world
+                                .resource::<crate::debug_ui::DebugUi>()
+                                .map(|d| d.ctx().clone());
+                            crate::app::editor::docked_rt::docked_game_pointer_allowed(
+                                self.editor.window_cursor,
+                                self.editor.central_rect,
+                                ctx.as_ref(),
+                            )
+                        };
+                        if allowed {
+                            if let Some(input) = self.world.resource_mut::<InputState>() {
+                                match state {
+                                    ElementState::Pressed => input.press_mouse(button),
+                                    ElementState::Released => input.release_mouse(button),
+                                }
+                            }
+                        }
+                        // Outside panel or egui wants pointer: game sees no click.
+                        // Ensure any stale pressed state is cleared on release to prevent
+                        // stuck buttons when the cursor moves out while held.
+                        if state == ElementState::Released {
+                            if let Some(input) = self.world.resource_mut::<InputState>() {
+                                input.release_mouse(button);
+                            }
+                        }
+                    } else {
+                        if let Some(input) = self.world.resource_mut::<InputState>() {
+                            match state {
+                                ElementState::Pressed => input.press_mouse(button),
+                                ElementState::Released => input.release_mouse(button),
+                            }
+                        }
+                    }
+                }
+                #[cfg(target_arch = "wasm32")]
                 if let Some(input) = self.world.resource_mut::<InputState>() {
                     match state {
                         ElementState::Pressed => input.press_mouse(button),
@@ -210,7 +341,47 @@ impl ApplicationHandler for App {
             }
 
             // ── Mouse wheel ────────────────────────────────────────────────────
+            // In Docked mode scroll only passes through when the cursor is inside the
+            // central panel and egui does not want the pointer.
             WindowEvent::MouseWheel { delta, .. } => {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    use crate::app::editor::EditorMode;
+                    if self.editor.mode == EditorMode::Docked {
+                        // Same layer-aware gate as MouseInput above.
+                        let allowed = {
+                            let ctx = self
+                                .world
+                                .resource::<crate::debug_ui::DebugUi>()
+                                .map(|d| d.ctx().clone());
+                            crate::app::editor::docked_rt::docked_game_pointer_allowed(
+                                self.editor.window_cursor,
+                                self.editor.central_rect,
+                                ctx.as_ref(),
+                            )
+                        };
+                        if allowed {
+                            if let Some(input) = self.world.resource_mut::<InputState>() {
+                                match delta {
+                                    MouseScrollDelta::LineDelta(_, y) => input.add_scroll(y),
+                                    MouseScrollDelta::PixelDelta(p) => {
+                                        input.add_scroll(p.y as f32 / 20.0)
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        if let Some(input) = self.world.resource_mut::<InputState>() {
+                            match delta {
+                                MouseScrollDelta::LineDelta(_, y) => input.add_scroll(y),
+                                MouseScrollDelta::PixelDelta(p) => {
+                                    input.add_scroll(p.y as f32 / 20.0)
+                                }
+                            }
+                        }
+                    }
+                }
+                #[cfg(target_arch = "wasm32")]
                 if let Some(input) = self.world.resource_mut::<InputState>() {
                     match delta {
                         MouseScrollDelta::LineDelta(_, y) => input.add_scroll(y),

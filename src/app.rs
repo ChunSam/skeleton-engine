@@ -150,6 +150,16 @@ pub struct App {
         u32,
         wgpu::TextureFormat,
     )>,
+    /// Offscreen texture the docked editor renders the game scene into.
+    /// (width, height, format, texture, view) — recreated when the central panel resizes.
+    #[cfg(not(target_arch = "wasm32"))]
+    docked_scene_texture: Option<(
+        u32,
+        u32,
+        wgpu::TextureFormat,
+        wgpu::Texture,
+        wgpu::TextureView,
+    )>,
     /// GPU compute-shader particle renderer (lazy init).
     #[cfg(not(target_arch = "wasm32"))]
     gpu_particle_renderer: Option<crate::renderer::gpu_particle::GpuParticleRenderer>,
@@ -236,6 +246,8 @@ impl App {
             post_texture_for_lighting: None,
             #[cfg(not(target_arch = "wasm32"))]
             gpu_particle_renderer: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            docked_scene_texture: None,
             last_frame: None,
             last_dt: 1.0 / 60.0,
             pending_textures: Vec::new(),

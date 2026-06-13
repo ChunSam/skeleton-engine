@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.6.3 | package `skeleton-engine` v7.0.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.92, CI pin Rust 1.95.0)  
+> Version v1.6.4 | package `skeleton-engine` v7.1.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.92, CI pin Rust 1.95.0)  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example game ships to
 > the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`
@@ -66,6 +66,7 @@ Where to read to find a given thing:
 | Reflect trait, ReflectValue (`F32`/`I32`/`Vec2`/`Bool`/`String`/`Color`, `#[non_exhaustive]`; runtime field read/write, egui Inspector integration) | `src/reflect.rs` |
 | ScriptAsset, ScriptRunner, ScriptingSystem (Rhai scripting) | `src/scripting.rs` |
 | DebugUi (egui overlay, F1 toggle, custom panels via `ctx()`) | `src/debug_ui.rs` |
+| In-game editor: F1 overlay + F2 **docked mode** (dock layout, viewport input gate, engine-level editor pause, gizmo, scene save) | `src/app/editor/` |
 | Full public API re-export list | `src/lib.rs` |
 | Entity / Component / Resource / Query (+ `register_persistent` survives scene reset, via `App`) | `src/ecs/world.rs`, `src/app.rs` |
 | Event bus (`Events<E>`) | `src/ecs/events.rs` |

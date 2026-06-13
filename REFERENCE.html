@@ -211,6 +211,7 @@
         <a href="#텍스트-완성--ime-phase-49">텍스트 완성 + IME</a>
         <a href="#로컬라이제이션-phase-50">로컬라이제이션</a>
         <a href="#inspector-undoredo">Inspector Undo/Redo</a>
+        <a href="#에디터--도킹-모드-f2">에디터 — 도킹 모드 (F2)</a>
         <a href="#에디터--씬-그래프-패널">에디터 — 씬 그래프 패널</a>
         <a href="#에디터--컴포넌트-추가제거">에디터 — 컴포넌트 추가/제거</a>
       </details>
@@ -274,7 +275,7 @@
   </section>
   <section class="toc-group">
     <h3>입력과 UI</h3>
-    <ul><li><a href="#입력">입력</a></li><li><a href="#터치-입력-phase-47">터치 입력</a></li><li><a href="#ui-위젯">UI 위젯</a></li><li><a href="#텍스트-완성--ime-phase-49">텍스트 완성 + IME</a></li><li><a href="#로컬라이제이션-phase-50">로컬라이제이션</a></li><li><a href="#inspector-undoredo">Inspector Undo/Redo</a></li><li><a href="#에디터--씬-그래프-패널">에디터 — 씬 그래프 패널</a></li><li><a href="#에디터--컴포넌트-추가제거">에디터 — 컴포넌트 추가/제거</a></li></ul>
+    <ul><li><a href="#입력">입력</a></li><li><a href="#터치-입력-phase-47">터치 입력</a></li><li><a href="#ui-위젯">UI 위젯</a></li><li><a href="#텍스트-완성--ime-phase-49">텍스트 완성 + IME</a></li><li><a href="#로컬라이제이션-phase-50">로컬라이제이션</a></li><li><a href="#inspector-undoredo">Inspector Undo/Redo</a></li><li><a href="#에디터--도킹-모드-f2">에디터 — 도킹 모드 (F2)</a></li><li><a href="#에디터--씬-그래프-패널">에디터 — 씬 그래프 패널</a></li><li><a href="#에디터--컴포넌트-추가제거">에디터 — 컴포넌트 추가/제거</a></li></ul>
   </section>
   <section class="toc-group">
     <h3>렌더링과 카메라</h3>
@@ -1439,6 +1440,11 @@ impl System for SpawnSystem {
         world.apply_commands(cmds);  // 루프 끝난 뒤 일괄 적용
     }
 }</code></pre>
+<hr>
+<h2 id="에디터--도킹-모드-f2">에디터 — 도킹 모드 (F2)</h2>
+<p><strong>F2</strong>로 진입하는 두 번째 에디터 모드 (네이티브 전용, v7.1.0). 상용 엔진처럼 사이드 패널이 화면 가장자리를 차지하고 게임은 가운데 뷰포트에 표시되므로, 편집 UI가 게임 화면을 가리지 않는다.</p>
+<ul><li><strong>레이아웃</strong>: 상단 툴바(▶/⏸ 재생 제어, ⏭ 한 프레임 스텝, Snap, 씬 Save/Load) · 좌측 Entities/Scene 탭 · 우측 Inspector · 하단 Assets · 중앙 게임 뷰포트</li><li><strong>F1 오버레이와 병행</strong>: F1은 기존 떠다니는 창 오버레이 그대로 (퀵 디버그용). 두 모드는 상호 배타 — F2 진입 시 오버레이 꺼짐, Docked에서 F1 누르면 오버레이로 전환</li><li><strong>뷰포트 입력</strong>: 중앙 뷰포트 안의 클릭/드래그/휠은 게임과 기즈모에 전달되고, 패널·팝업 위 입력은 egui가 가진다. Inspector에 타이핑하는 동안 게임 키 입력 차단</li><li><strong>일시정지</strong>: ⏸는 엔진 차원에서 씬 시스템 실행을 멈춘다 (<code>GameState</code> 리소스와 무관). 정지 중에도 기즈모 드래그 시 자식 엔티티가 따라온다 (HierarchySystem은 계속 실행). ⏭로 정확히 한 프레임 진행</li><li><strong>뷰포트 크기</strong>: 도킹 중 <code>ViewportSize</code>는 중앙 패널 크기를 보고하므로 카메라·스크린 UI·<code>screen_to_world</code>가 무수정 동작. 패널 크기를 조절하면 게임 뷰포트도 따라 변한다 (3프레임 디바운스)</li></ul>
+<blockquote>WASM 빌드에서는 사용 불가 (<code>#[cfg(not(target_arch = &quot;wasm32&quot;))]</code>로 컴파일 제외).</blockquote>
 <hr>
 <h2 id="에디터--씬-그래프-패널">에디터 — 씬 그래프 패널</h2>
 <p>Inspector의 <strong>&quot;Scene&quot;</strong> 탭에서 엔티티 계층 구조를 TreeView로 확인할 수 있다 (네이티브 전용).</p>

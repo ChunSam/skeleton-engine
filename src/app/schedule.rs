@@ -160,10 +160,57 @@ impl App {
                     1.0
                 }
             };
-            self.world.insert_resource(ViewportSize {
+
+            // In Docked mode the game camera and screen-space UI must see the central
+            // viewport rect, not the full window. Compute the placeholder rect each
+            // frame from the window's logical size; package 2 will overwrite
+            // `editor.central_rect` with the real egui panel rect instead.
+            //
+            // The scale factor always tracks the real window DPR — only the logical
+            // size reported to the game changes.
+            #[cfg(not(target_arch = "wasm32"))]
+            let viewport_size = {
+                use crate::app::editor::docked_rt::compute_central_rect;
+                use crate::app::editor::EditorMode;
+                if self.editor.mode == EditorMode::Docked {
+                    let win_logical_w = gpu.config.width as f32 / scale_factor;
+                    let win_logical_h = gpu.config.height as f32 / scale_factor;
+                    // Use the cached central_rect when package 2 writes it; otherwise
+                    // recompute from the placeholder margins every frame.
+                    let rect = self
+                        .editor
+                        .central_rect
+                        .or_else(|| compute_central_rect(win_logical_w, win_logical_h));
+                    match rect {
+                        Some(r) => ViewportSize {
+                            width: r.width(),
+                            height: r.height(),
+                        },
+                        None => ViewportSize {
+                            width: (win_logical_w
+                                - crate::app::editor::docked_rt::MARGIN_LEFT
+                                - crate::app::editor::docked_rt::MARGIN_RIGHT)
+                                .max(1.0),
+                            height: (win_logical_h
+                                - crate::app::editor::docked_rt::MARGIN_TOP
+                                - crate::app::editor::docked_rt::MARGIN_BOTTOM)
+                                .max(1.0),
+                        },
+                    }
+                } else {
+                    ViewportSize {
+                        width: gpu.config.width as f32 / scale_factor,
+                        height: gpu.config.height as f32 / scale_factor,
+                    }
+                }
+            };
+            #[cfg(target_arch = "wasm32")]
+            let viewport_size = ViewportSize {
                 width: gpu.config.width as f32 / scale_factor,
                 height: gpu.config.height as f32 / scale_factor,
-            });
+            };
+
+            self.world.insert_resource(viewport_size);
             self.world.insert_resource(DisplayScaleFactor(scale_factor));
         }
 
@@ -219,6 +266,32 @@ impl App {
             self.schedule_dirty = false;
         }
 
+        // Editor pause: when Docked && paused && !step_once, restrict the execution set to
+        // tail built-in systems only (e.g. HierarchySystem).  Built-ins occupy
+        // `systems[systems.len() - builtin_tail_count..]`; their indices in exec_order are
+        // therefore >= (systems.len() - builtin_tail_count).  Scene systems (smaller indices)
+        // are skipped so the game simulation freezes, while hierarchy/gizmo updates keep running
+        // so entities continue to follow gizmo drags even while paused.
+        //
+        // If `step_once` is set, run the full pipeline once and then clear `step_once`.
+        #[cfg(not(target_arch = "wasm32"))]
+        let pause_skip_scene = {
+            use crate::app::editor::EditorMode;
+            let is_docked_paused = self.editor.mode == EditorMode::Docked
+                && self.editor.paused
+                && !self.editor.step_once;
+            if self.editor.mode == EditorMode::Docked && self.editor.paused && self.editor.step_once
+            {
+                // Step one full frame then return to paused.
+                self.editor.step_once = false;
+            }
+            is_docked_paused
+        };
+        #[cfg(target_arch = "wasm32")]
+        let pause_skip_scene = false;
+        // First scene-system index = 0; tail starts at systems.len() - builtin_tail_count.
+        let tail_start = self.systems.len().saturating_sub(self.builtin_tail_count);
+
         // Execute systems + profiler instrumentation (iterate exec_order, skip disabled sets)
         {
             let system_count = self.systems.len();
@@ -236,6 +309,11 @@ impl App {
                 }
                 // Skip systems disabled due to a prior panic
                 if self.panicked_systems.contains(&i) {
+                    continue;
+                }
+                // Editor pause: skip scene systems (indices < tail_start) while paused.
+                // Tail built-ins (indices >= tail_start) always run so hierarchy stays live.
+                if pause_skip_scene && i < tail_start {
                     continue;
                 }
                 if let Some(set) = self.system_meta.get(i).and_then(|m| m.set) {
@@ -393,6 +471,116 @@ impl App {
             }
         }
         self.upload_asset_server_images_to_gpu();
+    }
+}
+
+// ── A6 editor-pause tests (native only) ─────────────────────────────────────
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod pause_tests {
+    use super::super::*;
+    use crate::app::editor::EditorMode;
+    use crate::ecs::{System, World};
+
+    #[derive(Default)]
+    struct Counter(u32);
+
+    struct CountSystem;
+    impl System for CountSystem {
+        fn run(&mut self, world: &mut World, _dt: f32) {
+            world.resource_mut::<Counter>().unwrap().0 += 1;
+        }
+        fn name(&self) -> &'static str {
+            "count_system"
+        }
+    }
+
+    fn app_with_count() -> App {
+        let mut app = App::new();
+        app.world.insert_resource(Counter::default());
+        app.add_system(CountSystem);
+        app
+    }
+
+    /// In Docked+paused mode, scene systems (index < tail_start) are skipped.
+    /// The builtin tail (HierarchySystem) still runs — but that just means the
+    /// counter system (a scene system) must NOT increment.
+    #[test]
+    fn pause_skips_scene_systems_but_runs_tail() {
+        let mut app = app_with_count();
+        app.editor.mode = EditorMode::Docked;
+        app.editor.paused = true;
+        app.editor.step_once = false;
+
+        // Run two frames while paused — counter must stay 0.
+        app.update(1.0 / 60.0);
+        app.update(1.0 / 60.0);
+
+        assert_eq!(
+            app.world.resource::<Counter>().unwrap().0,
+            0,
+            "paused: scene system must not run"
+        );
+    }
+
+    /// step_once=true causes the full pipeline (including scene systems) to run
+    /// exactly once, then clears step_once (stays paused).
+    #[test]
+    fn step_once_runs_exactly_one_full_frame() {
+        let mut app = app_with_count();
+        app.editor.mode = EditorMode::Docked;
+        app.editor.paused = true;
+        app.editor.step_once = true;
+
+        // First update: step fires (scene systems run), step_once cleared.
+        app.update(1.0 / 60.0);
+        assert_eq!(
+            app.world.resource::<Counter>().unwrap().0,
+            1,
+            "step_once: scene system must run once"
+        );
+        assert!(
+            !app.editor.step_once,
+            "step_once must be cleared after the frame"
+        );
+        assert!(app.editor.paused, "still paused after step");
+
+        // Second update: paused again, counter must not advance.
+        app.update(1.0 / 60.0);
+        assert_eq!(
+            app.world.resource::<Counter>().unwrap().0,
+            1,
+            "second frame must not advance while paused"
+        );
+    }
+
+    /// Transitioning away from Docked (F2 → Off) clears paused and step_once.
+    #[test]
+    fn f2_exit_clears_pause() {
+        let mut app = app_with_count();
+        app.editor.mode = EditorMode::Docked;
+        app.editor.paused = true;
+        app.editor.step_once = true;
+
+        // Simulate the mode transition that F2 (or the Exit button) triggers.
+        let new_mode = crate::app::editor::apply_f2(app.editor.mode);
+        app.editor.mode = new_mode;
+        // The window.rs code clears pause when leaving Docked; replicate that here.
+        if app.editor.mode != EditorMode::Docked {
+            app.editor.paused = false;
+            app.editor.step_once = false;
+        }
+
+        assert_eq!(app.editor.mode, EditorMode::Off);
+        assert!(!app.editor.paused, "pause must be cleared on exit");
+        assert!(!app.editor.step_once, "step_once must be cleared on exit");
+
+        // After exit, updates run normally.
+        app.update(1.0 / 60.0);
+        assert_eq!(
+            app.world.resource::<Counter>().unwrap().0,
+            1,
+            "game must resume after docked exit"
+        );
     }
 }
 
