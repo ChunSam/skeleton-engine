@@ -288,6 +288,104 @@ impl App {
 }
 
 impl App {
+    /// Load a RON data table from `path` and register it under `name`.
+    ///
+    /// Lazily inserts a [`crate::data_table::DataTableRegistry`] resource if one is
+    /// not yet present. On native builds the path is also registered with the
+    /// `AssetServer` file watcher so that disk changes are hot-reloaded.
+    ///
+    /// Errors (file not found, parse failure) are logged via `log::warn!` and
+    /// silently dropped — the registry will simply not contain the table.
+    ///
+    /// This method is a no-op on wasm (file I/O is unsupported there).
+    pub fn load_data_table(&mut self, name: impl Into<String>, path: impl Into<String>) {
+        let name = name.into();
+        let path = path.into();
+
+        // Ensure the registry resource exists.
+        if self
+            .world
+            .resource::<crate::data_table::DataTableRegistry>()
+            .is_none()
+        {
+            self.world
+                .insert_resource(crate::data_table::DataTableRegistry::default());
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(reg) = self
+                .world
+                .resource_mut::<crate::data_table::DataTableRegistry>()
+            {
+                if let Err(e) = reg.load(name, &path) {
+                    log::warn!("load_data_table: failed to load '{path}': {e}");
+                    return;
+                }
+            }
+            // Register with the file watcher for hot-reload.
+            if let Some(assets) = self.world.resource_mut::<crate::asset::AssetServer>() {
+                assets.watch_data_table_path(&path);
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            // File I/O is not supported on wasm; log and return.
+            let _ = (name, path);
+        }
+    }
+
+    /// Registers a component for full editor integration in one call:
+    /// Inspector field editing ([`Reflect`](crate::reflect::Reflect)), entity duplication
+    /// ([`Clone`]), scene save/load (serde), and the Add/Remove Component buttons.
+    ///
+    /// `T` must derive `Reflect`, `Serialize`, `Deserialize`, `Clone`, and `Default`.
+    ///
+    /// This is the preferred registration path for game-side stats/config components.
+    /// On wasm only the reflect + clone + serde registrations run (the editor buttons
+    /// are native-only); the method still compiles on both targets.
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use engine::{App, Reflect};
+    /// use serde::{Serialize, Deserialize};
+    ///
+    /// #[derive(Reflect, Serialize, Deserialize, Clone, Default)]
+    /// struct Stats { hp: f32, strength: i32 }
+    ///
+    /// let mut app = App::new();
+    /// app.register_editable_component::<Stats>("Stats", None);
+    /// ```
+    #[allow(clippy::type_complexity)]
+    pub fn register_editable_component<T>(
+        &mut self,
+        name: &'static str,
+        post_spawn: Option<Box<dyn Fn(&mut World, Entity) + Send + Sync>>,
+    ) where
+        T: crate::reflect::Reflect
+            + serde::Serialize
+            + serde::de::DeserializeOwned
+            + Clone
+            + Default
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.world.register_reflect_named::<T>(name);
+        self.world.register_clone::<T>();
+        self.register_serde_component::<T>(name, post_spawn);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.register_component(name, |world, entity| {
+                world.add_component(entity, T::default());
+            });
+            self.register_component_remover(name, |world, entity| {
+                world.remove_component::<T>(entity);
+            });
+        }
+    }
+
     /// Registers a serde-capable component type so it is included in scene save/load.
     ///
     /// Call this for every component `T` that should survive a round-trip through a

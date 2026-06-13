@@ -168,6 +168,10 @@ pub struct AssetServer {
     reload_rx: Option<Receiver<PathBuf>>,
     #[cfg(not(target_arch = "wasm32"))]
     _watcher: Option<RecommendedWatcher>,
+    /// Set of canonical paths registered as data-table files (native only).
+    /// Used by `poll_reloads` to include data-table changes in the returned Vec.
+    #[cfg(not(target_arch = "wasm32"))]
+    data_table_paths: std::collections::HashSet<std::sync::Arc<str>>,
     // Channel for async loading (native only)
     #[cfg(not(target_arch = "wasm32"))]
     async_tx: std::sync::mpsc::SyncSender<async_loading::AsyncImageResult>,
@@ -223,6 +227,7 @@ impl AssetServer {
                 atlas_path_to_id: HashMap::new(),
                 reload_rx,
                 _watcher: watcher,
+                data_table_paths: std::collections::HashSet::new(),
                 async_tx,
                 async_rx,
             }

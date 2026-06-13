@@ -42,16 +42,33 @@ pub(in crate::app) fn update_docked_ui(
             docked_toolbar(ui, app);
         });
 
-    // ── 2. Bottom assets panel ───────────────────────────────────────────────
+    // ── 2. Bottom panel: Assets | Data Tables ───────────────────────────────
     #[allow(deprecated)]
     egui::Panel::bottom("docked_assets")
         .default_size(150.0)
         .size_range(60.0..=300.0)
         .resizable(true)
         .show(ctx, |ui| {
-            ui.strong("Assets");
+            ui.horizontal(|ui| {
+                if ui
+                    .selectable_label(app.editor.bottom_tab == 0, "Assets")
+                    .clicked()
+                {
+                    app.editor.bottom_tab = 0;
+                }
+                if ui
+                    .selectable_label(app.editor.bottom_tab == 1, "Data Tables")
+                    .clicked()
+                {
+                    app.editor.bottom_tab = 1;
+                }
+            });
             ui.separator();
-            assets_tab_body(ui, app);
+            if app.editor.bottom_tab == 0 {
+                assets_tab_body(ui, app);
+            } else {
+                super::data_table_panel_body(ui, app);
+            }
         });
 
     // ── 3. Left entities / scene panel ───────────────────────────────────────

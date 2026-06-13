@@ -213,6 +213,7 @@
         <a href="#inspector-undoredo">Inspector Undo/Redo</a>
         <a href="#에디터--도킹-모드-f2">에디터 — 도킹 모드 (F2)</a>
         <a href="#에디터--ui-레이아웃-편집">에디터 — UI 레이아웃 편집</a>
+        <a href="#에디터--게임-데이터-편집">에디터 — 게임 데이터 편집</a>
         <a href="#에디터--씬-그래프-패널">에디터 — 씬 그래프 패널</a>
         <a href="#에디터--컴포넌트-추가제거">에디터 — 컴포넌트 추가/제거</a>
       </details>
@@ -276,7 +277,7 @@
   </section>
   <section class="toc-group">
     <h3>입력과 UI</h3>
-    <ul><li><a href="#입력">입력</a></li><li><a href="#터치-입력-phase-47">터치 입력</a></li><li><a href="#ui-위젯">UI 위젯</a></li><li><a href="#텍스트-완성--ime-phase-49">텍스트 완성 + IME</a></li><li><a href="#로컬라이제이션-phase-50">로컬라이제이션</a></li><li><a href="#inspector-undoredo">Inspector Undo/Redo</a></li><li><a href="#에디터--도킹-모드-f2">에디터 — 도킹 모드 (F2)</a></li><li><a href="#에디터--ui-레이아웃-편집">에디터 — UI 레이아웃 편집</a></li><li><a href="#에디터--씬-그래프-패널">에디터 — 씬 그래프 패널</a></li><li><a href="#에디터--컴포넌트-추가제거">에디터 — 컴포넌트 추가/제거</a></li></ul>
+    <ul><li><a href="#입력">입력</a></li><li><a href="#터치-입력-phase-47">터치 입력</a></li><li><a href="#ui-위젯">UI 위젯</a></li><li><a href="#텍스트-완성--ime-phase-49">텍스트 완성 + IME</a></li><li><a href="#로컬라이제이션-phase-50">로컬라이제이션</a></li><li><a href="#inspector-undoredo">Inspector Undo/Redo</a></li><li><a href="#에디터--도킹-모드-f2">에디터 — 도킹 모드 (F2)</a></li><li><a href="#에디터--ui-레이아웃-편집">에디터 — UI 레이아웃 편집</a></li><li><a href="#에디터--게임-데이터-편집">에디터 — 게임 데이터 편집</a></li><li><a href="#에디터--씬-그래프-패널">에디터 — 씬 그래프 패널</a></li><li><a href="#에디터--컴포넌트-추가제거">에디터 — 컴포넌트 추가/제거</a></li></ul>
   </section>
   <section class="toc-group">
     <h3>렌더링과 카메라</h3>
@@ -1456,6 +1457,15 @@ impl System for SpawnSystem {
 <li><strong>예제</strong>: <code>cargo run --example ui_layout_editor_game</code> — 기본 메뉴를 F2 에디터로 배치·리사이즈 → Save Scene → 재시작 시 저장본 로드(레이아웃 편집 인수 테스트).</li>
 </ul>
 <blockquote>네이티브 전용. 씬 파일 저장/로드 자체는 <code>save.rs</code> 계층에서 이미 wasm 게이트됨.</blockquote>
+<hr>
+<h2 id="에디터--게임-데이터-편집">에디터 — 게임 데이터 편집 (v8.1.0)</h2>
+<p>컴포넌트 스탯과 RON 데이터 테이블을 에디터에서 편집하고 파일로 영속화한다.</p>
+<ul>
+<li><strong><code>#[derive(Reflect)]</code></strong> (워크스페이스 크레이트 <code>engine_reflect_derive</code>): <code>f32</code>/<code>i32</code>/<code>Vec2</code>/<code>bool</code>/<code>String</code>/<code>Color</code>/<code>[f32;4]</code> 필드 구조체의 Reflect 구현을 자동 생성. <code>#[reflect(skip)]</code>로 필드 제외, 미지원 타입은 컴파일 에러. 손수 쓴 impl과 공존. 게임은 <code>engine</code>처럼 이 크레이트를 직접 의존성에 추가하고 <code>use engine_reflect_derive::Reflect;</code> 후 <code>#[derive(Reflect)]</code>. (엔진에서 re-export하지 않는 이유: 미게시 proc-macro에 의존하면 <code>skeleton-engine</code> 자체가 crates.io에 publish되지 않으므로 별도 크레이트로 분리.)</li>
+<li><strong><code>App::register_editable_component::&lt;T&gt;(name, post_spawn)</code></strong>: 한 번 호출로 인스펙터 편집(Reflect) + 복제(Clone) + 씬 저장/로드(serde) + Add/Remove 컴포넌트 버튼을 전부 등록. <code>T: Reflect + Serialize + Deserialize + Clone + Default</code>.</li>
+<li><strong>데이터 테이블</strong>(<code>DataTable</code>, <code>DataTableRegistry</code>, <code>App::load_data_table</code>): 스키마 무지 RON 표(<code>[(col: value, …), …]</code>)를 로드해 런타임에 World 리소스로 읽고, 에디터 하단의 <strong>Data Tables</strong> 탭에서 셀 단위(숫자/문자열/불) 편집·행 추가·삭제·저장하며, 디스크 변경을 실행 중 게임에 핫리로드한다(미저장 편집은 dirty 가드로 보호). 패널은 네이티브 전용, 타입은 크로스플랫폼.</li>
+<li><strong>예제</strong>: <code>cargo run --example stat_editor_game</code> — derive한 <code>Stats</code> 컴포넌트를 enemies 테이블에서 시드, 인스펙터에서 스탯 편집(HUD 즉시 반영) + Data Tables 패널에서 enemies/items 표 튜닝(게임 데이터 편집 인수 테스트).</li>
+</ul>
 <hr>
 <h2 id="에디터--씬-그래프-패널">에디터 — 씬 그래프 패널</h2>
 <p>Inspector의 <strong>&quot;Scene&quot;</strong> 탭에서 엔티티 계층 구조를 TreeView로 확인할 수 있다 (네이티브 전용).</p>

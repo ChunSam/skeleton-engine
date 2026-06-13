@@ -1,6 +1,10 @@
+[workspace]
+members = [".", "engine_reflect_derive"]
+resolver = "2"
+
 [package]
 name        = "skeleton-engine"
-version     = "8.0.0"
+version     = "8.1.0"
 edition     = "2021"
 description = "Lightweight 2D game engine — wgpu rendering, custom ECS, rapier2d physics"
 repository  = "https://github.com/ChunSam/skeleton-engine"
@@ -65,6 +69,10 @@ name = "ui_layout_editor_game"
 path = "examples/games/ui_layout_editor/ui_layout_editor.rs"
 
 [[example]]
+name = "stat_editor_game"
+path = "examples/games/stat_editor_game/stat_editor.rs"
+
+[[example]]
 name = "lit_dungeon_game"
 path = "examples/games/lit_dungeon/lit_dungeon.rs"
 
@@ -122,6 +130,15 @@ egui        = "0.34"
 egui-wgpu   = "0.34"
 egui-winit  = { version = "0.34", default-features = false }
 rhai        = { version = "1", features = ["sync"] }
+
+# `#[derive(Reflect)]` lives in the `engine_reflect_derive` workspace crate. It is a
+# DEV-dependency (not a regular dep) so the published `skeleton-engine` crate does
+# not require the unpublished proc-macro on crates.io — otherwise `cargo package`
+# fails ("no matching package"). Examples and tests use the derive directly via
+# `engine_reflect_derive::Reflect`; downstream games add the crate to their own
+# Cargo.toml the same way they add `engine`.
+[dev-dependencies]
+engine_reflect_derive = { path = "engine_reflect_derive" }
 
 # ── 네이티브 전용 (OS API 의존) ──────────────────────────────────────────────
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

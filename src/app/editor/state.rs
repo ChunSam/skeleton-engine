@@ -199,6 +199,23 @@ pub(in crate::app) struct EditorState {
     /// Debounce state for the docked offscreen render-target size.
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) rt_debounce: super::docked_rt::RtDebounce,
+
+    // ── Data-table panel fields (native only) ─────────────────────────────────
+    /// Active tab in the bottom panel: 0 = Assets, 1 = Data Tables.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) bottom_tab: u8,
+    /// Name of the currently selected table in the Data Tables panel.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) selected_data_table: Option<String>,
+    /// Status message shown below the data-table panel after save/reload.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) data_table_status: Option<String>,
+    /// Path text field for opening a new data table in the panel.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) data_table_open_path: String,
+    /// Name text field for opening a new data table in the panel.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) data_table_open_name: String,
 }
 
 impl EditorState {
@@ -234,6 +251,11 @@ impl EditorState {
             docked_texture_id: None,
             window_cursor: None,
             rt_debounce: super::docked_rt::RtDebounce::default(),
+            bottom_tab: 0,
+            selected_data_table: None,
+            data_table_status: None,
+            data_table_open_path: String::new(),
+            data_table_open_name: String::new(),
         }
     }
 }

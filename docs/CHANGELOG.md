@@ -4,6 +4,45 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.1.0
+
+Game-data editor: edit component stats and RON data tables in the docked editor
+and persist them to disk. Third release of the in-engine editor arc (scene layout
+shipped in 8.0.0). Fully additive — no migration needed.
+
+### Added
+
+- **`#[derive(Reflect)]`**: a proc-macro (new workspace crate
+  `engine_reflect_derive`) that generates the `Reflect` impl for a struct of
+  `f32`/`i32`/`Vec2`/`bool`/`String`/`Color`/`[f32; 4]` fields. `#[reflect(skip)]`
+  omits a field; unsupported types fail with a clear compile error. Hand-written
+  `Reflect` impls keep working. Add the crate to your `Cargo.toml` (the same way
+  you add `engine`) and write `use engine_reflect_derive::Reflect;` then
+  `#[derive(Reflect)]`. The macro is a separate crate rather than re-exported from
+  `engine` so that `skeleton-engine` stays publishable without first publishing the
+  proc-macro to crates.io.
+- **`App::register_editable_component::<T>(name, post_spawn)`**: one call wires a
+  component for full editor integration — Inspector field editing (Reflect), entity
+  duplication (Clone), scene save/load (serde), and the Add/Remove Component
+  buttons. `T: Reflect + Serialize + Deserialize + Clone + Default`.
+- **Data tables** (`DataTable`, `DataTableRegistry`, `App::load_data_table`): load a
+  schema-agnostic RON table (a sequence of `(col: value, …)` rows), read it as a
+  World resource at runtime, edit it in the editor's new **Data Tables** tab (bottom
+  panel) — per-cell number/string/bool editors, add/delete row, Save — and
+  hot-reload disk changes into the running game (a dirty-guard protects unsaved
+  edits). Native-only panel; the types are cross-platform.
+- **`stat_editor` example** (`cargo run --example stat_editor_game`): entities with
+  a derived `Stats` component seeded from an `enemies` data table; edit stats in the
+  Inspector (live HUD updates) and tune `enemies`/`items` tables in the Data Tables
+  panel — the game-data-editing acceptance test.
+
+### Changed
+
+- The crate is now a **Cargo workspace** (members `.` and `engine_reflect_derive`).
+  Consumers that depend on `skeleton-engine` by path or git are unaffected (the
+  package name and layout are unchanged); the proc-macro crate is host-compiled and
+  does not affect the wasm target.
+
 ## 8.0.0
 
 Scene layout editing: the docked editor (v7.1.0) can now select, move, and resize

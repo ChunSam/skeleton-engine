@@ -9,6 +9,7 @@ pub mod camera;
 pub mod collision;
 pub mod color;
 pub mod components;
+pub mod data_table;
 pub mod debug_ui;
 pub mod ecs;
 #[cfg(not(target_arch = "wasm32"))]
@@ -71,6 +72,7 @@ pub use collision::{
 };
 pub use color::Color;
 pub use components::{OffscreenCamera, PointLight, RenderLayer, Sprite, Transform};
+pub use data_table::{DataTable, DataTableRegistry};
 pub use debug_ui::DebugUi;
 pub use ecs::schedule::{ScheduleError, SystemConfig, SystemLabel};
 pub use ecs::{Commands, Entity, Events, System, World};

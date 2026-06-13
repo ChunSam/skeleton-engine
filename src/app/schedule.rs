@@ -453,6 +453,19 @@ impl App {
             }
         }
 
+        // Hot-reload data tables: forward changed paths to the registry.
+        #[cfg(not(target_arch = "wasm32"))]
+        if !reloaded.is_empty() {
+            if let Some(reg) = self
+                .world
+                .resource_mut::<crate::data_table::DataTableRegistry>()
+            {
+                for path in &reloaded {
+                    reg.reload_path(path);
+                }
+            }
+        }
+
         // Async load completion: upload finished assets to the GPU and update LoadProgress.
         let async_completed: Vec<(String, ImageAsset)> = self
             .world

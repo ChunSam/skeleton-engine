@@ -1,0 +1,4 @@
+[
+    (name: "Goblin", hp: 30, strength: 5, agility: 8),
+    (name: "Orc",    hp: 80, strength: 14, agility: 4),
+]

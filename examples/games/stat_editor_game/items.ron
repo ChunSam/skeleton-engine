@@ -1,0 +1,4 @@
+[
+    (name: "Potion", heal: 25, price: 10),
+    (name: "Sword",  damage: 12, price: 50),
+]
