@@ -4,6 +4,51 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.0.0
+
+Scene layout editing: the docked editor (v7.1.0) can now select, move, and resize
+UI widgets in the viewport and **persist them to a scene file**. Second release of
+the in-engine editor arc (next: a game-data / stat-table editor). Breaking because
+the scene file format and `EntityDef` shape changed; migration is mechanical.
+
+### Added
+
+- **serde + Reflect on every UI widget** (`UiNode`, `Button`, `Label`, `TextInput`,
+  `Slider`, `CheckBox`, `ScrollView`, `Panel`, `LocalizedText`, plus `Anchor`,
+  `TextAlign`, `LayoutDir`): widgets now serialize into scene RON and appear/edit
+  in the F1/F2 editor Inspector. Runtime state (`ButtonState`, slider/text-input
+  cursor & value, scroll offset, `Panel.children`) is `#[serde(skip)]`.
+- **Component serialization registry**: `App::register_serde_component::<T>(name,
+  post_spawn)` registers any `Serialize + DeserializeOwned + Clone` component so it
+  is saved into / loaded from scene files. All UI widgets are auto-registered;
+  games register their own types (e.g. stats) the same way. Backed by the
+  `SerdeComponentRegistry` resource. Unregistered component names in a loaded file
+  warn and are skipped (load never fails).
+- **Screen-space UI gizmo**: select a `UiNode` widget to drag it (offset) and
+  resize it via 8 handles in the docked/overlay viewport; world sprites gained
+  8-handle scale resize (center-fixed). New undo entries
+  `EditorCmd::{MoveUiNode, ResizeUiNode, ResizeEntity}` (Ctrl+Z).
+- **`ui_layout_editor` example** (`cargo run --example ui_layout_editor_game`):
+  load-or-default menu; arrange/resize widgets in the editor, click Save Scene,
+  restart, and the edited layout loads — the scene-layout-editing acceptance test.
+
+### Breaking
+
+- **`SceneDef` version 2 → 3.** v2 files still load (the new `components` field
+  defaults to empty; the existing version-mismatch warning is informational). v3
+  files cannot be read by v7 engines.
+- **`EntityDef` gains `components: HashMap<String, ron::Value>`.** Code that
+  constructs `EntityDef { .. }` with explicit fields must add
+  `components: Default::default()` (or use `..Default::default()`).
+- **`TextInput` gains `initial_text: String`; `text` and other runtime fields are
+  now `#[serde(skip)]`.** Set `initial_text` for design-time content; the registry
+  post-spawn hook copies it into `text` on load. **`Slider` gains
+  `initial_value: f32`; `value` is `#[serde(skip)]`** (same pattern). Constructors
+  (`Slider::new`) are unchanged at runtime.
+- Components are stored in scene RON as a string-encoded `ron::Value` (ron 0.8's
+  `Value` cannot round-trip enums like `Anchor`); this is an internal format detail
+  but visible in saved files.
+
 ## 7.1.0
 
 The docked editor shell: a second editor mode that lays the screen out like a
