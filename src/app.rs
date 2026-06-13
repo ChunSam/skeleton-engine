@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
+use std::time::Duration;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
@@ -165,6 +167,17 @@ pub struct App {
     gpu_particle_renderer: Option<crate::renderer::gpu_particle::GpuParticleRenderer>,
     last_frame: Option<Instant>,
     last_dt: f32,
+    /// Next scheduled frame time. The native event loop uses `ControlFlow::WaitUntil`
+    /// to sleep until this instant, requesting a redraw when it is due. This yields the
+    /// macOS main run loop idle time between frames (smooth window drag + prompt input)
+    /// instead of busy-spinning under `ControlFlow::Poll`. wasm is unaffected (rAF-driven).
+    #[cfg(not(target_arch = "wasm32"))]
+    next_frame: Option<Instant>,
+    /// Target interval between rendered frames, derived from the monitor refresh rate at
+    /// init (fallback 60 Hz). Frames are still vsync-paced by `AutoVsync`; this only bounds
+    /// the redraw-request cadence so the loop doesn't spin.
+    #[cfg(not(target_arch = "wasm32"))]
+    frame_interval: Duration,
     /// Texture paths registered before GPU init. Actually loaded in `resumed()`.
     pending_textures: Vec<String>,
     /// Map of registered offscreen render targets (name → RenderTarget).
@@ -250,6 +263,10 @@ impl App {
             docked_scene_texture: None,
             last_frame: None,
             last_dt: 1.0 / 60.0,
+            #[cfg(not(target_arch = "wasm32"))]
+            next_frame: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            frame_interval: Duration::from_secs_f64(1.0 / 60.0),
             pending_textures: Vec::new(),
             render_targets: HashMap::new(),
             pending_render_targets: Vec::new(),

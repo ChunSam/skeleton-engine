@@ -125,15 +125,17 @@ impl GpuContext {
             format,
             width: size.width.max(1),
             height: size.height.max(1),
-            // AutoVsync + frame_latency=1: minimizes frame queuing without tearing.
-            // AutoNoVsync (low latency) was tested but the latency gain was marginal while
-            // frames ran unbounded (battery/heat), making it unsuitable as a default.
-            // Remaining input latency on macOS (event loop stalling during live window
-            // drag, etc.) is deferred to a follow-up optimization.
+            // AutoVsync (no tearing) + frame_latency=2: lets the GPU keep ~1 frame queued so
+            // `get_current_texture()` does NOT block the main thread on vsync for most of each
+            // frame. With latency=1 the main thread (= macOS AppKit run loop) was blocked the
+            // full frame, which — combined with the old `Poll` busy-spin — starved input and
+            // made window drags laggy. The remaining pacing is handled by WaitUntil in the
+            // event loop (see `App::about_to_wait`). AutoNoVsync was rejected: marginal latency
+            // gain but unbounded frames (battery/heat).
             present_mode: wgpu::PresentMode::AutoVsync,
             alpha_mode,
             view_formats: vec![],
-            desired_maximum_frame_latency: 1,
+            desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &config);
 
