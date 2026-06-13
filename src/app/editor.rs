@@ -336,6 +336,56 @@ impl App {
         }
     }
 
+    /// Registers a component for full editor integration in one call:
+    /// Inspector field editing ([`Reflect`](crate::reflect::Reflect)), entity duplication
+    /// ([`Clone`]), scene save/load (serde), and the Add/Remove Component buttons.
+    ///
+    /// `T` must derive `Reflect`, `Serialize`, `Deserialize`, `Clone`, and `Default`.
+    ///
+    /// This is the preferred registration path for game-side stats/config components.
+    /// On wasm only the reflect + clone + serde registrations run (the editor buttons
+    /// are native-only); the method still compiles on both targets.
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use engine::{App, Reflect};
+    /// use serde::{Serialize, Deserialize};
+    ///
+    /// #[derive(Reflect, Serialize, Deserialize, Clone, Default)]
+    /// struct Stats { hp: f32, strength: i32 }
+    ///
+    /// let mut app = App::new();
+    /// app.register_editable_component::<Stats>("Stats", None);
+    /// ```
+    #[allow(clippy::type_complexity)]
+    pub fn register_editable_component<T>(
+        &mut self,
+        name: &'static str,
+        post_spawn: Option<Box<dyn Fn(&mut World, Entity) + Send + Sync>>,
+    ) where
+        T: crate::reflect::Reflect
+            + serde::Serialize
+            + serde::de::DeserializeOwned
+            + Clone
+            + Default
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.world.register_reflect_named::<T>(name);
+        self.world.register_clone::<T>();
+        self.register_serde_component::<T>(name, post_spawn);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.register_component(name, |world, entity| {
+                world.add_component(entity, T::default());
+            });
+            self.register_component_remover(name, |world, entity| {
+                world.remove_component::<T>(entity);
+            });
+        }
+    }
+
     /// Registers a serde-capable component type so it is included in scene save/load.
     ///
     /// Call this for every component `T` that should survive a round-trip through a

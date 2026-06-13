@@ -69,6 +69,10 @@ name = "ui_layout_editor_game"
 path = "examples/games/ui_layout_editor/ui_layout_editor.rs"
 
 [[example]]
+name = "stat_editor_game"
+path = "examples/games/stat_editor_game/stat_editor.rs"
+
+[[example]]
 name = "lit_dungeon_game"
 path = "examples/games/lit_dungeon/lit_dungeon.rs"
 
