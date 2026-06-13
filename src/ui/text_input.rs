@@ -1,20 +1,42 @@
+use serde::{Deserialize, Serialize};
+
 use crate::color::Color;
+use crate::reflect::{Reflect, ReflectValue};
 
 /// Text input widget component.
 ///
 /// Attach to an entity together with `UiNode`.
 /// `UiSystem` sets focus on click and updates the text by consuming the character buffer.
+///
+/// # Scene serialization note
+/// `initial_text` holds the design-time starting content. A post-spawn hook in the scene
+/// loader is responsible for copying `initial_text` → `text` after spawning from a scene
+/// file. The runtime `text`, `cursor`, `focused`, `cursor_blink`, `cursor_visible`, and
+/// `preedit` fields are not serialized.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TextInput {
+    /// Design-time starting text. Copied to `text` by the post-spawn hook.
+    pub initial_text: String,
+    /// Runtime text buffer — not serialized.
+    #[serde(skip)]
     pub text: String,
-    /// UTF-8 byte index
+    /// UTF-8 byte index — not serialized.
+    #[serde(skip)]
     pub cursor: usize,
+    /// Whether the field is focused — not serialized.
+    #[serde(skip)]
     pub focused: bool,
     pub placeholder: String,
     pub max_len: usize,
-    /// Accumulated dt. Toggles cursor_visible every 0.5 seconds.
+    /// Accumulated dt — not serialized.
+    #[serde(skip)]
     pub cursor_blink: f32,
+    /// Cursor blink visibility — not serialized.
+    #[serde(skip)]
     pub cursor_visible: bool,
-    /// String currently being composed by the IME. Rendered as a preview only, before commit.
+    /// IME preedit string — not serialized.
+    #[serde(skip)]
     pub preedit: String,
 
     pub color_normal: Color,
@@ -23,9 +45,59 @@ pub struct TextInput {
     pub font_size: f32,
 }
 
+impl Default for TextInput {
+    fn default() -> Self {
+        Self::new("")
+    }
+}
+
+impl Reflect for TextInput {
+    fn fields(&self) -> Vec<(&'static str, ReflectValue)> {
+        vec![
+            (
+                "initial_text",
+                ReflectValue::String(self.initial_text.clone()),
+            ),
+            (
+                "placeholder",
+                ReflectValue::String(self.placeholder.clone()),
+            ),
+            ("font_size", ReflectValue::F32(self.font_size)),
+            ("max_len", ReflectValue::I32(self.max_len as i32)),
+        ]
+    }
+
+    fn set_field(&mut self, name: &str, val: ReflectValue) -> bool {
+        match (name, val) {
+            ("initial_text", ReflectValue::String(v)) => {
+                self.initial_text = v;
+                true
+            }
+            ("placeholder", ReflectValue::String(v)) => {
+                self.placeholder = v;
+                true
+            }
+            ("font_size", ReflectValue::F32(v)) => {
+                self.font_size = v;
+                true
+            }
+            ("max_len", ReflectValue::I32(v)) => {
+                self.max_len = v.max(0) as usize;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn type_name(&self) -> &'static str {
+        "TextInput"
+    }
+}
+
 impl TextInput {
     pub fn new(placeholder: impl Into<String>) -> Self {
         Self {
+            initial_text: String::new(),
             text: String::new(),
             cursor: 0,
             focused: false,
@@ -268,5 +340,40 @@ mod tests {
         input.preedit = "ㄱ".to_string(); // 3 bytes inserted at cursor
                                           // display = "a" + "ㄱ" + caret + "b"; caret sits at byte 1 + 3 = 4.
         assert_eq!(input.caret_display_offset(), 1 + "ㄱ".len());
+    }
+
+    #[test]
+    fn text_input_serde_roundtrip() {
+        let mut ti = TextInput::new("Enter name");
+        ti.initial_text = "Alice".to_string();
+        ti.text = "runtime value".to_string(); // should NOT appear in RON
+        let ron = ron::to_string(&ti).expect("serialize");
+        // `text` (runtime) must not be in the serialized output.
+        assert!(
+            !ron.contains("runtime value"),
+            "runtime text leaked into RON: {ron}"
+        );
+        // `initial_text` must be present.
+        assert!(
+            ron.contains("Alice"),
+            "initial_text missing from RON: {ron}"
+        );
+        let back: TextInput = ron::from_str(&ron).expect("deserialize");
+        assert_eq!(back.initial_text, "Alice");
+        assert_eq!(back.placeholder, "Enter name");
+        // Runtime fields default after deserialization.
+        assert!(back.text.is_empty());
+        assert!(!back.focused);
+    }
+
+    #[test]
+    fn text_input_reflect_roundtrip() {
+        let mut ti = TextInput::new("placeholder");
+        assert!(ti.set_field("initial_text", ReflectValue::String("Hello".into())));
+        assert_eq!(ti.initial_text, "Hello");
+        assert!(ti.set_field("max_len", ReflectValue::I32(128)));
+        assert_eq!(ti.max_len, 128);
+        let fields = ti.fields();
+        assert!(fields.iter().any(|(n, _)| *n == "placeholder"));
     }
 }

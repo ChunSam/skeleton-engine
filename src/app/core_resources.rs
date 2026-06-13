@@ -38,10 +38,32 @@ pub(super) fn register_core_component_metadata(world: &mut World) {
     world.register_reflect_named::<crate::components::Sprite>("Sprite");
     world.register_reflect_named::<crate::prefab::Tag>("Tag");
 
+    // UI widget components
+    world.register_reflect_named::<crate::ui::UiNode>("UiNode");
+    world.register_reflect_named::<crate::ui::Button>("Button");
+    world.register_reflect_named::<crate::ui::Label>("Label");
+    world.register_reflect_named::<crate::ui::TextInput>("TextInput");
+    world.register_reflect_named::<crate::ui::Slider>("Slider");
+    world.register_reflect_named::<crate::ui::CheckBox>("CheckBox");
+    world.register_reflect_named::<crate::ui::ScrollView>("ScrollView");
+    world.register_reflect_named::<crate::ui::panel::Panel>("Panel");
+    world.register_reflect_named::<crate::ui::LocalizedText>("LocalizedText");
+
     world.register_clone::<crate::components::Transform>();
     world.register_clone::<crate::components::Sprite>();
     world.register_clone::<crate::components::RenderLayer>();
     world.register_clone::<crate::prefab::Tag>();
     world.register_clone::<crate::animation::player::AnimationPlayer>();
     world.register_clone::<crate::timer::Timer>();
+
+    // UI widget clone registrations
+    world.register_clone::<crate::ui::UiNode>();
+    world.register_clone::<crate::ui::Button>();
+    world.register_clone::<crate::ui::Label>();
+    world.register_clone::<crate::ui::TextInput>();
+    world.register_clone::<crate::ui::Slider>();
+    world.register_clone::<crate::ui::CheckBox>();
+    world.register_clone::<crate::ui::ScrollView>();
+    world.register_clone::<crate::ui::panel::Panel>();
+    world.register_clone::<crate::ui::LocalizedText>();
 }

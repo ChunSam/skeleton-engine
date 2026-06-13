@@ -1,5 +1,8 @@
+use serde::{Deserialize, Serialize};
+
 use crate::ecs::{Entity, System, World};
 use crate::locale::LocaleResource;
+use crate::reflect::{Reflect, ReflectValue};
 
 use super::button::Button;
 use super::checkbox::CheckBox;
@@ -21,9 +24,30 @@ use super::label::Label;
 /// // ...later: world.resource_mut::<LocaleResource>().unwrap().set_locale("ko");
 /// // LocalizationSystem now sets the Label text to the Korean "menu.start".
 /// ```
+#[derive(Clone, Serialize, Deserialize)]
 pub struct LocalizedText {
     /// Translation key looked up via [`LocaleResource::t`].
     pub key: String,
+}
+
+impl Reflect for LocalizedText {
+    fn fields(&self) -> Vec<(&'static str, ReflectValue)> {
+        vec![("key", ReflectValue::String(self.key.clone()))]
+    }
+
+    fn set_field(&mut self, name: &str, val: ReflectValue) -> bool {
+        match (name, val) {
+            ("key", ReflectValue::String(v)) => {
+                self.key = v;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn type_name(&self) -> &'static str {
+        "LocalizedText"
+    }
 }
 
 impl LocalizedText {

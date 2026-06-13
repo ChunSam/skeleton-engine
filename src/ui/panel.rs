@@ -1,14 +1,16 @@
 use glam::Vec2;
+use serde::{Deserialize, Serialize};
 
 use crate::color::Color;
 use crate::ecs::{Entity, System, World};
+use crate::reflect::{Reflect, ReflectValue};
 use crate::renderer::{DrawRect, UiQueue};
 use crate::resources::ViewportSize;
 
 use super::node::{Anchor, UiNode};
 
 /// Layout direction for child entities.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum LayoutDir {
     Vertical,
     Horizontal,
@@ -19,12 +21,57 @@ pub enum LayoutDir {
 /// Attach alongside a `UiNode` on the same entity.
 /// `LayoutSystem` repositions the `children`'s `UiNode`s every frame.
 /// `UiSystem` renders the background rectangle.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Panel {
+    /// Runtime child entity list — not serialized (entities are resolved at spawn time).
+    #[serde(skip)]
     pub children: Vec<Entity>,
     pub gap: f32,
     pub direction: LayoutDir,
     pub padding: f32,
     pub background_color: Color,
+}
+
+impl Default for Panel {
+    fn default() -> Self {
+        Self::new(LayoutDir::Vertical)
+    }
+}
+
+impl Reflect for Panel {
+    fn fields(&self) -> Vec<(&'static str, ReflectValue)> {
+        vec![
+            ("gap", ReflectValue::F32(self.gap)),
+            ("padding", ReflectValue::F32(self.padding)),
+            (
+                "background_color",
+                ReflectValue::Color(self.background_color.to_array()),
+            ),
+        ]
+    }
+
+    fn set_field(&mut self, name: &str, val: ReflectValue) -> bool {
+        match (name, val) {
+            ("gap", ReflectValue::F32(v)) => {
+                self.gap = v;
+                true
+            }
+            ("padding", ReflectValue::F32(v)) => {
+                self.padding = v;
+                true
+            }
+            ("background_color", ReflectValue::Color(c)) => {
+                self.background_color = Color::from(c);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn type_name(&self) -> &'static str {
+        "Panel"
+    }
 }
 
 impl Panel {
@@ -155,5 +202,36 @@ impl System for LayoutSystem {
                 ui_queue.push(rect);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn panel_serde_roundtrip() {
+        let p = Panel::new(LayoutDir::Horizontal)
+            .with_gap(12.0)
+            .with_padding(4.0);
+        let ron = ron::to_string(&p).expect("serialize");
+        // children (Vec<Entity>) must not be in the serialized output.
+        assert!(!ron.contains("children"), "children leaked into RON: {ron}");
+        let back: Panel = ron::from_str(&ron).expect("deserialize");
+        assert!((back.gap - 12.0).abs() < f32::EPSILON);
+        assert!((back.padding - 4.0).abs() < f32::EPSILON);
+        assert_eq!(back.direction, LayoutDir::Horizontal);
+        assert!(back.children.is_empty());
+    }
+
+    #[test]
+    fn panel_reflect_roundtrip() {
+        let mut p = Panel::new(LayoutDir::Vertical);
+        assert!(p.set_field("gap", ReflectValue::F32(16.0)));
+        assert!((p.gap - 16.0).abs() < f32::EPSILON);
+        assert!(p.set_field("padding", ReflectValue::F32(8.0)));
+        assert!((p.padding - 8.0).abs() < f32::EPSILON);
+        let fields = p.fields();
+        assert!(fields.iter().any(|(n, _)| *n == "background_color"));
     }
 }
