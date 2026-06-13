@@ -13,3 +13,6 @@ ENGINE_REVIEW_FIX_PROMPT.md
 PARALLEL_TASKS.md
 REMAINING_WORK.md
 rust_game_engine_plan.md
+
+# Editor "Save Scene" output / example default save path (test artifact)
+saved_scene.ron
