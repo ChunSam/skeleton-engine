@@ -18,11 +18,11 @@
 //!   5. Quit (Esc) and rerun → the edited Stats values are restored from the scene file.
 //!   6. Edit `enemies.ron` on disk → the Data Tables panel reflects the change live.
 
-use engine::Reflect;
 use engine::{
     App, Camera, DataTableRegistry, DrawText, Entity, Scene, Sprite, System, SystemRegistrar, Tag,
     TextAnchor, TextQueue, Transform, WindowConfig, World,
 };
+use engine_reflect_derive::Reflect;
 use serde::{Deserialize, Serialize};
 
 const WINDOW_W: u32 = 960;

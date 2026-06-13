@@ -12,12 +12,15 @@ shipped in 8.0.0). Fully additive — no migration needed.
 
 ### Added
 
-- **`#[derive(Reflect)]`** (new optional `derive` feature, on by default): a
-  proc-macro (workspace crate `engine_reflect_derive`) that generates the `Reflect`
-  impl for a struct of `f32`/`i32`/`Vec2`/`bool`/`String`/`Color`/`[f32; 4]` fields.
-  `#[reflect(skip)]` omits a field; unsupported types fail with a clear compile
-  error. Hand-written `Reflect` impls keep working. `use engine::Reflect;` then
-  `#[derive(Reflect)]` (the trait and derive share the path, like serde).
+- **`#[derive(Reflect)]`**: a proc-macro (new workspace crate
+  `engine_reflect_derive`) that generates the `Reflect` impl for a struct of
+  `f32`/`i32`/`Vec2`/`bool`/`String`/`Color`/`[f32; 4]` fields. `#[reflect(skip)]`
+  omits a field; unsupported types fail with a clear compile error. Hand-written
+  `Reflect` impls keep working. Add the crate to your `Cargo.toml` (the same way
+  you add `engine`) and write `use engine_reflect_derive::Reflect;` then
+  `#[derive(Reflect)]`. The macro is a separate crate rather than re-exported from
+  `engine` so that `skeleton-engine` stays publishable without first publishing the
+  proc-macro to crates.io.
 - **`App::register_editable_component::<T>(name, post_spawn)`**: one call wires a
   component for full editor integration — Inspector field editing (Reflect), entity
   duplication (Clone), scene save/load (serde), and the Add/Remove Component

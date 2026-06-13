@@ -6,14 +6,12 @@
 //! `Reflect` trait AND the derive macro must live here, where `engine` is the
 //! crate under test.
 
-#![cfg(feature = "derive")]
-
 use engine::reflect::{Reflect, ReflectValue};
 use engine::Color;
 use engine::Vec2;
 
 /// Test struct exercising all supported field types plus `#[reflect(skip)]`.
-#[derive(engine::Reflect)]
+#[derive(engine_reflect_derive::Reflect)]
 struct Stats {
     hp: f32,
     strength: i32,
@@ -154,7 +152,7 @@ fn type_name_returns_struct_name() {
 }
 
 /// Test `[f32; 4]` field (direct array, no Color wrapper).
-#[derive(engine::Reflect)]
+#[derive(engine_reflect_derive::Reflect)]
 struct RawColor {
     rgba: [f32; 4],
 }

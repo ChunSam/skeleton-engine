@@ -130,11 +130,15 @@ egui        = "0.34"
 egui-wgpu   = "0.34"
 egui-winit  = { version = "0.34", default-features = false }
 rhai        = { version = "1", features = ["sync"] }
-engine_reflect_derive = { path = "engine_reflect_derive", optional = true }
 
-[features]
-default = ["derive"]
-derive  = ["dep:engine_reflect_derive"]
+# `#[derive(Reflect)]` lives in the `engine_reflect_derive` workspace crate. It is a
+# DEV-dependency (not a regular dep) so the published `skeleton-engine` crate does
+# not require the unpublished proc-macro on crates.io — otherwise `cargo package`
+# fails ("no matching package"). Examples and tests use the derive directly via
+# `engine_reflect_derive::Reflect`; downstream games add the crate to their own
+# Cargo.toml the same way they add `engine`.
+[dev-dependencies]
+engine_reflect_derive = { path = "engine_reflect_derive" }
 
 # ── 네이티브 전용 (OS API 의존) ──────────────────────────────────────────────
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
