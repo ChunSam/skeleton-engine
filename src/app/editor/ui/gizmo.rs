@@ -1,4 +1,5 @@
 use super::*;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::app::editor::ResizeHandle;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::app::editor::{snap_to_grid, EditorCmd};
@@ -11,6 +12,7 @@ use crate::app::editor::{snap_to_grid, EditorCmd};
 /// cursor position (logical pixels) at drag start, and `cursor` is the current
 /// cursor position.  The size and anchor are unchanged, so cursor delta maps
 /// 1:1 to an offset delta.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn ui_drag_new_offset(
     start_offset: glam::Vec2,
     start_cursor: glam::Vec2,
@@ -20,15 +22,19 @@ pub(crate) fn ui_drag_new_offset(
 }
 
 /// Minimum size clamped for both UI nodes and world sprites.
+#[cfg(not(target_arch = "wasm32"))]
 const MIN_UI_SIZE: f32 = 8.0;
 
 /// Minimum scale for world sprites.
+#[cfg(not(target_arch = "wasm32"))]
 const MIN_SPRITE_SCALE: f32 = 2.0;
 
 /// Resize-handle size (square, logical pixels).
+#[cfg(not(target_arch = "wasm32"))]
 const HANDLE_SIZE: f32 = 6.0;
 
 /// Hit-test radius around a handle centre (logical pixels).
+#[cfg(not(target_arch = "wasm32"))]
 const HANDLE_HIT_RADIUS: f32 = 8.0;
 
 /// Returns the 8 handle centre positions (in the same space as `pos`) in
@@ -83,6 +89,7 @@ pub(crate) fn hit_test_handles(
 ///
 /// Corners adjust both offset and size; edges adjust one axis.
 /// Size is clamped to `MIN_UI_SIZE × MIN_UI_SIZE`.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn ui_resize_new_layout(
     start_offset: glam::Vec2,
     start_size: glam::Vec2,

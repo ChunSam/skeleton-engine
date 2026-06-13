@@ -7,6 +7,7 @@ mod ui;
 pub(super) mod docked_rt;
 
 pub(super) use state::EditorState;
+#[cfg(not(target_arch = "wasm32"))]
 pub(super) use state::ResizeHandle;
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) use state::{apply_f1, apply_f2, EditorMode};

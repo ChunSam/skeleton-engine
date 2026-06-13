@@ -11,9 +11,10 @@ use crate::app::ComponentFactory;
 /// Naming follows compass directions. `Top`/`Bottom`/`Left`/`Right` are edge
 /// midpoints; the four diagonal names are corners.
 ///
-/// This type is defined on all platforms so pure geometry helpers in `gizmo.rs`
-/// can be tested on wasm as well as native.  The editor state fields that hold
-/// an active handle are still native-only (see below).
+/// Native-only: the gizmo resize path (geometry helpers + unit tests) is
+/// excluded from the reduced wasm editor, so the enum is gated to match and keep
+/// the wasm build free of dead-code warnings.
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::app) enum ResizeHandle {
     TopLeft,
