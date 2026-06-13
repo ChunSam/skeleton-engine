@@ -6,6 +6,27 @@ use super::EditorHistory;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::app::ComponentFactory;
 
+/// One of the 8 axis-aligned resize handles drawn around a selected object.
+///
+/// Naming follows compass directions. `Top`/`Bottom`/`Left`/`Right` are edge
+/// midpoints; the four diagonal names are corners.
+///
+/// Native-only: the gizmo resize path (geometry helpers + unit tests) is
+/// excluded from the reduced wasm editor, so the enum is gated to match and keep
+/// the wasm build free of dead-code warnings.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::app) enum ResizeHandle {
+    TopLeft,
+    Top,
+    TopRight,
+    Left,
+    Right,
+    BottomLeft,
+    Bottom,
+    BottomRight,
+}
+
 /// Which editor mode is currently active.
 ///
 /// # Key bindings
@@ -114,6 +135,23 @@ pub(in crate::app) struct EditorState {
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) snap_size: f32,
 
+    // ── Resize handle state (native only) ────────────────────────────────────
+    /// Which resize handle (if any) is currently being dragged.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) resize_handle_active: Option<ResizeHandle>,
+    /// Cursor position (screen space) at the start of a resize drag.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) resize_drag_start_cursor: glam::Vec2,
+    /// UiNode offset at the start of a resize drag.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) resize_drag_start_offset: glam::Vec2,
+    /// UiNode size at the start of a resize drag.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) resize_drag_start_size: glam::Vec2,
+    /// Transform.scale at the start of a world-sprite resize drag.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) resize_drag_start_scale: glam::Vec2,
+
     // ── Docked-mode fields (native only) ─────────────────────────────────────
     /// Current editor mode (Off / Overlay / Docked).
     #[cfg(not(target_arch = "wasm32"))]
@@ -184,6 +222,11 @@ impl EditorState {
             add_component_selected: String::new(),
             snap_enabled: false,
             snap_size: 16.0,
+            resize_handle_active: None,
+            resize_drag_start_cursor: glam::Vec2::ZERO,
+            resize_drag_start_offset: glam::Vec2::ZERO,
+            resize_drag_start_size: glam::Vec2::ZERO,
+            resize_drag_start_scale: glam::Vec2::ZERO,
             mode: EditorMode::Off,
             paused: false,
             step_once: false,

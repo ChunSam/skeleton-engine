@@ -97,7 +97,7 @@ pub use physics::{
 pub use pool::{Pool, Pooled};
 pub use prefab::{
     break_prefab_instance, spawn_entity_def, spawn_scene_def, EntityDef, Prefab, PrefabInstance,
-    SceneDef, Tag, SCENE_DEF_VERSION,
+    SceneDef, SerdeComponentEntry, SerdeComponentRegistry, Tag, SCENE_DEF_VERSION,
 };
 pub use skeletal::{
     BoneKeyframe, BoneTrack, SkeletalAnimationSystem, SkeletalAnimator, SkeletalClip,

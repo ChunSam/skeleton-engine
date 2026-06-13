@@ -555,12 +555,18 @@ pub(in crate::app) fn do_save_scene_with_list(
             .get::<crate::hierarchy::Parent>(e)
             .and_then(|p| tag_map.get(&p.0))
             .cloned();
-        if tag.is_some() || transform.is_some() || sprite.is_some() {
+        let components = app
+            .world
+            .resource::<crate::prefab::SerdeComponentRegistry>()
+            .map(|r| r.serialize_entity(&app.world, e))
+            .unwrap_or_default();
+        if tag.is_some() || transform.is_some() || sprite.is_some() || !components.is_empty() {
             scene_def.entities.push(crate::prefab::EntityDef {
                 tag,
                 transform,
                 sprite,
                 parent,
+                components,
             });
         }
     }

@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.6.4 | package `skeleton-engine` v7.1.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.92, CI pin Rust 1.95.0)  
+> Version v1.6.5 | package `skeleton-engine` v8.0.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.92, CI pin Rust 1.95.0)  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example game ships to
 > the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`
@@ -66,7 +66,7 @@ Where to read to find a given thing:
 | Reflect trait, ReflectValue (`F32`/`I32`/`Vec2`/`Bool`/`String`/`Color`, `#[non_exhaustive]`; runtime field read/write, egui Inspector integration) | `src/reflect.rs` |
 | ScriptAsset, ScriptRunner, ScriptingSystem (Rhai scripting) | `src/scripting.rs` |
 | DebugUi (egui overlay, F1 toggle, custom panels via `ctx()`) | `src/debug_ui.rs` |
-| In-game editor: F1 overlay + F2 **docked mode** (dock layout, viewport input gate, engine-level editor pause, gizmo, scene save) | `src/app/editor/` |
+| In-game editor: F1 overlay + F2 **docked mode** (dock layout, viewport input gate, engine-level editor pause, gizmo + screen-space UI gizmo / 8-handle resize, scene save) | `src/app/editor/` |
 | Full public API re-export list | `src/lib.rs` |
 | Entity / Component / Resource / Query (+ `register_persistent` survives scene reset, via `App`) | `src/ecs/world.rs`, `src/app.rs` |
 | Event bus (`Events<E>`) | `src/ecs/events.rs` |
@@ -93,7 +93,7 @@ Where to read to find a given thing:
 | UI (UiNode, Button, Label, TextInput, ScrollView, Panel, LayoutSystem, UiEvent) | `src/ui/` |
 | Slider (horizontal slider), CheckBox (toggle checkbox) | `src/ui/slider.rs`, `src/ui/checkbox.rs` |
 | LocalizedText (key bound to a widget), LocalizationSystem (resolves `LocaleResource::t` into Label/Button/CheckBox each frame) | `src/ui/localized.rs` |
-| Tag, EntityDef, SceneDef, Prefab, spawn_entity_def, spawn_scene_def | `src/prefab.rs` |
+| Tag, EntityDef (+ `components` map), SceneDef, Prefab, spawn_entity_def, spawn_scene_def, **SerdeComponentRegistry** + `App::register_serde_component::<T>` (any serde component persists to scene RON; UI widgets auto-registered) | `src/prefab.rs` |
 | Timer, Tween, Easing, Lerp (general interpolation trait) | `src/timer.rs`, `src/tween.rs` |
 | Timeline, Track, Keyframe, TimelineSystem (keyframe cutscenes → entity Transform/Sprite; **CameraTarget** marker + `zoom` track route a timeline into the **Camera** resource as a virtual rig; example: `timeline_cutscene`) | `src/timeline.rs` |
 | History (generic snapshot undo/redo for grid puzzles, turn-based, editors) | `src/history.rs` |

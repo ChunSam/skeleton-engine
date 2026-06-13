@@ -8,6 +8,8 @@ pub(super) mod docked_rt;
 
 pub(super) use state::EditorState;
 #[cfg(not(target_arch = "wasm32"))]
+pub(super) use state::ResizeHandle;
+#[cfg(not(target_arch = "wasm32"))]
 pub(super) use state::{apply_f1, apply_f2, EditorMode};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -29,6 +31,26 @@ pub(super) enum EditorCmd {
         tag: Option<String>,
         transform: Option<crate::components::Transform>,
         sprite: Option<crate::components::Sprite>,
+    },
+    /// Move a screen-space `UiNode` widget (offset changed, size/anchor unchanged).
+    MoveUiNode {
+        entity: Entity,
+        old_offset: glam::Vec2,
+        new_offset: glam::Vec2,
+    },
+    /// Resize a screen-space `UiNode` widget (both offset and size may change).
+    ResizeUiNode {
+        entity: Entity,
+        old_offset: glam::Vec2,
+        old_size: glam::Vec2,
+        new_offset: glam::Vec2,
+        new_size: glam::Vec2,
+    },
+    /// Resize a world-space sprite by changing `Transform.scale` (center fixed).
+    ResizeEntity {
+        entity: Entity,
+        old_scale: glam::Vec2,
+        new_scale: glam::Vec2,
     },
 }
 
@@ -91,6 +113,34 @@ impl EditorHistory {
                 *selected = Some(e);
                 respawned = Some(e);
             }
+            EditorCmd::MoveUiNode {
+                entity, old_offset, ..
+            } => {
+                if let Some(n) = world.get_mut::<crate::ui::UiNode>(*entity) {
+                    n.offset = *old_offset;
+                }
+                *selected = Some(*entity);
+            }
+            EditorCmd::ResizeUiNode {
+                entity,
+                old_offset,
+                old_size,
+                ..
+            } => {
+                if let Some(n) = world.get_mut::<crate::ui::UiNode>(*entity) {
+                    n.offset = *old_offset;
+                    n.size = *old_size;
+                }
+                *selected = Some(*entity);
+            }
+            EditorCmd::ResizeEntity {
+                entity, old_scale, ..
+            } => {
+                if let Some(t) = world.get_mut::<crate::components::Transform>(*entity) {
+                    t.scale = *old_scale;
+                }
+                *selected = Some(*entity);
+            }
         }
         // record the id so redo despawns the exact recreated entity, not the current selection
         if let (Some(e), EditorCmd::DeleteEntity { entity, .. }) = (respawned, &mut cmd) {
@@ -130,6 +180,34 @@ impl EditorHistory {
                     }
                 }
             }
+            EditorCmd::MoveUiNode {
+                entity, new_offset, ..
+            } => {
+                if let Some(n) = world.get_mut::<crate::ui::UiNode>(*entity) {
+                    n.offset = *new_offset;
+                }
+                *selected = Some(*entity);
+            }
+            EditorCmd::ResizeUiNode {
+                entity,
+                new_offset,
+                new_size,
+                ..
+            } => {
+                if let Some(n) = world.get_mut::<crate::ui::UiNode>(*entity) {
+                    n.offset = *new_offset;
+                    n.size = *new_size;
+                }
+                *selected = Some(*entity);
+            }
+            EditorCmd::ResizeEntity {
+                entity, new_scale, ..
+            } => {
+                if let Some(t) = world.get_mut::<crate::components::Transform>(*entity) {
+                    t.scale = *new_scale;
+                }
+                *selected = Some(*entity);
+            }
         }
         self.undo.push(cmd);
     }
@@ -137,11 +215,16 @@ impl EditorHistory {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) fn entity_to_def(world: &World, entity: Entity) -> Option<crate::prefab::EntityDef> {
+    let components = world
+        .resource::<crate::prefab::SerdeComponentRegistry>()
+        .map(|r| r.serialize_entity(world, entity))
+        .unwrap_or_default();
     Some(crate::prefab::EntityDef {
         tag: world.get::<crate::prefab::Tag>(entity).map(|t| t.0.clone()),
         transform: world.get::<crate::components::Transform>(entity).cloned(),
         sprite: world.get::<crate::components::Sprite>(entity).cloned(),
         parent: None,
+        components,
     })
 }
 
@@ -201,5 +284,43 @@ impl App {
         self.editor
             .component_removers
             .insert(name.into(), Box::new(remover));
+    }
+}
+
+impl App {
+    /// Registers a serde-capable component type so it is included in scene save/load.
+    ///
+    /// Call this for every component `T` that should survive a round-trip through a
+    /// `.ron` scene file. The `name` must be unique across all registered types and is
+    /// used as the key in [`crate::prefab::EntityDef::components`].
+    ///
+    /// `post_spawn` is an optional closure run after deserialization — useful for
+    /// copying design-time fields to runtime counterparts (e.g. `initial_text` → `text`).
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use engine::App;
+    /// use serde::{Serialize, Deserialize};
+    ///
+    /// #[derive(Clone, Serialize, Deserialize)]
+    /// struct Health { max: f32 }
+    ///
+    /// let mut app = App::new(Default::default());
+    /// app.register_serde_component::<Health>("Health", None);
+    /// ```
+    #[allow(clippy::type_complexity)]
+    pub fn register_serde_component<T>(
+        &mut self,
+        name: impl Into<String>,
+        post_spawn: Option<Box<dyn Fn(&mut World, Entity) + Send + Sync>>,
+    ) where
+        T: serde::Serialize + serde::de::DeserializeOwned + Clone + Send + Sync + 'static,
+    {
+        if let Some(registry) = self
+            .world
+            .resource_mut::<crate::prefab::SerdeComponentRegistry>()
+        {
+            registry.register::<T>(name, post_spawn);
+        }
     }
 }

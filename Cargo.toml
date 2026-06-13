@@ -1,6 +1,6 @@
 [package]
 name        = "skeleton-engine"
-version     = "7.1.0"
+version     = "8.0.0"
 edition     = "2021"
 description = "Lightweight 2D game engine — wgpu rendering, custom ECS, rapier2d physics"
 repository  = "https://github.com/ChunSam/skeleton-engine"
@@ -59,6 +59,10 @@ path = "examples/games/survivor/survivor.rs"
 [[example]]
 name = "settings_menu_game"
 path = "examples/games/settings_menu/settings_menu.rs"
+
+[[example]]
+name = "ui_layout_editor_game"
+path = "examples/games/ui_layout_editor/ui_layout_editor.rs"
 
 [[example]]
 name = "lit_dungeon_game"
