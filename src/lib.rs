@@ -105,6 +105,8 @@ pub use skeletal::{
 };
 // par_query_for_each / par_query_map / par_query2_for_each / par_query2_map are
 // World methods, so they are accessible via the World re-export (no separate re-export needed)
+#[cfg(feature = "derive")]
+pub use engine_reflect_derive::Reflect;
 pub use reflect::{Reflect, ReflectValue};
 pub use renderer::texture::TextureError;
 pub use renderer::{
