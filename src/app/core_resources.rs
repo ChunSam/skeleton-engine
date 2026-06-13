@@ -31,6 +31,7 @@ pub(super) fn insert_core_resources(world: &mut World) {
     world.insert_resource(AssetServer::new());
     world.insert_resource(LoadProgress::default());
     world.insert_resource(PanickedSystems::default());
+    world.insert_resource(crate::prefab::SerdeComponentRegistry::default());
 }
 
 pub(super) fn register_core_component_metadata(world: &mut World) {
@@ -66,4 +67,32 @@ pub(super) fn register_core_component_metadata(world: &mut World) {
     world.register_clone::<crate::ui::ScrollView>();
     world.register_clone::<crate::ui::panel::Panel>();
     world.register_clone::<crate::ui::LocalizedText>();
+
+    // Register UI widget serde components for scene save/load
+    if let Some(registry) = world.resource_mut::<crate::prefab::SerdeComponentRegistry>() {
+        registry.register::<crate::ui::UiNode>("UiNode", None);
+        registry.register::<crate::ui::Button>("Button", None);
+        registry.register::<crate::ui::Label>("Label", None);
+        registry.register::<crate::ui::TextInput>(
+            "TextInput",
+            Some(Box::new(|w, e| {
+                if let Some(ti) = w.get_mut::<crate::ui::TextInput>(e) {
+                    ti.text = ti.initial_text.clone();
+                    ti.cursor = ti.text.len();
+                }
+            })),
+        );
+        registry.register::<crate::ui::Slider>(
+            "Slider",
+            Some(Box::new(|w, e| {
+                if let Some(s) = w.get_mut::<crate::ui::Slider>(e) {
+                    s.value = s.initial_value.clamp(s.min, s.max);
+                }
+            })),
+        );
+        registry.register::<crate::ui::CheckBox>("CheckBox", None);
+        registry.register::<crate::ui::ScrollView>("ScrollView", None);
+        registry.register::<crate::ui::panel::Panel>("Panel", None);
+        registry.register::<crate::ui::LocalizedText>("LocalizedText", None);
+    }
 }

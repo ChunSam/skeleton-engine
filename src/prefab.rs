@@ -22,7 +22,7 @@
 //!             tag: Some("player".into()),
 //!             transform: Some(Transform::new(Vec2::ZERO, Vec2::splat(64.0), 0.0)),
 //!             sprite: Some(Sprite::textured("assets/player.png")),
-//!             parent: None,
+//!             ..EntityDef::default()
 //!         },
 //!     ],
 //!     ..SceneDef::default()
@@ -102,12 +102,149 @@ pub struct EntityDef {
     /// On spawn, the entity is attached as a child of the entity with this tag.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
+    /// Arbitrary serializable components, keyed by type name.
+    /// Populated by the editor on save; applied by `spawn_entity_def` via the
+    /// [`SerdeComponentRegistry`] resource.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub components: HashMap<String, ron::Value>,
+}
+
+// ─── SerdeComponentRegistry ───────────────────────────────────────────────────
+
+/// A single registered serde-capable component type.
+///
+/// Holds type-erased serialize / deserialize / post-spawn closures so that any
+/// `Serialize + DeserializeOwned + Clone` component can participate in scene
+/// save/load without hardcoding each type in the engine core.
+#[allow(clippy::type_complexity)]
+pub struct SerdeComponentEntry {
+    /// Extracts the component from `entity` and serializes it to a RON [`ron::Value`].
+    /// Returns `None` when the entity does not have this component.
+    pub serialize: Box<dyn Fn(&World, Entity) -> Option<ron::Value> + Send + Sync>,
+    /// Deserializes a RON [`ron::Value`] and inserts the component onto `entity`.
+    pub deserialize:
+        Box<dyn Fn(&mut World, Entity, ron::Value) -> Result<(), String> + Send + Sync>,
+    /// Optional hook run after a successful deserialize (e.g. copy initial_text → text).
+    pub post_spawn: Option<Box<dyn Fn(&mut World, Entity) + Send + Sync>>,
+}
+
+/// Type-erased registry for serde-capable components.
+///
+/// Insert this as a resource via [`crate::app::App::register_serde_component`] or directly.
+/// [`spawn_entity_def`] calls [`SerdeComponentRegistry::deserialize_into`] when
+/// `EntityDef.components` is non-empty. The editor save path calls
+/// [`SerdeComponentRegistry::serialize_entity`] to populate `EntityDef.components`.
+///
+/// # Example
+/// ```rust,no_run
+/// use engine::prefab::{SerdeComponentRegistry, SerdeComponentEntry};
+/// use engine::ecs::World;
+/// use serde::{Serialize, Deserialize};
+///
+/// #[derive(Clone, Serialize, Deserialize)]
+/// struct Health { max: f32 }
+///
+/// let mut registry = SerdeComponentRegistry::default();
+/// registry.register::<Health>("Health", None);
+/// ```
+#[derive(Default)]
+pub struct SerdeComponentRegistry {
+    entries: HashMap<String, SerdeComponentEntry>,
+}
+
+impl SerdeComponentRegistry {
+    /// Registers a serde-capable component type under `name`.
+    ///
+    /// `post_spawn` is an optional closure run after every successful deserialize
+    /// (useful for copying design-time fields to runtime counterparts, e.g.
+    /// `initial_text` → `text` for [`crate::ui::TextInput`]).
+    #[allow(clippy::type_complexity)]
+    pub fn register<T>(
+        &mut self,
+        name: impl Into<String>,
+        post_spawn: Option<Box<dyn Fn(&mut World, Entity) + Send + Sync>>,
+    ) where
+        T: serde::Serialize + serde::de::DeserializeOwned + Clone + Send + Sync + 'static,
+    {
+        let key = name.into();
+        self.entries.insert(
+            key,
+            SerdeComponentEntry {
+                serialize: Box::new(|world, entity| {
+                    // Serialize `T` to a RON string and store it as ron::Value::String.
+                    // We do not parse to ron::Value::Map because that path loses enum
+                    // variant names (the Value representation has no enum concept).
+                    world
+                        .get::<T>(entity)
+                        .and_then(|c| ron::to_string(c).ok().map(ron::Value::String))
+                }),
+                deserialize: Box::new(|world, entity, val| {
+                    // Extract the stored RON string and parse it as T.
+                    match val {
+                        ron::Value::String(s) => ron::from_str::<T>(&s)
+                            .map(|c| world.add_component(entity, c))
+                            .map_err(|e| e.to_string()),
+                        other => Err(format!("expected ron::Value::String, got {:?}", other)),
+                    }
+                }),
+                post_spawn,
+            },
+        );
+    }
+
+    /// Serializes all registered components present on `entity`.
+    ///
+    /// Returns a map of `type_name → ron::Value`. Components not present on the
+    /// entity are omitted.
+    pub fn serialize_entity(&self, world: &World, entity: Entity) -> HashMap<String, ron::Value> {
+        self.entries
+            .iter()
+            .filter_map(|(name, entry)| (entry.serialize)(world, entity).map(|v| (name.clone(), v)))
+            .collect()
+    }
+
+    /// Deserializes `components` into `entity`.
+    ///
+    /// Unknown component names are logged and skipped. Deserialization errors are
+    /// logged and skipped (load never fails due to a bad component value).
+    /// After a successful deserialize, the `post_spawn` hook is called if present.
+    pub fn deserialize_into(
+        &self,
+        world: &mut World,
+        entity: Entity,
+        components: &HashMap<String, ron::Value>,
+    ) {
+        for (name, val) in components {
+            match self.entries.get(name) {
+                None => {
+                    log::warn!(
+                        "SerdeComponentRegistry: unknown component type {:?} — skipping",
+                        name
+                    );
+                }
+                Some(entry) => match (entry.deserialize)(world, entity, val.clone()) {
+                    Ok(()) => {
+                        if let Some(hook) = &entry.post_spawn {
+                            hook(world, entity);
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "SerdeComponentRegistry: failed to deserialize {:?}: {} — skipping",
+                            name,
+                            e
+                        );
+                    }
+                },
+            }
+        }
+    }
 }
 
 // ─── SceneDef ─────────────────────────────────────────────────────────────────
 
 /// Current RON format version for `SceneDef`. Increment on structural changes.
-pub const SCENE_DEF_VERSION: u32 = 2;
+pub const SCENE_DEF_VERSION: u32 = 3;
 
 /// Serializable struct describing an entire level/scene.
 ///
@@ -278,6 +415,8 @@ impl Prefab {
 /// Spawns a single `EntityDef` into the world and returns the entity.
 ///
 /// Only the components specified in `def` are inserted.
+/// If the world contains a [`SerdeComponentRegistry`] resource and `def.components` is
+/// non-empty, the registry is used to deserialize the extra components onto the entity.
 pub fn spawn_entity_def(world: &mut World, def: &EntityDef) -> Entity {
     let entity = world.spawn();
 
@@ -289,6 +428,14 @@ pub fn spawn_entity_def(world: &mut World, def: &EntityDef) -> Entity {
     }
     if let Some(sprite) = &def.sprite {
         world.add_component(entity, sprite.clone());
+    }
+
+    // Deserialize arbitrary serde components via the registry (if present).
+    if !def.components.is_empty() {
+        if let Some(registry) = world.remove_resource::<SerdeComponentRegistry>() {
+            registry.deserialize_into(world, entity, &def.components);
+            world.insert_resource(registry);
+        }
     }
 
     entity
@@ -379,6 +526,7 @@ mod tests {
             )),
             sprite: Some(Sprite::colored(1.0, 0.0, 0.0)),
             parent: None,
+            components: HashMap::new(),
         };
 
         let entity = spawn_entity_def(&mut world, &def);
@@ -421,12 +569,14 @@ mod tests {
                     )),
                     sprite: Some(Sprite::colored(0.3, 0.6, 0.3)),
                     parent: None,
+                    components: HashMap::new(),
                 },
                 EntityDef {
                     tag: Some("player".into()),
                     transform: Some(Transform::default()),
                     sprite: None,
                     parent: None,
+                    components: HashMap::new(),
                 },
             ],
             ..Default::default()
@@ -486,6 +636,7 @@ SceneDef(
                 )),
                 sprite: Some(Sprite::textured("assets/coin.png")),
                 parent: None,
+                components: HashMap::new(),
             },
         };
 
@@ -516,6 +667,7 @@ SceneDef(
                 transform: Some(Transform::new(Vec2::ZERO, Vec2::splat(32.0), 0.0)),
                 sprite: None,
                 parent: None,
+                components: HashMap::new(),
             }],
             ..Default::default()
         };
@@ -547,6 +699,7 @@ SceneDef(
                 transform: None,
                 sprite: None,
                 parent: None,
+                components: HashMap::new(),
             },
         };
 
@@ -575,6 +728,7 @@ SceneDef(
                 transform: None,
                 sprite: None,
                 parent: None,
+                components: HashMap::new(),
             }],
             ..Default::default()
         };
@@ -606,6 +760,7 @@ SceneDef(
                 transform: None,
                 sprite: None,
                 parent: None,
+                components: HashMap::new(),
             },
         };
 
@@ -695,12 +850,14 @@ SceneDef(
                     transform: Some(Transform::default()),
                     sprite: None,
                     parent: None,
+                    components: HashMap::new(),
                 },
                 EntityDef {
                     tag: Some("child".into()),
                     transform: Some(Transform::default()),
                     sprite: None,
                     parent: Some("parent".into()),
+                    components: HashMap::new(),
                 },
             ],
             ..Default::default()
@@ -745,5 +902,112 @@ SceneDef(
         // Double-check that the Parent component on child points to parent
         let p = world.get::<Parent>(child).unwrap();
         assert_eq!(p.0, parent);
+    }
+
+    // ── SerdeComponentRegistry tests ─────────────────────────────────────────
+
+    #[test]
+    fn serde_registry_roundtrip() {
+        use crate::ui::UiNode;
+
+        let mut world = World::new();
+        let mut registry = SerdeComponentRegistry::default();
+        registry.register::<UiNode>("UiNode", None);
+        world.insert_resource(registry);
+
+        // Spawn an entity with UiNode
+        let src = world.spawn();
+        world.add_component(src, UiNode::default());
+
+        // Serialize
+        let registry = world.remove_resource::<SerdeComponentRegistry>().unwrap();
+        let components = registry.serialize_entity(&world, src);
+        world.insert_resource(registry);
+
+        assert!(
+            components.contains_key("UiNode"),
+            "serialized map should contain UiNode"
+        );
+
+        // Deserialize into a fresh entity
+        let dst = world.spawn();
+        let registry = world.remove_resource::<SerdeComponentRegistry>().unwrap();
+        registry.deserialize_into(&mut world, dst, &components);
+        world.insert_resource(registry);
+
+        assert!(
+            world.get::<UiNode>(dst).is_some(),
+            "UiNode should be present after deserialize"
+        );
+    }
+
+    #[test]
+    fn serde_registry_unknown_component_tolerance() {
+        let mut world = World::new();
+        let registry = SerdeComponentRegistry::default();
+        world.insert_resource(registry);
+
+        // EntityDef with a component name not in the registry
+        let def = EntityDef {
+            components: {
+                let mut m = HashMap::new();
+                m.insert("Nonexistent".to_string(), ron::Value::String("oops".into()));
+                m
+            },
+            ..Default::default()
+        };
+
+        // spawn_entity_def must not panic and must succeed
+        let entity = spawn_entity_def(&mut world, &def);
+        // The entity exists, nothing bogus was added
+        assert!(world.is_alive(entity));
+    }
+
+    #[test]
+    fn scene_def_v2_backcompat_empty_components() {
+        let text = r#"SceneDef(version: 2, entities: [(tag: Some("x"),)])"#;
+        let scene: SceneDef = ron::from_str(text).expect("v2 scene must parse");
+        assert_eq!(scene.version, 2);
+        assert_eq!(scene.entities[0].tag.as_deref(), Some("x"));
+        assert!(
+            scene.entities[0].components.is_empty(),
+            "v2 files must load with empty components"
+        );
+    }
+
+    #[test]
+    fn text_input_post_spawn_hook() {
+        use crate::ui::TextInput;
+
+        let mut world = World::new();
+        let mut registry = SerdeComponentRegistry::default();
+        registry.register::<TextInput>(
+            "TextInput",
+            Some(Box::new(|w, e| {
+                if let Some(ti) = w.get_mut::<TextInput>(e) {
+                    ti.text = ti.initial_text.clone();
+                    ti.cursor = ti.text.len();
+                }
+            })),
+        );
+        world.insert_resource(registry);
+
+        let ti = TextInput {
+            initial_text: "hi".to_string(),
+            ..TextInput::default()
+        };
+
+        let mut def = EntityDef::default();
+        let ron_str = ron::to_string(&ti).expect("serialize TextInput");
+        // Store as ron::Value::String — this is the format the registry serialize path uses.
+        let val = ron::Value::String(ron_str);
+        def.components.insert("TextInput".to_string(), val);
+
+        let entity = spawn_entity_def(&mut world, &def);
+        let ti = world.get::<TextInput>(entity).expect("TextInput present");
+        assert_eq!(
+            ti.text, "hi",
+            "post_spawn hook must copy initial_text to text"
+        );
     }
 }

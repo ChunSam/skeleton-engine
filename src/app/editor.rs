@@ -137,11 +137,16 @@ impl EditorHistory {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) fn entity_to_def(world: &World, entity: Entity) -> Option<crate::prefab::EntityDef> {
+    let components = world
+        .resource::<crate::prefab::SerdeComponentRegistry>()
+        .map(|r| r.serialize_entity(world, entity))
+        .unwrap_or_default();
     Some(crate::prefab::EntityDef {
         tag: world.get::<crate::prefab::Tag>(entity).map(|t| t.0.clone()),
         transform: world.get::<crate::components::Transform>(entity).cloned(),
         sprite: world.get::<crate::components::Sprite>(entity).cloned(),
         parent: None,
+        components,
     })
 }
 
@@ -201,5 +206,43 @@ impl App {
         self.editor
             .component_removers
             .insert(name.into(), Box::new(remover));
+    }
+}
+
+impl App {
+    /// Registers a serde-capable component type so it is included in scene save/load.
+    ///
+    /// Call this for every component `T` that should survive a round-trip through a
+    /// `.ron` scene file. The `name` must be unique across all registered types and is
+    /// used as the key in [`crate::prefab::EntityDef::components`].
+    ///
+    /// `post_spawn` is an optional closure run after deserialization — useful for
+    /// copying design-time fields to runtime counterparts (e.g. `initial_text` → `text`).
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use engine::App;
+    /// use serde::{Serialize, Deserialize};
+    ///
+    /// #[derive(Clone, Serialize, Deserialize)]
+    /// struct Health { max: f32 }
+    ///
+    /// let mut app = App::new(Default::default());
+    /// app.register_serde_component::<Health>("Health", None);
+    /// ```
+    #[allow(clippy::type_complexity)]
+    pub fn register_serde_component<T>(
+        &mut self,
+        name: impl Into<String>,
+        post_spawn: Option<Box<dyn Fn(&mut World, Entity) + Send + Sync>>,
+    ) where
+        T: serde::Serialize + serde::de::DeserializeOwned + Clone + Send + Sync + 'static,
+    {
+        if let Some(registry) = self
+            .world
+            .resource_mut::<crate::prefab::SerdeComponentRegistry>()
+        {
+            registry.register::<T>(name, post_spawn);
+        }
     }
 }
