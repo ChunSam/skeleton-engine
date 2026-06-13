@@ -4,6 +4,27 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.1.1
+
+Event-loop responsiveness on macOS (no API change).
+
+### Changed
+
+- The native event loop now uses **`ControlFlow::WaitUntil` frame pacing** instead of
+  a `ControlFlow::Poll` busy-spin: it sleeps between frames (requesting a redraw at the
+  monitor refresh cadence, clamped to 60–240 Hz) so the macOS main run loop gets idle
+  time — smoother window drag/resize and lower idle CPU/battery — while still rendering
+  continuously (input events wake the loop immediately). This resolves the macOS
+  event-loop-stall TODO previously noted in the surface config. wasm is unchanged
+  (`Poll` maps to `requestAnimationFrame`).
+- **`desired_maximum_frame_latency` 1 → 2**: lets the GPU keep ~1 frame queued so
+  `get_current_texture()` no longer blocks the main thread on vsync for most of each
+  frame.
+
+> Note: the dominant factor in editor/game click responsiveness is **build profile** —
+> run interactive testing with `--release`; debug builds spend far more per-frame CPU
+> and feel laggy regardless of event-loop pacing.
+
 ## 8.1.0
 
 Game-data editor: edit component stats and RON data tables in the docked editor

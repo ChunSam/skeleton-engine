@@ -452,8 +452,15 @@ impl ApplicationHandler for App {
         }
     }
 
-    /// Called when the event queue is empty → poll gamepads then request a redraw every frame.
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+    /// Called when the event queue is empty → poll gamepads, then schedule the next frame.
+    ///
+    /// Native: uses `ControlFlow::WaitUntil(next_frame)` so the loop SLEEPS between frames
+    /// instead of busy-spinning under `Poll`. This gives the macOS main run loop idle time
+    /// (smooth window drag, prompt click/input handling) while still guaranteeing a frame at
+    /// the refresh cadence — fixing the prior `Wait`-only attempt that lagged on idle drags
+    /// because it only woke on input. Input events wake the loop immediately regardless.
+    #[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         #[cfg(not(target_arch = "wasm32"))]
         self.poll_gilrs();
 
@@ -465,6 +472,32 @@ impl ApplicationHandler for App {
             }
         }
 
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let now = Instant::now();
+            let next = *self.next_frame.get_or_insert(now);
+            let next = if now >= next {
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+                // Advance to the next boundary; resync if we fell behind so a stall
+                // (e.g. a long modal resize) doesn't trigger a burst of catch-up frames.
+                let advanced = next + self.frame_interval;
+                let advanced = if advanced < now {
+                    now + self.frame_interval
+                } else {
+                    advanced
+                };
+                self.next_frame = Some(advanced);
+                advanced
+            } else {
+                next
+            };
+            event_loop.set_control_flow(ControlFlow::WaitUntil(next));
+        }
+
+        // WASM: rAF-driven — just request a redraw each iteration.
+        #[cfg(target_arch = "wasm32")]
         if let Some(window) = &self.window {
             window.request_redraw();
         }
@@ -482,9 +515,15 @@ impl App {
                 return;
             }
         };
-        // This is a game/interactive app that needs continuous per-frame updates.
-        // The default `Wait` policy only wakes on input, causing noticeable drag/hover lag.
-        // `Poll` combined with request_redraw in about_to_wait runs a tight loop up to the vsync limit.
+        // Native: `Wait` as the base policy; `about_to_wait` re-arms `ControlFlow::WaitUntil`
+        // for the next frame each iteration (frame-paced redraws that still yield the macOS
+        // main run loop idle time between frames). A plain `Poll` busy-spins and starves the
+        // run loop (laggy window drag + input); plain `Wait` lags on idle drags (only wakes on
+        // input). WaitUntil pacing gets both: continuous frames AND a responsive run loop.
+        // WASM: `Poll` maps to requestAnimationFrame and is unaffected by the macOS issue.
+        #[cfg(not(target_arch = "wasm32"))]
+        event_loop.set_control_flow(ControlFlow::Wait);
+        #[cfg(target_arch = "wasm32")]
         event_loop.set_control_flow(ControlFlow::Poll);
         #[cfg(not(target_arch = "wasm32"))]
         if let Err(err) = event_loop.run_app(&mut self) {
@@ -622,6 +661,26 @@ impl App {
         window.set_ime_allowed(ime_allowed);
         self.window = Some(window);
         self.last_frame = Some(Instant::now());
+        // Pace redraw requests to the monitor refresh rate (fallback 60 Hz). `AutoVsync`
+        // still does the final pacing; this only bounds the WaitUntil cadence so the loop
+        // doesn't spin and starve the macOS main run loop. Clamp to [60, 240] Hz so a bogus
+        // or low adaptive reading (e.g. ProMotion reporting a reduced rate) never paces the
+        // redraw cadence below 60 fps; pacing slightly faster than the panel is harmless
+        // because AutoVsync caps actual presentation.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let refresh_hz = self
+                .window
+                .as_ref()
+                .and_then(|w| w.current_monitor())
+                .and_then(|m| m.refresh_rate_millihertz())
+                .map(|mhz| mhz as f64 / 1000.0)
+                .filter(|hz| *hz >= 1.0)
+                .unwrap_or(60.0)
+                .clamp(60.0, 240.0);
+            self.frame_interval = Duration::from_secs_f64(1.0 / refresh_hz);
+            self.next_frame = Some(Instant::now());
+        }
         log::info!("engine initialized");
     }
 
