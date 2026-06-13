@@ -7,6 +7,7 @@ mod ui;
 pub(super) mod docked_rt;
 
 pub(super) use state::EditorState;
+pub(super) use state::ResizeHandle;
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) use state::{apply_f1, apply_f2, EditorMode};
 
@@ -29,6 +30,26 @@ pub(super) enum EditorCmd {
         tag: Option<String>,
         transform: Option<crate::components::Transform>,
         sprite: Option<crate::components::Sprite>,
+    },
+    /// Move a screen-space `UiNode` widget (offset changed, size/anchor unchanged).
+    MoveUiNode {
+        entity: Entity,
+        old_offset: glam::Vec2,
+        new_offset: glam::Vec2,
+    },
+    /// Resize a screen-space `UiNode` widget (both offset and size may change).
+    ResizeUiNode {
+        entity: Entity,
+        old_offset: glam::Vec2,
+        old_size: glam::Vec2,
+        new_offset: glam::Vec2,
+        new_size: glam::Vec2,
+    },
+    /// Resize a world-space sprite by changing `Transform.scale` (center fixed).
+    ResizeEntity {
+        entity: Entity,
+        old_scale: glam::Vec2,
+        new_scale: glam::Vec2,
     },
 }
 
@@ -91,6 +112,34 @@ impl EditorHistory {
                 *selected = Some(e);
                 respawned = Some(e);
             }
+            EditorCmd::MoveUiNode {
+                entity, old_offset, ..
+            } => {
+                if let Some(n) = world.get_mut::<crate::ui::UiNode>(*entity) {
+                    n.offset = *old_offset;
+                }
+                *selected = Some(*entity);
+            }
+            EditorCmd::ResizeUiNode {
+                entity,
+                old_offset,
+                old_size,
+                ..
+            } => {
+                if let Some(n) = world.get_mut::<crate::ui::UiNode>(*entity) {
+                    n.offset = *old_offset;
+                    n.size = *old_size;
+                }
+                *selected = Some(*entity);
+            }
+            EditorCmd::ResizeEntity {
+                entity, old_scale, ..
+            } => {
+                if let Some(t) = world.get_mut::<crate::components::Transform>(*entity) {
+                    t.scale = *old_scale;
+                }
+                *selected = Some(*entity);
+            }
         }
         // record the id so redo despawns the exact recreated entity, not the current selection
         if let (Some(e), EditorCmd::DeleteEntity { entity, .. }) = (respawned, &mut cmd) {
@@ -129,6 +178,34 @@ impl EditorHistory {
                         *selected = None;
                     }
                 }
+            }
+            EditorCmd::MoveUiNode {
+                entity, new_offset, ..
+            } => {
+                if let Some(n) = world.get_mut::<crate::ui::UiNode>(*entity) {
+                    n.offset = *new_offset;
+                }
+                *selected = Some(*entity);
+            }
+            EditorCmd::ResizeUiNode {
+                entity,
+                new_offset,
+                new_size,
+                ..
+            } => {
+                if let Some(n) = world.get_mut::<crate::ui::UiNode>(*entity) {
+                    n.offset = *new_offset;
+                    n.size = *new_size;
+                }
+                *selected = Some(*entity);
+            }
+            EditorCmd::ResizeEntity {
+                entity, new_scale, ..
+            } => {
+                if let Some(t) = world.get_mut::<crate::components::Transform>(*entity) {
+                    t.scale = *new_scale;
+                }
+                *selected = Some(*entity);
             }
         }
         self.undo.push(cmd);
