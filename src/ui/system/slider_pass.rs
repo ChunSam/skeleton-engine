@@ -32,7 +32,9 @@ pub(super) fn run(
         let thumb_w = world.get::<Slider>(entity).map_or(14.0, |s| s.thumb_width);
         let track_len = (size.x - thumb_w).max(0.0);
 
-        if input.just_pressed && in_bounds(input.press_cursor, pos, size) {
+        let just_pressed_hit = input.just_pressed && in_bounds(input.press_cursor, pos, size);
+
+        if just_pressed_hit {
             if let Some(slider) = world.get_mut::<Slider>(entity) {
                 let t = ((input.press_cursor.x - pos.x - thumb_w / 2.0)
                     / track_len.max(f32::EPSILON))
@@ -42,9 +44,9 @@ pub(super) fn run(
                 let v = slider.value;
                 output.events.push(UiEvent::SliderChanged(entity, v));
             }
-        }
-
-        {
+        } else {
+            // Only run the drag-update path when this is NOT the press frame, so we never
+            // emit two SliderChanged events in the same frame (one from press, one from drag).
             let dragging = world.get::<Slider>(entity).is_some_and(|s| s.dragging);
             if dragging {
                 if input.is_held {

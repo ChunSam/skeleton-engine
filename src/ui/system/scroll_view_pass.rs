@@ -50,6 +50,15 @@ pub(super) fn run(
             )
         };
 
+        // Guard: item_height == 0 would produce inf/NaN indices (division by zero).
+        // Skip rendering this scroll view rather than producing out-of-range accesses.
+        if item_height <= 0.0 {
+            output
+                .rects
+                .push(DrawRect::new(pos.x, pos.y, size.x, size.y, bg_color).with_z(z));
+            continue;
+        }
+
         output
             .rects
             .push(DrawRect::new(pos.x, pos.y, size.x, size.y, bg_color).with_z(z));
