@@ -347,7 +347,7 @@ impl App {
             if self.editor.mode == EditorMode::Docked && docked_render_view.is_none() {
                 // RT not ready yet — still need to acquire + present the frame so the
                 // window stays responsive, but skip all scene rendering.
-                let (frame, _suboptimal) = match gpu.surface.get_current_texture() {
+                let (frame, suboptimal) = match gpu.surface.get_current_texture() {
                     wgpu::CurrentSurfaceTexture::Success(t) => (t, false),
                     wgpu::CurrentSurfaceTexture::Suboptimal(t) => (t, true),
                     e => return Err(e),
@@ -419,11 +419,16 @@ impl App {
                     window.pre_present_notify();
                 }
                 frame.present();
+                // If the surface became suboptimal (e.g. DPI/monitor change), reconfigure
+                // so subsequent frames are optimal. Present first, reconfigure after.
+                if suboptimal {
+                    gpu.reconfigure();
+                }
                 return Ok(());
             }
         }
 
-        let (frame, _suboptimal) = match gpu.surface.get_current_texture() {
+        let (frame, suboptimal) = match gpu.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(t) => (t, false),
             wgpu::CurrentSurfaceTexture::Suboptimal(t) => (t, true),
             e => return Err(e),
@@ -934,6 +939,11 @@ impl App {
             window.pre_present_notify();
         }
         frame.present();
+        // If the surface became suboptimal (e.g. DPI/monitor change), reconfigure
+        // so subsequent frames are optimal. Present first, reconfigure after.
+        if suboptimal {
+            gpu.reconfigure();
+        }
         Ok(())
     }
 
@@ -982,6 +992,11 @@ impl App {
                     gpu.reconfigure();
                 }
             }
+            // Transient/benign conditions: skip this frame silently.
+            // Occluded = window minimized or behind another window.
+            // Timeout  = compositor took too long; try again next frame.
+            Err(wgpu::CurrentSurfaceTexture::Occluded | wgpu::CurrentSurfaceTexture::Timeout) => {}
+            // Genuine errors (Validation, etc.) still surface as errors.
             Err(e) => log::error!("render error: {e:?}"),
         }
     }

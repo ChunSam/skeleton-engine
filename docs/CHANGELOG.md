@@ -4,6 +4,23 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.1.9
+
+Bug fixes: surface-error handling. Final batch of a second-pass engine-wide review (app
+main-loop / window / render orchestration + concurrency / WASM / panic-safety — the latter
+entirely clean). No public API change.
+
+### Fixed
+
+- **A minimized/occluded window no longer spams `log::error!` every frame.** The surface
+  acquisition's `Occluded` and `Timeout` results fell through to an `error!` log, firing
+  once per frame while minimized. They are now skipped silently (`Lost`/`Outdated` still
+  reconfigure; genuine errors like `Validation` still log).
+- **A `Suboptimal` surface is now reconfigured.** After a DPI/monitor/rotation change the
+  acquired `SurfaceTexture` can be flagged suboptimal; the frame is presented and the
+  surface is then reconfigured so subsequent frames are optimal (was previously ignored,
+  causing persistent degradation on some platforms).
+
 ## 8.1.8
 
 Bug fixes: UI click/slider/scroll edge cases, save-path hardening, timeline loop wrap.
