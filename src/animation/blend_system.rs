@@ -54,14 +54,24 @@ impl System for BlendTreeSystem {
             // this frame and re-evaluate next frame without updating last_clip — this ensures
             // that even if param jumps across multiple thresholds during a single crossfade,
             // the final target clip is never missed in favor of an intermediate one.
+            //
+            // The `current_clip == clip_index` branch must also be guarded with
+            // `!is_crossfading()`: during a crossfade A→B the FROM is still A, so if the
+            // param returns to A's range we'd erroneously update `last_clip = Some(A)` while
+            // the crossfade is still running. When the crossfade completes (player now on B)
+            // the dedup guard (`already_requested == Some(A)`) would then permanently skip
+            // re-requesting A, leaving the player stuck on B forever.
             {
                 let Some(player) = world.get_mut::<AnimationPlayer>(entity) else {
                     continue;
                 };
-                if player.current_clip == clip_index {
-                    // Already playing the target clip — just update last_clip below
+                if player.current_clip == clip_index && !player.is_crossfading() {
+                    // Truly on the target clip (not just the FROM side of a crossfade) —
+                    // fall through to update last_clip below.
                 } else if player.is_crossfading() {
-                    // Another crossfade in progress — defer and retry next frame
+                    // A crossfade is in progress (either to a different clip, or `current_clip`
+                    // matches but we are still blending) — defer and retry next frame.
+                    // Do NOT update last_clip so the target is re-evaluated once the blend settles.
                     continue;
                 } else {
                     player.play_with_crossfade(clip_index, crossfade_dur);
@@ -162,6 +172,83 @@ mod tests {
             world.get::<AnimationPlayer>(e).unwrap().current_clip,
             2,
             "should reach the run clip (before the fix, was stuck on walk)"
+        );
+    }
+
+    /// Fix 4: param reversal during a crossfade must not permanently stick the player
+    /// on the destination clip.
+    ///
+    /// Sequence:
+    ///   1. param → walk range (clip 1) → starts idle→walk crossfade, current_clip = idle (0).
+    ///   2. param → idle range (clip 0) mid-crossfade → old code updated last_clip=0 so after
+    ///      the crossfade completes (player on clip 1) the dedup guard skips forever.
+    ///   3. Complete the crossfade (player.current_clip = 1 = walk).
+    ///   4. Run blend tree with param still in idle range → must issue a walk→idle transition.
+    #[test]
+    fn param_reversal_during_crossfade_does_not_stick() {
+        let mut world = World::new();
+        let e = world.spawn();
+        world.add_component(
+            e,
+            AnimationPlayer::new(vec![loop_clip(), loop_clip(), loop_clip()]),
+        );
+        world.add_component(e, locomotion_tree());
+
+        let mut bt = BlendTreeSystem::new();
+        let mut anim = AnimationSystem::new();
+        let dt = 0.05_f32; // each tick
+
+        // 1) param → walk: starts idle→walk crossfade.
+        world.get_mut::<BlendTree1D>(e).unwrap().set_param(1.0);
+        bt.run(&mut world, dt);
+        anim.run(&mut world, dt);
+        assert!(
+            world.get::<AnimationPlayer>(e).unwrap().is_crossfading(),
+            "should be crossfading idle→walk"
+        );
+        assert_eq!(world.get::<AnimationPlayer>(e).unwrap().current_clip, 0);
+
+        // 2) param → idle mid-crossfade. Old code: updates last_clip=0, permanently blocking.
+        world.get_mut::<BlendTree1D>(e).unwrap().set_param(0.0);
+        bt.run(&mut world, dt);
+        anim.run(&mut world, dt);
+        // crossfade is still in progress (0.2 s duration, only 2 ticks of 0.05 elapsed).
+        assert!(
+            world.get::<AnimationPlayer>(e).unwrap().is_crossfading(),
+            "crossfade must still be in progress after param reversal"
+        );
+
+        // 3) Advance just enough to complete the original idle→walk crossfade (0.2 s duration).
+        // After step 2, elapsed = 0.10 s. We need 0.10 s more = 2 ticks of 0.05 s.
+        // We run anim (to complete the crossfade) then check state before the next bt.run
+        // issues any new transition — this avoids counting a new crossfade as "still fading".
+        for _ in 0..2 {
+            bt.run(&mut world, dt);
+            anim.run(&mut world, dt);
+        }
+        // At this point the idle→walk crossfade must have completed (elapsed=0.20 >= 0.20).
+        // Check AFTER anim.run but before the next bt.run would issue a new transition.
+        assert!(
+            !world.get::<AnimationPlayer>(e).unwrap().is_crossfading(),
+            "idle→walk crossfade should have completed (elapsed was 0.10, needed 0.10 more)"
+        );
+        // Player is now on clip 1 (walk) because that was the crossfade target.
+        assert_eq!(
+            world.get::<AnimationPlayer>(e).unwrap().current_clip,
+            1,
+            "player must be on walk after crossfade completion"
+        );
+
+        // 4) param still in idle range → blend tree must now request a walk→idle transition
+        // and eventually settle there. Run enough frames to complete the return crossfade.
+        for _ in 0..20 {
+            bt.run(&mut world, dt);
+            anim.run(&mut world, dt);
+        }
+        assert_eq!(
+            world.get::<AnimationPlayer>(e).unwrap().current_clip,
+            0,
+            "player must return to idle after crossfade completes and param is in idle range (stuck bug)"
         );
     }
 

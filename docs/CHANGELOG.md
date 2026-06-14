@@ -4,6 +4,33 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.1.6
+
+Bug fixes: physics collision-event delivery + raycast freshness, animation clip-finish +
+blend-tree state. Found by an engine-wide review sweep (physics/collision + animation/
+skeletal — both otherwise clean). No public API change.
+
+### Fixed
+
+- **`CollisionEvent::Stopped` is delivered when a contacting entity despawns.** The
+  handle→entity map was rebuilt each frame from live entities, so an entity removed while
+  still touching another resolved to nothing and its `Stopped` exit event was silently
+  dropped (listeners waiting for "no longer touching" never fired). The system now keeps
+  the previous frame's map and falls back to it when resolving stopped pairs.
+- **`cast_ray` no longer hits a just-removed body in the same frame.** The query pipeline
+  was only refreshed inside `step()`, so a raycast issued after `remove_body` but before
+  the next step saw a phantom collider. `remove_body` now refreshes the query pipeline
+  immediately. (`cast_ray`/`cast_ray_with_normal` remain `&self` — no API change.)
+- **A 1-frame non-looping clip is no longer reported finished before it is shown.**
+  `is_finished()` returned `current_frame >= len-1`, which is `0 >= 0` (true) at entry for
+  a 1-frame clip, so an `AnimationEnd` state-machine state transitioned away the same frame
+  it was entered. The player now tracks a `finished` flag set when the advance actually
+  reaches past the last frame.
+- **BlendTree1D no longer gets stuck after a parameter reversal during a crossfade.** If
+  `param` returned to the FROM clip's range mid-crossfade, `last_clip` was poisoned and the
+  dedup skipped all later transitions, leaving the player stuck on the crossfade target.
+  The "already on target" branch is now guarded by `!is_crossfading()`.
+
 ## 8.1.5
 
 Bug fixes: scene-stack panic recovery + centered-text wrapping. Found by an engine-wide

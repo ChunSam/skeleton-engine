@@ -55,6 +55,9 @@ pub struct PhysicsSystem {
     active_intersections: HashSet<(RapierColliderHandle, RapierColliderHandle)>,
     // Per-frame scratch buffers reused via clear() to avoid per-frame allocations.
     col_map: HashMap<RapierColliderHandle, Entity>,
+    /// Handle→entity map from the previous frame. Used to resolve `Stopped` events when
+    /// an entity despawns mid-frame (its handle is absent from the current `col_map`).
+    prev_col_map: HashMap<RapierColliderHandle, Entity>,
     current_contacts: HashSet<(RapierColliderHandle, RapierColliderHandle)>,
     current_intersections: HashSet<(RapierColliderHandle, RapierColliderHandle)>,
     body_pairs: Vec<(Entity, BodyHandle)>,
@@ -74,6 +77,7 @@ impl PhysicsSystem {
             active_contacts: HashSet::new(),
             active_intersections: HashSet::new(),
             col_map: HashMap::new(),
+            prev_col_map: HashMap::new(),
             current_contacts: HashSet::new(),
             current_intersections: HashSet::new(),
             body_pairs: Vec::new(),
@@ -89,10 +93,15 @@ impl PhysicsSystem {
 /// Pairs in `current` but not `previous` → appended to `started`.
 /// Pairs in `previous` but not `current` → appended to `stopped`.
 /// `previous` is replaced with `current` in-place.
+///
+/// `prev_col_map` is the handle→entity map from the previous frame, used as a fallback
+/// when resolving `stopped` pairs whose entity has already been despawned this frame
+/// (and is therefore absent from the current `col_map`).
 fn diff_pairs(
     previous: &mut HashSet<(RapierColliderHandle, RapierColliderHandle)>,
     current: &HashSet<(RapierColliderHandle, RapierColliderHandle)>,
     col_map: &HashMap<RapierColliderHandle, Entity>,
+    prev_col_map: &HashMap<RapierColliderHandle, Entity>,
     started: &mut Vec<(Entity, Entity)>,
     stopped: &mut Vec<(Entity, Entity)>,
 ) {
@@ -105,7 +114,11 @@ fn diff_pairs(
     }
     for &(c1, c2) in previous.iter() {
         if !current.contains(&(c1, c2)) {
-            if let (Some(&e1), Some(&e2)) = (col_map.get(&c1), col_map.get(&c2)) {
+            // Resolve via the current map first; fall back to the previous frame's map so
+            // that a `Stopped` event is still emitted when one entity was despawned this
+            // frame and its collider handle is no longer present in `col_map`.
+            let resolve = |h| col_map.get(h).or_else(|| prev_col_map.get(h));
+            if let (Some(&e1), Some(&e2)) = (resolve(&c1), resolve(&c2)) {
                 stopped.push((e1, e2));
             }
         }
@@ -167,6 +180,7 @@ impl System for PhysicsSystem {
             &mut self.active_contacts,
             &self.current_contacts,
             &self.col_map,
+            &self.prev_col_map,
             &mut col_started,
             &mut col_stopped,
         );
@@ -213,6 +227,7 @@ impl System for PhysicsSystem {
             &mut self.active_intersections,
             &self.current_intersections,
             &self.col_map,
+            &self.prev_col_map,
             &mut trig_entered,
             &mut trig_exited,
         );
@@ -255,6 +270,9 @@ impl System for PhysicsSystem {
             }
         }
 
+        // Persist the current handle→entity map for the next frame's `stopped` fallback.
+        self.prev_col_map.clone_from(&self.col_map);
+
         world.insert_resource(physics);
     }
 }
@@ -263,7 +281,7 @@ impl System for PhysicsSystem {
 mod tests {
     use super::*;
     use crate::components::Transform;
-    use crate::physics::events::TriggerEvent;
+    use crate::physics::events::{CollisionEvent, TriggerEvent};
 
     #[test]
     fn sensor_intersection_emits_trigger_entered() {
@@ -375,6 +393,66 @@ mod tests {
         assert!(
             (rotation - 3.0 * dt).abs() < 1e-2,
             "rotation must match body angle (≈angvel*dt): {rotation}"
+        );
+    }
+
+    #[test]
+    fn stopped_event_emitted_when_contacting_entity_despawns() {
+        // Two boxes overlapping → contact on frame 1. Despawn one entity on frame 2.
+        // A `CollisionEvent::Stopped` must still be emitted with both entity ids.
+        let mut physics = PhysicsWorld::new(Vec2::ZERO);
+        let (rb1, col1) = physics.add_dynamic_box(Vec2::ZERO, 0.5, 0.5, false);
+        let (rb2, col2) = physics.add_dynamic_box(Vec2::new(0.1, 0.0), 0.5, 0.5, false);
+
+        let mut world = World::new();
+        world.insert_resource(physics);
+        world.insert_resource(Events::<CollisionEvent>::default());
+        let mut system = PhysicsSystem::new(1.0);
+
+        let e1 = world.spawn();
+        world.add_component(
+            e1,
+            PhysicsBody {
+                rigid_body_handle: rb1,
+                collider_handle: col1,
+            },
+        );
+        world.add_component(e1, Transform::default());
+
+        let e2 = world.spawn();
+        world.add_component(
+            e2,
+            PhysicsBody {
+                rigid_body_handle: rb2,
+                collider_handle: col2,
+            },
+        );
+        world.add_component(e2, Transform::default());
+
+        // Frame 1: step the simulation so a contact is registered.
+        system.run(&mut world, 1.0 / 60.0);
+
+        // Flush events so we only see events from frame 2.
+        world
+            .resource_mut::<Events<CollisionEvent>>()
+            .unwrap()
+            .flush();
+
+        // "Despawn" e2 by removing its PhysicsBody component — it will vanish from
+        // col_map but its collider handle is still known from prev_col_map.
+        world.remove_component::<PhysicsBody>(e2);
+
+        // Frame 2: step again; the contact pair is gone from narrow_phase's side too
+        // because the body was removed, so a Stopped event should fire.
+        system.run(&mut world, 1.0 / 60.0);
+
+        let events = world.resource::<Events<CollisionEvent>>().unwrap().read();
+        let stopped = events.iter().any(|ev| {
+            matches!(ev, CollisionEvent::Stopped(a, b) if (*a == e1 && *b == e2) || (*a == e2 && *b == e1))
+        });
+        assert!(
+            stopped,
+            "Stopped event must be emitted when a contacting entity is despawned; events: {events:?}"
         );
     }
 
