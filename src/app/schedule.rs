@@ -32,7 +32,7 @@ pub(super) fn format_panic_payload(payload: &Box<dyn std::any::Any + Send>) -> S
 
 /// Merge a pending (unconsumed) egui textures delta with the current frame's one.
 ///
-/// If render() skipped a frame (surface Lost/Outdated/Timeout), the previous
+/// If render() skipped a frame (surface Lost/Outdated/Timeout/Occluded), the previous
 /// textures_delta was never consumed. egui 0.34's skrifa font atlas sends
 /// incremental per-glyph updates and never re-sends the full image, so a single
 /// dropped delta poisons every later partial update (egui-wgpu panics with
