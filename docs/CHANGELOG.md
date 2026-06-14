@@ -4,6 +4,26 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.1.7
+
+Bug fixes: audio bus-volume during fades, behavior-tree `AlwaysSucceed`, tilemap tile-id
+bounds. Found by an engine-wide review sweep. No public API change.
+
+### Fixed
+
+- **Bus volume is no longer applied twice during audio fades.** A fade stored its start
+  volume as `base × bus`, and `update()` multiplied by the bus volume again, so the sink
+  got `base × bus²` — an audible volume pop at fade start and a fade at the wrong rate
+  (only when a bus had volume ≠ 1.0). Fades now store/interpolate the pre-bus base volume
+  and the bus factor is applied exactly once in `update()`.
+- **`AlwaysSucceed` behavior-tree decorator passes `Running` through.** It discarded the
+  child's status and always returned `Success`, so wrapping a multi-frame action made the
+  parent `Sequence`/`Selector` advance on frame 1 and abandon the still-running child. It
+  now returns `Running` while the child runs and only converts `Failure → Success`.
+- **`TilemapAtlas::uv_for` clamps out-of-range tile ids.** A tile id ≥ `columns × rows`
+  produced a UV rect outside `[0,1]`, sampling garbage/wrong tiles. Out-of-range ids now
+  return `UvRect::FULL` instead.
+
 ## 8.1.6
 
 Bug fixes: physics collision-event delivery + raycast freshness, animation clip-finish +

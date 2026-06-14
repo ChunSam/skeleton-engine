@@ -456,6 +456,58 @@ fn stop_on_drained_sink_is_immediate() {
     );
 }
 
+// ─── Bus + fade double-multiply regression ─────────────────────────────────────
+
+/// Regression test: verifies that bus volume is applied EXACTLY ONCE during a fade.
+///
+/// The bug: `fade_start_vol` used `effective_volume` (= base × bus), so `start_vol`
+/// already included the bus factor; `update()` then multiplied by `bus_vol` again,
+/// yielding `base × bus²` on the sink.  The fix stores pre-bus base volume in the
+/// fade and applies the bus multiplier once in `update()`.
+///
+/// We verify via the fade's `start_vol` field: after calling `fade_out` on a channel
+/// assigned to a bus with volume 0.5 and base volume 0.8, `start_vol` must equal 0.8
+/// (pre-bus), NOT 0.4 (post-bus = 0.8 × 0.5). The final sink value = 0.8 × 0.5 = 0.4
+/// which is the correct non-squared result; with the bug it was 0.4 × 0.5 = 0.2.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn bus_fade_volume_applied_exactly_once() {
+    let Some(mut audio) = AudioManager::new() else {
+        return;
+    };
+
+    // Assign channel to a bus with volume 0.5; set base volume 0.8.
+    audio.assign_bus("ch", "sfx");
+    audio.set_bus_volume("sfx", 0.5);
+    audio.set_volume("ch", 0.8);
+    audio.play_tone("ch", 440.0, 10.0, 0.5);
+
+    // Start a fade_out. The fade's start_vol must be the PRE-BUS base = 0.8.
+    // With the bug it would be effective_volume = 0.8 × 0.5 = 0.4.
+    audio.fade_out("ch", 1.0);
+
+    let fade = audio
+        .fades
+        .get("ch")
+        .expect("fade_out must insert a fade entry");
+    assert!(
+        (fade.start_vol - 0.8).abs() < 0.01,
+        "fade start_vol must be the pre-bus base volume (0.8), got {} \
+         — if this is ~0.4 the bus is being squared",
+        fade.start_vol
+    );
+
+    // Additionally verify that update() produces the correct initial sink volume
+    // = start_vol × bus_vol = 0.8 × 0.5 = 0.4, NOT 0.4 × 0.5 = 0.2.
+    // We can't read the sink volume directly, but we can confirm effective_volume
+    // returns 0.4 (= base × bus) which is what update() will apply at t=0.
+    let eff = audio.effective_volume("ch");
+    assert!(
+        (eff - 0.4).abs() < 0.01,
+        "effective_volume must be base × bus = 0.8 × 0.5 = 0.4, got {eff}"
+    );
+}
+
 // ─── #20: built-in AudioSystem drives update() ─────────────────────────────────
 
 #[test]
