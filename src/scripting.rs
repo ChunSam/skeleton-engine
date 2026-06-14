@@ -42,6 +42,13 @@ impl ScriptRunner {
     pub fn reset(&mut self) {
         self.started = false;
     }
+
+    /// Number of variables currently in the persistent scope. Test-only: used to assert
+    /// the per-frame rewind keeps the scope at its 5-var transform baseline (no growth).
+    #[cfg(test)]
+    pub(crate) fn scope_len(&self) -> usize {
+        self.scope.len()
+    }
 }
 
 // ─── ScriptingSystem ──────────────────────────────────────────────────────────

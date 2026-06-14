@@ -41,9 +41,18 @@ impl AssetServer {
             spawn_image_fetch_wasm(id, key.to_string());
         }
 
+        // Only watch paths that loaded successfully — `notify` cannot watch non-existent
+        // paths on macOS/Linux, and silently failing to register would mean a later
+        // file-create never triggers a reload. Skip the watch on failure; the image
+        // can be re-requested explicitly when the file is known to exist.
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some(ref mut w) = self._watcher {
-            let _ = w.watch(path.as_ref(), RecursiveMode::NonRecursive);
+        if matches!(
+            self.image_load_states.get(&id),
+            Some(AssetLoadState::Loaded)
+        ) {
+            if let Some(ref mut w) = self._watcher {
+                let _ = w.watch(path.as_ref(), RecursiveMode::NonRecursive);
+            }
         }
         Handle {
             id,

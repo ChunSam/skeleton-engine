@@ -40,7 +40,8 @@ impl AssetServer {
                 let key_str = key.to_string();
                 let is_known = self.path_to_id.contains_key(&key)
                     || self.script_path_to_id.contains_key(&key)
-                    || self.data_table_paths.contains(&key);
+                    || self.data_table_paths.contains(&key)
+                    || self.atlas_path_to_id.contains_key(&key);
                 if is_known && !seen.contains(&key_str) {
                     seen.push(key_str);
                 }

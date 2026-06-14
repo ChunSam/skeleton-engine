@@ -4,6 +4,29 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.1.10
+
+Deferred-item cleanup from the engine-wide review (asset hot-reload + scripting scope).
+No public API change.
+
+### Fixed
+
+- **Atlas file changes are recognized by hot-reload.** `poll_reloads` checked image /
+  script / data-table path maps but not `atlas_path_to_id`, so an atlas path was never
+  treated as "known" (the underlying image pixels still reloaded via the inner
+  `load_image`; this makes the path recognition self-consistent).
+- **A failed image load no longer registers a dead file-watcher.** `load_image` watched
+  the path even on a failed load; `notify` cannot watch a non-existent path, so a later
+  file-create never fired. The watch is now registered only for successfully-loaded paths.
+- **Rhai `ScriptRunner` scope no longer grows across frames.** The persistent per-entity
+  `Scope` is rewound to its 5-var transform baseline (`x`/`y`/`rot`/`sx`/`sy`) after each
+  `on_update`, so `let` bindings introduced per frame don't accumulate. The script scope
+  is a transform transport, not a store for cross-frame custom state.
+
+(Not changed: `with_ctx`/`with_ctx_mut` keep their `expect` — calling a Rhai API function
+outside `ScriptingSystem::run` is a documented contract violation; a graceful path would
+require a sprawling `R: Default` refactor across all script API functions.)
+
 ## 8.1.9
 
 Bug fixes: surface-error handling. Final batch of a second-pass engine-wide review (app
