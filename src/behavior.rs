@@ -309,7 +309,11 @@ impl BehaviorNode for Inverter {
     }
 }
 
-/// Decorator node that always returns `Success`.
+/// Decorator node that converts child `Failure` to `Success`, but passes `Running` through.
+///
+/// - Child returns `Running`  → returns `Running` (child is still executing; do not advance)
+/// - Child returns `Success`  → returns `Success`
+/// - Child returns `Failure`  → returns `Success`
 pub struct AlwaysSucceed {
     child: Box<dyn BehaviorNode>,
 }
@@ -322,8 +326,10 @@ impl AlwaysSucceed {
 
 impl BehaviorNode for AlwaysSucceed {
     fn tick(&mut self, world: &mut World, entity: Entity, dt: f32) -> BehaviorStatus {
-        self.child.tick(world, entity, dt);
-        BehaviorStatus::Success
+        match self.child.tick(world, entity, dt) {
+            BehaviorStatus::Running => BehaviorStatus::Running,
+            _ => BehaviorStatus::Success,
+        }
     }
 
     fn reset(&mut self) {
@@ -509,6 +515,85 @@ mod tests {
         let (mut w, e) = dummy();
         let mut inv = Inverter::new(Box::new(AlwaysFail));
         assert_eq!(inv.tick(&mut w, e, 0.016), BehaviorStatus::Success);
+    }
+
+    // ── AlwaysSucceed tests ───────────────────────────────────────────────────
+
+    /// A node that returns `Running` on the first tick, then `Success` thereafter.
+    struct RunOnce {
+        ticked: bool,
+    }
+    impl RunOnce {
+        fn new() -> Self {
+            Self { ticked: false }
+        }
+    }
+    impl BehaviorNode for RunOnce {
+        fn tick(&mut self, _: &mut World, _: Entity, _: f32) -> BehaviorStatus {
+            if self.ticked {
+                BehaviorStatus::Success
+            } else {
+                self.ticked = true;
+                BehaviorStatus::Running
+            }
+        }
+        fn reset(&mut self) {
+            self.ticked = false;
+        }
+    }
+
+    #[test]
+    fn always_succeed_passes_running_through() {
+        // When the child returns Running, AlwaysSucceed must return Running
+        // (not Success). Without this, a Sequence/Selector sees Success on
+        // frame 1 and advances, abandoning the in-progress child.
+        let (mut w, e) = dummy();
+        let mut node = AlwaysSucceed::new(Box::new(AlwaysRun));
+        assert_eq!(
+            node.tick(&mut w, e, 0.016),
+            BehaviorStatus::Running,
+            "AlwaysSucceed must propagate Running from child"
+        );
+    }
+
+    #[test]
+    fn always_succeed_converts_failure_to_success() {
+        let (mut w, e) = dummy();
+        let mut node = AlwaysSucceed::new(Box::new(AlwaysFail));
+        assert_eq!(
+            node.tick(&mut w, e, 0.016),
+            BehaviorStatus::Success,
+            "AlwaysSucceed must convert child Failure to Success"
+        );
+    }
+
+    #[test]
+    fn always_succeed_passes_success_through() {
+        let (mut w, e) = dummy();
+        let mut node = AlwaysSucceed::new(Box::new(AlwaysOk));
+        assert_eq!(
+            node.tick(&mut w, e, 0.016),
+            BehaviorStatus::Success,
+            "AlwaysSucceed must pass child Success through as Success"
+        );
+    }
+
+    #[test]
+    fn always_succeed_running_then_success() {
+        // Multi-frame: child runs for 1 frame then succeeds.
+        // AlwaysSucceed must return Running on frame 1, Success on frame 2.
+        let (mut w, e) = dummy();
+        let mut node = AlwaysSucceed::new(Box::new(RunOnce::new()));
+        assert_eq!(
+            node.tick(&mut w, e, 0.016),
+            BehaviorStatus::Running,
+            "tick 1: child is Running → AlwaysSucceed must return Running"
+        );
+        assert_eq!(
+            node.tick(&mut w, e, 0.016),
+            BehaviorStatus::Success,
+            "tick 2: child is done → AlwaysSucceed must return Success"
+        );
     }
 
     #[test]

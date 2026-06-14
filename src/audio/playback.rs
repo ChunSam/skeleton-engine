@@ -182,9 +182,9 @@ impl AudioManager {
                         .and_then(|b| self.bus_volumes.get(b))
                         .copied()
                         .unwrap_or(1.0);
-                    // update() interpolates the pre-bus volume into the sink directly.
-                    // The bus multiplier is applied here (same as the fade constructor
-                    // which uses effective_volume = base × bus for start_vol).
+                    // Fades store/interpolate the pre-bus (base) volume. The bus
+                    // multiplier is applied exactly once here, so the sink receives
+                    // `base_vol × bus_vol` — never `base_vol × bus_vol²`.
                     sink.set_volume(vol * bus_vol);
                 }
                 let t = (fade.elapsed / fade.duration).clamp(0.0, 1.0);
@@ -328,17 +328,22 @@ impl AudioManager {
         self.sinks.insert(channel.to_string(), sink);
     }
 
-    /// Returns the volume to use as the start of a new fade.
+    /// Returns the **pre-bus** base volume to use as the start of a new fade.
     ///
-    /// Uses the current interpolated volume of any in-progress fade so that
-    /// chained or mid-fade transitions never produce an audible volume jump
-    /// (finding 4 — start-volume pop).  Falls back to `effective_volume` when
-    /// no fade is active.
+    /// Fades store and interpolate the pre-bus (base) volume.  `update()` applies
+    /// the bus multiplier exactly once when writing to the sink (`vol * bus_vol`).
+    /// This avoids the double-multiply that would occur if the bus factor were baked
+    /// into `start_vol`/`target_vol` AND applied again in `update()`.
+    ///
+    /// Uses the current interpolated (pre-bus) volume of any in-progress fade so
+    /// that chained or mid-fade transitions never produce an audible volume jump
+    /// (finding 4 — start-volume pop).  Falls back to the channel's base volume
+    /// (pre-bus) when no fade is active.
     pub(super) fn fade_start_vol(&self, channel: &str) -> f32 {
         self.fades
             .get(channel)
             .map(|f| f.current_vol())
-            .unwrap_or_else(|| self.effective_volume(channel))
+            .unwrap_or_else(|| self.volume_overrides.get(channel).copied().unwrap_or(1.0))
     }
 
     /// Effective volume for a channel = base volume × bus volume.
