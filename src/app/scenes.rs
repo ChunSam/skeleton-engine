@@ -136,11 +136,19 @@ impl App {
                     // Drain the popped scene's range: [new_scene_len..scene_len]
                     self.systems.drain(new_scene_len..scene_len);
                     self.system_meta.drain(new_scene_len..scene_len);
-                    let new_len = new_scene_len + tail;
-                    // Remove indices of systems removed by Pop from the panic set
-                    // (remaining indices stay valid). Without this, a truncated index
-                    // persists and would incorrectly skip a new system at that same index.
-                    self.panicked_systems.retain(|&i| i < new_len);
+                    // Remove indices that no longer refer to valid scene systems after Pop.
+                    // We keep only indices in [0, new_scene_len): those belong to the
+                    // scene that remains on the stack and are still valid.
+                    //
+                    // Why `new_scene_len` and NOT `new_scene_len + tail`:
+                    // The drain above removed [new_scene_len..scene_len].  A panicked index
+                    // equal to `new_scene_len` would survive `i < new_scene_len + tail` (since
+                    // new_scene_len < new_scene_len + tail), but after the drain that index
+                    // now aliases the builtin tail (HierarchySystem at new_scene_len),
+                    // permanently skipping GlobalTransform propagation for all later frames.
+                    // Dropping tail indices here is intentional: they get a clean retry after
+                    // a scene change, consistent with reload_scene which clears the full set.
+                    self.panicked_systems.retain(|&i| i < new_scene_len);
                     // Rebuild the display PanickedSystems resource based on the remaining indices.
                     let names: Vec<String> = self
                         .panicked_systems

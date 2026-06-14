@@ -4,6 +4,26 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.1.5
+
+Bug fixes: scene-stack panic recovery + centered-text wrapping. Found by an engine-wide
+review sweep (core ECS + rendering — both otherwise clean). No public API change.
+
+### Fixed
+
+- **`SceneCmd::Pop` no longer permanently silences the builtin tail system.** If a
+  `Push`ed scene's first system panicked (added to the panic set) and the scene was then
+  `Pop`ped, the retained panic index aliased `HierarchySystem`'s post-drain index and
+  skipped it forever — parent-child `GlobalTransform` propagation silently stopped. The
+  retain bound is now `new_scene_len` (drops drained + tail indices; the tail gets a
+  clean retry, consistent with `reload_scene`).
+- **`DrawText::centered` no longer wraps at half the viewport width.** With no explicit
+  bounds, the layout buffer width was `viewport_w - position.x`; for a `Center`-anchored
+  text positioned at the screen center that is only half the width, so a one-line title
+  wrapped to two. `Center` anchor with no bounds now uses the full viewport width/height
+  (top-left and explicit-bounds paths unchanged). Width/height selection factored into
+  tested pure helpers.
+
 ## 8.1.4
 
 Bug fixes: docked-editor gizmo + Inspector edge cases (follow-up to 8.1.3, found by a
