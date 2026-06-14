@@ -302,15 +302,32 @@ impl TextRenderer {
                 let mut buf = Buffer::new(&mut self.font_system, metrics);
                 // Single-line (TextInput): expand to unlimited width + no wrap, then
                 // scroll horizontally below. Otherwise wrap at the bounds width.
+                //
+                // For a centered DrawText (anchor = Center, position = text center),
+                // the position is typically near the middle of the viewport (e.g. w/2).
+                // Using `w - position.x` would give only half the viewport width, causing
+                // text to wrap prematurely.  Instead we give the buffer the FULL viewport
+                // dimension and let the existing anchor-offset logic center the shaped text.
+                // For the default TopLeft anchor the old behavior is preserved.
                 let width = if single_line.is_some() {
                     None
                 } else {
-                    Some(bounds.map_or(w as f32 - position.x, |b| b.x.max(0.0)))
+                    Some(layout_buffer_width(
+                        d.anchor,
+                        bounds.map(|b| b.x),
+                        w as f32,
+                        position.x,
+                    ))
                 };
                 buf.set_size(
                     &mut self.font_system,
                     width,
-                    Some(bounds.map_or(h as f32 - position.y, |b| b.y.max(0.0))),
+                    Some(layout_buffer_height(
+                        d.anchor,
+                        bounds.map(|b| b.y),
+                        h as f32,
+                        position.y,
+                    )),
                 );
                 buf.set_wrap(
                     &mut self.font_system,
@@ -550,6 +567,45 @@ fn parse_color(raw: &str) -> Option<Color> {
     Some(Color::rgba(r, g, b, a))
 }
 
+/// Compute the layout buffer width for a `DrawText` given its anchor and viewport.
+///
+/// This is extracted into a standalone function so it can be unit-tested without GPU/FontSystem.
+/// It mirrors the logic inside `TextRenderer::render`'s buffer-construction closure.
+///
+/// Returns:
+/// - `None`  → single-line (unlimited width, no wrap) — not handled here; caller decides.
+/// - `Some`  → the pixel width to pass to `Buffer::set_size`.
+fn layout_buffer_width(
+    anchor: TextAnchor,
+    bounds_x: Option<f32>, // already scaled
+    viewport_w: f32,
+    position_x: f32, // already scaled
+) -> f32 {
+    bounds_x.map_or_else(
+        || match anchor {
+            TextAnchor::Center => viewport_w,
+            TextAnchor::TopLeft => (viewport_w - position_x).max(0.0),
+        },
+        |b| b.max(0.0),
+    )
+}
+
+/// Compute the layout buffer height for a `DrawText` given its anchor and viewport.
+fn layout_buffer_height(
+    anchor: TextAnchor,
+    bounds_y: Option<f32>, // already scaled
+    viewport_h: f32,
+    position_y: f32, // already scaled
+) -> f32 {
+    bounds_y.map_or_else(
+        || match anchor {
+            TextAnchor::Center => viewport_h,
+            TextAnchor::TopLeft => (viewport_h - position_y).max(0.0),
+        },
+        |b| b.max(0.0),
+    )
+}
+
 // ─── Unit tests (only the parts that can run without a GPU) ──────────────────────────────────
 
 #[cfg(test)]
@@ -613,6 +669,100 @@ mod tests {
         let d = make_draw_text("x").with_anchor(TextAnchor::Center);
         assert_eq!(d.anchor, TextAnchor::Center);
         assert_eq!(TextAnchor::default(), TextAnchor::TopLeft);
+    }
+
+    // ─── Fix 2 regression: centered no-bounds text uses full viewport width ───
+
+    /// Regression: before the fix, `DrawText::centered` at position (400, 300) in a
+    /// 800×600 viewport gave a layout buffer width of `800 - 400 = 400` (half the
+    /// screen), causing a title that fits on one line to wrap.  After the fix the
+    /// buffer width is the full `800`.
+    ///
+    /// This test exercises `layout_buffer_width` / `layout_buffer_height` directly
+    /// (pure functions, no GPU/FontSystem needed).
+    #[test]
+    fn centered_no_bounds_uses_full_viewport_width() {
+        let (vw, vh) = (800.0_f32, 600.0_f32);
+        // Centered position (typical: screen center)
+        let (px, py) = (400.0_f32, 300.0_f32);
+
+        let w = layout_buffer_width(TextAnchor::Center, None, vw, px);
+        let h = layout_buffer_height(TextAnchor::Center, None, vh, py);
+
+        assert_eq!(
+            w, vw,
+            "Center anchor: layout width must be full viewport width {vw}, got {w}"
+        );
+        assert_eq!(
+            h, vh,
+            "Center anchor: layout height must be full viewport height {vh}, got {h}"
+        );
+    }
+
+    /// TopLeft anchor retains the old behavior: buffer width = viewport - position.
+    #[test]
+    fn top_left_no_bounds_subtracts_position() {
+        let (vw, vh) = (800.0_f32, 600.0_f32);
+        let (px, py) = (100.0_f32, 50.0_f32);
+
+        let w = layout_buffer_width(TextAnchor::TopLeft, None, vw, px);
+        let h = layout_buffer_height(TextAnchor::TopLeft, None, vh, py);
+
+        assert_eq!(w, vw - px, "TopLeft: width should be {}", vw - px);
+        assert_eq!(h, vh - py, "TopLeft: height should be {}", vh - py);
+    }
+
+    /// Explicit bounds override anchor in both cases.
+    #[test]
+    fn explicit_bounds_override_anchor() {
+        let bounds_x = 200.0_f32;
+        let bounds_y = 100.0_f32;
+
+        for anchor in [TextAnchor::Center, TextAnchor::TopLeft] {
+            let w = layout_buffer_width(anchor, Some(bounds_x), 800.0, 400.0);
+            let h = layout_buffer_height(anchor, Some(bounds_y), 600.0, 300.0);
+            assert_eq!(w, bounds_x, "{anchor:?}: explicit bounds_x ignored");
+            assert_eq!(h, bounds_y, "{anchor:?}: explicit bounds_y ignored");
+        }
+    }
+
+    /// TopLeft with position beyond viewport gives 0 (clamped), not negative.
+    #[test]
+    fn top_left_position_beyond_viewport_clamps_to_zero() {
+        let w = layout_buffer_width(TextAnchor::TopLeft, None, 800.0, 900.0);
+        let h = layout_buffer_height(TextAnchor::TopLeft, None, 600.0, 700.0);
+        assert_eq!(w, 0.0, "should clamp to 0 when position > viewport");
+        assert_eq!(h, 0.0, "should clamp to 0 when position > viewport");
+    }
+
+    /// BUG REPRODUCTION (fails without the fix): before the fix, centered text with
+    /// position at the viewport center would get half the viewport as buffer width,
+    /// not the full viewport.  This asserts the buggy value is NOT what we produce.
+    #[test]
+    fn centered_no_bounds_does_not_use_half_viewport() {
+        let (vw, vh) = (800.0_f32, 600.0_f32);
+        let (px, py) = (vw / 2.0, vh / 2.0); // typical centered position
+
+        let w = layout_buffer_width(TextAnchor::Center, None, vw, px);
+        let h = layout_buffer_height(TextAnchor::Center, None, vh, py);
+
+        // Before the fix, w would be `vw - px = 400` (half). Now it must be `vw = 800`.
+        assert_ne!(
+            w,
+            vw - px,
+            "REGRESSION: Center anchor must NOT produce half-viewport width {}",
+            vw - px
+        );
+        assert_eq!(w, vw, "Center anchor must produce full viewport width {vw}");
+        assert_ne!(
+            h,
+            vh - py,
+            "REGRESSION: Center anchor must NOT produce half-viewport height"
+        );
+        assert_eq!(
+            h, vh,
+            "Center anchor must produce full viewport height {vh}"
+        );
     }
 
     #[test]

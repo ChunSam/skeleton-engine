@@ -481,6 +481,77 @@ mod tests {
         assert!(app.panicked_systems.is_empty());
     }
 
+    /// Regression test: after `SceneCmd::Pop`, a panicked index from the popped scene
+    /// that equals `new_scene_len` must NOT alias the builtin tail (`HierarchySystem`).
+    ///
+    /// Setup:
+    ///   - SceneA registers 0 systems (so new_scene_len = 0 after Pop).
+    ///   - SceneB is Pushed on top with 1 system (PanicSystem at index 0).
+    ///   - PanicSystem panics → index 0 added to panicked_systems.
+    ///   - SceneB is Popped: the drain removes index 0..1.
+    ///   - Bug (before fix): retain `i < new_len` (= 0 + tail = 1) kept index 0,
+    ///     which now aliases HierarchySystem → HierarchySystem permanently skipped.
+    ///   - Fix: retain `i < new_scene_len` (= 0) → index 0 is dropped.
+    ///
+    /// Because panic injection via `std::panic::catch_unwind` in an App update works
+    /// the same way as in other panic-recovery tests, we use that real path.
+    /// After Pop we assert that panicked_systems does NOT contain the tail index
+    /// (the HierarchySystem index = new_scene_len = 0 in this configuration).
+    #[test]
+    fn scene_pop_does_not_alias_builtin_tail_panicked_index() {
+        struct SceneA;
+        impl Scene for SceneA {
+            fn on_enter(&mut self, _w: &mut World, _systems: &mut crate::scene::SystemRegistrar) {
+                // no systems — new_scene_len will be 0 after Pop back to SceneA
+            }
+            fn on_exit(&mut self, _w: &mut World) {}
+        }
+        struct SceneB;
+        impl Scene for SceneB {
+            fn on_enter(&mut self, _w: &mut World, systems: &mut crate::scene::SystemRegistrar) {
+                // PanicSystem inserted at index 0 (before the tail HierarchySystem).
+                // After panic, panicked_systems = {0}.
+                systems.add(PanicSystem);
+            }
+            fn on_exit(&mut self, _w: &mut World) {}
+        }
+
+        let mut app = App::new();
+        // Push SceneA first (0 user systems; tail = HierarchySystem at idx 0).
+        app.apply_scene_cmd(crate::scene::SceneCmd::Replace(Box::new(SceneA)));
+        // Push SceneB (PanicSystem at idx 0; HierarchySystem now at idx 1).
+        app.apply_scene_cmd(crate::scene::SceneCmd::Push(Box::new(SceneB)));
+
+        // Run a frame: PanicSystem panics → added to panicked_systems (index 0).
+        app.update(1.0 / 60.0);
+        assert!(
+            app.panicked_systems.contains(&0),
+            "PanicSystem at idx 0 should be in panicked_systems"
+        );
+
+        // Pop SceneB: drain removes PanicSystem (index 0..1).
+        // After drain, HierarchySystem slides back to index 0 (= new_scene_len = 0).
+        // Bug: retain `i < new_len` (0 + 1 = 1) would keep panicked index 0,
+        //      which now aliases HierarchySystem → it would be permanently skipped.
+        // Fix: retain `i < new_scene_len` (= 0) → panicked_systems becomes empty.
+        app.apply_scene_cmd(crate::scene::SceneCmd::Pop);
+
+        // The tail index (HierarchySystem = index new_scene_len = 0) must NOT be in panicked_systems.
+        let hierarchy_tail_idx = app.systems.len().saturating_sub(app.builtin_tail_count);
+        assert!(
+            !app.panicked_systems.contains(&hierarchy_tail_idx),
+            "HierarchySystem's index {hierarchy_tail_idx} must not be in panicked_systems after Pop; \
+             got panicked_systems = {:?}",
+            app.panicked_systems
+        );
+        assert!(
+            app.panicked_systems.is_empty(),
+            "panicked_systems should be empty after Pop clears the stale index; \
+             got: {:?}",
+            app.panicked_systems
+        );
+    }
+
     #[test]
     fn builtin_system_labels_compose_for_ordering() {
         // Verify that built-in system LABEL constants enforce ordering in the real scheduler.
