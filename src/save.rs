@@ -70,17 +70,47 @@ impl From<io::Error> for SaveError {
     }
 }
 
+/// Strips any `..`, absolute-root, or drive-prefix components from a path string,
+/// keeping only the `Normal` (plain name) segments.  This prevents path-traversal
+/// when caller-supplied strings are joined into a trusted base directory.
+///
+/// Legitimate sub-directory separators are preserved (`"saves/slot1.sav"` → `"saves/slot1.sav"`);
+/// only `..` and absolute/root escapes are removed.
+fn sanitize_path_component(s: &str) -> PathBuf {
+    use std::path::Component;
+    PathBuf::from(s)
+        .components()
+        .filter_map(|c| match c {
+            Component::Normal(n) => Some(PathBuf::from(n)),
+            // ParentDir (..), RootDir (/), Prefix (C:\) are all stripped.
+            _ => None,
+        })
+        .collect()
+}
+
 /// Returns the save-file path under the OS standard data directory.
+///
+/// `app_name` and `file` are sanitized to remove any `..` components or absolute-path
+/// escapes, so callers cannot traverse outside the data directory.
+/// Legitimate subdirectories in `file` (e.g. `"saves/slot1.sav"`) are preserved.
 ///
 /// On WASM returns a relative path `{app_name}/{file}` (filesystem not supported).
 pub fn save_path(app_name: &str, file: &str) -> PathBuf {
     #[cfg(not(target_arch = "wasm32"))]
-    return dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(app_name)
-        .join(file);
+    {
+        let safe_app = sanitize_path_component(app_name);
+        let safe_file = sanitize_path_component(file);
+        dirs::data_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(safe_app)
+            .join(safe_file)
+    }
     #[cfg(target_arch = "wasm32")]
-    PathBuf::from(format!("{app_name}/{file}"))
+    {
+        let safe_app = sanitize_path_component(app_name);
+        let safe_file = sanitize_path_component(file);
+        PathBuf::from(format!("{}/{}", safe_app.display(), safe_file.display()))
+    }
 }
 
 /// Creates the directory, serializes data to RON, encrypts with AEAD, and writes the file.
@@ -457,5 +487,46 @@ mod tests {
         // Deleting a file that is already gone → Ok
         delete(&path).unwrap();
         fs::remove_dir_all(&dir).ok();
+    }
+
+    // ── Fix 4: save_path must not allow path traversal ───────────────────────
+
+    /// `../../etc/passwd` in the file argument must NOT escape the data directory.
+    /// Without the fix, `join("../../etc/passwd")` would resolve to `/etc/passwd`.
+    #[test]
+    fn save_path_traversal_is_blocked() {
+        let traversal = save_path("game", "../../etc/passwd");
+        let components: Vec<_> = traversal.components().collect();
+
+        // The path must contain no ParentDir (..) components.
+        use std::path::Component;
+        let has_dotdot = components.iter().any(|c| matches!(c, Component::ParentDir));
+        assert!(
+            !has_dotdot,
+            "save_path must not contain '..' components, got: {traversal:?}"
+        );
+
+        // The result must still live under the data dir root (no component escapes it).
+        // Verify by checking that the string "etc/passwd" only appears without a leading "..".
+        let path_str = traversal.to_string_lossy();
+        assert!(
+            !path_str.contains("../etc") && !path_str.contains("..\\etc"),
+            "path traversal not blocked: {traversal:?}"
+        );
+    }
+
+    /// Legitimate sub-directory in `file` must be preserved.
+    #[test]
+    fn save_path_subdir_preserved() {
+        let path = save_path("mygame", "saves/slot1.sav");
+        let path_str = path.to_string_lossy();
+        assert!(
+            path_str.contains("saves") && path_str.contains("slot1.sav"),
+            "legitimate subdir was stripped: {path:?}"
+        );
+        assert!(
+            path_str.contains("mygame"),
+            "app_name was stripped: {path:?}"
+        );
     }
 }

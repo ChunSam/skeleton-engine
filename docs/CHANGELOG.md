@@ -4,6 +4,32 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.1.8
+
+Bug fixes: UI click/slider/scroll edge cases, save-path hardening, timeline loop wrap.
+Final batch of an engine-wide review sweep (UI / asset-save-scripting / timeline-tween-
+network — otherwise clean). No public API change.
+
+### Fixed
+
+- **Overlapping `Button`s no longer both fire on one click.** The button pass fired
+  `ButtonClicked` for every button whose hit-test passed, so stacked buttons all fired.
+  Only the top-most (highest `z`) clicked button now fires. (Cross-widget pointer
+  consumption — a button beneath a different widget type — is left as a future TODO.)
+- **`ScrollView` with `item_height == 0` no longer panics.** `size.y / 0.0 → inf`,
+  `inf.ceil() as usize → usize::MAX`, `+ 1` overflowed (debug panic). Zero/negative item
+  height is now guarded.
+- **`Slider` emits exactly one `SliderChanged` on the press frame.** The press and the
+  same-frame drag-recalculation both fired, producing two events with different values;
+  the drag path is now skipped on the press frame.
+- **`save_path` rejects path traversal.** `app_name`/`file` are sanitized (only `Normal`
+  path components kept), so `"../../etc/passwd"` can no longer escape the data directory;
+  legitimate sub-directories (e.g. `"saves/slot1.sav"`) are preserved.
+- **Looping `Timeline` wraps with modulo.** A `dt` larger than the timeline `duration`
+  (e.g. resuming after a stall) used a single subtract, leaving `time` past the end for
+  several frames (stutter). It now wraps with `%` in one frame (guarded against
+  `duration == 0`).
+
 ## 8.1.7
 
 Bug fixes: audio bus-volume during fades, behavior-tree `AlwaysSucceed`, tilemap tile-id

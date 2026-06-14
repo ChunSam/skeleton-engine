@@ -249,7 +249,13 @@ impl crate::ecs::System for TimelineSystem {
             if tl.playing && !tl.is_finished() {
                 tl.time += dt;
                 if tl.looping && tl.time > tl.duration {
-                    tl.time -= tl.duration;
+                    // Wrap with modulo (not a single subtract) so a `dt` larger than
+                    // `duration` — e.g. resuming after a long stall — lands inside
+                    // [0, duration) in one frame instead of stuttering toward it.
+                    // Guard against `duration == 0` (`% 0.0` is NaN).
+                    if tl.duration > 0.0 {
+                        tl.time %= tl.duration;
+                    }
                 } else {
                     tl.time = tl.time.min(tl.duration);
                 }
@@ -558,5 +564,21 @@ mod tests {
         assert_eq!(cam.zoom, 1.0);
         // … and the entity's own Transform is driven as before.
         assert!((world.get::<Transform>(e).unwrap().position.x - 100.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn looping_timeline_wraps_large_dt_with_modulo() {
+        let mut world = World::new();
+        let e = world.spawn();
+        // duration 1.0, looping; advance by dt (2.5) larger than one period.
+        world.add_component(e, Timeline::new(1.0).looping());
+        TimelineSystem.run(&mut world, 2.5);
+        let t = world.get::<Timeline>(e).unwrap().time;
+        // Modulo wrap lands inside [0, duration) in one frame: 2.5 % 1.0 = 0.5.
+        // (Single-subtract would leave 1.5 — still past the end.)
+        assert!(
+            (t - 0.5).abs() < 1e-5,
+            "looping timeline should wrap with modulo, got {t}"
+        );
     }
 }
