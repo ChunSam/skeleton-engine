@@ -26,6 +26,16 @@ impl App {
         }
         self.event_initializers = inits;
         Self::register_core_component_metadata(&mut self.world);
+        // Re-apply game-side world registrations (reflect, clone, serde components).
+        // `World::new()` above discards all per-type metadata; these thunks restore
+        // registrations from `register_editable_component` / `register_serde_component`
+        // so they survive scene Replace. Runs after `register_core_component_metadata`
+        // so the fresh `SerdeComponentRegistry` resource already exists.
+        let regs = std::mem::take(&mut self.world_registrars);
+        for r in &regs {
+            r(&mut self.world);
+        }
+        self.world_registrars = regs;
         if let Some(debug_ui) = debug_ui {
             self.world.insert_resource(debug_ui);
         }

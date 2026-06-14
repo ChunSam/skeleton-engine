@@ -4,6 +4,33 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.1.2
+
+Bug fix: the game-data editor (v8.1.0) is now functional under its documented usage.
+No API change.
+
+### Fixed
+
+- **Game-side component registrations and data tables survive `set_scene`.**
+  `App::set_scene` resets the `World` (via `SceneCmd::Replace` → `reload_scene`), which
+  previously discarded everything registered *before* the first scene was set. With the
+  documented pattern —
+  ```rust
+  app.register_editable_component::<Stats>("Stats", None);
+  app.load_data_table("enemies", "enemies.ron");
+  app.set_scene(Box::new(GameScene::new()));
+  ```
+  — the `Stats` reflect/clone/serde registrations and the loaded `DataTableRegistry`
+  were silently lost, so `Stats` never appeared in the Inspector, was omitted from saved
+  scene RON, and the Data Tables panel was empty. `App` now records these registrations
+  and **replays them on every world reset** (mirroring the existing `event_initializers`
+  mechanism), and `load_data_table` marks the `DataTableRegistry` persistent. The
+  `stat_editor_game` example now works end-to-end (Inspector edit → Save → reload; live
+  Data Tables). Built-in components (Transform/Sprite/Tag/UI widgets) were unaffected
+  because they are re-registered by `insert_core_resources` each reset.
+  - Internal: `SerdeComponentEntry.post_spawn` is now stored as `Arc` (was `Box`) so the
+    registration can be replayed. No public signature change.
+
 ## 8.1.1
 
 Event-loop responsiveness on macOS (no API change).
