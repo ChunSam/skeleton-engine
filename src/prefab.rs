@@ -116,6 +116,10 @@ pub struct EntityDef {
 /// Holds type-erased serialize / deserialize / post-spawn closures so that any
 /// `Serialize + DeserializeOwned + Clone` component can participate in scene
 /// save/load without hardcoding each type in the engine core.
+///
+/// `post_spawn` uses `Arc` (instead of `Box`) so the closure can be cheaply cloned
+/// into the `App::world_registrars` replay list that re-registers all serde components
+/// after a scene Replace world reset.
 #[allow(clippy::type_complexity)]
 pub struct SerdeComponentEntry {
     /// Extracts the component from `entity` and serializes it to a RON [`ron::Value`].
@@ -125,7 +129,9 @@ pub struct SerdeComponentEntry {
     pub deserialize:
         Box<dyn Fn(&mut World, Entity, ron::Value) -> Result<(), String> + Send + Sync>,
     /// Optional hook run after a successful deserialize (e.g. copy initial_text → text).
-    pub post_spawn: Option<Box<dyn Fn(&mut World, Entity) + Send + Sync>>,
+    /// Stored as `Arc` so it can be cloned into the scene-reset replay list without
+    /// requiring the closure to be `Clone`.
+    pub post_spawn: Option<std::sync::Arc<dyn Fn(&mut World, Entity) + Send + Sync>>,
 }
 
 /// Type-erased registry for serde-capable components.
@@ -163,6 +169,21 @@ impl SerdeComponentRegistry {
         &mut self,
         name: impl Into<String>,
         post_spawn: Option<Box<dyn Fn(&mut World, Entity) + Send + Sync>>,
+    ) where
+        T: serde::Serialize + serde::de::DeserializeOwned + Clone + Send + Sync + 'static,
+    {
+        // Convert Box → Arc so the closure can be cloned into the scene-reset replay list.
+        self.register_arc::<T>(name, post_spawn.map(std::sync::Arc::from));
+    }
+
+    /// Internal registration path accepting an `Arc`-wrapped post-spawn hook.
+    /// Used by `register` (converts from `Box`) and by the scene-reset replay thunks
+    /// recorded in `App::world_registrars` (which clone the `Arc` cheaply).
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn register_arc<T>(
+        &mut self,
+        name: impl Into<String>,
+        post_spawn: Option<std::sync::Arc<dyn Fn(&mut World, Entity) + Send + Sync>>,
     ) where
         T: serde::Serialize + serde::de::DeserializeOwned + Clone + Send + Sync + 'static,
     {

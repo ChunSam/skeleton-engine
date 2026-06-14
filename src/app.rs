@@ -188,6 +188,11 @@ pub struct App {
     event_flushers: Vec<EventHook>,
     /// Closures that re-insert event resources on `reload_scene`.
     event_initializers: Vec<EventHook>,
+    /// Closures that re-apply game-side world registrations (reflect, clone, serde components)
+    /// after a scene Replace resets the World. Scene Replace calls `World::new()`, which
+    /// discards all per-type metadata stored on the old world; replaying these thunks
+    /// restores `register_editable_component` / `register_serde_component` registrations.
+    world_registrars: Vec<EventHook>,
     /// Resource types to preserve across scene transitions (World reset) via `register_persistent`.
     persistent_resources: Vec<std::any::TypeId>,
     /// gilrs gamepad context. None if initialization failed (runs without gamepad).
@@ -272,6 +277,7 @@ impl App {
             pending_render_targets: Vec::new(),
             event_flushers: Vec::new(),
             event_initializers: Vec::new(),
+            world_registrars: Vec::new(),
             persistent_resources: Vec::new(),
             #[cfg(not(target_arch = "wasm32"))]
             gilrs,
@@ -654,6 +660,124 @@ mod tests {
             (recorded - 13.0).abs() < 1e-3,
             "ReadChildGt (after HierarchySystem::LABEL) expected GT.x=13.0, got {recorded}"
         );
+    }
+
+    // ─── register_editable_component / load_data_table scene-reset regression tests ──
+
+    /// A component registered via `register_editable_component` must still be inspectable
+    /// and serialisable after a `set_scene` (which triggers a World reset via SceneCmd::Replace).
+    ///
+    /// This test reproduces the exact usage pattern from `stat_editor_game` that was silently
+    /// broken: register → set_scene → assert the registration survived the World swap.
+    ///
+    /// We implement `Reflect` manually rather than via `#[derive(engine_reflect_derive::Reflect)]`
+    /// because the derive macro emits `engine::reflect::…` paths — valid in integration tests
+    /// (where `engine` is the extern crate name) but NOT inside the `skeleton-engine` lib itself.
+    #[test]
+    fn editable_component_survives_scene_replace() {
+        #[derive(serde::Serialize, serde::Deserialize, Clone, Default)]
+        struct TestStat {
+            hp: f32,
+        }
+        impl crate::reflect::Reflect for TestStat {
+            fn fields(&self) -> Vec<(&'static str, crate::reflect::ReflectValue)> {
+                vec![("hp", crate::reflect::ReflectValue::F32(self.hp))]
+            }
+            fn set_field(&mut self, name: &str, val: crate::reflect::ReflectValue) -> bool {
+                if name == "hp" {
+                    if let crate::reflect::ReflectValue::F32(v) = val {
+                        self.hp = v;
+                        return true;
+                    }
+                }
+                false
+            }
+            fn type_name(&self) -> &'static str {
+                "TestStat"
+            }
+        }
+
+        use crate::scene::SystemRegistrar;
+
+        struct EmptyScene;
+        impl Scene for EmptyScene {
+            fn on_enter(&mut self, _w: &mut World, _s: &mut SystemRegistrar) {}
+            fn on_exit(&mut self, _w: &mut World) {}
+        }
+
+        let mut app = App::new();
+        // Register BEFORE set_scene — this is the pattern that was broken.
+        app.register_editable_component::<TestStat>("TestStat", None);
+        app.set_scene(Box::new(EmptyScene));
+
+        // Spawn an entity and add the component.
+        let e = app.world.spawn();
+        app.world.add_component(e, TestStat { hp: 42.0 });
+
+        // (a) Reflect: the Inspector must be able to retrieve it.
+        let type_id = std::any::TypeId::of::<TestStat>();
+        let reflected = app.world.reflected_components(e);
+        assert!(
+            reflected.contains(&type_id),
+            "TestStat must appear in reflected_components after scene Replace"
+        );
+
+        // (b) Serde: SerdeComponentRegistry must round-trip it.
+        let registry = app
+            .world
+            .resource::<crate::prefab::SerdeComponentRegistry>()
+            .expect("SerdeComponentRegistry must exist after scene Replace");
+        let serialized = registry.serialize_entity(&app.world, e);
+        assert!(
+            serialized.contains_key("TestStat"),
+            "TestStat must be serialisable after scene Replace; got keys: {:?}",
+            serialized.keys().collect::<Vec<_>>()
+        );
+    }
+
+    /// `load_data_table` must preserve the `DataTableRegistry` across a scene Replace so
+    /// that the Data Tables editor panel retains its loaded data.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn data_table_registry_survives_scene_replace() {
+        use crate::scene::SystemRegistrar;
+
+        struct EmptyScene;
+        impl Scene for EmptyScene {
+            fn on_enter(&mut self, _w: &mut World, _s: &mut SystemRegistrar) {}
+            fn on_exit(&mut self, _w: &mut World) {}
+        }
+
+        // Write a minimal valid DataTable RON to a temp file.
+        let dir = std::env::temp_dir();
+        let path = dir.join("test_enemies_table.ron");
+        std::fs::write(&path, r#"[(name: "goblin", hp: 10)]"#).expect("write temp ron");
+
+        let mut app = App::new();
+        app.load_data_table("enemies", path.to_str().unwrap());
+
+        // Verify the table is present before the scene reset.
+        assert!(
+            app.world
+                .resource::<crate::data_table::DataTableRegistry>()
+                .is_some(),
+            "DataTableRegistry must exist after load_data_table"
+        );
+
+        app.set_scene(Box::new(EmptyScene));
+
+        // After scene Replace the registry must still be there (preserved resource).
+        let reg = app
+            .world
+            .resource::<crate::data_table::DataTableRegistry>()
+            .expect("DataTableRegistry must survive scene Replace");
+        assert!(
+            reg.get("enemies").is_some(),
+            "enemies table must survive scene Replace; tables present: {:?}",
+            reg.names()
+        );
+
+        let _ = std::fs::remove_file(&path);
     }
 
     /// After `SceneCmd::Replace`, `HierarchySystem` must still propagate `GlobalTransform` —

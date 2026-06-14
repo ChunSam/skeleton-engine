@@ -311,6 +311,9 @@ impl App {
             self.world
                 .insert_resource(crate::data_table::DataTableRegistry::default());
         }
+        // Preserve the DataTableRegistry across scene Replace world resets so loaded
+        // tables (and any unsaved editor edits) survive the transition.
+        self.register_persistent::<crate::data_table::DataTableRegistry>();
 
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -374,6 +377,12 @@ impl App {
     {
         self.world.register_reflect_named::<T>(name);
         self.world.register_clone::<T>();
+        // Push a replay thunk for reflect+clone so they survive scene Replace.
+        // `name` is `&'static str` (Copy), so no clone needed.
+        self.world_registrars.push(Box::new(move |world| {
+            world.register_reflect_named::<T>(name);
+            world.register_clone::<T>();
+        }));
         self.register_serde_component::<T>(name, post_spawn);
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -414,11 +423,30 @@ impl App {
     ) where
         T: serde::Serialize + serde::de::DeserializeOwned + Clone + Send + Sync + 'static,
     {
-        if let Some(registry) = self
-            .world
-            .resource_mut::<crate::prefab::SerdeComponentRegistry>()
-        {
-            registry.register::<T>(name, post_spawn);
+        let name: String = name.into();
+        // Convert Box → Arc so the closure can be cloned into the replay thunk below.
+        let ps: Option<std::sync::Arc<dyn Fn(&mut World, Entity) + Send + Sync>> =
+            post_spawn.map(std::sync::Arc::from);
+        Self::do_register_serde_component::<T>(&mut self.world, name.clone(), ps.clone());
+
+        // Record a replay thunk: after a scene Replace resets the World, this closure
+        // re-inserts the serde registration so scene save/load keeps working.
+        self.world_registrars.push(Box::new(move |world| {
+            Self::do_register_serde_component::<T>(world, name.clone(), ps.clone());
+        }));
+    }
+
+    /// Shared implementation for the immediate registration and scene-reset replay.
+    #[allow(clippy::type_complexity)]
+    fn do_register_serde_component<T>(
+        world: &mut World,
+        name: String,
+        post_spawn: Option<std::sync::Arc<dyn Fn(&mut World, Entity) + Send + Sync>>,
+    ) where
+        T: serde::Serialize + serde::de::DeserializeOwned + Clone + Send + Sync + 'static,
+    {
+        if let Some(registry) = world.resource_mut::<crate::prefab::SerdeComponentRegistry>() {
+            registry.register_arc::<T>(name, post_spawn);
         }
     }
 }
