@@ -28,6 +28,10 @@ second review sweep). No public API change.
   the input release ran twice; a release with no matching press could also be produced
   when the pointer was outside. The stuck-state-clearing release now runs only when the
   primary (in-viewport) release path did not.
+- **Undo/Duplicate/Paste of a child entity preserves its parent link.** `entity_to_def`
+  hard-coded `parent: None`, so restoring a deleted (or duplicating/pasting a) child
+  re-spawned it as a root, losing the hierarchy. It now resolves the entity's `Parent`
+  to the parent's `Tag`, matching scene-save.
 
 ## 8.1.3
 

@@ -218,7 +218,12 @@ pub(super) fn entity_to_def(world: &World, entity: Entity) -> Option<crate::pref
         tag: world.get::<crate::prefab::Tag>(entity).map(|t| t.0.clone()),
         transform: world.get::<crate::components::Transform>(entity).cloned(),
         sprite: world.get::<crate::components::Sprite>(entity).cloned(),
-        parent: None,
+        // Resolve the parent link to the parent's Tag (EntityDef.parent is tag-based) so
+        // Undo-of-Delete / Duplicate / Paste restore the hierarchy, not a root entity.
+        // Mirrors do_save_scene_with_list's parent resolution.
+        parent: world
+            .get::<crate::hierarchy::Parent>(entity)
+            .and_then(|p| world.get::<crate::prefab::Tag>(p.0).map(|t| t.0.clone())),
         components,
     })
 }
@@ -556,5 +561,24 @@ mod editor_cmd_tests {
         history.redo(&mut world, &mut sel);
         let redone = sel.expect("redo must yield an entity");
         assert!(world.is_alive(redone));
+    }
+
+    // ── entity_to_def captures the parent link (Undo/Duplicate restore hierarchy) ──
+    #[test]
+    fn entity_to_def_captures_parent_tag() {
+        let mut world = World::new();
+        let parent = world.spawn();
+        world.add_component(parent, Tag("Parent".into()));
+        let child = world.spawn();
+        world.add_component(child, Tag("Child".into()));
+        world.add_component(child, crate::components::Transform::default());
+        world.add_component(child, crate::hierarchy::Parent(parent));
+
+        let def = entity_to_def(&world, child).expect("entity_to_def");
+        assert_eq!(
+            def.parent.as_deref(),
+            Some("Parent"),
+            "entity_to_def must capture the parent's Tag so Undo-of-Delete restores hierarchy"
+        );
     }
 }
