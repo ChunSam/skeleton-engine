@@ -4,6 +4,35 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.1.3
+
+Bug fixes: docked-editor reliability (Undo/Redo, Load/Save, Data Tables). No API change
+to the public surface; `DataTableRegistry::reload_path` now returns a `ReloadOutcome`
+(was `()`).
+
+### Fixed
+
+- **Undo of Delete restores the whole entity.** `EditorCmd::DeleteEntity` captured only
+  tag/transform/sprite, so undoing a delete dropped every other component — including
+  game components registered via `register_editable_component` (e.g. `Stats`). It now
+  captures the full `EntityDef` and restores via `spawn_entity_def`, preserving all
+  serde-registered components.
+- **Duplicate and Paste are now undoable.** The `⎘ Duplicate` button and Ctrl+V paste
+  spawned entities without recording an undo step, so Ctrl+Z did nothing. They now push a
+  `CreateEntity` command carrying the entity's `EntityDef`, so Undo removes the copy and
+  Redo restores it with all its components.
+- **Load Scene fully clears the previous scene.** `do_load_scene` despawned only
+  `Transform`-bearing entities, leaving `UiNode`-only entities (menus/HUD) behind and
+  duplicating them on load. It now despawns all entities before loading.
+- **Data Tables "Reload" reports accurately.** `reload_path` skips reloading a table with
+  unsaved edits (dirty-guard); the panel previously still showed "reloaded". It now
+  reports the real outcome ("skipped reload — unsaved edits") via the new
+  `ReloadOutcome` return value.
+- **Save Scene no longer silently drops untagged-parent links.** When a child's parent
+  entity has no `Tag` (unrepresentable in `EntityDef.parent`, which is tag-based), the
+  link was dropped silently; Save now logs a warning and notes the count of dropped
+  parent links in the save-status message.
+
 ## 8.1.2
 
 Bug fix: the game-data editor (v8.1.0) is now functional under its documented usage.

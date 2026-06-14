@@ -60,6 +60,14 @@ impl App {
                     t.position += glam::Vec2::new(20.0, 20.0);
                 }
                 let e = crate::prefab::spawn_entity_def(&mut self.world, &def);
+                // Record each pasted entity in history so Ctrl+Z removes it and
+                // Ctrl+Shift+Z re-spawns it from its captured def.
+                self.editor
+                    .cmd_history
+                    .push(crate::app::editor::EditorCmd::CreateEntity {
+                        entity: e,
+                        def: Some(def),
+                    });
                 pasted.push(e);
             }
             // set the first pasted entity as the primary selection
