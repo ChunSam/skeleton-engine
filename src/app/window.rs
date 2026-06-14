@@ -316,8 +316,10 @@ impl ApplicationHandler for App {
                         }
                         // Outside panel or egui wants pointer: game sees no click.
                         // Ensure any stale pressed state is cleared on release to prevent
-                        // stuck buttons when the cursor moves out while held.
-                        if state == ElementState::Released {
+                        // stuck buttons when the cursor moves out while held (press-inside,
+                        // release-outside scenario).  Only fire when !allowed to avoid
+                        // double-releasing when allowed already handled it above.
+                        if !allowed && state == ElementState::Released {
                             if let Some(input) = self.world.resource_mut::<InputState>() {
                                 input.release_mouse(button);
                             }

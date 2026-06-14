@@ -3,8 +3,29 @@ use super::*;
 use crate::app::editor::ResizeHandle;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::app::editor::{snap_to_grid, EditorCmd};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::ui::Anchor;
 
 // ── Pure geometry helpers (tested below) ─────────────────────────────────────
+
+/// Returns the anchor base position — the point in screen-space from which
+/// `UiNode::offset` is added.  This is the same formula used by
+/// `UiNode::screen_pos` and must be kept in sync with it.
+///
+/// Factored out so both `UiNode::screen_pos` callers and the resize gizmo
+/// share a single authoritative definition (no drift).
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn anchor_base(anchor: Anchor, size: glam::Vec2, vw: f32, vh: f32) -> glam::Vec2 {
+    match anchor {
+        Anchor::TopLeft => glam::Vec2::ZERO,
+        Anchor::TopCenter => glam::Vec2::new((vw - size.x) / 2.0, 0.0),
+        Anchor::TopRight => glam::Vec2::new(vw - size.x, 0.0),
+        Anchor::Center => glam::Vec2::new((vw - size.x) / 2.0, (vh - size.y) / 2.0),
+        Anchor::BottomLeft => glam::Vec2::new(0.0, vh - size.y),
+        Anchor::BottomCenter => glam::Vec2::new((vw - size.x) / 2.0, vh - size.y),
+        Anchor::BottomRight => glam::Vec2::new(vw - size.x, vh - size.y),
+    }
+}
 
 /// Returns the corrected offset after a screen-space drag.
 ///
@@ -85,7 +106,18 @@ pub(crate) fn hit_test_handles(
     None
 }
 
-/// Compute the new `(offset, size)` after dragging `handle` by `delta` pixels.
+/// Compute the new `(offset, size)` after dragging `handle` by `delta` pixels,
+/// preserving the screen position of the corner that should stay fixed for ANY
+/// `anchor` type.
+///
+/// For `Anchor::TopLeft` the anchor base is constant (zero), so the compensation
+/// term is zero and behaviour is identical to the previous implementation.
+/// For non-TopLeft anchors `base(size)` depends on the current size, so resizing
+/// would shift the widget without the correction below.
+///
+/// The fix: after computing `(offset, new_size)` with TopLeft-style math,
+/// add the difference `base(start_size) − base(new_size)` to offset so the
+/// fixed corner's screen position (`base + offset`) remains unchanged.
 ///
 /// Corners adjust both offset and size; edges adjust one axis.
 /// Size is clamped to `MIN_UI_SIZE × MIN_UI_SIZE`.
@@ -95,6 +127,8 @@ pub(crate) fn ui_resize_new_layout(
     start_size: glam::Vec2,
     delta: glam::Vec2,
     handle: ResizeHandle,
+    anchor: Anchor,
+    viewport_wh: (f32, f32),
 ) -> (glam::Vec2, glam::Vec2) {
     use ResizeHandle::*;
     let mut offset = start_offset;
@@ -153,6 +187,13 @@ pub(crate) fn ui_resize_new_layout(
             _ => {}
         }
     }
+    // Anchor-base compensation: for non-TopLeft anchors the base position
+    // depends on `size`, so a size change shifts `screen_pos = base + offset`
+    // unless we compensate by adjusting `offset` by the change in base.
+    // For TopLeft: base == Vec2::ZERO always → compensation is zero (no change).
+    let (vw, vh) = viewport_wh;
+    let base_delta = anchor_base(anchor, start_size, vw, vh) - anchor_base(anchor, size, vw, vh);
+    offset += base_delta;
     (offset, size)
 }
 
@@ -286,6 +327,7 @@ impl App {
                 sel,
                 node,
                 screen_pos,
+                vp,
                 cursor,
                 just_pressed,
                 held,
@@ -323,6 +365,7 @@ impl App {
         sel: crate::ecs::Entity,
         node: crate::ui::UiNode,
         screen_pos: glam::Vec2,
+        vp: crate::resources::ViewportSize,
         cursor: glam::Vec2,
         just_pressed: bool,
         held: bool,
@@ -360,6 +403,8 @@ impl App {
                     self.editor.resize_drag_start_size,
                     delta,
                     handle,
+                    node.anchor,
+                    (vp.width, vp.height),
                 );
                 let snapped_size = if self.editor.snap_enabled {
                     glam::Vec2::new(
@@ -817,14 +862,21 @@ mod tests {
     }
 
     // ─── ui_resize_new_layout ────────────────────────────────────────────────
+    // TopLeft anchor: base is always zero → compensation is zero → same assertions as before.
 
     #[test]
     fn resize_topleft_basic() {
         let start_offset = glam::Vec2::new(50.0, 50.0);
         let start_size = glam::Vec2::new(200.0, 100.0);
         let delta = glam::Vec2::new(20.0, 10.0); // drag TopLeft down-right → shrinks
-        let (new_offset, new_size) =
-            ui_resize_new_layout(start_offset, start_size, delta, ResizeHandle::TopLeft);
+        let (new_offset, new_size) = ui_resize_new_layout(
+            start_offset,
+            start_size,
+            delta,
+            ResizeHandle::TopLeft,
+            Anchor::TopLeft,
+            (800.0, 600.0),
+        );
         assert!((new_offset.x - 70.0).abs() < 0.001, "offset.x");
         assert!((new_offset.y - 60.0).abs() < 0.001, "offset.y");
         assert!((new_size.x - 180.0).abs() < 0.001, "size.x");
@@ -837,8 +889,14 @@ mod tests {
         let start_size = glam::Vec2::new(20.0, 20.0);
         // Delta so large it would go negative.
         let delta = glam::Vec2::new(100.0, 100.0);
-        let (_, new_size) =
-            ui_resize_new_layout(start_offset, start_size, delta, ResizeHandle::TopLeft);
+        let (_, new_size) = ui_resize_new_layout(
+            start_offset,
+            start_size,
+            delta,
+            ResizeHandle::TopLeft,
+            Anchor::TopLeft,
+            (800.0, 600.0),
+        );
         assert!(
             new_size.x >= MIN_UI_SIZE,
             "size.x below min: {}",
@@ -856,13 +914,69 @@ mod tests {
         let start_offset = glam::Vec2::new(10.0, 10.0);
         let start_size = glam::Vec2::new(100.0, 50.0);
         let delta = glam::Vec2::new(30.0, 20.0);
-        let (new_offset, new_size) =
-            ui_resize_new_layout(start_offset, start_size, delta, ResizeHandle::BottomRight);
-        // offset unchanged for BottomRight.
+        let (new_offset, new_size) = ui_resize_new_layout(
+            start_offset,
+            start_size,
+            delta,
+            ResizeHandle::BottomRight,
+            Anchor::TopLeft,
+            (800.0, 600.0),
+        );
+        // offset unchanged for BottomRight with TopLeft anchor.
         assert!(
             (new_offset - start_offset).length() < 0.001,
             "offset changed"
         );
+        assert!((new_size.x - 130.0).abs() < 0.001, "size.x");
+        assert!((new_size.y - 70.0).abs() < 0.001, "size.y");
+    }
+
+    /// For a Center-anchored node, dragging the BottomRight handle must grow
+    /// the size WITHOUT shifting the widget's top-left screen position.
+    ///
+    /// screen_pos = base(anchor, size, vw, vh) + offset
+    ///
+    /// Before: size=(100,50), offset=(0,0), vp=(800,600)
+    ///   base = ((800-100)/2, (600-50)/2) = (350, 275)  → screen_pos = (350, 275)
+    ///
+    /// After drag BottomRight by (30, 20): size=(130,70)
+    ///   For screen_pos to stay at (350, 275) we need:
+    ///   base_new = ((800-130)/2, (600-70)/2) = (335, 265)
+    ///   new_offset = screen_pos - base_new = (15, 10)
+    ///
+    /// The fix applies: offset += base(start_size) - base(new_size)
+    ///   = (350,275) - (335,265) = (15,10)  ✓
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn resize_center_anchor_fixed_corner_preserved() {
+        let vp = (800.0_f32, 600.0_f32);
+        let start_size = glam::Vec2::new(100.0, 50.0);
+        let start_offset = glam::Vec2::ZERO;
+        let anchor = Anchor::Center;
+
+        // Compute screen_pos before resize.
+        let base_before = anchor_base(anchor, start_size, vp.0, vp.1);
+        let screen_pos_before = base_before + start_offset;
+
+        let delta = glam::Vec2::new(30.0, 20.0);
+        let (new_offset, new_size) = ui_resize_new_layout(
+            start_offset,
+            start_size,
+            delta,
+            ResizeHandle::BottomRight,
+            anchor,
+            vp,
+        );
+
+        // Compute screen_pos after resize.
+        let base_after = anchor_base(anchor, new_size, vp.0, vp.1);
+        let screen_pos_after = base_after + new_offset;
+
+        assert!(
+            (screen_pos_after - screen_pos_before).length() < 0.001,
+            "top-left screen position shifted: before={screen_pos_before:?} after={screen_pos_after:?}"
+        );
+        // Size did grow as expected.
         assert!((new_size.x - 130.0).abs() < 0.001, "size.x");
         assert!((new_size.y - 70.0).abs() < 0.001, "size.y");
     }
