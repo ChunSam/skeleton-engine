@@ -278,5 +278,9 @@ impl PhysicsWorld {
             &mut self.multibody_joint_set,
             true,
         );
+        // Refresh the query pipeline immediately so a same-frame `cast_ray*` issued after
+        // this removal does not hit the just-removed collider (the pipeline is otherwise
+        // only rebuilt inside `step()`). Cheap at this engine's scale (few removals/frame).
+        self.query_pipeline.update(&self.collider_set);
     }
 }

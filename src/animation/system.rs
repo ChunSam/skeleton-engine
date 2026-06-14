@@ -130,10 +130,14 @@ impl System for AnimationSystem {
                             // Non-looping: once the last frame is reached the timer has
                             // already been clamped to that frame; stop draining to avoid
                             // an infinite loop (dur is finite but frame never advances).
-                            if player.current_frame + 1
-                                >= player.clips[player.current_clip].frames.len()
-                            {
+                            if player.current_frame + 1 >= n {
                                 player.timer = 0.0;
+                                // Mark the clip as finished now that AnimationSystem has
+                                // advanced the playhead to the last frame. `is_finished()`
+                                // reads this flag rather than comparing frame indices, so a
+                                // 1-frame clip is NOT finished at construction time (before
+                                // any dt has elapsed) — it becomes finished only here.
+                                player.finished = true;
                                 break;
                             }
                         }

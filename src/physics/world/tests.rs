@@ -318,3 +318,31 @@ fn one_way_platform_blocks_from_top_passes_from_below_and_on_drop() {
         "solid should ignore drop request"
     );
 }
+
+#[test]
+fn cast_ray_no_hit_after_remove_body_before_step() {
+    // Without the fix, the query_pipeline still contains the removed collider and the ray hits.
+    // With the fix, cast_ray lazily rebuilds the pipeline → no hit.
+    let mut pw = PhysicsWorld::new(Vec2::ZERO);
+    // Static box centered at origin; step to populate the query pipeline.
+    let (body_handle, col) = pw.add_static_box(Vec2::ZERO, 0.5, 0.5);
+    pw.step(1.0 / 60.0);
+
+    // Verify the ray hits before removal.
+    let hit_before = pw.cast_ray(Vec2::new(0.0, -5.0), Vec2::new(0.0, 1.0), 10.0, true);
+    assert!(hit_before.is_some(), "ray must hit the box before removal");
+
+    // Remove the body without calling step().
+    let physics_body = crate::physics::body::PhysicsBody {
+        rigid_body_handle: body_handle,
+        collider_handle: col,
+    };
+    pw.remove_body(&physics_body);
+
+    // Cast again without stepping — the fix must rebuild the pipeline lazily.
+    let hit_after = pw.cast_ray(Vec2::new(0.0, -5.0), Vec2::new(0.0, 1.0), 10.0, true);
+    assert!(
+        hit_after.is_none(),
+        "ray must not hit the removed body (ghost collider bug); without the fix this would be Some"
+    );
+}

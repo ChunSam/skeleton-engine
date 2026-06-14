@@ -41,6 +41,11 @@ pub struct AnimationPlayer {
     /// Accumulated time (seconds) until the next frame.
     pub timer: f32,
     pub(crate) crossfade: Option<CrossfadeState>,
+    /// Set by `AnimationSystem` when a non-looping clip reaches its last frame and has
+    /// been shown for at least one frame duration. Reset by `play` / `play_with_crossfade`.
+    /// This avoids `is_finished()` returning `true` at frame 0 (before any time has elapsed),
+    /// which would cause state-machine `AnimationEnd` transitions to fire before the clip is seen.
+    pub(crate) finished: bool,
 }
 
 impl AnimationPlayer {
@@ -51,6 +56,7 @@ impl AnimationPlayer {
             current_frame: 0,
             timer: 0.0,
             crossfade: None,
+            finished: false,
         }
     }
 
@@ -61,6 +67,7 @@ impl AnimationPlayer {
             self.current_frame = 0;
             self.timer = 0.0;
             self.crossfade = None;
+            self.finished = false;
         }
     }
 
@@ -99,6 +106,7 @@ impl AnimationPlayer {
             self.current_frame = cf.to_frame;
             self.timer = cf.to_timer;
         }
+        self.finished = false;
         self.crossfade = Some(CrossfadeState {
             to_clip: clip_index,
             to_frame: 0,
@@ -148,7 +156,13 @@ impl AnimationPlayer {
             .unwrap_or(UvRect::FULL)
     }
 
-    /// Returns whether the current clip has finished. Always `false` for looping clips.
+    /// Returns whether the current non-looping clip has finished.
+    ///
+    /// Returns `false` for looping clips and for clips with no frames. For non-looping
+    /// clips, returns `true` only after `AnimationSystem` has advanced the clip to its
+    /// last frame **and** held it there for at least one full frame duration — i.e. the
+    /// flag is set by the system, not inferred from frame index alone. This prevents a
+    /// 1-frame clip from reporting finished at frame 0 before any time has elapsed.
     pub fn is_finished(&self) -> bool {
         let Some(clip) = self.clips.get(self.current_clip) else {
             return true;
@@ -156,13 +170,14 @@ impl AnimationPlayer {
         if clip.looping || clip.frames.is_empty() {
             return false;
         }
-        self.current_frame >= clip.frames.len() - 1
+        self.finished
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ecs::System;
 
     fn make_clip(n_frames: usize, fps: f32, looping: bool) -> AnimationClip {
         AnimationClip {
@@ -248,6 +263,82 @@ mod tests {
         assert_eq!(
             player.current_clip, 1,
             "FROM clip must remain B after no-op re-fire"
+        );
+    }
+
+    /// A 1-frame non-looping clip must not report `is_finished()` at frame 0 (before any dt).
+    /// It must become finished only after at least one frame-duration of accumulated dt.
+    /// This test drives the system directly rather than going through AnimationSystem.
+    #[test]
+    fn one_frame_nonlooping_clip_not_finished_at_entry() {
+        use crate::animation::system::AnimationSystem;
+        use crate::ecs::World;
+        let fps = 10.0_f32; // frame_dur = 100 ms
+        let mut world = World::new();
+        let e = world.spawn();
+        world.add_component(
+            e,
+            AnimationPlayer::new(vec![AnimationClip {
+                frames: vec![UvRect::FULL],
+                fps,
+                looping: false,
+            }]),
+        );
+        let mut sys = AnimationSystem::new();
+
+        // Before any tick: must NOT be finished.
+        assert!(
+            !world.get::<AnimationPlayer>(e).unwrap().is_finished(),
+            "1-frame clip must not be finished before any time has elapsed"
+        );
+
+        // After less than one frame duration: still not finished.
+        sys.run(&mut world, 0.05);
+        assert!(
+            !world.get::<AnimationPlayer>(e).unwrap().is_finished(),
+            "1-frame clip must not be finished after 50ms (< 100ms frame_dur)"
+        );
+
+        // After one full frame duration: now finished.
+        sys.run(&mut world, 0.06); // cumulative 110ms > 100ms
+        assert!(
+            world.get::<AnimationPlayer>(e).unwrap().is_finished(),
+            "1-frame clip must be finished after one full frame duration"
+        );
+    }
+
+    /// Multi-frame non-looping clip: `is_finished()` becomes true the frame the system
+    /// advances the playhead onto the last frame (same semantics as before the fix; the
+    /// fix only corrects the 1-frame false-positive at construction time).
+    #[test]
+    fn multi_frame_nonlooping_clip_finished_after_last_frame_shown() {
+        use crate::animation::system::AnimationSystem;
+        use crate::ecs::World;
+        let fps = 10.0_f32; // frame_dur = 100 ms, 3 frames → last frame reached at 200 ms
+        let mut world = World::new();
+        let e = world.spawn();
+        world.add_component(
+            e,
+            AnimationPlayer::new(vec![AnimationClip {
+                frames: vec![UvRect::FULL; 3],
+                fps,
+                looping: false,
+            }]),
+        );
+        let mut sys = AnimationSystem::new();
+
+        // Not finished before the last frame is reached (just over 1 frame in).
+        sys.run(&mut world, 0.15); // 150ms: frame 0→1 at 100ms, still on frame 1
+        assert!(
+            !world.get::<AnimationPlayer>(e).unwrap().is_finished(),
+            "3-frame clip must not be finished at 150ms (still on frame 1)"
+        );
+
+        // Advance past the 200ms mark so the system steps to frame 2 (last).
+        sys.run(&mut world, 0.11); // 260ms total: frame 1→2 (last) → finished
+        assert!(
+            world.get::<AnimationPlayer>(e).unwrap().is_finished(),
+            "3-frame clip must be finished after advancing to the last frame"
         );
     }
 
