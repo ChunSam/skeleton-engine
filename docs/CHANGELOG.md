@@ -4,6 +4,35 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.1.4
+
+Bug fixes: docked-editor gizmo + Inspector edge cases (follow-up to 8.1.3, found by a
+second review sweep). No public API change.
+
+### Fixed
+
+- **Resizing a non-`TopLeft`-anchored `UiNode` no longer slides the widget.**
+  `UiNode::screen_pos` is `anchor_base(anchor, size) + offset`, and for `Center`/
+  `Bottom*`/`*Right` anchors the base depends on `size`. The gizmo resize math only kept
+  the fixed corner stable for `TopLeft`, so resizing a `Center`-anchored widget (e.g. the
+  `ui_layout_editor_game` menu buttons) drifted on screen. `ui_resize_new_layout` now
+  applies an anchor-base compensation so the fixed corner stays put for every anchor
+  (`TopLeft` behaviour is unchanged — its base is constant). A shared `anchor_base` helper
+  is now the single source for both `screen_pos` and the gizmo.
+- **Inspector field edits are no longer dropped when the archetype/selection changes
+  mid-frame.** The write-back paired staged values to components by positional index, so
+  adding/removing a component or an Undo/Redo that reselected a different entity in the
+  same frame mis-paired them (silent edit loss). Write-back is now matched by component
+  name and guarded to the entity the values were captured for.
+- **Docked viewport mouse-release no longer double-fires.** On release inside the viewport
+  the input release ran twice; a release with no matching press could also be produced
+  when the pointer was outside. The stuck-state-clearing release now runs only when the
+  primary (in-viewport) release path did not.
+- **Undo/Duplicate/Paste of a child entity preserves its parent link.** `entity_to_def`
+  hard-coded `parent: None`, so restoring a deleted (or duplicating/pasting a) child
+  re-spawned it as a root, losing the hierarchy. It now resolves the entity's `Parent`
+  to the parent's `Tag`, matching scene-save.
+
 ## 8.1.3
 
 Bug fixes: docked-editor reliability (Undo/Redo, Load/Save, Data Tables). No API change

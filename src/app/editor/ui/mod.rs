@@ -141,7 +141,11 @@ impl App {
         // for inspector write-back (~line 742).  entity_list / tag_map are only needed
         // inside the is_enabled() gate and are moved there to avoid per-frame allocations
         // when the overlay is closed.
+        //
+        // We also record which entity comp_fields was built for so that write-back can
+        // guard against stale data if the selection changed mid-frame (Fix 2).
         let mut comp_fields: Vec<(&'static str, Vec<(&'static str, ReflectValue)>)> = Vec::new();
+        let comp_fields_entity: Option<Entity> = self.editor.inspector_selected;
         if let Some(sel) = self.editor.inspector_selected {
             for tid in self.world.reflected_components(sel) {
                 if let Some(refl) = self.world.get_reflect(sel, tid) {
@@ -525,14 +529,33 @@ impl App {
             }
         }
 
-        // Inspector: apply staged values to the World (before the egui frame ends)
+        // Inspector: apply staged values to the World (before the egui frame ends).
+        //
+        // Match by component TYPE NAME rather than positional index so that an
+        // archetype change (add/remove component) or a mid-frame selection change
+        // cannot silently apply fields to the wrong component.  Also guard: skip
+        // write-back entirely if the current selection differs from the entity that
+        // comp_fields was built for (e.g. Ctrl+Z changed the selection this frame).
         if let Some(sel) = self.editor.inspector_selected {
-            let type_ids = self.world.reflected_components(sel);
-            for (i, tid) in type_ids.iter().enumerate() {
-                if i < comp_fields.len() {
-                    if let Some(refl) = self.world.get_reflect_mut(sel, *tid) {
-                        for (fname, fval) in &comp_fields[i].1 {
-                            refl.set_field(fname, fval.clone());
+            // Only write back if comp_fields was built for this same entity.
+            if comp_fields_entity == Some(sel) {
+                // Build a name → TypeId map for the types currently on this entity.
+                let registered = self.world.reflect_registered_types();
+                let current_tids: Vec<std::any::TypeId> = self.world.reflected_components(sel);
+                // Filter registered types to those present on the current entity.
+                let name_to_tid: std::collections::HashMap<&'static str, std::any::TypeId> =
+                    registered
+                        .into_iter()
+                        .filter(|(tid, _)| current_tids.contains(tid))
+                        .map(|(tid, name)| (name, tid))
+                        .collect();
+
+                for (comp_name, fields) in &comp_fields {
+                    if let Some(&tid) = name_to_tid.get(comp_name) {
+                        if let Some(refl) = self.world.get_reflect_mut(sel, tid) {
+                            for (fname, fval) in fields {
+                                refl.set_field(fname, fval.clone());
+                            }
                         }
                     }
                 }
