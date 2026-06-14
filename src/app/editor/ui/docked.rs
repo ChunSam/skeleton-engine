@@ -250,27 +250,22 @@ pub(in crate::app) fn entities_tab_body(
             app.editor.selected_entities = vec![e];
             app.editor
                 .cmd_history
-                .push(super::super::EditorCmd::CreateEntity { entity: e });
+                .push(super::super::EditorCmd::CreateEntity {
+                    entity: e,
+                    def: None,
+                });
         }
         if let Some(sel) = app.editor.inspector_selected {
             if ui
                 .add_enabled(true, egui::Button::new("🗑 Delete"))
                 .clicked()
             {
-                let tag = app
-                    .world
-                    .get::<crate::prefab::Tag>(sel)
-                    .map(|t| t.0.clone());
-                let transform = app.world.get::<crate::components::Transform>(sel).cloned();
-                let sprite = app.world.get::<crate::components::Sprite>(sel).cloned();
+                // Capture the full entity def before despawning so undo can restore
+                // all components (not just tag/transform/sprite).
+                let def = super::super::entity_to_def(&app.world, sel).unwrap_or_default();
                 app.editor
                     .cmd_history
-                    .push(super::super::EditorCmd::DeleteEntity {
-                        entity: None,
-                        tag,
-                        transform,
-                        sprite,
-                    });
+                    .push(super::super::EditorCmd::DeleteEntity { entity: None, def });
                 app.world.despawn(sel);
                 app.editor.inspector_selected = None;
                 app.editor.selected_entities.retain(|&x| x != sel);
@@ -288,6 +283,14 @@ pub(in crate::app) fn entities_tab_body(
                     }
                     app.editor.inspector_selected = Some(new_entity);
                     app.editor.selected_entities = vec![new_entity];
+                    // Capture the def after offset so redo restores the same position.
+                    let def = super::super::entity_to_def(&app.world, new_entity);
+                    app.editor
+                        .cmd_history
+                        .push(super::super::EditorCmd::CreateEntity {
+                            entity: new_entity,
+                            def,
+                        });
                 }
             }
         }
@@ -563,15 +566,23 @@ pub(in crate::app) fn do_save_scene_with_list(
 ) {
     let mut scene_def = crate::prefab::SceneDef::default();
     let sorted = crate::hierarchy::topological_sort_entities(entity_list, &app.world);
+    let mut dropped_parent_links: u32 = 0;
     for &e in &sorted {
         let tag = app.world.get::<crate::prefab::Tag>(e).map(|t| t.0.clone());
         let transform = app.world.get::<crate::components::Transform>(e).cloned();
         let sprite = app.world.get::<crate::components::Sprite>(e).cloned();
-        let parent = app
-            .world
-            .get::<crate::hierarchy::Parent>(e)
-            .and_then(|p| tag_map.get(&p.0))
-            .cloned();
+        let parent_entity = app.world.get::<crate::hierarchy::Parent>(e).map(|p| p.0);
+        let parent = parent_entity.and_then(|p| tag_map.get(&p)).cloned();
+        // Warn when a parent exists but has no tag — the hierarchy link cannot
+        // be represented in the RON format and will be silently lost on reload.
+        if parent_entity.is_some() && parent.is_none() {
+            let child_name = tag.as_deref().unwrap_or("(untagged)");
+            log::warn!(
+                "scene save: parent of '{}' has no Tag — parent link dropped (will not restore on load)",
+                child_name
+            );
+            dropped_parent_links += 1;
+        }
         let components = app
             .world
             .resource::<crate::prefab::SerdeComponentRegistry>()
@@ -590,7 +601,15 @@ pub(in crate::app) fn do_save_scene_with_list(
     let count = scene_def.entities.len();
     let path = app.editor.editor_save_path.clone();
     app.editor.editor_save_status = match scene_def.save(std::path::Path::new(&path)) {
-        Ok(()) => Some(format!("✓ {count} entities → {path}")),
+        Ok(()) => {
+            if dropped_parent_links > 0 {
+                Some(format!(
+                    "✓ {count} entities → {path} ({dropped_parent_links} parent link(s) dropped: untagged parent)"
+                ))
+            } else {
+                Some(format!("✓ {count} entities → {path}"))
+            }
+        }
         Err(e) => Some(format!("✗ {e}")),
     };
     app.editor.editor_load_status = None;
@@ -617,12 +636,9 @@ pub(in crate::app) fn do_load_scene(app: &mut App) {
     let path = std::path::Path::new(&path_str);
     match crate::prefab::SceneDef::load(path) {
         Ok(scene_def) => {
-            // Remove existing editor entities (those with Transform or Tag)
-            let to_remove: Vec<Entity> = app
-                .world
-                .query::<crate::components::Transform>()
-                .map(|(e, _)| e)
-                .collect();
+            // Despawn ALL current entities before loading so that UiNode-only
+            // entities (menus/HUD without a Transform) don't accumulate on reload.
+            let to_remove: Vec<Entity> = app.world.entities().to_vec();
             for e in to_remove {
                 app.world.despawn(e);
             }

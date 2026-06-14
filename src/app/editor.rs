@@ -23,14 +23,16 @@ pub(super) enum EditorCmd {
     },
     CreateEntity {
         entity: Entity,
+        /// Full entity def for redo — `Some` for Duplicate/Paste (restores all components),
+        /// `None` for New Entity (redo spawns a default entity).
+        def: Option<crate::prefab::EntityDef>,
     },
     DeleteEntity {
         /// Entity id recreated by undo. Filled in at undo time so redo can despawn exactly
         /// this entity (None on first creation — the original has already been despawned).
         entity: Option<Entity>,
-        tag: Option<String>,
-        transform: Option<crate::components::Transform>,
-        sprite: Option<crate::components::Sprite>,
+        /// Full captured state at delete time; undo restores all components via spawn_entity_def.
+        def: crate::prefab::EntityDef,
     },
     /// Move a screen-space `UiNode` widget (offset changed, size/anchor unchanged).
     MoveUiNode {
@@ -90,26 +92,12 @@ impl EditorHistory {
                 }
                 *selected = Some(*entity);
             }
-            EditorCmd::CreateEntity { entity } => {
+            EditorCmd::CreateEntity { entity, .. } => {
                 world.despawn(*entity);
                 *selected = None;
             }
-            EditorCmd::DeleteEntity {
-                tag,
-                transform,
-                sprite,
-                ..
-            } => {
-                let e = world.spawn();
-                if let Some(tr) = transform {
-                    world.add_component(e, tr.clone());
-                }
-                if let Some(sp) = sprite {
-                    world.add_component(e, sp.clone());
-                }
-                if let Some(t) = tag {
-                    world.add_component(e, Tag(t.clone()));
-                }
+            EditorCmd::DeleteEntity { def, .. } => {
+                let e = crate::prefab::spawn_entity_def(world, def);
                 *selected = Some(e);
                 respawned = Some(e);
             }
@@ -160,15 +148,22 @@ impl EditorHistory {
                 }
                 *selected = Some(*entity);
             }
-            EditorCmd::CreateEntity { entity: _ } => {
-                // was despawned by undo — spawn a new entity with a new id
-                let e = world.spawn();
-                world.add_component(e, crate::components::Transform::default());
-                world.add_component(e, Tag("New Entity".into()));
+            EditorCmd::CreateEntity { def, .. } => {
+                // was despawned by undo — re-spawn from def (Duplicate/Paste) or default (New Entity)
+                let e = if let Some(d) = def {
+                    crate::prefab::spawn_entity_def(world, d)
+                } else {
+                    let e = world.spawn();
+                    world.add_component(e, crate::components::Transform::default());
+                    world.add_component(e, Tag("New Entity".into()));
+                    e
+                };
                 *selected = Some(e);
-                // push the cmd updated with the new id onto the undo stack so it can be undone again
-                // (previously drop(cmd) broke the chain, making the recreated entity un-undoable)
-                self.undo.push(EditorCmd::CreateEntity { entity: e });
+                // push cmd updated with the new entity id so it can be undone again
+                self.undo.push(EditorCmd::CreateEntity {
+                    entity: e,
+                    def: def.clone(),
+                });
                 return;
             }
             EditorCmd::DeleteEntity { entity, .. } => {
@@ -448,5 +443,118 @@ impl App {
         if let Some(registry) = world.resource_mut::<crate::prefab::SerdeComponentRegistry>() {
             registry.register_arc::<T>(name, post_spawn);
         }
+    }
+}
+
+// ── Editor command undo/redo tests ────────────────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod editor_cmd_tests {
+    use super::*;
+    use crate::ecs::World;
+    use crate::prefab::Tag;
+
+    // ── Fix A: DeleteEntity undo restores full def (including non-core components) ──
+
+    /// Regression test for Fix A: undo of DeleteEntity must restore all
+    /// components captured in `def`, not just tag/transform/sprite.
+    #[test]
+    fn delete_undo_restores_full_def() {
+        let mut world = World::new();
+        // Spawn an entity with tag + transform only (no serde components needed here,
+        // the important thing is the def captures what was there).
+        let e = world.spawn();
+        world.add_component(e, Tag("Goblin".into()));
+        world.add_component(e, crate::components::Transform::default());
+
+        let def = entity_to_def(&world, e).expect("entity_to_def");
+        assert_eq!(def.tag.as_deref(), Some("Goblin"));
+
+        // Simulate the Delete button: push DeleteEntity, then despawn.
+        let mut history = EditorHistory::new();
+        history.push(EditorCmd::DeleteEntity {
+            entity: None,
+            def: def.clone(),
+        });
+        world.despawn(e);
+        assert!(!world.is_alive(e), "entity should be despawned");
+
+        // Undo: entity must come back with its tag.
+        let mut sel: Option<Entity> = None;
+        history.undo(&mut world, &mut sel);
+        let restored = sel.expect("undo must set selection");
+        assert!(world.is_alive(restored), "entity must be alive after undo");
+        let tag = world
+            .get::<Tag>(restored)
+            .expect("Tag must be restored after undo");
+        assert_eq!(tag.0, "Goblin");
+
+        // Redo: entity must be despawned again.
+        history.redo(&mut world, &mut sel);
+        assert!(
+            sel.is_none() || !world.is_alive(sel.unwrap()),
+            "entity must be dead after redo"
+        );
+    }
+
+    // ── Fix B: CreateEntity with def round-trips through undo/redo ────────────
+
+    /// Regression test for Fix B: undo of CreateEntity (Duplicate) must despawn
+    /// the entity; redo must re-spawn it with its original components.
+    #[test]
+    fn create_entity_with_def_undo_redo() {
+        let mut world = World::new();
+        // Spawn a "duplicated" entity.
+        let e = world.spawn();
+        world.add_component(e, Tag("Copy".into()));
+        world.add_component(e, crate::components::Transform::default());
+
+        let def = entity_to_def(&world, e);
+        let mut history = EditorHistory::new();
+        history.push(EditorCmd::CreateEntity {
+            entity: e,
+            def: def.clone(),
+        });
+
+        // Undo: entity must be despawned.
+        let mut sel: Option<Entity> = Some(e);
+        history.undo(&mut world, &mut sel);
+        assert!(sel.is_none());
+        assert!(!world.is_alive(e), "entity must be despawned after undo");
+
+        // Redo: entity must be re-spawned from def with its tag.
+        history.redo(&mut world, &mut sel);
+        let redone = sel.expect("redo must set selection");
+        assert!(world.is_alive(redone));
+        let tag = world
+            .get::<Tag>(redone)
+            .expect("Tag must be present after redo");
+        assert_eq!(tag.0, "Copy");
+    }
+
+    // ── Fix B: CreateEntity without def (New Entity) still works ─────────────
+
+    #[test]
+    fn create_entity_no_def_undo_redo() {
+        let mut world = World::new();
+        let e = world.spawn();
+        world.add_component(e, crate::components::Transform::default());
+        world.add_component(e, Tag("New Entity".into()));
+
+        let mut history = EditorHistory::new();
+        history.push(EditorCmd::CreateEntity {
+            entity: e,
+            def: None,
+        });
+
+        let mut sel: Option<Entity> = Some(e);
+        history.undo(&mut world, &mut sel);
+        assert!(sel.is_none());
+        assert!(!world.is_alive(e));
+
+        // Redo of None-def spawns a fresh default entity.
+        history.redo(&mut world, &mut sel);
+        let redone = sel.expect("redo must yield an entity");
+        assert!(world.is_alive(redone));
     }
 }

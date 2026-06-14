@@ -252,6 +252,20 @@ pub struct DataTableRegistry {
     tables: HashMap<String, DataTable>,
 }
 
+/// Outcome returned by [`DataTableRegistry::reload_path`].
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, PartialEq, Eq)]
+pub enum ReloadOutcome {
+    /// The table was successfully reloaded from disk.
+    Reloaded,
+    /// The table has unsaved edits — reload was skipped to avoid data loss.
+    SkippedDirty,
+    /// No table is registered for the given path.
+    NotFound,
+    /// Disk read or parse error; the existing table is unchanged.
+    Err,
+}
+
 impl DataTableRegistry {
     /// Load a table from `path` on disk and register it under `name`.
     ///
@@ -288,15 +302,17 @@ impl DataTableRegistry {
     /// Re-load the table whose `.path == path` from disk — unless `dirty` is set,
     /// in which case the unsaved edits are kept and a warning is logged.
     ///
-    /// No-ops silently when no table maps to `path`.
+    /// Returns a [`ReloadOutcome`] so callers can show an accurate status message.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn reload_path(&mut self, path: &str) {
+    pub fn reload_path(&mut self, path: &str) -> ReloadOutcome {
         let name = self
             .tables
             .iter()
             .find(|(_, t)| t.path == path)
             .map(|(n, _)| n.clone());
-        let Some(name) = name else { return };
+        let Some(name) = name else {
+            return ReloadOutcome::NotFound;
+        };
 
         let table = self.tables.get(&name).expect("name came from iter");
         if table.dirty {
@@ -304,15 +320,17 @@ impl DataTableRegistry {
                 "data_table: skipping hot-reload of '{}' (path: {path}) — table has unsaved edits",
                 name
             );
-            return;
+            return ReloadOutcome::SkippedDirty;
         }
 
         match DataTable::load(path) {
             Ok(reloaded) => {
                 self.tables.insert(name, reloaded);
+                ReloadOutcome::Reloaded
             }
             Err(e) => {
                 log::warn!("data_table: hot-reload failed for {path}: {e}");
+                ReloadOutcome::Err
             }
         }
     }
@@ -401,5 +419,33 @@ mod tests {
         let table = DataTable::parse("[]").expect("empty parse");
         assert!(table.columns.is_empty());
         assert!(table.rows.is_empty());
+    }
+
+    // ── Fix E: reload_path returns SkippedDirty / NotFound correctly ─────────
+
+    /// `reload_path` on a table with `dirty = true` must return `SkippedDirty`
+    /// (not reload and not panic).
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn reload_path_skipped_when_dirty() {
+        let mut reg = DataTableRegistry::default();
+        let mut table = DataTable::parse(SAMPLE).expect("parse");
+        table.path = "/fake/path.ron".into();
+        table.dirty = true;
+        reg.insert("enemies", table);
+
+        let outcome = reg.reload_path("/fake/path.ron");
+        assert_eq!(outcome, ReloadOutcome::SkippedDirty);
+        // Table must still be intact (not cleared).
+        assert_eq!(reg.get("enemies").unwrap().rows.len(), 2);
+    }
+
+    /// `reload_path` for an unregistered path must return `NotFound`.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn reload_path_not_found() {
+        let mut reg = DataTableRegistry::default();
+        let outcome = reg.reload_path("/no/such/path.ron");
+        assert_eq!(outcome, ReloadOutcome::NotFound);
     }
 }

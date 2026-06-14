@@ -17,7 +17,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use crate::app::App;
-use crate::data_table::DataTableRegistry;
+use crate::data_table::{DataTableRegistry, ReloadOutcome};
 
 /// Render the Data Tables panel body into `ui`.
 ///
@@ -247,13 +247,22 @@ pub(in crate::app) fn data_table_panel_body(ui: &mut egui::Ui, app: &mut App) {
             .world
             .resource::<DataTableRegistry>()
             .and_then(|r| r.get(&sel_name))
-            .map(|t| t.path.clone());
+            .map(|t| (t.path.clone(), t.dirty));
 
-        if let Some(path) = path_opt {
-            if let Some(reg) = app.world.resource_mut::<DataTableRegistry>() {
-                reg.reload_path(&path);
-            }
-            app.editor.data_table_status = Some(format!("↺ reloaded from {path}"));
+        if let Some((path, _)) = path_opt {
+            let outcome = if let Some(reg) = app.world.resource_mut::<DataTableRegistry>() {
+                reg.reload_path(&path)
+            } else {
+                ReloadOutcome::NotFound
+            };
+            app.editor.data_table_status = Some(match outcome {
+                ReloadOutcome::Reloaded => format!("↺ reloaded from {path}"),
+                ReloadOutcome::SkippedDirty => {
+                    format!("skipped reload — unsaved edits in '{sel_name}'")
+                }
+                ReloadOutcome::NotFound => format!("↺ path '{path}' not registered"),
+                ReloadOutcome::Err => format!("↺ reload failed for '{path}'"),
+            });
         }
     }
 }
