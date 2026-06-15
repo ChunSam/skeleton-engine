@@ -4,6 +4,18 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.15.0
+
+Editor grid overlay. Additive — editor-internal; no public engine API change.
+
+### Added
+
+- **Grid overlay** in the F2 docked viewport (toolbar **Grid** toggle). Draws world-aligned grid
+  lines at the editor snap spacing as an egui overlay on top of the game image — it reads the `Camera`
+  to map world↔screen and does not touch the camera or game systems. Lines are skipped when the cells
+  would be denser than a few pixels (zoomed out). A live **cursor readout** shows the world `(x, y)`
+  under the pointer, plus the hovered `(row, col)` when a `Tilemap` is selected.
+
 ## 8.14.0
 
 Inspector quality-of-life. Additive — editor-internal; no public engine API change.
