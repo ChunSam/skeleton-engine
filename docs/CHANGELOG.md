@@ -4,6 +4,20 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.5.0
+
+Diagonal (8-direction) pathfinding. Additive — `find_path` is unchanged.
+
+### Added
+
+- **`find_path_diagonal(grid, start, goal)`** — A* on an 8-connected grid (cardinal
+  cost 10, diagonal 14, admissible octile heuristic `10·(dx+dy) − 6·min(dx,dy)`). **No
+  corner cutting**: a diagonal step is allowed only when both orthogonally-adjacent cells
+  are walkable, so paths never slip through the gap between two wall corners. Same endpoint
+  convention as `find_path` (excludes start, includes goal; `start==goal` → single cell).
+- **Example `diagonal_pathing`** — a grid with a staircase wall barrier; `T` toggles 4-dir
+  vs 8-dir and recomputes, so the cardinal zig-zag vs the diagonal shortcut is visible.
+
 ## 8.2.0
 
 Runtime tilemap mutation + neighbor-bitmask autotiling, validated by the new `dig_quest`

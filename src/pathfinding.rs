@@ -245,6 +245,127 @@ pub fn find_path(grid: &PathGrid, start: IVec2, goal: IVec2) -> Option<Vec<IVec2
     })
 }
 
+// ── Diagonal A* ───────────────────────────────────────────────────────────────
+
+/// Integer costs for the diagonal A* variant.
+const CARDINAL_COST: i32 = 10;
+const DIAGONAL_COST: i32 = 14; // ≈ 10·√2, integer approximation
+
+/// Octile distance heuristic — admissible on an 8-connected uniform-cost grid with
+/// cardinal=10 / diagonal=14 costs.
+fn octile(a: IVec2, b: IVec2) -> i32 {
+    let dx = (a.x - b.x).abs();
+    let dy = (a.y - b.y).abs();
+    CARDINAL_COST * (dx + dy) - 6 * dx.min(dy)
+}
+
+/// All 8 neighbour offsets: 4 cardinal + 4 diagonal, each tagged with its step cost.
+/// Cardinal moves cost `CARDINAL_COST`; diagonal moves cost `DIAGONAL_COST`.
+const NEIGHBORS_8: [(IVec2, i32); 8] = [
+    (IVec2::new(0, -1), CARDINAL_COST),
+    (IVec2::new(0, 1), CARDINAL_COST),
+    (IVec2::new(-1, 0), CARDINAL_COST),
+    (IVec2::new(1, 0), CARDINAL_COST),
+    (IVec2::new(-1, -1), DIAGONAL_COST),
+    (IVec2::new(1, -1), DIAGONAL_COST),
+    (IVec2::new(-1, 1), DIAGONAL_COST),
+    (IVec2::new(1, 1), DIAGONAL_COST),
+];
+
+thread_local! {
+    static ASTAR_SCRATCH_DIAG: RefCell<AStarScratch> = RefCell::new(AStarScratch::default());
+}
+
+/// A* on an 8-connected grid (diagonals allowed). Like [`find_path`] but agents may
+/// move diagonally. Uses integer costs — cardinal step = 10, diagonal step = 14 (≈10·√2)
+/// — and the admissible **octile** heuristic `10·(dx+dy) − 6·min(dx,dy)`.
+///
+/// **No corner cutting:** a diagonal step from `(x,y)` to `(x±1, y±1)` is allowed only
+/// when BOTH orthogonally-adjacent cells `(x±1, y)` and `(x, y±1)` are walkable, so the
+/// path never slips through the corner gap between two walls.
+///
+/// Returns the path **excluding the start and including the goal**, or `None` if no path
+/// exists (same endpoint convention as [`find_path`]).
+pub fn find_path_diagonal(grid: &PathGrid, start: IVec2, goal: IVec2) -> Option<Vec<IVec2>> {
+    // start == goal — return single-cell vec matching find_path behaviour
+    if start == goal {
+        return Some(vec![goal]);
+    }
+
+    // goal is blocked — return None immediately
+    if !grid.is_walkable(goal.x, goal.y) {
+        return None;
+    }
+
+    ASTAR_SCRATCH_DIAG.with(|cell| {
+        let mut s = cell.borrow_mut();
+        s.reset();
+
+        s.g_score.insert(start, 0);
+        s.open.push(Node {
+            f: octile(start, goal),
+            pos: start,
+        });
+
+        while let Some(Node { pos: current, .. }) = s.open.pop() {
+            if current == goal {
+                // reconstruct path (excludes start, includes goal — same as find_path)
+                let mut path = Vec::new();
+                let mut cur = current;
+                while let Some(&prev) = s.came_from.get(&cur) {
+                    path.push(cur);
+                    cur = prev;
+                }
+                path.reverse();
+                return Some(path);
+            }
+
+            // stale duplicate entry — already expanded with optimal cost
+            if !s.closed.insert(current) {
+                continue;
+            }
+
+            let g_current = *s.g_score.get(&current).unwrap_or(&i32::MAX);
+
+            for &(dir, step_cost) in &NEIGHBORS_8 {
+                let next = current + dir;
+
+                if s.closed.contains(&next) {
+                    continue;
+                }
+                if !grid.is_walkable(next.x, next.y) {
+                    continue;
+                }
+
+                // Corner-cut prevention: for diagonal moves, both orthogonal
+                // neighbours (sharing an axis with either current or next) must
+                // be walkable before the diagonal step is permitted.
+                if dir.x != 0 && dir.y != 0 {
+                    let ortho_x = IVec2::new(current.x + dir.x, current.y);
+                    let ortho_y = IVec2::new(current.x, current.y + dir.y);
+                    if !grid.is_walkable(ortho_x.x, ortho_x.y)
+                        || !grid.is_walkable(ortho_y.x, ortho_y.y)
+                    {
+                        continue;
+                    }
+                }
+
+                let g_next = g_current.saturating_add(step_cost);
+                if g_next < *s.g_score.get(&next).unwrap_or(&i32::MAX) {
+                    s.g_score.insert(next, g_next);
+                    s.came_from.insert(next, current);
+                    s.open.push(Node {
+                        f: g_next + octile(next, goal),
+                        pos: next,
+                    });
+                }
+            }
+        }
+
+        None
+    })
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -390,5 +511,137 @@ mod tests {
 
         let blocked = PathGrid::new_blocked(i32::MAX, 2);
         assert!(!blocked.is_walkable(0, 0));
+    }
+
+    // ── find_path_diagonal tests ──────────────────────────────────────────────
+
+    /// On an open grid, a diagonal path (0,0)→(4,4) takes 4 diagonal steps (5 cells
+    /// including goal, 4 excluding start) — shorter than the 4-dir version (8 cells).
+    #[test]
+    fn diagonal_open_grid_shorter_than_cardinal() {
+        let grid = PathGrid::new(10, 10);
+        let diag = find_path_diagonal(&grid, IVec2::new(0, 0), IVec2::new(4, 4)).unwrap();
+        let card = find_path(&grid, IVec2::new(0, 0), IVec2::new(4, 4)).unwrap();
+        // diagonal path should be 4 steps (start excluded, goal included)
+        assert_eq!(
+            diag.len(),
+            4,
+            "diagonal path should be 4 cells (start excluded): {diag:?}"
+        );
+        assert!(
+            diag.len() < card.len(),
+            "diagonal ({}) should beat cardinal ({})",
+            diag.len(),
+            card.len()
+        );
+        assert_eq!(diag.last(), Some(&IVec2::new(4, 4)));
+        assert!(!diag.contains(&IVec2::new(0, 0)));
+    }
+
+    /// Corner-cut prevention: block both orthogonals (2,1) and (1,2) between an
+    /// interior start (1,1) and a cell (2,2). The direct diagonal (1,1)→(2,2) must
+    /// be disallowed; the path must route around via available open cells.
+    ///
+    /// Also verifies the degenerate corner case: when both orthogonals adjacent to
+    /// (0,0) are blocked, the diagonal is the only candidate and the result is `None`
+    /// — meaning no illegal corner cut was taken.
+    #[test]
+    fn diagonal_corner_cut_prevented_both_orthogonals_blocked() {
+        // ── Part A: interior start — path routes around the wall pair ──────
+        // Grid: start=(1,1), goal=(3,3). Block (2,1) and (1,2) so the diagonal
+        // (1,1)→(2,2) is forbidden. The path must detour (e.g. via (1,0)→(2,0)→…).
+        let mut grid = PathGrid::new(6, 6);
+        grid.set_walkable(2, 1, false); // orthogonal-x between (1,1)→(2,2)
+        grid.set_walkable(1, 2, false); // orthogonal-y between (1,1)→(2,2)
+
+        let path = find_path_diagonal(&grid, IVec2::new(1, 1), IVec2::new(3, 3)).unwrap();
+        // Path must not directly jump (1,1)→(2,2) — that would be a single-step diagonal
+        // through the corner. A valid path around takes at least 3 cells (start excluded).
+        assert!(
+            path.len() > 2,
+            "path should route around corner-cut walls, got: {path:?}"
+        );
+        // Verify no illegal corner-cut anywhere in the path
+        let mut prev = IVec2::new(1, 1);
+        for &p in &path {
+            let dx = (p.x - prev.x).abs();
+            let dy = (p.y - prev.y).abs();
+            if dx == 1 && dy == 1 {
+                let ox = IVec2::new(prev.x + (p.x - prev.x), prev.y);
+                let oy = IVec2::new(prev.x, prev.y + (p.y - prev.y));
+                assert!(
+                    grid.is_walkable(ox.x, ox.y) && grid.is_walkable(oy.x, oy.y),
+                    "illegal corner-cut diagonal {prev:?}→{p:?}"
+                );
+            }
+            prev = p;
+        }
+
+        // ── Part B: corner start (0,0) with both adjacent cells blocked ────
+        // Blocking (1,0) and (0,1) from a corner start fully isolates (0,0); the only
+        // neighbour candidate is the diagonal (0,0)→(1,1) which is forbidden by the
+        // corner-cut rule. Result must be None — proving the diagonal was not taken.
+        let mut corner_grid = PathGrid::new(5, 5);
+        corner_grid.set_walkable(1, 0, false);
+        corner_grid.set_walkable(0, 1, false);
+        assert!(
+            find_path_diagonal(&corner_grid, IVec2::new(0, 0), IVec2::new(1, 1)).is_none(),
+            "isolated start with both orthogonals blocked should yield None, not a corner-cut path"
+        );
+    }
+
+    /// start == goal returns a single-cell path (same contract as find_path).
+    #[test]
+    fn diagonal_start_equals_goal() {
+        let grid = PathGrid::new(5, 5);
+        let pos = IVec2::new(2, 3);
+        assert_eq!(find_path_diagonal(&grid, pos, pos), Some(vec![pos]));
+    }
+
+    /// Walled-off goal returns None.
+    #[test]
+    fn diagonal_unreachable_goal_returns_none() {
+        // Surround (2,2) with walls; start at (0,0)
+        let mut grid = PathGrid::new(5, 5);
+        for x in 1..=3 {
+            grid.set_walkable(x, 1, false);
+            grid.set_walkable(x, 3, false);
+        }
+        grid.set_walkable(1, 2, false);
+        grid.set_walkable(3, 2, false);
+        // (2,2) is the goal, surrounded on all sides
+        assert!(find_path_diagonal(&grid, IVec2::new(0, 0), IVec2::new(2, 2)).is_none());
+    }
+
+    /// Corner-cut rule: even blocking only ONE of the two orthogonal neighbours must
+    /// still disallow the diagonal. Block only (1,0), leave (0,1) walkable.
+    #[test]
+    fn diagonal_corner_cut_prevented_single_orthogonal_blocked() {
+        let mut grid = PathGrid::new(5, 5);
+        // block only the x-orthogonal; (0,1) remains walkable
+        grid.set_walkable(1, 0, false);
+
+        let path = find_path_diagonal(&grid, IVec2::new(0, 0), IVec2::new(1, 1)).unwrap();
+        // Direct (0,0)→(1,1) diagonal requires both (1,0) and (0,1) walkable.
+        // Since (1,0) is blocked the diagonal is forbidden; path must go around.
+        assert!(
+            path.len() > 1,
+            "diagonal should be blocked when one orthogonal is walled: {path:?}"
+        );
+        // Verify no illegal corner-cut anywhere in the path
+        let mut prev = IVec2::new(0, 0);
+        for &p in &path {
+            let dx = (p.x - prev.x).abs();
+            let dy = (p.y - prev.y).abs();
+            if dx == 1 && dy == 1 {
+                let ox = IVec2::new(prev.x + (p.x - prev.x), prev.y);
+                let oy = IVec2::new(prev.x, prev.y + (p.y - prev.y));
+                assert!(
+                    grid.is_walkable(ox.x, ox.y) && grid.is_walkable(oy.x, oy.y),
+                    "illegal corner-cut diagonal {prev:?}→{p:?}"
+                );
+            }
+            prev = p;
+        }
     }
 }
