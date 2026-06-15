@@ -163,6 +163,16 @@ impl AnimationStateMachine {
     ) -> &mut Self {
         let from = from.into();
         let to = to.into();
+        // Warn when the target state does not (yet) exist — the transition is still
+        // pushed so that states registered later are handled, but evaluate() will
+        // silently skip any transition whose `to` state is missing at fire time.
+        if !self.states.contains_key(&to) {
+            log::warn!(
+                "AnimationStateMachine::add_transition: target state \"{to}\" is not registered \
+                 (from \"{from}\"); the transition is recorded but will be a dead edge until \
+                 add_state(\"{to}\", ...) is called"
+            );
+        }
         if let Some(state) = self.states.get_mut(&from) {
             state.transitions.push(AnimTransition {
                 to,
@@ -980,5 +990,52 @@ mod tests {
         assert!(matches!(sm.param("speed"), Some(AnimParam::Float(_))));
         assert!(matches!(sm.param("jump"), Some(AnimParam::Trigger(_))));
         assert!(sm.param("missing").is_none());
+    }
+
+    // ── Dead-edge warning test (fix 3) ─────────────────────────────────────────
+
+    /// Adding a transition to a state that does not exist yet is allowed (dead edge),
+    /// but must not fire when conditions are met — evaluate() silently skips it.
+    #[test]
+    fn transition_to_nonexistent_state_does_not_fire() {
+        // Build a state machine that has a transition to a state that is never registered.
+        // The transition target "ghost" does not exist; evaluate() must skip it rather than panic.
+        let mut world = World::new();
+        let e = world.spawn();
+        world.add_component(e, AnimationPlayer::new(vec![loop_clip(), loop_clip()]));
+
+        let mut sm = AnimationStateMachine::new("idle", 0);
+        sm.set_bool("go", false);
+        // add_transition_crossfade internally calls add_transition_crossfade — the
+        // target "ghost" is not registered and should trigger the log::warn path.
+        sm.add_transition("idle", "ghost", vec![TransitionCond::BoolEq("go".into(), true)]);
+        world.add_component(e, sm);
+
+        // Fire the condition.
+        world
+            .get_mut::<AnimationStateMachine>(e)
+            .unwrap()
+            .set_bool("go", true);
+
+        let mut anim = AnimationSystem::new();
+        let mut stm = StateMachineSystem::new();
+        anim.run(&mut world, 0.05);
+        stm.run(&mut world, 0.05);
+
+        // The SM must remain in "idle" — the dead-edge transition must not fire.
+        assert_eq!(
+            world
+                .get_mut::<AnimationStateMachine>(e)
+                .unwrap()
+                .current_state(),
+            "idle",
+            "dead-edge transition to nonexistent state must not fire"
+        );
+        // Player must still be on clip 0.
+        assert_eq!(
+            world.get::<AnimationPlayer>(e).unwrap().current_clip,
+            0,
+            "clip must remain 0 when transition target state does not exist"
+        );
     }
 }

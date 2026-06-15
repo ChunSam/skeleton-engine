@@ -7,10 +7,10 @@
 ## Work units (status: TODO / DONE / REVIEW)
 
 ### Iteration 1 (parallel, disjoint dirs)
-- [ ] WU1 Animation — `src/animation/{clip_set,player,state_machine,blend_tree}.rs`, `src/skeletal.rs`: columns=0 panic guard; OOB frame index validate; play(OOB) guard + is_finished()=false fallback; add_transition dead-edge warn; skeletal is_finished() started-guard; BlendTree1D sort entries in new()
-- [ ] WU2 Physics — `src/physics/world/joints.rs`, `physics/system.rs`, `collision/grid.rs`, `physics/world/tile_collider.rs`: prismatic zero-axis guard; contact ordered_pair symmetry; promote 4 scratch Vecs to fields; rebuild no-collect + candidates scratch; SolidTiles::Only→HashSet (additive ctor); TilemapColliders despawn-leak helper (native-gated)
-- [ ] WU3 Audio — `src/audio/{bus,positional,playback,ducking}.rs`: set_bus_volume/set_volume fade guard; update_position fade guard; file_cache clear API; scratch Vec reuse; AudioManager wasm-only rustdoc note
-- [ ] WU4 UI — `src/ui/{panel,slider,localized}.rs`, `src/ui/system/text_input_pass.rs`: Panel::direction reflect (LayoutDir to_i32/from_i32); text_input focus z-order + visible guard; Slider set_field initial_value→value; LocalizationSystem TextInput.placeholder
+- [x] WU1 Animation (DONE) — `src/animation/{clip_set,player,state_machine,blend_tree}.rs`, `src/skeletal.rs`: columns=0 panic guard; OOB frame index validate; play(OOB) guard + is_finished()=false fallback; add_transition dead-edge warn; skeletal is_finished() started-guard; BlendTree1D sort entries in new()
+- [x] WU2 Physics (DONE) — `src/physics/world/joints.rs`, `physics/system.rs`, `collision/grid.rs`, `physics/world/tile_collider.rs`: prismatic zero-axis guard; contact ordered_pair symmetry; promote 4 scratch Vecs to fields; rebuild no-collect + candidates scratch; SolidTiles::Only→HashSet (additive ctor); TilemapColliders despawn-leak helper (native-gated)
+- [x] WU3 Audio (DONE) — `src/audio/{bus,positional,playback,ducking}.rs`: set_bus_volume/set_volume fade guard; update_position fade guard; file_cache clear API; scratch Vec reuse; AudioManager wasm-only rustdoc note
+- [x] WU4 UI (DONE) — `src/ui/{panel,slider,localized}.rs`, `src/ui/system/text_input_pass.rs`: Panel::direction reflect (LayoutDir to_i32/from_i32); text_input focus z-order + visible guard; Slider set_field initial_value→value; LocalizationSystem TextInput.placeholder
 
 ### Iteration 2 (parallel, disjoint files)
 - [ ] WU5 Renderer-core — `src/renderer/{sprite,text}.rs`, `renderer/shaders/post_process.wgsl`, `src/gpu_particle.rs`(or renderer/gpu_particle.rs), `src/atlas.rs`: atlas texture_path_arc + sprite scratch fields; glyphon prepare/render log + shaped-buffer cache; bloom texel_size uniform; gpu_particle ring-buffer base_slot partition
@@ -35,4 +35,4 @@
 - [ ] Final report to user (+ PushNotification), stop loop
 
 ## Notes / decisions log
-- (append per iteration)
+- Iter1 (WU1-4): DONE. Opus fixes during review: (a) derived `#[derive(Debug, Clone)]` on `AnimationClipSet` (new tests panic-format the Result); (b) skeletal `is_finished()` dropped the over-aggressive `duration > 0.0` guard — a zero-duration non-looping clip is finished *after* its first tick, `started` flag handles construction-time; (c) physics `scratch_vecs_cleared_between_frames` test corrected (frame-2 Stopped is correct; assert frame-3 clean). Gate: `cargo test --lib` 638 pass / 0 fail (+35); `cargo clippy --lib -D warnings` clean. Audio fix #4 used a `[Option<String>;8]` stack buffer + overflow Vec; ducking.rs left as-is (noted). Deferred to final clippy --all-targets: inline-test lint check.

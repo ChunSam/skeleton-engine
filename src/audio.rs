@@ -17,6 +17,25 @@ pub use types::{AudioChannelState, AudioEffect};
 
 /// Audio playback manager (insert as an ECS resource).
 ///
+/// ## Platform availability
+///
+/// `AudioManager` is **native-only** — it is unconditionally `cfg(not(target_arch = "wasm32"))`
+/// inside the engine. Game code that targets both native and WASM must guard every use:
+///
+/// ```rust,no_run
+/// // In your game's main() or system:
+/// #[cfg(not(target_arch = "wasm32"))]
+/// {
+///     if let Some(audio) = engine::AudioManager::new() {
+///         // use audio here
+///     }
+/// }
+/// ```
+///
+/// See `examples/audio_fades.rs` for a complete stub-main pattern where the
+/// `#[cfg(not(target_arch = "wasm32"))]` guard wraps the entire example body,
+/// and a no-op `fn main() {}` is compiled for WASM targets.
+///
 /// ## Basic playback
 /// ```rust,no_run
 /// # use engine::AudioManager;

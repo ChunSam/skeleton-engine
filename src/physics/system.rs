@@ -61,6 +61,11 @@ pub struct PhysicsSystem {
     current_contacts: HashSet<(RapierColliderHandle, RapierColliderHandle)>,
     current_intersections: HashSet<(RapierColliderHandle, RapierColliderHandle)>,
     body_pairs: Vec<(Entity, BodyHandle)>,
+    // Scratch Vecs for entity-pair events — reused each frame (clear → fill → drain).
+    col_started: Vec<(Entity, Entity)>,
+    col_stopped: Vec<(Entity, Entity)>,
+    trig_entered: Vec<(Entity, Entity)>,
+    trig_exited: Vec<(Entity, Entity)>,
     // Guard flags: emit the missing-registration warning at most once per event type.
     warned_missing_collision_events: bool,
     warned_missing_trigger_events: bool,
@@ -81,6 +86,10 @@ impl PhysicsSystem {
             current_contacts: HashSet::new(),
             current_intersections: HashSet::new(),
             body_pairs: Vec::new(),
+            col_started: Vec::new(),
+            col_stopped: Vec::new(),
+            trig_entered: Vec::new(),
+            trig_exited: Vec::new(),
             warned_missing_collision_events: false,
             warned_missing_trigger_events: false,
         }
@@ -160,7 +169,9 @@ impl System for PhysicsSystem {
         );
 
         // ── Collision event diff ──────────────────────────────────────────────
-        // Rapier preserves the collider1/collider2 order for the same pair across frames.
+        // ordered_pair normalises the (c1, c2) direction so the HashSet diff is correct
+        // regardless of which slot rapier happens to place each handle in — symmetric with
+        // the intersection path below.
         self.current_contacts.clear();
         self.current_contacts.extend(
             physics
@@ -170,27 +181,27 @@ impl System for PhysicsSystem {
                 .filter_map(|p| {
                     self.col_map.get(&p.collider1)?;
                     self.col_map.get(&p.collider2)?;
-                    Some((p.collider1, p.collider2))
+                    Some(ordered_pair(p.collider1, p.collider2))
                 }),
         );
 
-        let mut col_started: Vec<(Entity, Entity)> = Vec::new();
-        let mut col_stopped: Vec<(Entity, Entity)> = Vec::new();
+        self.col_started.clear();
+        self.col_stopped.clear();
         diff_pairs(
             &mut self.active_contacts,
             &self.current_contacts,
             &self.col_map,
             &self.prev_col_map,
-            &mut col_started,
-            &mut col_stopped,
+            &mut self.col_started,
+            &mut self.col_stopped,
         );
 
-        if !col_started.is_empty() || !col_stopped.is_empty() {
+        if !self.col_started.is_empty() || !self.col_stopped.is_empty() {
             if let Some(bus) = world.resource_mut::<Events<CollisionEvent>>() {
-                for (e1, e2) in col_started {
+                for &(e1, e2) in &self.col_started {
                     bus.send(CollisionEvent::Started(e1, e2));
                 }
-                for (e1, e2) in col_stopped {
+                for &(e1, e2) in &self.col_stopped {
                     bus.send(CollisionEvent::Stopped(e1, e2));
                 }
             } else if !self.warned_missing_collision_events {
@@ -221,23 +232,23 @@ impl System for PhysicsSystem {
                 }),
         );
 
-        let mut trig_entered: Vec<(Entity, Entity)> = Vec::new();
-        let mut trig_exited: Vec<(Entity, Entity)> = Vec::new();
+        self.trig_entered.clear();
+        self.trig_exited.clear();
         diff_pairs(
             &mut self.active_intersections,
             &self.current_intersections,
             &self.col_map,
             &self.prev_col_map,
-            &mut trig_entered,
-            &mut trig_exited,
+            &mut self.trig_entered,
+            &mut self.trig_exited,
         );
 
-        if !trig_entered.is_empty() || !trig_exited.is_empty() {
+        if !self.trig_entered.is_empty() || !self.trig_exited.is_empty() {
             if let Some(bus) = world.resource_mut::<Events<TriggerEvent>>() {
-                for (e1, e2) in trig_entered {
+                for &(e1, e2) in &self.trig_entered {
                     bus.send(TriggerEvent::Entered(e1, e2));
                 }
-                for (e1, e2) in trig_exited {
+                for &(e1, e2) in &self.trig_exited {
                     bus.send(TriggerEvent::Exited(e1, e2));
                 }
             } else if !self.warned_missing_trigger_events {
@@ -485,6 +496,121 @@ mod tests {
         assert!(
             rotation.abs() < 1e-6,
             "rotation-locked body must keep rotation 0: {rotation}"
+        );
+    }
+
+    // ── Task 2: ordered_pair symmetry for contacts ────────────────────────────
+
+    /// Two overlapping boxes stepped for ~10 frames must emit exactly ONE
+    /// `CollisionEvent::Started` and zero spurious repeats.
+    #[test]
+    fn contact_started_emitted_exactly_once() {
+        let mut physics = PhysicsWorld::new(Vec2::ZERO);
+        let (rb1, col1) = physics.add_dynamic_box(Vec2::ZERO, 0.5, 0.5, false);
+        let (rb2, col2) = physics.add_dynamic_box(Vec2::new(0.1, 0.0), 0.5, 0.5, false);
+
+        let mut world = World::new();
+        world.insert_resource(physics);
+        world.insert_resource(Events::<CollisionEvent>::default());
+        let mut system = PhysicsSystem::new(1.0);
+
+        let e1 = world.spawn();
+        world.add_component(
+            e1,
+            PhysicsBody {
+                rigid_body_handle: rb1,
+                collider_handle: col1,
+            },
+        );
+        world.add_component(e1, Transform::default());
+
+        let e2 = world.spawn();
+        world.add_component(
+            e2,
+            PhysicsBody {
+                rigid_body_handle: rb2,
+                collider_handle: col2,
+            },
+        );
+        world.add_component(e2, Transform::default());
+
+        let dt = 1.0 / 60.0;
+        let mut started_count = 0usize;
+        for _ in 0..10 {
+            system.run(&mut world, dt);
+            if let Some(bus) = world.resource_mut::<Events<CollisionEvent>>() {
+                for ev in bus.read() {
+                    if matches!(ev, CollisionEvent::Started(_, _)) {
+                        started_count += 1;
+                    }
+                }
+                bus.flush();
+            }
+        }
+        assert_eq!(
+            started_count, 1,
+            "exactly one Started event expected over 10 frames, got {started_count}"
+        );
+    }
+
+    // ── Task 3: reused scratch Vecs have identical behaviour ─────────────────
+
+    /// Verifies that reusing the promoted scratch Vecs does not accumulate stale
+    /// data across frames: stepping 3 disjoint contact phases produces clean events.
+    #[test]
+    fn scratch_vecs_cleared_between_frames() {
+        // Two boxes touching for 1 frame only — we remove PhysicsBody immediately after
+        // the first frame so no residual data should appear on frame 2.
+        let mut physics = PhysicsWorld::new(Vec2::ZERO);
+        let (rb1, col1) = physics.add_dynamic_box(Vec2::ZERO, 0.5, 0.5, false);
+        let (rb2, col2) = physics.add_dynamic_box(Vec2::new(0.1, 0.0), 0.5, 0.5, false);
+
+        let mut world = World::new();
+        world.insert_resource(physics);
+        world.insert_resource(Events::<CollisionEvent>::default());
+        let mut system = PhysicsSystem::new(1.0);
+
+        let e1 = world.spawn();
+        world.add_component(
+            e1,
+            PhysicsBody {
+                rigid_body_handle: rb1,
+                collider_handle: col1,
+            },
+        );
+        world.add_component(e1, Transform::default());
+
+        let e2 = world.spawn();
+        world.add_component(
+            e2,
+            PhysicsBody {
+                rigid_body_handle: rb2,
+                collider_handle: col2,
+            },
+        );
+        world.add_component(e2, Transform::default());
+
+        // Frame 1: contact starts.
+        system.run(&mut world, 1.0 / 60.0);
+        world.resource_mut::<Events<CollisionEvent>>().unwrap().flush();
+
+        // Remove both PhysicsBodies so no entity maps on frame 2.
+        world.remove_component::<PhysicsBody>(e1);
+        world.remove_component::<PhysicsBody>(e2);
+
+        // Frame 2: with the entity↔collider mapping removed, the prior contact resolves to a
+        // single Stopped event (the contact genuinely ended for these entities).
+        system.run(&mut world, 1.0 / 60.0);
+        let f2_len = world.resource::<Events<CollisionEvent>>().unwrap().read().len();
+        assert_eq!(f2_len, 1, "frame 2 should emit exactly one Stopped event");
+        world.resource_mut::<Events<CollisionEvent>>().unwrap().flush();
+
+        // Frame 3: the reused scratch event vecs must be cleared between frames — no stale leak.
+        system.run(&mut world, 1.0 / 60.0);
+        let events_f3 = world.resource::<Events<CollisionEvent>>().unwrap().read();
+        assert!(
+            events_f3.is_empty(),
+            "no stale events expected on frame 3; got: {events_f3:?}"
         );
     }
 }

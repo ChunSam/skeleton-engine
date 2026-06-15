@@ -90,6 +90,7 @@ impl From<std::io::Error> for ClipSetError {
 /// [`index`](Self::index) / [`clips`](Self::clips) indices are deterministic.
 /// Pass `set.clips().to_vec()` to [`AnimationPlayer::new`](crate::animation::AnimationPlayer::new)
 /// and use `set.index("idle")` to drive playback by name.
+#[derive(Debug, Clone)]
 pub struct AnimationClipSet {
     /// Clips ordered alphabetically by name.
     clips: Vec<AnimationClip>,
@@ -109,6 +110,13 @@ impl AnimationClipSet {
         let columns = def.atlas.columns;
         let rows = def.atlas.rows;
 
+        // Guard against division-by-zero: atlas must have at least one column and one row.
+        if columns == 0 || rows == 0 {
+            return Err(ClipSetError::Ron(format!(
+                "atlas dimensions must be non-zero, got {columns}x{rows}"
+            )));
+        }
+
         // Collect clip names and sort for deterministic ordering.
         let mut entries: Vec<(String, ClipDef)> = def.clips.into_iter().collect();
         entries.sort_by(|(a, _), (b, _)| a.cmp(b));
@@ -117,6 +125,15 @@ impl AnimationClipSet {
         let mut names = HashMap::with_capacity(entries.len());
 
         for (name, clip_def) in entries {
+            // Validate that every frame index lies within the atlas bounds.
+            for &i in &clip_def.frames {
+                if i >= columns * rows {
+                    return Err(ClipSetError::Ron(format!(
+                        "frame index {i} exceeds {columns}x{rows} atlas (max index {})",
+                        columns * rows - 1,
+                    )));
+                }
+            }
             let frames: Vec<UvRect> = clip_def
                 .frames
                 .iter()
@@ -337,6 +354,76 @@ mod tests {
     fn malformed_ron_returns_err() {
         let result = AnimationClipSet::from_ron_str("not valid ron {{{{");
         assert!(result.is_err(), "malformed RON must return Err");
+    }
+
+    /// Atlas with columns=0 must return a Ron error (guards against i % 0 panic).
+    #[test]
+    fn zero_columns_returns_err() {
+        let ron = r#"(
+    atlas: (columns: 0, rows: 4),
+    clips: {
+        "idle": (frames: [0], fps: 6.0, looping: true),
+    },
+)"#;
+        let result = AnimationClipSet::from_ron_str(ron);
+        assert!(
+            result.is_err(),
+            "columns=0 atlas must return Err, not panic"
+        );
+        match result {
+            Err(ClipSetError::Ron(msg)) => assert!(
+                msg.contains("non-zero"),
+                "error message should mention non-zero, got: {msg}"
+            ),
+            other => panic!("expected ClipSetError::Ron, got {other:?}"),
+        }
+    }
+
+    /// Atlas with rows=0 must also return a Ron error.
+    #[test]
+    fn zero_rows_returns_err() {
+        let ron = r#"(
+    atlas: (columns: 4, rows: 0),
+    clips: {
+        "idle": (frames: [0], fps: 6.0, looping: true),
+    },
+)"#;
+        let result = AnimationClipSet::from_ron_str(ron);
+        assert!(
+            result.is_err(),
+            "rows=0 atlas must return Err, not panic"
+        );
+    }
+
+    /// A frame index that exceeds the atlas capacity must return a Ron error.
+    #[test]
+    fn out_of_range_frame_index_returns_err() {
+        // 2×2 atlas has 4 cells (indices 0–3); frame index 4 is out of range.
+        let ron = r#"(
+    atlas: (columns: 2, rows: 2),
+    clips: {
+        "bad": (frames: [0, 1, 4], fps: 10.0, looping: false),
+    },
+)"#;
+        let result = AnimationClipSet::from_ron_str(ron);
+        assert!(
+            result.is_err(),
+            "out-of-range frame index must return Err"
+        );
+        match result {
+            Err(ClipSetError::Ron(msg)) => assert!(
+                msg.contains("frame index 4"),
+                "error message should mention the bad index, got: {msg}"
+            ),
+            other => panic!("expected ClipSetError::Ron, got {other:?}"),
+        }
+    }
+
+    /// Valid RON with every frame in range must still succeed.
+    #[test]
+    fn valid_ron_still_ok_after_validation() {
+        let result = AnimationClipSet::from_ron_str(SAMPLE_RON);
+        assert!(result.is_ok(), "valid RON must still parse successfully");
     }
 
     /// Registry load+get round-trip and reload with in-memory substitute.

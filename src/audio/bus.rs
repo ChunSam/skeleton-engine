@@ -34,11 +34,13 @@ impl AudioManager {
         }
     }
 
-    /// Sets the master volume for a bus. Applied immediately to all channels in the bus.
+    /// Sets the master volume for a bus. Applied immediately to all channels in the bus
+    /// that are **not** currently fading. Channels with an active fade pick up the new bus
+    /// volume on the next `update()` tick so the fade interpolation is not snapped.
     pub fn set_bus_volume(&mut self, bus: &str, volume: f32) {
         self.bus_volumes
             .insert(bus.to_string(), volume.clamp(0.0, 1.0));
-        // Update sinks for all channels in the bus
+        // Update sinks for all channels in the bus that have no active fade.
         let channels: Vec<String> = self
             .channel_buses
             .iter()
@@ -46,6 +48,12 @@ impl AudioManager {
             .map(|(ch, _)| ch.clone())
             .collect();
         for ch in channels {
+            // Skip the immediate sink write when a fade is active; the fade's own
+            // update() tick already multiplies in bus_vol each frame, so the new
+            // bus volume will be picked up without causing a one-frame snap.
+            if self.fades.contains_key(&ch) {
+                continue;
+            }
             let eff = self.effective_volume(&ch);
             if let Some(sink) = self.sinks.get(&ch) {
                 sink.set_volume(eff);
@@ -67,11 +75,21 @@ impl AudioManager {
         collect_bus_names(&self.channel_buses, &self.bus_volumes)
     }
 
-    /// Sets the channel volume immediately (0.0 = silent, 1.0 = original).
-    /// The effective volume is this value multiplied by the bus volume.
+    /// Sets the channel base volume (0.0 = silent, 1.0 = original).
+    ///
+    /// The base is stored in `volume_overrides` so it persists as the post-fade
+    /// resting level. If a fade is currently active the immediate sink write is
+    /// skipped — the fade's own `update()` tick will pick up the new base on the
+    /// next frame, avoiding a one-frame snap to the new value mid-fade.
     pub fn set_volume(&mut self, channel: &str, volume: f32) {
         let vol = volume.clamp(0.0, 1.0);
         self.volume_overrides.insert(channel.to_string(), vol);
+        // Only write to the sink when no fade is in progress; an active fade
+        // already drives the sink each frame and will incorporate the new base
+        // on its next tick.
+        if self.fades.contains_key(channel) {
+            return;
+        }
         let eff = self.effective_volume(channel);
         if let Some(sink) = self.sinks.get(channel) {
             sink.set_volume(eff);
@@ -119,6 +137,68 @@ impl AudioManager {
 mod bus_name_tests {
     use super::{collect_bus_names, AudioManager};
     use std::collections::HashMap;
+
+    // ── Fix #1: set_bus_volume / set_volume must not snap a fading channel ────
+
+    /// While a fade is active, `set_bus_volume` must NOT write the sink volume
+    /// immediately. The channel's fades entry must remain, and `volume_overrides`
+    /// (the post-fade base) must be updated as before.
+    #[test]
+    fn set_bus_volume_skips_sink_write_during_fade() {
+        let Some(mut audio) = AudioManager::new() else {
+            return;
+        };
+        audio.assign_bus("ch", "music");
+        audio.set_bus_volume("music", 1.0);
+        audio.play_tone("ch", 440.0, 10.0, 0.5);
+
+        // Start a fade — this puts "ch" into the fades map.
+        audio.fade_volume("ch", 0.2, 2.0);
+        assert!(
+            audio.fades.contains_key("ch"),
+            "fade must be active before calling set_bus_volume"
+        );
+
+        // Change bus volume. The fade must remain active (no snap / no removal).
+        audio.set_bus_volume("music", 0.5);
+        assert!(
+            audio.fades.contains_key("ch"),
+            "set_bus_volume must not remove or cancel the active fade"
+        );
+        // The new bus volume is stored and will be applied on the next update() tick.
+        assert!(
+            (audio.bus_volume("music") - 0.5).abs() < 0.001,
+            "bus_volumes map must be updated even when the sink write is skipped"
+        );
+    }
+
+    /// While a fade is active, `set_volume` must NOT write the sink volume
+    /// immediately. The updated base is stored in `volume_overrides` so it
+    /// persists as the post-fade resting level.
+    #[test]
+    fn set_volume_skips_sink_write_during_fade() {
+        let Some(mut audio) = AudioManager::new() else {
+            return;
+        };
+        audio.play_tone("ch", 440.0, 10.0, 0.5);
+
+        // Start a fade.
+        audio.fade_volume("ch", 0.1, 2.0);
+        assert!(audio.fades.contains_key("ch"), "fade must be active");
+
+        // set_volume must not remove or reset the fade.
+        audio.set_volume("ch", 0.9);
+        assert!(
+            audio.fades.contains_key("ch"),
+            "set_volume must not cancel the active fade"
+        );
+        // The new base is stored.
+        let base = audio.volume_overrides.get("ch").copied().unwrap_or(1.0);
+        assert!(
+            (base - 0.9).abs() < 0.001,
+            "volume_overrides must be updated even when the sink write is skipped, got {base}"
+        );
+    }
 
     #[test]
     fn collect_bus_names_merges_sorts_and_dedups() {

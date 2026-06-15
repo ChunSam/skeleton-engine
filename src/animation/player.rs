@@ -60,8 +60,17 @@ impl AnimationPlayer {
         }
     }
 
-    /// Switches to a clip immediately. Does nothing if that clip is already playing.
+    /// Switches to a clip immediately. Does nothing if that clip is already playing
+    /// or if `clip_index` is out of bounds (logs a warning in the latter case).
     pub fn play(&mut self, clip_index: usize) {
+        if clip_index >= self.clips.len() {
+            log::warn!(
+                "AnimationPlayer::play: clip index {clip_index} is out of bounds \
+                 (player has {} clip(s))",
+                self.clips.len()
+            );
+            return;
+        }
         if self.current_clip != clip_index {
             self.current_clip = clip_index;
             self.current_frame = 0;
@@ -86,6 +95,14 @@ impl AnimationPlayer {
     /// This prevents a visible one-frame pop back to the original FROM clip (A) and
     /// ensures the first blended frame is `mix(B, C, 0.0)` = B — a smooth continuation.
     pub fn play_with_crossfade(&mut self, clip_index: usize, duration: f32) {
+        if clip_index >= self.clips.len() {
+            log::warn!(
+                "AnimationPlayer::play_with_crossfade: clip index {clip_index} is out of bounds \
+                 (player has {} clip(s))",
+                self.clips.len()
+            );
+            return;
+        }
         if self.current_clip == clip_index {
             return;
         }
@@ -164,8 +181,12 @@ impl AnimationPlayer {
     /// flag is set by the system, not inferred from frame index alone. This prevents a
     /// 1-frame clip from reporting finished at frame 0 before any time has elapsed.
     pub fn is_finished(&self) -> bool {
+        // A missing clip (out-of-bounds current_clip) is not "finished" — it is an
+        // undefined state. Returning false avoids spurious AnimationEnd transitions
+        // that would fire if play() was called with an OOB index (now guarded) but
+        // the caller had already changed current_clip by other means.
         let Some(clip) = self.clips.get(self.current_clip) else {
-            return true;
+            return false;
         };
         if clip.looping || clip.frames.is_empty() {
             return false;
@@ -339,6 +360,55 @@ mod tests {
         assert!(
             world.get::<AnimationPlayer>(e).unwrap().is_finished(),
             "3-frame clip must be finished after advancing to the last frame"
+        );
+    }
+
+    // ── Bounds-guard tests (fix 2) ─────────────────────────────────────────────
+
+    /// `play(OOB)` must not change `current_clip` and `is_finished()` must remain false.
+    #[test]
+    fn play_oob_does_not_change_state() {
+        let mut player = make_player(); // 3 clips (indices 0–2)
+        assert_eq!(player.current_clip, 0);
+        player.play(99); // OOB
+        assert_eq!(
+            player.current_clip, 0,
+            "OOB play() must not change current_clip"
+        );
+        assert!(
+            !player.is_finished(),
+            "is_finished() must be false after OOB play()"
+        );
+    }
+
+    /// `play_with_crossfade(OOB, _)` must not start a crossfade or change state.
+    #[test]
+    fn play_with_crossfade_oob_does_not_change_state() {
+        let mut player = make_player(); // 3 clips
+        player.play_with_crossfade(99, 0.5); // OOB
+        assert_eq!(
+            player.current_clip, 0,
+            "OOB play_with_crossfade() must not change current_clip"
+        );
+        assert!(
+            player.crossfade.is_none(),
+            "OOB play_with_crossfade() must not start a crossfade"
+        );
+        assert!(
+            !player.is_finished(),
+            "is_finished() must be false after OOB play_with_crossfade()"
+        );
+    }
+
+    /// When `current_clip` somehow points out of bounds, `is_finished()` must return false.
+    #[test]
+    fn is_finished_returns_false_for_missing_clip() {
+        let mut player = make_player(); // clips 0–2
+        // Force an OOB state directly (bypassing the now-guarded play()).
+        player.current_clip = 99;
+        assert!(
+            !player.is_finished(),
+            "is_finished() must be false when current_clip is OOB (no spurious AnimationEnd)"
         );
     }
 

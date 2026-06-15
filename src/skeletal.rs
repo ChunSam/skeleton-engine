@@ -121,6 +121,10 @@ pub struct SkeletalAnimator {
     pub playing: bool,
     /// Bone name → entity. Populated by [`SkeletonBuilder`].
     pub bones: HashMap<String, Entity>,
+    /// Set to `true` by [`SkeletalAnimationSystem`] on the first tick. Guards `is_finished()`
+    /// against reporting `true` at construction time for a zero-duration non-looping clip
+    /// (before any system update has run).
+    pub(crate) started: bool,
 }
 
 impl SkeletalAnimator {
@@ -132,6 +136,7 @@ impl SkeletalAnimator {
             speed: 1.0,
             playing: true,
             bones,
+            started: false,
         }
     }
 
@@ -154,11 +159,21 @@ impl SkeletalAnimator {
         }
     }
 
-    /// Returns `true` if a non-looping clip has played to the end. Always `false` for looping clips.
+    /// Returns `true` if a non-looping clip has played to the end. Always `false` for looping
+    /// clips, missing clips, or before the first system tick.
+    ///
+    /// The `started` guard prevents this from returning `true` at construction time for a
+    /// `duration == 0.0` non-looping clip — the system must run at least once first so callers
+    /// observe a frame in the constructed state before it is considered finished. After that
+    /// first tick a zero-duration non-looping clip is reported finished (it has no content left
+    /// to play).
     pub fn is_finished(&self) -> bool {
+        if !self.started {
+            return false;
+        }
         match self.clips.get(self.current) {
             Some(c) => !c.looping && self.time >= c.duration,
-            None => true,
+            None => false,
         }
     }
 }
@@ -184,6 +199,8 @@ impl System for SkeletalAnimationSystem {
                 let Some(anim) = world.get_mut::<SkeletalAnimator>(animator_entity) else {
                     continue;
                 };
+                // Mark as started so is_finished() can return true after at least one tick.
+                anim.started = true;
                 if !anim.playing {
                     continue;
                 }
@@ -345,6 +362,99 @@ mod tests {
             keys: vec![],
         };
         assert!(track.sample(0.5).is_none());
+    }
+
+    // ── started-guard tests (fix 4) ────────────────────────────────────────────
+
+    /// A duration=0.0 non-looping clip must report `is_finished()==false` before
+    /// the first `SkeletalAnimationSystem` tick.
+    #[test]
+    fn zero_duration_nonlooping_clip_not_finished_before_first_tick() {
+        let mut world = World::new();
+        let b = SkeletonBuilder::new(
+            &mut world,
+            "root",
+            Transform {
+                position: Vec2::ZERO,
+                ..Default::default()
+            },
+        );
+        let clip = SkeletalClip {
+            name: "instant".into(),
+            duration: 0.0,
+            looping: false,
+            tracks: vec![],
+        };
+        let root = b.finish(&mut world, vec![clip]);
+
+        // Before any system tick: must not be finished.
+        assert!(
+            !world
+                .get::<SkeletalAnimator>(root)
+                .unwrap()
+                .is_finished(),
+            "duration=0 non-looping clip must not be finished before the first tick"
+        );
+
+        // After one tick: now finished (started=true, time=0 >= duration=0).
+        SkeletalAnimationSystem.run(&mut world, 0.01);
+        assert!(
+            world
+                .get::<SkeletalAnimator>(root)
+                .unwrap()
+                .is_finished(),
+            "duration=0 non-looping clip must be finished after the first tick"
+        );
+    }
+
+    /// A normal non-looping clip with duration > 0 must not be finished before time >= duration.
+    #[test]
+    fn nonlooping_clip_not_finished_before_duration_elapsed() {
+        let mut world = World::new();
+        let b = SkeletonBuilder::new(
+            &mut world,
+            "root",
+            Transform {
+                position: Vec2::ZERO,
+                ..Default::default()
+            },
+        );
+        let clip = SkeletalClip {
+            name: "one_shot".into(),
+            duration: 0.5,
+            looping: false,
+            tracks: vec![],
+        };
+        let root = b.finish(&mut world, vec![clip]);
+
+        // Before any tick: not finished.
+        assert!(
+            !world
+                .get::<SkeletalAnimator>(root)
+                .unwrap()
+                .is_finished(),
+            "non-looping clip must not be finished before first tick"
+        );
+
+        // One tick that doesn't reach duration.
+        SkeletalAnimationSystem.run(&mut world, 0.2);
+        assert!(
+            !world
+                .get::<SkeletalAnimator>(root)
+                .unwrap()
+                .is_finished(),
+            "non-looping clip must not be finished before time >= duration"
+        );
+
+        // Advance past duration.
+        SkeletalAnimationSystem.run(&mut world, 0.4);
+        assert!(
+            world
+                .get::<SkeletalAnimator>(root)
+                .unwrap()
+                .is_finished(),
+            "non-looping clip must be finished after time >= duration"
+        );
     }
 
     #[test]
