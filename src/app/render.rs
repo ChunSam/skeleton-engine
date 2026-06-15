@@ -122,6 +122,64 @@ impl App {
         needs_new
     }
 
+    /// Keep the egui-side registration of the Tile Paint swatch atlas in sync with the
+    /// current selection. Called once per frame just before the editor UI is built so the
+    /// inspector can draw real tile thumbnails via the stored [`egui::TextureId`].
+    ///
+    /// Registers the selected `Tilemap`'s atlas texture while the editor is open (so the
+    /// swatch palette shows real thumbnails as soon as the Tile Paint section appears, even
+    /// before paint mode is enabled), re-registers when the atlas path changes, and frees the
+    /// registration (no egui texture leak) when the selection changes to a non-tilemap or the
+    /// editor closes.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) fn register_paint_atlas_texture(&mut self) {
+        use crate::app::editor::EditorMode;
+
+        // The atlas path we want registered this frame (None = nothing should be registered).
+        // Tied to "a tilemap is selected in an open editor" — the same condition that shows the
+        // Tile Paint section — not to paint mode, so the palette is populated up front.
+        let desired: Option<String> = if self.editor.mode != EditorMode::Off {
+            self.editor
+                .inspector_selected
+                .and_then(|e| self.world.get::<crate::tilemap::Tilemap>(e))
+                .map(|tm| tm.atlas.texture.clone())
+        } else {
+            None
+        };
+
+        let current = self
+            .editor
+            .paint_atlas_tex
+            .as_ref()
+            .map(|(p, _)| p.as_str());
+        if current == desired.as_deref() {
+            return; // already in the right state (including both None)
+        }
+
+        // Free the stale registration.
+        if let (Some(er), Some((_, old_id))) = (
+            self.egui_renderer.as_mut(),
+            self.editor.paint_atlas_tex.take(),
+        ) {
+            er.free_texture(&old_id);
+        }
+
+        // Register the new atlas texture, if it has been uploaded to the GPU yet.
+        if let Some(path) = desired {
+            if let (Some(er), Some(gpu), Some(sr)) = (
+                self.egui_renderer.as_mut(),
+                self.gpu.as_ref(),
+                self.sprite_renderer.as_ref(),
+            ) {
+                if let Some(view) = sr.texture_view(&path) {
+                    let id =
+                        er.register_native_texture(&gpu.device, view, wgpu::FilterMode::Nearest);
+                    self.editor.paint_atlas_tex = Some((path, id));
+                }
+            }
+        }
+    }
+
     fn render(&mut self) -> Result<(), wgpu::CurrentSurfaceTexture> {
         let gpu = match self.gpu.as_mut() {
             Some(g) => g,

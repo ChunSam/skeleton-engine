@@ -233,6 +233,12 @@ pub(in crate::app) struct EditorState {
     /// Whether a press→release paint stroke is currently in progress.
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) paint_active: bool,
+    /// `(atlas path, egui texture id)` currently registered with the egui renderer for
+    /// the Tile Paint swatch palette. Re-registered when the selected tilemap's atlas
+    /// changes and freed (`egui_wgpu::Renderer::free_texture`) when paint mode exits —
+    /// see `App::register_paint_atlas_texture`. `None` until the atlas texture is cached.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) paint_atlas_tex: Option<(String, egui::TextureId)>,
 }
 
 impl EditorState {
@@ -277,6 +283,7 @@ impl EditorState {
             paint_value: 1,
             paint_stroke: Vec::new(),
             paint_active: false,
+            paint_atlas_tex: None,
         }
     }
 }
