@@ -147,24 +147,23 @@ impl DigSystem {
             Some(tm) => tm.clone(),
             None => return,
         };
-        // Remove PhysicsWorld from resources so we hold exclusive ownership.
-        let mut physics = match world.remove_resource::<PhysicsWorld>() {
-            Some(p) => p,
-            None => return,
-        };
-        physics.sync_static_from_tilemap(
-            &tilemap_clone,
-            PPU,
-            |value| {
-                if value != 0 {
-                    Some(TileCollider::solid())
-                } else {
-                    None
-                }
-            },
-            &mut self.tile_index,
-        );
-        world.insert_resource(physics);
+        // Use with_resource_mut to borrow PhysicsWorld and World simultaneously,
+        // hiding the manual remove / insert dance.
+        let tile_index = &mut self.tile_index;
+        world.with_resource_mut::<PhysicsWorld, _>(|physics, _world| {
+            physics.sync_static_from_tilemap(
+                &tilemap_clone,
+                PPU,
+                |value| {
+                    if value != 0 {
+                        Some(TileCollider::solid())
+                    } else {
+                        None
+                    }
+                },
+                tile_index,
+            );
+        });
     }
 
     /// Reset the world back to its initial state.
@@ -280,14 +279,13 @@ impl System for DigSystem {
         if let Some((rb, col)) = handles {
             let velocity = move_dir * PLAYER_SPEED;
             // `move_character` needs `&mut PhysicsWorld` and `&mut CharacterController`
-            // simultaneously, so we remove PhysicsWorld from resources first
-            // (same workaround as the platformer).
-            if let Some(mut physics) = world.remove_resource::<PhysicsWorld>() {
+            // simultaneously. `with_resource_mut` removes PhysicsWorld for the duration
+            // of the closure so the borrow checker is satisfied, then re-inserts it.
+            world.with_resource_mut::<PhysicsWorld, _>(|physics, world| {
                 if let Some(controller) = world.get_mut::<CharacterController>(player) {
                     physics.move_character(controller, rb, col, velocity * dt, dt, PPU);
                 }
-                world.insert_resource(physics);
-            }
+            });
         }
 
         // ── 4. Dig ────────────────────────────────────────────────────────────
@@ -510,7 +508,8 @@ fn main() {
             collider_handle: player_col,
         },
     );
-    app.world.add_component(player, CharacterController::new());
+    app.world
+        .add_component(player, CharacterController::top_down());
 
     // ── Gem: a yellow square rendered at the buried cell ─────────────────────
     let gem_pos = gem_world_pos();

@@ -4,6 +4,25 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.3.0
+
+Two ergonomic helpers surfaced by the `dig_quest` example (tilemap arc). Additive.
+
+### Added
+
+- **`World::with_resource_mut::<R, _>(|r, world| …)`** — temporarily removes resource `R`,
+  runs the closure with `&mut R` **and** `&mut World` at once (the common "I need this
+  resource and the rest of the world" borrow), then re-inserts `R`; returns `false` if `R`
+  is absent. Replaces the manual `remove_resource` / `insert_resource` dance.
+- **`CharacterController::top_down()`** — a constructor for top-down games: like `new()` but
+  with snap-to-ground and autostep disabled (the `new()` defaults are platformer-tuned and
+  make a top-down character stick to wall surfaces). `slide` stays on.
+
+### Changed
+
+- `dig_quest` refactored onto both helpers (its two `remove_resource::<PhysicsWorld>()`
+  sites and the player controller) — the validation that the new APIs read cleanly.
+
 ## 8.2.0
 
 Runtime tilemap mutation + neighbor-bitmask autotiling, validated by the new `dig_quest`
