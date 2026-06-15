@@ -4,6 +4,19 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.14.0
+
+Inspector quality-of-life. Additive — editor-internal; no public engine API change.
+
+### Added
+
+- **Component copy/paste** in the docked editor's inspector. Each serde-registered component on the
+  selected entity gets a **⧉ copy** button; a **Paste {type}** button then applies the copied
+  component to the selected entity (insert or overwrite). Useful for transferring a tuned component
+  (stats, sprite, …) between entities. Like Add/Remove-component, paste is not pushed to undo history.
+- **Entity-list search** — a search box filters the left entity list by label (case-insensitive
+  substring); the ✕ clears it.
+
 ## 8.13.0
 
 Tile Paint tools. Additive — editor-internal; no public engine API change.
