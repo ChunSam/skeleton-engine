@@ -4,6 +4,25 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.27.0
+
+Editor timeline editor (MVP) + `Track` keyframe inspection/edit API. Additive.
+
+### Added
+
+- `Track<T>` keyframe accessors/edit ops — `keyframes()`, `len()`, `remove(index)`,
+  `set_time(index, time)` (re-sorts), `clear()` — alongside the existing `add`/`sample`/`duration`.
+- Editor **Timeline** inspector panel (entities with a `Timeline`): playback controls (duration, loop,
+  play/pause, restart, time scrub) plus a per-track keyframe list (position / rotation / scale / color
+  / alpha / zoom) showing each keyframe's editable time, value summary, and easing, with per-keyframe
+  remove. Exercised by the `timeline_cutscene` example (F2 → select the animated entity).
+
+### Notes
+
+- List-based MVP; a visual track/keyframe timeline (horizontal time ruler, draggable keyframe dots) is
+  a planned follow-up. Edit ops validated by unit tests through the real `Track` data model
+  (autonomous visual validation is weak under the docked cursor-freeze).
+
 ## 8.26.0
 
 Editor state-machine editor (MVP) + `AnimationStateMachine` inspection/edit API. Additive.

@@ -628,6 +628,16 @@ pub(in crate::app) fn inspector_tab_body(
                         });
                 }
 
+                // ── Timeline editor (entities with a Timeline) ────────────────
+                if app.world.get::<crate::timeline::Timeline>(sel).is_some() {
+                    ui.separator();
+                    egui::CollapsingHeader::new("Timeline")
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            timeline_panel(ui, app, sel);
+                        });
+                }
+
                 ui.separator();
                 ui.strong("Component List");
 
@@ -1285,6 +1295,106 @@ fn state_machine_panel(ui: &mut egui::Ui, app: &mut App, sel: crate::ecs::Entity
             app.editor.sm_add_state_name.clear();
         }
     }
+}
+
+/// Render one [`Track`](crate::timeline::Track) of a `Timeline` as a collapsible keyframe list:
+/// each keyframe shows an editable time (re-sorts on change), a value summary (via `fmt`), and the
+/// easing, with a remove button. Empty tracks render nothing.
+#[cfg(not(target_arch = "wasm32"))]
+fn timeline_track_ui<T: Clone + crate::tween::Lerp>(
+    ui: &mut egui::Ui,
+    label: &str,
+    track: &mut crate::timeline::Track<T>,
+    fmt: impl Fn(&T) -> String,
+) {
+    if track.is_empty() {
+        return;
+    }
+    egui::CollapsingHeader::new(format!("{label} ({} kf)", track.len()))
+        .id_salt(label)
+        .show(ui, |ui| {
+            let mut retime: Option<(usize, f32)> = None;
+            let mut remove: Option<usize> = None;
+            for (i, kf) in track.keyframes().iter().enumerate() {
+                ui.horizontal(|ui| {
+                    let mut t = kf.time;
+                    if ui
+                        .add(
+                            egui::DragValue::new(&mut t)
+                                .speed(0.02)
+                                .range(0.0..=3600.0)
+                                .suffix("s"),
+                        )
+                        .changed()
+                    {
+                        retime = Some((i, t));
+                    }
+                    ui.label(format!("{}  {:?}", fmt(&kf.value), kf.easing));
+                    if ui
+                        .small_button("✕")
+                        .on_hover_text("remove keyframe")
+                        .clicked()
+                    {
+                        remove = Some(i);
+                    }
+                });
+            }
+            if let Some((i, t)) = retime {
+                track.set_time(i, t);
+            }
+            if let Some(i) = remove {
+                track.remove(i);
+            }
+        });
+}
+
+/// Timeline inspector panel: playback controls (duration / loop / play-pause / restart / time scrub)
+/// plus a per-track keyframe list (position / rotation / scale / color / alpha / zoom). Edits mutate
+/// the `Timeline` component in place via one `get_mut` (disjoint track fields edited sequentially).
+#[cfg(not(target_arch = "wasm32"))]
+fn timeline_panel(ui: &mut egui::Ui, app: &mut App, sel: crate::ecs::Entity) {
+    let Some(tl) = app.world.get_mut::<crate::timeline::Timeline>(sel) else {
+        return;
+    };
+    ui.horizontal(|ui| {
+        ui.label("duration");
+        ui.add(
+            egui::DragValue::new(&mut tl.duration)
+                .speed(0.05)
+                .range(0.0..=3600.0)
+                .suffix("s"),
+        );
+        ui.checkbox(&mut tl.looping, "loop");
+    });
+    let dur = tl.duration.max(0.0);
+    ui.horizontal(|ui| {
+        let label = if tl.playing { "⏸ Pause" } else { "▶ Play" };
+        if ui.button(label).clicked() {
+            tl.playing = !tl.playing;
+        }
+        if ui.button("⏮ Restart").clicked() {
+            tl.restart();
+        }
+        ui.label("time");
+        ui.add(
+            egui::DragValue::new(&mut tl.time)
+                .speed(0.02)
+                .range(0.0..=dur),
+        );
+    });
+    ui.separator();
+    timeline_track_ui(ui, "position", &mut tl.position, |v| {
+        format!("({:.0}, {:.0})", v.x, v.y)
+    });
+    timeline_track_ui(ui, "rotation", &mut tl.rotation, |v| format!("{v:.3} rad"));
+    timeline_track_ui(ui, "scale", &mut tl.scale, |v| {
+        format!("({:.2}, {:.2})", v.x, v.y)
+    });
+    timeline_track_ui(ui, "color", &mut tl.color, |c| {
+        format!("{:.2},{:.2},{:.2},{:.2}", c.r, c.g, c.b, c.a)
+    });
+    timeline_track_ui(ui, "alpha", &mut tl.alpha, |a| format!("{a:.2}"));
+    timeline_track_ui(ui, "zoom", &mut tl.zoom, |z| format!("{z:.2}"));
 }
 
 /// Convert an engine [`UvRect`](crate::renderer::uv::UvRect) (offset + size) into the

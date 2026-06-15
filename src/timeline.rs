@@ -106,6 +106,43 @@ impl<T: Clone + Lerp> Track<T> {
     pub fn is_empty(&self) -> bool {
         self.keyframes.is_empty()
     }
+
+    // ── Keyframe inspection / editing (editor / tooling) ───────────────────────
+
+    /// The keyframes, sorted by time (read-only). For an editor/timeline view.
+    pub fn keyframes(&self) -> &[Keyframe<T>] {
+        &self.keyframes
+    }
+
+    /// Number of keyframes.
+    pub fn len(&self) -> usize {
+        self.keyframes.len()
+    }
+
+    /// Remove the keyframe at `index`, returning it. `None` if out of range.
+    pub fn remove(&mut self, index: usize) -> Option<Keyframe<T>> {
+        if index < self.keyframes.len() {
+            Some(self.keyframes.remove(index))
+        } else {
+            None
+        }
+    }
+
+    /// Set the time of the keyframe at `index` and re-sort the track. Returns `false` if `index`
+    /// is out of range. (Indices may change after the re-sort — re-read [`keyframes`](Self::keyframes).)
+    pub fn set_time(&mut self, index: usize, time: f32) -> bool {
+        if index >= self.keyframes.len() {
+            return false;
+        }
+        self.keyframes[index].time = time;
+        self.keyframes.sort_by(|a, b| a.time.total_cmp(&b.time));
+        true
+    }
+
+    /// Remove all keyframes.
+    pub fn clear(&mut self) {
+        self.keyframes.clear();
+    }
 }
 
 impl<T: Clone + Lerp> Default for Track<T> {
@@ -580,5 +617,58 @@ mod tests {
             (t - 0.5).abs() < 1e-5,
             "looping timeline should wrap with modulo, got {t}"
         );
+    }
+
+    // ── Track editor accessors + edit ops ──────────────────────────────────────
+
+    fn three_kf_track() -> Track<f32> {
+        let mut track: Track<f32> = Track::new();
+        track
+            .add(0.0, 0.0, Easing::Linear)
+            .add(1.0, 10.0, Easing::Linear)
+            .add(2.0, 20.0, Easing::Linear);
+        track
+    }
+
+    #[test]
+    fn track_keyframes_accessor_is_sorted() {
+        let track = three_kf_track();
+        let kfs = track.keyframes();
+        assert_eq!(track.len(), 3);
+        assert_eq!(kfs.len(), 3);
+        assert_eq!(kfs[0].time, 0.0);
+        assert_eq!(kfs[1].time, 1.0);
+        assert_eq!(kfs[2].time, 2.0);
+    }
+
+    #[test]
+    fn track_remove_keyframe() {
+        let mut track = three_kf_track();
+        let removed = track.remove(1).expect("removed middle keyframe");
+        assert_eq!(removed.time, 1.0);
+        assert_eq!(track.len(), 2);
+        assert_eq!(track.keyframes()[1].time, 2.0);
+        assert!(track.remove(9).is_none(), "out-of-range remove is None");
+    }
+
+    #[test]
+    fn track_set_time_resorts() {
+        let mut track = three_kf_track();
+        // Move the first keyframe (t=0, value=0) past the others.
+        assert!(track.set_time(0, 5.0));
+        let kfs = track.keyframes();
+        // Re-sorted: 1.0, 2.0, 5.0; the moved keyframe (value 0) is now last.
+        assert_eq!(kfs[0].time, 1.0);
+        assert_eq!(kfs[2].time, 5.0);
+        assert_eq!(kfs[2].value, 0.0, "the moved keyframe kept its value");
+        assert!(!track.set_time(9, 1.0), "out-of-range set_time is false");
+    }
+
+    #[test]
+    fn track_clear() {
+        let mut track = three_kf_track();
+        track.clear();
+        assert!(track.is_empty());
+        assert_eq!(track.len(), 0);
     }
 }
