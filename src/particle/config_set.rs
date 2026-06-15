@@ -248,7 +248,10 @@ impl ParticleConfigRegistry {
         let text = std::fs::read_to_string(path)?;
         let set = ParticleConfigSet::from_ron_str(&text)?;
         let name = name.into();
-        self.paths.insert(name.clone(), path.to_string());
+        // Store the canonicalized key so `reload_path` matches the path that
+        // `AssetServer::poll_reloads` reports (it returns `asset_key`, which canonicalizes).
+        self.paths
+            .insert(name.clone(), crate::asset::asset_key(path).to_string());
         self.sets.insert(name, set);
         Ok(())
     }
@@ -380,5 +383,35 @@ mod tests {
         assert!(got.emitter("fire").is_some());
         assert!(got.emitter("smoke").is_some());
         assert!(reg.get("missing").is_none());
+    }
+
+    // Regression: a playtest found hot-reload silently no-op'd because `load` stored the
+    // raw path while `reload_path` is called with the canonicalized path that
+    // `AssetServer::poll_reloads` reports — so the name lookup never matched. `load` now
+    // stores the canonical key.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn reload_path_matches_canonical_key_from_poll_reloads() {
+        let path = std::env::temp_dir().join(format!("pcs_reload_{}.ron", std::process::id()));
+        let p = path.to_string_lossy().to_string();
+        std::fs::write(&path, r#"(emitters: {"a": (spawn_rate: 10.0)})"#).expect("write");
+
+        let mut reg = ParticleConfigRegistry::default();
+        reg.load("set", &p).expect("load");
+        assert_eq!(
+            reg.get("set").unwrap().emitter("a").unwrap().spawn_rate,
+            10.0
+        );
+
+        // Edit on disk, then reload via the CANONICAL path (as poll_reloads would report it).
+        std::fs::write(&path, r#"(emitters: {"a": (spawn_rate: 99.0)})"#).expect("rewrite");
+        let canonical = crate::asset::asset_key(&p).to_string();
+        reg.reload_path(&canonical);
+        assert_eq!(
+            reg.get("set").unwrap().emitter("a").unwrap().spawn_rate,
+            99.0,
+            "reload_path must match the canonical path poll_reloads reports"
+        );
+        let _ = std::fs::remove_file(&path);
     }
 }
