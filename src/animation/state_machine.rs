@@ -251,6 +251,85 @@ impl AnimationStateMachine {
         &self.current
     }
 
+    // ── Inspection (editor / tooling) ──────────────────────────────────────────
+
+    /// All state names, sorted (stable order for an editor/graph view).
+    pub fn state_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.states.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
+    /// The state node for `name`, if it exists (read its `clip_index` / `transitions`).
+    pub fn state(&self, name: &str) -> Option<&AnimState> {
+        self.states.get(name)
+    }
+
+    /// Number of states.
+    pub fn state_count(&self) -> usize {
+        self.states.len()
+    }
+
+    /// All parameter names, sorted.
+    pub fn param_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.params.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
+    /// The parameter value for `name`, if it exists.
+    pub fn param(&self, name: &str) -> Option<&AnimParam> {
+        self.params.get(name)
+    }
+
+    // ── Editing (editor / tooling) ─────────────────────────────────────────────
+
+    /// Force the active state to `name` (e.g. an editor "jump to state"). No-op (returns `false`)
+    /// if no such state exists.
+    pub fn set_current_state(&mut self, name: &str) -> bool {
+        if self.states.contains_key(name) {
+            self.current = name.to_string();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Change a state's `clip_index`. No-op (returns `false`) if the state doesn't exist.
+    pub fn set_state_clip(&mut self, name: &str, clip_index: usize) -> bool {
+        if let Some(state) = self.states.get_mut(name) {
+            state.clip_index = clip_index;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Remove a state and every transition pointing **to** it. Refuses (returns `false`) to remove
+    /// the currently-active state, the last remaining state, or a non-existent state.
+    pub fn remove_state(&mut self, name: &str) -> bool {
+        if name == self.current || self.states.len() <= 1 || !self.states.contains_key(name) {
+            return false;
+        }
+        self.states.remove(name);
+        for state in self.states.values_mut() {
+            state.transitions.retain(|t| t.to != name);
+        }
+        true
+    }
+
+    /// Remove the transition at `index` from state `from`. Returns `false` if `from` or the index
+    /// is out of range.
+    pub fn remove_transition(&mut self, from: &str, index: usize) -> bool {
+        if let Some(state) = self.states.get_mut(from) {
+            if index < state.transitions.len() {
+                state.transitions.remove(index);
+                return true;
+            }
+        }
+        false
+    }
+
     // ── Internal evaluation ────────────────────────────────────────────────────
 
     fn check_condition(&self, cond: &TransitionCond, anim_finished: bool) -> bool {
@@ -815,5 +894,91 @@ mod tests {
             "idle_loop",
             "SM must have transitioned to idle_loop after attack clip finished"
         );
+    }
+
+    // ── Editor accessors + edit operations ─────────────────────────────────────
+
+    fn editor_sm() -> AnimationStateMachine {
+        let mut sm = AnimationStateMachine::new("idle", 0);
+        sm.add_state("run", 1).add_state("jump", 2);
+        sm.add_transition(
+            "idle",
+            "run",
+            vec![TransitionCond::BoolEq("running".into(), true)],
+        );
+        sm.add_transition("run", "idle", vec![TransitionCond::AnimationEnd]);
+        sm.add_transition("idle", "jump", vec![TransitionCond::Trigger("jump".into())]);
+        sm
+    }
+
+    #[test]
+    fn state_accessors_report_states_and_transitions() {
+        let sm = editor_sm();
+        assert_eq!(sm.state_count(), 3);
+        assert_eq!(sm.state_names(), vec!["idle", "jump", "run"]); // sorted
+        let idle = sm.state("idle").expect("idle state");
+        assert_eq!(idle.transitions.len(), 2, "idle → run, idle → jump");
+        assert_eq!(idle.clip_index, 0);
+        assert!(sm.state("missing").is_none());
+    }
+
+    #[test]
+    fn set_current_and_set_clip() {
+        let mut sm = editor_sm();
+        assert!(sm.set_current_state("run"));
+        assert_eq!(sm.current_state(), "run");
+        assert!(!sm.set_current_state("nope"));
+        assert_eq!(sm.current_state(), "run", "unchanged on bad name");
+
+        assert!(sm.set_state_clip("jump", 7));
+        assert_eq!(sm.state("jump").unwrap().clip_index, 7);
+        assert!(!sm.set_state_clip("nope", 1));
+    }
+
+    #[test]
+    fn remove_state_prunes_inbound_transitions() {
+        let mut sm = editor_sm();
+        // idle is current → cannot remove it.
+        assert!(!sm.remove_state("idle"), "cannot remove the active state");
+        // jump has an inbound transition from idle. Remove it.
+        assert!(sm.remove_state("jump"));
+        assert_eq!(sm.state_count(), 2);
+        assert!(sm.state("jump").is_none());
+        // idle's transition to jump must be pruned (only idle→run remains).
+        let idle = sm.state("idle").unwrap();
+        assert_eq!(idle.transitions.len(), 1);
+        assert_eq!(idle.transitions[0].to, "run");
+        assert!(!sm.remove_state("missing"));
+    }
+
+    #[test]
+    fn remove_state_refuses_last_state() {
+        let mut sm = AnimationStateMachine::new("only", 0);
+        assert!(!sm.remove_state("only"), "cannot remove the last state");
+        assert_eq!(sm.state_count(), 1);
+    }
+
+    #[test]
+    fn remove_transition_by_index() {
+        let mut sm = editor_sm();
+        assert_eq!(sm.state("idle").unwrap().transitions.len(), 2);
+        assert!(sm.remove_transition("idle", 0));
+        assert_eq!(sm.state("idle").unwrap().transitions.len(), 1);
+        // Out-of-range index and missing state are no-ops.
+        assert!(!sm.remove_transition("idle", 9));
+        assert!(!sm.remove_transition("missing", 0));
+    }
+
+    #[test]
+    fn param_accessors() {
+        let mut sm = editor_sm();
+        sm.set_bool("running", true);
+        sm.set_float("speed", 1.5);
+        sm.add_trigger("jump");
+        assert_eq!(sm.param_names(), vec!["jump", "running", "speed"]); // sorted
+        assert!(matches!(sm.param("running"), Some(AnimParam::Bool(true))));
+        assert!(matches!(sm.param("speed"), Some(AnimParam::Float(_))));
+        assert!(matches!(sm.param("jump"), Some(AnimParam::Trigger(_))));
+        assert!(sm.param("missing").is_none());
     }
 }

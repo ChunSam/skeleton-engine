@@ -4,6 +4,26 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.26.0
+
+Editor state-machine editor (MVP) + `AnimationStateMachine` inspection/edit API. Additive.
+
+### Added
+
+- `AnimationStateMachine` inspection accessors — `state_names()`, `state(name)`, `state_count()`,
+  `param_names()`, `param(name)` — and edit operations — `set_current_state()`, `set_state_clip()`,
+  `remove_state()` (prunes inbound transitions; refuses the active/last state), `remove_transition()`.
+- Editor **State Machine** inspector panel (entities with an `AnimationStateMachine`): lists states
+  (current highlighted) with their transitions (target + condition summary + crossfade) and parameters,
+  and offers edits — set current, edit clip index, remove state/transition, add state. Exercised by the
+  `sm_crossfade` example (F2 → select the animated entity).
+
+### Notes
+
+- This is the list-based MVP; a visual node-graph rendering (positioned nodes + drawn edges) is a
+  planned follow-up. Edit operations are validated by unit tests through the real data model
+  (autonomous visual validation is weak under the docked cursor-freeze).
+
 ## 8.25.0
 
 RTL text support: multi-font loading + reading-direction alignment. Additive.
