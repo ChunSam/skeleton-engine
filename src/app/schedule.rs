@@ -466,6 +466,19 @@ impl App {
             }
         }
 
+        // Hot-reload particle configs: forward changed paths to the registry.
+        #[cfg(not(target_arch = "wasm32"))]
+        if !reloaded.is_empty() {
+            if let Some(reg) = self
+                .world
+                .resource_mut::<crate::particle::ParticleConfigRegistry>()
+            {
+                for path in &reloaded {
+                    reg.reload_path(path);
+                }
+            }
+        }
+
         // Async load completion: upload finished assets to the GPU and update LoadProgress.
         let async_completed: Vec<(String, ImageAsset)> = self
             .world

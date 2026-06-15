@@ -172,6 +172,10 @@ pub struct AssetServer {
     /// Used by `poll_reloads` to include data-table changes in the returned Vec.
     #[cfg(not(target_arch = "wasm32"))]
     data_table_paths: std::collections::HashSet<std::sync::Arc<str>>,
+    /// Set of canonical paths registered as particle-config files (native only).
+    /// Used by `poll_reloads` to include particle-config changes in the returned Vec.
+    #[cfg(not(target_arch = "wasm32"))]
+    particle_config_paths: std::collections::HashSet<std::sync::Arc<str>>,
     // Channel for async loading (native only)
     #[cfg(not(target_arch = "wasm32"))]
     async_tx: std::sync::mpsc::SyncSender<async_loading::AsyncImageResult>,
@@ -228,6 +232,7 @@ impl AssetServer {
                 reload_rx,
                 _watcher: watcher,
                 data_table_paths: std::collections::HashSet::new(),
+                particle_config_paths: std::collections::HashSet::new(),
                 async_tx,
                 async_rx,
             }

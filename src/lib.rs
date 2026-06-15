@@ -89,7 +89,10 @@ pub use material::ShaderMaterial;
 pub use network::{
     NetworkClient, NetworkConfig, NetworkEvent, NetworkSystem, RemoteEntities, SnapshotBuffer,
 };
-pub use particle::{Particle, ParticleBurst, ParticleEmitter, ParticleSystem};
+pub use particle::{
+    Particle, ParticleBurst, ParticleConfigError, ParticleConfigRegistry, ParticleConfigSet,
+    ParticleEmitter, ParticleSystem,
+};
 pub use pathfinding::{find_path, find_path_diagonal, PathGrid};
 #[cfg(not(target_arch = "wasm32"))]
 pub use physics::{

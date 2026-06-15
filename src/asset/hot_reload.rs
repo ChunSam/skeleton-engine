@@ -41,6 +41,7 @@ impl AssetServer {
                 let is_known = self.path_to_id.contains_key(&key)
                     || self.script_path_to_id.contains_key(&key)
                     || self.data_table_paths.contains(&key)
+                    || self.particle_config_paths.contains(&key)
                     || self.atlas_path_to_id.contains_key(&key);
                 if is_known && !seen.contains(&key_str) {
                     seen.push(key_str);
@@ -79,5 +80,24 @@ impl AssetServer {
             let _ = w.watch(std::path::Path::new(&path_str), RecursiveMode::NonRecursive);
         }
         self.data_table_paths.insert(key);
+    }
+
+    /// Register a particle-config file path with the filesystem watcher so that
+    /// edits on disk are included in the next `poll_reloads` result.
+    ///
+    /// Idempotent: calling with the same path a second time is a no-op.
+    ///
+    /// Native-only. Excluded from wasm builds.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn watch_particle_config_path(&mut self, path: impl Into<String>) {
+        let path_str = path.into();
+        let key = asset_key(std::path::Path::new(&path_str));
+        if self.particle_config_paths.contains(&key) {
+            return;
+        }
+        if let Some(ref mut w) = self._watcher {
+            let _ = w.watch(std::path::Path::new(&path_str), RecursiveMode::NonRecursive);
+        }
+        self.particle_config_paths.insert(key);
     }
 }
