@@ -94,7 +94,8 @@ pub use pathfinding::{find_path, PathGrid};
 #[cfg(not(target_arch = "wasm32"))]
 pub use physics::{
     BodyHandle, CharacterController, ColliderHandle, CollisionEvent, CollisionGroups, JointHandle,
-    PhysicsBody, PhysicsSystem, PhysicsWorld, RaycastHit, TileCollider, TriggerEvent,
+    PhysicsBody, PhysicsSystem, PhysicsWorld, RaycastHit, TileCollider, TileColliderIndex,
+    TriggerEvent,
 };
 pub use pool::{Pool, Pooled};
 pub use prefab::{
@@ -121,7 +122,10 @@ pub use resources::{
 pub use scene::{Scene, SceneChange, SceneCmd, SystemRegistrar};
 pub use scripting::{ScriptRunner, ScriptingSystem};
 pub use steering::{Arrive, Flee, Seek, SteeringSystem, SteeringVelocity, Wander};
-pub use tilemap::{Tilemap, TilemapAtlas, TilemapSystem};
+pub use tilemap::{
+    compute_tile_mask, ConnectRule, Neighborhood, Tilemap, TilemapAtlas, TilemapAutotile,
+    TilemapSystem,
+};
 pub use timeline::{CameraTarget, Keyframe, Timeline, TimelineSystem, Track};
 pub use timer::Timer;
 pub use tween::{Easing, Lerp, Tween};

@@ -10,5 +10,5 @@ pub use events::{CollisionEvent, TriggerEvent};
 pub use system::PhysicsSystem;
 pub use world::{
     BodyHandle, ColliderHandle, CollisionGroups, JointHandle, PhysicsWorld, RaycastHit,
-    TileCollider,
+    TileCollider, TileColliderIndex,
 };

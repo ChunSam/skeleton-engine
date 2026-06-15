@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name        = "skeleton-engine"
-version     = "8.1.10"
+version     = "8.2.0"
 edition     = "2021"
 description = "Lightweight 2D game engine — wgpu rendering, custom ECS, rapier2d physics"
 repository  = "https://github.com/ChunSam/skeleton-engine"
@@ -111,6 +111,10 @@ path = "examples/games/salvage_run/salvage_run.rs"
 [[example]]
 name = "script_steering_game"
 path = "examples/games/script_steering/script_steering.rs"
+
+[[example]]
+name = "dig_quest_game"
+path = "examples/games/dig_quest/dig_quest.rs"
 
 [dependencies]
 winit    = "0.30.13"

@@ -376,6 +376,39 @@ Engine **4.3.1 → 4.4.0** (additive public API).
 - **Open question #1 (interpolation) closed** in `docs/REMOTE_ENTITIES_DESIGN.md`; #3–#7 still await
   examples that stress them.
 
+## Coverage follow-up — tilemap mutation + autotiling (candidate O, 2026-06-15)
+
+Closes two long-deferred candidates from the 2026-06-09 breadth audit (*runtime tilemap
+mutation* + *tilemap autotiling*) in one arc. Engine **8.1.10 → 8.2.0** (additive).
+
+- **O — Dig quest** (`dig_quest_game`, `examples/games/dig_quest/`): a destructible-terrain
+  top-down miner — the player digs through a field of solid dirt to a buried gem. First
+  playable use of runtime `Tilemap` mutation + the `TilemapAutotile` component. Native
+  playtest verified the whole loop: digging a cell updates the autotile outline immediately
+  (neighbor propagation keeps tunnel walls continuous) **and** frees the static collider so
+  the player walks in; reset restores the field; post-reset re-dig still works.
+  - **Engine gaps closed (all additive, v8.2.0):** (1) `Tilemap` was static after the first
+    `TilemapSystem` spawn — added `set_tile`/`get_tile`/`dims`/`cell_at_world`/
+    `cell_center_world` + a **reactive** `TilemapSystem` that diffs a cached grid and updates
+    only changed cells. (2) No autotiling — added `TilemapAutotile` (Edge4 16-tile + Blob8
+    47-blob, `edge_16`/`blob_47`, `with_oob_filled`, `compute_tile_mask`) with 8-neighbor UV
+    refresh so holes keep continuous outlines. (3) Tile colliders were one-shot — added
+    `TileColliderIndex` + `PhysicsWorld::sync_static_from_tilemap` (incremental diff add/remove);
+    `add_static_from_tilemap` stays for static maps.
+  - **API surfaced-and-fixed by the example (VISION "fix awkward API before release"):** the
+    `with_oob_filled` builder (the raw field default was a silent visual footgun); doc notes on
+    `set_tile`'s value encoding and on using `sync_static_from_tilemap` for the *initial* build
+    (mixing it with `add_static_from_tilemap` double-adds colliders so a dug cell never frees —
+    found via a real bug in the first example draft).
+  - **Deferred (noted, not done):** multi-terrain autotiling (v1 = single terrain, non-zero
+    connects to non-zero — `ConnectRule` is the extension point); a procedurally-generated
+    Blob8/47 sheet (the code path is supported; the shipped sheet/example use Edge4/16);
+    `PathGrid` runtime sync (no enemies in the example); a `CharacterController::top_down()`
+    preset (snap-to-ground is platformer-tuned but didn't visibly hurt the dig demo); a
+    `World::with_resource_mut` helper for the remove/insert borrow dance (pre-existing, not
+    tilemap-specific); editor tile-painting (a natural reuse of `set_tile` + the reactive
+    system, left for a future editor cycle).
+
 ## Alignment check — previously "planned" items vs the reset vision
 
 Vision criteria: (1) fork-friendly skeleton, (2) genre-agnostic 2D, breadth-first,
