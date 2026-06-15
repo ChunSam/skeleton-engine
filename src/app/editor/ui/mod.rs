@@ -1,6 +1,8 @@
 use super::*;
 
 #[cfg(not(target_arch = "wasm32"))]
+mod audio_panel;
+#[cfg(not(target_arch = "wasm32"))]
 mod data_table_panel;
 mod docked;
 mod gizmo;
@@ -8,6 +10,8 @@ mod shortcuts;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::app::editor::EditorMode;
+#[cfg(not(target_arch = "wasm32"))]
+pub(in crate::app) use audio_panel::audio_mixer_panel_body;
 #[cfg(not(target_arch = "wasm32"))]
 pub(in crate::app) use data_table_panel::data_table_panel_body;
 #[cfg(not(target_arch = "wasm32"))]

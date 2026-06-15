@@ -1,5 +1,22 @@
 use super::types::Fade;
 use super::AudioManager;
+use std::collections::HashMap;
+
+/// Merge bus names from the channel→bus assignments and the explicit bus-volume map into a
+/// single sorted, deduplicated list. Pure (no device) so it is unit-testable headlessly.
+fn collect_bus_names(
+    channel_buses: &HashMap<String, String>,
+    bus_volumes: &HashMap<String, f32>,
+) -> Vec<String> {
+    let mut names: Vec<String> = channel_buses
+        .values()
+        .cloned()
+        .chain(bus_volumes.keys().cloned())
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
 
 impl AudioManager {
     // ── Audio bus ─────────────────────────────────────────────────────────────
@@ -39,6 +56,15 @@ impl AudioManager {
     /// Returns the bus volume (1.0 if not set).
     pub fn bus_volume(&self, bus: &str) -> f32 {
         self.bus_volumes.get(bus).copied().unwrap_or(1.0)
+    }
+
+    /// Returns every known bus name, sorted and deduplicated.
+    ///
+    /// A bus is "known" if any channel is assigned to it (via [`assign_bus`](Self::assign_bus))
+    /// **or** its volume has been set (via [`set_bus_volume`](Self::set_bus_volume)). Useful for
+    /// building a mixer UI that lists all buses regardless of whether they currently carry a channel.
+    pub fn bus_names(&self) -> Vec<String> {
+        collect_bus_names(&self.channel_buses, &self.bus_volumes)
     }
 
     /// Sets the channel volume immediately (0.0 = silent, 1.0 = original).
@@ -86,5 +112,47 @@ impl AudioManager {
                 stop_when_done: false,
             },
         );
+    }
+}
+
+#[cfg(test)]
+mod bus_name_tests {
+    use super::{collect_bus_names, AudioManager};
+    use std::collections::HashMap;
+
+    #[test]
+    fn collect_bus_names_merges_sorts_and_dedups() {
+        let mut channel_buses = HashMap::new();
+        channel_buses.insert("bgm".to_string(), "music".to_string());
+        channel_buses.insert("ambient".to_string(), "music".to_string()); // dup bus "music"
+        channel_buses.insert("jump".to_string(), "sfx".to_string());
+
+        let mut bus_volumes = HashMap::new();
+        bus_volumes.insert("sfx".to_string(), 0.8); // already present via channel
+        bus_volumes.insert("voice".to_string(), 0.5); // volume-only bus, no channel
+
+        let names = collect_bus_names(&channel_buses, &bus_volumes);
+        assert_eq!(
+            names,
+            vec!["music", "sfx", "voice"],
+            "sorted + deduped union"
+        );
+    }
+
+    #[test]
+    fn collect_bus_names_empty_is_empty() {
+        assert!(collect_bus_names(&HashMap::new(), &HashMap::new()).is_empty());
+    }
+
+    #[test]
+    fn bus_names_round_trips_through_audio_manager() {
+        // Skips on headless CI with no audio device (matches the other audio tests).
+        let Some(mut audio) = AudioManager::new() else {
+            return;
+        };
+        audio.assign_bus("bgm", "music");
+        audio.assign_bus("jump", "sfx");
+        audio.set_bus_volume("voice", 0.3); // volume-only bus
+        assert_eq!(audio.bus_names(), vec!["music", "sfx", "voice"]);
     }
 }
