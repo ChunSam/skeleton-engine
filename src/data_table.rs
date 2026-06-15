@@ -305,10 +305,19 @@ impl DataTableRegistry {
     /// Returns a [`ReloadOutcome`] so callers can show an accurate status message.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn reload_path(&mut self, path: &str) -> ReloadOutcome {
+        // `AssetServer::poll_reloads` reports the CANONICAL path (`asset_key` canonicalizes),
+        // while `t.path` is whatever was passed to `load` (often relative). Compare by
+        // canonicalized form so a relatively-loaded table still hot-reloads from disk.
+        let canon = |p: &str| {
+            std::path::Path::new(p)
+                .canonicalize()
+                .unwrap_or_else(|_| std::path::PathBuf::from(p))
+        };
+        let target = canon(path);
         let name = self
             .tables
             .iter()
-            .find(|(_, t)| t.path == path)
+            .find(|(_, t)| canon(&t.path) == target)
             .map(|(n, _)| n.clone());
         let Some(name) = name else {
             return ReloadOutcome::NotFound;
@@ -401,6 +410,42 @@ mod tests {
         let t = reg.get("enemies").expect("get");
         assert_eq!(t.columns, vec!["hp", "name", "speed"]);
         assert!(reg.get("nope").is_none());
+    }
+
+    // Regression: file-watcher hot-reload silently no-op'd because `reload_path` compared
+    // the raw stored path against the CANONICAL path `AssetServer::poll_reloads` reports.
+    // Loading with a non-canonical path (extra "./") here forces that exact mismatch.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn reload_path_matches_canonical_path() {
+        let dir = std::env::temp_dir();
+        let file = dir.join(format!("dt_reload_{}.ron", std::process::id()));
+        std::fs::write(&file, SAMPLE).expect("write");
+
+        // Load via a deliberately non-canonical path so `t.path` != the canonical path
+        // `poll_reloads` reports.
+        let load_path = format!(
+            "{}/./{}",
+            dir.to_string_lossy(),
+            file.file_name().unwrap().to_string_lossy()
+        );
+        let mut reg = DataTableRegistry::default();
+        reg.load("enemies", &load_path).expect("load");
+
+        // Edit on disk, then reload via the canonical path (as poll_reloads would report it).
+        std::fs::write(&file, r#"[(name: "Goblin", hp: 99, speed: 1.2)]"#).expect("rewrite");
+        let canonical = file.canonicalize().unwrap().to_string_lossy().to_string();
+        let outcome = reg.reload_path(&canonical);
+        assert!(
+            matches!(outcome, ReloadOutcome::Reloaded),
+            "reload_path must match the canonical path poll_reloads reports; got {outcome:?}"
+        );
+        let hp = reg.get("enemies").unwrap().get(0, "hp").expect("hp cell");
+        assert!(
+            matches!(hp, ron::Value::Number(ron::Number::Integer(99))),
+            "reloaded table must reflect the on-disk edit, got {hp:?}"
+        );
+        let _ = std::fs::remove_file(&file);
     }
 
     #[test]
