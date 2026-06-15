@@ -94,6 +94,23 @@ impl CharacterController {
         self
     }
 
+    /// Creates a controller configured for top-down games.
+    ///
+    /// Differs from [`CharacterController::new()`] in two ways:
+    /// - `snap_to_ground` is disabled (`None`): no gravity-driven ground-hugging, which
+    ///   would push the character into walls in a top-down view.
+    /// - `autostep` is disabled (`None`): stair-climbing logic assumes a vertical "up"
+    ///   direction and produces unintended movement on flat top-down floors.
+    ///
+    /// `slide` remains enabled so the character still collides and slides along walls
+    /// rather than stopping dead on contact.
+    pub fn top_down() -> Self {
+        let mut ctrl = Self::new();
+        ctrl.inner.snap_to_ground = None;
+        ctrl.inner.autostep = None;
+        ctrl
+    }
+
     /// Requests a drop through a one-way platform (call on the down key press).
     ///
     /// For a short time afterward, `move_character` ignores collisions with one-way colliders
@@ -133,6 +150,36 @@ mod tests {
             (ctrl.inner.min_slope_slide_angle - expected).abs() < 1e-6,
             "inner.min_slope_slide_angle must be synced by with_max_slope_deg"
         );
+    }
+
+    #[test]
+    fn top_down_disables_snap_and_autostep() {
+        let platformer = CharacterController::new();
+        let top_down = CharacterController::top_down();
+
+        // new() enables snap_to_ground; top_down() must disable it.
+        assert!(
+            platformer.inner.snap_to_ground.is_some(),
+            "new() should have snap_to_ground enabled"
+        );
+        assert!(
+            top_down.inner.snap_to_ground.is_none(),
+            "top_down() must disable snap_to_ground"
+        );
+
+        // new() enables autostep; top_down() must disable it.
+        assert!(
+            platformer.inner.autostep.is_some(),
+            "new() should have autostep enabled"
+        );
+        assert!(
+            top_down.inner.autostep.is_none(),
+            "top_down() must disable autostep"
+        );
+
+        // slide must remain enabled in both.
+        assert!(platformer.inner.slide, "new() must keep slide enabled");
+        assert!(top_down.inner.slide, "top_down() must keep slide enabled");
     }
 
     #[test]

@@ -529,6 +529,29 @@ impl World {
             .and_then(|b| b.downcast::<T>().ok().map(|b| *b))
     }
 
+    /// Temporarily removes resource `R`, runs `f` with a mutable borrow of both `R`
+    /// and the `World` (so a system can touch `R` and other world state at once
+    /// without the borrow checker fighting), then re-inserts `R`. Returns `false`
+    /// if `R` was not present (and `f` is not called).
+    ///
+    /// Hides the manual `remove_resource` / `insert_resource` dance. `R` is removed
+    /// for the duration of `f`, so `f` must not assume `world.resource::<R>()` is
+    /// available re-entrantly.
+    pub fn with_resource_mut<R, F>(&mut self, f: F) -> bool
+    where
+        R: 'static,
+        F: FnOnce(&mut R, &mut World),
+    {
+        match self.remove_resource::<R>() {
+            Some(mut r) => {
+                f(&mut r, self);
+                self.insert_resource(r);
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Removes a resource by `TypeId` and returns it as a type-erased box (ownership transferred).
     ///
     /// Use this to move a resource into another `World` without knowing its static type

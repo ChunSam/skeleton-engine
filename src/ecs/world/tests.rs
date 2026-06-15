@@ -609,3 +609,57 @@ fn change_tracking_restructure_semantics_preserved() {
     assert_eq!(changed[0].0, e_old);
     assert_eq!(changed[0].1 .0, 77);
 }
+
+#[test]
+fn with_resource_mut_mutation_persists() {
+    let mut world = World::new();
+    world.insert_resource(10u32);
+
+    let called = world.with_resource_mut::<u32, _>(|r, _w| {
+        *r = 42;
+    });
+
+    assert!(
+        called,
+        "with_resource_mut must return true when R is present"
+    );
+    assert_eq!(
+        world.resource::<u32>().copied(),
+        Some(42),
+        "mutation inside the closure must persist after re-insertion"
+    );
+}
+
+#[test]
+fn with_resource_mut_world_access_inside_closure() {
+    // The closure receives &mut World with R removed, so other world state is accessible.
+    let mut world = World::new();
+    world.insert_resource(1u32);
+    world.insert_resource(99i32); // a second resource
+
+    world.with_resource_mut::<u32, _>(|r, w| {
+        // u32 is removed, but i32 is still reachable.
+        let other = w.resource_mut::<i32>().unwrap();
+        *other = 7;
+        *r += 1;
+        // Spawning an entity inside the closure also works.
+        w.spawn();
+    });
+
+    assert_eq!(world.resource::<u32>().copied(), Some(2));
+    assert_eq!(world.resource::<i32>().copied(), Some(7));
+    assert_eq!(world.entity_count(), 1);
+}
+
+#[test]
+fn with_resource_mut_absent_returns_false_without_calling_f() {
+    let mut world = World::new();
+    // u32 is never inserted.
+    let mut called = false;
+    let result = world.with_resource_mut::<u32, _>(|_, _| {
+        called = true;
+    });
+
+    assert!(!result, "must return false when R is absent");
+    assert!(!called, "closure must not be invoked when R is absent");
+}
