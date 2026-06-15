@@ -195,6 +195,9 @@ fn docked_toolbar(ui: &mut egui::Ui, app: &mut App) {
         ui.checkbox(&mut app.editor.show_grid, "Grid");
         // Debug bounds/colliders overlay toggle.
         ui.checkbox(&mut app.editor.show_bounds, "Bounds");
+        // Pathfinding-grid overlay toggle (per-Tilemap walkable/blocked cells).
+        ui.checkbox(&mut app.editor.show_pathgrid, "Path")
+            .on_hover_text("show the pathfinding grid (non-zero tile = blocked) for each Tilemap");
         // Persist current editor preferences now (also auto-saved on closing the editor).
         if ui
             .button("💾 Set.")

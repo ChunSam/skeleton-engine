@@ -278,6 +278,9 @@ pub(in crate::app) struct EditorState {
     /// Whether the debug bounds/colliders overlay is drawn (entity AABBs + collider shapes).
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) show_bounds: bool,
+    /// Whether the pathfinding-grid overlay is drawn (per-`Tilemap` walkable/blocked cells).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) show_pathgrid: bool,
 
     // ── Rotation gizmo (native only) ──────────────────────────────────────────
     /// Whether a rotation-handle drag is in progress.
@@ -353,6 +356,7 @@ impl EditorState {
             entity_filter: String::new(),
             show_grid: false,
             show_bounds: false,
+            show_pathgrid: false,
             rotate_active: false,
             rotate_start_rotation: 0.0,
             rotate_start_angle: 0.0,
