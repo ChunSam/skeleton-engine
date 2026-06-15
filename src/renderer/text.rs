@@ -150,14 +150,24 @@ pub enum TextAlign {
     Left,
     Center,
     Right,
+    /// Reading-direction end: the line hugs the **right** edge for LTR text and the **left** edge
+    /// for RTL text. Maps to `cosmic_text::Align::End`.
+    End,
+    /// No explicit alignment — cosmic-text aligns each line by its own resolved direction, so RTL
+    /// paragraphs (Hebrew, Arabic) right-align automatically while LTR stays left. The right default
+    /// for mixed/bidi UIs. Maps to `set_align(None)`.
+    Auto,
 }
 
 impl TextAlign {
-    fn to_glyphon(self) -> Align {
+    /// The glyphon alignment, or `None` for [`TextAlign::Auto`] (direction-natural).
+    fn to_glyphon(self) -> Option<Align> {
         match self {
-            TextAlign::Left => Align::Left,
-            TextAlign::Center => Align::Center,
-            TextAlign::Right => Align::Right,
+            TextAlign::Left => Some(Align::Left),
+            TextAlign::Center => Some(Align::Center),
+            TextAlign::Right => Some(Align::Right),
+            TextAlign::End => Some(Align::End),
+            TextAlign::Auto => None,
         }
     }
 }
@@ -217,16 +227,39 @@ pub struct TextRenderer {
     renderer: GlyphonTextRenderer,
 }
 
+/// Build a cosmic-text [`FontSystem`] loading `font_data` (if non-empty) plus every blob in
+/// `extra_fonts` (multi-script coverage). Extracted from [`TextRenderer::new`] so font loading is
+/// unit-testable without a GPU device.
+fn build_font_system(font_data: &[u8], extra_fonts: &[Vec<u8>]) -> FontSystem {
+    let mut font_system = FontSystem::new();
+    if !font_data.is_empty() {
+        font_system.db_mut().load_font_data(font_data.to_vec());
+    }
+    for blob in extra_fonts {
+        if !blob.is_empty() {
+            font_system.db_mut().load_font_data(blob.clone());
+        }
+    }
+    font_system
+}
+
 impl TextRenderer {
     /// Initialises GPU resources.
     ///
     /// If `font_data` is non-empty the TTF/OTF bytes are loaded into fontdb.
     /// Otherwise glyphon's system-font fallback is used.
-    pub fn new(device: &Device, queue: &Queue, format: TextureFormat, font_data: &[u8]) -> Self {
-        let mut font_system = FontSystem::new();
-        if !font_data.is_empty() {
-            font_system.db_mut().load_font_data(font_data.to_vec());
-        }
+    ///
+    /// `extra_fonts` are additional TTF/OTF blobs loaded alongside `font_data` for multi-script
+    /// coverage (e.g. a Latin UI font in `font_data` plus an RTL-script font here). cosmic-text
+    /// falls back across all loaded fonts by script, so mixed-direction text shapes correctly.
+    pub fn new(
+        device: &Device,
+        queue: &Queue,
+        format: TextureFormat,
+        font_data: &[u8],
+        extra_fonts: &[Vec<u8>],
+    ) -> Self {
+        let font_system = build_font_system(font_data, extra_fonts);
 
         let swash_cache = SwashCache::new();
 
@@ -361,7 +394,7 @@ impl TextRenderer {
                     );
                 }
                 for line in &mut buf.lines {
-                    line.set_align(Some(d.align.to_glyphon()));
+                    line.set_align(d.align.to_glyphon());
                 }
                 buf.shape_until_scroll(&mut self.font_system, false);
                 // Single-line: compute horizontal scroll offset to keep the caret visible.
@@ -614,6 +647,49 @@ mod tests {
 
     fn make_draw_text(text: &str) -> DrawText {
         DrawText::new(text, Vec2::new(0.0, 0.0), 24.0, [255, 255, 255, 255])
+    }
+
+    #[test]
+    fn text_align_to_glyphon_mapping() {
+        // Auto → None (cosmic-text aligns by direction; RTL right-aligns automatically).
+        assert!(TextAlign::Auto.to_glyphon().is_none());
+        // Explicit variants → Some(matching glyphon Align).
+        assert!(matches!(TextAlign::Left.to_glyphon(), Some(Align::Left)));
+        assert!(matches!(
+            TextAlign::Center.to_glyphon(),
+            Some(Align::Center)
+        ));
+        assert!(matches!(TextAlign::Right.to_glyphon(), Some(Align::Right)));
+        assert!(matches!(TextAlign::End.to_glyphon(), Some(Align::End)));
+    }
+
+    #[test]
+    fn build_font_system_loads_extra_fonts() {
+        // The bundled OFL Hebrew font is a real RTL-script face the engine can load alongside the
+        // default. Loading it as an extra font must add exactly one face to the db.
+        let hebrew = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/fonts/NotoSansHebrew-Regular.ttf"
+        ))
+        .to_vec();
+        let base = build_font_system(&[], &[]).db().faces().count();
+        let with_extra = build_font_system(&[], &[hebrew]).db().faces().count();
+        assert_eq!(
+            with_extra,
+            base + 1,
+            "one extra font face is loaded into the db"
+        );
+    }
+
+    #[test]
+    fn build_font_system_skips_empty_blobs() {
+        let base = build_font_system(&[], &[]).db().faces().count();
+        // Empty font_data + empty extra blobs add nothing.
+        let same = build_font_system(&[], &[Vec::new(), Vec::new()])
+            .db()
+            .faces()
+            .count();
+        assert_eq!(same, base, "empty blobs are skipped");
     }
 
     #[test]
