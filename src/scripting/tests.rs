@@ -444,3 +444,41 @@ fn steering_wander_reapply_preserves_timer_and_dir() {
         w.current_dir
     );
 }
+
+/// Option B: per-frame `let` bindings in `on_update` must NOT grow the persistent scope
+/// across frames (the scope is rewound to its 5-var transform baseline each frame), and
+/// the transform round-trip must still work after the rewind.
+#[test]
+fn script_scope_does_not_grow_across_frames() {
+    let src = "fn on_update(dt) { let tmp = dt + 1.0; x = x + 1.0; }";
+    let (mut world, e, mut sys) = make_world_with_script(src);
+
+    sys.run(&mut world, 0.016);
+    let len_after_1 = world.get::<ScriptRunner>(e).unwrap().scope_len();
+    let x1 = world.get::<Transform>(e).unwrap().position.x;
+
+    for _ in 0..50 {
+        sys.run(&mut world, 0.016);
+    }
+    let len_after_51 = world.get::<ScriptRunner>(e).unwrap().scope_len();
+    let x51 = world.get::<Transform>(e).unwrap().position.x;
+
+    // Scope stays at the 5-var transform baseline — no per-frame `let` accumulation.
+    assert_eq!(
+        len_after_1, 5,
+        "scope should be the 5 transform vars after frame 1"
+    );
+    assert_eq!(
+        len_after_51, len_after_1,
+        "scope must not grow across frames"
+    );
+    // Transform round-trip survives the rewind: x advances exactly once per frame.
+    assert!(
+        (x1 - 1.0).abs() < 1e-6,
+        "x should be 1 after 1 frame, got {x1}"
+    );
+    assert!(
+        (x51 - 51.0).abs() < 1e-6,
+        "x should be 51 after 51 frames, got {x51}"
+    );
+}

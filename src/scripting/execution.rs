@@ -103,6 +103,12 @@ impl System for ScriptingSystem {
                 runner.scope.set_value("rot", tr);
                 runner.scope.set_value("sx", tsx);
                 runner.scope.set_value("sy", tsy);
+                // Baseline = the 5 transform vars just set. After running the script we
+                // rewind to this length so any `let` bindings on_start/on_update introduce
+                // do NOT accumulate in the persistent scope across frames. The script scope
+                // is a transform transport (x/y/rot/sx/sy round-trip), not a store for
+                // cross-frame custom state.
+                let scope_base = runner.scope.len();
 
                 if !is_started {
                     call_fn_optional(&self.engine, &mut runner.scope, &ast, "on_start", ());
@@ -121,6 +127,9 @@ impl System for ScriptingSystem {
                 let nr = runner.scope.get_value::<f64>("rot").unwrap_or(tr);
                 let nsx = runner.scope.get_value::<f64>("sx").unwrap_or(tsx);
                 let nsy = runner.scope.get_value::<f64>("sy").unwrap_or(tsy);
+                // Trim back to the transform-var baseline so per-frame `let` bindings
+                // don't grow the persistent scope unboundedly (see scope_base above).
+                runner.scope.rewind(scope_base);
                 (nx, ny, nr, nsx, nsy)
             };
 
