@@ -7,7 +7,7 @@
 //! ## Features exercised
 //! * `Tilemap::set_tile` / `get_tile` / `dims` / `cell_center_world` / `cell_at_world`
 //! * `TilemapAutotile::edge_16` + `oob_filled = true`
-//! * `PhysicsWorld::sync_static_from_tilemap` + `TileColliderIndex` (incremental)
+//! * `TilemapColliders` + `sync_tilemap_entity_colliders` (incremental collider sync on dig)
 //! * `TilemapSystem` reactive tile-entity management (auto-triggered by mutation)
 //! * `CharacterController` + `move_character` for top-down collide-and-slide
 //!
@@ -20,9 +20,9 @@
 //! on the field; no scroll needed.
 
 use engine::{
-    App, Camera, CharacterController, DrawText, Entity, InputState, KeyCode, PhysicsBody,
-    PhysicsSystem, PhysicsWorld, ShouldQuit, Sprite, System, TextQueue, TileCollider,
-    TileColliderIndex, Tilemap, TilemapAtlas, TilemapAutotile, TilemapSystem, Transform,
+    sync_tilemap_entity_colliders, App, Camera, CharacterController, DrawText, Entity, InputState,
+    KeyCode, PhysicsBody, PhysicsSystem, PhysicsWorld, ShouldQuit, SolidTiles, Sprite, System,
+    TextQueue, Tilemap, TilemapAtlas, TilemapAutotile, TilemapColliders, TilemapSystem, Transform,
     WindowConfig, World,
 };
 use glam::Vec2;
@@ -120,50 +120,24 @@ struct DigQuestSession {
 
 /// Combined movement, dig, and reset system.
 ///
-/// Holds the `TileColliderIndex` so the incremental sync persists across frames,
-/// and the inner `PhysicsSystem` that drives kinematic body integration.
+/// The persistent `TileColliderIndex` now lives in the tilemap entity's
+/// [`TilemapColliders`] component, so this system only carries the inner
+/// `PhysicsSystem` that drives kinematic body integration.
 struct DigSystem {
     physics: PhysicsSystem,
-    tile_index: TileColliderIndex,
 }
 
 impl DigSystem {
-    fn with_index(tile_index: TileColliderIndex) -> Self {
+    fn new() -> Self {
         Self {
             physics: PhysicsSystem::new(PPU),
-            tile_index,
         }
     }
 
-    /// Syncs all tile colliders from the current tilemap state into `tile_index`.
-    ///
-    /// Solid dirt (value != 0) → `TileCollider::solid()`.
-    /// Empty (value == 0) → `None` (no collider).
+    /// Syncs all tile colliders from the current tilemap state. The solid-tile rule
+    /// (value != 0) and the persistent index live in the entity's `TilemapColliders`.
     fn sync_colliders(&mut self, world: &mut World, tilemap_entity: Entity) {
-        // We need `&Tilemap` and `&mut PhysicsWorld` at the same time.
-        // The borrow-checker doesn't allow both via `world` simultaneously, so we
-        // clone the tilemap data out first (same pattern as in TilemapSystem).
-        let tilemap_clone = match world.get::<Tilemap>(tilemap_entity) {
-            Some(tm) => tm.clone(),
-            None => return,
-        };
-        // Use with_resource_mut to borrow PhysicsWorld and World simultaneously,
-        // hiding the manual remove / insert dance.
-        let tile_index = &mut self.tile_index;
-        world.with_resource_mut::<PhysicsWorld, _>(|physics, _world| {
-            physics.sync_static_from_tilemap(
-                &tilemap_clone,
-                PPU,
-                |value| {
-                    if value != 0 {
-                        Some(TileCollider::solid())
-                    } else {
-                        None
-                    }
-                },
-                tile_index,
-            );
-        });
+        sync_tilemap_entity_colliders(world, tilemap_entity);
     }
 
     /// Reset the world back to its initial state.
@@ -458,26 +432,16 @@ fn main() {
     let mut physics = PhysicsWorld::new(Vec2::ZERO);
 
     // ── Initial tile colliders ────────────────────────────────────────────────
-    // Build the initial colliders through `sync_static_from_tilemap` with a fresh
-    // index (NOT `add_static_from_tilemap`) so the index tracks every collider and
-    // digging can later remove the exact cell. The same index is handed to
-    // DigSystem, which reuses it for incremental per-dig syncs.
-    let mut tile_index = TileColliderIndex::new();
+    // Build the initial colliders into a `TilemapColliders` component, which tracks
+    // the index so later per-dig syncs are incremental (remove the exact dug cell).
+    // Solid rule: any non-zero tile id (`SolidTiles::NonZero`). Done through `sync`
+    // (NOT `add_static_from_tilemap`) so every collider is tracked from the start.
+    let mut colliders = TilemapColliders::new(PPU, SolidTiles::NonZero);
     {
         let tilemap_ref = app.world.get::<Tilemap>(tilemap_entity).unwrap();
-        physics.sync_static_from_tilemap(
-            tilemap_ref,
-            PPU,
-            |value| {
-                if value != 0 {
-                    Some(TileCollider::solid())
-                } else {
-                    None
-                }
-            },
-            &mut tile_index,
-        );
+        colliders.sync(&mut physics, tilemap_ref);
     }
+    app.world.add_component(tilemap_entity, colliders);
 
     // ── Player ────────────────────────────────────────────────────────────────
     let start = player_start();
@@ -548,7 +512,7 @@ fn main() {
     app.add_system(TilemapSystem::new());
 
     // DigSystem handles movement + digging + physics integration.
-    app.add_system(DigSystem::with_index(tile_index));
+    app.add_system(DigSystem::new());
 
     // HUD last so it overlays everything.
     app.add_system(HudSystem);
