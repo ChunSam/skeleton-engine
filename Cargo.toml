@@ -120,6 +120,10 @@ path = "examples/games/dig_quest/dig_quest.rs"
 name = "multi_terrain_game"
 path = "examples/games/multi_terrain/multi_terrain.rs"
 
+[[example]]
+name = "data_anim_game"
+path = "examples/games/data_anim/data_anim.rs"
+
 [dependencies]
 winit    = "0.30.13"
 wgpu     = { version = "29", features = ["webgl"] }
