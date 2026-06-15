@@ -339,6 +339,48 @@ impl App {
         }
     }
 
+    /// Load an animation clip set from `path` and register it under `name`.
+    ///
+    /// Lazily inserts an [`crate::animation::clip_set::AnimationClipRegistry`] resource
+    /// if one is not yet present. On native builds the path is also registered with the
+    /// `AssetServer` file watcher so that disk changes are hot-reloaded.
+    ///
+    /// Errors (file not found, parse failure) are logged via `log::warn!` and silently
+    /// dropped — the registry will simply not contain the set.
+    ///
+    /// This method is a no-op on wasm (file I/O is unsupported there).
+    pub fn load_animation_clips(&mut self, name: impl Into<String>, path: impl Into<String>) {
+        use crate::animation::clip_set::AnimationClipRegistry;
+
+        let name = name.into();
+        let path = path.into();
+
+        // Ensure the registry resource exists.
+        if self.world.resource::<AnimationClipRegistry>().is_none() {
+            self.world.insert_resource(AnimationClipRegistry::default());
+        }
+        self.register_persistent::<AnimationClipRegistry>();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(reg) = self.world.resource_mut::<AnimationClipRegistry>() {
+                if let Err(e) = reg.load(name, &path) {
+                    log::warn!("load_animation_clips: failed to load '{path}': {e}");
+                    return;
+                }
+            }
+            // Register with the file watcher for hot-reload.
+            if let Some(assets) = self.world.resource_mut::<crate::asset::AssetServer>() {
+                assets.watch_animation_clip_path(&path);
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (name, path);
+        }
+    }
+
     /// Registers a component for full editor integration in one call:
     /// Inspector field editing ([`Reflect`](crate::reflect::Reflect)), entity duplication
     /// ([`Clone`]), scene save/load (serde), and the Add/Remove Component buttons.

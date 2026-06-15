@@ -51,9 +51,9 @@ pub use winit::event::MouseButton;
 pub use winit::keyboard::KeyCode;
 
 pub use animation::{
-    AnimParam, AnimState, AnimTransition, AnimationClip, AnimationPlayer, AnimationStateMachine,
-    AnimationSystem, BlendEntry, BlendTree1D, BlendTreeSystem, BlendWeight, StateMachineSystem,
-    TransitionCond,
+    AnimParam, AnimState, AnimTransition, AnimationClip, AnimationClipRegistry, AnimationClipSet,
+    AnimationPlayer, AnimationStateMachine, AnimationSystem, BlendEntry, BlendTree1D,
+    BlendTreeSystem, BlendWeight, ClipSetError, StateMachineSystem, TransitionCond,
 };
 pub use app::{App, ScheduleErrorPolicy, SystemPanicPolicy};
 pub use asset::{
