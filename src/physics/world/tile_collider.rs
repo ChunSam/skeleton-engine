@@ -193,6 +193,111 @@ impl PhysicsWorld {
     }
 }
 
+// ── TilemapColliders component ─────────────────────────────────────────────────
+
+/// Which tile ids become solid box colliders when a [`TilemapColliders`] entity is synced.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SolidTiles {
+    /// Any non-zero tile id is solid (the common "0 = empty, anything else = wall" convention).
+    NonZero,
+    /// Only these specific tile ids are solid; everything else is empty.
+    Only(Vec<u32>),
+}
+
+impl SolidTiles {
+    /// The `collider_for` rule this variant represents: solid tiles → [`TileCollider::solid`].
+    pub fn collider_for(&self, tile_id: u32) -> Option<TileCollider> {
+        let solid = match self {
+            SolidTiles::NonZero => tile_id != 0,
+            SolidTiles::Only(ids) => ids.contains(&tile_id),
+        };
+        solid.then(TileCollider::solid)
+    }
+}
+
+/// Opt-in component: attach to a [`Tilemap`] entity to keep its static tile colliders in the
+/// [`PhysicsWorld`] resource in sync when the tilemap is mutated — by the editor's Tile Paint or a
+/// game's runtime `set_tile`. Without it, tilemap edits are visual-only (no collider change).
+///
+/// Carries the `pixels_per_unit` + solid-tile rule the generic sync needs (which the editor can't
+/// infer) plus the persistent [`TileColliderIndex`] that makes resyncs incremental. Build the initial
+/// colliders through [`sync`](Self::sync) (a fresh index does a full build) — do **not** also call
+/// [`PhysicsWorld::add_static_from_tilemap`] on the same tiles, or you get untracked duplicates.
+///
+/// # Example
+/// ```rust,no_run
+/// use engine::{TilemapColliders, SolidTiles};
+/// # use engine::{App, Tilemap, TilemapAtlas, PhysicsWorld};
+/// # use glam::Vec2;
+/// let mut app = App::new();
+/// # let tm = Tilemap::new(TilemapAtlas::new("t.png", 1, 1), vec![vec![1]], 32.0, Vec2::ZERO);
+/// let e = app.world.spawn();
+/// app.world.add_component(e, tm);
+/// app.world.add_component(e, TilemapColliders::new(32.0, SolidTiles::NonZero));
+/// app.world.insert_resource(PhysicsWorld::new(Vec2::ZERO));
+/// // after any set_tile / paint:
+/// app.sync_tilemap_colliders(e);
+/// ```
+#[derive(Debug)]
+pub struct TilemapColliders {
+    /// Scale converting world (pixel) coordinates to physics (meter) units. Must match the
+    /// `pixels_per_unit` the game's `PhysicsSystem` uses.
+    pub pixels_per_unit: f32,
+    /// Which tile ids become solid colliders.
+    pub solid: SolidTiles,
+    /// Tracks created colliders so resyncs only touch changed cells. Not serialized.
+    index: TileColliderIndex,
+}
+
+impl TilemapColliders {
+    /// New collider config with an empty index (first [`sync`](Self::sync) does a full build).
+    pub fn new(pixels_per_unit: f32, solid: SolidTiles) -> Self {
+        Self {
+            pixels_per_unit,
+            solid,
+            index: TileColliderIndex::new(),
+        }
+    }
+
+    /// Sync this tilemap's colliders into `physics` (incremental add/remove of changed cells).
+    /// Call after the `tilemap` mutates.
+    pub fn sync(&mut self, physics: &mut PhysicsWorld, tilemap: &Tilemap) {
+        physics.sync_static_from_tilemap(
+            tilemap,
+            self.pixels_per_unit,
+            |id| self.solid.collider_for(id),
+            &mut self.index,
+        );
+    }
+
+    /// Number of tile colliders currently tracked.
+    pub fn collider_count(&self) -> usize {
+        self.index.len()
+    }
+}
+
+/// Resync the static tile colliders of `entity` against the world's [`PhysicsWorld`] resource.
+///
+/// No-op (returns `false`) unless `entity` has both a [`Tilemap`] and a [`TilemapColliders`] and the
+/// world holds a [`PhysicsWorld`] resource. Usable from any system with `&mut World`; the editor calls
+/// it after a paint stroke (and on undo/redo) so colliders track the tiles. Returns `true` if a
+/// `PhysicsWorld` was present (the sync ran).
+pub fn sync_tilemap_entity_colliders(
+    world: &mut crate::ecs::World,
+    entity: crate::ecs::Entity,
+) -> bool {
+    // Clone the tilemap out first so the immutable component borrow is released before we take the
+    // mutable PhysicsWorld resource + the mutable TilemapColliders component.
+    let Some(tilemap) = world.get::<Tilemap>(entity).cloned() else {
+        return false;
+    };
+    world.with_resource_mut::<PhysicsWorld, _>(|physics, world| {
+        if let Some(colliders) = world.get_mut::<TilemapColliders>(entity) {
+            colliders.sync(physics, &tilemap);
+        }
+    })
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -352,5 +457,79 @@ mod tests {
             count_after_first,
             "no-op sync must not change index length"
         );
+    }
+
+    // ── TilemapColliders component ────────────────────────────────────────────
+
+    #[test]
+    fn solid_tiles_rules() {
+        assert!(SolidTiles::NonZero.collider_for(1).is_some());
+        assert!(SolidTiles::NonZero.collider_for(0).is_none());
+        let only = SolidTiles::Only(vec![2, 3]);
+        assert!(only.collider_for(2).is_some());
+        assert!(only.collider_for(3).is_some());
+        assert!(only.collider_for(1).is_none());
+        assert!(only.collider_for(0).is_none());
+    }
+
+    #[test]
+    fn tilemap_colliders_sync_adds_and_removes() {
+        let mut tm = solid_3x3();
+        let mut physics = make_world();
+        let mut tc = TilemapColliders::new(32.0, SolidTiles::NonZero);
+
+        tc.sync(&mut physics, &tm);
+        assert_eq!(tc.collider_count(), 9, "full build of a 3×3 solid map");
+
+        // Erase the center cell → one collider removed.
+        tm.set_tile(1, 1, 0);
+        tc.sync(&mut physics, &tm);
+        assert_eq!(
+            tc.collider_count(),
+            8,
+            "erasing a cell removes its collider"
+        );
+
+        // Paint it back → collider restored.
+        tm.set_tile(1, 1, 1);
+        tc.sync(&mut physics, &tm);
+        assert_eq!(tc.collider_count(), 9, "repainting restores the collider");
+    }
+
+    #[test]
+    fn sync_tilemap_entity_colliders_free_fn() {
+        use crate::ecs::World;
+        let mut world = World::new();
+        let e = world.spawn();
+        world.add_component(e, solid_3x3());
+        world.add_component(e, TilemapColliders::new(32.0, SolidTiles::NonZero));
+
+        // No PhysicsWorld resource → no-op, returns false.
+        assert!(!sync_tilemap_entity_colliders(&mut world, e));
+
+        // With a PhysicsWorld resource → syncs, returns true.
+        world.insert_resource(make_world());
+        assert!(sync_tilemap_entity_colliders(&mut world, e));
+        assert_eq!(
+            world.get::<TilemapColliders>(e).unwrap().collider_count(),
+            9
+        );
+    }
+
+    #[test]
+    fn sync_tilemap_entity_colliders_missing_component_is_false_path() {
+        use crate::ecs::World;
+        let mut world = World::new();
+        let e = world.spawn();
+        world.add_component(e, solid_3x3());
+        world.insert_resource(make_world());
+        // Has PhysicsWorld + Tilemap but NO TilemapColliders → with_resource_mut runs (true) but
+        // nothing is synced; the entity gains no collider tracking.
+        let ran = sync_tilemap_entity_colliders(&mut world, e);
+        assert!(
+            ran,
+            "PhysicsWorld present so with_resource_mut returns true"
+        );
+        assert!(world.get::<TilemapColliders>(e).is_none());
     }
 }

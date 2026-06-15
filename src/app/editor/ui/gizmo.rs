@@ -640,6 +640,8 @@ impl App {
                     entity: sel,
                     changes,
                 });
+            // Keep static tile colliders in sync if this tilemap opted in via TilemapColliders.
+            self.sync_tilemap_colliders(sel);
         }
     }
 

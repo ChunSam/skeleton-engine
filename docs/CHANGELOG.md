@@ -4,6 +4,28 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.24.0
+
+Tile collider sync (editor Tile Paint + runtime). Additive.
+
+### Added
+
+- `TilemapColliders` component + `SolidTiles` rule (`NonZero` | `Only(ids)`): opt-in config that keeps a
+  tilemap's static physics colliders in sync when the tilemap mutates. Carries the `pixels_per_unit` +
+  solid-tile rule the generic sync needs, plus the persistent `TileColliderIndex` for incremental
+  resyncs.
+- `sync_tilemap_entity_colliders(world, entity)` free fn + `App::sync_tilemap_colliders(entity)` wrapper
+  — resync an entity's tile colliders against the `PhysicsWorld` resource (no-op without a `Tilemap` +
+  `TilemapColliders` + `PhysicsWorld`).
+- The editor's **Tile Paint** now resyncs colliders after each stroke (and on undo/redo) for tilemaps
+  that opted in via `TilemapColliders`.
+
+### Changed
+
+- `dig_quest` example refactored onto `TilemapColliders` + `sync_tilemap_entity_colliders`, replacing its
+  hand-rolled `TileColliderIndex` field + manual `with_resource_mut`/`sync_static_from_tilemap` dance
+  (behavior unchanged). Demonstrates the new API in real play.
+
 ## 8.23.0
 
 Editor lighting editor. Additive — editor-internal; no public engine API change.

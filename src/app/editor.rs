@@ -158,6 +158,8 @@ impl EditorHistory {
                         tm.set_tile(*row, *col, *old);
                     }
                 }
+                // Re-sync colliders so undo restores the pre-stroke physics state too.
+                crate::physics::sync_tilemap_entity_colliders(world, *entity);
                 *selected = Some(*entity);
             }
         }
@@ -250,6 +252,8 @@ impl EditorHistory {
                         tm.set_tile(*row, *col, *new);
                     }
                 }
+                // Re-sync colliders so redo re-applies the post-stroke physics state too.
+                crate::physics::sync_tilemap_entity_colliders(world, *entity);
                 *selected = Some(*entity);
             }
         }
@@ -585,6 +589,17 @@ impl App {
 }
 
 impl App {
+    /// Resync the static tile colliders of `entity` against the [`PhysicsWorld`](crate::physics::PhysicsWorld)
+    /// resource. Thin wrapper over [`sync_tilemap_entity_colliders`](crate::physics::sync_tilemap_entity_colliders);
+    /// no-op (returns `false`) unless `entity` has a `Tilemap` + `TilemapColliders` and a `PhysicsWorld`
+    /// resource exists. The editor calls this after a Tile Paint stroke; games call it after `set_tile`.
+    ///
+    /// Native-only: the `physics` module (rapier2d) is excluded from wasm builds.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn sync_tilemap_colliders(&mut self, entity: Entity) -> bool {
+        crate::physics::sync_tilemap_entity_colliders(&mut self.world, entity)
+    }
+
     /// Load a RON data table from `path` and register it under `name`.
     ///
     /// Lazily inserts a [`crate::data_table::DataTableRegistry`] resource if one is

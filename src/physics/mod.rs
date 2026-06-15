@@ -9,6 +9,6 @@ pub use character::CharacterController;
 pub use events::{CollisionEvent, TriggerEvent};
 pub use system::PhysicsSystem;
 pub use world::{
-    BodyHandle, ColliderHandle, CollisionGroups, JointHandle, PhysicsWorld, RaycastHit,
-    TileCollider, TileColliderIndex,
+    sync_tilemap_entity_colliders, BodyHandle, ColliderHandle, CollisionGroups, JointHandle,
+    PhysicsWorld, RaycastHit, SolidTiles, TileCollider, TileColliderIndex, TilemapColliders,
 };

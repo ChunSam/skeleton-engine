@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.6.28 | package `skeleton-engine` v8.23.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.92, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
+> Version v1.6.29 | package `skeleton-engine` v8.24.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.92, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example game ships to
 > the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`
@@ -80,7 +80,7 @@ Where to read to find a given thing:
 | GamepadState, GamepadButton, GamepadAxis | `src/input/gamepad.rs` |
 | PhysicsWorld, PhysicsBody, PhysicsSystem (syncs body position **and rotation** → Transform), CollisionEvent, BodyHandle/ColliderHandle (opaque newtypes; `.raw()` = rapier escape hatch) | `src/physics/` |
 | CharacterController (+ `request_drop`/`is_dropping` for one-way), RaycastHit, cast_ray, cast_ray_with_normal, move_character | `src/physics/character.rs`, `src/physics/world.rs` |
-| add_kinematic_box, add_kinematic_circle, add_static_from_tilemap (one-shot), sync_static_from_tilemap + TileColliderIndex (incremental — diff add/remove for runtime-mutated tilemaps), TileCollider, set_one_way/is_one_way | `src/physics/world.rs` |
+| add_kinematic_box, add_kinematic_circle, add_static_from_tilemap (one-shot), sync_static_from_tilemap + TileColliderIndex (incremental — diff add/remove for runtime-mutated tilemaps), **TilemapColliders** component + SolidTiles + `sync_tilemap_entity_colliders`/`App::sync_tilemap_colliders` (opt-in: keep tile colliders synced when the editor's Tile Paint or a game's `set_tile` mutates the map; example `dig_quest`), TileCollider, set_one_way/is_one_way | `src/physics/world.rs` |
 | add_revolute_joint, add_distance_joint, add_prismatic_joint, remove_joint (return/take engine `JointHandle` newtype wrapping rapier; example: `crane_wrecking_ball`) | `src/physics/world/joints.rs` |
 | SpatialGrid, Collider, CollisionLayer (SpatialGrid is mirrored to a World resource by CollisionGridSystem) | `src/collision/` |
 | BehaviorTree, BehaviorNode, Sequence, Selector, Inverter, AlwaysSucceed, BehaviorSystem, Blackboard, BlackboardValue (`Path` variant + `set_path`/`get_path`) | `src/behavior.rs` |

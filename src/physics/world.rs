@@ -9,7 +9,9 @@ mod joints;
 mod raycast;
 mod tile_collider;
 
-pub use tile_collider::TileColliderIndex;
+pub use tile_collider::{
+    sync_tilemap_entity_colliders, SolidTiles, TileColliderIndex, TilemapColliders,
+};
 
 // ── Body handle ───────────────────────────────────────────────────────────────
 
