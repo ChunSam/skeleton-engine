@@ -1,7 +1,14 @@
 # Remaining-work batch (items 1–5): collider sync, RTL, SM + timeline editors (v8.24→8.27)
 
 **Date:** 2026-06-16
-**Status:** COMPLETED (items 2–5 shipped + merged; item 1 PARKED on user WIP)
+**Status:** COMPLETED (items 2–5 shipped + merged; item 1 DROPPED — see post-session note)
+
+> **Post-session update (2026-06-16):** the user decided **rust-survivors is no longer maintained
+> against the engine** (too far diverged since the engine's early days). Item 1 (the pin bump) is
+> **dropped, not pending** — do NOT pick it up. The "What We Tried / Where We Are / Evidence" sections
+> below record the in-session assessment accurately; the forward sections were updated to reflect the
+> drop. See `[[rust-survivors-deprecated]]` memory; CLAUDE.md "Related projects" + the
+> `RUST_SURVIVORS_*_PROMPT.md` docs were removed.
 **Bead(s):** none (beads unavailable in this repo)
 **Epic:** skeleton-engine editor authoring tools + engine breadth
 **Chain:** `editor-tile-painting` seq `4`
@@ -254,11 +261,9 @@ wasm32-unknown-unknown` (lib+bins) · `cargo test --all-targets` · `RUSTDOCFLAG
 
 ## Where We're Going
 
-1. **rust-survivors pin bump (item 1, when WIP parked):** once the user commits/stashes their 37-file WIP,
-   do a surgical `7.0.0 → 8.27.0` bump in `crates/game/Cargo.toml` (`rev` → a v8.27.0 commit, e.g.
-   `2ee9cee`) + `cargo build`/`test` smoke + `cargo update -p` for `Cargo.lock`. Grep was clean, so expect
-   near-zero source changes (add `engine_reflect_derive` dev-dep only if the game adopts `Reflect`). **Do
-   NOT push** (user's). Verify the WIP source files still compile against v8.27.
+1. **rust-survivors pin bump — DROPPED (do not do).** Post-session the user decided rust-survivors is no
+   longer maintained against the engine. Engine changes are validated on their own (Gate6 + in-repo
+   `examples/`); rust-survivors is out of scope. See `[[rust-survivors-deprecated]]`.
 2. **Large-editor iteration 2 (visual):** SM **node-graph** rendering (positioned state boxes + drawn
    transition edges, current highlighted) and timeline **time-ruler** (horizontal scale + draggable
    keyframe dots + playhead). Both are egui-painter work; drag-editing stays weakly validatable
@@ -273,8 +278,7 @@ wasm32-unknown-unknown` (lib+bins) · `cargo test --all-targets` · `RUSTDOCFLAG
 ## Risks & Blockers
 
 - **None blocking.** `main` green + clean at `2ee9cee` (v8.27.0).
-- **rust-survivors WIP is the item-1 gate** — the bump waits on the user parking 37 uncommitted files; the
-  bump itself is low-risk (clean breaking surface) but must not entangle with their work.
+- **rust-survivors dropped** (post-session) — no longer a gate or a task; out of the engine's scope.
 - **Autonomous visual-validation ceiling (recurring):** the docked cursor-freeze blocks reliable
   drag-editing playtests, so the SM/timeline *visual* editors can't be autonomously verified — hence the
   list-based MVPs + unit-tested cores. A human eyeball of the panels (and `cargo run --example rtl_text`
@@ -306,14 +310,13 @@ cargo test --lib                # 603 pass
 #   src/physics/world/tile_collider.rs (TilemapColliders + sync_tilemap_entity_colliders)
 #   src/renderer/text.rs               (TextAlign::Auto/End, ExtraFonts, build_font_system)
 
-# rust-survivors (item 1, when WIP is parked)
-git -C /Users/jkl/Projects/rust-survivors status -s          # expect CLEAN before bumping
-#   then bump crates/game/Cargo.toml rev a3369ee → 2ee9cee, cargo build/test, DO NOT push.
+# rust-survivors: DROPPED — no longer maintained against the engine (do not bump/sync). See
+#   the [[rust-survivors-deprecated]] memory.
 
 # Next action — pick ONE:
-#   (a) rust-survivors pin bump (only once the user says their WIP is parked), OR
-#   (b) SM node-graph / timeline time-ruler visual editors (iteration 2), OR
-#   (c) SM/Timeline serde persistence so editor edits survive scene save/load.
+#   (a) SM node-graph / timeline time-ruler visual editors (iteration 2), OR
+#   (b) SM/Timeline serde persistence so editor edits survive scene save/load, OR
+#   (c) a new feature + example per docs/VISION.md.
 #   For ANY engine/editor feature: plans/<name>_plan.md (criteria) → implement → Gate6 → unit-test
 #   through the real handler → example → PR → merge. Merge authority was THIS-batch-scoped; re-confirm
 #   before self-merging in a NEW session.

@@ -25,7 +25,7 @@ the API gaps it is likely to surface.
 | **A** | Platformer (jump, run, platforms) ✅ done | `CharacterController`, `move_character`, physics platforms/sensors, `AnimationStateMachine`, atlas animation, camera follow | surfaced + **fixed (v1.1.0)**: one-way platforms (`set_one_way` + `CharacterController::request_drop`, drop-through in `move_character`); tilemap↔physics binding (`PhysicsWorld::add_static_from_tilemap` + `TileCollider`). Platformer level is now a single `Tilemap`. |
 | **B** | Top-down maze escape (chasing enemies) ✅ done | `PathGrid`/`find_path`, `BehaviorTree`, `SpatialGrid` collision (`examples/games/maze_escape/maze_escape.rs`) | surfaced + fixed: `BehaviorTree`/`Sequence`/`Selector`/`Inverter`/`AlwaysSucceed`/`BehaviorSystem` were not re-exported from `engine::`; `SpatialGrid` was trapped inside `CollisionGridSystem` (now mirrored to a `World` resource each frame); no `PathGrid::from_tilemap` (added). **Fixed (v1.1.0)**: added `BlackboardValue::Path(Vec<IVec2>)` + `Blackboard::set_path`/`get_path`; `ComputePathToPlayer` now caches the whole path and recomputes only when the player's goal tile changes. |
 | **C** | Sokoban (box pushing) ✅ done | discrete grid logic, multi-level progression, undo/redo, `save`/`load` progress (`examples/games/sokoban/sokoban.rs`) | surfaced + fixed: no reusable game-facing undo — only the editor had a private command history; added genre-agnostic `History<T>` snapshot undo/redo (`src/history.rs`, re-exported from `engine::`). `save`/`load_or_default` reused unchanged (no friction). Immediate-mode `DebugDrawQueue` filled rects render board state without ECS entity churn. |
-| **D** | Simple shooter (bullets, waves) | `ParticleEmitter`, `Timer`, collision layers, audio buses | pooling/spawn bursts, perf; complements rust-survivors |
+| **D** | Simple shooter (bullets, waves) | `ParticleEmitter`, `Timer`, collision layers, audio buses | pooling/spawn bursts, perf |
 | **E** | Scene-flow game (menu → play → result) ✅ done | `SceneCmd` Push/Replace/Pop, UI buttons, `GameState`, scene-owned systems, explicit entity cleanup | surfaced + **fixed (v1.1.0)**: `App::register_persistent::<T>()` preserves resources across the `Replace` World reset; `scene_flow_game` dropped its `Arc<Mutex<_>>` workaround. |
 | **F** | Skeletal-animation showcase character ✅ done | NEW: 2D cutout skeletal animation (`src/skeletal.rs`, `examples/skeletal_puppet.rs`) | surfaced + fixed `HierarchySystem` depth-3 cap; scale-vs-attachment-size rule noted in `docs/SKELETAL.md` |
 
@@ -323,8 +323,6 @@ These are tracked in the seq-3 PLAN for a future (monitor-on) session; none are 
    Other candidates (tilemap autotiling, runtime tilemap mutation, save-migration, data-driven
    anim/particle assets, diagonal pathfinding, RTL/per-locale fonts, audio ducking) are
    higher-effort/narrower or already documented-as-deferred — none clear the bar now.
-4. **rust-survivors WIP docs cleanup** *(separate repo, user's call)* — ~20 uncommitted doc
-   changes sit in the game repo; organize/commit them only on the maintainer's direction.
 
 ## Networking-dogfood seq 7 — INTERP_DELAY settle + gilrs crash fix + macOS gamepad limit (2026-06-09)
 

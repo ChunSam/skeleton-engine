@@ -169,18 +169,6 @@ A subagent starts without knowing the current conversation context. Always inclu
 
 ---
 
-## Related projects
-
-| Repo | Path | Role |
-|--------|------|------|
-| skeleton-engine | `/Users/jkl/Projects/skeleton-engine` | Engine core (this repo) |
-| rust-survivors | `/Users/jkl/Projects/rust-survivors` | Game project that uses the engine |
-
-`rust-survivors` consumes the `skeleton-engine` package under the crate name `engine`.
-On breaking changes to the engine's public API, check the impact on the game side.
-
----
-
 ## Document map
 
 | Document | Purpose |
