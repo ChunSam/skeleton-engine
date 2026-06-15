@@ -275,6 +275,17 @@ pub(in crate::app) struct EditorState {
     /// Whether the world-aligned grid overlay is drawn on the docked viewport.
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) show_grid: bool,
+
+    // ── Rotation gizmo (native only) ──────────────────────────────────────────
+    /// Whether a rotation-handle drag is in progress.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) rotate_active: bool,
+    /// Entity rotation (radians) captured at the start of a rotation drag (for undo).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) rotate_start_rotation: f32,
+    /// Cursor angle around the entity centre captured at the start of a rotation drag.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) rotate_start_angle: f32,
 }
 
 impl EditorState {
@@ -327,6 +338,9 @@ impl EditorState {
             component_clipboard: None,
             entity_filter: String::new(),
             show_grid: false,
+            rotate_active: false,
+            rotate_start_rotation: 0.0,
+            rotate_start_angle: 0.0,
         }
     }
 }

@@ -58,6 +58,52 @@ const HANDLE_SIZE: f32 = 6.0;
 #[cfg(not(target_arch = "wasm32"))]
 const HANDLE_HIT_RADIUS: f32 = 8.0;
 
+/// Gap (world units) between the entity's top edge and the rotation handle.
+#[cfg(not(target_arch = "wasm32"))]
+const ROT_HANDLE_GAP: f32 = 16.0;
+
+/// Hit-test radius (world units) around the rotation handle.
+#[cfg(not(target_arch = "wasm32"))]
+const ROT_HIT_RADIUS: f32 = 8.0;
+
+/// Rotation snap step when the editor Snap toggle is on (15°).
+#[cfg(not(target_arch = "wasm32"))]
+const ROT_SNAP: f32 = std::f32::consts::PI / 12.0;
+
+/// World position of the rotation handle: centred above the entity's top edge
+/// (the engine's Y axis points down, so "above" is a smaller `y`).
+#[cfg(not(target_arch = "wasm32"))]
+fn rotation_handle_pos(position: glam::Vec2, scale: glam::Vec2, gap: f32) -> glam::Vec2 {
+    glam::Vec2::new(position.x, position.y - scale.y.abs() * 0.5 - gap)
+}
+
+/// Angle (radians) of `cursor` around `center` — `atan2(dy, dx)`.
+#[cfg(not(target_arch = "wasm32"))]
+fn cursor_angle(center: glam::Vec2, cursor: glam::Vec2) -> f32 {
+    let d = cursor - center;
+    d.y.atan2(d.x)
+}
+
+/// Round `angle` to the nearest multiple of `step` (identity if `step <= 0`).
+#[cfg(not(target_arch = "wasm32"))]
+fn snap_angle(angle: f32, step: f32) -> f32 {
+    if step <= 0.0 {
+        return angle;
+    }
+    (angle / step).round() * step
+}
+
+/// New rotation while dragging the rotation handle: the start rotation plus the cursor-angle
+/// delta, optionally snapped to `snap` radians.
+#[cfg(not(target_arch = "wasm32"))]
+fn applied_rotation(start_rot: f32, start_angle: f32, cur_angle: f32, snap: Option<f32>) -> f32 {
+    let r = start_rot + (cur_angle - start_angle);
+    match snap {
+        Some(step) => snap_angle(r, step),
+        None => r,
+    }
+}
+
 /// Returns the 8 handle centre positions (in the same space as `pos`) in
 /// `ResizeHandle` declaration order: TL, T, TR, L, R, BL, B, BR.
 #[cfg(not(target_arch = "wasm32"))]
@@ -871,6 +917,16 @@ impl App {
                         tr.z + 1000.0,
                     );
                 }
+
+                // ── Rotation handle (green, above the top edge) ───────────────
+                let rh = rotation_handle_pos(tr.position, tr.scale, ROT_HANDLE_GAP);
+                let hs = 5.0;
+                dbg.rect_filled_z(
+                    glam::Vec2::new(rh.x - hs, rh.y - hs),
+                    glam::Vec2::new(rh.x + hs, rh.y + hs),
+                    crate::color::Color::rgba(0.3, 1.0, 0.4, 0.95),
+                    tr.z + 1000.0,
+                );
             }
         }
 
@@ -935,6 +991,7 @@ impl App {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 self.editor.resize_handle_active = None;
+                self.editor.rotate_active = false;
             }
         }
     }
@@ -950,12 +1007,20 @@ impl App {
         just_released: bool,
     ) {
         // ── Press ─────────────────────────────────────────────────────────────
-        if just_pressed && !self.editor.gizmo_dragging && self.editor.resize_handle_active.is_none()
+        if just_pressed
+            && !self.editor.gizmo_dragging
+            && self.editor.resize_handle_active.is_none()
+            && !self.editor.rotate_active
         {
             // World-space AABB of the entity.
             let pos = tr.position - tr.scale * 0.5;
-            // Check resize handles first (higher priority than body).
-            if let Some(handle) = hit_test_handles(pos, tr.scale, world_pos) {
+            // Rotation handle has top priority (it sits outside the AABB).
+            let rot_handle = rotation_handle_pos(tr.position, tr.scale, ROT_HANDLE_GAP);
+            if (world_pos - rot_handle).length() <= ROT_HIT_RADIUS {
+                self.editor.rotate_active = true;
+                self.editor.rotate_start_rotation = tr.rotation;
+                self.editor.rotate_start_angle = cursor_angle(tr.position, world_pos);
+            } else if let Some(handle) = hit_test_handles(pos, tr.scale, world_pos) {
                 self.editor.resize_handle_active = Some(handle);
                 self.editor.resize_drag_start_cursor = world_pos;
                 self.editor.resize_drag_start_scale = tr.scale;
@@ -990,7 +1055,19 @@ impl App {
 
         // ── Hold ─────────────────────────────────────────────────────────────
         if held {
-            if let Some(handle) = self.editor.resize_handle_active {
+            if self.editor.rotate_active {
+                let cur = cursor_angle(tr.position, world_pos);
+                let snap = self.editor.snap_enabled.then_some(ROT_SNAP);
+                let new_rot = applied_rotation(
+                    self.editor.rotate_start_rotation,
+                    self.editor.rotate_start_angle,
+                    cur,
+                    snap,
+                );
+                if let Some(t) = self.world.get_mut::<crate::components::Transform>(sel) {
+                    t.rotation = new_rot;
+                }
+            } else if let Some(handle) = self.editor.resize_handle_active {
                 // Scale the entity from its centre.  The corner/edge delta in
                 // world-space maps directly to a scale change; position stays fixed.
                 let delta = world_pos - self.editor.resize_drag_start_cursor;
@@ -1074,7 +1151,22 @@ impl App {
 
         // ── Release ───────────────────────────────────────────────────────────
         if just_released {
-            if let Some(_handle) = self.editor.resize_handle_active.take() {
+            if self.editor.rotate_active {
+                self.editor.rotate_active = false;
+                let old_rotation = self.editor.rotate_start_rotation;
+                let new_rotation = self
+                    .world
+                    .get::<crate::components::Transform>(sel)
+                    .map(|t| t.rotation)
+                    .unwrap_or(old_rotation);
+                if (new_rotation - old_rotation).abs() > 1e-4 {
+                    self.editor.cmd_history.push(EditorCmd::RotateEntity {
+                        entity: sel,
+                        old_rotation,
+                        new_rotation,
+                    });
+                }
+            } else if let Some(_handle) = self.editor.resize_handle_active.take() {
                 let old_scale = self.editor.resize_drag_start_scale;
                 let new_scale = self
                     .world
@@ -1679,5 +1771,97 @@ mod tests {
             "eyedropper picked the cell value"
         );
         assert_eq!(tile(&app, e, 1, 1), 3, "eyedropper did not paint");
+    }
+
+    // ─── rotation gizmo ──────────────────────────────────────────────────────
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn rotation_helpers_math() {
+        use std::f32::consts::PI;
+        // cursor_angle cardinal directions (Y down: +y is "down").
+        assert!(cursor_angle(glam::Vec2::ZERO, glam::Vec2::new(10.0, 0.0)).abs() < 1e-5);
+        assert!(
+            (cursor_angle(glam::Vec2::ZERO, glam::Vec2::new(0.0, 10.0)) - PI / 2.0).abs() < 1e-5
+        );
+        // Rotation handle sits above the top edge (smaller y).
+        assert_eq!(
+            rotation_handle_pos(
+                glam::Vec2::new(50.0, 50.0),
+                glam::Vec2::new(20.0, 20.0),
+                16.0
+            ),
+            glam::Vec2::new(50.0, 24.0)
+        );
+        // Snap to nearest multiple; step<=0 is identity.
+        assert!(snap_angle(0.4, 1.0).abs() < 1e-6);
+        assert!((snap_angle(0.6, 1.0) - 1.0).abs() < 1e-6);
+        assert_eq!(snap_angle(0.7, 0.0), 0.7);
+        // applied_rotation = start + (cur - start_angle).
+        assert!((applied_rotation(0.0, -PI / 2.0, 0.0, None) - PI / 2.0).abs() < 1e-5);
+        assert!((applied_rotation(1.0, 0.5, 0.5, None) - 1.0).abs() < 1e-6); // no delta
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn rotation_gizmo_drag_rotates_and_undoes() {
+        use std::f32::consts::PI;
+        let mut app = crate::app::App::new();
+        let e = app.world.spawn();
+        app.world.add_component(
+            e,
+            crate::components::Transform::new(glam::Vec2::ZERO, glam::Vec2::splat(20.0), 0.0),
+        );
+        app.editor.inspector_selected = Some(e);
+        app.editor.selected_entities = vec![e];
+        let tr = app
+            .world
+            .get::<crate::components::Transform>(e)
+            .cloned()
+            .unwrap();
+
+        // Press on the rotation handle at (0, -26) = (0, -(scale.y/2 + gap)).
+        app.update_transform_gizmo_native(
+            e,
+            tr.clone(),
+            glam::Vec2::new(0.0, -26.0),
+            true,
+            false,
+            false,
+        );
+        assert!(app.editor.rotate_active, "rotation drag started");
+
+        // Drag to (26, 0): a quarter turn around the centre → rotation ≈ +PI/2.
+        app.update_transform_gizmo_native(
+            e,
+            tr.clone(),
+            glam::Vec2::new(26.0, 0.0),
+            false,
+            true,
+            false,
+        );
+        let rot = app
+            .world
+            .get::<crate::components::Transform>(e)
+            .unwrap()
+            .rotation;
+        assert!((rot - PI / 2.0).abs() < 1e-3, "rotated ~90°, got {rot}");
+
+        // Release commits the RotateEntity command.
+        app.update_transform_gizmo_native(e, tr, glam::Vec2::new(26.0, 0.0), false, false, true);
+        assert!(!app.editor.rotate_active);
+
+        // Undo reverts to the original rotation.
+        let mut sel = app.editor.inspector_selected;
+        app.editor.cmd_history.undo(&mut app.world, &mut sel);
+        assert!(
+            app.world
+                .get::<crate::components::Transform>(e)
+                .unwrap()
+                .rotation
+                .abs()
+                < 1e-4,
+            "undo reverted rotation to 0"
+        );
     }
 }

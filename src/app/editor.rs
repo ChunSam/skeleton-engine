@@ -54,6 +54,12 @@ pub(super) enum EditorCmd {
         old_scale: glam::Vec2,
         new_scale: glam::Vec2,
     },
+    /// Rotate a world-space sprite by changing `Transform.rotation` (radians).
+    RotateEntity {
+        entity: Entity,
+        old_rotation: f32,
+        new_rotation: f32,
+    },
     /// One tile-paint stroke on a `Tilemap` entity. `changes` lists every cell the stroke
     /// actually modified as `(row, col, old, new)`; undo restores `old` (reverse order),
     /// redo re-applies `new`. A whole drag is a single undo step.
@@ -136,6 +142,16 @@ impl EditorHistory {
                 }
                 *selected = Some(*entity);
             }
+            EditorCmd::RotateEntity {
+                entity,
+                old_rotation,
+                ..
+            } => {
+                if let Some(t) = world.get_mut::<crate::components::Transform>(*entity) {
+                    t.rotation = *old_rotation;
+                }
+                *selected = Some(*entity);
+            }
             EditorCmd::PaintTiles { entity, changes } => {
                 if let Some(tm) = world.get_mut::<crate::tilemap::Tilemap>(*entity) {
                     for (row, col, old, _new) in changes.iter().rev() {
@@ -215,6 +231,16 @@ impl EditorHistory {
             } => {
                 if let Some(t) = world.get_mut::<crate::components::Transform>(*entity) {
                     t.scale = *new_scale;
+                }
+                *selected = Some(*entity);
+            }
+            EditorCmd::RotateEntity {
+                entity,
+                new_rotation,
+                ..
+            } => {
+                if let Some(t) = world.get_mut::<crate::components::Transform>(*entity) {
+                    t.rotation = *new_rotation;
                 }
                 *selected = Some(*entity);
             }
