@@ -293,6 +293,10 @@ pub(in crate::app) struct EditorState {
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) rotate_start_angle: f32,
 
+    /// Name typed into the State Machine panel's "add state" box.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) sm_add_state_name: String,
+
     // ── Prefab create/instancing (native only) ────────────────────────────────
     /// File path used by the Save-as-Prefab / Spawn-Prefab controls.
     #[cfg(not(target_arch = "wasm32"))]
@@ -360,6 +364,7 @@ impl EditorState {
             rotate_active: false,
             rotate_start_rotation: 0.0,
             rotate_start_angle: 0.0,
+            sm_add_state_name: String::new(),
             prefab_path: "prefab.ron".into(),
             prefab_status: None,
             settings_loaded: false,

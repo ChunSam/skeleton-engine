@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.6.30 | package `skeleton-engine` v8.25.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.92, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
+> Version v1.6.31 | package `skeleton-engine` v8.26.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.92, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example game ships to
 > the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`
@@ -67,7 +67,7 @@ Where to read to find a given thing:
 | DataTable, DataTableRegistry (schema-agnostic RON data tables; `App::load_data_table`, hot-reloaded, edited in the editor's Data Tables panel); `App::register_editable_component::<T>` (one-call reflect+clone+serde+inspector registration) | `src/data_table.rs`, `src/app/editor.rs` |
 | ScriptAsset, ScriptRunner, ScriptingSystem (Rhai scripting) | `src/scripting.rs` |
 | DebugUi (egui overlay, F1 toggle, custom panels via `ctx()`) | `src/debug_ui.rs` |
-| In-game editor: F1 overlay + F2 **docked mode** (dock layout, viewport input gate, engine-level editor pause, gizmo (move + 8-handle resize + rotation handle) + screen-space UI gizmo, scene save, Data Tables panel, component copy/paste + entity-list search, prefab save/spawn, world-aligned grid overlay + cursor readout, bounds/colliders debug overlay, pathfinding-grid overlay (per-`Tilemap` walkable/blocked cells), audio bus mixer panel (per-bus volume sliders), particle live-tuner (inspector `ParticleEmitter` field drags + reset), lighting editor (`PointLight` add/edit + global `AmbientLight` control), settings persistence (RON config), **Tile Paint** = viewport tile-painting for selected `Tilemap` entities — brush(N×N)/rectangle/bucket tools + eyedropper(Alt+click), L-paint/R-erase/digit-pick, **image-swatch palette** (atlas thumbnails via egui `register_native_texture`), stroke-level undo, visual-only/native; example `tile_paint`) | `src/app/editor/` |
+| In-game editor: F1 overlay + F2 **docked mode** (dock layout, viewport input gate, engine-level editor pause, gizmo (move + 8-handle resize + rotation handle) + screen-space UI gizmo, scene save, Data Tables panel, component copy/paste + entity-list search, prefab save/spawn, world-aligned grid overlay + cursor readout, bounds/colliders debug overlay, pathfinding-grid overlay (per-`Tilemap` walkable/blocked cells), audio bus mixer panel (per-bus volume sliders), particle live-tuner (inspector `ParticleEmitter` field drags + reset), lighting editor (`PointLight` add/edit + global `AmbientLight` control), state-machine editor (list-based `AnimationStateMachine` graph: states/transitions/params + edits), settings persistence (RON config), **Tile Paint** = viewport tile-painting for selected `Tilemap` entities — brush(N×N)/rectangle/bucket tools + eyedropper(Alt+click), L-paint/R-erase/digit-pick, **image-swatch palette** (atlas thumbnails via egui `register_native_texture`), stroke-level undo, visual-only/native; example `tile_paint`) | `src/app/editor/` |
 | Full public API re-export list | `src/lib.rs` |
 | Entity / Component / Resource / Query (+ `register_persistent` survives scene reset, via `App`) | `src/ecs/world.rs`, `src/app.rs` |
 | Event bus (`Events<E>`) | `src/ecs/events.rs` |
@@ -89,7 +89,7 @@ Where to read to find a given thing:
 | AnimationPlayer, AnimationClip, AnimationSystem, BlendWeight (crossfade = true 2-UV shader-lerp; renderer `mix`es from/to frames) | `src/animation/player.rs`, `src/animation/system.rs` |
 | AnimationClipSet, AnimationClipRegistry, ClipSetError (data-driven animation: named clips loaded from RON `(atlas, clips)`, frame indices → UvRect; `App::load_animation_clips` = registry + DataTable-style hot-reload) | `src/animation/clip_set.rs` |
 | UvRect, BlendUv (GPU UV-region types, consumed engine-wide) | `src/renderer/uv.rs` |
-| AnimationStateMachine, StateMachineSystem, TransitionCond, AnimParam (per-transition crossfade via `add_transition_crossfade`) | `src/animation/state_machine.rs` |
+| AnimationStateMachine, StateMachineSystem, TransitionCond, AnimParam (per-transition crossfade via `add_transition_crossfade`; editor **State Machine panel** — `state_names`/`state`/`param` accessors + `set_current_state`/`set_state_clip`/`remove_state`/`remove_transition` edit ops drive a list-based graph editor in the docked inspector; example `sm_crossfade`) | `src/animation/state_machine.rs` |
 | BlendTree1D, BlendEntry, BlendTreeSystem (1D parameter-driven auto transitions + crossfade) | `src/animation/blend_tree.rs`, `src/animation/blend_system.rs` |
 | SkeletalAnimator, SkeletalClip, BoneTrack, BoneKeyframe, SkeletalAnimationSystem, SkeletonBuilder (2D cutout skeletal animation) | `src/skeletal.rs` (details: `docs/SKELETAL.md`) |
 | UI (UiNode, Button, Label, TextInput, ScrollView, Panel, LayoutSystem, UiEvent) | `src/ui/` |

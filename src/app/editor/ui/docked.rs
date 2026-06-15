@@ -614,6 +614,20 @@ pub(in crate::app) fn inspector_tab_body(
                         });
                 }
 
+                // ── State Machine editor (entities with AnimationStateMachine) ─
+                if app
+                    .world
+                    .get::<crate::animation::AnimationStateMachine>(sel)
+                    .is_some()
+                {
+                    ui.separator();
+                    egui::CollapsingHeader::new("State Machine")
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            state_machine_panel(ui, app, sel);
+                        });
+                }
+
                 ui.separator();
                 ui.strong("Component List");
 
@@ -1087,6 +1101,189 @@ fn ambient_light_control(ui: &mut egui::Ui, app: &mut App) {
                     .speed(0.01),
             );
         });
+    }
+}
+
+/// One-line summary of a transition condition for the State Machine panel.
+#[cfg(not(target_arch = "wasm32"))]
+fn cond_summary(c: &crate::animation::TransitionCond) -> String {
+    use crate::animation::TransitionCond as C;
+    match c {
+        C::BoolEq(n, v) => format!("{n}=={v}"),
+        C::FloatGt(n, t) => format!("{n}>{t}"),
+        C::FloatLt(n, t) => format!("{n}<{t}"),
+        C::Trigger(n) => format!("trig:{n}"),
+        C::AnimationEnd => "anim-end".to_string(),
+    }
+}
+
+/// Display string for a state-machine parameter value.
+#[cfg(not(target_arch = "wasm32"))]
+fn param_display(p: Option<&crate::animation::AnimParam>) -> String {
+    use crate::animation::AnimParam as P;
+    match p {
+        Some(P::Bool(v)) => format!("bool {v}"),
+        Some(P::Float(v)) => format!("float {v:.2}"),
+        Some(P::Trigger(v)) => format!("trigger {v}"),
+        None => "?".to_string(),
+    }
+}
+
+/// State Machine inspector panel: lists the selected entity's `AnimationStateMachine` states
+/// (current highlighted) with their transitions and parameters, and offers edits — set current,
+/// edit clip index, remove state/transition, add state. Snapshots display data under an immutable
+/// borrow, collects edit intents during render, then applies them under a fresh mutable borrow.
+#[cfg(not(target_arch = "wasm32"))]
+fn state_machine_panel(ui: &mut egui::Ui, app: &mut App, sel: crate::ecs::Entity) {
+    use crate::animation::AnimationStateMachine;
+
+    struct StateView {
+        name: String,
+        clip: usize,
+        /// (target, condition-summary, crossfade)
+        transitions: Vec<(String, String, f32)>,
+    }
+    let (current, states, params): (String, Vec<StateView>, Vec<String>) = {
+        let Some(sm) = app.world.get::<AnimationStateMachine>(sel) else {
+            return;
+        };
+        let current = sm.current_state().to_string();
+        let states = sm
+            .state_names()
+            .into_iter()
+            .map(|name| {
+                let st = sm.state(&name).expect("listed state exists");
+                let transitions = st
+                    .transitions
+                    .iter()
+                    .map(|t| {
+                        let conds = if t.conditions.is_empty() {
+                            "always".to_string()
+                        } else {
+                            t.conditions
+                                .iter()
+                                .map(cond_summary)
+                                .collect::<Vec<_>>()
+                                .join(" & ")
+                        };
+                        (t.to.clone(), conds, t.crossfade_duration)
+                    })
+                    .collect();
+                StateView {
+                    name,
+                    clip: st.clip_index,
+                    transitions,
+                }
+            })
+            .collect();
+        let params = sm
+            .param_names()
+            .into_iter()
+            .map(|n| format!("{n} = {}", param_display(sm.param(&n))))
+            .collect();
+        (current, states, params)
+    };
+
+    enum Edit {
+        SetCurrent(String),
+        RemoveState(String),
+        SetClip(String, usize),
+        RemoveTransition(String, usize),
+        AddState(String),
+    }
+    let mut edits: Vec<Edit> = Vec::new();
+
+    ui.label(format!("current: {current}"));
+    let state_count = states.len();
+    for st in &states {
+        let is_current = st.name == current;
+        ui.separator();
+        ui.horizontal(|ui| {
+            let text = egui::RichText::new(st.name.clone());
+            ui.label(if is_current { text.strong() } else { text });
+            ui.label("clip");
+            let mut clip = st.clip as i32;
+            if ui
+                .add(egui::DragValue::new(&mut clip).range(0..=4096))
+                .changed()
+            {
+                edits.push(Edit::SetClip(st.name.clone(), clip.max(0) as usize));
+            }
+            if !is_current && ui.small_button("▶").on_hover_text("set current").clicked() {
+                edits.push(Edit::SetCurrent(st.name.clone()));
+            }
+            if !is_current
+                && state_count > 1
+                && ui.small_button("✕").on_hover_text("remove state").clicked()
+            {
+                edits.push(Edit::RemoveState(st.name.clone()));
+            }
+        });
+        for (i, (to, conds, xf)) in st.transitions.iter().enumerate() {
+            ui.horizontal(|ui| {
+                let xf_txt = if *xf > 0.0 {
+                    format!("  xf {xf:.2}s")
+                } else {
+                    String::new()
+                };
+                ui.label(format!("    → {to}   [{conds}]{xf_txt}"));
+                if ui
+                    .small_button("✕")
+                    .on_hover_text("remove transition")
+                    .clicked()
+                {
+                    edits.push(Edit::RemoveTransition(st.name.clone(), i));
+                }
+            });
+        }
+    }
+
+    ui.separator();
+    ui.horizontal(|ui| {
+        ui.label("add state:");
+        ui.add(egui::TextEdit::singleline(&mut app.editor.sm_add_state_name).desired_width(100.0));
+        if ui.button("+").clicked() {
+            let name = app.editor.sm_add_state_name.trim().to_string();
+            if !name.is_empty() {
+                edits.push(Edit::AddState(name));
+            }
+        }
+    });
+
+    if !params.is_empty() {
+        ui.separator();
+        ui.label(egui::RichText::new("parameters").weak());
+        for p in &params {
+            ui.label(format!("  {p}"));
+        }
+    }
+
+    if !edits.is_empty() {
+        let added = edits.iter().any(|e| matches!(e, Edit::AddState(_)));
+        if let Some(sm) = app.world.get_mut::<AnimationStateMachine>(sel) {
+            for e in edits {
+                match e {
+                    Edit::SetCurrent(n) => {
+                        sm.set_current_state(&n);
+                    }
+                    Edit::RemoveState(n) => {
+                        sm.remove_state(&n);
+                    }
+                    Edit::SetClip(n, c) => {
+                        sm.set_state_clip(&n, c);
+                    }
+                    Edit::RemoveTransition(from, i) => {
+                        sm.remove_transition(&from, i);
+                    }
+                    Edit::AddState(n) => {
+                        sm.add_state(n, 0);
+                    }
+                }
+            }
+        }
+        if added {
+            app.editor.sm_add_state_name.clear();
+        }
     }
 }
 
