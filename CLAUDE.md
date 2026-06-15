@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.6.9 | package `skeleton-engine` v8.4.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.92, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
+> Version v1.6.10 | package `skeleton-engine` v8.5.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.92, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example game ships to
 > the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`
@@ -85,7 +85,7 @@ Where to read to find a given thing:
 | SpatialGrid, Collider, CollisionLayer (SpatialGrid is mirrored to a World resource by CollisionGridSystem) | `src/collision/` |
 | BehaviorTree, BehaviorNode, Sequence, Selector, Inverter, AlwaysSucceed, BehaviorSystem, Blackboard, BlackboardValue (`Path` variant + `set_path`/`get_path`) | `src/behavior.rs` |
 | Seek, Flee, Arrive, Wander, SteeringVelocity, SteeringSystem (steering behaviors; O(1) per-entity component lookup) | `src/steering.rs` |
-| PathGrid, find_path, PathGrid::from_tilemap | `src/pathfinding.rs` |
+| PathGrid, find_path (4-dir), find_path_diagonal (8-dir A*, octile heuristic, no corner-cut), PathGrid::from_tilemap | `src/pathfinding.rs` |
 | AnimationPlayer, AnimationClip, AnimationSystem, BlendWeight (crossfade = true 2-UV shader-lerp; renderer `mix`es from/to frames) | `src/animation/player.rs`, `src/animation/system.rs` |
 | UvRect, BlendUv (GPU UV-region types, consumed engine-wide) | `src/renderer/uv.rs` |
 | AnimationStateMachine, StateMachineSystem, TransitionCond, AnimParam (per-transition crossfade via `add_transition_crossfade`) | `src/animation/state_machine.rs` |
