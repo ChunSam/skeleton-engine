@@ -4,6 +4,17 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.16.0
+
+Rotation gizmo. Additive — editor-internal; no public engine API change.
+
+### Added
+
+- **Rotation handle** on the world-sprite gizmo. A green handle above the selected entity's top
+  edge; dragging it rotates the entity (`Transform.rotation`) to follow the cursor. Completes the
+  gizmo (move + 8-handle resize + rotate). With the **Snap** toggle on, rotation snaps to 15°
+  increments. Each rotation is one undoable `EditorCmd::RotateEntity` (Ctrl+Z reverts).
+
 ## 8.15.0
 
 Editor grid overlay. Additive — editor-internal; no public engine API change.
