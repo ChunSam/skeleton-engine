@@ -4,6 +4,20 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.23.0
+
+Editor lighting editor. Additive — editor-internal; no public engine API change.
+
+### Added
+
+- **Point Light** inspector section (shown for entities with a `PointLight`): drag editors for
+  color (r/g/b) / radius / intensity / light_height, mutating the component so the lighting pass
+  updates next frame, plus a **Reset to Default** button (`App::reset_point_light`). The entity's
+  `Transform` position is the light position, so selecting an entity and adding a light places it.
+- **Ambient Light** inspector section: edits the global `AmbientLight` resource (color + intensity),
+  inserting a default one first if the game never set it (`App::ensure_ambient_light`).
+- `PointLight` is now registered as an editor component (Add/Remove buttons + "+ Add" dropdown).
+
 ## 8.22.0
 
 Editor particle live-tuner. Additive — editor-internal; no public engine API change.

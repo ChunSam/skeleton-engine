@@ -485,6 +485,30 @@ impl App {
             em.texture = texture;
         }
     }
+
+    /// Reset the selected entity's `PointLight` to its default configuration. Backs the Point Light
+    /// editor "Reset to Default" button. No-op if the entity has no `PointLight`.
+    pub(in crate::app) fn reset_point_light(&mut self, sel: Entity) {
+        if let Some(light) = self.world.get_mut::<crate::components::PointLight>(sel) {
+            *light = crate::components::PointLight::default();
+        }
+    }
+
+    /// Ensure an `AmbientLight` resource exists (inserting the default if absent) so the editor's
+    /// Ambient Light control always has something to edit. Returns whether one had to be inserted.
+    pub(in crate::app) fn ensure_ambient_light(&mut self) -> bool {
+        if self
+            .world
+            .resource::<crate::resources::AmbientLight>()
+            .is_none()
+        {
+            self.world
+                .insert_resource(crate::resources::AmbientLight::default());
+            true
+        } else {
+            false
+        }
+    }
 }
 
 /// Case-insensitive substring match for the entity-list search box. An empty (or
@@ -515,6 +539,9 @@ impl App {
         self.register_component("ParticleEmitter", |world, e| {
             world.add_component(e, crate::particle::ParticleEmitter::default());
         });
+        self.register_component("PointLight", |world, e| {
+            world.add_component(e, crate::components::PointLight::default());
+        });
         // register removal closures — the Inspector "✕" button uses this map to show/act
         self.register_component_remover("Sprite", |world, e| {
             world.remove_component::<crate::components::Sprite>(e);
@@ -524,6 +551,9 @@ impl App {
         });
         self.register_component_remover("ParticleEmitter", |world, e| {
             world.remove_component::<crate::particle::ParticleEmitter>(e);
+        });
+        self.register_component_remover("PointLight", |world, e| {
+            world.remove_component::<crate::components::PointLight>(e);
         });
         self.register_component_remover("Tag", |world, e| {
             world.remove_component::<crate::prefab::Tag>(e);
@@ -1171,5 +1201,67 @@ mod editor_cmd_tests {
             .world
             .get::<crate::particle::ParticleEmitter>(e)
             .is_none());
+    }
+
+    #[test]
+    fn reset_point_light_restores_defaults() {
+        use crate::components::PointLight;
+        let mut app = crate::app::App::new();
+        let e = app.world.spawn();
+        app.world.add_component(
+            e,
+            PointLight {
+                color: crate::color::Color::rgb(1.0, 0.0, 0.0),
+                radius: 12.0,
+                intensity: 9.0,
+                light_height: 1.9,
+            },
+        );
+
+        app.reset_point_light(e);
+
+        let got = app.world.get::<PointLight>(e).expect("light");
+        let def = PointLight::default();
+        assert_eq!(got.radius, def.radius);
+        assert_eq!(got.intensity, def.intensity);
+        assert_eq!(got.light_height, def.light_height);
+        assert_eq!(got.color, def.color);
+    }
+
+    #[test]
+    fn ensure_ambient_light_inserts_default_once() {
+        let mut app = crate::app::App::new();
+        // Fresh App has no AmbientLight resource → first call inserts it.
+        assert!(
+            app.ensure_ambient_light(),
+            "first call inserts a default AmbientLight"
+        );
+        assert!(app
+            .world
+            .resource::<crate::resources::AmbientLight>()
+            .is_some());
+        // Second call is a no-op (already present).
+        assert!(
+            !app.ensure_ambient_light(),
+            "second call leaves the existing resource untouched"
+        );
+    }
+
+    #[test]
+    fn pointlight_registered_as_editor_component() {
+        let mut app = crate::app::App::new();
+        // register_default_components (run by App::new) registers PointLight factory + remover.
+        assert!(app.editor.component_factories.contains_key("PointLight"));
+        assert!(app.editor.component_removers.contains_key("PointLight"));
+
+        let e = app.world.spawn();
+        // Disjoint field borrows: factory comes from `app.editor`, world is `app.world`.
+        if let Some(factory) = app.editor.component_factories.get("PointLight") {
+            factory(&mut app.world, e);
+        }
+        assert!(
+            app.world.get::<crate::components::PointLight>(e).is_some(),
+            "factory adds a PointLight"
+        );
     }
 }

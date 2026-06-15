@@ -430,6 +430,13 @@ pub(in crate::app) fn inspector_tab_body(
     egui::ScrollArea::vertical()
         .id_salt("docked_inspector_fields")
         .show(ui, |ui| {
+            // ── Ambient Light (global scene lighting) ─────────────────────────
+            egui::CollapsingHeader::new("Ambient Light")
+                .default_open(false)
+                .show(ui, |ui| {
+                    ambient_light_control(ui, app);
+                });
+
             // Component field editor
             for (comp_name, fields) in comp_fields.iter_mut() {
                 ui.collapsing(*comp_name, |ui| {
@@ -574,6 +581,33 @@ pub(in crate::app) fn inspector_tab_body(
                             ui.label(
                                 egui::RichText::new(
                                     "edits apply live while the sim runs (unpause)",
+                                )
+                                .weak(),
+                            );
+                        });
+                }
+
+                // ── Point Light editor (shown only for PointLight entities) ───
+                if app
+                    .world
+                    .get::<crate::components::PointLight>(sel)
+                    .is_some()
+                {
+                    ui.separator();
+                    egui::CollapsingHeader::new("Point Light")
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            point_light_grid(ui, app, sel);
+                            if ui
+                                .button("↺ Reset to Default")
+                                .on_hover_text("reset color / radius / intensity / height")
+                                .clicked()
+                            {
+                                app.reset_point_light(sel);
+                            }
+                            ui.label(
+                                egui::RichText::new(
+                                    "the entity's Transform position is the light position",
                                 )
                                 .weak(),
                             );
@@ -980,6 +1014,79 @@ fn color_rgba_drags(ui: &mut egui::Ui, c: &mut crate::color::Color) {
                 .speed(0.01)
                 .prefix(label),
         );
+    }
+}
+
+/// Three compact 0..=1 drag editors (r/g/b) for a light [`Color`](crate::color::Color).
+/// Lights ignore alpha, so only the RGB channels are exposed.
+#[cfg(not(target_arch = "wasm32"))]
+fn color_rgb_drags(ui: &mut egui::Ui, c: &mut crate::color::Color) {
+    for (label, ch) in [("r", &mut c.r), ("g", &mut c.g), ("b", &mut c.b)] {
+        ui.add(
+            egui::DragValue::new(ch)
+                .range(0.0..=1.0)
+                .speed(0.01)
+                .prefix(label),
+        );
+    }
+}
+
+/// Render the live-tunable fields of the selected entity's `PointLight` (color / radius /
+/// intensity / light_height). Edits mutate the component so the lighting pass reflects them next
+/// frame. No-op if the entity has no `PointLight`.
+#[cfg(not(target_arch = "wasm32"))]
+fn point_light_grid(ui: &mut egui::Ui, app: &mut App, sel: crate::ecs::Entity) {
+    let Some(l) = app.world.get_mut::<crate::components::PointLight>(sel) else {
+        return;
+    };
+    ui.horizontal(|ui| {
+        ui.label("color");
+        color_rgb_drags(ui, &mut l.color);
+    });
+    ui.horizontal(|ui| {
+        ui.label("radius");
+        ui.add(
+            egui::DragValue::new(&mut l.radius)
+                .range(0.0..=4000.0)
+                .speed(2.0),
+        );
+    });
+    ui.horizontal(|ui| {
+        ui.label("intensity");
+        ui.add(
+            egui::DragValue::new(&mut l.intensity)
+                .range(0.0..=10.0)
+                .speed(0.05),
+        );
+    });
+    ui.horizontal(|ui| {
+        ui.label("light_height");
+        ui.add(
+            egui::DragValue::new(&mut l.light_height)
+                .range(0.01..=2.0)
+                .speed(0.01),
+        );
+    });
+}
+
+/// Edit the global `AmbientLight` resource (color + intensity), inserting a default one first if
+/// the game never set it, so the control is always usable.
+#[cfg(not(target_arch = "wasm32"))]
+fn ambient_light_control(ui: &mut egui::Ui, app: &mut App) {
+    app.ensure_ambient_light();
+    if let Some(amb) = app.world.resource_mut::<crate::resources::AmbientLight>() {
+        ui.horizontal(|ui| {
+            ui.label("color");
+            color_rgb_drags(ui, &mut amb.color);
+        });
+        ui.horizontal(|ui| {
+            ui.label("intensity");
+            ui.add(
+                egui::DragValue::new(&mut amb.intensity)
+                    .range(0.0..=1.0)
+                    .speed(0.01),
+            );
+        });
     }
 }
 
