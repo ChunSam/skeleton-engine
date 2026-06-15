@@ -578,6 +578,9 @@ impl App {
         #[cfg(not(target_arch = "wasm32"))]
         if matches!(self.editor.mode, EditorMode::Overlay | EditorMode::Docked) {
             self.update_editor_gizmo(egui_ctx);
+            if self.editor.show_bounds {
+                self.draw_debug_bounds();
+            }
         }
         #[cfg(target_arch = "wasm32")]
         self.update_editor_gizmo(egui_ctx);
