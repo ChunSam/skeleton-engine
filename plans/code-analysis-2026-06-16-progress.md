@@ -4,6 +4,22 @@
 > Rule: no intermediate reports; full code review + tests only at the end; final report when clean.
 > Agents EDIT + write inline `#[cfg(test)]` tests, do NOT run cargo (avoid lock contention); Opus runs the central gate per iteration. Agents must NOT edit `src/lib.rs` (report needed re-exports → Opus adds centrally). Physics is native-only → cfg-gate any `crate::physics` ref. Prefer additive; breaking allowed (pre-1.0, rust-survivors dropped).
 
+## ⚠ RESUME STATE (2026-06-16 — session usage limit hit, resets ~03:50 Asia/Seoul)
+
+Iterations 1 (`0d6da75`) + 2 (`f5260ef`) are COMMITTED & green. **Iteration 3 (WU8-11) is UNCOMMITTED and NON-COMPILING** — the 4 Sonnet agents edited their files but the session limit cut them off before summaries; tree must be repaired before commit. Last good commit: `f5260ef`.
+
+**Known integration errors to fix on resume (from diagnostics — verify with `cargo check --all-targets`):**
+1. **NetworkSystem broke 5 examples** (`mp_client.rs:54`, `salvage_run.rs:114`, `coin_race.rs:110`, `predict_shooter.rs:65`, `orbital_dodger.rs:88` — `expected value, found struct NetworkSystem` E0423). WU8 added a field to `NetworkSystem` for warn-once, breaking unit-struct usage `add_system(NetworkSystem)`. FIX: keep `NetworkSystem` a UNIT struct; move the warn-once flag to a `static WARNED: AtomicBool` inside `poll()` (not a struct field). Also `network.rs:1341,1346` access private `close_requested` (test) — keep test in same module or add accessor.
+2. **ParticleEmitter `z` field** (WU9): `src/particle/config_set.rs:197` constructs `ParticleEmitter` without `z` (E0063) → add `z: 0.0` (or derive Default + `..Default::default()`). Also `src/particle/mod.rs` EmitterSnapshot collect has `z` inserted in the WRONG tuple position (FromIterator arity/order mismatch) — align the snapshot tuple construction with its consumer (z should be ordered consistently).
+3. Re-run gate; verify WU9 tilemap (blob_47 47-mask fix + `generation` dirty-guard + HashSet), WU10 (save with_key, behavior child.reset, steering, pathfinding blocked-start==goal, Track set_value/set_easing), WU11 (editor widget registration, pathfinding-overlay clone, name-only serialize, add_component_selected, timeline keyframe wiring) all compile + pass.
+
+**ACTUAL PARTIAL STATE (from `git status` — agents cut off mid-work):**
+- PRESENT in working tree: `src/network.rs` (WU8), `src/tilemap.rs` + `src/data_table.rs` + `src/particle/mod.rs` (WU9 partial), `src/save.rs` + `src/behavior.rs` + `src/steering.rs` (WU10 partial). Review these via `git diff` (no agent summaries — diffs are the source of truth).
+- MISSING / NOT DONE: WU9 scripting dead-field removal (`src/scripting/context.rs`/`execution.rs`/`api.rs`); WU10 `src/pathfinding.rs` (blocked start==goal) + `src/timeline.rs` (Track set_value/set_easing); WU11 ENTIRELY (`src/app/editor.rs`, `src/app/editor/ui/docked.rs`, `src/prefab.rs`). These must be COMPLETED on resume (re-run those agents or do directly).
+- Note: since WU10's timeline.rs + WU11's docked.rs keyframe wiring are both undone, no cross-dependency issue remains; do timeline.rs (Track API) before docked.rs wiring.
+
+**Resume procedure:** (a) review present diffs + fix compile errors 1+2; (a2) COMPLETE the missing WU9-scripting/WU10-pathfinding+timeline/WU11 work; (b) `cargo test --lib` green; (c) `cargo check --all-targets` green (examples); (d) commit iteration 3; (e) mark WU8-11 done below; (f) Iteration 4 = WU12 App-loop (window.rs Focused→release_all + double-step guard; schedule.rs catch_unwind frame-abort + HotReloadable trait; app.rs raw-ptr→owned views + FadeTransition wasm warn) + WU14 Build/CI (serde_json→dev-deps, MSRV, wasm clippy, integration tests); (g) Iteration 5 final gate (fmt --check, clippy --all-targets -D warnings, wasm lib+bins build, test --all-targets, doc -D warnings) + code review + version bump + docs/CHANGELOG.md + REFERENCE.html + final report. Remember WU12 must wire `InputState::release_all()` (currently dead_code).
+
 ## Work units (status: TODO / DONE / REVIEW)
 
 ### Iteration 1 (parallel, disjoint dirs)
