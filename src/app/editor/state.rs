@@ -272,6 +272,9 @@ pub(in crate::app) struct EditorState {
     /// Entity-list search query (case-insensitive substring of the entity label).
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) entity_filter: String,
+    /// Whether the world-aligned grid overlay is drawn on the docked viewport.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) show_grid: bool,
 }
 
 impl EditorState {
@@ -323,6 +326,7 @@ impl EditorState {
             paint_erase: false,
             component_clipboard: None,
             entity_filter: String::new(),
+            show_grid: false,
         }
     }
 }

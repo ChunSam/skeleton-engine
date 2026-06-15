@@ -136,7 +136,10 @@ pub(in crate::app) fn update_docked_ui(
         .show(ctx, |ui| {
             if let Some(tex) = app.editor.docked_texture_id {
                 let avail = ui.available_size();
-                ui.image((tex, avail));
+                let img_rect = ui.image((tex, avail)).rect;
+                if app.editor.show_grid {
+                    draw_editor_grid(ui, app, img_rect);
+                }
             } else {
                 ui.centered_and_justified(|ui| {
                     ui.label("(no game frame yet)");
@@ -188,6 +191,8 @@ fn docked_toolbar(ui: &mut egui::Ui, app: &mut App) {
                     .suffix(" px"),
             );
         }
+        // Grid overlay toggle (world-aligned to the snap size).
+        ui.checkbox(&mut app.editor.show_grid, "Grid");
 
         ui.separator();
 
@@ -818,6 +823,87 @@ fn uv_rect_to_egui(uv: crate::renderer::uv::UvRect) -> egui::Rect {
     )
 }
 
+/// World coordinates of grid lines within `[start, end]` at `spacing` intervals
+/// (aligned to multiples of `spacing`). Empty for degenerate inputs.
+#[cfg(not(target_arch = "wasm32"))]
+fn grid_lines_in_range(start: f32, end: f32, spacing: f32) -> Vec<f32> {
+    if spacing <= 0.0 || end <= start {
+        return Vec::new();
+    }
+    let first = (start / spacing).ceil() * spacing;
+    let mut out = Vec::new();
+    let mut x = first;
+    let mut guard = 0;
+    // Guard caps the count so a tiny spacing / huge range can't spin forever.
+    while x <= end && guard < 100_000 {
+        out.push(x);
+        x += spacing;
+        guard += 1;
+    }
+    out
+}
+
+/// Draw the world-aligned grid overlay + cursor coordinate readout on the docked viewport.
+/// Pure egui painting on top of the game image — it does not touch the camera or game systems.
+#[cfg(not(target_arch = "wasm32"))]
+fn draw_editor_grid(ui: &egui::Ui, app: &App, rect: egui::Rect) {
+    if rect.width() < 1.0 || rect.height() < 1.0 {
+        return;
+    }
+    let cam_default = crate::camera::Camera::default();
+    let cam = app
+        .world
+        .resource::<crate::camera::Camera>()
+        .unwrap_or(&cam_default);
+    let spacing = app.editor.snap_size.max(1.0);
+    let painter = ui.painter_at(rect);
+    let stroke = egui::Stroke::new(1.0, egui::Color32::from_white_alpha(26));
+
+    // Visible world range (top-left → bottom-right of the image rect).
+    let tl = cam.screen_to_world(glam::Vec2::ZERO);
+    let br = cam.screen_to_world(glam::Vec2::new(rect.width(), rect.height()));
+
+    // Only draw when grid cells are at least a few pixels apart on screen.
+    if spacing * cam.zoom >= 4.0 {
+        for wx in grid_lines_in_range(tl.x, br.x, spacing) {
+            let sx = rect.min.x + cam.world_to_screen(glam::Vec2::new(wx, tl.y)).x;
+            painter.line_segment(
+                [egui::pos2(sx, rect.top()), egui::pos2(sx, rect.bottom())],
+                stroke,
+            );
+        }
+        for wy in grid_lines_in_range(tl.y, br.y, spacing) {
+            let sy = rect.min.y + cam.world_to_screen(glam::Vec2::new(tl.x, wy)).y;
+            painter.line_segment(
+                [egui::pos2(rect.left(), sy), egui::pos2(rect.right(), sy)],
+                stroke,
+            );
+        }
+    }
+
+    // Cursor world-coordinate readout (and hovered cell if a Tilemap is selected).
+    if let Some(p) = ui.ctx().pointer_hover_pos() {
+        if rect.contains(p) {
+            let world = cam.screen_to_world(glam::Vec2::new(p.x - rect.min.x, p.y - rect.min.y));
+            let mut text = format!("x {:.0}  y {:.0}", world.x, world.y);
+            if let Some(sel) = app.editor.inspector_selected {
+                if let Some(tm) = app.world.get::<crate::tilemap::Tilemap>(sel) {
+                    if let Some((row, col)) = tm.cell_at_world(world) {
+                        text.push_str(&format!("  cell ({row}, {col})"));
+                    }
+                }
+            }
+            painter.text(
+                rect.left_top() + egui::vec2(6.0, 6.0),
+                egui::Align2::LEFT_TOP,
+                text,
+                egui::FontId::monospace(12.0),
+                egui::Color32::from_white_alpha(190),
+            );
+        }
+    }
+}
+
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod swatch_tests {
     use super::uv_rect_to_egui;
@@ -839,5 +925,24 @@ mod swatch_tests {
         let r = uv_rect_to_egui(UvRect::FULL);
         assert_eq!(r.min, egui::pos2(0.0, 0.0));
         assert_eq!(r.max, egui::pos2(1.0, 1.0));
+    }
+
+    #[test]
+    fn grid_lines_align_to_multiples_within_range() {
+        use super::grid_lines_in_range;
+        assert_eq!(
+            grid_lines_in_range(0.0, 50.0, 16.0),
+            vec![0.0, 16.0, 32.0, 48.0]
+        );
+        // Start not on a multiple → first line snaps up to the next multiple.
+        assert_eq!(grid_lines_in_range(5.0, 50.0, 16.0), vec![16.0, 32.0, 48.0]);
+        // Negative range works (camera can show negative world coords).
+        assert_eq!(
+            grid_lines_in_range(-10.0, 10.0, 5.0),
+            vec![-10.0, -5.0, 0.0, 5.0, 10.0]
+        );
+        // Degenerate inputs → empty.
+        assert!(grid_lines_in_range(0.0, 50.0, 0.0).is_empty());
+        assert!(grid_lines_in_range(50.0, 0.0, 16.0).is_empty());
     }
 }
