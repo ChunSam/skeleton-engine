@@ -31,8 +31,8 @@ pub mod renderer;
 pub mod resources;
 pub mod save;
 pub use save::{
-    delete, exists, load, load_or_default, load_with_key, save, save_path, save_with_key,
-    SaveError, SaveKey,
+    delete, exists, load, load_migrated, load_or_default, load_with_key, save, save_path,
+    save_versioned, save_with_key, SaveError, SaveKey, SaveMigrator,
 };
 pub mod scene;
 pub mod scripting;

@@ -4,6 +4,23 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.6.0
+
+Versioned save migration. Additive.
+
+### Added
+
+- **`SaveMigrator`** — a chain of schema migrations: `step(n, |value| …)` registers the
+  upgrade from version `n` to `n+1`, transforming the decoded `ron::Value`; `current_version()`
+  = the number of steps.
+- **`save_versioned(path, version, &T)`** — writes an AEAD envelope `{ version, data }` (the
+  payload as a `ron::Value`).
+- **`load_migrated::<T>(path, &migrator)`** — reads the envelope, applies `steps[stored..current]`
+  in order, then deserializes via `ron::Value::into_rust` (bypassing the RON map-vs-struct
+  string round-trip). A save tagged newer than the migrator knows → `SaveError::Unsupported`.
+- **Example `save_migration`** — writes a v1 save, loads + migrates it to a v2 schema (adds a
+  defaulted field), and shows the migrated result on screen.
+
 ## 8.5.0
 
 Diagonal (8-direction) pathfinding. Additive — `find_path` is unchanged.

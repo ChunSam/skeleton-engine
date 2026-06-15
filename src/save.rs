@@ -290,6 +290,180 @@ fn decrypt_save_bytes(bytes: &[u8], key: SaveKey) -> Result<Vec<u8>, SaveError> 
         .map_err(|_| SaveError::Corrupted)
 }
 
+// ── Versioned save migration ─────────────────────────────────────────────────
+
+/// Internal envelope stored on disk by [`save_versioned`].
+///
+/// The `data` field holds the user payload serialized to a `ron::Value` so that
+/// migration steps can inspect and mutate individual fields before the final
+/// deserialization into the concrete target type.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Serialize)]
+struct VersionedEnvelope<'a> {
+    version: u32,
+    data: &'a ron::Value,
+}
+
+/// Owned counterpart used during loading.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(serde::Deserialize)]
+struct VersionedEnvelopeOwned {
+    version: u32,
+    data: ron::Value,
+}
+
+/// A chain of save-schema migration steps.
+///
+/// Each step is a closure that transforms the raw [`ron::Value`] representing the
+/// save payload from one schema version to the next. Steps must be registered in
+/// ascending order starting from 0.
+///
+/// The *current schema version* equals the number of registered steps: zero steps
+/// means version 0, one step means the migrator can upgrade version 0 → 1 and the
+/// current version is 1, and so on.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let migrator = SaveMigrator::new()
+///     .step(0, |mut v| {
+///         if let ron::Value::Map(ref mut m) = v {
+///             m.insert(
+///                 ron::Value::String("coins".into()),
+///                 ron::Value::Number(ron::value::Number::new(0i64)),
+///             );
+///         }
+///         v
+///     });
+/// assert_eq!(migrator.current_version(), 1);
+/// ```
+pub struct SaveMigrator {
+    steps: Vec<Box<dyn Fn(ron::Value) -> ron::Value + Send + Sync>>,
+}
+
+impl SaveMigrator {
+    /// Creates an empty migrator (current version = 0).
+    pub fn new() -> Self {
+        Self { steps: Vec::new() }
+    }
+
+    /// Registers the upgrade from schema version `from` to `from + 1`.
+    ///
+    /// Steps **must** be registered in order (`from = 0, 1, 2, …`).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `from` does not equal the number of steps already registered,
+    /// i.e. if steps are registered out of order.
+    pub fn step(
+        mut self,
+        from: u32,
+        f: impl Fn(ron::Value) -> ron::Value + Send + Sync + 'static,
+    ) -> Self {
+        let expected = self.steps.len() as u32;
+        assert_eq!(
+            from, expected,
+            "SaveMigrator::step called out of order: expected from={expected}, got from={from}"
+        );
+        self.steps.push(Box::new(f));
+        self
+    }
+
+    /// The schema version this migrator upgrades **to** (= number of registered steps).
+    pub fn current_version(&self) -> u32 {
+        self.steps.len() as u32
+    }
+
+    /// Applies all steps in `steps[stored_version .. current_version]` to `value`.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn migrate(&self, mut value: ron::Value, stored_version: u32) -> ron::Value {
+        for step in &self.steps[stored_version as usize..] {
+            value = step(value);
+        }
+        value
+    }
+}
+
+impl Default for SaveMigrator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Saves `data` tagged with the given schema `version` using AEAD encryption
+/// (same key as [`save`]).
+///
+/// The on-disk format is an encrypted RON envelope `(version: u32, data: <payload>)`.
+/// Use [`load_migrated`] to load and automatically upgrade old saves.
+///
+/// Always returns `Err(SaveError::Unsupported)` on wasm (no filesystem).
+pub fn save_versioned<T: Serialize>(path: &Path, version: u32, data: &T) -> Result<(), SaveError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        // Serialize the user payload to a generic ron::Value first so the envelope
+        // stores a plain data tree rather than a double-encoded string.
+        let data_value: ron::Value = {
+            let ron_str = ron::ser::to_string(data).map_err(|e| SaveError::Ron(e.to_string()))?;
+            ron::from_str(&ron_str).map_err(|e| SaveError::Ron(e.to_string()))?
+        };
+        let envelope = VersionedEnvelope {
+            version,
+            data: &data_value,
+        };
+        save(path, &envelope)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (path, version, data);
+        Err(SaveError::Unsupported)
+    }
+}
+
+/// Loads an encrypted versioned save written by [`save_versioned`], applies
+/// migration steps as needed, and deserializes the result into `T`.
+///
+/// If the file's stored version is **older** than `migrator.current_version()`,
+/// each registered step from `stored_version` up to `current_version` is applied
+/// in order before deserialization.
+///
+/// # Errors
+///
+/// - [`SaveError::Unsupported`] if the stored version is **newer** than
+///   `migrator.current_version()` (save written by a future build).
+/// - [`SaveError::Corrupted`] / [`SaveError::Ron`] / [`SaveError::Io`] for the
+///   usual decrypt or parse failures.
+///
+/// Always returns `Err(SaveError::Unsupported)` on wasm.
+pub fn load_migrated<T: DeserializeOwned>(
+    path: &Path,
+    migrator: &SaveMigrator,
+) -> Result<T, SaveError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let envelope: VersionedEnvelopeOwned = load(path)?;
+        let stored = envelope.version;
+        let current = migrator.current_version();
+        if stored > current {
+            return Err(SaveError::Unsupported);
+        }
+        let migrated = migrator.migrate(envelope.data, stored);
+        // Drive serde deserialization directly from the ron::Value tree — avoids the
+        // struct-syntax round-trip issue where re-serialising a Value::Map produces
+        // `{"field": value}` instead of the `(field: value)` syntax RON expects for
+        // named structs.
+        migrated
+            .into_rust::<T>()
+            .map_err(|e| SaveError::Ron(e.to_string()))
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (path, migrator);
+        Err(SaveError::Unsupported)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -528,5 +702,151 @@ mod tests {
             path_str.contains("mygame"),
             "app_name was stripped: {path:?}"
         );
+    }
+
+    // ── Versioned save migration tests ───────────────────────────────────────
+
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    struct PlayerSaveV1 {
+        level: u32,
+        score: u32,
+    }
+
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    struct PlayerSaveV2 {
+        level: u32,
+        score: u32,
+        coins: u32,
+    }
+
+    fn make_v1_to_v2_migrator() -> SaveMigrator {
+        SaveMigrator::new()
+            .step(0, |v| {
+                // Step 0→1: no-op (schema bookmark, no structural change)
+                v
+            })
+            .step(1, |mut v| {
+                // Step 1→2: add `coins` field with default 0
+                if let ron::Value::Map(ref mut m) = v {
+                    m.insert(
+                        ron::Value::String("coins".into()),
+                        ron::Value::Number(ron::value::Number::new(0i64)),
+                    );
+                }
+                v
+            })
+    }
+
+    /// Test 1: round-trip at current version — no migration applied.
+    #[test]
+    fn versioned_roundtrip_at_current_version() {
+        let dir = unique_test_dir();
+        let path = dir.join("v2.save");
+
+        let migrator = make_v1_to_v2_migrator();
+        let original = PlayerSaveV2 {
+            level: 5,
+            score: 800,
+            coins: 42,
+        };
+
+        save_versioned(&path, migrator.current_version(), &original).unwrap();
+        let loaded: PlayerSaveV2 = load_migrated(&path, &migrator).unwrap();
+        assert_eq!(original, loaded);
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Test 2: migration applied — old v1 payload gains `coins` field via step 1→2.
+    #[test]
+    fn versioned_migration_v1_to_v2() {
+        let dir = unique_test_dir();
+        let path = dir.join("v1.save");
+
+        let migrator = make_v1_to_v2_migrator();
+
+        // Save an old v1 payload (schema version = 1, one step already applied)
+        let old = PlayerSaveV1 {
+            level: 7,
+            score: 1200,
+        };
+        save_versioned(&path, 1, &old).unwrap();
+
+        // Load and migrate to V2; the step 1→2 should insert coins=0
+        let loaded: PlayerSaveV2 = load_migrated(&path, &migrator).unwrap();
+        assert_eq!(loaded.level, 7);
+        assert_eq!(loaded.score, 1200);
+        assert_eq!(loaded.coins, 0, "migrated coins should default to 0");
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Test 3: multi-step — version 0 migrates through 0→1 (no-op) and 1→2 (add coins).
+    #[test]
+    fn versioned_migration_multistep() {
+        let dir = unique_test_dir();
+        let path = dir.join("v0.save");
+
+        let migrator = make_v1_to_v2_migrator();
+
+        // Save at version 0 (PlayerSaveV1 fields, tagged as schema 0)
+        let old = PlayerSaveV1 {
+            level: 3,
+            score: 500,
+        };
+        save_versioned(&path, 0, &old).unwrap();
+
+        // Both steps (0→1 no-op, 1→2 insert coins) must apply
+        let loaded: PlayerSaveV2 = load_migrated(&path, &migrator).unwrap();
+        assert_eq!(loaded.level, 3);
+        assert_eq!(loaded.score, 500);
+        assert_eq!(loaded.coins, 0);
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Test 4: future version → SaveError::Unsupported.
+    #[test]
+    fn versioned_future_version_returns_unsupported() {
+        let dir = unique_test_dir();
+        let path = dir.join("future.save");
+
+        let migrator = make_v1_to_v2_migrator(); // current = 2
+        let data = PlayerSaveV2 {
+            level: 1,
+            score: 0,
+            coins: 0,
+        };
+
+        // Save tagged as version 3 (future)
+        save_versioned(&path, migrator.current_version() + 1, &data).unwrap();
+
+        let result: Result<PlayerSaveV2, SaveError> = load_migrated(&path, &migrator);
+        assert!(
+            matches!(result, Err(SaveError::Unsupported)),
+            "expected SaveError::Unsupported for future version, got {result:?}"
+        );
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Test 5a: current_version() equals the number of steps.
+    #[test]
+    fn migrator_current_version_equals_step_count() {
+        let m0 = SaveMigrator::new();
+        assert_eq!(m0.current_version(), 0);
+
+        let m1 = SaveMigrator::new().step(0, |v| v);
+        assert_eq!(m1.current_version(), 1);
+
+        let m2 = SaveMigrator::new().step(0, |v| v).step(1, |v| v);
+        assert_eq!(m2.current_version(), 2);
+    }
+
+    /// Test 5b: step() panics when called out of order.
+    #[test]
+    #[should_panic(expected = "SaveMigrator::step called out of order")]
+    fn migrator_step_out_of_order_panics() {
+        SaveMigrator::new().step(1, |v| v); // should panic: expected from=0
     }
 }
