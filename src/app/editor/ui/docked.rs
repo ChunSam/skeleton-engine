@@ -616,6 +616,31 @@ pub(in crate::app) fn inspector_tab_body(
                     }
                 }
 
+                // Prefab create / spawn
+                ui.separator();
+                ui.collapsing("Prefab", |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Path:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut app.editor.prefab_path)
+                                .desired_width(140.0),
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        if ui.button("💾 Save Selected").clicked() {
+                            let path = app.editor.prefab_path.clone();
+                            app.save_selected_as_prefab(sel, &path);
+                        }
+                        if ui.button("➕ Spawn").clicked() {
+                            let path = app.editor.prefab_path.clone();
+                            app.spawn_prefab(&path);
+                        }
+                    });
+                    if let Some(status) = &app.editor.prefab_status {
+                        ui.label(egui::RichText::new(status).weak());
+                    }
+                });
+
                 // PrefabInstance / Break Prefab
                 let prefab_path = app
                     .world
