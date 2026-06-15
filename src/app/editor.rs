@@ -381,6 +381,56 @@ impl App {
         }
     }
 
+    /// Load a RON particle-config file from `path` and register it under `name`.
+    ///
+    /// Lazily inserts a [`crate::particle::ParticleConfigRegistry`] resource if one
+    /// is not yet present. On native builds the path is also registered with the
+    /// `AssetServer` file watcher so that disk changes are hot-reloaded.
+    ///
+    /// Errors (file not found, parse failure) are logged via `log::warn!` and
+    /// silently dropped — the registry will simply not contain the config set.
+    ///
+    /// This method is a no-op on wasm (file I/O is unsupported there).
+    pub fn load_particle_configs(&mut self, name: impl Into<String>, path: impl Into<String>) {
+        let name = name.into();
+        let path = path.into();
+
+        // Ensure the registry resource exists.
+        if self
+            .world
+            .resource::<crate::particle::ParticleConfigRegistry>()
+            .is_none()
+        {
+            self.world
+                .insert_resource(crate::particle::ParticleConfigRegistry::default());
+        }
+        // Preserve the registry across scene Replace world resets.
+        self.register_persistent::<crate::particle::ParticleConfigRegistry>();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(reg) = self
+                .world
+                .resource_mut::<crate::particle::ParticleConfigRegistry>()
+            {
+                if let Err(e) = reg.load(name, &path) {
+                    log::warn!("load_particle_configs: failed to load '{path}': {e}");
+                    return;
+                }
+            }
+            // Register with the file watcher for hot-reload.
+            if let Some(assets) = self.world.resource_mut::<crate::asset::AssetServer>() {
+                assets.watch_particle_config_path(&path);
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            // File I/O is not supported on wasm; log and return.
+            let _ = (name, path);
+        }
+    }
+
     /// Registers a component for full editor integration in one call:
     /// Inspector field editing ([`Reflect`](crate::reflect::Reflect)), entity duplication
     /// ([`Clone`]), scene save/load (serde), and the Add/Remove Component buttons.

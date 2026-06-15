@@ -1,3 +1,6 @@
+mod config_set;
+pub use config_set::{ParticleConfigError, ParticleConfigRegistry, ParticleConfigSet};
+
 use std::sync::Arc;
 
 use glam::Vec2;

@@ -4,6 +4,23 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.9.0
+
+Data-driven particle emitter configs. Additive.
+
+### Added
+
+- **`ParticleConfigSet`** — load named `ParticleEmitter` configs from a RON file
+  (`(emitters: { "fire": (spawn_rate, lifetime, velocity, velocity_spread, color_start,
+  color_end, size, …), … })`); `Vec2` as `(x, y)`, `Color` as `(r, g, b, a)`, missing fields use
+  serde defaults. `from_ron_str`, `emitter(name) -> Option<ParticleEmitter>` (a fresh emitter),
+  `names()` (deterministic, alphabetical).
+- **`App::load_particle_configs(name, path)`** + **`ParticleConfigRegistry`** — registry resource
+  (survives scene reset) with **hot-reload** via the `AssetServer` watcher, mirroring
+  `load_data_table` / `load_animation_clips`. `ParticleConfigError` for parse/IO. File I/O wasm-gated.
+- **Example `data_particles`** (+ a `particles.ron`) — emitters defined entirely in RON; switch
+  emitters by name and edit the RON to hot-reload the effect live.
+
 ## 8.8.0
 
 Data-driven animation clips. Additive.

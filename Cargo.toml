@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name        = "skeleton-engine"
-version     = "8.8.0"
+version     = "8.9.0"
 edition     = "2021"
 description = "Lightweight 2D game engine — wgpu rendering, custom ECS, rapier2d physics"
 repository  = "https://github.com/ChunSam/skeleton-engine"
@@ -123,6 +123,10 @@ path = "examples/games/multi_terrain/multi_terrain.rs"
 [[example]]
 name = "data_anim_game"
 path = "examples/games/data_anim/data_anim.rs"
+
+[[example]]
+name = "data_particles_game"
+path = "examples/games/data_particles/data_particles.rs"
 
 [dependencies]
 winit    = "0.30.13"
