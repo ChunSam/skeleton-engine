@@ -4,6 +4,18 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.22.0
+
+Editor particle live-tuner. Additive — editor-internal; no public engine API change.
+
+### Added
+
+- **Particle Tuner** inspector section (shown for entities with a `ParticleEmitter`): drag editors
+  for `emit` / `spawn_rate` / `lifetime` / `velocity` / `velocity_spread` / `size` and r/g/b/a drags
+  for `color_start` / `color_end`. Edits mutate the component in place, so they take effect live on
+  the next spawn while the simulation runs. A **Reset to Default** button restores the default config
+  while preserving the assigned texture (`App::reset_particle_emitter`).
+
 ## 8.21.0
 
 Editor audio bus mixer panel + `AudioManager::bus_names()`. Additive.

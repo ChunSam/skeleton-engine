@@ -553,6 +553,33 @@ pub(in crate::app) fn inspector_tab_body(
                     app.editor.paint_mode = false;
                 }
 
+                // ── Particle Tuner (shown only for ParticleEmitter entities) ──
+                if app
+                    .world
+                    .get::<crate::particle::ParticleEmitter>(sel)
+                    .is_some()
+                {
+                    ui.separator();
+                    egui::CollapsingHeader::new("Particle Tuner")
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            particle_tuner_grid(ui, app, sel);
+                            if ui
+                                .button("↺ Reset to Default")
+                                .on_hover_text("reset all fields (keeps the texture)")
+                                .clicked()
+                            {
+                                app.reset_particle_emitter(sel);
+                            }
+                            ui.label(
+                                egui::RichText::new(
+                                    "edits apply live while the sim runs (unpause)",
+                                )
+                                .weak(),
+                            );
+                        });
+                }
+
                 ui.separator();
                 ui.strong("Component List");
 
@@ -855,6 +882,106 @@ pub(in crate::app) fn do_load_scene(app: &mut App) {
 // reflect_value_editor is defined in super (ui/mod.rs) without a cfg gate,
 // so both native and wasm can call it.  docked.rs calls it via `super::reflect_value_editor`
 // through `use super::*` at the top of this file.
+
+/// Render the live-tunable fields of the selected entity's `ParticleEmitter` as a column of
+/// drag editors. Edits mutate the component in place, so they take effect on the next spawn while
+/// the simulation runs. No-op (renders nothing) if the entity has no `ParticleEmitter`.
+#[cfg(not(target_arch = "wasm32"))]
+fn particle_tuner_grid(ui: &mut egui::Ui, app: &mut App, sel: crate::ecs::Entity) {
+    let Some(em) = app.world.get_mut::<crate::particle::ParticleEmitter>(sel) else {
+        return;
+    };
+    ui.horizontal(|ui| {
+        ui.checkbox(&mut em.emit, "emit");
+    });
+    ui.horizontal(|ui| {
+        ui.label("spawn_rate");
+        ui.add(
+            egui::DragValue::new(&mut em.spawn_rate)
+                .range(0.0..=2000.0)
+                .speed(1.0),
+        );
+    });
+    ui.horizontal(|ui| {
+        ui.label("lifetime");
+        ui.add(
+            egui::DragValue::new(&mut em.lifetime)
+                .range(0.0..=60.0)
+                .speed(0.05)
+                .suffix(" s"),
+        );
+    });
+    ui.horizontal(|ui| {
+        ui.label("velocity");
+        ui.add(
+            egui::DragValue::new(&mut em.velocity.x)
+                .speed(1.0)
+                .prefix("x "),
+        );
+        ui.add(
+            egui::DragValue::new(&mut em.velocity.y)
+                .speed(1.0)
+                .prefix("y "),
+        );
+    });
+    ui.horizontal(|ui| {
+        ui.label("vel spread");
+        ui.add(
+            egui::DragValue::new(&mut em.velocity_spread.x)
+                .range(0.0..=10000.0)
+                .speed(1.0)
+                .prefix("x "),
+        );
+        ui.add(
+            egui::DragValue::new(&mut em.velocity_spread.y)
+                .range(0.0..=10000.0)
+                .speed(1.0)
+                .prefix("y "),
+        );
+    });
+    ui.horizontal(|ui| {
+        ui.label("size");
+        ui.add(
+            egui::DragValue::new(&mut em.size.x)
+                .range(0.0..=512.0)
+                .speed(0.5)
+                .prefix("w "),
+        );
+        ui.add(
+            egui::DragValue::new(&mut em.size.y)
+                .range(0.0..=512.0)
+                .speed(0.5)
+                .prefix("h "),
+        );
+    });
+    ui.horizontal(|ui| {
+        ui.label("color start");
+        color_rgba_drags(ui, &mut em.color_start);
+    });
+    ui.horizontal(|ui| {
+        ui.label("color end");
+        color_rgba_drags(ui, &mut em.color_end);
+    });
+}
+
+/// Four compact 0..=1 drag editors (r/g/b/a) for an engine [`Color`](crate::color::Color).
+/// Exact (no sRGB round-trip), so it is safe for the linear-space particle colors.
+#[cfg(not(target_arch = "wasm32"))]
+fn color_rgba_drags(ui: &mut egui::Ui, c: &mut crate::color::Color) {
+    for (label, ch) in [
+        ("r", &mut c.r),
+        ("g", &mut c.g),
+        ("b", &mut c.b),
+        ("a", &mut c.a),
+    ] {
+        ui.add(
+            egui::DragValue::new(ch)
+                .range(0.0..=1.0)
+                .speed(0.01)
+                .prefix(label),
+        );
+    }
+}
 
 /// Convert an engine [`UvRect`](crate::renderer::uv::UvRect) (offset + size) into the
 /// `min..max` [`egui::Rect`] that `egui::Image::uv` expects, so a Tile Paint swatch
