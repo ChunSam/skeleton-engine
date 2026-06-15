@@ -264,6 +264,14 @@ pub(in crate::app) struct EditorState {
     /// Whether the in-progress stroke erases (right button) rather than paints.
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) paint_erase: bool,
+
+    // ── Inspector QoL (native only) ───────────────────────────────────────────
+    /// Single-component clipboard: `(type name, serialized value)` from a "copy component".
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) component_clipboard: Option<(String, ron::Value)>,
+    /// Entity-list search query (case-insensitive substring of the entity label).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) entity_filter: String,
 }
 
 impl EditorState {
@@ -313,6 +321,8 @@ impl EditorState {
             paint_brush: 1,
             paint_anchor: None,
             paint_erase: false,
+            component_clipboard: None,
+            entity_filter: String::new(),
         }
     }
 }

@@ -252,6 +252,48 @@ pub(super) fn entity_to_def(world: &World, entity: Entity) -> Option<crate::pref
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+impl App {
+    /// Copy the named serde-registered component off `sel` into the component clipboard.
+    /// No-op if the component isn't present or isn't serde-registered.
+    pub(in crate::app) fn copy_component(&mut self, sel: Entity, type_name: &str) {
+        let value = self
+            .world
+            .resource::<crate::prefab::SerdeComponentRegistry>()
+            .and_then(|r| r.serialize_entity(&self.world, sel).remove(type_name));
+        if let Some(value) = value {
+            self.editor.component_clipboard = Some((type_name.to_string(), value));
+        }
+    }
+
+    /// Paste the clipboard component onto `sel`, inserting or overwriting that one component.
+    /// Uses the `remove_resource → deserialize_into → insert_resource` dance (the registry
+    /// cannot be borrowed while `&mut World` is needed). Not pushed to undo history — matching
+    /// the editor's existing Add/Remove-component actions.
+    pub(in crate::app) fn paste_component(&mut self, sel: Entity) {
+        let Some((name, value)) = self.editor.component_clipboard.clone() else {
+            return;
+        };
+        if let Some(registry) = self
+            .world
+            .remove_resource::<crate::prefab::SerdeComponentRegistry>()
+        {
+            let mut one = std::collections::HashMap::new();
+            one.insert(name, value);
+            registry.deserialize_into(&mut self.world, sel, &one);
+            self.world.insert_resource(registry);
+        }
+    }
+}
+
+/// Case-insensitive substring match for the entity-list search box. An empty (or
+/// whitespace-only) filter matches every entity.
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) fn entity_matches_filter(label: &str, filter: &str) -> bool {
+    let filter = filter.trim();
+    filter.is_empty() || label.to_lowercase().contains(&filter.to_lowercase())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub(super) fn snap_to_grid(pos: glam::Vec2, snap_size: f32) -> glam::Vec2 {
     glam::Vec2::new(
         (pos.x / snap_size).round() * snap_size,
@@ -695,5 +737,55 @@ mod editor_cmd_tests {
             Some("Parent"),
             "entity_to_def must capture the parent's Tag so Undo-of-Delete restores hierarchy"
         );
+    }
+
+    #[test]
+    fn entity_filter_matches_case_insensitive_substring() {
+        assert!(entity_matches_filter("Player", "")); // empty matches all
+        assert!(entity_matches_filter("Player", "  ")); // whitespace-only matches all
+        assert!(entity_matches_filter("Player", "lay")); // substring
+        assert!(entity_matches_filter("Player", "PLAYER")); // case-insensitive
+        assert!(entity_matches_filter("EnemyGoblin", "goblin"));
+        assert!(!entity_matches_filter("Player", "enemy")); // no match
+    }
+
+    #[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq, Debug)]
+    struct CopyTest {
+        v: i32,
+    }
+
+    #[test]
+    fn component_copy_paste_round_trips() {
+        let mut app = crate::app::App::new();
+        app.register_serde_component::<CopyTest>("CopyTest", None);
+
+        let a = app.world.spawn();
+        app.world.add_component(a, CopyTest { v: 7 });
+
+        // Copy from A.
+        app.copy_component(a, "CopyTest");
+        assert!(
+            app.editor.component_clipboard.is_some(),
+            "clipboard populated by copy"
+        );
+
+        // Paste onto a fresh entity B.
+        let b = app.world.spawn();
+        app.paste_component(b);
+        assert_eq!(
+            app.world.get::<CopyTest>(b),
+            Some(&CopyTest { v: 7 }),
+            "pasted component matches the copied value"
+        );
+    }
+
+    #[test]
+    fn component_copy_unregistered_is_noop() {
+        let mut app = crate::app::App::new();
+        // No serde registration for CopyTest → copy finds nothing.
+        let a = app.world.spawn();
+        app.world.add_component(a, CopyTest { v: 1 });
+        app.copy_component(a, "CopyTest");
+        assert!(app.editor.component_clipboard.is_none());
     }
 }

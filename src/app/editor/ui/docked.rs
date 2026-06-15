@@ -297,12 +297,25 @@ pub(in crate::app) fn entities_tab_body(
     });
     ui.separator();
 
+    // Search box: filters the list by entity label (case-insensitive substring).
+    ui.horizontal(|ui| {
+        ui.label("🔍");
+        ui.text_edit_singleline(&mut app.editor.entity_filter);
+        if !app.editor.entity_filter.is_empty() && ui.small_button("✕").clicked() {
+            app.editor.entity_filter.clear();
+        }
+    });
+
     // Flat entity list with multi-select
+    let filter = app.editor.entity_filter.clone();
     egui::ScrollArea::vertical()
         .id_salt("docked_ent_list")
         .show(ui, |ui| {
             for &e in entity_list {
                 let label = entity_label(e, tag_map);
+                if !super::super::entity_matches_filter(&label, &filter) {
+                    continue;
+                }
                 let is_sel = app.editor.selected_entities.contains(&e);
                 let resp = ui.selectable_label(is_sel, &label);
                 if resp.clicked() {
@@ -519,20 +532,50 @@ pub(in crate::app) fn inspector_tab_body(
                 ui.separator();
                 ui.strong("Component List");
 
+                // Serde-registered components on this entity can be copied to the clipboard.
+                let copyable: std::collections::HashSet<String> = app
+                    .world
+                    .resource::<crate::prefab::SerdeComponentRegistry>()
+                    .map(|r| r.serialize_entity(&app.world, sel).into_keys().collect())
+                    .unwrap_or_default();
+
                 let mut to_remove: Option<&'static str> = None;
+                let mut to_copy: Option<&'static str> = None;
                 for &comp_name in selected_comp_names {
                     let removable = comp_name != "Transform"
                         && app.editor.component_removers.contains_key(comp_name);
+                    let copyable_now = copyable.contains(comp_name);
                     ui.horizontal(|ui| {
                         ui.label(comp_name);
-                        if removable && ui.small_button("✕").clicked() {
+                        if removable && ui.small_button("✕").on_hover_text("remove").clicked() {
                             to_remove = Some(comp_name);
                         }
+                        if copyable_now
+                            && ui
+                                .small_button("⧉")
+                                .on_hover_text("copy component")
+                                .clicked()
+                        {
+                            to_copy = Some(comp_name);
+                        }
                     });
+                }
+                if let Some(name) = to_copy {
+                    app.copy_component(sel, name);
                 }
                 if let Some(name) = to_remove {
                     if let Some(remover) = app.editor.component_removers.get(name) {
                         remover(&mut app.world, sel);
+                    }
+                }
+                // Paste the clipboard component onto this entity.
+                if let Some((clip_name, _)) = app.editor.component_clipboard.clone() {
+                    if ui
+                        .button(format!("⧉ Paste {clip_name}"))
+                        .on_hover_text("apply the copied component to this entity")
+                        .clicked()
+                    {
+                        app.paste_component(sel);
                     }
                 }
 
