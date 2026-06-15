@@ -581,6 +581,9 @@ impl App {
             if self.editor.show_bounds {
                 self.draw_debug_bounds();
             }
+            if self.editor.show_pathgrid {
+                self.draw_pathfinding_overlay();
+            }
         }
         #[cfg(target_arch = "wasm32")]
         self.update_editor_gizmo(egui_ctx);

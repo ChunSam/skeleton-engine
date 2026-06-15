@@ -4,6 +4,18 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.20.0
+
+Editor pathfinding-grid overlay. Additive — editor-internal; no public engine API change.
+
+### Added
+
+- **Path** debug overlay (toolbar toggle) in the editor: for each `Tilemap` entity it builds a
+  `PathGrid` (the standard "non-zero tile = blocked" convention via `PathGrid::from_tilemap`) and
+  shades every cell — blocked cells filled red, walkable cells outlined green — via `DebugDraw`.
+  A quick "what would pathfinding navigate here" view. The toggle persists with the other editor
+  settings (`#[serde(default)]`, so existing config files still load).
+
 ## 8.19.0
 
 Editor debug bounds/colliders overlay. Additive — editor-internal; no public engine API change.

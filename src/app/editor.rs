@@ -267,6 +267,8 @@ pub(super) struct EditorSettings {
     pub show_grid: bool,
     #[serde(default)]
     pub show_bounds: bool,
+    #[serde(default)]
+    pub show_pathgrid: bool,
     pub paint_brush: u32,
     pub paint_tool: PaintTool,
 }
@@ -279,6 +281,7 @@ impl EditorSettings {
             snap_size: s.snap_size,
             show_grid: s.show_grid,
             show_bounds: s.show_bounds,
+            show_pathgrid: s.show_pathgrid,
             paint_brush: s.paint_brush,
             paint_tool: s.paint_tool,
         }
@@ -289,6 +292,7 @@ impl EditorSettings {
         s.snap_size = self.snap_size;
         s.show_grid = self.show_grid;
         s.show_bounds = self.show_bounds;
+        s.show_pathgrid = self.show_pathgrid;
         s.paint_brush = self.paint_brush;
         s.paint_tool = self.paint_tool;
     }
@@ -431,6 +435,41 @@ impl App {
                 }
                 Collider::Circle { radius } => {
                     dbg.circle(pos, radius, col_color);
+                }
+            }
+        }
+    }
+
+    /// Draw the pathfinding-grid overlay via `DebugDraw`: for every `Tilemap` entity, build a
+    /// [`crate::pathfinding::PathGrid`] (the standard "non-zero tile = blocked" convention) and
+    /// shade each cell — blocked cells filled red, walkable cells outlined green. Called each
+    /// frame from the editor UI while `show_pathgrid` is on. Visualizes exactly the grid a game
+    /// following that convention would navigate, with no changes required to the game.
+    pub(in crate::app) fn draw_pathfinding_overlay(&mut self) {
+        use crate::pathfinding::PathGrid;
+        use crate::tilemap::Tilemap;
+        // Snapshot the tilemaps first so the immutable world borrow is released before DebugDraw.
+        let maps: Vec<Tilemap> = self
+            .world
+            .query::<Tilemap>()
+            .map(|(_, tm)| tm.clone())
+            .collect();
+        let Some(dbg) = self.world.resource_mut::<crate::resources::DebugDraw>() else {
+            return;
+        };
+        let blocked_color = crate::color::Color::rgba(1.0, 0.3, 0.3, 0.35);
+        let walkable_color = crate::color::Color::rgba(0.3, 1.0, 0.5, 0.25);
+        for tm in &maps {
+            let grid = PathGrid::from_tilemap(tm, |id| id != 0);
+            let half = glam::Vec2::splat(tm.tile_size * 0.5);
+            for y in 0..grid.height {
+                for x in 0..grid.width {
+                    let center = tm.cell_center_world(y as usize, x as usize);
+                    if grid.is_walkable(x, y) {
+                        dbg.rect(center - half, center + half, walkable_color);
+                    } else {
+                        dbg.rect_filled_z(center - half, center + half, blocked_color, 0.0);
+                    }
                 }
             }
         }
@@ -1001,6 +1040,7 @@ mod editor_cmd_tests {
         s.snap_enabled = true;
         s.snap_size = 24.0;
         s.show_grid = true;
+        s.show_pathgrid = true;
         s.paint_brush = 5;
         s.paint_tool = PaintTool::Bucket;
 
@@ -1017,6 +1057,7 @@ mod editor_cmd_tests {
         assert!(fresh.snap_enabled);
         assert_eq!(fresh.snap_size, 24.0);
         assert!(fresh.show_grid);
+        assert!(fresh.show_pathgrid);
         assert_eq!(fresh.paint_brush, 5);
         assert_eq!(fresh.paint_tool, PaintTool::Bucket);
 
@@ -1048,5 +1089,34 @@ mod editor_cmd_tests {
             .expect("DebugDraw resource");
         // 3 entity-bounds rects + 1 collider rect = 4 shapes.
         assert_eq!(dbg.shapes.len(), 4);
+    }
+
+    #[test]
+    fn pathfinding_overlay_shades_blocked_and_walkable_cells() {
+        use crate::tilemap::{Tilemap, TilemapAtlas};
+        let mut app = crate::app::App::new();
+        // 3×3 map, one blocked (non-zero) cell in the center.
+        let tiles = vec![vec![0, 0, 0], vec![0, 1, 0], vec![0, 0, 0]];
+        let tm = Tilemap::new(
+            TilemapAtlas::new("t.png", 1, 1),
+            tiles,
+            16.0,
+            glam::Vec2::ZERO,
+        );
+        let e = app.world.spawn();
+        app.world.add_component(e, tm);
+
+        app.draw_pathfinding_overlay();
+        let dbg = app
+            .world
+            .resource::<crate::resources::DebugDraw>()
+            .expect("DebugDraw resource");
+        // 8 walkable cells → outline shapes; 1 blocked cell → filled rect.
+        assert_eq!(dbg.shapes.len(), 8, "walkable cells drawn as outlines");
+        assert_eq!(
+            dbg.filled_rects.len(),
+            1,
+            "blocked cell drawn as a filled rect"
+        );
     }
 }
