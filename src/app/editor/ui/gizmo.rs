@@ -232,6 +232,21 @@ impl App {
             return;
         };
 
+        // ── Tile paint: when paint mode is on for a Tilemap entity, viewport
+        //    clicks paint tiles and the move/resize gizmo is suppressed. ──────
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.editor.paint_mode {
+            if self.world.get::<crate::tilemap::Tilemap>(sel).is_some() {
+                self.update_tile_paint(sel, egui_wants_mouse);
+                self.editor.gizmo_dragging = false;
+                return;
+            }
+            // Selection is no longer a Tilemap — leave paint mode cleanly.
+            self.editor.paint_mode = false;
+            self.editor.paint_active = false;
+            self.editor.paint_stroke.clear();
+        }
+
         // ── Branch: UiNode (screen-space) vs Transform (world-space) ─────────
         // Check for UiNode first; a UiNode entity may also carry a Transform but
         // we always treat it in screen-space.
@@ -242,6 +257,137 @@ impl App {
         } else {
             // Existing world-space path, now extended with resize handles.
             self.update_transform_gizmo(sel, egui_wants_mouse);
+        }
+    }
+
+    // ── Tile painting (native only) ───────────────────────────────────────────
+
+    /// Paint tiles on the selected `Tilemap` while paint mode is active.
+    ///
+    /// Left-click/drag paints [`EditorState::paint_value`]; right-click/drag erases
+    /// (value `0`). Number keys `1..=9` set the paint value (`0` = erase), clamped to
+    /// the atlas tile count. Each press→release stroke records every cell it actually
+    /// changed and is committed to the editor history as a single
+    /// [`EditorCmd::PaintTiles`](crate::app::editor::EditorCmd) so one Ctrl+Z reverts
+    /// the whole stroke. Painting is **visual-only**: tile colliders are not synced
+    /// (that is the app's responsibility via `sync_static_from_tilemap`).
+    #[cfg(not(target_arch = "wasm32"))]
+    fn update_tile_paint(&mut self, sel: crate::ecs::Entity, egui_wants_mouse: bool) {
+        use winit::event::MouseButton;
+        use winit::keyboard::KeyCode;
+
+        // ── Read input into owned locals (release the InputState borrow) ──────
+        let Some((cursor, left_pressed, right_pressed, left_held, right_held, digit)) = ({
+            self.world
+                .resource::<crate::input::InputState>()
+                .map(|input| {
+                    const DIGITS: [(KeyCode, u32); 10] = [
+                        (KeyCode::Digit0, 0),
+                        (KeyCode::Digit1, 1),
+                        (KeyCode::Digit2, 2),
+                        (KeyCode::Digit3, 3),
+                        (KeyCode::Digit4, 4),
+                        (KeyCode::Digit5, 5),
+                        (KeyCode::Digit6, 6),
+                        (KeyCode::Digit7, 7),
+                        (KeyCode::Digit8, 8),
+                        (KeyCode::Digit9, 9),
+                    ];
+                    let digit = DIGITS
+                        .iter()
+                        .find(|(k, _)| input.just_pressed(*k))
+                        .map(|(_, v)| *v);
+                    (
+                        input.cursor(),
+                        input.mouse_just_pressed(MouseButton::Left),
+                        input.mouse_just_pressed(MouseButton::Right),
+                        input.is_mouse_pressed(MouseButton::Left),
+                        input.is_mouse_pressed(MouseButton::Right),
+                        digit,
+                    )
+                })
+        }) else {
+            return;
+        };
+
+        // Atlas tile count bounds the selectable paint value.
+        let max_value = {
+            let Some(tm) = self.world.get::<crate::tilemap::Tilemap>(sel) else {
+                return;
+            };
+            tm.atlas.columns.saturating_mul(tm.atlas.rows)
+        };
+        if let Some(v) = digit {
+            self.editor.paint_value = v.min(max_value);
+        }
+
+        // World position under the cursor (cursor is already viewport-local).
+        let world_pos = {
+            let cam_default = crate::camera::Camera::default();
+            let cam = self
+                .world
+                .resource::<crate::camera::Camera>()
+                .unwrap_or(&cam_default);
+            cam.screen_to_world(cursor)
+        };
+
+        // A button counts as "active" this frame if it is held OR was just pressed.
+        // The just-pressed case matters because a fast click (or a click processed
+        // while the editor is paused) can deliver press *and* release within a single
+        // update — `is_mouse_pressed` is already false, but `mouse_just_pressed` is
+        // true — and the cell under the press must still paint.
+        let left_active = left_held || left_pressed;
+        let right_active = right_held || right_pressed;
+
+        // ── Stroke start ─────────────────────────────────────────────────────
+        if (left_pressed || right_pressed) && !egui_wants_mouse && !self.editor.paint_active {
+            self.editor.paint_active = true;
+            self.editor.paint_stroke.clear();
+        }
+
+        // ── Stroke continue: paint the hovered cell ──────────────────────────
+        if self.editor.paint_active && (left_active || right_active) && !egui_wants_mouse {
+            // Right button erases; otherwise apply the chosen paint value.
+            let value = if right_active {
+                0
+            } else {
+                self.editor.paint_value
+            };
+            let recorded = {
+                let Some(tm) = self.world.get_mut::<crate::tilemap::Tilemap>(sel) else {
+                    return;
+                };
+                match tm.cell_at_world(world_pos) {
+                    Some((row, col)) => {
+                        let old = tm.get_tile(row, col).unwrap_or(0);
+                        if tm.set_tile(row, col, value) {
+                            Some((row, col, old, value))
+                        } else {
+                            None
+                        }
+                    }
+                    None => None,
+                }
+            };
+            if let Some(change) = recorded {
+                self.editor.paint_stroke.push(change);
+            }
+        }
+
+        // ── Stroke end: commit the whole stroke as one undo step ─────────────
+        // Commit only once no button is engaged (held or just-pressed) — a same-frame
+        // press/release defers its commit to the next update, after the cell is painted.
+        if self.editor.paint_active && !left_active && !right_active {
+            let changes = std::mem::take(&mut self.editor.paint_stroke);
+            if !changes.is_empty() {
+                self.editor
+                    .cmd_history
+                    .push(crate::app::editor::EditorCmd::PaintTiles {
+                        entity: sel,
+                        changes,
+                    });
+            }
+            self.editor.paint_active = false;
         }
     }
 
@@ -979,5 +1125,222 @@ mod tests {
         // Size did grow as expected.
         assert!((new_size.x - 130.0).abs() < 0.001, "size.x");
         assert!((new_size.y - 70.0).abs() < 0.001, "size.y");
+    }
+
+    // ─── tile painting ───────────────────────────────────────────────────────
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn setup_paint_app() -> (crate::app::App, crate::ecs::Entity) {
+        use crate::tilemap::{Tilemap, TilemapAtlas};
+        let mut app = crate::app::App::new();
+        // Identity screen→world: position (0,0), zoom 1.
+        app.world
+            .insert_resource(crate::camera::Camera::new(glam::Vec2::ZERO, 1.0));
+        // 4×4 grid, tile_size 10, origin (0,0); atlas 2×2 ⇒ max paint value 4.
+        let tiles = vec![vec![0u32; 4]; 4];
+        let tm = Tilemap::new(
+            TilemapAtlas::new("test_atlas", 2, 2),
+            tiles,
+            10.0,
+            glam::Vec2::ZERO,
+        );
+        let e = app.world.spawn();
+        app.world.add_component(e, tm);
+        app.editor.inspector_selected = Some(e);
+        app.editor.paint_mode = true;
+        (app, e)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn tile(app: &crate::app::App, e: crate::ecs::Entity, row: usize, col: usize) -> u32 {
+        app.world
+            .get::<crate::tilemap::Tilemap>(e)
+            .unwrap()
+            .get_tile(row, col)
+            .unwrap()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn cursor(app: &mut crate::app::App, x: f32, y: f32) {
+        app.world
+            .resource_mut::<crate::input::InputState>()
+            .unwrap()
+            .set_cursor(glam::Vec2::new(x, y));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn press(app: &mut crate::app::App, btn: winit::event::MouseButton) {
+        app.world
+            .resource_mut::<crate::input::InputState>()
+            .unwrap()
+            .press_mouse(btn);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn release(app: &mut crate::app::App, btn: winit::event::MouseButton) {
+        app.world
+            .resource_mut::<crate::input::InputState>()
+            .unwrap()
+            .release_mouse(btn);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn flush(app: &mut crate::app::App) {
+        app.world
+            .resource_mut::<crate::input::InputState>()
+            .unwrap()
+            .flush();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn tile_paint_left_click_paints_then_undo_redo() {
+        use winit::event::MouseButton;
+        let (mut app, e) = setup_paint_app();
+        app.editor.paint_value = 2;
+
+        // Cell (row 1, col 2) center = (2*10+5, 1*10+5) = (25, 15).
+        cursor(&mut app, 25.0, 15.0);
+        press(&mut app, MouseButton::Left);
+        app.update_tile_paint(e, false); // press frame → paints
+        flush(&mut app);
+        release(&mut app, MouseButton::Left);
+        app.update_tile_paint(e, false); // release frame → commits stroke
+
+        assert_eq!(tile(&app, e, 1, 2), 2, "cell painted");
+
+        // One undo reverts the whole stroke.
+        let mut sel = app.editor.inspector_selected;
+        app.editor.cmd_history.undo(&mut app.world, &mut sel);
+        assert_eq!(tile(&app, e, 1, 2), 0, "undo cleared cell");
+        // Redo re-applies it.
+        app.editor.cmd_history.redo(&mut app.world, &mut sel);
+        assert_eq!(tile(&app, e, 1, 2), 2, "redo restored cell");
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn tile_paint_drag_is_one_undo_step() {
+        use winit::event::MouseButton;
+        let (mut app, e) = setup_paint_app();
+        app.editor.paint_value = 1;
+
+        // Press over cell (0,0) center (5,5), drag to cell (0,1) center (15,5), release.
+        cursor(&mut app, 5.0, 5.0);
+        press(&mut app, MouseButton::Left);
+        app.update_tile_paint(e, false);
+        flush(&mut app);
+        cursor(&mut app, 15.0, 5.0);
+        app.update_tile_paint(e, false); // still held → paints second cell
+        flush(&mut app);
+        release(&mut app, MouseButton::Left);
+        app.update_tile_paint(e, false); // commit
+
+        assert_eq!(tile(&app, e, 0, 0), 1, "first cell painted");
+        assert_eq!(tile(&app, e, 0, 1), 1, "second cell painted");
+
+        // A single undo reverts BOTH cells (one stroke = one command).
+        let mut sel = app.editor.inspector_selected;
+        app.editor.cmd_history.undo(&mut app.world, &mut sel);
+        assert_eq!(tile(&app, e, 0, 0), 0, "undo cleared first cell");
+        assert_eq!(tile(&app, e, 0, 1), 0, "undo cleared second cell");
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn tile_paint_right_click_erases() {
+        use winit::event::MouseButton;
+        let (mut app, e) = setup_paint_app();
+        // Pre-fill cell (0,0) with tile value 3.
+        app.world
+            .get_mut::<crate::tilemap::Tilemap>(e)
+            .unwrap()
+            .set_tile(0, 0, 3);
+        app.editor.paint_value = 2; // ignored by right-click (erase = 0)
+
+        cursor(&mut app, 5.0, 5.0);
+        press(&mut app, MouseButton::Right);
+        app.update_tile_paint(e, false);
+        flush(&mut app);
+        release(&mut app, MouseButton::Right);
+        app.update_tile_paint(e, false);
+
+        assert_eq!(tile(&app, e, 0, 0), 0, "right-click erased the cell");
+
+        // Undo restores the erased value.
+        let mut sel = app.editor.inspector_selected;
+        app.editor.cmd_history.undo(&mut app.world, &mut sel);
+        assert_eq!(tile(&app, e, 0, 0), 3, "undo restored erased value");
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn tile_paint_digit_keys_select_value_clamped() {
+        use winit::keyboard::KeyCode;
+        let (mut app, e) = setup_paint_app();
+
+        // Atlas has 4 tiles → Digit5 clamps to 4.
+        app.world
+            .resource_mut::<crate::input::InputState>()
+            .unwrap()
+            .press(KeyCode::Digit5);
+        app.update_tile_paint(e, false);
+        assert_eq!(
+            app.editor.paint_value, 4,
+            "value clamped to atlas tile count"
+        );
+
+        flush(&mut app);
+        // Digit0 selects erase.
+        app.world
+            .resource_mut::<crate::input::InputState>()
+            .unwrap()
+            .press(KeyCode::Digit0);
+        app.update_tile_paint(e, false);
+        assert_eq!(app.editor.paint_value, 0, "Digit0 selects erase");
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn tile_paint_blocked_when_egui_wants_mouse() {
+        use winit::event::MouseButton;
+        let (mut app, e) = setup_paint_app();
+        app.editor.paint_value = 2;
+
+        cursor(&mut app, 25.0, 15.0);
+        press(&mut app, MouseButton::Left);
+        // egui_wants_mouse = true → click is over a panel, must NOT paint.
+        app.update_tile_paint(e, true);
+        assert_eq!(
+            tile(&app, e, 1, 2),
+            0,
+            "no paint while pointer is over egui"
+        );
+        assert!(!app.editor.paint_active, "stroke not started over egui");
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn tile_paint_same_frame_press_release_still_paints() {
+        // A fast click can deliver press AND release before a single update runs
+        // (common while the docked editor is paused): `is_mouse_pressed` is already
+        // false but `mouse_just_pressed` is true. The cell must still paint.
+        use winit::event::MouseButton;
+        let (mut app, e) = setup_paint_app();
+        app.editor.paint_value = 3;
+
+        cursor(&mut app, 25.0, 15.0); // cell (1, 2)
+        press(&mut app, MouseButton::Left);
+        release(&mut app, MouseButton::Left); // same frame, before any update/flush
+        app.update_tile_paint(e, false);
+        assert_eq!(tile(&app, e, 1, 2), 3, "same-frame click painted the cell");
+
+        // Next frame (buttons clear) commits the stroke so it is undoable.
+        flush(&mut app);
+        app.update_tile_paint(e, false);
+        assert!(!app.editor.paint_active, "stroke committed next frame");
+        let mut sel = app.editor.inspector_selected;
+        app.editor.cmd_history.undo(&mut app.world, &mut sel);
+        assert_eq!(tile(&app, e, 1, 2), 0, "committed stroke is undoable");
     }
 }

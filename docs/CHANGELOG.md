@@ -4,6 +4,28 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.11.0
+
+Editor tile-painting. Additive — a new in-editor authoring tool; no public engine API change.
+
+### Added
+
+- **In-editor tile painting.** In the F2 docked editor, selecting an entity that carries a
+  `Tilemap` component now shows a **Tile Paint** section in the inspector. Toggle **Paint mode**
+  and paint directly in the viewport: **left-click/drag** paints the selected tile value,
+  **right-click/drag** erases (value `0`), number keys **1–9** pick the paint value (**0** = erase,
+  clamped to the atlas tile count). Painting reuses `Tilemap::cell_at_world` + `set_tile`, so the
+  reactive `TilemapSystem` reflects each change the next frame. While paint mode is on, the
+  move/resize gizmo is suppressed so clicks never drag the tilemap.
+- **Stroke-level undo.** Each press→release stroke is recorded as a single `PaintTiles` editor
+  command; one **Ctrl+Z** reverts the entire stroke (redo re-applies it).
+- **Example `tile_paint`** — a blank 20×15 tilemap with a runtime-generated 4-colour atlas; the
+  acceptance test for painting in the docked editor.
+
+> **Note:** editor painting is **visual-only** — it does not sync tile colliders. Keep physics in
+> step yourself with `PhysicsWorld::sync_static_from_tilemap` if the painted map is collidable.
+> The feature is native-only (the docked-editor gizmo path is native).
+
 ## 8.10.0
 
 ### Fixed
