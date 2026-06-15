@@ -4,6 +4,16 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.10.0
+
+### Fixed
+
+- **`DataTable` file hot-reload now works for relatively-loaded tables.** `DataTableRegistry::reload_path`
+  compared the raw stored path against the **canonical** path `AssetServer::poll_reloads` reports
+  (`asset_key` canonicalizes), so a table loaded via a relative path silently never hot-reloaded from
+  disk. It now matches by canonicalized path (the same approach the data-driven animation registry
+  uses). Surfaced while fixing the equivalent bug in the new particle-config registry (8.9.0).
+
 ## 8.9.0
 
 Data-driven particle emitter configs. Additive.
