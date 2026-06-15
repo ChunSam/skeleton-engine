@@ -286,6 +286,14 @@ pub(in crate::app) struct EditorState {
     /// Cursor angle around the entity centre captured at the start of a rotation drag.
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) rotate_start_angle: f32,
+
+    // ── Prefab create/instancing (native only) ────────────────────────────────
+    /// File path used by the Save-as-Prefab / Spawn-Prefab controls.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) prefab_path: String,
+    /// Status message from the last prefab save/spawn.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) prefab_status: Option<String>,
 }
 
 impl EditorState {
@@ -341,6 +349,8 @@ impl EditorState {
             rotate_active: false,
             rotate_start_rotation: 0.0,
             rotate_start_angle: 0.0,
+            prefab_path: "prefab.ron".into(),
+            prefab_status: None,
         }
     }
 }

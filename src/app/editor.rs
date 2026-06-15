@@ -309,6 +309,37 @@ impl App {
             self.world.insert_resource(registry);
         }
     }
+
+    /// Save the selected entity as a prefab RON file at `path` (captures tag/transform/sprite/
+    /// parent + serde-registered components via `entity_to_def`). Sets `prefab_status`.
+    pub(in crate::app) fn save_selected_as_prefab(&mut self, sel: Entity, path: &str) {
+        let status = match entity_to_def(&self.world, sel) {
+            Some(def) => {
+                let prefab = crate::prefab::Prefab { def };
+                match prefab.save(std::path::Path::new(path)) {
+                    Ok(()) => format!("Saved prefab → {path}"),
+                    Err(e) => format!("Save failed: {e}"),
+                }
+            }
+            None => "No entity to save".to_string(),
+        };
+        self.editor.prefab_status = Some(status);
+    }
+
+    /// Load a prefab from `path` and spawn it (with a `PrefabInstance` marker so Break Prefab
+    /// works), then select the new entity. Sets `prefab_status`.
+    pub(in crate::app) fn spawn_prefab(&mut self, path: &str) {
+        let status = match crate::prefab::Prefab::load(std::path::Path::new(path)) {
+            Ok(prefab) => {
+                let e = prefab.spawn_with_tracking(&mut self.world, path.to_string());
+                self.editor.inspector_selected = Some(e);
+                self.editor.selected_entities = vec![e];
+                format!("Spawned prefab from {path}")
+            }
+            Err(e) => format!("Load failed: {e}"),
+        };
+        self.editor.prefab_status = Some(status);
+    }
 }
 
 /// Case-insensitive substring match for the entity-list search box. An empty (or
@@ -813,5 +844,59 @@ mod editor_cmd_tests {
         app.world.add_component(a, CopyTest { v: 1 });
         app.copy_component(a, "CopyTest");
         assert!(app.editor.component_clipboard.is_none());
+    }
+
+    #[test]
+    fn prefab_save_spawn_round_trips() {
+        let mut app = crate::app::App::new();
+        app.register_serde_component::<CopyTest>("CopyTest", None);
+
+        let a = app.world.spawn();
+        app.world
+            .add_component(a, crate::prefab::Tag("Hero".into()));
+        app.world.add_component(
+            a,
+            crate::components::Transform::new(
+                glam::Vec2::new(7.0, 9.0),
+                glam::Vec2::splat(32.0),
+                0.0,
+            ),
+        );
+        app.world.add_component(a, CopyTest { v: 42 });
+
+        let path = std::env::temp_dir().join(format!("test_prefab_{}.ron", std::process::id()));
+        let path_str = path.to_string_lossy().to_string();
+
+        app.save_selected_as_prefab(a, &path_str);
+        assert!(path.exists(), "prefab file written");
+
+        // Spawn it back into a fresh entity.
+        app.spawn_prefab(&path_str);
+        let b = app
+            .editor
+            .inspector_selected
+            .expect("spawned prefab selected");
+        assert_ne!(a, b);
+        assert_eq!(
+            app.world.get::<crate::prefab::Tag>(b).map(|t| t.0.as_str()),
+            Some("Hero")
+        );
+        assert_eq!(
+            app.world
+                .get::<crate::components::Transform>(b)
+                .map(|t| t.position),
+            Some(glam::Vec2::new(7.0, 9.0))
+        );
+        assert_eq!(
+            app.world.get::<CopyTest>(b),
+            Some(&CopyTest { v: 42 }),
+            "serde component round-trips through the prefab"
+        );
+        assert!(
+            app.world.get::<crate::prefab::PrefabInstance>(b).is_some(),
+            "spawned prefab carries a PrefabInstance marker"
+        );
+
+        let _ = std::fs::remove_file(&path);
     }
 }

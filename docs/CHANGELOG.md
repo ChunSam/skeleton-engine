@@ -4,6 +4,17 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.17.0
+
+Prefab create/instancing in the editor. Additive — editor-internal; no public engine API change.
+
+### Added
+
+- **Prefab** section in the docked editor inspector: **Save Selected** writes the selected entity
+  (tag/transform/sprite/parent + serde-registered components, via `entity_to_def`) to a prefab RON
+  file; **Spawn** loads a prefab from the path and instances it (with a `PrefabInstance` marker, so the
+  existing **Break Prefab** works), selecting the new entity. A path field + status line drive it.
+
 ## 8.16.0
 
 Rotation gizmo. Additive — editor-internal; no public engine API change.
