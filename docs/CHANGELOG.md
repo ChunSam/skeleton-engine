@@ -4,6 +4,27 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.25.0
+
+RTL text support: multi-font loading + reading-direction alignment. Additive.
+
+### Added
+
+- `ExtraFonts(Vec<Vec<u8>>)` resource — additional font blobs loaded alongside `FontData` for
+  multi-script coverage (e.g. a Latin UI font + an RTL-script font). cosmic-text falls back across all
+  loaded fonts by script, so a single `DrawText` mixing Latin + Hebrew/Arabic shapes correctly.
+- `TextAlign::Auto` (no explicit alignment — cosmic-text aligns each line by its resolved direction,
+  so RTL text right-aligns automatically) and `TextAlign::End` (reading-direction end: right for LTR,
+  left for RTL). Existing `Left`/`Center`/`Right` unchanged.
+- Example `rtl_text`: renders mixed Latin + Hebrew (RTL) text using a bundled OFL Noto Sans Hebrew
+  font as `ExtraFonts`, demonstrating multi-font fallback + RTL-aware alignment.
+
+### Notes
+
+- Bidirectional/RTL **shaping was already supported** (the text renderer uses `Shaping::Advanced`);
+  this release adds the font-coverage + alignment pieces needed to actually use it.
+- Bundled `assets/fonts/NotoSansHebrew-Regular.ttf` (+ `NotoSansHebrew-OFL.txt`, SIL Open Font License).
+
 ## 8.24.0
 
 Tile collider sync (editor Tile Paint + runtime). Additive.

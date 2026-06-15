@@ -630,11 +630,18 @@ impl App {
         } else {
             font_bytes
         };
+        // Additional fonts (multi-script coverage, e.g. an RTL-script font) loaded alongside FontData.
+        let extra_fonts = self
+            .world
+            .resource::<crate::resources::ExtraFonts>()
+            .map(|f| f.0.clone())
+            .unwrap_or_default();
         let text_renderer = Some(TextRenderer::new(
             &gpu.device,
             &gpu.queue,
             gpu.config.format,
             &font_bytes,
+            &extra_fonts,
         ));
         let egui_ctx = egui::Context::default();
         let egui_state = egui_winit::State::new(

@@ -118,9 +118,10 @@ pub use renderer::{
     TextQueue, TextRenderer, UiImageQueue, UiQueue, UvRect,
 };
 pub use resources::{
-    AmbientLight, CullConfig, DebugDraw, DebugShape, DisplayScaleFactor, FadeTransition, FontData,
-    GameState, ImeConfig, LoadProgress, PanickedSystems, PendingResize, ProfilerData, RenderStats,
-    SelectedEntity, ShouldQuit, SystemProfile, ViewportSize, WindowConfig,
+    AmbientLight, CullConfig, DebugDraw, DebugShape, DisplayScaleFactor, ExtraFonts,
+    FadeTransition, FontData, GameState, ImeConfig, LoadProgress, PanickedSystems, PendingResize,
+    ProfilerData, RenderStats, SelectedEntity, ShouldQuit, SystemProfile, ViewportSize,
+    WindowConfig,
 };
 pub use scene::{Scene, SceneChange, SceneCmd, SystemRegistrar};
 pub use scripting::{ScriptRunner, ScriptingSystem};
