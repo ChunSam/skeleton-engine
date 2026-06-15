@@ -4,6 +4,20 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.13.0
+
+Tile Paint tools. Additive — editor-internal; no public engine API change.
+
+### Added
+
+- **Paint tools for the docked editor's Tile Paint:**
+  - **Brush** (freehand) with a selectable **N×N size** (1 / 3 / 5) — paints a block per hovered cell.
+  - **Rectangle** — press-drag-release fills the rectangle spanned by the two cells.
+  - **Bucket** — a click flood-fills the 4-connected region of same-valued cells.
+  - **Eyedropper** — Alt+click picks the hovered cell's value into the paint value (works with any tool).
+  Right-click still erases (value 0); every gesture commits as one `PaintTiles` command, so a single
+  Ctrl+Z reverts the whole area. Tool + brush size are chosen in the Tile Paint inspector section.
+
 ## 8.12.0
 
 Tile Paint swatch palette. Additive — an editor UX upgrade; no public engine API change.

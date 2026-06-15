@@ -10,7 +10,7 @@ pub(super) use state::EditorState;
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) use state::ResizeHandle;
 #[cfg(not(target_arch = "wasm32"))]
-pub(super) use state::{apply_f1, apply_f2, EditorMode};
+pub(super) use state::{apply_f1, apply_f2, EditorMode, PaintTool};
 
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(clippy::enum_variant_names)]

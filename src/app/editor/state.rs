@@ -46,6 +46,19 @@ pub(in crate::app) enum EditorMode {
     Docked,
 }
 
+/// Active Tile Paint tool (which set of cells a viewport gesture affects).
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(in crate::app) enum PaintTool {
+    /// Paint each hovered cell (an N×N brush block) while dragging.
+    #[default]
+    Freehand,
+    /// Press-drag-release fills the rectangle spanned by the two cells.
+    Rectangle,
+    /// A click flood-fills the 4-connected region of same-valued cells.
+    Bucket,
+}
+
 /// Apply the F1 press transition to `mode`.
 ///
 /// Extracted as a pure function so the logic is unit-testable without spinning up App.
@@ -239,6 +252,18 @@ pub(in crate::app) struct EditorState {
     /// see `App::register_paint_atlas_texture`. `None` until the atlas texture is cached.
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) paint_atlas_tex: Option<(String, egui::TextureId)>,
+    /// Active Tile Paint tool (freehand / rectangle / bucket).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) paint_tool: PaintTool,
+    /// Freehand brush side length in cells — 1, 3, or 5 (an N×N block).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) paint_brush: u32,
+    /// Rectangle-tool drag anchor cell (set on press, cleared on release).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) paint_anchor: Option<(usize, usize)>,
+    /// Whether the in-progress stroke erases (right button) rather than paints.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) paint_erase: bool,
 }
 
 impl EditorState {
@@ -284,6 +309,10 @@ impl EditorState {
             paint_stroke: Vec::new(),
             paint_active: false,
             paint_atlas_tex: None,
+            paint_tool: PaintTool::Freehand,
+            paint_brush: 1,
+            paint_anchor: None,
+            paint_erase: false,
         }
     }
 }

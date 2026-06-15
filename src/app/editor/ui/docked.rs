@@ -426,13 +426,52 @@ pub(in crate::app) fn inspector_tab_body(
                                 &mut app.editor.paint_mode,
                                 "Paint mode (suppresses gizmo)",
                             );
+                            // Tool selector (freehand brush / rectangle / bucket fill).
+                            ui.horizontal(|ui| {
+                                use crate::app::editor::PaintTool;
+                                let tool = app.editor.paint_tool;
+                                if ui
+                                    .selectable_label(tool == PaintTool::Freehand, "Brush")
+                                    .clicked()
+                                {
+                                    app.editor.paint_tool = PaintTool::Freehand;
+                                }
+                                if ui
+                                    .selectable_label(tool == PaintTool::Rectangle, "Rect")
+                                    .clicked()
+                                {
+                                    app.editor.paint_tool = PaintTool::Rectangle;
+                                }
+                                if ui
+                                    .selectable_label(tool == PaintTool::Bucket, "Bucket")
+                                    .clicked()
+                                {
+                                    app.editor.paint_tool = PaintTool::Bucket;
+                                }
+                            });
+                            // Brush size (freehand only).
+                            if app.editor.paint_tool == crate::app::editor::PaintTool::Freehand {
+                                ui.horizontal(|ui| {
+                                    ui.label("Brush:");
+                                    for size in [1u32, 3, 5] {
+                                        if ui
+                                            .selectable_label(
+                                                app.editor.paint_brush == size,
+                                                format!("{size}×{size}"),
+                                            )
+                                            .clicked()
+                                        {
+                                            app.editor.paint_brush = size;
+                                        }
+                                    }
+                                });
+                            }
                             if app.editor.paint_value > tile_count {
                                 app.editor.paint_value = tile_count;
                             }
                             // The atlas texture (if registered with egui) lets us draw
                             // each tile as a real thumbnail; else fall back to numbers.
-                            let swatch_tex =
-                                app.editor.paint_atlas_tex.as_ref().map(|(_, id)| *id);
+                            let swatch_tex = app.editor.paint_atlas_tex.as_ref().map(|(_, id)| *id);
                             const SWATCH: f32 = 26.0;
                             ui.horizontal_wrapped(|ui| {
                                 let cur = app.editor.paint_value;
@@ -453,11 +492,9 @@ pub(in crate::app) fn inspector_tab_body(
                                             egui::vec2(SWATCH, SWATCH),
                                         ))
                                         .uv(uv_rect_to_egui(uv));
-                                        ui.add(
-                                            egui::Button::image(img).selected(cur == value),
-                                        )
-                                        .on_hover_text(format!("tile {value}"))
-                                        .clicked()
+                                        ui.add(egui::Button::image(img).selected(cur == value))
+                                            .on_hover_text(format!("tile {value}"))
+                                            .clicked()
                                     } else {
                                         ui.selectable_label(cur == value, format!("{value}"))
                                             .clicked()
@@ -469,7 +506,7 @@ pub(in crate::app) fn inspector_tab_body(
                             });
                             ui.label(
                                 egui::RichText::new(
-                                    "L-click paint · R-click erase · 1–9 pick · 0 erase · Ctrl+Z undo",
+                                    "L paint · R erase · Alt+click pick · 1–9 value · Ctrl+Z undo",
                                 )
                                 .weak(),
                             );
