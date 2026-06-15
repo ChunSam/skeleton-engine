@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.6.6 | package `skeleton-engine` v8.1.10, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.92, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
+> Version v1.6.7 | package `skeleton-engine` v8.2.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.92, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example game ships to
 > the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`
@@ -80,7 +80,7 @@ Where to read to find a given thing:
 | GamepadState, GamepadButton, GamepadAxis | `src/input/gamepad.rs` |
 | PhysicsWorld, PhysicsBody, PhysicsSystem (syncs body position **and rotation** → Transform), CollisionEvent, BodyHandle/ColliderHandle (opaque newtypes; `.raw()` = rapier escape hatch) | `src/physics/` |
 | CharacterController (+ `request_drop`/`is_dropping` for one-way), RaycastHit, cast_ray, cast_ray_with_normal, move_character | `src/physics/character.rs`, `src/physics/world.rs` |
-| add_kinematic_box, add_kinematic_circle, add_static_from_tilemap, TileCollider, set_one_way/is_one_way | `src/physics/world.rs` |
+| add_kinematic_box, add_kinematic_circle, add_static_from_tilemap (one-shot), sync_static_from_tilemap + TileColliderIndex (incremental — diff add/remove for runtime-mutated tilemaps), TileCollider, set_one_way/is_one_way | `src/physics/world.rs` |
 | add_revolute_joint, add_distance_joint, add_prismatic_joint, remove_joint (return/take engine `JointHandle` newtype wrapping rapier; example: `crane_wrecking_ball`) | `src/physics/world/joints.rs` |
 | SpatialGrid, Collider, CollisionLayer (SpatialGrid is mirrored to a World resource by CollisionGridSystem) | `src/collision/` |
 | BehaviorTree, BehaviorNode, Sequence, Selector, Inverter, AlwaysSucceed, BehaviorSystem, Blackboard, BlackboardValue (`Path` variant + `set_path`/`get_path`) | `src/behavior.rs` |
@@ -99,7 +99,7 @@ Where to read to find a given thing:
 | Timeline, Track, Keyframe, TimelineSystem (keyframe cutscenes → entity Transform/Sprite; **CameraTarget** marker + `zoom` track route a timeline into the **Camera** resource as a virtual rig; example: `timeline_cutscene`) | `src/timeline.rs` |
 | History (generic snapshot undo/redo for grid puzzles, turn-based, editors) | `src/history.rs` |
 | ParticleEmitter, ParticleSystem, ParticleBurst (one-shot burst + `ParticleEmitter::burst()`) | `src/particle.rs` |
-| Tilemap, TilemapAtlas, TilemapSystem | `src/tilemap.rs` |
+| Tilemap (+ runtime `set_tile`/`get_tile`/`cell_at_world`/`dims`), TilemapAtlas, TilemapSystem (reactive — diffs cached grid, updates only changed cells), TilemapAutotile (neighbor-bitmask autotiling: `Neighborhood::Edge4`/`Blob8`, `edge_16`/`blob_47`, `with_oob_filled`, `compute_tile_mask`) | `src/tilemap.rs` |
 | AudioManager (playback, positional audio, bus mixer, fades), AudioSystem (built-in system that ticks `update(dt)` so fades progress; SFX file-bytes cache) | `src/audio.rs`, `src/audio/` |
 | save / load (AEAD, player saves) / write_ron / read_ron (plaintext, design-time assets) / load_or_default / exists / delete / save_path / SaveError | `src/save.rs` |
 | NetworkClient (native=tungstenite thread, wasm=web-sys), NetworkSystem (polls → `Events<NetworkEvent>`), NetworkEvent, NetworkConfig (queue/size caps), RemoteEntities (`id→Entity` lifecycle), SnapshotBuffer<T: Lerp> (generic per-entity interpolation buffer); relay demo `mp_server`/`mp_client`, authoritative game `examples/games/coin_race`, client-prediction `examples/games/predict_shooter`, interpolation-only `examples/games/orbital_dodger`, AOI-streaming/interest-managed `examples/games/salvage_run` | `src/network.rs` |

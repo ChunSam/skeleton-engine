@@ -4,6 +4,32 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.2.0
+
+Runtime tilemap mutation + neighbor-bitmask autotiling, validated by the new `dig_quest`
+example (a destructible-terrain top-down miner). All additive — no breaking changes.
+
+### Added
+
+- **`Tilemap` runtime mutation** — `set_tile` / `get_tile` / `dims` / `cell_center_world`
+  / `cell_at_world`. `TilemapSystem` is now **reactive**: it diffs a per-entity cached grid
+  and spawns / despawns / updates only the changed cells' tile sprites (a tilemap that never
+  mutates renders exactly as before).
+- **Autotiling** — the `TilemapAutotile` component (attach to the tilemap entity) selects
+  each tile's display UV from its filled neighbors. `Neighborhood::Edge4` (16-tile) and
+  `Blob8` (canonical 47-blob); `TilemapAutotile::edge_16` / `blob_47` rulesets, the
+  `with_oob_filled(bool)` builder, and the pure `compute_tile_mask`. A changed cell also
+  refreshes its 8 neighbors' UVs, so dug holes keep continuous outlines.
+- **Incremental tile colliders** — `TileColliderIndex` +
+  `PhysicsWorld::sync_static_from_tilemap` diff against the index and add / remove only the
+  changed cells (reusing `remove_body`). Use it for the **initial** build too (empty index =
+  full build); do not mix with `add_static_from_tilemap` on the same tiles (that would
+  double-add colliders so a dug cell never frees). `add_static_from_tilemap` is unchanged for
+  static maps.
+- **Example `dig_quest_game`** (`examples/games/dig_quest/`) + the `gen_autotile_sheet`
+  deterministic asset generator. Native playtest confirmed: digging updates the autotile
+  outline + frees collision (the player enters), reset restores, post-reset re-dig works.
+
 ## 8.1.10
 
 Deferred-item cleanup from the engine-wide review (asset hot-reload + scripting scope).
