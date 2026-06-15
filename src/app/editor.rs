@@ -474,6 +474,17 @@ impl App {
             }
         }
     }
+
+    /// Reset the selected entity's `ParticleEmitter` to its default configuration, preserving the
+    /// currently-assigned texture. Backs the Particle Tuner "Reset to Default" button. No-op if the
+    /// entity has no `ParticleEmitter`.
+    pub(in crate::app) fn reset_particle_emitter(&mut self, sel: Entity) {
+        if let Some(em) = self.world.get_mut::<crate::particle::ParticleEmitter>(sel) {
+            let texture = em.texture.clone();
+            *em = crate::particle::ParticleEmitter::default();
+            em.texture = texture;
+        }
+    }
 }
 
 /// Case-insensitive substring match for the entity-list search box. An empty (or
@@ -1118,5 +1129,47 @@ mod editor_cmd_tests {
             1,
             "blocked cell drawn as a filled rect"
         );
+    }
+
+    #[test]
+    fn reset_particle_emitter_restores_defaults_keeping_texture() {
+        use crate::particle::ParticleEmitter;
+        let mut app = crate::app::App::new();
+        let e = app.world.spawn();
+        let mut em = ParticleEmitter {
+            spawn_rate: 999.0,
+            lifetime: 42.0,
+            emit: false,
+            texture: Some(std::sync::Arc::from("spark.png")),
+            ..Default::default()
+        };
+        em.velocity = glam::Vec2::new(123.0, 456.0);
+        app.world.add_component(e, em);
+
+        app.reset_particle_emitter(e);
+
+        let got = app.world.get::<ParticleEmitter>(e).expect("emitter");
+        let def = ParticleEmitter::default();
+        assert_eq!(got.spawn_rate, def.spawn_rate, "spawn_rate reset");
+        assert_eq!(got.lifetime, def.lifetime, "lifetime reset");
+        assert_eq!(got.velocity, def.velocity, "velocity reset");
+        assert!(got.emit, "emit reset to default (true)");
+        assert_eq!(
+            got.texture.as_deref(),
+            Some("spark.png"),
+            "texture is preserved across reset"
+        );
+    }
+
+    #[test]
+    fn reset_particle_emitter_no_emitter_is_noop() {
+        let mut app = crate::app::App::new();
+        let e = app.world.spawn();
+        // No panic / no insertion when the entity lacks a ParticleEmitter.
+        app.reset_particle_emitter(e);
+        assert!(app
+            .world
+            .get::<crate::particle::ParticleEmitter>(e)
+            .is_none());
     }
 }
