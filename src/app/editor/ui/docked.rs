@@ -411,6 +411,46 @@ pub(in crate::app) fn inspector_tab_body(
 
             // Add / remove components
             if let Some(sel) = app.editor.inspector_selected {
+                // ── Tile Paint (shown only for Tilemap entities) ─────────────
+                let tile_count = app
+                    .world
+                    .get::<crate::tilemap::Tilemap>(sel)
+                    .map(|tm| tm.atlas.columns.saturating_mul(tm.atlas.rows));
+                if let Some(tile_count) = tile_count {
+                    ui.separator();
+                    egui::CollapsingHeader::new("Tile Paint")
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            ui.checkbox(
+                                &mut app.editor.paint_mode,
+                                "Paint mode (suppresses gizmo)",
+                            );
+                            if app.editor.paint_value > tile_count {
+                                app.editor.paint_value = tile_count;
+                            }
+                            ui.horizontal_wrapped(|ui| {
+                                let cur = app.editor.paint_value;
+                                if ui.selectable_label(cur == 0, "Erase (0)").clicked() {
+                                    app.editor.paint_value = 0;
+                                }
+                                for v in 1..=tile_count {
+                                    if ui.selectable_label(cur == v, format!("{v}")).clicked() {
+                                        app.editor.paint_value = v;
+                                    }
+                                }
+                            });
+                            ui.label(
+                                egui::RichText::new(
+                                    "L-click paint · R-click erase · 1–9 pick · 0 erase · Ctrl+Z undo",
+                                )
+                                .weak(),
+                            );
+                        });
+                } else {
+                    // Selection is not a Tilemap — ensure paint mode is off.
+                    app.editor.paint_mode = false;
+                }
+
                 ui.separator();
                 ui.strong("Component List");
 

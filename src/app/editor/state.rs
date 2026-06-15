@@ -216,6 +216,23 @@ pub(in crate::app) struct EditorState {
     /// Name text field for opening a new data table in the panel.
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) data_table_open_name: String,
+
+    // ── Tile-paint fields (native only) ───────────────────────────────────────
+    /// Whether viewport tile-painting is active for the selected `Tilemap` entity.
+    /// While `true`, viewport clicks paint tiles instead of driving the move/resize gizmo.
+    /// Auto-cleared when the selected entity is not a `Tilemap`.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) paint_mode: bool,
+    /// Tile value applied by a left-click paint. `0` = erase, `1..` = atlas index + 1.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) paint_value: u32,
+    /// Changed cells accumulated during the in-progress stroke: `(row, col, old, new)`.
+    /// Committed to history as one `EditorCmd::PaintTiles` on mouse release.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) paint_stroke: Vec<(usize, usize, u32, u32)>,
+    /// Whether a press→release paint stroke is currently in progress.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) paint_active: bool,
 }
 
 impl EditorState {
@@ -256,6 +273,10 @@ impl EditorState {
             data_table_status: None,
             data_table_open_path: String::new(),
             data_table_open_name: String::new(),
+            paint_mode: false,
+            paint_value: 1,
+            paint_stroke: Vec::new(),
+            paint_active: false,
         }
     }
 }

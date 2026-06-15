@@ -54,6 +54,13 @@ pub(super) enum EditorCmd {
         old_scale: glam::Vec2,
         new_scale: glam::Vec2,
     },
+    /// One tile-paint stroke on a `Tilemap` entity. `changes` lists every cell the stroke
+    /// actually modified as `(row, col, old, new)`; undo restores `old` (reverse order),
+    /// redo re-applies `new`. A whole drag is a single undo step.
+    PaintTiles {
+        entity: Entity,
+        changes: Vec<(usize, usize, u32, u32)>,
+    },
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -129,6 +136,14 @@ impl EditorHistory {
                 }
                 *selected = Some(*entity);
             }
+            EditorCmd::PaintTiles { entity, changes } => {
+                if let Some(tm) = world.get_mut::<crate::tilemap::Tilemap>(*entity) {
+                    for (row, col, old, _new) in changes.iter().rev() {
+                        tm.set_tile(*row, *col, *old);
+                    }
+                }
+                *selected = Some(*entity);
+            }
         }
         // record the id so redo despawns the exact recreated entity, not the current selection
         if let (Some(e), EditorCmd::DeleteEntity { entity, .. }) = (respawned, &mut cmd) {
@@ -200,6 +215,14 @@ impl EditorHistory {
             } => {
                 if let Some(t) = world.get_mut::<crate::components::Transform>(*entity) {
                     t.scale = *new_scale;
+                }
+                *selected = Some(*entity);
+            }
+            EditorCmd::PaintTiles { entity, changes } => {
+                if let Some(tm) = world.get_mut::<crate::tilemap::Tilemap>(*entity) {
+                    for (row, col, _old, new) in changes.iter() {
+                        tm.set_tile(*row, *col, *new);
+                    }
                 }
                 *selected = Some(*entity);
             }
