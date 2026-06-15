@@ -292,6 +292,15 @@ impl SpriteRenderer {
         }
     }
 
+    /// Borrow the GPU texture view for a cached image/atlas by its asset path.
+    ///
+    /// Returns `None` if the path has not been uploaded yet. Used by the editor to
+    /// hand an atlas texture to egui (`register_native_texture`) for the tile-paint
+    /// swatch palette.
+    pub fn texture_view(&self, path: &str) -> Option<&wgpu::TextureView> {
+        self.texture_cache.get(path).map(|t| &t.view)
+    }
+
     pub fn render(
         &mut self,
         ctx: &mut FrameContext,

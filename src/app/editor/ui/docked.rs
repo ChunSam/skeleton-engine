@@ -412,11 +412,12 @@ pub(in crate::app) fn inspector_tab_body(
             // Add / remove components
             if let Some(sel) = app.editor.inspector_selected {
                 // ── Tile Paint (shown only for Tilemap entities) ─────────────
-                let tile_count = app
+                let atlas_dims = app
                     .world
                     .get::<crate::tilemap::Tilemap>(sel)
-                    .map(|tm| tm.atlas.columns.saturating_mul(tm.atlas.rows));
-                if let Some(tile_count) = tile_count {
+                    .map(|tm| (tm.atlas.columns, tm.atlas.rows));
+                if let Some((cols, rows)) = atlas_dims {
+                    let tile_count = cols.saturating_mul(rows);
                     ui.separator();
                     egui::CollapsingHeader::new("Tile Paint")
                         .default_open(true)
@@ -428,14 +429,41 @@ pub(in crate::app) fn inspector_tab_body(
                             if app.editor.paint_value > tile_count {
                                 app.editor.paint_value = tile_count;
                             }
+                            // The atlas texture (if registered with egui) lets us draw
+                            // each tile as a real thumbnail; else fall back to numbers.
+                            let swatch_tex =
+                                app.editor.paint_atlas_tex.as_ref().map(|(_, id)| *id);
+                            const SWATCH: f32 = 26.0;
                             ui.horizontal_wrapped(|ui| {
                                 let cur = app.editor.paint_value;
-                                if ui.selectable_label(cur == 0, "Erase (0)").clicked() {
+                                if ui.selectable_label(cur == 0, "Erase").clicked() {
                                     app.editor.paint_value = 0;
                                 }
-                                for v in 1..=tile_count {
-                                    if ui.selectable_label(cur == v, format!("{v}")).clicked() {
-                                        app.editor.paint_value = v;
+                                for tile_id in 0..tile_count {
+                                    let value = tile_id + 1;
+                                    let clicked = if let Some(tex) = swatch_tex {
+                                        let uv = crate::renderer::uv::UvRect::from_grid(
+                                            tile_id % cols,
+                                            tile_id / cols,
+                                            cols,
+                                            rows,
+                                        );
+                                        let img = egui::Image::new(egui::load::SizedTexture::new(
+                                            tex,
+                                            egui::vec2(SWATCH, SWATCH),
+                                        ))
+                                        .uv(uv_rect_to_egui(uv));
+                                        ui.add(
+                                            egui::Button::image(img).selected(cur == value),
+                                        )
+                                        .on_hover_text(format!("tile {value}"))
+                                        .clicked()
+                                    } else {
+                                        ui.selectable_label(cur == value, format!("{value}"))
+                                            .clicked()
+                                    };
+                                    if clicked {
+                                        app.editor.paint_value = value;
                                     }
                                 }
                             });
@@ -698,3 +726,38 @@ pub(in crate::app) fn do_load_scene(app: &mut App) {
 // reflect_value_editor is defined in super (ui/mod.rs) without a cfg gate,
 // so both native and wasm can call it.  docked.rs calls it via `super::reflect_value_editor`
 // through `use super::*` at the top of this file.
+
+/// Convert an engine [`UvRect`](crate::renderer::uv::UvRect) (offset + size) into the
+/// `min..max` [`egui::Rect`] that `egui::Image::uv` expects, so a Tile Paint swatch
+/// samples exactly its atlas tile.
+#[cfg(not(target_arch = "wasm32"))]
+fn uv_rect_to_egui(uv: crate::renderer::uv::UvRect) -> egui::Rect {
+    egui::Rect::from_min_max(
+        egui::pos2(uv.u_offset, uv.v_offset),
+        egui::pos2(uv.u_offset + uv.u_size, uv.v_offset + uv.v_size),
+    )
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod swatch_tests {
+    use super::uv_rect_to_egui;
+    use crate::renderer::uv::UvRect;
+
+    #[test]
+    fn uv_rect_maps_offset_size_to_min_max() {
+        // Tile (col 1, row 0) of a 2×2 atlas → offset (0.5, 0.0), size (0.5, 0.5).
+        let uv = UvRect::from_grid(1, 0, 2, 2);
+        let r = uv_rect_to_egui(uv);
+        assert!((r.min.x - 0.5).abs() < 1e-6, "min.x");
+        assert!((r.min.y - 0.0).abs() < 1e-6, "min.y");
+        assert!((r.max.x - 1.0).abs() < 1e-6, "max.x");
+        assert!((r.max.y - 0.5).abs() < 1e-6, "max.y");
+    }
+
+    #[test]
+    fn uv_rect_full_covers_whole_texture() {
+        let r = uv_rect_to_egui(UvRect::FULL);
+        assert_eq!(r.min, egui::pos2(0.0, 0.0));
+        assert_eq!(r.max, egui::pos2(1.0, 1.0));
+    }
+}

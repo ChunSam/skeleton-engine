@@ -389,6 +389,10 @@ impl App {
             }
         }
 
+        // Keep the Tile Paint swatch atlas registered with egui before building the UI.
+        #[cfg(not(target_arch = "wasm32"))]
+        self.register_paint_atlas_texture();
+
         self.update_editor_ui(&egui_ctx, dt);
 
         // End egui frame + tessellate → hand off to render()

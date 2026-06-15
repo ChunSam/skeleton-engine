@@ -4,6 +4,22 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.12.0
+
+Tile Paint swatch palette. Additive — an editor UX upgrade; no public engine API change.
+
+### Added
+
+- **Image-swatch palette for Tile Paint.** The F2 docked editor's **Tile Paint** section now
+  renders each paintable tile as a real thumbnail of the selected tilemap's atlas (clickable
+  `egui::Button::image` swatches with per-tile UVs from `TilemapAtlas::uv_for`) instead of numbered
+  buttons. Clicking a swatch sets the paint value; the current value is highlighted; the "Erase"
+  button is kept. Falls back to numbered buttons on the first frame before the atlas texture is
+  registered. The atlas texture is registered with egui (`register_native_texture`) before the UI
+  pass and freed when paint mode exits or the selection changes, so there is no texture leak.
+- **`SpriteRenderer::texture_view(path) -> Option<&wgpu::TextureView>`** — borrow a cached
+  image/atlas texture view by asset path (used by the editor to hand an atlas to egui).
+
 ## 8.11.0
 
 Editor tile-painting. Additive — a new in-editor authoring tool; no public engine API change.
