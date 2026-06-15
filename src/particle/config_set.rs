@@ -79,6 +79,9 @@ struct EmitterDef {
     /// Texture path. `None` renders a solid-color rectangle.
     #[serde(default)]
     texture: Option<String>,
+    /// Z-depth of spawned particles. Defaults to `0.0`.
+    #[serde(default)]
+    z: f32,
 }
 
 // ── Serde defaults mirroring `ParticleEmitter::default()` ────────────────────
@@ -203,6 +206,7 @@ impl ParticleConfigSet {
             color_end: def.color_end.into(),
             size: def.size.into(),
             texture: def.texture.as_deref().map(std::sync::Arc::from),
+            z: def.z,
             emit: def.emit,
             timer: 0.0,
         })

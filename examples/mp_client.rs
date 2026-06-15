@@ -51,7 +51,7 @@ fn main() {
         fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar) {
             let client = NetworkClient::connect("ws://127.0.0.1:9001");
             world.insert_resource(client);
-            systems.add(NetworkSystem);
+            systems.add(NetworkSystem::new());
             systems.add(MultiplayerSystem::new());
         }
     }

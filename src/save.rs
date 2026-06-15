@@ -398,6 +398,20 @@ impl Default for SaveMigrator {
 ///
 /// Always returns `Err(SaveError::Unsupported)` on wasm (no filesystem).
 pub fn save_versioned<T: Serialize>(path: &Path, version: u32, data: &T) -> Result<(), SaveError> {
+    save_versioned_with_key(path, version, data, SaveKey::DEFAULT)
+}
+
+/// Like [`save_versioned`] but encrypts with `key` instead of [`SaveKey::DEFAULT`].
+///
+/// Pair with [`load_migrated_with_key`] using the same key.
+///
+/// Always returns `Err(SaveError::Unsupported)` on wasm (no filesystem).
+pub fn save_versioned_with_key<T: Serialize>(
+    path: &Path,
+    version: u32,
+    data: &T,
+    key: SaveKey,
+) -> Result<(), SaveError> {
     #[cfg(not(target_arch = "wasm32"))]
     {
         // Serialize the user payload to a generic ron::Value first so the envelope
@@ -410,11 +424,11 @@ pub fn save_versioned<T: Serialize>(path: &Path, version: u32, data: &T) -> Resu
             version,
             data: &data_value,
         };
-        save(path, &envelope)
+        save_with_key(path, &envelope, key)
     }
     #[cfg(target_arch = "wasm32")]
     {
-        let _ = (path, version, data);
+        let _ = (path, version, data, key);
         Err(SaveError::Unsupported)
     }
 }
@@ -438,9 +452,22 @@ pub fn load_migrated<T: DeserializeOwned>(
     path: &Path,
     migrator: &SaveMigrator,
 ) -> Result<T, SaveError> {
+    load_migrated_with_key(path, migrator, SaveKey::DEFAULT)
+}
+
+/// Like [`load_migrated`] but decrypts with `key` instead of [`SaveKey::DEFAULT`].
+///
+/// Pair with [`save_versioned_with_key`] using the same key.
+///
+/// Always returns `Err(SaveError::Unsupported)` on wasm.
+pub fn load_migrated_with_key<T: DeserializeOwned>(
+    path: &Path,
+    migrator: &SaveMigrator,
+    key: SaveKey,
+) -> Result<T, SaveError> {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let envelope: VersionedEnvelopeOwned = load(path)?;
+        let envelope: VersionedEnvelopeOwned = load_with_key(path, key)?;
         let stored = envelope.version;
         let current = migrator.current_version();
         if stored > current {
@@ -457,7 +484,7 @@ pub fn load_migrated<T: DeserializeOwned>(
     }
     #[cfg(target_arch = "wasm32")]
     {
-        let _ = (path, migrator);
+        let _ = (path, migrator, key);
         Err(SaveError::Unsupported)
     }
 }
@@ -848,5 +875,49 @@ mod tests {
     #[should_panic(expected = "SaveMigrator::step called out of order")]
     fn migrator_step_out_of_order_panics() {
         SaveMigrator::new().step(1, |v| v); // should panic: expected from=0
+    }
+
+    /// Test 6: save_versioned_with_key / load_migrated_with_key round-trip with a
+    /// custom key; also verifies that DEFAULT key cannot decrypt the result.
+    #[test]
+    fn versioned_with_key_roundtrip_and_wrong_key_fails() {
+        let dir = unique_test_dir();
+        let path = dir.join("keyed-v2.save");
+
+        let custom_key = SaveKey([0xAB; 32]);
+        let wrong_key = SaveKey([0xCD; 32]);
+
+        let migrator = make_v1_to_v2_migrator();
+        let original = PlayerSaveV2 {
+            level: 9,
+            score: 333,
+            coins: 7,
+        };
+
+        save_versioned_with_key(&path, migrator.current_version(), &original, custom_key)
+            .expect("save_versioned_with_key should succeed");
+
+        // Correct key must round-trip without migration.
+        let loaded: PlayerSaveV2 =
+            load_migrated_with_key(&path, &migrator, custom_key).expect("load should succeed");
+        assert_eq!(original, loaded);
+
+        // Wrong key must fail authentication.
+        let bad: Result<PlayerSaveV2, SaveError> =
+            load_migrated_with_key(&path, &migrator, wrong_key);
+        assert!(
+            matches!(bad, Err(SaveError::Corrupted)),
+            "expected SaveError::Corrupted with wrong key, got {bad:?}"
+        );
+
+        // DEFAULT key must also fail (file was not written with it).
+        let default_key_attempt: Result<PlayerSaveV2, SaveError> =
+            load_migrated_with_key(&path, &migrator, SaveKey::DEFAULT);
+        assert!(
+            matches!(default_key_attempt, Err(SaveError::Corrupted)),
+            "expected SaveError::Corrupted with DEFAULT key, got {default_key_attempt:?}"
+        );
+
+        fs::remove_dir_all(&dir).ok();
     }
 }

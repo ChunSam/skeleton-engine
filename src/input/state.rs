@@ -156,6 +156,8 @@ impl InputState {
     /// Called by the window focus-loss handler when the OS no longer delivers
     /// individual key-up / button-up events. Flooding `just_released` for every
     /// held key would trigger unintended one-shot reactions in game systems.
+    // TODO(WU12): remove this allow once window.rs `Focused(false)` calls release_all().
+    #[allow(dead_code)]
     pub(crate) fn release_all(&mut self) {
         self.pressed.clear();
         self.just_pressed.clear();

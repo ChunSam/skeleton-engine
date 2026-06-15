@@ -96,14 +96,37 @@ impl Wander {
             current_dir: Vec2::X,
         }
     }
+
+    /// Like [`Wander::new`] but sets an explicit initial wander direction instead of
+    /// the default `Vec2::X`. `dir` is stored as-is (not normalized); the built-in
+    /// direction picker will overwrite it on the first `change_interval` expiry.
+    ///
+    /// # Note
+    ///
+    /// The built-in direction picker is a **deterministic placeholder** based on
+    /// `entity.index()` and the previous direction. Entities created in the same
+    /// order will always wander the same pattern. Pass a random initial direction
+    /// (or replace the direction-update logic in a subclassed system) for truly
+    /// varied behaviour.
+    pub fn with_initial_dir(max_speed: f32, change_interval: f32, dir: Vec2) -> Self {
+        Self {
+            max_speed,
+            change_interval,
+            timer: 0.0,
+            current_dir: dir,
+        }
+    }
 }
 
 // ─── SteeringSystem ───────────────────────────────────────────────────────────
 
 /// System that evaluates steering behavior components every frame and moves `Transform`.
 ///
-/// When an entity has multiple steering components, the last one evaluated wins.
-/// Evaluation order: Seek → Flee → Arrive → Wander.
+/// Evaluation order is **Seek → Flee → Arrive → Wander**. When an entity has
+/// more than one steering component, each pass overwrites `SteeringVelocity` —
+/// the **last behavior evaluated wins** (silent last-wins). Attach only one
+/// steering component per entity unless the intentional behaviour is to have
+/// Wander always override Seek/Flee/Arrive.
 pub struct SteeringSystem;
 
 impl SteeringSystem {

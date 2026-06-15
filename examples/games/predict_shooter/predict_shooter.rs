@@ -62,7 +62,7 @@ struct ShooterScene;
 impl Scene for ShooterScene {
     fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar) {
         world.insert_resource(NetworkClient::connect(&format!("ws://{SERVER_ADDR}")));
-        systems.add(NetworkSystem);
+        systems.add(NetworkSystem::new());
         systems.add(ShooterClient::new());
     }
 }
