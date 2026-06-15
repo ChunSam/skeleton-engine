@@ -42,7 +42,7 @@ pub(in crate::app) fn update_docked_ui(
             docked_toolbar(ui, app);
         });
 
-    // ── 2. Bottom panel: Assets | Data Tables ───────────────────────────────
+    // ── 2. Bottom panel: Assets | Data Tables | Audio ───────────────────────
     #[allow(deprecated)]
     egui::Panel::bottom("docked_assets")
         .default_size(150.0)
@@ -62,12 +62,18 @@ pub(in crate::app) fn update_docked_ui(
                 {
                     app.editor.bottom_tab = 1;
                 }
+                if ui
+                    .selectable_label(app.editor.bottom_tab == 2, "Audio")
+                    .clicked()
+                {
+                    app.editor.bottom_tab = 2;
+                }
             });
             ui.separator();
-            if app.editor.bottom_tab == 0 {
-                assets_tab_body(ui, app);
-            } else {
-                super::data_table_panel_body(ui, app);
+            match app.editor.bottom_tab {
+                1 => super::data_table_panel_body(ui, app),
+                2 => super::audio_mixer_panel_body(ui, app),
+                _ => assets_tab_body(ui, app),
             }
         });
 

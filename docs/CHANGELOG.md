@@ -4,6 +4,18 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.21.0
+
+Editor audio bus mixer panel + `AudioManager::bus_names()`. Additive.
+
+### Added
+
+- `AudioManager::bus_names()` — returns every known bus name (sorted, deduplicated) from the
+  channel→bus assignments and the explicit bus-volume map. Lets a UI enumerate all buses.
+- **Audio** tab in the editor's bottom panel: one volume slider per audio bus (driven by
+  `bus_names()`); dragging applies the new value live via `set_bus_volume`. Shows a hint when no
+  `AudioManager` resource is present or no buses are assigned. Native-only, editor-internal.
+
 ## 8.20.0
 
 Editor pathfinding-grid overlay. Additive — editor-internal; no public engine API change.
