@@ -71,11 +71,17 @@ impl Default for GpuParticleEmitter {
 
 /// Processes GPU particle emitters and collects new particle data.
 ///
+/// `frame_cursor` is a shared ring-buffer write cursor that advances across **all**
+/// emitters this frame, ensuring each emitter receives a disjoint slot range in the
+/// shared 4096-slot particle buffer.  Without this, emitters that each start at
+/// `next_slot = 0` would overwrite each other's particles.
+///
 /// Used alongside `GpuParticleRenderer::upload_particles` in the `App` render loop.
 pub(crate) fn collect_new_particles(
     world: &mut World,
     capacity: u32,
     dt: f32,
+    frame_cursor: &mut u32,
 ) -> Vec<(u32, GpuParticle)> {
     let mut rng = rand::thread_rng();
     let mut result: Vec<(u32, GpuParticle)> = Vec::new();
@@ -122,11 +128,54 @@ pub(crate) fn collect_new_particles(
                 color_end: emitter.color_end.to_array(),
             };
 
-            let slot = emitter.next_slot % capacity;
+            // Use the shared frame cursor so every emitter gets disjoint slots.
+            let slot = *frame_cursor % capacity;
+            *frame_cursor = frame_cursor.wrapping_add(1);
+            // Keep the per-emitter counter in sync (for display/debug purposes only).
             emitter.next_slot = emitter.next_slot.wrapping_add(1);
             result.push((slot, particle));
         }
     }
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Two emitters must receive disjoint slots when the shared frame cursor is used.
+    #[test]
+    fn disjoint_slots_across_emitters() {
+        let capacity = 16u32;
+        let mut cursor = 0u32;
+
+        // Simulate emitter A emitting 4 particles.
+        let slots_a: Vec<u32> = (0..4).map(|_| {
+            let s = cursor % capacity;
+            cursor = cursor.wrapping_add(1);
+            s
+        }).collect();
+
+        // Simulate emitter B emitting 4 particles.
+        let slots_b: Vec<u32> = (0..4).map(|_| {
+            let s = cursor % capacity;
+            cursor = cursor.wrapping_add(1);
+            s
+        }).collect();
+
+        // No slot in A should appear in B.
+        for s in &slots_a {
+            assert!(
+                !slots_b.contains(s),
+                "slot {s} appears in both emitter A and emitter B (collision!)"
+            );
+        }
+
+        // All 8 slots are unique.
+        let mut all: Vec<u32> = slots_a.iter().chain(slots_b.iter()).copied().collect();
+        all.sort_unstable();
+        all.dedup();
+        assert_eq!(all.len(), 8, "expected 8 distinct slots, got {}", all.len());
+    }
 }

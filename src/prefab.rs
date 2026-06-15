@@ -195,9 +195,19 @@ impl SerdeComponentRegistry {
                     // Serialize `T` to a RON string and store it as ron::Value::String.
                     // We do not parse to ron::Value::Map because that path loses enum
                     // variant names (the Value representation has no enum concept).
-                    world
-                        .get::<T>(entity)
-                        .and_then(|c| ron::to_string(c).ok().map(ron::Value::String))
+                    world.get::<T>(entity).and_then(|c| {
+                        match ron::to_string(c) {
+                            Ok(s) => Some(ron::Value::String(s)),
+                            Err(e) => {
+                                log::warn!(
+                                    "SerdeComponentRegistry: failed to serialize {}: {} — omitted from scene",
+                                    std::any::type_name::<T>(),
+                                    e
+                                );
+                                None
+                            }
+                        }
+                    })
                 }),
                 deserialize: Box::new(|world, entity, val| {
                     // Extract the stored RON string and parse it as T.
@@ -456,6 +466,14 @@ pub fn spawn_entity_def(world: &mut World, def: &EntityDef) -> Entity {
         if let Some(registry) = world.remove_resource::<SerdeComponentRegistry>() {
             registry.deserialize_into(world, entity, &def.components);
             world.insert_resource(registry);
+        } else {
+            log::warn!(
+                "spawn_entity_def: entity has {} serde component(s) {:?} but no \
+                 SerdeComponentRegistry is present — components dropped. \
+                 Call App::register_serde_component to register them.",
+                def.components.len(),
+                def.components.keys().collect::<Vec<_>>(),
+            );
         }
     }
 
@@ -1030,5 +1048,26 @@ SceneDef(
             ti.text, "hi",
             "post_spawn hook must copy initial_text to text"
         );
+    }
+
+    /// When `def.components` is non-empty but no `SerdeComponentRegistry` resource
+    /// is present, `spawn_entity_def` must still return a valid entity (no panic),
+    /// and the components are simply dropped (the warn log is not captured here but
+    /// the absence of a panic confirms the guard path is taken).
+    #[test]
+    fn spawn_entity_def_no_registry_with_components_does_not_panic() {
+        let mut world = World::new(); // no SerdeComponentRegistry inserted
+
+        let mut def = EntityDef::default();
+        def.tag = Some("ghost".into());
+        def.components.insert(
+            "SomeComponent".to_string(),
+            ron::Value::String("value".to_string()),
+        );
+
+        // Must not panic; entity is alive and its Tag is set, serde components dropped.
+        let entity = spawn_entity_def(&mut world, &def);
+        assert!(world.is_alive(entity));
+        assert_eq!(world.get::<Tag>(entity).map(|t| t.0.as_str()), Some("ghost"));
     }
 }

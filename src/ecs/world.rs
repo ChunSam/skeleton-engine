@@ -677,14 +677,21 @@ impl World {
     /// **Note:** allocates a `Vec<Entity>` on every call to collect the matching set before
     /// returning the iterator. Intended for low-frequency use (e.g. one-shot init logic);
     /// avoid calling in hot per-frame loops with many entities.
+    ///
+    /// Returns an empty iterator immediately (no allocation) when no additions have
+    /// been recorded this tick — the common case in most frames.
     pub fn query_added<T: 'static>(&self) -> impl Iterator<Item = (Entity, &T)> {
         let tid = TypeId::of::<T>();
-        let entities: Vec<Entity> = self
-            .added_this_tick
-            .iter()
-            .filter(|(_, tids)| tids.contains(&tid))
-            .map(|(e, _)| *e)
-            .collect();
+        // Fast path: skip allocation entirely when the tracking set is empty.
+        let entities: Vec<Entity> = if self.added_this_tick.is_empty() {
+            Vec::new()
+        } else {
+            self.added_this_tick
+                .iter()
+                .filter(|(_, tids)| tids.contains(&tid))
+                .map(|(e, _)| *e)
+                .collect()
+        };
         entities
             .into_iter()
             .filter_map(move |e| self.get::<T>(e).map(|c| (e, c)))
@@ -695,14 +702,21 @@ impl World {
     /// **Note:** allocates a `Vec<Entity>` on every call to collect the matching set before
     /// returning the iterator. Intended for low-frequency use (e.g. reactive UI updates);
     /// avoid calling in hot per-frame loops with many entities.
+    ///
+    /// Returns an empty iterator immediately (no allocation) when no changes have
+    /// been recorded this tick — the common case in most frames.
     pub fn query_changed<T: 'static>(&self) -> impl Iterator<Item = (Entity, &T)> {
         let tid = TypeId::of::<T>();
-        let entities: Vec<Entity> = self
-            .changed_this_tick
-            .iter()
-            .filter(|(_, tids)| tids.contains(&tid))
-            .map(|(e, _)| *e)
-            .collect();
+        // Fast path: skip allocation entirely when the tracking set is empty.
+        let entities: Vec<Entity> = if self.changed_this_tick.is_empty() {
+            Vec::new()
+        } else {
+            self.changed_this_tick
+                .iter()
+                .filter(|(_, tids)| tids.contains(&tid))
+                .map(|(e, _)| *e)
+                .collect()
+        };
         entities
             .into_iter()
             .filter_map(move |e| self.get::<T>(e).map(|c| (e, c)))
@@ -788,6 +802,20 @@ impl World {
             Some(&(arch_id, _)) => self.archetypes[arch_id].contains(tid),
             None => false,
         }
+    }
+
+    /// Returns `true` if the entity has component `T`.
+    ///
+    /// Zero-cost wrapper around [`has_component_typeid`] — no downcast or allocation.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// if world.has_component::<Health>(player) {
+    ///     // ...
+    /// }
+    /// ```
+    pub fn has_component<T: 'static>(&self, entity: Entity) -> bool {
+        self.has_component_typeid(entity, std::any::TypeId::of::<T>())
     }
 
     /// Clones a single component by TypeId using the remove → call clone_fn → reinsert pattern.

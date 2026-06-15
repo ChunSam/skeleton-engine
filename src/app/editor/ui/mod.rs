@@ -20,6 +20,12 @@ pub(in crate::app) use docked::{
     update_docked_ui,
 };
 
+/// Per-component reflected field data shown in the inspector:
+/// `(component TypeId, display name, [(field name, value)])`. Keyed by `TypeId` so write-back
+/// is robust to a register-name vs `Reflect::type_name()` mismatch.
+pub(crate) type InspectorCompFields =
+    Vec<(std::any::TypeId, &'static str, Vec<(&'static str, ReflectValue)>)>;
+
 // ── Private free helpers ──────────────────────────────────────────────────────
 
 /// Render a single [`ReflectValue`] field editor into the current `ui`.
@@ -148,12 +154,22 @@ impl App {
         //
         // We also record which entity comp_fields was built for so that write-back can
         // guard against stale data if the selection changed mid-frame (Fix 2).
-        let mut comp_fields: Vec<(&'static str, Vec<(&'static str, ReflectValue)>)> = Vec::new();
+        //
+        // Each entry carries its TypeId so write-back can key by TypeId rather than by
+        // name. Previously the write-back looked up by `refl.type_name()` (Rust struct
+        // ident) in a register-name → TypeId map, which silently discards edits when
+        // the two names differ (e.g. a forker registers "My Transform" for `Transform`).
+        let mut comp_fields: InspectorCompFields = Vec::new();
         let comp_fields_entity: Option<Entity> = self.editor.inspector_selected;
         if let Some(sel) = self.editor.inspector_selected {
+            // Build a TypeId → register name lookup once so the inner loop is O(1).
+            let tid_to_reg_name: std::collections::HashMap<std::any::TypeId, &'static str> =
+                self.world.reflect_registered_types().into_iter().collect();
             for tid in self.world.reflected_components(sel) {
                 if let Some(refl) = self.world.get_reflect(sel, tid) {
-                    comp_fields.push((refl.type_name(), refl.fields()));
+                    // Prefer the registered display name; fall back to the Reflect type_name.
+                    let display_name = tid_to_reg_name.get(&tid).copied().unwrap_or_else(|| refl.type_name());
+                    comp_fields.push((tid, display_name, refl.fields()));
                 }
             }
         }
@@ -175,7 +191,7 @@ impl App {
                     .map(|(e, t)| (e, t.0.clone()))
                     .collect();
                 let selected_comp_names: Vec<&'static str> =
-                    comp_fields.iter().map(|(name, _)| *name).collect();
+                    comp_fields.iter().map(|(_, name, _)| *name).collect();
                 let scene_graph_data: Vec<(Entity, Option<Entity>)> = entity_list
                     .iter()
                     .map(|&e| {
@@ -235,7 +251,7 @@ impl App {
                 // Extracting names from comp_fields avoids a borrow conflict.
                 #[cfg(not(target_arch = "wasm32"))]
                 let selected_comp_names: Vec<&'static str> =
-                    comp_fields.iter().map(|(name, _)| *name).collect();
+                    comp_fields.iter().map(|(_, name, _)| *name).collect();
 
                 // ── Pre-collect scene graph data (native only) ─────────────────────
                 // Borrow-checker workaround: copy the entire hierarchy before entering
@@ -504,7 +520,7 @@ impl App {
                                             .id_salt("inspector_comp")
                                             .max_height(250.0)
                                             .show(ui, |ui| {
-                                                for (comp_name, fields) in comp_fields.iter_mut() {
+                                                for (_, comp_name, fields) in comp_fields.iter_mut() {
                                                     ui.collapsing(*comp_name, |ui| {
                                                         egui::Grid::new(*comp_name)
                                                             .num_columns(2)
@@ -543,23 +559,15 @@ impl App {
         if let Some(sel) = self.editor.inspector_selected {
             // Only write back if comp_fields was built for this same entity.
             if comp_fields_entity == Some(sel) {
-                // Build a name → TypeId map for the types currently on this entity.
-                let registered = self.world.reflect_registered_types();
-                let current_tids: Vec<std::any::TypeId> = self.world.reflected_components(sel);
-                // Filter registered types to those present on the current entity.
-                let name_to_tid: std::collections::HashMap<&'static str, std::any::TypeId> =
-                    registered
-                        .into_iter()
-                        .filter(|(tid, _)| current_tids.contains(tid))
-                        .map(|(tid, name)| (name, tid))
-                        .collect();
-
-                for (comp_name, fields) in &comp_fields {
-                    if let Some(&tid) = name_to_tid.get(comp_name) {
-                        if let Some(refl) = self.world.get_reflect_mut(sel, tid) {
-                            for (fname, fval) in fields {
-                                refl.set_field(fname, fval.clone());
-                            }
+                // Key write-back by TypeId (recorded at build time) rather than by name.
+                // This avoids silent edit loss when the register name (used as display
+                // label) differs from Reflect::type_name() (the Rust struct ident), which
+                // happens when a forker passes a human-readable string to
+                // register_editable_component / register_reflect_named.
+                for (tid, _comp_name, fields) in &comp_fields {
+                    if let Some(refl) = self.world.get_reflect_mut(sel, *tid) {
+                        for (fname, fval) in fields {
+                            refl.set_field(fname, fval.clone());
                         }
                     }
                 }

@@ -663,3 +663,40 @@ fn with_resource_mut_absent_returns_false_without_calling_f() {
     assert!(!result, "must return false when R is absent");
     assert!(!called, "closure must not be invoked when R is absent");
 }
+
+#[test]
+fn has_component_returns_true_when_present() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.add_component(e, Health(10));
+    assert!(world.has_component::<Health>(e));
+    assert!(!world.has_component::<Position>(e));
+}
+
+#[test]
+fn has_component_returns_false_for_dead_entity() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.add_component(e, Health(5));
+    world.despawn(e);
+    assert!(!world.has_component::<Health>(e));
+}
+
+/// `query_added` and `query_changed` yield no entities when their tracking sets
+/// are empty (the common inter-frame case). The early-return path must not panic
+/// or allocate.
+#[test]
+fn query_added_empty_tracking_yields_nothing() {
+    let world = World::new(); // fresh world — no adds yet
+    assert_eq!(world.query_added::<u32>().count(), 0);
+}
+
+#[test]
+fn query_changed_empty_tracking_yields_nothing() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.add_component(e, 1u32);
+    // Clear tracking to simulate start of a new frame.
+    world.clear_change_tracking();
+    assert_eq!(world.query_changed::<u32>().count(), 0);
+}

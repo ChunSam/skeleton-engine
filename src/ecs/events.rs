@@ -2,8 +2,9 @@
 ///
 /// Register with `App::register_event::<E>()` to insert it as a World resource.
 /// Systems send events via `world.resource_mut::<Events<E>>().send(e)` and read them
-/// with `world.resource::<Events<E>>().read()` in a later system of the same frame (or the next).
-/// At the end of every frame, `App` automatically calls `flush()` to drain the queue.
+/// with `world.resource::<Events<E>>().read()` in a later system of **the same frame**.
+/// At the end of every frame, `App` automatically calls `flush()` to drain the queue,
+/// so events are **not** available in the following frame.
 pub struct Events<E: 'static> {
     items: Vec<E>,
 }

@@ -1,14 +1,20 @@
 // ─── Post-processing: vignette · chromatic aberration · approximate bloom ────
 
 struct Uniforms {
-    vignette_strength: f32,   // 0=none, 1=heavy darkening
-    vignette_radius:   f32,   // radius at which darkening starts (0~1)
-    chroma_offset:     f32,   // chromatic aberration intensity
-    bloom_threshold:   f32,   // luminance threshold above which bloom fires
-    bloom_intensity:   f32,   // bloom brightness multiplier
-    brightness:        f32,   // brightness offset (-1~1, 0=original)
-    contrast:          f32,   // contrast multiplier (1=original)
-    saturation:        f32,   // saturation multiplier (1=original, 0=grayscale)
+    vignette_strength: f32,      // 0=none, 1=heavy darkening
+    vignette_radius:   f32,      // radius at which darkening starts (0~1)
+    chroma_offset:     f32,      // chromatic aberration intensity
+    bloom_threshold:   f32,      // luminance threshold above which bloom fires
+    bloom_intensity:   f32,      // bloom brightness multiplier
+    brightness:        f32,      // brightness offset (-1~1, 0=original)
+    contrast:          f32,      // contrast multiplier (1=original)
+    saturation:        f32,      // saturation multiplier (1=original, 0=grayscale)
+    // Pre-computed from the render-target size by PostProcessRenderer::update_uniforms.
+    // Avoids per-fragment textureDimensions() calls which emit a driver query on some
+    // backends. Populated as (1/width, 1/height).
+    texel_size:        vec2<f32>,
+    // Explicit padding to match the Rust PostProcessUniforms layout (10 f32s → 48 B).
+    pad0:              vec2<f32>,
 }
 
 @group(0) @binding(0) var scene_tex:     texture_2d<f32>;
@@ -61,9 +67,10 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     var color  = vec4<f32>(r_samp.r, g_samp.g, b_samp.b, g_samp.a);
 
     // ── Approximate bloom (4-tap threshold blur) ───────────────────────────
-    // Sample neighbouring pixels and accumulate only luminance above the threshold
-    let texel = 1.0 / vec2<f32>(f32(textureDimensions(scene_tex).x),
-                                 f32(textureDimensions(scene_tex).y));
+    // Sample neighbouring pixels and accumulate only luminance above the threshold.
+    // texel_size is pre-computed by the CPU (1/width, 1/height) to avoid
+    // per-fragment textureDimensions() queries.
+    let texel = u.texel_size;
     let spread = 4.0;
     var bloom = vec3<f32>(0.0);
     // `var` (not `let`): a dynamically-indexed array needs an address space.

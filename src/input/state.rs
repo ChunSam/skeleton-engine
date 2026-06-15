@@ -114,8 +114,13 @@ impl InputState {
     }
 
     pub(crate) fn release(&mut self, key: KeyCode) {
-        self.pressed.remove(&key);
-        self.just_released.insert(key);
+        // Only record a just_released pulse if the key was actually pressed.
+        // This prevents spurious just_released events when the editor keyboard
+        // gate flips and the OS delivers a synthetic release for a key that was
+        // never seen as pressed by the engine.
+        if self.pressed.remove(&key) {
+            self.just_released.insert(key);
+        }
     }
 
     pub(crate) fn set_cursor(&mut self, pos: Vec2) {
@@ -135,10 +140,28 @@ impl InputState {
 
     pub(crate) fn release_mouse(&mut self, btn: MouseButton) {
         if let Some(i) = mouse_button_index(btn) {
-            self.mouse_release_cursor[i] = self.cursor;
-            self.mouse_pressed[i] = false;
-            self.mouse_just_released[i] = true;
+            // Only fire mouse_just_released when the button was actually pressed.
+            // Matches the keyboard guard in release() — prevents spurious events
+            // from OS release messages delivered after focus is lost.
+            if self.mouse_pressed[i] {
+                self.mouse_release_cursor[i] = self.cursor;
+                self.mouse_pressed[i] = false;
+                self.mouse_just_released[i] = true;
+            }
         }
+    }
+
+    /// Clear all held-down state without generating any just_released pulses.
+    ///
+    /// Called by the window focus-loss handler when the OS no longer delivers
+    /// individual key-up / button-up events. Flooding `just_released` for every
+    /// held key would trigger unintended one-shot reactions in game systems.
+    pub(crate) fn release_all(&mut self) {
+        self.pressed.clear();
+        self.just_pressed.clear();
+        self.mouse_pressed = [false; 3];
+        self.mouse_just_pressed = [false; 3];
+        // Intentionally do NOT populate just_released / mouse_just_released here.
     }
 
     pub(crate) fn add_scroll(&mut self, delta: f32) {
@@ -191,6 +214,72 @@ fn mouse_button_index(btn: MouseButton) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── release() guard ───────────────────────────────────────────────────────
+
+    #[test]
+    fn release_without_prior_press_no_just_released() {
+        let mut input = InputState::default();
+        // Release a key that was never pressed — should NOT produce just_released.
+        input.release(KeyCode::Space);
+        assert!(!input.just_released(KeyCode::Space));
+    }
+
+    #[test]
+    fn release_after_press_produces_just_released() {
+        let mut input = InputState::default();
+        input.press(KeyCode::Space);
+        input.release(KeyCode::Space);
+        assert!(input.just_released(KeyCode::Space));
+        assert!(!input.is_pressed(KeyCode::Space));
+    }
+
+    // ── release_mouse() guard ─────────────────────────────────────────────────
+
+    #[test]
+    fn release_mouse_without_prior_press_no_just_released() {
+        let mut input = InputState::default();
+        // Release without press — should NOT produce mouse_just_released.
+        input.release_mouse(MouseButton::Left);
+        assert!(!input.mouse_just_released(MouseButton::Left));
+    }
+
+    #[test]
+    fn release_mouse_after_press_produces_just_released() {
+        let mut input = InputState::default();
+        input.press_mouse(MouseButton::Left);
+        input.release_mouse(MouseButton::Left);
+        assert!(input.mouse_just_released(MouseButton::Left));
+        assert!(!input.is_mouse_pressed(MouseButton::Left));
+    }
+
+    // ── release_all ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn release_all_clears_pressed_no_just_released() {
+        let mut input = InputState::default();
+        input.press(KeyCode::Space);
+        input.press(KeyCode::ArrowLeft);
+        input.press_mouse(MouseButton::Left);
+        input.release_all();
+
+        assert!(!input.is_pressed(KeyCode::Space));
+        assert!(!input.is_pressed(KeyCode::ArrowLeft));
+        assert!(!input.is_mouse_pressed(MouseButton::Left));
+        // No spurious just_released pulses.
+        assert!(!input.just_released(KeyCode::Space));
+        assert!(!input.just_released(KeyCode::ArrowLeft));
+        assert!(!input.mouse_just_released(MouseButton::Left));
+    }
+
+    #[test]
+    fn release_all_also_clears_just_pressed() {
+        let mut input = InputState::default();
+        input.press(KeyCode::Space);
+        // just_pressed is populated by press(); release_all should clear it.
+        input.release_all();
+        assert!(!input.just_pressed(KeyCode::Space));
+    }
 
     #[test]
     fn mouse_press_sets_state() {

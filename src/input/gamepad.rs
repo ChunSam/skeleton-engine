@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 /// Gamepad button identifier.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GamepadButton {
     South,        // A (Xbox) / Cross (PS)
@@ -22,6 +23,7 @@ pub enum GamepadButton {
 }
 
 /// Gamepad axis identifier.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GamepadAxis {
     LeftStickX,

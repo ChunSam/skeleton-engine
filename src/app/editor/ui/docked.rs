@@ -23,7 +23,7 @@ use crate::app::editor::EditorMode;
 pub(in crate::app) fn update_docked_ui(
     ctx: &egui::Context,
     app: &mut App,
-    comp_fields: &mut Vec<(&'static str, Vec<(&'static str, ReflectValue)>)>,
+    comp_fields: &mut super::InspectorCompFields,
     entity_list: &[Entity],
     tag_map: &HashMap<Entity, String>,
     selected_comp_names: &[&'static str],
@@ -422,7 +422,7 @@ pub(in crate::app) fn scene_tab_body(
 pub(in crate::app) fn inspector_tab_body(
     ui: &mut egui::Ui,
     app: &mut App,
-    comp_fields: &mut Vec<(&'static str, Vec<(&'static str, ReflectValue)>)>,
+    comp_fields: &mut super::InspectorCompFields,
     selected_comp_names: &[&'static str],
     tag_map: &HashMap<Entity, String>,
     _entity_list: &[Entity],
@@ -438,7 +438,7 @@ pub(in crate::app) fn inspector_tab_body(
                 });
 
             // Component field editor
-            for (comp_name, fields) in comp_fields.iter_mut() {
+            for (_, comp_name, fields) in comp_fields.iter_mut() {
                 ui.collapsing(*comp_name, |ui| {
                     egui::Grid::new(*comp_name)
                         .num_columns(2)

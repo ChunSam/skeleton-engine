@@ -13,10 +13,10 @@
 - [x] WU4 UI (DONE) — `src/ui/{panel,slider,localized}.rs`, `src/ui/system/text_input_pass.rs`: Panel::direction reflect (LayoutDir to_i32/from_i32); text_input focus z-order + visible guard; Slider set_field initial_value→value; LocalizationSystem TextInput.placeholder
 
 ### Iteration 2 (parallel, disjoint files)
-- [ ] WU5 Renderer-core — `src/renderer/{sprite,text}.rs`, `renderer/shaders/post_process.wgsl`, `src/gpu_particle.rs`(or renderer/gpu_particle.rs), `src/atlas.rs`: atlas texture_path_arc + sprite scratch fields; glyphon prepare/render log + shaped-buffer cache; bloom texel_size uniform; gpu_particle ring-buffer base_slot partition
-- [ ] WU6 Renderer-lighting/camera — `src/renderer/{lighting,render_target}.rs`, `src/camera.rs`, `src/app/render.rs`, `src/components.rs`: light cull viewport-center + frustum prefilter; camera shake in screen_to_world/world_to_screen + zoom/shake accessors + zoom_to guard; RenderTarget clear_color field + create_render_target + render.rs RT clear
-- [ ] WU7 ECS/reflect/prefab — `src/ecs/{world,events}.rs`, `src/prefab.rs`, `src/app/editor/ui/mod.rs`: has_component<T>(); query_added/changed empty guard; events doc fix; serialize_entity ron-err log; spawn_entity_def missing-registry log; inspector write-back TypeId-keyed
-- [ ] WU13 Input — `src/input/{map,gamepad,state,touch}.rs`: gamepad axis in just_pressed/just_released + axis_value(); #[non_exhaustive] on GamepadButton/GamepadAxis; release() guard + release_all(); touch coord docs + swipe_threshold field
+- [x] WU5 Renderer-core (DONE) — `src/renderer/{sprite,text}.rs`, `renderer/shaders/post_process.wgsl`, `src/gpu_particle.rs`(or renderer/gpu_particle.rs), `src/atlas.rs`: atlas texture_path_arc + sprite scratch fields; glyphon prepare/render log + shaped-buffer cache; bloom texel_size uniform; gpu_particle ring-buffer base_slot partition
+- [x] WU6 Renderer-lighting/camera (DONE) — `src/renderer/{lighting,render_target}.rs`, `src/camera.rs`, `src/app/render.rs`, `src/components.rs`: light cull viewport-center + frustum prefilter; camera shake in screen_to_world/world_to_screen + zoom/shake accessors + zoom_to guard; RenderTarget clear_color field + create_render_target + render.rs RT clear
+- [x] WU7 ECS/reflect/prefab (DONE) — `src/ecs/{world,events}.rs`, `src/prefab.rs`, `src/app/editor/ui/mod.rs`: has_component<T>(); query_added/changed empty guard; events doc fix; serialize_entity ron-err log; spawn_entity_def missing-registry log; inspector write-back TypeId-keyed
+- [x] WU13 Input (DONE) — `src/input/{map,gamepad,state,touch}.rs`: gamepad axis in just_pressed/just_released + axis_value(); #[non_exhaustive] on GamepadButton/GamepadAxis; release() guard + release_all(); touch coord docs + swipe_threshold field
 
 ### Iteration 3 (parallel, disjoint files)
 - [ ] WU8 Network — `src/network.rs`: disconnect close side-channel/log; on_error detail; events-drop log/auto-register; RemoteEntities is_alive check; WASM buffered cap; reconnect Drop impl
@@ -34,5 +34,10 @@
 - [ ] Version bump + docs/CHANGELOG.md + REFERENCE.html note for new public APIs
 - [ ] Final report to user (+ PushNotification), stop loop
 
+## Reassignments
+- gpu_particle ring-buffer fix moved WU5→WU6 (touches app/render.rs which WU6 owns). post_process.rs kept in WU5. render.rs owned solely by WU6.
+- WU13 `InputState::release_all()` is `pub(crate)`, intentionally UNUSED until WU12 wires it into the window.rs `Focused(false)` handler (expected dead_code warning meanwhile).
+
 ## Notes / decisions log
+- Iter2 (WU5,6,7,13): DONE. WU5 submitted a NON-compiling tree (forgot to update `let buffers:` type annotation to the 4-tuple, and the `assign_instance_offsets` test still passed 1 arg) — Opus fixed both. Text shaping cache = plain-text-only `PlainTextCacheKey` (f32→bits, Option for no-bounds) + generation eviction + logic tests; rich text left on the per-frame path (judged correct, kept). Added `pub(crate) type InspectorCompFields` alias (mod.rs) used in mod.rs + docked.rs to silence clippy::type_complexity from WU7's TypeId tuple. Camera shake added to screen/world transforms (round-trip test); RT clear_color (Option, with_clear_color); gpu_particle shared frame_cursor (native-only). Gate: `cargo test --lib` 677 pass/0 fail (+39); `cargo clippy --lib` clean except expected `release_all` dead_code (WU12 wires it). clippy --all-targets deferred to final (after WU12).
 - Iter1 (WU1-4): DONE. Opus fixes during review: (a) derived `#[derive(Debug, Clone)]` on `AnimationClipSet` (new tests panic-format the Result); (b) skeletal `is_finished()` dropped the over-aggressive `duration > 0.0` guard — a zero-duration non-looping clip is finished *after* its first tick, `started` flag handles construction-time; (c) physics `scratch_vecs_cleared_between_frames` test corrected (frame-2 Stopped is correct; assert frame-3 clean). Gate: `cargo test --lib` 638 pass / 0 fail (+35); `cargo clippy --lib -D warnings` clean. Audio fix #4 used a `[Option<String>;8]` stack buffer + overflow Vec; ducking.rs left as-is (noted). Deferred to final clippy --all-targets: inline-test lint check.

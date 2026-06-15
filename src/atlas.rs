@@ -38,6 +38,14 @@ impl TextureAtlas {
     pub fn texture_path(&self) -> &str {
         self.handle.path()
     }
+
+    /// Returns the atlas image path as an `Arc<str>` — O(1) refcount bump, no heap copy.
+    ///
+    /// Prefer this over `Arc::from(atlas.texture_path())` in hot render paths (e.g.
+    /// per-AtlasSprite texture key) where a new allocation per frame would be wasteful.
+    pub fn texture_path_arc(&self) -> std::sync::Arc<str> {
+        self.handle.path_arc()
+    }
 }
 
 /// Component that renders a specific tile from a texture atlas.
@@ -134,5 +142,25 @@ mod tests {
         };
 
         assert_eq!(atlas.texture_path(), handle.path());
+    }
+
+    #[test]
+    fn atlas_texture_path_arc_matches_path_and_is_refcount_bump() {
+        let handle = handle();
+        let atlas = TextureAtlas {
+            handle: handle.clone(),
+            cols: 4,
+            rows: 2,
+        };
+        let arc = atlas.texture_path_arc();
+        // Arc<str> content matches the path string.
+        assert_eq!(&*arc, atlas.texture_path());
+        // A second call produces an equal Arc (same content); both point to the same
+        // backing allocation (pointer equality confirms O(1) refcount bump).
+        let arc2 = atlas.texture_path_arc();
+        assert!(
+            std::sync::Arc::ptr_eq(&arc, &arc2),
+            "texture_path_arc must return the same Arc (refcount bump, not a copy)"
+        );
     }
 }

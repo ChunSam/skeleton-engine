@@ -2,11 +2,17 @@ use glam::Vec2;
 use std::collections::HashMap;
 
 /// Individual touch point data.
+///
+/// # Coordinate convention
+/// All positions are in **physical pixels** as reported by the OS/winit.
+/// To compare with [`crate::input::state::InputState::cursor`] or UI layout
+/// rects (which use logical pixels), divide by the window's `scale_factor`:
+/// `logical = physical / scale_factor`.
 #[derive(Clone)]
 pub(crate) struct TouchPoint {
-    /// Current screen coordinates.
+    /// Current screen position in **physical pixels**.
     pub(crate) position: Vec2,
-    /// Touch start coordinates (used for swipe detection).
+    /// Touch start position in **physical pixels** (used for swipe detection).
     pub(crate) start_position: Vec2,
 }
 
@@ -15,11 +21,17 @@ pub(crate) struct TouchPoint {
 /// Auto-registered by `App::new()`.
 /// Read in systems via `world.resource::<TouchState>()`.
 ///
+/// # Coordinate convention
+/// All positions exposed by this type are in **physical pixels** (as reported
+/// by the OS). To compare with `InputState::cursor()` or UI layout rects
+/// (logical pixels), divide by the window's `scale_factor`:
+/// `logical = physical / scale_factor`.
+///
 /// # Example
 /// ```ignore
 /// if let Some(ts) = world.resource::<TouchState>() {
 ///     if ts.is_touching() {
-///         // First touch position.
+///         // First touch position (physical pixels).
 ///         if let Some(pos) = ts.primary_position() {
 ///             println!("touch position: {pos:?}");
 ///         }
@@ -45,9 +57,14 @@ pub struct TouchState {
 
     prev_pinch_dist: f32,
 
-    /// Swipe vector for this frame (set when a touch ends after moving ≥50 px).
-    /// Set after processing the `ended` event.
+    /// Swipe vector for this frame (set when a touch ends after travelling at
+    /// least `swipe_threshold` physical pixels from its start position).
     swipe: Option<Vec2>,
+
+    /// Minimum travel distance in **physical pixels** required to register a
+    /// swipe. Defaults to `50.0`. Increase on high-DPI displays if swipes are
+    /// too sensitive, or decrease for shorter gestures.
+    pub swipe_threshold: f32,
 }
 
 impl Default for TouchState {
@@ -60,6 +77,7 @@ impl Default for TouchState {
             pinch_delta: 0.0,
             prev_pinch_dist: 0.0,
             swipe: None,
+            swipe_threshold: 50.0,
         }
     }
 }
@@ -103,7 +121,7 @@ impl TouchState {
     pub(crate) fn on_touch_ended(&mut self, id: u64, pos: Vec2) {
         if let Some(point) = self.active.remove(&id) {
             let travel = pos - point.start_position;
-            if travel.length() >= 50.0 {
+            if travel.length() >= self.swipe_threshold {
                 self.swipe = Some(travel);
             }
         }
@@ -145,7 +163,8 @@ impl TouchState {
         self.pinch_delta
     }
 
-    /// Swipe vector for this frame (set when a touch ends after moving ≥50 px).
+    /// Swipe vector for this frame (set when a touch ends after travelling ≥
+    /// [`swipe_threshold`](TouchState::swipe_threshold) physical pixels).
     pub fn swipe(&self) -> Option<Vec2> {
         self.swipe
     }
@@ -282,5 +301,33 @@ mod tests {
         ts.on_touch_started(2, Vec2::new(200.0, 0.0));
         ts.on_touch_started(8, Vec2::new(800.0, 0.0));
         assert_eq!(ts.primary_position(), Some(Vec2::new(200.0, 0.0)));
+    }
+
+    // ── swipe_threshold configurability ──────────────────────────────────────
+
+    #[test]
+    fn swipe_threshold_default_is_50() {
+        let ts = TouchState::default();
+        assert!((ts.swipe_threshold - 50.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn custom_swipe_threshold_respected() {
+        let mut ts = TouchState::default();
+        ts.swipe_threshold = 20.0;
+        ts.on_touch_started(0, Vec2::new(0.0, 0.0));
+        // 30 px travel — above the new threshold of 20, below the old default of 50.
+        ts.on_touch_ended(0, Vec2::new(30.0, 0.0));
+        assert!(ts.swipe().is_some());
+    }
+
+    #[test]
+    fn custom_swipe_threshold_blocks_short_swipe() {
+        let mut ts = TouchState::default();
+        ts.swipe_threshold = 100.0;
+        ts.on_touch_started(0, Vec2::new(0.0, 0.0));
+        // 60 px travel — above the default 50 but below the new threshold of 100.
+        ts.on_touch_ended(0, Vec2::new(60.0, 0.0));
+        assert!(ts.swipe().is_none());
     }
 }

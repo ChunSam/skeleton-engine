@@ -532,12 +532,13 @@ impl App {
                             &rt.view as *const wgpu::TextureView,
                             std::sync::Arc::clone(&rt.bind_group),
                             layer_mask,
+                            rt.clear_color,
                         )
                     })
                 })
                 .collect();
 
-            for (target_name, cam, rt_w, rt_h, view_ptr, bg, layer_mask) in rt_info {
+            for (target_name, cam, rt_w, rt_h, view_ptr, bg, layer_mask, rt_clear_color) in rt_info {
                 // ① Swap camera — if no prior camera existed remove it after render, otherwise restore
                 let saved_cam = self.world.resource::<crate::camera::Camera>().copied();
                 self.world.insert_resource(cam);
@@ -558,8 +559,14 @@ impl App {
                         label: Some("offscreen encoder"),
                     });
 
-                // ③ Clear the RT
+                // ③ Clear the RT — use per-target color if set, else inherit WindowConfig::clear_color.
                 {
+                    let [cr, cg, cb, ca] = rt_clear_color.unwrap_or_else(|| {
+                        self.world
+                            .resource::<WindowConfig>()
+                            .map(|c| c.clear_color)
+                            .unwrap_or([0.0, 0.0, 0.0, 1.0])
+                    });
                     let _pass = oenc.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("offscreen clear"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -568,10 +575,10 @@ impl App {
                             depth_slice: None,
                             ops: wgpu::Operations {
                                 load: wgpu::LoadOp::Clear(wgpu::Color {
-                                    r: 0.0,
-                                    g: 0.0,
-                                    b: 0.0,
-                                    a: 1.0,
+                                    r: cr,
+                                    g: cg,
+                                    b: cb,
+                                    a: ca,
                                 }),
                                 store: wgpu::StoreOp::Store,
                             },
@@ -795,10 +802,12 @@ impl App {
                     ));
             }
             if let Some(gpr) = &self.gpu_particle_renderer {
+                let mut frame_cursor = 0u32;
                 let new_particles = crate::gpu_particle::collect_new_particles(
                     &mut self.world,
                     gpr.capacity(),
                     self.last_dt,
+                    &mut frame_cursor,
                 );
                 for (slot, p) in &new_particles {
                     gpr.upload_particles(&gpu.queue, std::slice::from_ref(p), *slot);

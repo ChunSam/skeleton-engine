@@ -129,7 +129,9 @@ fn sort_uses_layer_and_z_before_texture_batching() {
     ];
 
     sort_render_entries(&mut entries);
-    assign_instance_offsets(&mut entries);
+    let mut sprite_instances = Vec::new();
+    let mut material_instances = Vec::new();
+    assign_instance_offsets(&mut entries, &mut sprite_instances, &mut material_instances);
 
     let order: Vec<String> = entries.iter().map(describe).collect();
     assert_eq!(

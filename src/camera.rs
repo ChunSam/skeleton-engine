@@ -91,9 +91,10 @@ impl Camera {
     /// Inverse: world = position + screen / zoom
     pub fn screen_to_world(&self, screen_pos: Vec2) -> Vec2 {
         let zoom = self.safe_zoom();
+        let origin = self.position + self.shake_offset();
         Vec2::new(
-            screen_pos.x / zoom + self.position.x,
-            screen_pos.y / zoom + self.position.y,
+            screen_pos.x / zoom + origin.x,
+            screen_pos.y / zoom + origin.y,
         )
     }
 
@@ -107,7 +108,24 @@ impl Camera {
     ///
     /// Formula: screen = (world - position) * zoom
     pub fn world_to_screen(&self, world_pos: Vec2) -> Vec2 {
-        (world_pos - self.position) * self.zoom
+        (world_pos - self.position - self.shake_offset()) * self.zoom
+    }
+
+    /// Returns `true` while a zoom tween is in progress.
+    pub fn is_zooming(&self) -> bool {
+        self.zoom_tween_speed > 0.0
+    }
+
+    /// Returns the target zoom value (the zoom that `zoom_to` is moving toward).
+    ///
+    /// When no tween is active this equals the current `zoom`.
+    pub fn zoom_target(&self) -> f32 {
+        self.zoom_target
+    }
+
+    /// Returns the remaining shake duration in seconds (0.0 if no shake is active).
+    pub fn shake_remaining(&self) -> f32 {
+        self.shake_duration.max(0.0)
     }
 
     /// Safe zoom multiplier to prevent division-by-zero/NaN. Even if `zoom` is set to
@@ -163,10 +181,18 @@ impl Camera {
     /// Smoothly zoom toward target_zoom.
     ///
     /// - `target_zoom`: target zoom multiplier
-    /// - `speed`: zoom change per second (positive)
+    /// - `speed`: zoom change per second (must be positive).
+    ///   Passing `0.0` (or negative) would leave `zoom_tween_speed` at 0, which silently
+    ///   prevents the tween from ever advancing. A warning is emitted and `speed` is clamped
+    ///   to `f32::EPSILON` so the tween always makes progress.
     pub fn zoom_to(&mut self, target_zoom: f32, speed: f32) {
+        if speed <= 0.0 {
+            log::warn!(
+                "Camera::zoom_to called with speed={speed}; clamping to f32::EPSILON to avoid a silent no-op"
+            );
+        }
         self.zoom_target = target_zoom;
-        self.zoom_tween_speed = speed;
+        self.zoom_tween_speed = speed.max(f32::EPSILON);
     }
 
     /// Returns the shake offset for the current frame (automatically applied inside `view_proj`).
@@ -392,6 +418,48 @@ mod tests {
     }
 
     #[test]
+    fn is_zooming_reflects_tween_state() {
+        let mut cam = Camera::default();
+        assert!(!cam.is_zooming(), "no tween active initially");
+        cam.zoom_to(2.0, 1.0);
+        assert!(cam.is_zooming(), "tween active after zoom_to");
+        cam.update(5.0, None); // run until target reached
+        assert!(!cam.is_zooming(), "tween stops when target reached");
+    }
+
+    #[test]
+    fn zoom_target_returns_set_value() {
+        let mut cam = Camera::default();
+        cam.zoom_to(3.5, 1.0);
+        assert!((cam.zoom_target() - 3.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn shake_remaining_returns_duration() {
+        let mut cam = Camera::default();
+        assert_eq!(cam.shake_remaining(), 0.0);
+        cam.shake(10.0, 0.5);
+        assert!((cam.shake_remaining() - 0.5).abs() < 1e-6);
+        cam.update(0.3, None);
+        assert!((cam.shake_remaining() - 0.2).abs() < 1e-3);
+        cam.update(0.5, None);
+        assert_eq!(cam.shake_remaining(), 0.0);
+    }
+
+    #[test]
+    fn zoom_to_zero_speed_is_clamped() {
+        let mut cam = Camera::default();
+        cam.zoom_to(2.0, 0.0);
+        // Speed was clamped to EPSILON, so the tween IS active (not a no-op).
+        assert!(cam.is_zooming());
+        // And it will eventually reach the target (in finite time given EPSILON speed).
+        // Advance by a huge dt to confirm it terminates.
+        cam.update(1e10, None);
+        assert!((cam.zoom - 2.0).abs() < 1e-3, "zoom={}", cam.zoom);
+        assert!(!cam.is_zooming());
+    }
+
+    #[test]
     fn smooth_follow_lerps_toward_target() {
         let mut cam = Camera {
             position: Vec2::ZERO,
@@ -422,6 +490,27 @@ mod tests {
         let offset = cam.shake_offset();
         // At least one component should be non-zero (sin/cos won't both be 0 at 0.016*30~0.48)
         assert!(offset.x != 0.0 || offset.y != 0.0);
+    }
+
+    #[test]
+    fn screen_to_world_and_world_to_screen_account_for_shake() {
+        // With shake active the rendered frame is offset by shake_offset().
+        // Both coordinate transforms must include the same offset so mouse-picking matches.
+        let mut cam = Camera::default();
+        cam.shake(20.0, 1.0);
+        cam.update(0.016, None); // advance shake timer so offset ≠ zero
+
+        let shake = cam.shake_offset();
+        // shake must be non-zero for the test to be meaningful
+        assert!(shake.x != 0.0 || shake.y != 0.0, "shake offset should be non-zero");
+
+        let screen_pt = Vec2::new(200.0, 150.0);
+        let world_pt = cam.screen_to_world(screen_pt);
+        let back = cam.world_to_screen(world_pt);
+        assert!(
+            (back - screen_pt).length() < 1e-3,
+            "world_to_screen(screen_to_world(p)) should round-trip to p, got {back:?}"
+        );
     }
 
     #[test]

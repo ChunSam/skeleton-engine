@@ -135,7 +135,7 @@ fn caret_x(buf: &Buffer, caret_byte: usize) -> f32 {
 }
 
 /// How a [`DrawText`]'s `position` maps to the rendered text box.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum TextAnchor {
     /// `position` is the top-left corner (default — original behavior).
     #[default]
@@ -145,7 +145,7 @@ pub enum TextAnchor {
     Center,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum TextAlign {
     Left,
     Center,
@@ -208,6 +208,43 @@ impl TextQueue {
     }
 }
 
+/// Cache key for a plain (non-rich) shaped text buffer.
+///
+/// All layout-affecting inputs are included. `f32` fields are stored as their
+/// bit patterns so the key is `Eq + Hash` without precision issues — two
+/// DrawTexts that are bit-identical will always share a buffer, and any field
+/// that changes (e.g. size, position used for buffer-width computation) produces
+/// a different key and a cache miss.
+///
+/// Rich text is NOT cached here (span attrs are hard to hash; see
+/// `TextRenderer::shaped_buffer_cache`).
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+struct PlainTextCacheKey {
+    text: String,
+    /// Font size in pixels × scale_factor, as f32 bits.
+    scaled_size_bits: u32,
+    /// Scaled bounds, if set. `None` = no explicit bounds (buffer size derived from viewport).
+    bounds_w_bits: Option<u32>, // None or Some(f32::to_bits())
+    bounds_h_bits: Option<u32>,
+    /// Viewport dimensions (affect buffer size when no explicit bounds).
+    viewport_w: u32,
+    viewport_h: u32,
+    /// Position (affects buffer width/height for TopLeft anchor).
+    position_x_bits: u32,
+    position_y_bits: u32,
+    /// Whether the DrawText is in single-line mode (affects Wrap).
+    is_single_line: bool,
+    align: TextAlign,
+    anchor: TextAnchor,
+}
+
+struct CachedBuffer {
+    buffer: Buffer,
+    /// Frame generation when this entry was last used. Entries not accessed in
+    /// the current frame are evicted at the end of `render()`.
+    last_used_gen: u64,
+}
+
 /// Text renderer backed by glyphon 0.6.
 ///
 /// ## Ownership layout
@@ -225,6 +262,12 @@ pub struct TextRenderer {
     atlas: TextAtlas,
     viewport: Viewport,
     renderer: GlyphonTextRenderer,
+    /// Cross-frame cache of shaped plain-text Buffers, keyed by all layout-affecting inputs.
+    /// Entries not accessed in the current frame are evicted after `render()` (generation-based,
+    /// mirroring the `atlas.trim()` per-frame pattern). Rich text is NOT cached.
+    shaped_buffer_cache: std::collections::HashMap<PlainTextCacheKey, CachedBuffer>,
+    /// Monotonically increasing frame counter used to evict stale cache entries.
+    cache_generation: u64,
 }
 
 /// Build a cosmic-text [`FontSystem`] loading `font_data` (if non-empty) plus every blob in
@@ -279,6 +322,8 @@ impl TextRenderer {
             atlas,
             viewport,
             renderer,
+            shaped_buffer_cache: std::collections::HashMap::new(),
+            cache_generation: 0,
         }
     }
 
@@ -321,82 +366,134 @@ impl TextRenderer {
             },
         );
 
+        // Increment frame generation for shaped-buffer cache eviction.
+        self.cache_generation += 1;
+        let gen = self.cache_generation;
+
         // Convert each DrawText into a glyphon Buffer.
         // - `Buffer::set_size` takes `(font_system, Option<f32>, Option<f32>)` in cosmic-text.
         // - `set_text` takes `(font_system, text, attrs, shaping)`.
-        let buffers: Vec<(Buffer, DrawText, f32)> = items
+        //
+        // Plain (non-rich) DrawTexts are served from a cross-frame shaped-buffer cache
+        // keyed by all layout-affecting inputs (text, size, bounds, viewport, position,
+        // align, anchor, is_single_line). On a cache hit the shaped Buffer is reused
+        // directly (skipping set_text + shape_until_scroll). Scroll and anchor-offset
+        // are always recomputed from the buffer's layout runs since they are cheap.
+        //
+        // Rich text is NOT cached: span attrs (including per-span colors from [color=…])
+        // are hard to hash correctly, so the safe choice is to keep the existing
+        // per-frame build path for rich DrawTexts.
+        //
+        // Cache strategy: `remove` the entry to get an owned Buffer, use it, then
+        // re-insert with the updated generation. This avoids lifetime conflicts
+        // between the cache (field on self) and text_areas (borrows the Vec).
+        let buffers: Vec<(Buffer, DrawText, f32, Option<PlainTextCacheKey>)> = items
             .into_iter()
             .map(|d| {
                 let size = d.size * scale_factor;
                 let position = d.position * scale_factor;
                 let bounds = d.bounds.map(|b| b * scale_factor);
                 let single_line = d.single_line_caret;
-                let metrics = Metrics::new(size, size * 1.2); // line_height = 1.2× size
-                let mut buf = Buffer::new(&mut self.font_system, metrics);
-                // Single-line (TextInput): expand to unlimited width + no wrap, then
-                // scroll horizontally below. Otherwise wrap at the bounds width.
-                //
-                // For a centered DrawText (anchor = Center, position = text center),
-                // the position is typically near the middle of the viewport (e.g. w/2).
-                // Using `w - position.x` would give only half the viewport width, causing
-                // text to wrap prematurely.  Instead we give the buffer the FULL viewport
-                // dimension and let the existing anchor-offset logic center the shaped text.
-                // For the default TopLeft anchor the old behavior is preserved.
-                let width = if single_line.is_some() {
+
+                // ── Cache lookup (plain text only) ────────────────────────────
+                let plain_key: Option<PlainTextCacheKey> = if !d.rich {
+                    Some(PlainTextCacheKey {
+                        text: d.text.clone(),
+                        scaled_size_bits: size.to_bits(),
+                        bounds_w_bits: bounds.map(|b| b.x.to_bits()),
+                        bounds_h_bits: bounds.map(|b| b.y.to_bits()),
+                        viewport_w: w,
+                        viewport_h: h,
+                        position_x_bits: position.x.to_bits(),
+                        position_y_bits: position.y.to_bits(),
+                        is_single_line: single_line.is_some(),
+                        align: d.align,
+                        anchor: d.anchor,
+                    })
+                } else {
                     None
-                } else {
-                    Some(layout_buffer_width(
-                        d.anchor,
-                        bounds.map(|b| b.x),
-                        w as f32,
-                        position.x,
-                    ))
                 };
-                buf.set_size(
-                    &mut self.font_system,
-                    width,
-                    Some(layout_buffer_height(
-                        d.anchor,
-                        bounds.map(|b| b.y),
-                        h as f32,
-                        position.y,
-                    )),
-                );
-                buf.set_wrap(
-                    &mut self.font_system,
-                    if single_line.is_some() {
-                        Wrap::None
-                    } else {
-                        Wrap::WordOrGlyph
-                    },
-                );
-                let default_attrs = Attrs::new().family(Family::SansSerif);
-                if d.rich {
-                    let rich = parse_rich_text(&d.text, &default_attrs);
-                    let spans: Vec<(&str, Attrs<'_>)> = rich
-                        .iter()
-                        .map(|(s, attrs)| (s.as_str(), attrs.clone()))
-                        .collect();
-                    buf.set_rich_text(
-                        &mut self.font_system,
-                        spans,
-                        &default_attrs,
-                        Shaping::Advanced,
-                        None,
-                    );
+
+                // Try to remove a cached entry so we own it for the duration of the frame.
+                let cached = plain_key
+                    .as_ref()
+                    .and_then(|k| self.shaped_buffer_cache.remove(k));
+
+                let buf = if let Some(CachedBuffer { buffer, .. }) = cached {
+                    // Cache hit: reuse the already-shaped buffer.
+                    buffer
                 } else {
-                    buf.set_text(
+                    // Cache miss (or rich text): build and shape from scratch.
+                    let metrics = Metrics::new(size, size * 1.2); // line_height = 1.2× size
+                    let mut buf = Buffer::new(&mut self.font_system, metrics);
+                    // Single-line (TextInput): expand to unlimited width + no wrap, then
+                    // scroll horizontally below. Otherwise wrap at the bounds width.
+                    //
+                    // For a centered DrawText (anchor = Center, position = text center),
+                    // the position is typically near the middle of the viewport (e.g. w/2).
+                    // Using `w - position.x` would give only half the viewport width, causing
+                    // text to wrap prematurely.  Instead we give the buffer the FULL viewport
+                    // dimension and let the existing anchor-offset logic center the shaped text.
+                    // For the default TopLeft anchor the old behavior is preserved.
+                    let width = if single_line.is_some() {
+                        None
+                    } else {
+                        Some(layout_buffer_width(
+                            d.anchor,
+                            bounds.map(|b| b.x),
+                            w as f32,
+                            position.x,
+                        ))
+                    };
+                    buf.set_size(
                         &mut self.font_system,
-                        &d.text,
-                        &default_attrs,
-                        Shaping::Advanced,
-                        None,
+                        width,
+                        Some(layout_buffer_height(
+                            d.anchor,
+                            bounds.map(|b| b.y),
+                            h as f32,
+                            position.y,
+                        )),
                     );
-                }
-                for line in &mut buf.lines {
-                    line.set_align(d.align.to_glyphon());
-                }
-                buf.shape_until_scroll(&mut self.font_system, false);
+                    buf.set_wrap(
+                        &mut self.font_system,
+                        if single_line.is_some() {
+                            Wrap::None
+                        } else {
+                            Wrap::WordOrGlyph
+                        },
+                    );
+                    let default_attrs = Attrs::new().family(Family::SansSerif);
+                    if d.rich {
+                        let rich = parse_rich_text(&d.text, &default_attrs);
+                        let spans: Vec<(&str, Attrs<'_>)> = rich
+                            .iter()
+                            .map(|(s, attrs)| (s.as_str(), attrs.clone()))
+                            .collect();
+                        buf.set_rich_text(
+                            &mut self.font_system,
+                            spans,
+                            &default_attrs,
+                            Shaping::Advanced,
+                            None,
+                        );
+                    } else {
+                        buf.set_text(
+                            &mut self.font_system,
+                            &d.text,
+                            &default_attrs,
+                            Shaping::Advanced,
+                            None,
+                        );
+                    }
+                    for line in &mut buf.lines {
+                        line.set_align(d.align.to_glyphon());
+                    }
+                    buf.shape_until_scroll(&mut self.font_system, false);
+                    buf
+                };
+
+                // ── Post-shaping: scroll + anchor (always recomputed, cheap) ─
                 // Single-line: compute horizontal scroll offset to keep the caret visible.
                 // (If the caret exceeds field right edge minus margin, shift left by that amount.)
                 let scroll = match single_line {
@@ -426,13 +523,13 @@ impl TextRenderer {
                 scaled.position = position - anchor_offset;
                 scaled.bounds = bounds;
                 scaled.size = size;
-                (buf, scaled, scroll)
+                (buf, scaled, scroll, plain_key)
             })
             .collect();
 
         let text_areas: Vec<TextArea<'_>> = buffers
             .iter()
-            .map(|(buf, d, scroll)| TextArea {
+            .map(|(buf, d, scroll, _key)| TextArea {
                 buffer: buf,
                 left: d.position.x - *scroll,
                 top: d.position.y,
@@ -456,7 +553,7 @@ impl TextRenderer {
             .collect();
 
         // prepare — rasterize glyphs + upload to GPU buffers
-        let _ = self.renderer.prepare(
+        if let Err(e) = self.renderer.prepare(
             device,
             queue,
             &mut self.font_system,
@@ -464,7 +561,9 @@ impl TextRenderer {
             &self.viewport,
             text_areas,
             &mut self.swash_cache,
-        );
+        ) {
+            log::warn!("text prepare failed: {e}");
+        }
 
         // Text render pass — composite over sprites with LoadOp::Load
         {
@@ -484,8 +583,30 @@ impl TextRenderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            let _ = self.renderer.render(&self.atlas, &self.viewport, &mut pass);
+            if let Err(e) = self.renderer.render(&self.atlas, &self.viewport, &mut pass) {
+                log::error!("text render failed: {e}");
+            }
         }
+
+        // ── Re-insert plain-text buffers into the shaped-buffer cache ────────
+        // Only plain (non-rich) entries have a key; rich text buffers are dropped.
+        // Entries from previous frames that were not seen this frame (removed at
+        // the start of this loop and not re-inserted) are implicitly evicted.
+        // Additionally, any entries that were NOT removed at the start (i.e. their
+        // DrawText was not in the queue this frame) still hold their previous
+        // generation. We evict those below by retaining only entries from the
+        // current generation.
+        for (buffer, _d, _scroll, plain_key) in buffers {
+            if let Some(key) = plain_key {
+                self.shaped_buffer_cache
+                    .insert(key, CachedBuffer { buffer, last_used_gen: gen });
+            }
+            // Rich-text buffers drop here (no key).
+        }
+        // Evict entries that were NOT accessed this frame (stale from a prior frame
+        // where different text was rendered). Mirrors atlas.trim() below.
+        self.shaped_buffer_cache
+            .retain(|_k, v| v.last_used_gen == gen);
 
         // Trim unused glyphs from the atlas for the next frame
         self.atlas.trim();
@@ -850,5 +971,121 @@ mod tests {
         );
         let plain: String = spans.iter().map(|(s, _)| s.as_str()).collect();
         assert_eq!(plain, "Hello red italic");
+    }
+
+    // ─── Shaped-buffer cache key tests ───────────────────────────────────────
+
+    fn base_key() -> PlainTextCacheKey {
+        PlainTextCacheKey {
+            text: "hello".to_string(),
+            scaled_size_bits: 24.0_f32.to_bits(),
+            bounds_w_bits: None,
+            bounds_h_bits: None,
+            viewport_w: 800,
+            viewport_h: 600,
+            position_x_bits: 10.0_f32.to_bits(),
+            position_y_bits: 20.0_f32.to_bits(),
+            is_single_line: false,
+            align: TextAlign::Left,
+            anchor: TextAnchor::TopLeft,
+        }
+    }
+
+    /// Identical inputs produce the same key (cache hit).
+    #[test]
+    fn cache_key_hit_when_identical() {
+        assert_eq!(base_key(), base_key());
+    }
+
+    /// Any change to any field produces a different key (cache miss).
+    #[test]
+    fn cache_key_miss_when_text_differs() {
+        let mut k = base_key();
+        k.text = "world".to_string();
+        assert_ne!(k, base_key());
+    }
+
+    #[test]
+    fn cache_key_miss_when_size_differs() {
+        let mut k = base_key();
+        k.scaled_size_bits = 32.0_f32.to_bits();
+        assert_ne!(k, base_key());
+    }
+
+    #[test]
+    fn cache_key_miss_when_bounds_w_differs() {
+        let mut k = base_key();
+        k.bounds_w_bits = Some(200.0_f32.to_bits()); // None → Some(200.0)
+        assert_ne!(k, base_key());
+    }
+
+    #[test]
+    fn cache_key_miss_when_bounds_h_differs() {
+        let mut k = base_key();
+        k.bounds_h_bits = Some(100.0_f32.to_bits()); // None → Some(100.0)
+        assert_ne!(k, base_key());
+    }
+
+    /// Bounds of 0.0 must not collide with "no bounds" — uses Option, not a 0 sentinel.
+    #[test]
+    fn cache_key_zero_bounds_differs_from_no_bounds() {
+        let mut k = base_key();
+        k.bounds_w_bits = Some(0.0_f32.to_bits()); // Some(0.0), distinct from None
+        assert_ne!(k, base_key(), "Some(0.0) bounds must not equal None bounds");
+    }
+
+    #[test]
+    fn cache_key_miss_when_viewport_differs() {
+        let mut k = base_key();
+        k.viewport_w = 1280;
+        assert_ne!(k, base_key());
+    }
+
+    #[test]
+    fn cache_key_miss_when_position_differs() {
+        let mut k = base_key();
+        k.position_x_bits = 50.0_f32.to_bits();
+        assert_ne!(k, base_key());
+    }
+
+    #[test]
+    fn cache_key_miss_when_align_differs() {
+        let mut k = base_key();
+        k.align = TextAlign::Center;
+        assert_ne!(k, base_key());
+    }
+
+    #[test]
+    fn cache_key_miss_when_anchor_differs() {
+        let mut k = base_key();
+        k.anchor = TextAnchor::Center;
+        assert_ne!(k, base_key());
+    }
+
+    #[test]
+    fn cache_key_miss_when_single_line_differs() {
+        let mut k = base_key();
+        k.is_single_line = true;
+        assert_ne!(k, base_key());
+    }
+
+    /// Eviction: entries with a generation older than the current frame's generation
+    /// should be removed. This mirrors the logic in TextRenderer::render's retain call.
+    #[test]
+    fn cache_eviction_removes_stale_entries() {
+        // Simulate the retain logic: keep only entries where last_used_gen == current gen.
+        let current_gen = 5u64;
+        let mut cache: std::collections::HashMap<PlainTextCacheKey, u64> = std::collections::HashMap::new();
+        let k1 = base_key();
+        let mut k2 = base_key();
+        k2.text = "other".to_string();
+        // k1 was used this frame (gen == current), k2 was not (gen == old).
+        cache.insert(k1.clone(), current_gen);
+        cache.insert(k2.clone(), current_gen - 1);
+
+        cache.retain(|_k, gen| *gen == current_gen);
+
+        assert!(cache.contains_key(&k1), "current-frame entry should be retained");
+        assert!(!cache.contains_key(&k2), "stale entry should be evicted");
     }
 }

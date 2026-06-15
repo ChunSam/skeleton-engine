@@ -50,7 +50,23 @@ impl Default for PostProcessConfig {
     }
 }
 
-// Uniform struct sent to the GPU (32 bytes, 16B aligned)
+// Uniform struct sent to the GPU.
+// Layout (std140-compatible, 10 × f32 = 40 bytes padded to 48 for 16B alignment):
+//   [0]  vignette_strength
+//   [4]  vignette_radius
+//   [8]  chroma_offset
+//   [12] bloom_threshold
+//   [16] bloom_intensity
+//   [20] brightness
+//   [24] contrast
+//   [28] saturation
+//   [32] texel_size.x  (1.0 / target_width)
+//   [36] texel_size.y  (1.0 / target_height)
+//   [40] _pad0         (padding to reach 48 bytes / 16B boundary)
+//   [44] _pad1
+//
+// `texel_size` is pre-computed here so the shader avoids per-fragment
+// `textureDimensions` calls (which emit a driver query on some backends).
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct PostProcessUniforms {
@@ -62,20 +78,33 @@ struct PostProcessUniforms {
     brightness: f32,
     contrast: f32,
     saturation: f32,
+    /// Pre-computed texel size: (1/width, 1/height). Populated by `update_uniforms`.
+    texel_size: [f32; 2],
+    pad0: [f32; 2],
 }
 
-impl From<&PostProcessConfig> for PostProcessUniforms {
-    fn from(c: &PostProcessConfig) -> Self {
-        Self {
-            vignette_strength: c.vignette_strength,
-            vignette_radius: c.vignette_radius,
-            chroma_offset: c.chroma_offset,
-            bloom_threshold: c.bloom_threshold,
-            bloom_intensity: c.bloom_intensity,
-            brightness: c.brightness,
-            contrast: c.contrast,
-            saturation: c.saturation,
-        }
+/// Populates `PostProcessUniforms` from a config + the current render-target dimensions.
+///
+/// `width`/`height` are the intermediate texture size (set by `PostProcessRenderer::new`
+/// or `PostProcessRenderer::resize`). They are available on `PostProcessRenderer` as
+/// `self.width` / `self.height`, so `update_uniforms` can read them directly.
+fn make_uniforms(c: &PostProcessConfig, width: u32, height: u32) -> PostProcessUniforms {
+    let (tw, th) = if width > 0 && height > 0 {
+        (1.0 / width as f32, 1.0 / height as f32)
+    } else {
+        (0.0, 0.0)
+    };
+    PostProcessUniforms {
+        vignette_strength: c.vignette_strength,
+        vignette_radius: c.vignette_radius,
+        chroma_offset: c.chroma_offset,
+        bloom_threshold: c.bloom_threshold,
+        bloom_intensity: c.bloom_intensity,
+        brightness: c.brightness,
+        contrast: c.contrast,
+        saturation: c.saturation,
+        texel_size: [tw, th],
+        pad0: [0.0; 2],
     }
 }
 
@@ -245,9 +274,12 @@ impl PostProcessRenderer {
         );
     }
 
-    /// Updates the uniform buffer with the current configuration.
+    /// Updates the uniform buffer with the current configuration and render-target dimensions.
+    ///
+    /// Populates `texel_size` from `self.width` / `self.height` so the shader can use
+    /// `u.texel_size` instead of a per-fragment `textureDimensions(scene_tex)` call.
     pub fn update_uniforms(&self, queue: &wgpu::Queue, config: &PostProcessConfig) {
-        let uni: PostProcessUniforms = config.into();
+        let uni = make_uniforms(config, self.width, self.height);
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uni));
     }
 
