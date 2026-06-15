@@ -4,6 +4,24 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.4.0
+
+Audio bus **ducking + sidechain** mixing (native-only audio module). Additive.
+
+### Added
+
+- **Bus ducking** — `AudioManager::duck_bus(bus, gain, attack_secs)` / `release_bus(bus,
+  release_secs)` / `bus_duck(bus) -> f32`. A duck is a per-bus gain multiplier (1.0 = none)
+  with an attack/release envelope that rides on top of the bus volume, so it never clobbers
+  `set_bus_volume`. Driven by `AudioManager::update(dt)`.
+- **Sidechain** — `set_sidechain(trigger_bus, ducked_bus, gain, attack_secs, release_secs)` /
+  `clear_sidechain(ducked_bus)`. Automatically ducks `ducked_bus` while any channel on
+  `trigger_bus` is playing, then releases — the classic "music ducks under dialogue".
+  `BusDuck` / `Sidechain` state types re-exported.
+- **Example `audio_ducking`** — synthesized music + voice tones; Space plays a voice blip
+  that sidechain-ducks the music bus; live on-screen `bus_duck("music")` readout (color-coded)
+  makes the duck visually verifiable.
+
 ## 8.2.0
 
 Runtime tilemap mutation + neighbor-bitmask autotiling, validated by the new `dig_quest`
