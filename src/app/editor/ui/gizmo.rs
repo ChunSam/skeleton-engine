@@ -197,6 +197,82 @@ pub(crate) fn ui_resize_new_layout(
     (offset, size)
 }
 
+// ── Tile-paint cell-set helpers (pure, tested) ───────────────────────────────
+
+/// Inclusive rectangle of cells spanned by two corner cells (any order).
+#[cfg(not(target_arch = "wasm32"))]
+fn rect_cells(a: (usize, usize), b: (usize, usize)) -> Vec<(usize, usize)> {
+    let (r0, r1) = (a.0.min(b.0), a.0.max(b.0));
+    let (c0, c1) = (a.1.min(b.1), a.1.max(b.1));
+    let mut out = Vec::with_capacity((r1 - r0 + 1) * (c1 - c0 + 1));
+    for r in r0..=r1 {
+        for c in c0..=c1 {
+            out.push((r, c));
+        }
+    }
+    out
+}
+
+/// N×N brush block centred on `(row, col)`, clamped to a `rows × cols` grid.
+/// `brush` is the side length (1, 3, 5 …); `half = (brush - 1) / 2`.
+#[cfg(not(target_arch = "wasm32"))]
+fn brush_cells(
+    row: usize,
+    col: usize,
+    brush: u32,
+    rows: usize,
+    cols: usize,
+) -> Vec<(usize, usize)> {
+    if rows == 0 || cols == 0 {
+        return Vec::new();
+    }
+    let half = (brush.saturating_sub(1) / 2) as usize;
+    let r0 = row.saturating_sub(half);
+    let r1 = (row + half).min(rows - 1);
+    let c0 = col.saturating_sub(half);
+    let c1 = (col + half).min(cols - 1);
+    let mut out = Vec::new();
+    for r in r0..=r1 {
+        for c in c0..=c1 {
+            out.push((r, c));
+        }
+    }
+    out
+}
+
+/// 4-connected flood fill: every cell reachable from `start` whose value equals
+/// `start`'s current value. Bounded by [`Tilemap::dims`]; jagged rows are handled by
+/// `get_tile` returning `None` for short rows.
+#[cfg(not(target_arch = "wasm32"))]
+fn flood_fill(tm: &crate::tilemap::Tilemap, start: (usize, usize)) -> Vec<(usize, usize)> {
+    let (rows, cols) = tm.dims();
+    let Some(target) = tm.get_tile(start.0, start.1) else {
+        return Vec::new();
+    };
+    let mut seen = vec![vec![false; cols]; rows];
+    let mut stack = vec![start];
+    let mut out = Vec::new();
+    while let Some((r, c)) = stack.pop() {
+        if r >= rows || c >= cols || seen[r][c] {
+            continue;
+        }
+        if tm.get_tile(r, c) != Some(target) {
+            continue;
+        }
+        seen[r][c] = true;
+        out.push((r, c));
+        if r > 0 {
+            stack.push((r - 1, c));
+        }
+        stack.push((r + 1, c));
+        if c > 0 {
+            stack.push((r, c - 1));
+        }
+        stack.push((r, c + 1));
+    }
+    out
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 impl App {
@@ -245,6 +321,7 @@ impl App {
             self.editor.paint_mode = false;
             self.editor.paint_active = false;
             self.editor.paint_stroke.clear();
+            self.editor.paint_anchor = None;
         }
 
         // ── Branch: UiNode (screen-space) vs Transform (world-space) ─────────
@@ -277,36 +354,40 @@ impl App {
         use winit::keyboard::KeyCode;
 
         // ── Read input into owned locals (release the InputState borrow) ──────
-        let Some((cursor, left_pressed, right_pressed, left_held, right_held, digit)) = ({
-            self.world
-                .resource::<crate::input::InputState>()
-                .map(|input| {
-                    const DIGITS: [(KeyCode, u32); 10] = [
-                        (KeyCode::Digit0, 0),
-                        (KeyCode::Digit1, 1),
-                        (KeyCode::Digit2, 2),
-                        (KeyCode::Digit3, 3),
-                        (KeyCode::Digit4, 4),
-                        (KeyCode::Digit5, 5),
-                        (KeyCode::Digit6, 6),
-                        (KeyCode::Digit7, 7),
-                        (KeyCode::Digit8, 8),
-                        (KeyCode::Digit9, 9),
-                    ];
-                    let digit = DIGITS
-                        .iter()
-                        .find(|(k, _)| input.just_pressed(*k))
-                        .map(|(_, v)| *v);
-                    (
-                        input.cursor(),
-                        input.mouse_just_pressed(MouseButton::Left),
-                        input.mouse_just_pressed(MouseButton::Right),
-                        input.is_mouse_pressed(MouseButton::Left),
-                        input.is_mouse_pressed(MouseButton::Right),
-                        digit,
-                    )
-                })
-        }) else {
+        let Some((cursor, left_pressed, right_pressed, left_held, right_held, alt_held, digit)) =
+            ({
+                self.world
+                    .resource::<crate::input::InputState>()
+                    .map(|input| {
+                        const DIGITS: [(KeyCode, u32); 10] = [
+                            (KeyCode::Digit0, 0),
+                            (KeyCode::Digit1, 1),
+                            (KeyCode::Digit2, 2),
+                            (KeyCode::Digit3, 3),
+                            (KeyCode::Digit4, 4),
+                            (KeyCode::Digit5, 5),
+                            (KeyCode::Digit6, 6),
+                            (KeyCode::Digit7, 7),
+                            (KeyCode::Digit8, 8),
+                            (KeyCode::Digit9, 9),
+                        ];
+                        let digit = DIGITS
+                            .iter()
+                            .find(|(k, _)| input.just_pressed(*k))
+                            .map(|(_, v)| *v);
+                        (
+                            input.cursor(),
+                            input.mouse_just_pressed(MouseButton::Left),
+                            input.mouse_just_pressed(MouseButton::Right),
+                            input.is_mouse_pressed(MouseButton::Left),
+                            input.is_mouse_pressed(MouseButton::Right),
+                            input.is_pressed(KeyCode::AltLeft)
+                                || input.is_pressed(KeyCode::AltRight),
+                            digit,
+                        )
+                    })
+            })
+        else {
             return;
         };
 
@@ -331,63 +412,188 @@ impl App {
             cam.screen_to_world(cursor)
         };
 
-        // A button counts as "active" this frame if it is held OR was just pressed.
-        // The just-pressed case matters because a fast click (or a click processed
-        // while the editor is paused) can deliver press *and* release within a single
-        // update — `is_mouse_pressed` is already false, but `mouse_just_pressed` is
-        // true — and the cell under the press must still paint.
+        // ── Eyedropper: Alt+click picks the hovered cell's value (any tool) ───
+        if alt_held && (left_pressed || right_pressed) && !egui_wants_mouse {
+            if let Some(tm) = self.world.get::<crate::tilemap::Tilemap>(sel) {
+                if let Some((row, col)) = tm.cell_at_world(world_pos) {
+                    if let Some(v) = tm.get_tile(row, col) {
+                        self.editor.paint_value = v;
+                    }
+                }
+            }
+            return;
+        }
+
+        // A button counts as "active" this frame if it is held OR was just pressed
+        // (a fast click can deliver press *and* release within a single update).
         let left_active = left_held || left_pressed;
         let right_active = right_held || right_pressed;
 
-        // ── Stroke start ─────────────────────────────────────────────────────
-        if (left_pressed || right_pressed) && !egui_wants_mouse && !self.editor.paint_active {
+        match self.editor.paint_tool {
+            crate::app::editor::PaintTool::Freehand => self.tile_paint_freehand(
+                sel,
+                world_pos,
+                egui_wants_mouse,
+                left_active,
+                right_active,
+            ),
+            crate::app::editor::PaintTool::Rectangle => self.tile_paint_rectangle(
+                sel,
+                world_pos,
+                egui_wants_mouse,
+                left_pressed,
+                right_pressed,
+                left_active,
+                right_active,
+            ),
+            crate::app::editor::PaintTool::Bucket => self.tile_paint_bucket(
+                sel,
+                world_pos,
+                egui_wants_mouse,
+                left_pressed,
+                right_pressed,
+            ),
+        }
+    }
+
+    /// Freehand brush: paint the N×N block under the cursor each frame; commit on release.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn tile_paint_freehand(
+        &mut self,
+        sel: crate::ecs::Entity,
+        world_pos: glam::Vec2,
+        egui_wants_mouse: bool,
+        left_active: bool,
+        right_active: bool,
+    ) {
+        if (left_active || right_active) && !egui_wants_mouse && !self.editor.paint_active {
             self.editor.paint_active = true;
             self.editor.paint_stroke.clear();
         }
-
-        // ── Stroke continue: paint the hovered cell ──────────────────────────
         if self.editor.paint_active && (left_active || right_active) && !egui_wants_mouse {
-            // Right button erases; otherwise apply the chosen paint value.
             let value = if right_active {
                 0
             } else {
                 self.editor.paint_value
             };
-            let recorded = {
-                let Some(tm) = self.world.get_mut::<crate::tilemap::Tilemap>(sel) else {
+            let brush = self.editor.paint_brush;
+            let cells = {
+                let Some(tm) = self.world.get::<crate::tilemap::Tilemap>(sel) else {
                     return;
                 };
+                let (rows, cols) = tm.dims();
                 match tm.cell_at_world(world_pos) {
-                    Some((row, col)) => {
-                        let old = tm.get_tile(row, col).unwrap_or(0);
-                        if tm.set_tile(row, col, value) {
-                            Some((row, col, old, value))
-                        } else {
-                            None
-                        }
-                    }
-                    None => None,
+                    Some((r, c)) => brush_cells(r, c, brush, rows, cols),
+                    None => Vec::new(),
                 }
             };
-            if let Some(change) = recorded {
-                self.editor.paint_stroke.push(change);
+            self.apply_paint_cells(sel, &cells, value);
+        }
+        if self.editor.paint_active && !left_active && !right_active {
+            self.commit_paint_stroke(sel);
+            self.editor.paint_active = false;
+        }
+    }
+
+    /// Rectangle tool: anchor on press, fill `anchor..release` on release.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[allow(clippy::too_many_arguments)]
+    fn tile_paint_rectangle(
+        &mut self,
+        sel: crate::ecs::Entity,
+        world_pos: glam::Vec2,
+        egui_wants_mouse: bool,
+        left_pressed: bool,
+        right_pressed: bool,
+        left_active: bool,
+        right_active: bool,
+    ) {
+        if (left_pressed || right_pressed) && !egui_wants_mouse && !self.editor.paint_active {
+            self.editor.paint_active = true;
+            self.editor.paint_erase = right_pressed && !left_pressed;
+            self.editor.paint_stroke.clear();
+            self.editor.paint_anchor = self
+                .world
+                .get::<crate::tilemap::Tilemap>(sel)
+                .and_then(|tm| tm.cell_at_world(world_pos));
+        }
+        if self.editor.paint_active && !left_active && !right_active {
+            let value = if self.editor.paint_erase {
+                0
+            } else {
+                self.editor.paint_value
+            };
+            let end = self
+                .world
+                .get::<crate::tilemap::Tilemap>(sel)
+                .and_then(|tm| tm.cell_at_world(world_pos));
+            if let (Some(a), Some(b)) = (self.editor.paint_anchor, end) {
+                let cells = rect_cells(a, b);
+                self.apply_paint_cells(sel, &cells, value);
+            }
+            self.commit_paint_stroke(sel);
+            self.editor.paint_active = false;
+            self.editor.paint_anchor = None;
+        }
+    }
+
+    /// Bucket tool: a click flood-fills the 4-connected same-value region.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn tile_paint_bucket(
+        &mut self,
+        sel: crate::ecs::Entity,
+        world_pos: glam::Vec2,
+        egui_wants_mouse: bool,
+        left_pressed: bool,
+        right_pressed: bool,
+    ) {
+        if !(left_pressed || right_pressed) || egui_wants_mouse {
+            return;
+        }
+        let value = if right_pressed && !left_pressed {
+            0
+        } else {
+            self.editor.paint_value
+        };
+        let cells = {
+            let Some(tm) = self.world.get::<crate::tilemap::Tilemap>(sel) else {
+                return;
+            };
+            match tm.cell_at_world(world_pos) {
+                Some(start) => flood_fill(tm, start),
+                None => Vec::new(),
+            }
+        };
+        self.editor.paint_stroke.clear();
+        self.apply_paint_cells(sel, &cells, value);
+        self.commit_paint_stroke(sel);
+    }
+
+    /// Apply `value` to each `(row, col)` cell, recording changed cells into the stroke.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn apply_paint_cells(&mut self, sel: crate::ecs::Entity, cells: &[(usize, usize)], value: u32) {
+        let Some(tm) = self.world.get_mut::<crate::tilemap::Tilemap>(sel) else {
+            return;
+        };
+        for &(row, col) in cells {
+            let old = tm.get_tile(row, col).unwrap_or(0);
+            if tm.set_tile(row, col, value) {
+                self.editor.paint_stroke.push((row, col, old, value));
             }
         }
+    }
 
-        // ── Stroke end: commit the whole stroke as one undo step ─────────────
-        // Commit only once no button is engaged (held or just-pressed) — a same-frame
-        // press/release defers its commit to the next update, after the cell is painted.
-        if self.editor.paint_active && !left_active && !right_active {
-            let changes = std::mem::take(&mut self.editor.paint_stroke);
-            if !changes.is_empty() {
-                self.editor
-                    .cmd_history
-                    .push(crate::app::editor::EditorCmd::PaintTiles {
-                        entity: sel,
-                        changes,
-                    });
-            }
-            self.editor.paint_active = false;
+    /// Commit the accumulated stroke as one undoable `PaintTiles` command (if non-empty).
+    #[cfg(not(target_arch = "wasm32"))]
+    fn commit_paint_stroke(&mut self, sel: crate::ecs::Entity) {
+        let changes = std::mem::take(&mut self.editor.paint_stroke);
+        if !changes.is_empty() {
+            self.editor
+                .cmd_history
+                .push(crate::app::editor::EditorCmd::PaintTiles {
+                    entity: sel,
+                    changes,
+                });
         }
     }
 
@@ -1342,5 +1548,136 @@ mod tests {
         let mut sel = app.editor.inspector_selected;
         app.editor.cmd_history.undo(&mut app.world, &mut sel);
         assert_eq!(tile(&app, e, 1, 2), 0, "committed stroke is undoable");
+    }
+
+    // ─── paint tools: pure cell-set helpers ──────────────────────────────────
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn rect_cells_inclusive_any_corner_order() {
+        let mut cells = rect_cells((3, 1), (1, 2)); // rows 1..=3, cols 1..=2
+        cells.sort_unstable();
+        assert_eq!(cells, vec![(1, 1), (1, 2), (2, 1), (2, 2), (3, 1), (3, 2)]);
+        assert_eq!(rect_cells((0, 0), (0, 0)), vec![(0, 0)]);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn brush_cells_sizes_and_clamp() {
+        assert_eq!(brush_cells(2, 2, 1, 5, 5), vec![(2, 2)]); // 1×1
+        assert_eq!(brush_cells(2, 2, 3, 5, 5).len(), 9); // full 3×3
+                                                         // 3×3 at the top-left corner clamps to a 2×2.
+        let mut corner = brush_cells(0, 0, 3, 5, 5);
+        corner.sort_unstable();
+        assert_eq!(corner, vec![(0, 0), (0, 1), (1, 0), (1, 1)]);
+        assert_eq!(brush_cells(2, 2, 5, 5, 5).len(), 25); // full 5×5
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn flood_fill_4_connected_stops_at_other_values() {
+        use crate::tilemap::{Tilemap, TilemapAtlas};
+        let tiles = vec![
+            vec![1, 1, 0], //
+            vec![1, 0, 0],
+            vec![0, 0, 2],
+        ];
+        let tm = Tilemap::new(TilemapAtlas::new("x", 2, 2), tiles, 10.0, glam::Vec2::ZERO);
+        let mut region = flood_fill(&tm, (0, 0)); // the 1-region
+        region.sort_unstable();
+        assert_eq!(region, vec![(0, 0), (0, 1), (1, 0)]);
+        // A single isolated cell.
+        assert_eq!(flood_fill(&tm, (2, 2)), vec![(2, 2)]);
+    }
+
+    // ─── paint tools: behaviour through update_tile_paint ────────────────────
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn tile_bucket_fills_region_one_undo() {
+        use winit::event::MouseButton;
+        let (mut app, e) = setup_paint_app();
+        app.editor.paint_tool = crate::app::editor::PaintTool::Bucket;
+        app.editor.paint_value = 2;
+
+        cursor(&mut app, 15.0, 15.0); // cell (1,1); whole 4×4 grid is value 0
+        press(&mut app, MouseButton::Left);
+        app.update_tile_paint(e, false); // bucket fills on press
+
+        assert_eq!(tile(&app, e, 0, 0), 2);
+        assert_eq!(tile(&app, e, 3, 3), 2);
+        let mut sel = app.editor.inspector_selected;
+        app.editor.cmd_history.undo(&mut app.world, &mut sel);
+        assert_eq!(tile(&app, e, 0, 0), 0, "one undo reverts the whole fill");
+        assert_eq!(tile(&app, e, 3, 3), 0);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn tile_rectangle_fills_area_one_undo() {
+        use winit::event::MouseButton;
+        let (mut app, e) = setup_paint_app();
+        app.editor.paint_tool = crate::app::editor::PaintTool::Rectangle;
+        app.editor.paint_value = 3;
+
+        cursor(&mut app, 5.0, 5.0); // cell (0,0)
+        press(&mut app, MouseButton::Left);
+        app.update_tile_paint(e, false); // anchor set
+        flush(&mut app);
+        cursor(&mut app, 25.0, 25.0); // drag to cell (2,2)
+        release(&mut app, MouseButton::Left);
+        app.update_tile_paint(e, false); // fill rect (0,0)..(2,2)
+
+        assert_eq!(tile(&app, e, 0, 0), 3);
+        assert_eq!(tile(&app, e, 2, 2), 3);
+        assert_eq!(tile(&app, e, 3, 3), 0, "outside the rectangle is untouched");
+        let mut sel = app.editor.inspector_selected;
+        app.editor.cmd_history.undo(&mut app.world, &mut sel);
+        assert_eq!(tile(&app, e, 0, 0), 0, "one undo reverts the rectangle");
+        assert_eq!(tile(&app, e, 2, 2), 0);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn tile_brush_paints_block() {
+        use winit::event::MouseButton;
+        let (mut app, e) = setup_paint_app();
+        app.editor.paint_tool = crate::app::editor::PaintTool::Freehand;
+        app.editor.paint_brush = 3;
+        app.editor.paint_value = 2;
+
+        cursor(&mut app, 15.0, 15.0); // cell (1,1) → 3×3 block (0,0)..(2,2)
+        press(&mut app, MouseButton::Left);
+        app.update_tile_paint(e, false);
+        assert_eq!(tile(&app, e, 0, 0), 2);
+        assert_eq!(tile(&app, e, 2, 2), 2);
+        assert_eq!(tile(&app, e, 3, 3), 0, "outside the brush is untouched");
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn tile_eyedropper_alt_click_picks_value() {
+        use winit::event::MouseButton;
+        use winit::keyboard::KeyCode;
+        let (mut app, e) = setup_paint_app();
+        app.world
+            .get_mut::<crate::tilemap::Tilemap>(e)
+            .unwrap()
+            .set_tile(1, 1, 3);
+        app.editor.paint_value = 1;
+
+        cursor(&mut app, 15.0, 15.0); // cell (1,1) == value 3
+        app.world
+            .resource_mut::<crate::input::InputState>()
+            .unwrap()
+            .press(KeyCode::AltLeft);
+        press(&mut app, MouseButton::Left);
+        app.update_tile_paint(e, false);
+
+        assert_eq!(
+            app.editor.paint_value, 3,
+            "eyedropper picked the cell value"
+        );
+        assert_eq!(tile(&app, e, 1, 1), 3, "eyedropper did not paint");
     }
 }
