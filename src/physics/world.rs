@@ -9,6 +9,8 @@ mod joints;
 mod raycast;
 mod tile_collider;
 
+pub use tile_collider::TileColliderIndex;
+
 // ── Body handle ───────────────────────────────────────────────────────────────
 
 /// Opaque handle to a rigid body created by one of the `PhysicsWorld::add_*`
