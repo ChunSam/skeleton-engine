@@ -157,9 +157,16 @@ impl AnimationClipSet {
         self.clips.get(idx)
     }
 
-    /// Iterate over all clip names (order not guaranteed — sort if you need stability).
+    /// Iterate over all clip names in [`clips`](Self::clips) / [`index`](Self::index) order
+    /// (alphabetical), so the name yielded at position `i` is the name of `clips()[i]`.
     pub fn names(&self) -> impl Iterator<Item = &str> {
-        self.names.keys().map(|s| s.as_str())
+        let mut ordered: Vec<&str> = vec![""; self.clips.len()];
+        for (name, &i) in &self.names {
+            if let Some(slot) = ordered.get_mut(i) {
+                *slot = name.as_str();
+            }
+        }
+        ordered.into_iter()
     }
 }
 
@@ -298,6 +305,18 @@ mod tests {
     }
 
     /// Clips are ordered alphabetically: "idle" < "run" → indices 0 and 1.
+    #[test]
+    fn names_are_in_clip_order() {
+        // names() must align with clips()/index() order (alphabetical), not HashMap order,
+        // so `names().nth(i)` is the name of `clips()[i]`. (Regression: a playtest HUD showed
+        // the wrong clip name because names() iterated the underlying HashMap.)
+        let set = AnimationClipSet::from_ron_str(SAMPLE_RON).expect("parse");
+        let names: Vec<&str> = set.names().collect();
+        assert_eq!(names, vec!["idle", "run"]);
+        assert_eq!(set.index(names[0]), Some(0));
+        assert_eq!(set.index(names[1]), Some(1));
+    }
+
     #[test]
     fn clip_order_is_alphabetical() {
         let set = AnimationClipSet::from_ron_str(SAMPLE_RON).expect("parse");
