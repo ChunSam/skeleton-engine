@@ -11,3 +11,6 @@ pub use state_machine::{
     AnimParam, AnimState, AnimTransition, AnimationStateMachine, StateMachineSystem, TransitionCond,
 };
 pub use system::AnimationSystem;
+
+pub mod clip_set;
+pub use clip_set::{AnimationClipRegistry, AnimationClipSet, ClipSetError};

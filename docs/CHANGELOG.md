@@ -4,6 +4,25 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.8.0
+
+Data-driven animation clips. Additive.
+
+### Added
+
+- **`AnimationClipSet`** — load named `AnimationClip`s from a RON file
+  (`(atlas: (columns, rows), clips: { "idle": (frames: [0,1,2,1], fps: 6.0, looping: true), … })`);
+  frame *indices* are resolved to `UvRect`s via the atlas grid. Clips are ordered alphabetically
+  by name (deterministic `index`/`clips`). `from_ron_str`, `clips()`, `index(name)`, `clip(name)`,
+  `names()`. Build a player with `AnimationPlayer::new(set.clips().to_vec())` and drive it via
+  `player.play(set.index("idle").unwrap())`.
+- **`App::load_animation_clips(name, path)`** + **`AnimationClipRegistry`** — registry resource
+  (survives scene reset via `register_persistent`) with **hot-reload** wired through the
+  `AssetServer` file watcher, mirroring `load_data_table`: editing the RON updates the clips live.
+  `ClipSetError` for parse/IO failures.
+- **Example `data_anim`** (+ `gen_anim_sheet`) — a sprite animated entirely from a RON clip set;
+  switch clips by name; edit the RON to hot-reload the animation.
+
 ## 8.7.0
 
 Multi-terrain autotiling. Additive — single-terrain `TilemapAutotile` is unchanged.

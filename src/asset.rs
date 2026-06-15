@@ -172,6 +172,10 @@ pub struct AssetServer {
     /// Used by `poll_reloads` to include data-table changes in the returned Vec.
     #[cfg(not(target_arch = "wasm32"))]
     data_table_paths: std::collections::HashSet<std::sync::Arc<str>>,
+    /// Set of canonical paths registered as animation-clip files (native only).
+    /// Used by `poll_reloads` to include animation-clip changes in the returned Vec.
+    #[cfg(not(target_arch = "wasm32"))]
+    animation_clip_paths: std::collections::HashSet<std::sync::Arc<str>>,
     // Channel for async loading (native only)
     #[cfg(not(target_arch = "wasm32"))]
     async_tx: std::sync::mpsc::SyncSender<async_loading::AsyncImageResult>,
@@ -228,6 +232,7 @@ impl AssetServer {
                 reload_rx,
                 _watcher: watcher,
                 data_table_paths: std::collections::HashSet::new(),
+                animation_clip_paths: std::collections::HashSet::new(),
                 async_tx,
                 async_rx,
             }
