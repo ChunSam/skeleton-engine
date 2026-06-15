@@ -275,12 +275,7 @@ impl<A: Eq + Hash + Clone> InputMap<A> {
     /// movement without bypassing `InputMap`.
     ///
     /// `pad` is the gamepad slot index (0 = first connected controller).
-    pub fn axis_value(
-        &self,
-        action: &A,
-        gamepad: &GamepadState,
-        pad: usize,
-    ) -> f32 {
+    pub fn axis_value(&self, action: &A, gamepad: &GamepadState, pad: usize) -> f32 {
         let Some(b) = self.bindings.get(action) else {
             return 0.0;
         };
@@ -288,9 +283,17 @@ impl<A: Eq + Hash + Clone> InputMap<A> {
             .iter()
             .map(|ab| {
                 let v = gamepad.axis(pad, ab.axis);
-                if ab.is_active(v) { v } else { 0.0 }
+                if ab.is_active(v) {
+                    v
+                } else {
+                    0.0
+                }
             })
-            .max_by(|a, b| a.abs().partial_cmp(&b.abs()).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|a, b| {
+                a.abs()
+                    .partial_cmp(&b.abs())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .unwrap_or(0.0)
     }
 }

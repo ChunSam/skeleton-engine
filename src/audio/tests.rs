@@ -155,8 +155,7 @@ fn clear_file_cache_empties_the_cache() {
     use std::sync::Arc;
 
     // Populate a standalone cache to simulate what AudioManager::play would do.
-    let dir = std::env::temp_dir()
-        .join(format!("engine-audio-clear-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("engine-audio-clear-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("tone.bin");
     std::fs::write(&path, b"fake-audio").unwrap();
@@ -167,7 +166,10 @@ fn clear_file_cache_empties_the_cache() {
     assert_eq!(cache.len(), 1, "cache should have one entry after a play");
 
     cache.clear();
-    assert!(cache.is_empty(), "cache must be empty after clear_file_cache");
+    assert!(
+        cache.is_empty(),
+        "cache must be empty after clear_file_cache"
+    );
 
     std::fs::remove_dir_all(&dir).ok();
 }

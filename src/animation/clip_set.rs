@@ -389,10 +389,7 @@ mod tests {
     },
 )"#;
         let result = AnimationClipSet::from_ron_str(ron);
-        assert!(
-            result.is_err(),
-            "rows=0 atlas must return Err, not panic"
-        );
+        assert!(result.is_err(), "rows=0 atlas must return Err, not panic");
     }
 
     /// A frame index that exceeds the atlas capacity must return a Ron error.
@@ -406,10 +403,7 @@ mod tests {
     },
 )"#;
         let result = AnimationClipSet::from_ron_str(ron);
-        assert!(
-            result.is_err(),
-            "out-of-range frame index must return Err"
-        );
+        assert!(result.is_err(), "out-of-range frame index must return Err");
         match result {
             Err(ClipSetError::Ron(msg)) => assert!(
                 msg.contains("frame index 4"),

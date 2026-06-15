@@ -64,8 +64,8 @@ type OffscreenRenderInfo = (
     u32, // rt_h
     *const wgpu::TextureView,
     Arc<wgpu::BindGroup>,
-    u32,                    // layer_mask
-    Option<[f64; 4]>,      // clear_color
+    u32,              // layer_mask
+    Option<[f64; 4]>, // clear_color
 );
 
 // WASM: the logical (CSS) canvas size, captured from the authored `<canvas>` width/height

@@ -1068,6 +1068,9 @@ SceneDef(
         // Must not panic; entity is alive and its Tag is set, serde components dropped.
         let entity = spawn_entity_def(&mut world, &def);
         assert!(world.is_alive(entity));
-        assert_eq!(world.get::<Tag>(entity).map(|t| t.0.as_str()), Some("ghost"));
+        assert_eq!(
+            world.get::<Tag>(entity).map(|t| t.0.as_str()),
+            Some("ghost")
+        );
     }
 }

@@ -260,8 +260,14 @@ mod tests {
 
     #[test]
     fn layout_dir_to_i32_from_i32_roundtrip() {
-        assert_eq!(LayoutDir::from_i32(LayoutDir::Vertical.to_i32()), LayoutDir::Vertical);
-        assert_eq!(LayoutDir::from_i32(LayoutDir::Horizontal.to_i32()), LayoutDir::Horizontal);
+        assert_eq!(
+            LayoutDir::from_i32(LayoutDir::Vertical.to_i32()),
+            LayoutDir::Vertical
+        );
+        assert_eq!(
+            LayoutDir::from_i32(LayoutDir::Horizontal.to_i32()),
+            LayoutDir::Horizontal
+        );
         // Unknown values fall back to Vertical.
         assert_eq!(LayoutDir::from_i32(99), LayoutDir::Vertical);
     }
@@ -273,8 +279,11 @@ mod tests {
         assert_eq!(p.direction, LayoutDir::Vertical);
 
         assert!(p.set_field("direction", ReflectValue::I32(1)));
-        assert_eq!(p.direction, LayoutDir::Horizontal,
-            "set_field(\"direction\", I32(1)) should switch layout to Horizontal");
+        assert_eq!(
+            p.direction,
+            LayoutDir::Horizontal,
+            "set_field(\"direction\", I32(1)) should switch layout to Horizontal"
+        );
 
         // Verify the field round-trips through fields() → I32.
         let fields = p.fields();

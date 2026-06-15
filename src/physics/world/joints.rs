@@ -92,8 +92,15 @@ mod tests {
         let handle = physics.add_prismatic_joint(b1, b2, Vec2::ZERO, Vec2::ZERO, Vec2::ZERO);
 
         // The joint must exist and its motor axis must be finite (no NaN).
-        let joint = physics.impulse_joint_set.get(handle.0).expect("joint present");
-        let unit = joint.data.as_prismatic().expect("is prismatic").local_axis1();
+        let joint = physics
+            .impulse_joint_set
+            .get(handle.0)
+            .expect("joint present");
+        let unit = joint
+            .data
+            .as_prismatic()
+            .expect("is prismatic")
+            .local_axis1();
         let v = unit.into_inner();
         assert!(
             v.x.is_finite() && v.y.is_finite(),
@@ -117,8 +124,15 @@ mod tests {
         let (b1, b2) = make_two_bodies(&mut physics);
         let handle = physics.add_prismatic_joint(b1, b2, Vec2::ZERO, Vec2::ZERO, Vec2::Y);
 
-        let joint = physics.impulse_joint_set.get(handle.0).expect("joint present");
-        let unit = joint.data.as_prismatic().expect("is prismatic").local_axis1();
+        let joint = physics
+            .impulse_joint_set
+            .get(handle.0)
+            .expect("joint present");
+        let unit = joint
+            .data
+            .as_prismatic()
+            .expect("is prismatic")
+            .local_axis1();
         let v = unit.into_inner();
         assert!(
             v.x.abs() < 1e-5 && (v.y - 1.0).abs() < 1e-5,

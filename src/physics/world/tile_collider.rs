@@ -527,18 +527,9 @@ mod tests {
     fn solid_tiles_only_constructor_membership() {
         let solid = SolidTiles::only([10u32, 20, 30]);
         // Members → solid.
-        assert!(
-            solid.collider_for(10).is_some(),
-            "tile 10 should be solid"
-        );
-        assert!(
-            solid.collider_for(20).is_some(),
-            "tile 20 should be solid"
-        );
-        assert!(
-            solid.collider_for(30).is_some(),
-            "tile 30 should be solid"
-        );
+        assert!(solid.collider_for(10).is_some(), "tile 10 should be solid");
+        assert!(solid.collider_for(20).is_some(), "tile 20 should be solid");
+        assert!(solid.collider_for(30).is_some(), "tile 30 should be solid");
         // Non-members → empty.
         assert!(
             solid.collider_for(0).is_none(),
@@ -639,11 +630,7 @@ mod tests {
             baseline,
             "after drain, body count must return to baseline (no leak)"
         );
-        assert_eq!(
-            tc.collider_count(),
-            0,
-            "index must be empty after drain"
-        );
+        assert_eq!(tc.collider_count(), 0, "index must be empty after drain");
     }
 
     /// A second `sync` after `drain_into_physics` must rebuild the full set of colliders.
@@ -661,6 +648,10 @@ mod tests {
 
         // A fresh sync must treat the empty index as a full build.
         tc.sync(&mut physics, &tilemap);
-        assert_eq!(tc.collider_count(), 9, "resync after drain must rebuild 9 colliders");
+        assert_eq!(
+            tc.collider_count(),
+            9,
+            "resync after drain must rebuild 9 colliders"
+        );
     }
 }

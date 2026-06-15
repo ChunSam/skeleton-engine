@@ -640,7 +640,10 @@ impl SpriteRenderer {
                 .draw_entries
                 .iter()
                 .filter_map(|e| {
-                    if let SpriteRenderKind::Material { hash, frag_source, .. } = &e.kind {
+                    if let SpriteRenderKind::Material {
+                        hash, frag_source, ..
+                    } = &e.kind
+                    {
                         if !frag_source.is_empty() && !self.custom_pipelines.contains_key(hash) {
                             return Some((*hash, frag_source.clone()));
                         }

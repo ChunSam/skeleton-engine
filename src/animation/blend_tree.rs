@@ -60,7 +60,11 @@ impl BlendTree1D {
     /// the sort is stable and O(n log n).
     pub fn new(entries: Vec<BlendEntry>, crossfade_duration: f32) -> Self {
         let mut entries = entries;
-        entries.sort_by(|a, b| a.threshold.partial_cmp(&b.threshold).unwrap_or(std::cmp::Ordering::Equal));
+        entries.sort_by(|a, b| {
+            a.threshold
+                .partial_cmp(&b.threshold)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         Self {
             entries,
             param: 0.0,
@@ -108,10 +112,7 @@ mod tests {
     #[test]
     fn new_sorts_entries_ascending() {
         // Supply in reverse order: run (1.5), walk (0.5), idle (0.0).
-        let tree = BlendTree1D::new(
-            vec![entry(1.5, 2), entry(0.5, 1), entry(0.0, 0)],
-            0.2,
-        );
+        let tree = BlendTree1D::new(vec![entry(1.5, 2), entry(0.5, 1), entry(0.0, 0)], 0.2);
         // After sorting: thresholds must be 0.0, 0.5, 1.5.
         assert_eq!(tree.entries[0].threshold, 0.0);
         assert_eq!(tree.entries[1].threshold, 0.5);
@@ -122,40 +123,50 @@ mod tests {
     #[test]
     fn target_clip_correct_with_reversed_input() {
         // Reversed input: run at 1.5, walk at 0.5, idle at 0.0.
-        let mut tree = BlendTree1D::new(
-            vec![entry(1.5, 2), entry(0.5, 1), entry(0.0, 0)],
-            0.2,
-        );
+        let mut tree = BlendTree1D::new(vec![entry(1.5, 2), entry(0.5, 1), entry(0.0, 0)], 0.2);
 
         tree.set_param(-1.0);
-        assert_eq!(tree.target_clip(), Some(0), "below all thresholds → idle (0)");
+        assert_eq!(
+            tree.target_clip(),
+            Some(0),
+            "below all thresholds → idle (0)"
+        );
 
         tree.set_param(0.0);
         assert_eq!(tree.target_clip(), Some(0), "at threshold 0.0 → idle (0)");
 
         tree.set_param(0.4);
-        assert_eq!(tree.target_clip(), Some(0), "between idle and walk → idle (0)");
+        assert_eq!(
+            tree.target_clip(),
+            Some(0),
+            "between idle and walk → idle (0)"
+        );
 
         tree.set_param(0.5);
         assert_eq!(tree.target_clip(), Some(1), "at threshold 0.5 → walk (1)");
 
         tree.set_param(1.0);
-        assert_eq!(tree.target_clip(), Some(1), "between walk and run → walk (1)");
+        assert_eq!(
+            tree.target_clip(),
+            Some(1),
+            "between walk and run → walk (1)"
+        );
 
         tree.set_param(1.5);
         assert_eq!(tree.target_clip(), Some(2), "at threshold 1.5 → run (2)");
 
         tree.set_param(3.0);
-        assert_eq!(tree.target_clip(), Some(2), "above all thresholds → run (2)");
+        assert_eq!(
+            tree.target_clip(),
+            Some(2),
+            "above all thresholds → run (2)"
+        );
     }
 
     /// Ascending input must produce the same results (no regression).
     #[test]
     fn target_clip_correct_with_ascending_input() {
-        let mut tree = BlendTree1D::new(
-            vec![entry(0.0, 0), entry(0.5, 1), entry(1.5, 2)],
-            0.2,
-        );
+        let mut tree = BlendTree1D::new(vec![entry(0.0, 0), entry(0.5, 1), entry(1.5, 2)], 0.2);
         tree.set_param(0.6);
         assert_eq!(tree.target_clip(), Some(1));
         tree.set_param(2.0);

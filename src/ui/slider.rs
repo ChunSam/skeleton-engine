@@ -162,10 +162,14 @@ mod tests {
 
         // Setting initial_value must also move the live thumb position.
         assert!(s.set_field("initial_value", ReflectValue::F32(75.0)));
-        assert!((s.initial_value - 75.0).abs() < f32::EPSILON,
-            "initial_value not updated");
-        assert!((s.value - 75.0).abs() < f32::EPSILON,
-            "value (live thumb) must match initial_value after set_field");
+        assert!(
+            (s.initial_value - 75.0).abs() < f32::EPSILON,
+            "initial_value not updated"
+        );
+        assert!(
+            (s.value - 75.0).abs() < f32::EPSILON,
+            "value (live thumb) must match initial_value after set_field"
+        );
     }
 
     #[test]
@@ -174,12 +178,16 @@ mod tests {
 
         // Value above max should be clamped to max.
         assert!(s.set_field("initial_value", ReflectValue::F32(200.0)));
-        assert!((s.value - 100.0).abs() < f32::EPSILON,
-            "value must be clamped to max");
+        assert!(
+            (s.value - 100.0).abs() < f32::EPSILON,
+            "value must be clamped to max"
+        );
 
         // Value below min should be clamped to min.
         assert!(s.set_field("initial_value", ReflectValue::F32(-50.0)));
-        assert!((s.value - 0.0).abs() < f32::EPSILON,
-            "value must be clamped to min");
+        assert!(
+            (s.value - 0.0).abs() < f32::EPSILON,
+            "value must be clamped to min"
+        );
     }
 }

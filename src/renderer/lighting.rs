@@ -395,8 +395,7 @@ impl LightingRenderer {
         let positions: Vec<glam::Vec2> = collected.iter().map(|(p, _)| *p).collect();
         // Cull anchor = viewport center in world space (camera.position is the top-left corner).
         let cull_center = camera.position
-            + glam::Vec2::new(vp_w as f32, vp_h as f32)
-                / (2.0 * camera.zoom.max(f32::EPSILON));
+            + glam::Vec2::new(vp_w as f32, vp_h as f32) / (2.0 * camera.zoom.max(f32::EPSILON));
         let selected = select_nearest_lights(&positions, cull_center);
 
         let mut lights_gpu = [GpuLightData::zeroed(); MAX_LIGHTS];
@@ -625,8 +624,7 @@ mod tests {
         let camera = Camera::default();
         let (vp_w, vp_h) = (800u32, 600u32);
         let cull_center = camera.position
-            + glam::Vec2::new(vp_w as f32, vp_h as f32)
-                / (2.0 * camera.zoom.max(f32::EPSILON));
+            + glam::Vec2::new(vp_w as f32, vp_h as f32) / (2.0 * camera.zoom.max(f32::EPSILON));
         assert!(
             (cull_center - glam::Vec2::new(400.0, 300.0)).length() < 1e-3,
             "cull center should be viewport center: {cull_center:?}"
@@ -644,7 +642,13 @@ mod tests {
 
         let selected = select_nearest_lights(&positions, cull_center);
         assert_eq!(selected.len(), MAX_LIGHTS);
-        assert!(!selected.contains(&far_idx_0), "top-left light should be excluded");
-        assert!(!selected.contains(&far_idx_1), "top-left light should be excluded");
+        assert!(
+            !selected.contains(&far_idx_0),
+            "top-left light should be excluded"
+        );
+        assert!(
+            !selected.contains(&far_idx_1),
+            "top-left light should be excluded"
+        );
     }
 }

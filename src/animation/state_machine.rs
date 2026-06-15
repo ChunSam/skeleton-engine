@@ -1008,7 +1008,11 @@ mod tests {
         sm.set_bool("go", false);
         // add_transition_crossfade internally calls add_transition_crossfade — the
         // target "ghost" is not registered and should trigger the log::warn path.
-        sm.add_transition("idle", "ghost", vec![TransitionCond::BoolEq("go".into(), true)]);
+        sm.add_transition(
+            "idle",
+            "ghost",
+            vec![TransitionCond::BoolEq("go".into(), true)],
+        );
         world.add_component(e, sm);
 
         // Fire the condition.

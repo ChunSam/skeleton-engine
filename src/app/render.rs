@@ -538,7 +538,8 @@ impl App {
                 })
                 .collect();
 
-            for (target_name, cam, rt_w, rt_h, view_ptr, bg, layer_mask, rt_clear_color) in rt_info {
+            for (target_name, cam, rt_w, rt_h, view_ptr, bg, layer_mask, rt_clear_color) in rt_info
+            {
                 // ① Swap camera — if no prior camera existed remove it after render, otherwise restore
                 let saved_cam = self.world.resource::<crate::camera::Camera>().copied();
                 self.world.insert_resource(cam);

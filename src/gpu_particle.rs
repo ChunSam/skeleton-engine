@@ -151,18 +151,22 @@ mod tests {
         let mut cursor = 0u32;
 
         // Simulate emitter A emitting 4 particles.
-        let slots_a: Vec<u32> = (0..4).map(|_| {
-            let s = cursor % capacity;
-            cursor = cursor.wrapping_add(1);
-            s
-        }).collect();
+        let slots_a: Vec<u32> = (0..4)
+            .map(|_| {
+                let s = cursor % capacity;
+                cursor = cursor.wrapping_add(1);
+                s
+            })
+            .collect();
 
         // Simulate emitter B emitting 4 particles.
-        let slots_b: Vec<u32> = (0..4).map(|_| {
-            let s = cursor % capacity;
-            cursor = cursor.wrapping_add(1);
-            s
-        }).collect();
+        let slots_b: Vec<u32> = (0..4)
+            .map(|_| {
+                let s = cursor % capacity;
+                cursor = cursor.wrapping_add(1);
+                s
+            })
+            .collect();
 
         // No slot in A should appear in B.
         for s in &slots_a {

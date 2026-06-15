@@ -592,7 +592,10 @@ mod tests {
 
         // Frame 1: contact starts.
         system.run(&mut world, 1.0 / 60.0);
-        world.resource_mut::<Events<CollisionEvent>>().unwrap().flush();
+        world
+            .resource_mut::<Events<CollisionEvent>>()
+            .unwrap()
+            .flush();
 
         // Remove both PhysicsBodies so no entity maps on frame 2.
         world.remove_component::<PhysicsBody>(e1);
@@ -601,9 +604,16 @@ mod tests {
         // Frame 2: with the entity↔collider mapping removed, the prior contact resolves to a
         // single Stopped event (the contact genuinely ended for these entities).
         system.run(&mut world, 1.0 / 60.0);
-        let f2_len = world.resource::<Events<CollisionEvent>>().unwrap().read().len();
+        let f2_len = world
+            .resource::<Events<CollisionEvent>>()
+            .unwrap()
+            .read()
+            .len();
         assert_eq!(f2_len, 1, "frame 2 should emit exactly one Stopped event");
-        world.resource_mut::<Events<CollisionEvent>>().unwrap().flush();
+        world
+            .resource_mut::<Events<CollisionEvent>>()
+            .unwrap()
+            .flush();
 
         // Frame 3: the reused scratch event vecs must be cleared between frames — no stale leak.
         system.run(&mut world, 1.0 / 60.0);

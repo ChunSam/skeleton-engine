@@ -23,8 +23,11 @@ pub(in crate::app) use docked::{
 /// Per-component reflected field data shown in the inspector:
 /// `(component TypeId, display name, [(field name, value)])`. Keyed by `TypeId` so write-back
 /// is robust to a register-name vs `Reflect::type_name()` mismatch.
-pub(crate) type InspectorCompFields =
-    Vec<(std::any::TypeId, &'static str, Vec<(&'static str, ReflectValue)>)>;
+pub(crate) type InspectorCompFields = Vec<(
+    std::any::TypeId,
+    &'static str,
+    Vec<(&'static str, ReflectValue)>,
+)>;
 
 // ── Private free helpers ──────────────────────────────────────────────────────
 
@@ -168,7 +171,10 @@ impl App {
             for tid in self.world.reflected_components(sel) {
                 if let Some(refl) = self.world.get_reflect(sel, tid) {
                     // Prefer the registered display name; fall back to the Reflect type_name.
-                    let display_name = tid_to_reg_name.get(&tid).copied().unwrap_or_else(|| refl.type_name());
+                    let display_name = tid_to_reg_name
+                        .get(&tid)
+                        .copied()
+                        .unwrap_or_else(|| refl.type_name());
                     comp_fields.push((tid, display_name, refl.fields()));
                 }
             }
@@ -520,7 +526,8 @@ impl App {
                                             .id_salt("inspector_comp")
                                             .max_height(250.0)
                                             .show(ui, |ui| {
-                                                for (_, comp_name, fields) in comp_fields.iter_mut() {
+                                                for (_, comp_name, fields) in comp_fields.iter_mut()
+                                                {
                                                     ui.collapsing(*comp_name, |ui| {
                                                         egui::Grid::new(*comp_name)
                                                             .num_columns(2)

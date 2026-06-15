@@ -598,8 +598,13 @@ impl TextRenderer {
         // current generation.
         for (buffer, _d, _scroll, plain_key) in buffers {
             if let Some(key) = plain_key {
-                self.shaped_buffer_cache
-                    .insert(key, CachedBuffer { buffer, last_used_gen: gen });
+                self.shaped_buffer_cache.insert(
+                    key,
+                    CachedBuffer {
+                        buffer,
+                        last_used_gen: gen,
+                    },
+                );
             }
             // Rich-text buffers drop here (no key).
         }
@@ -1075,7 +1080,8 @@ mod tests {
     fn cache_eviction_removes_stale_entries() {
         // Simulate the retain logic: keep only entries where last_used_gen == current gen.
         let current_gen = 5u64;
-        let mut cache: std::collections::HashMap<PlainTextCacheKey, u64> = std::collections::HashMap::new();
+        let mut cache: std::collections::HashMap<PlainTextCacheKey, u64> =
+            std::collections::HashMap::new();
         let k1 = base_key();
         let mut k2 = base_key();
         k2.text = "other".to_string();
@@ -1085,7 +1091,10 @@ mod tests {
 
         cache.retain(|_k, gen| *gen == current_gen);
 
-        assert!(cache.contains_key(&k1), "current-frame entry should be retained");
+        assert!(
+            cache.contains_key(&k1),
+            "current-frame entry should be retained"
+        );
         assert!(!cache.contains_key(&k2), "stale entry should be evicted");
     }
 }

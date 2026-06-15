@@ -502,7 +502,10 @@ mod tests {
 
         let shake = cam.shake_offset();
         // shake must be non-zero for the test to be meaningful
-        assert!(shake.x != 0.0 || shake.y != 0.0, "shake offset should be non-zero");
+        assert!(
+            shake.x != 0.0 || shake.y != 0.0,
+            "shake offset should be non-zero"
+        );
 
         let screen_pt = Vec2::new(200.0, 150.0);
         let world_pt = cam.screen_to_world(screen_pt);

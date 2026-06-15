@@ -389,20 +389,14 @@ mod tests {
 
         // Before any system tick: must not be finished.
         assert!(
-            !world
-                .get::<SkeletalAnimator>(root)
-                .unwrap()
-                .is_finished(),
+            !world.get::<SkeletalAnimator>(root).unwrap().is_finished(),
             "duration=0 non-looping clip must not be finished before the first tick"
         );
 
         // After one tick: now finished (started=true, time=0 >= duration=0).
         SkeletalAnimationSystem.run(&mut world, 0.01);
         assert!(
-            world
-                .get::<SkeletalAnimator>(root)
-                .unwrap()
-                .is_finished(),
+            world.get::<SkeletalAnimator>(root).unwrap().is_finished(),
             "duration=0 non-looping clip must be finished after the first tick"
         );
     }
@@ -429,30 +423,21 @@ mod tests {
 
         // Before any tick: not finished.
         assert!(
-            !world
-                .get::<SkeletalAnimator>(root)
-                .unwrap()
-                .is_finished(),
+            !world.get::<SkeletalAnimator>(root).unwrap().is_finished(),
             "non-looping clip must not be finished before first tick"
         );
 
         // One tick that doesn't reach duration.
         SkeletalAnimationSystem.run(&mut world, 0.2);
         assert!(
-            !world
-                .get::<SkeletalAnimator>(root)
-                .unwrap()
-                .is_finished(),
+            !world.get::<SkeletalAnimator>(root).unwrap().is_finished(),
             "non-looping clip must not be finished before time >= duration"
         );
 
         // Advance past duration.
         SkeletalAnimationSystem.run(&mut world, 0.4);
         assert!(
-            world
-                .get::<SkeletalAnimator>(root)
-                .unwrap()
-                .is_finished(),
+            world.get::<SkeletalAnimator>(root).unwrap().is_finished(),
             "non-looping clip must be finished after time >= duration"
         );
     }

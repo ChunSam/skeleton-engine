@@ -404,7 +404,7 @@ mod tests {
     #[test]
     fn is_finished_returns_false_for_missing_clip() {
         let mut player = make_player(); // clips 0–2
-        // Force an OOB state directly (bypassing the now-guarded play()).
+                                        // Force an OOB state directly (bypassing the now-guarded play()).
         player.current_clip = 99;
         assert!(
             !player.is_finished(),

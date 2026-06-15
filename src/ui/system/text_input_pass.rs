@@ -236,12 +236,22 @@ mod tests {
     }
 
     fn viewport() -> ViewportSize {
-        ViewportSize { width: 800.0, height: 600.0 }
+        ViewportSize {
+            width: 800.0,
+            height: 600.0,
+        }
     }
 
     /// Spawns a TextInput at the given screen position/size and z level.
     /// The UiNode uses TopLeft anchor so `offset` == screen position directly.
-    fn spawn_text_input(world: &mut World, x: f32, y: f32, w: f32, h: f32, z: f32) -> crate::ecs::Entity {
+    fn spawn_text_input(
+        world: &mut World,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        z: f32,
+    ) -> crate::ecs::Entity {
         let e = world.spawn();
         let mut node = UiNode::new(x, y, w, h).with_z(z);
         node.visible = true;
@@ -255,7 +265,7 @@ mod tests {
     fn topmost_z_receives_focus_on_click() {
         let mut world = World::new();
         // Both widgets occupy the same area (0,0)→(100,30).
-        let low_z  = spawn_text_input(&mut world, 0.0, 0.0, 100.0, 30.0, 0.5);
+        let low_z = spawn_text_input(&mut world, 0.0, 0.0, 100.0, 30.0, 0.5);
         let high_z = spawn_text_input(&mut world, 0.0, 0.0, 100.0, 30.0, 0.9);
 
         let vp = viewport();
@@ -274,9 +284,17 @@ mod tests {
         );
 
         // TextFocused event should be emitted for the winner only.
-        let focused_events: Vec<_> = output.events.iter().filter_map(|e| {
-            if let UiEvent::TextFocused(entity) = e { Some(*entity) } else { None }
-        }).collect();
+        let focused_events: Vec<_> = output
+            .events
+            .iter()
+            .filter_map(|e| {
+                if let UiEvent::TextFocused(entity) = e {
+                    Some(*entity)
+                } else {
+                    None
+                }
+            })
+            .collect();
         assert_eq!(focused_events, vec![high_z]);
     }
 
@@ -299,8 +317,14 @@ mod tests {
             "invisible widget must not receive focus"
         );
         // No TextFocused event should be emitted.
-        let focused_any = output.events.iter().any(|e| matches!(e, UiEvent::TextFocused(_)));
-        assert!(!focused_any, "no TextFocused event expected for invisible widget");
+        let focused_any = output
+            .events
+            .iter()
+            .any(|e| matches!(e, UiEvent::TextFocused(_)));
+        assert!(
+            !focused_any,
+            "no TextFocused event expected for invisible widget"
+        );
     }
 
     /// A focused TextInput that becomes invisible should have focus cleared.
@@ -323,7 +347,13 @@ mod tests {
             "focus must be cleared when the widget becomes invisible"
         );
         // TextBlurred should be emitted.
-        let blurred = output.events.iter().any(|e| matches!(e, UiEvent::TextBlurred(_)));
-        assert!(blurred, "TextBlurred event expected when focus is cleared by visibility change");
+        let blurred = output
+            .events
+            .iter()
+            .any(|e| matches!(e, UiEvent::TextBlurred(_)));
+        assert!(
+            blurred,
+            "TextBlurred event expected when focus is cleared by visibility change"
+        );
     }
 }
