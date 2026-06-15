@@ -193,6 +193,14 @@ fn docked_toolbar(ui: &mut egui::Ui, app: &mut App) {
         }
         // Grid overlay toggle (world-aligned to the snap size).
         ui.checkbox(&mut app.editor.show_grid, "Grid");
+        // Persist current editor preferences now (also auto-saved on closing the editor).
+        if ui
+            .button("💾 Set.")
+            .on_hover_text("save editor settings (snap / grid / paint tool)")
+            .clicked()
+        {
+            app.save_editor_settings();
+        }
 
         ui.separator();
 

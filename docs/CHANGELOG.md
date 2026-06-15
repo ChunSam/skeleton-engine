@@ -4,6 +4,17 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.18.0
+
+Editor settings persistence. Additive — editor-internal; no public engine API change.
+
+### Added
+
+- **Editor preferences persist across restarts.** Snap on/off + size, the grid-overlay toggle, and the
+  Tile Paint tool + brush size are written to a RON config file when the docked editor closes (F2) and
+  restored the first time it opens. A toolbar **💾 Set.** button saves on demand. `PaintTool` gains
+  serde derives so it round-trips.
+
 ## 8.17.0
 
 Prefab create/instancing in the editor. Additive — editor-internal; no public engine API change.

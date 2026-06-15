@@ -48,7 +48,7 @@ pub(in crate::app) enum EditorMode {
 
 /// Active Tile Paint tool (which set of cells a viewport gesture affects).
 #[cfg(not(target_arch = "wasm32"))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub(in crate::app) enum PaintTool {
     /// Paint each hovered cell (an N×N brush block) while dragging.
     #[default]
@@ -294,6 +294,9 @@ pub(in crate::app) struct EditorState {
     /// Status message from the last prefab save/spawn.
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) prefab_status: Option<String>,
+    /// Whether persisted editor settings have been loaded this process (load once on first open).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) settings_loaded: bool,
 }
 
 impl EditorState {
@@ -351,6 +354,7 @@ impl EditorState {
             rotate_start_angle: 0.0,
             prefab_path: "prefab.ron".into(),
             prefab_status: None,
+            settings_loaded: false,
         }
     }
 }

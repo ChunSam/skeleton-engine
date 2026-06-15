@@ -257,6 +257,45 @@ impl EditorHistory {
     }
 }
 
+/// Persisted docked-editor preferences (snap / grid / paint tool + brush). Written to a RON
+/// config file when the editor closes and restored when it next opens.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+pub(super) struct EditorSettings {
+    pub snap_enabled: bool,
+    pub snap_size: f32,
+    pub show_grid: bool,
+    pub paint_brush: u32,
+    pub paint_tool: PaintTool,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl EditorSettings {
+    pub(super) fn from_state(s: &EditorState) -> Self {
+        Self {
+            snap_enabled: s.snap_enabled,
+            snap_size: s.snap_size,
+            show_grid: s.show_grid,
+            paint_brush: s.paint_brush,
+            paint_tool: s.paint_tool,
+        }
+    }
+
+    pub(super) fn apply_to(&self, s: &mut EditorState) {
+        s.snap_enabled = self.snap_enabled;
+        s.snap_size = self.snap_size;
+        s.show_grid = self.show_grid;
+        s.paint_brush = self.paint_brush;
+        s.paint_tool = self.paint_tool;
+    }
+}
+
+/// Config-dir path for the persisted editor settings.
+#[cfg(not(target_arch = "wasm32"))]
+fn editor_settings_path() -> std::path::PathBuf {
+    crate::save::save_path("skeleton-engine", "editor_settings.ron")
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) fn entity_to_def(world: &World, entity: Entity) -> Option<crate::prefab::EntityDef> {
     let components = world
@@ -339,6 +378,22 @@ impl App {
             Err(e) => format!("Load failed: {e}"),
         };
         self.editor.prefab_status = Some(status);
+    }
+
+    /// Write the current docked-editor preferences to the RON config file.
+    pub(in crate::app) fn save_editor_settings(&self) {
+        let settings = EditorSettings::from_state(&self.editor);
+        let _ = crate::save::write_ron(&editor_settings_path(), &settings);
+    }
+
+    /// Load persisted editor preferences (if the config file exists) and apply them.
+    pub(in crate::app) fn load_editor_settings(&mut self) {
+        let path = editor_settings_path();
+        if crate::save::exists(&path) {
+            if let Ok(settings) = crate::save::read_ron::<EditorSettings>(&path) {
+                settings.apply_to(&mut self.editor);
+            }
+        }
     }
 }
 
@@ -896,6 +951,34 @@ mod editor_cmd_tests {
             app.world.get::<crate::prefab::PrefabInstance>(b).is_some(),
             "spawned prefab carries a PrefabInstance marker"
         );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn editor_settings_round_trip() {
+        let mut s = EditorState::new();
+        s.snap_enabled = true;
+        s.snap_size = 24.0;
+        s.show_grid = true;
+        s.paint_brush = 5;
+        s.paint_tool = PaintTool::Bucket;
+
+        let settings = EditorSettings::from_state(&s);
+        let path =
+            std::env::temp_dir().join(format!("test_editor_settings_{}.ron", std::process::id()));
+        crate::save::write_ron(&path, &settings).unwrap();
+        let loaded: EditorSettings = crate::save::read_ron(&path).unwrap();
+        assert_eq!(loaded, settings, "settings round-trip through RON");
+
+        // Apply onto a fresh (default) state.
+        let mut fresh = EditorState::new();
+        loaded.apply_to(&mut fresh);
+        assert!(fresh.snap_enabled);
+        assert_eq!(fresh.snap_size, 24.0);
+        assert!(fresh.show_grid);
+        assert_eq!(fresh.paint_brush, 5);
+        assert_eq!(fresh.paint_tool, PaintTool::Bucket);
 
         let _ = std::fs::remove_file(&path);
     }
