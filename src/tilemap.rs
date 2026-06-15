@@ -73,6 +73,12 @@ impl Tilemap {
 
     /// Sets the tile value at `(row, col)`.
     ///
+    /// `value` follows the [`Tilemap`] encoding: `0` = empty cell, `1+` = filled
+    /// (the renderer uses `atlas.uv_for(value - 1)` without autotiling, or — with a
+    /// [`TilemapAutotile`] attached — treats any non-zero value as connecting
+    /// terrain and picks the display tile from the neighbor mask). So to dig a hole
+    /// pass `0`; to fill, pass any non-zero value (commonly `1`).
+    ///
     /// Returns `true` if the cell was in bounds and the value actually changed.
     /// Returns `false` if the cell was out of bounds or already had that value.
     pub fn set_tile(&mut self, row: usize, col: usize, value: u32) -> bool {
@@ -229,6 +235,16 @@ impl TilemapAutotile {
             oob_filled: false,
             connect: ConnectRule,
         }
+    }
+
+    /// Sets [`oob_filled`](Self::oob_filled) and returns `self` (builder style).
+    ///
+    /// Pass `true` for a contained field (e.g. a cave) whose outer world boundary
+    /// should read as solid wall, so only interior holes draw outlines; `false`
+    /// (the constructor default) outlines the map edges too.
+    pub fn with_oob_filled(mut self, oob_filled: bool) -> Self {
+        self.oob_filled = oob_filled;
+        self
     }
 }
 

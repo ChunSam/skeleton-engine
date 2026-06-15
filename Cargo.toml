@@ -112,6 +112,10 @@ path = "examples/games/salvage_run/salvage_run.rs"
 name = "script_steering_game"
 path = "examples/games/script_steering/script_steering.rs"
 
+[[example]]
+name = "dig_quest_game"
+path = "examples/games/dig_quest/dig_quest.rs"
+
 [dependencies]
 winit    = "0.30.13"
 wgpu     = { version = "29", features = ["webgl"] }

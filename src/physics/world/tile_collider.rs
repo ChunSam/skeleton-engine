@@ -112,7 +112,13 @@ impl PhysicsWorld {
     /// desired collider presence changed are added or removed.
     ///
     /// An empty `index` on the first call performs a full build equivalent to
-    /// [`PhysicsWorld::add_static_from_tilemap`].
+    /// [`PhysicsWorld::add_static_from_tilemap`]. For a tilemap you intend to
+    /// mutate at runtime, do the **initial** build through this method (with a
+    /// fresh [`TileColliderIndex`]) rather than `add_static_from_tilemap` — that
+    /// way the index tracks every collider and later syncs can remove the exact
+    /// cell that was dug. Do not mix the two on the same tiles: colliders created
+    /// by `add_static_from_tilemap` are untracked, so a later sync would add a
+    /// second, overlapping collider and the original would never be removed.
     ///
     /// `pixels_per_unit` is the scale factor that converts world (pixel)
     /// coordinates to physics (meter) units.
