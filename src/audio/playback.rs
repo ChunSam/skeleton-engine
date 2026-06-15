@@ -28,6 +28,8 @@ impl AudioManager {
                 fades: HashMap::new(),
                 effects: HashMap::new(),
                 file_cache: HashMap::new(),
+                bus_ducks: HashMap::new(),
+                sidechains: Vec::new(),
             }),
             Err(e) => {
                 log::warn!("Audio initialization failed (running without audio): {e}");
@@ -165,10 +167,15 @@ impl AudioManager {
         self.sinks.insert(channel.to_string(), sink);
     }
 
-    /// Advances all active fades. Called every frame by the system.
+    /// Advances all active fades and duck/sidechain animations. Called every frame by the system.
     ///
-    /// Must be called when using `fade_out` / `fade_volume`.
+    /// Must be called when using `fade_out` / `fade_volume` / `duck_bus` / `set_sidechain`.
     pub fn update(&mut self, dt: f32) {
+        // ── Sidechain evaluation + duck progression ───────────────────────────
+        self.evaluate_sidechains();
+        self.progress_ducks(dt);
+
+        // ── Fade progression ──────────────────────────────────────────────────
         let channels: Vec<String> = self.fades.keys().cloned().collect();
         for ch in channels {
             let done = {
@@ -176,16 +183,19 @@ impl AudioManager {
                 fade.elapsed += dt;
                 let vol = fade.current_vol();
                 if let Some(sink) = self.sinks.get(&ch) {
-                    let bus_vol = self
-                        .channel_buses
-                        .get(&ch)
+                    let bus = self.channel_buses.get(&ch);
+                    let bus_vol = bus
                         .and_then(|b| self.bus_volumes.get(b))
                         .copied()
                         .unwrap_or(1.0);
+                    let duck = bus
+                        .and_then(|b| self.bus_ducks.get(b))
+                        .map(|d| d.current)
+                        .unwrap_or(1.0);
                     // Fades store/interpolate the pre-bus (base) volume. The bus
-                    // multiplier is applied exactly once here, so the sink receives
-                    // `base_vol × bus_vol` — never `base_vol × bus_vol²`.
-                    sink.set_volume(vol * bus_vol);
+                    // multiplier and duck factor are applied exactly once here, so the
+                    // sink receives `base_vol × bus_vol × duck` — never squared.
+                    sink.set_volume(vol * bus_vol * duck);
                 }
                 let t = (fade.elapsed / fade.duration).clamp(0.0, 1.0);
                 if t >= 1.0 {
@@ -353,13 +363,16 @@ impl AudioManager {
     }
 
     pub(super) fn effective_volume_params(&self, base: f32, channel: &str) -> f32 {
-        let bus_vol = self
-            .channel_buses
-            .get(channel)
+        let bus = self.channel_buses.get(channel);
+        let bus_vol = bus
             .and_then(|b| self.bus_volumes.get(b))
             .copied()
             .unwrap_or(1.0);
-        base * bus_vol
+        let duck = bus
+            .and_then(|b| self.bus_ducks.get(b))
+            .map(|d| d.current)
+            .unwrap_or(1.0);
+        base * bus_vol * duck
     }
 }
 

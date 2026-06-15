@@ -3,12 +3,14 @@ use std::collections::HashMap;
 use rodio::{OutputStream, OutputStreamHandle, Sink};
 
 mod bus;
+mod ducking;
 mod effects;
 mod playback;
 mod positional;
 mod source;
 mod types;
 
+pub use ducking::{BusDuck, Sidechain};
 pub use types::{AudioChannelState, AudioEffect};
 
 // ─── AudioManager ─────────────────────────────────────────────────────────────
@@ -61,6 +63,10 @@ pub struct AudioManager {
     /// Path → encoded file bytes cache. Prevents re-reading the disk when the same SFX
     /// is replayed (`play`/`play_internal` path only).
     file_cache: HashMap<String, std::sync::Arc<[u8]>>,
+    /// Per-bus duck state (gain multiplier riding on top of bus volume).
+    bus_ducks: HashMap<String, ducking::BusDuck>,
+    /// Automatic sidechain rules (at most one per `ducked_bus`).
+    sidechains: Vec<ducking::Sidechain>,
 }
 
 // ─── AudioSystem ──────────────────────────────────────────────────────────────
