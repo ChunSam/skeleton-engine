@@ -4,6 +4,16 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.19.0
+
+Editor debug bounds/colliders overlay. Additive — editor-internal; no public engine API change.
+
+### Added
+
+- **Bounds** debug overlay (toolbar toggle) in the editor: draws every entity's `Transform` AABB and
+  any collision `Collider` shape (Aabb → rectangle, Circle → circle) via `DebugDraw` — a quick "where is
+  everything / what's collidable" view. The toggle persists with the other editor settings.
+
 ## 8.18.0
 
 Editor settings persistence. Additive — editor-internal; no public engine API change.

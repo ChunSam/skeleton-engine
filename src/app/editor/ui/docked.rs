@@ -193,6 +193,8 @@ fn docked_toolbar(ui: &mut egui::Ui, app: &mut App) {
         }
         // Grid overlay toggle (world-aligned to the snap size).
         ui.checkbox(&mut app.editor.show_grid, "Grid");
+        // Debug bounds/colliders overlay toggle.
+        ui.checkbox(&mut app.editor.show_bounds, "Bounds");
         // Persist current editor preferences now (also auto-saved on closing the editor).
         if ui
             .button("💾 Set.")

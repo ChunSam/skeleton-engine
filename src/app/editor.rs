@@ -265,6 +265,8 @@ pub(super) struct EditorSettings {
     pub snap_enabled: bool,
     pub snap_size: f32,
     pub show_grid: bool,
+    #[serde(default)]
+    pub show_bounds: bool,
     pub paint_brush: u32,
     pub paint_tool: PaintTool,
 }
@@ -276,6 +278,7 @@ impl EditorSettings {
             snap_enabled: s.snap_enabled,
             snap_size: s.snap_size,
             show_grid: s.show_grid,
+            show_bounds: s.show_bounds,
             paint_brush: s.paint_brush,
             paint_tool: s.paint_tool,
         }
@@ -285,6 +288,7 @@ impl EditorSettings {
         s.snap_enabled = self.snap_enabled;
         s.snap_size = self.snap_size;
         s.show_grid = self.show_grid;
+        s.show_bounds = self.show_bounds;
         s.paint_brush = self.paint_brush;
         s.paint_tool = self.paint_tool;
     }
@@ -392,6 +396,42 @@ impl App {
         if crate::save::exists(&path) {
             if let Ok(settings) = crate::save::read_ron::<EditorSettings>(&path) {
                 settings.apply_to(&mut self.editor);
+            }
+        }
+    }
+
+    /// Draw the debug bounds overlay via `DebugDraw`: every entity's Transform AABB plus any
+    /// collision `Collider` shape. Called each frame from the editor UI while `show_bounds` is on.
+    pub(in crate::app) fn draw_debug_bounds(&mut self) {
+        use crate::collision::Collider;
+        // Collect first so the immutable world borrow is released before borrowing DebugDraw.
+        let bounds: Vec<(glam::Vec2, glam::Vec2)> = self
+            .world
+            .query::<crate::components::Transform>()
+            .map(|(_, t)| (t.position, t.scale))
+            .collect();
+        let colliders: Vec<(glam::Vec2, Collider)> = self
+            .world
+            .query2::<crate::components::Transform, Collider>()
+            .map(|(_, t, c)| (t.position, *c))
+            .collect();
+        let Some(dbg) = self.world.resource_mut::<crate::resources::DebugDraw>() else {
+            return;
+        };
+        let bound_color = crate::color::Color::rgba(0.3, 0.8, 1.0, 0.45);
+        let col_color = crate::color::Color::rgba(0.3, 1.0, 0.4, 0.7);
+        for (pos, scale) in bounds {
+            let half = scale * 0.5;
+            dbg.rect(pos - half, pos + half, bound_color);
+        }
+        for (pos, col) in colliders {
+            match col {
+                Collider::Aabb { half_extents } => {
+                    dbg.rect(pos - half_extents, pos + half_extents, col_color);
+                }
+                Collider::Circle { radius } => {
+                    dbg.circle(pos, radius, col_color);
+                }
             }
         }
     }
@@ -981,5 +1021,32 @@ mod editor_cmd_tests {
         assert_eq!(fresh.paint_tool, PaintTool::Bucket);
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn debug_bounds_draws_aabbs_and_colliders() {
+        let mut app = crate::app::App::new();
+        // Three Transform entities; one also has a collider.
+        for _ in 0..3 {
+            let e = app.world.spawn();
+            app.world
+                .add_component(e, crate::components::Transform::default());
+            if app.world.query::<crate::components::Transform>().count() == 3 {
+                app.world.add_component(
+                    e,
+                    crate::collision::Collider::Aabb {
+                        half_extents: glam::Vec2::splat(8.0),
+                    },
+                );
+            }
+        }
+
+        app.draw_debug_bounds();
+        let dbg = app
+            .world
+            .resource::<crate::resources::DebugDraw>()
+            .expect("DebugDraw resource");
+        // 3 entity-bounds rects + 1 collider rect = 4 shapes.
+        assert_eq!(dbg.shapes.len(), 4);
     }
 }
