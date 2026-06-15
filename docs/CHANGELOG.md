@@ -4,6 +4,23 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 8.7.0
+
+Multi-terrain autotiling. Additive — single-terrain `TilemapAutotile` is unchanged.
+
+### Added
+
+- **`MultiTerrainAutotile`** — a tilemap component (attach instead of `TilemapAutotile`)
+  where each non-zero cell autotiles using the [`TerrainRule`] whose `terrain` equals the
+  cell's value, connecting only to **same-value** neighbors. So distinct terrains
+  (grass/water/sand) each border-tile independently. `edge_16(&[(terrain, base_id), …])`
+  builds one identity edge-16 rule per terrain; `with_oob_filled`. Takes precedence over
+  `TilemapAutotile`; reuses the reactive `TilemapSystem`'s 8-neighbor UV propagation.
+- **`compute_tile_mask_typed(tiles, row, col, nb, oob_filled, terrain)`** — `compute_tile_mask`
+  with same-terrain connectivity (a neighbor counts only when its value equals `terrain`).
+- **Example `multi_terrain_game`** (+ `gen_multiterrain_sheet`) — grass/water/sand map; paint
+  cells with `1`/`2`/`3` (`set_tile`) and watch every terrain re-border live.
+
 ## 8.5.0
 
 Diagonal (8-direction) pathfinding. Additive — `find_path` is unchanged.

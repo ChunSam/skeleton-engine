@@ -321,6 +321,145 @@ pub fn compute_tile_mask(
     mask
 }
 
+// ─── Multi-terrain autotiling ─────────────────────────────────────────────────
+
+/// One terrain's autotile mapping: tile value `terrain` (a non-zero cell value)
+/// maps each neighbor bitmask to an atlas display id.
+#[derive(Debug, Clone)]
+pub struct TerrainRule {
+    /// The tile value identifying this terrain (must be non-zero).
+    pub terrain: u32,
+    /// Bitmask → 0-based atlas display id for this terrain.
+    pub mask_to_tile: HashMap<u8, u32>,
+}
+
+/// Multi-terrain autotile component. Attach to the same entity as the [`Tilemap`]
+/// **instead of** [`TilemapAutotile`]. Each non-zero cell autotiles using the rule
+/// whose `terrain` equals the cell's value, connecting only to same-value neighbors.
+///
+/// When both [`TilemapAutotile`] and [`MultiTerrainAutotile`] are present on the
+/// same entity, `MultiTerrainAutotile` takes precedence.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// // Grass (value 1) uses atlas tiles 0–15; water (value 2) uses tiles 16–31.
+/// world.add_component(map_entity, MultiTerrainAutotile::edge_16(&[(1, 0), (2, 16)]));
+/// ```
+#[derive(Debug, Clone)]
+pub struct MultiTerrainAutotile {
+    /// Which neighborhood scheme to use.
+    pub neighborhood: Neighborhood,
+    /// Treat out-of-bounds neighbors as filled (`true`) or empty (`false`).
+    pub oob_filled: bool,
+    /// Per-terrain rules. Each entry handles one distinct tile value.
+    pub rules: Vec<TerrainRule>,
+}
+
+impl MultiTerrainAutotile {
+    /// 16-tile edge layout per terrain.
+    ///
+    /// `terrains` is a slice of `(terrain_value, base_atlas_id)` pairs. Each terrain
+    /// gets a `mask_to_tile` mapping `m → base_atlas_id + m` for `m` in `0..16`,
+    /// matching a contiguous 16-tile edge strip in the atlas.
+    pub fn edge_16(terrains: &[(u32, u32)]) -> Self {
+        let rules = terrains
+            .iter()
+            .map(|&(terrain, base)| {
+                let mask_to_tile = (0u8..16).map(|m| (m, base + m as u32)).collect();
+                TerrainRule {
+                    terrain,
+                    mask_to_tile,
+                }
+            })
+            .collect();
+        Self {
+            neighborhood: Neighborhood::Edge4,
+            oob_filled: false,
+            rules,
+        }
+    }
+
+    /// Sets [`oob_filled`](Self::oob_filled) and returns `self` (builder style).
+    pub fn with_oob_filled(mut self, v: bool) -> Self {
+        self.oob_filled = v;
+        self
+    }
+
+    /// Returns the rule for the given terrain value, or `None` if no rule exists.
+    fn rule_for(&self, terrain: u32) -> Option<&TerrainRule> {
+        self.rules.iter().find(|r| r.terrain == terrain)
+    }
+}
+
+/// Like [`compute_tile_mask`], but a neighbor counts as connected **only** when its
+/// value equals `terrain` (same-terrain connectivity). Out-of-bounds neighbors count
+/// as connected iff `oob_filled` is `true`.
+///
+/// # Bit order
+/// Matches [`compute_tile_mask`]: N=1, E=2, S=4, W=8 for [`Neighborhood::Edge4`];
+/// additionally NE=16, SE=32, SW=64, NW=128 for [`Neighborhood::Blob8`].
+pub fn compute_tile_mask_typed(
+    tiles: &[Vec<u32>],
+    row: usize,
+    col: usize,
+    nb: Neighborhood,
+    oob_filled: bool,
+    terrain: u32,
+) -> u8 {
+    let filled = |r: i32, c: i32| -> bool {
+        let row_count = tiles.len() as i32;
+        if r < 0 || r >= row_count {
+            return oob_filled;
+        }
+        let row_ref = &tiles[r as usize];
+        let col_count = row_ref.len() as i32;
+        if c < 0 || c >= col_count {
+            return oob_filled;
+        }
+        row_ref[c as usize] == terrain
+    };
+
+    let r = row as i32;
+    let c = col as i32;
+
+    let n = filled(r - 1, c);
+    let e = filled(r, c + 1);
+    let s = filled(r + 1, c);
+    let w = filled(r, c - 1);
+
+    let mut mask: u8 = 0;
+    if n {
+        mask |= 1;
+    }
+    if e {
+        mask |= 2;
+    }
+    if s {
+        mask |= 4;
+    }
+    if w {
+        mask |= 8;
+    }
+
+    if nb == Neighborhood::Blob8 {
+        if filled(r - 1, c + 1) && n && e {
+            mask |= 16;
+        }
+        if filled(r + 1, c + 1) && s && e {
+            mask |= 32;
+        }
+        if filled(r + 1, c - 1) && s && w {
+            mask |= 64;
+        }
+        if filled(r - 1, c - 1) && n && w {
+            mask |= 128;
+        }
+    }
+
+    mask
+}
+
 // ─── System internals ─────────────────────────────────────────────────────────
 
 /// Per-tilemap-entity view tracked by [`TilemapSystem`].
@@ -445,29 +584,62 @@ impl System for TilemapSystem {
         // ── Step 3: process each alive tilemap entity ──────────────────────────
         for map_entity in tilemap_entities {
             // Clone out the data we need before any mutation.
-            let (tm_clone, autotile_nb, autotile_oob, mask_to_tile_clone) = {
+            // Precedence: MultiTerrainAutotile > TilemapAutotile > plain.
+            enum AutotileMode {
+                None,
+                Single {
+                    nb: Neighborhood,
+                    oob: bool,
+                    m2t: HashMap<u8, u32>,
+                },
+                Multi(MultiTerrainAutotile),
+            }
+
+            let (tm_clone, autotile_mode) = {
                 let tm = world.get::<Tilemap>(map_entity).unwrap();
-                let at = world.get::<TilemapAutotile>(map_entity);
-                let (at_nb, at_oob, mask_clone) = match at {
-                    Some(a) => (
-                        Some(a.neighborhood),
-                        a.oob_filled,
-                        Some(a.mask_to_tile.clone()),
-                    ),
-                    None => (None, false, None),
+                let mode = if let Some(mt) = world.get::<MultiTerrainAutotile>(map_entity) {
+                    AutotileMode::Multi(mt.clone())
+                } else if let Some(at) = world.get::<TilemapAutotile>(map_entity) {
+                    AutotileMode::Single {
+                        nb: at.neighborhood,
+                        oob: at.oob_filled,
+                        m2t: at.mask_to_tile.clone(),
+                    }
+                } else {
+                    AutotileMode::None
                 };
-                (tm.clone(), at_nb, at_oob, mask_clone)
+                (tm.clone(), mode)
             };
 
-            // Helper: build a fake TilemapAutotile-like lookup from cloned data.
+            // Whether any autotile mode is active (controls neighbor UV refresh).
+            let any_autotile = !matches!(autotile_mode, AutotileMode::None);
+
+            // Helper: resolve UV for a non-zero cell.
             let resolve_uv = |row: usize, col: usize, value: u32| -> UvRect {
-                match (autotile_nb, &mask_to_tile_clone) {
-                    (Some(nb), Some(m2t)) => {
-                        let mask = compute_tile_mask(&tm_clone.tiles, row, col, nb, autotile_oob);
+                match &autotile_mode {
+                    AutotileMode::None => tm_clone.atlas.uv_for(value - 1),
+                    AutotileMode::Single { nb, oob, m2t } => {
+                        let mask = compute_tile_mask(&tm_clone.tiles, row, col, *nb, *oob);
                         let display_id = m2t.get(&mask).copied().unwrap_or(0);
                         tm_clone.atlas.uv_for(display_id)
                     }
-                    _ => tm_clone.atlas.uv_for(value - 1),
+                    AutotileMode::Multi(mt) => {
+                        if let Some(rule) = mt.rule_for(value) {
+                            let mask = compute_tile_mask_typed(
+                                &tm_clone.tiles,
+                                row,
+                                col,
+                                mt.neighborhood,
+                                mt.oob_filled,
+                                value,
+                            );
+                            let display_id = rule.mask_to_tile.get(&mask).copied().unwrap_or(0);
+                            tm_clone.atlas.uv_for(display_id)
+                        } else {
+                            // No rule for this terrain value: plain non-autotiled mapping.
+                            tm_clone.atlas.uv_for(value - 1)
+                        }
+                    }
                 }
             };
 
@@ -585,7 +757,7 @@ impl System for TilemapSystem {
                         }
 
                         // When autotile is active, neighbors also need UV refresh.
-                        if autotile_nb.is_some() {
+                        if any_autotile {
                             let (rows, cols) = current_dims;
                             for dr in -1i32..=1 {
                                 for dc in -1i32..=1 {
@@ -972,6 +1144,257 @@ mod tests {
         assert_eq!(
             actual_uv, expected_uv,
             "center cell UV must update to mask=14 after north neighbor removed"
+        );
+    }
+
+    // ── compute_tile_mask_typed ───────────────────────────────────────────────
+
+    #[test]
+    fn mask_typed_all_same_terrain_gives_mask15() {
+        // Grass (value 1) cell surrounded by all-grass neighbors → mask 15.
+        let tiles = vec![vec![1, 1, 1], vec![1, 1, 1], vec![1, 1, 1]];
+        let mask = compute_tile_mask_typed(&tiles, 1, 1, Neighborhood::Edge4, false, 1);
+        assert_eq!(mask, 15, "all same-terrain neighbors → mask 15");
+    }
+
+    #[test]
+    fn mask_typed_different_terrain_gives_mask0() {
+        // Grass cell surrounded by all-water (value 2) neighbors → mask 0.
+        let tiles = vec![vec![2, 2, 2], vec![2, 1, 2], vec![2, 2, 2]];
+        let mask = compute_tile_mask_typed(&tiles, 1, 1, Neighborhood::Edge4, false, 1);
+        assert_eq!(mask, 0, "all different-terrain neighbors → mask 0");
+    }
+
+    #[test]
+    fn mask_typed_north_grass_east_south_west_water() {
+        // Grass cell: N=grass, E=water, S=water, W=water → mask 1 (N only).
+        let tiles = vec![
+            vec![2, 1, 2], // row 0: ..N=1..
+            vec![2, 1, 2], // row 1: W=2, center=1, E=2
+            vec![2, 2, 2], // row 2: S=2
+        ];
+        let mask = compute_tile_mask_typed(&tiles, 1, 1, Neighborhood::Edge4, false, 1);
+        assert_eq!(mask, 1, "only N is same terrain → mask 1");
+    }
+
+    // ── MultiTerrainAutotile::edge_16 ────────────────────────────────────────
+
+    #[test]
+    fn multi_terrain_edge_16_rule_lookups() {
+        let mt = MultiTerrainAutotile::edge_16(&[(1, 0), (2, 16)]);
+
+        // Terrain 1: base 0 → mask 7 maps to 7.
+        let rule1 = mt.rule_for(1).expect("rule for terrain 1 must exist");
+        assert_eq!(rule1.mask_to_tile.get(&7).copied(), Some(7));
+
+        // Terrain 2: base 16 → mask 7 maps to 23.
+        let rule2 = mt.rule_for(2).expect("rule for terrain 2 must exist");
+        assert_eq!(rule2.mask_to_tile.get(&7).copied(), Some(23));
+
+        // No rule for terrain 3.
+        assert!(mt.rule_for(3).is_none(), "rule_for(3) must be None");
+    }
+
+    // ── MultiTerrainAutotile reactive system ─────────────────────────────────
+
+    fn make_multi_terrain_atlas() -> TilemapAtlas {
+        // 32 tiles in a 32×1 strip: grass tiles 0–15, water tiles 16–31.
+        TilemapAtlas::new("tiles.png", 32, 1)
+    }
+
+    #[test]
+    fn multi_terrain_center_grass_cell_has_full_mask_uv() {
+        // 5×5 map: 3×3 grass patch (value 1) in the center, surrounded by water (2).
+        // Grass patch spans rows 1–3, cols 1–3.
+        let tiles = vec![
+            vec![2, 2, 2, 2, 2],
+            vec![2, 1, 1, 1, 2],
+            vec![2, 1, 1, 1, 2],
+            vec![2, 1, 1, 1, 2],
+            vec![2, 2, 2, 2, 2],
+        ];
+        let atlas = make_multi_terrain_atlas();
+        let tm = Tilemap::new(atlas.clone(), tiles, 32.0, Vec2::ZERO);
+
+        let mut world = World::new();
+        let mut sys = TilemapSystem::new();
+
+        let map_e = world.spawn();
+        world.add_component(map_e, tm);
+        world.add_component(
+            map_e,
+            MultiTerrainAutotile::edge_16(&[(1, 0), (2, 16)]).with_oob_filled(false),
+        );
+        run_tilemap_system(&mut world, &mut sys);
+
+        // Center grass cell: (2,2) — all 4 grass neighbors → mask 15 → atlas tile 15.
+        let expected_center_uv = atlas.uv_for(15);
+        // Center cell world pos: origin(0,0) + col*32+16, row*32+16 = (80, 80).
+        let center_entity = world
+            .query::<Transform>()
+            .find(|(_, t)| (t.position.x - 80.0).abs() < 0.1 && (t.position.y - 80.0).abs() < 0.1)
+            .map(|(e, _)| e)
+            .expect("center grass tile entity at (2,2) must exist");
+        let center_uv = world
+            .get::<UvRect>(center_entity)
+            .copied()
+            .expect("center grass entity must have UvRect");
+        assert_eq!(
+            center_uv, expected_center_uv,
+            "center grass cell (2,2): all grass neighbors → UV for mask 15"
+        );
+
+        // An edge grass cell, e.g. (1,2): N=water, E=grass, S=grass, W=grass
+        // → same-terrain mask: N=0, E=1(bit2), S=1(bit4), W=1(bit8) → mask = 2+4+8 = 14.
+        let expected_edge_uv = atlas.uv_for(14);
+        // Edge cell (1,2) world pos: (80, 48).
+        let edge_entity = world
+            .query::<Transform>()
+            .find(|(_, t)| (t.position.x - 80.0).abs() < 0.1 && (t.position.y - 48.0).abs() < 0.1)
+            .map(|(e, _)| e)
+            .expect("edge grass tile entity at (1,2) must exist");
+        let edge_uv = world
+            .get::<UvRect>(edge_entity)
+            .copied()
+            .expect("edge grass entity must have UvRect");
+        assert_eq!(
+            edge_uv, expected_edge_uv,
+            "edge grass cell (1,2): only E/S/W grass → UV for mask 14"
+        );
+
+        // A water cell, e.g. (0,2): N=water(oob→0 with oob_filled=false), E=water, S=water(val2), W=water
+        // Terrain-2 neighbors at (0,2): N=oob→false, E=(0,3)=2, S=(1,2)=1≠2(false), W=(0,1)=2
+        // → mask for water: N=0, E=1(bit2), S=0, W=1(bit8) → mask = 2+8 = 10 → atlas tile 16+10=26.
+        let expected_water_uv = atlas.uv_for(26);
+        // (0,2) world pos: (80, 16).
+        let water_entity = world
+            .query::<Transform>()
+            .find(|(_, t)| (t.position.x - 80.0).abs() < 0.1 && (t.position.y - 16.0).abs() < 0.1)
+            .map(|(e, _)| e)
+            .expect("water tile entity at (0,2) must exist");
+        let water_uv = world
+            .get::<UvRect>(water_entity)
+            .copied()
+            .expect("water entity must have UvRect");
+        assert_eq!(
+            water_uv, expected_water_uv,
+            "water cell (0,2): E+W water neighbors → UV for mask 10 (base 16) = tile 26"
+        );
+    }
+
+    #[test]
+    fn multi_terrain_neighbor_propagation_on_set_tile() {
+        // Start: 3×3 water (2) map. Set the center cell to grass (1). Run once.
+        // Then set (0,1) to grass (1) — the cell north of center. Run again.
+        // Assert: center (1,1) UV changes from mask=0 (no grass neighbors) to mask=1 (N=grass).
+        let tiles = vec![vec![2, 2, 2], vec![2, 1, 2], vec![2, 2, 2]];
+        let atlas = make_multi_terrain_atlas();
+        let tm = Tilemap::new(atlas.clone(), tiles, 32.0, Vec2::ZERO);
+
+        let mut world = World::new();
+        let mut sys = TilemapSystem::new();
+
+        let map_e = world.spawn();
+        world.add_component(map_e, tm);
+        world.add_component(
+            map_e,
+            MultiTerrainAutotile::edge_16(&[(1, 0), (2, 16)]).with_oob_filled(false),
+        );
+
+        // Initial build: center grass at (1,1), all neighbors are water → grass mask=0 → atlas tile 0.
+        run_tilemap_system(&mut world, &mut sys);
+
+        let center_entity = world
+            .query::<Transform>()
+            .find(|(_, t)| (t.position.x - 48.0).abs() < 0.1 && (t.position.y - 48.0).abs() < 0.1)
+            .map(|(e, _)| e)
+            .expect("center grass tile entity at (1,1) must exist");
+
+        let uv_before = world
+            .get::<UvRect>(center_entity)
+            .copied()
+            .expect("center grass entity must have UvRect");
+        assert_eq!(
+            uv_before,
+            atlas.uv_for(0),
+            "initially center grass has no grass neighbors → mask 0"
+        );
+
+        // Set north neighbor (0,1) to grass (1).
+        world.get_mut::<Tilemap>(map_e).unwrap().set_tile(0, 1, 1);
+        run_tilemap_system(&mut world, &mut sys);
+
+        // Now center (1,1): N=(0,1)=1=grass → mask N=1 → atlas tile 1.
+        let uv_after = world
+            .get::<UvRect>(center_entity)
+            .copied()
+            .expect("center grass entity must still have UvRect");
+        assert_eq!(
+            uv_after,
+            atlas.uv_for(1),
+            "after N neighbor becomes grass, center mask becomes 1 → atlas tile 1"
+        );
+
+        // Also verify the newly-placed grass cell (0,1) got its UV set.
+        // (0,1) pos: (48, 16). Its grass neighbors: S=(1,1)=1 → mask=4 → atlas tile 4.
+        let north_entity = world
+            .query::<Transform>()
+            .find(|(_, t)| (t.position.x - 48.0).abs() < 0.1 && (t.position.y - 16.0).abs() < 0.1)
+            .map(|(e, _)| e)
+            .expect("newly-placed grass tile at (0,1) must exist");
+        let north_uv = world
+            .get::<UvRect>(north_entity)
+            .copied()
+            .expect("must have UvRect");
+        assert_eq!(
+            north_uv,
+            atlas.uv_for(4),
+            "new north grass cell (0,1): only S grass neighbor → mask 4"
+        );
+    }
+
+    #[test]
+    fn multi_terrain_takes_precedence_over_single_autotile() {
+        // Entity with BOTH TilemapAutotile and MultiTerrainAutotile: multi wins.
+        // Single-terrain edge_16(0): for a fully-filled map, center mask=15 → atlas tile 15.
+        // Multi-terrain edge_16(&[(1, 100)]): center mask=15 → atlas tile 115 (100+15).
+        // If multi takes precedence, UV matches atlas tile 115, not 15.
+        let tiles = vec![vec![1, 1, 1], vec![1, 1, 1], vec![1, 1, 1]];
+        let atlas = TilemapAtlas::new("tiles.png", 200, 1);
+        let tm = Tilemap::new(atlas.clone(), tiles, 32.0, Vec2::ZERO);
+
+        let mut world = World::new();
+        let mut sys = TilemapSystem::new();
+
+        let map_e = world.spawn();
+        world.add_component(map_e, tm);
+        // Single-terrain: center → tile 15.
+        world.add_component(map_e, TilemapAutotile::edge_16(0));
+        // Multi-terrain: center → tile 115 (100 + 15).
+        world.add_component(map_e, MultiTerrainAutotile::edge_16(&[(1, 100)]));
+        run_tilemap_system(&mut world, &mut sys);
+
+        let expected_multi_uv = atlas.uv_for(115);
+        let expected_single_uv = atlas.uv_for(15);
+
+        // Center cell (1,1) at world pos (48, 48).
+        let center_entity = world
+            .query::<Transform>()
+            .find(|(_, t)| (t.position.x - 48.0).abs() < 0.1 && (t.position.y - 48.0).abs() < 0.1)
+            .map(|(e, _)| e)
+            .expect("center tile entity must exist");
+        let center_uv = world
+            .get::<UvRect>(center_entity)
+            .copied()
+            .expect("must have UvRect");
+
+        assert_eq!(
+            center_uv, expected_multi_uv,
+            "MultiTerrainAutotile must take precedence: center should be tile 115"
+        );
+        assert_ne!(
+            center_uv, expected_single_uv,
+            "single-terrain result (tile 15) must NOT be used when multi is present"
         );
     }
 }
