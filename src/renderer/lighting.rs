@@ -112,11 +112,11 @@ pub struct LightingRenderer {
     /// Normal buffer texture (same size as the viewport, Rgba8Unorm).
     normal_texture: wgpu::Texture,
     /// Normal buffer texture view (lighting shader binding 3).
-    pub normal_view: wgpu::TextureView,
+    pub(crate) normal_view: wgpu::TextureView,
     /// Current output texture width.
-    pub width: u32,
+    pub(crate) width: u32,
     /// Current output texture height.
-    pub height: u32,
+    pub(crate) height: u32,
     format: wgpu::TextureFormat,
     pipeline: wgpu::RenderPipeline,
     sampler: wgpu::Sampler,

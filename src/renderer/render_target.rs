@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 /// GPU texture that can be rendered into and sampled by the sprite pipeline.
 pub struct RenderTarget {
-    pub texture: wgpu::Texture,
-    pub view: wgpu::TextureView,
-    pub sampler: wgpu::Sampler,
-    pub bind_group: Arc<wgpu::BindGroup>,
+    pub(crate) texture: wgpu::Texture,
+    pub(crate) view: wgpu::TextureView,
+    pub(crate) sampler: wgpu::Sampler,
+    pub(crate) bind_group: Arc<wgpu::BindGroup>,
     pub width: u32,
     pub height: u32,
     /// Optional per-target clear color `[r, g, b, a]` (sRGB, `f64`).
@@ -20,12 +20,16 @@ pub struct RenderTarget {
 }
 
 impl RenderTarget {
+    /// Creates a new render target of the given dimensions and pixel format.
+    ///
+    /// The bind-group layout is built internally using the same descriptor as the
+    /// sprite pipeline (filterable texture @0, filtering sampler @1), so the
+    /// resulting target is directly sampleable by sprite draw calls.
     pub fn new(
         device: &wgpu::Device,
         width: u32,
         height: u32,
         format: wgpu::TextureFormat,
-        texture_layout: &wgpu::BindGroupLayout,
     ) -> Self {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("render target texture"),
@@ -49,9 +53,13 @@ impl RenderTarget {
             min_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
+        // Build our own layout — same descriptor as the sprite pipeline's texture slot
+        // (filterable texture @0, filtering sampler @1) so RTs are directly sampleable
+        // by sprite draw calls without borrowing the sprite renderer's layout.
+        let layout = crate::renderer::texture::Texture::bind_group_layout(device);
         let bind_group = Arc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("render target bind group"),
-            layout: texture_layout,
+            layout: &layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -86,5 +94,39 @@ impl RenderTarget {
     pub fn with_clear_color(mut self, color: [f64; 4]) -> Self {
         self.clear_color = Some(color);
         self
+    }
+
+    // ── Escape-hatch accessors ────────────────────────────────────────────────
+    // The underlying wgpu objects are intentionally not pub fields — callers that
+    // need raw GPU access for custom passes (e.g. writing normals into an RT or
+    // attaching it to a custom bind group) can use these read-only accessors.
+    // Pattern mirrors `PhysicsWorld::rigid_body` / the `.raw()` escape hatches.
+
+    /// Returns a reference to the underlying GPU texture.
+    ///
+    /// **Escape hatch** — prefer the higher-level `App`/sprite APIs where possible.
+    pub fn texture(&self) -> &wgpu::Texture {
+        &self.texture
+    }
+
+    /// Returns a reference to the texture view used by render passes and bind groups.
+    ///
+    /// **Escape hatch** — prefer the higher-level `App`/sprite APIs where possible.
+    pub fn view(&self) -> &wgpu::TextureView {
+        &self.view
+    }
+
+    /// Returns a reference to the sampler configured for this render target.
+    ///
+    /// **Escape hatch** — prefer the higher-level `App`/sprite APIs where possible.
+    pub fn sampler(&self) -> &wgpu::Sampler {
+        &self.sampler
+    }
+
+    /// Returns a reference to the bind group (texture + sampler) for this render target.
+    ///
+    /// **Escape hatch** — prefer the higher-level `App`/sprite APIs where possible.
+    pub fn bind_group(&self) -> &Arc<wgpu::BindGroup> {
+        &self.bind_group
     }
 }

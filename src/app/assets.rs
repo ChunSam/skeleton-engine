@@ -3,14 +3,13 @@ use super::*;
 impl App {
     pub fn create_render_target(&mut self, name: impl Into<String>, width: u32, height: u32) {
         let name = name.into();
-        if let (Some(gpu), Some(sr)) = (&self.gpu, &self.sprite_renderer) {
+        if let Some(gpu) = &self.gpu {
             // GPU already initialized — create immediately
             let rt = crate::renderer::render_target::RenderTarget::new(
                 &gpu.device,
                 width,
                 height,
                 gpu.config.format,
-                sr.texture_layout(),
             );
             self.render_targets.insert(name, rt);
         } else {

@@ -631,7 +631,6 @@ impl App {
                 w,
                 h,
                 gpu.config.format,
-                sprite_renderer.texture_layout(),
             );
             self.render_targets.insert(name, rt);
         }

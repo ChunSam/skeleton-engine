@@ -11,16 +11,31 @@ The package follows semantic versioning beginning with 1.0.0.
 `plans/V10_BREAKING_PASS_PLAN_2026-06-16.md`. Shipped incrementally; this section accumulates across
 the arc.
 
+### Added
+
+- `RenderTarget` escape-hatch read accessors `texture()` / `view()` / `sampler()` / `bind_group()`
+  (the underlying wgpu objects are no longer `pub` fields; these mirror the physics `.raw()` hatches).
+
 ### Changed (internal)
 
 - Split the 1620-line `src/tilemap.rs` into `src/tilemap/{mod,autotile,system}.rs` (data model /
   autotiling / reactive render system), mirroring `src/physics/`. Pure relocation — the 10
   re-exported public names (`engine::tilemap::*`) are unchanged.
 
+### Changed (breaking — Theme 3 encapsulation)
+
+- `RenderTarget`'s wgpu fields `texture` / `view` / `sampler` / `bind_group` are now `pub(crate)`
+  (use the new accessors above). `width` / `height` / `clear_color` stay `pub`.
+- `RenderTarget::new` no longer takes a `texture_layout` argument — it builds its own bind-group
+  layout internally. Forks create RTs via `App::create_render_target`, which is unchanged.
+- `LightingRenderer`'s `normal_view` / `width` / `height` are now `pub(crate)` (native-only type,
+  not in the prelude).
+
 ### Removed (breaking)
 
 - `engine::tilemap::cell_display_uv` — an unused public helper (zero callers in-tree; was redundant
   with `TilemapSystem`'s inline UV resolution).
+- `SpriteRenderer::texture_layout()` — unused after `RenderTarget::new` became self-contained.
 
 ### Fixed
 
