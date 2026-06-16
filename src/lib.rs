@@ -59,7 +59,8 @@ pub use app::{App, ScheduleErrorPolicy, SystemPanicPolicy};
 #[cfg(not(target_arch = "wasm32"))]
 pub use asset::HotReloadable;
 pub use asset::{
-    AssetId, AssetLoadState, AssetServer, Handle, ImageAsset, ImageEntry, ScriptAsset,
+    AssetId, AssetLoadError, AssetLoadState, AssetServer, Handle, ImageAsset, ImageEntry,
+    ScriptAsset,
 };
 pub use atlas::{AtlasSprite, TextureAtlas};
 #[cfg(not(target_arch = "wasm32"))]

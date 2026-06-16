@@ -269,35 +269,22 @@ impl TilemapAutotile {
     }
 }
 
-/// Computes the autotile bitmask for cell `(row, col)` in the given grid.
+/// Core bitmask computation shared by [`compute_tile_mask`] and [`compute_tile_mask_typed`].
 ///
-/// A neighbor is "filled" when in-bounds and non-zero; if out-of-bounds, it is
-/// filled iff `oob_filled` is true.
+/// `filled(r, c)` returns `true` when the cell at grid coordinates `(r, c)` should be
+/// considered a connected neighbor. Both public functions construct a different `filled`
+/// closure (non-zero vs. equals-terrain) and delegate here.
 ///
 /// # Bit order
 /// - [`Neighborhood::Edge4`]: N=1, E=2, S=4, W=8
-/// - [`Neighborhood::Blob8`]: N=1, E=2, S=4, W=8, NE=16, SE=32, SW=64, NW=128
+/// - [`Neighborhood::Blob8`]: additionally NE=16, SE=32, SW=64, NW=128
 ///   (diagonal bits are zeroed if either adjacent orthogonal neighbor is empty)
-pub fn compute_tile_mask(
-    tiles: &[Vec<u32>],
+fn compute_mask_raw(
     row: usize,
     col: usize,
     nb: Neighborhood,
-    oob_filled: bool,
+    filled: impl Fn(i32, i32) -> bool,
 ) -> u8 {
-    let filled = |r: i32, c: i32| -> bool {
-        let row_count = tiles.len() as i32;
-        if r < 0 || r >= row_count {
-            return oob_filled;
-        }
-        let row_ref = &tiles[r as usize];
-        let col_count = row_ref.len() as i32;
-        if c < 0 || c >= col_count {
-            return oob_filled;
-        }
-        row_ref[c as usize] != 0
-    };
-
     let r = row as i32;
     let c = col as i32;
 
@@ -340,6 +327,37 @@ pub fn compute_tile_mask(
     }
 
     mask
+}
+
+/// Computes the autotile bitmask for cell `(row, col)` in the given grid.
+///
+/// A neighbor is "filled" when in-bounds and non-zero; if out-of-bounds, it is
+/// filled iff `oob_filled` is true.
+///
+/// # Bit order
+/// - [`Neighborhood::Edge4`]: N=1, E=2, S=4, W=8
+/// - [`Neighborhood::Blob8`]: N=1, E=2, S=4, W=8, NE=16, SE=32, SW=64, NW=128
+///   (diagonal bits are zeroed if either adjacent orthogonal neighbor is empty)
+pub fn compute_tile_mask(
+    tiles: &[Vec<u32>],
+    row: usize,
+    col: usize,
+    nb: Neighborhood,
+    oob_filled: bool,
+) -> u8 {
+    let filled = |r: i32, c: i32| -> bool {
+        let row_count = tiles.len() as i32;
+        if r < 0 || r >= row_count {
+            return oob_filled;
+        }
+        let row_ref = &tiles[r as usize];
+        let col_count = row_ref.len() as i32;
+        if c < 0 || c >= col_count {
+            return oob_filled;
+        }
+        row_ref[c as usize] != 0
+    };
+    compute_mask_raw(row, col, nb, filled)
 }
 
 // ─── Multi-terrain autotiling ─────────────────────────────────────────────────
@@ -440,45 +458,7 @@ pub fn compute_tile_mask_typed(
         }
         row_ref[c as usize] == terrain
     };
-
-    let r = row as i32;
-    let c = col as i32;
-
-    let n = filled(r - 1, c);
-    let e = filled(r, c + 1);
-    let s = filled(r + 1, c);
-    let w = filled(r, c - 1);
-
-    let mut mask: u8 = 0;
-    if n {
-        mask |= 1;
-    }
-    if e {
-        mask |= 2;
-    }
-    if s {
-        mask |= 4;
-    }
-    if w {
-        mask |= 8;
-    }
-
-    if nb == Neighborhood::Blob8 {
-        if filled(r - 1, c + 1) && n && e {
-            mask |= 16;
-        }
-        if filled(r + 1, c + 1) && s && e {
-            mask |= 32;
-        }
-        if filled(r + 1, c - 1) && s && w {
-            mask |= 64;
-        }
-        if filled(r - 1, c - 1) && n && w {
-            mask |= 128;
-        }
-    }
-
-    mask
+    compute_mask_raw(row, col, nb, filled)
 }
 
 // ─── System internals ─────────────────────────────────────────────────────────
@@ -1550,6 +1530,91 @@ mod tests {
             world.query::<UvRect>().count(),
             4,
             "re-running with no mutation must not change the tile entity count"
+        );
+    }
+
+    // ── compute_mask_raw DRY refactor equivalence (Task 2a) ──────────────────
+    //
+    // These tests assert that `compute_tile_mask` and `compute_tile_mask_typed`
+    // continue to produce bit-identical results after being refactored to share
+    // `compute_mask_raw`.
+
+    /// When the only non-zero tile value IS the terrain, the two public functions
+    /// must agree on the mask for every cell.
+    #[test]
+    fn compute_mask_raw_typed_and_untyped_agree_when_predicates_coincide() {
+        // A 3×3 grid where every non-zero cell has value 1 (= terrain).
+        // With terrain=1, `!= 0` and `== 1` are equivalent → same mask.
+        let tiles = vec![vec![1u32, 1, 0], vec![0, 1, 1], vec![1, 0, 1]];
+        for row in 0..3 {
+            for col in 0..3 {
+                for nb in [Neighborhood::Edge4, Neighborhood::Blob8] {
+                    for oob in [false, true] {
+                        let untyped = compute_tile_mask(&tiles, row, col, nb, oob);
+                        let typed = compute_tile_mask_typed(&tiles, row, col, nb, oob, 1);
+                        assert_eq!(
+                            untyped, typed,
+                            "compute_tile_mask and compute_tile_mask_typed must agree \
+                             for row={row} col={col} nb={nb:?} oob={oob} (terrain=1, \
+                             all non-zero cells are 1)"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Hand-checked reference value: fully-surrounded Edge4 center cell gives mask 15
+    /// for both functions (pre-refactor ground truth).
+    #[test]
+    fn compute_mask_raw_reference_values_unchanged() {
+        let tiles = vec![vec![1u32, 1, 1], vec![1, 1, 1], vec![1, 1, 1]];
+        // Edge4 all-neighbors: N=1, E=2, S=4, W=8 → 15.
+        assert_eq!(
+            compute_tile_mask(&tiles, 1, 1, Neighborhood::Edge4, false),
+            15,
+            "Edge4 all-neighbors must give mask 15"
+        );
+        assert_eq!(
+            compute_tile_mask_typed(&tiles, 1, 1, Neighborhood::Edge4, false, 1),
+            15,
+            "Edge4 typed all-neighbors must give mask 15"
+        );
+        // Blob8 all-neighbors (3×3 fully filled): all 8 bits → 255.
+        assert_eq!(
+            compute_tile_mask(&tiles, 1, 1, Neighborhood::Blob8, false),
+            255,
+            "Blob8 all-neighbors must give mask 255"
+        );
+        assert_eq!(
+            compute_tile_mask_typed(&tiles, 1, 1, Neighborhood::Blob8, false, 1),
+            255,
+            "Blob8 typed all-neighbors must give mask 255"
+        );
+    }
+
+    /// `compute_tile_mask` uses `!= 0` (any non-zero connects), while
+    /// `compute_tile_mask_typed` uses `== terrain` (only same-value connects).
+    /// Verify they DIFFER when the grid contains mixed non-zero values.
+    #[test]
+    fn compute_mask_raw_typed_differs_from_untyped_on_mixed_terrain() {
+        // Grid where center (1,1) has N=2 (different terrain) and S=1 (same terrain).
+        let tiles = vec![vec![0u32, 2, 0], vec![0, 1, 0], vec![0, 1, 0]];
+        // Untyped (non-zero): N=1(bit1), S=1(bit4) → mask = 1 | 4 = 5.
+        let untyped = compute_tile_mask(&tiles, 1, 1, Neighborhood::Edge4, false);
+        assert_eq!(
+            untyped, 5,
+            "untyped: N(value=2,non-zero)=true + S(value=1)=true → 5"
+        );
+        // Typed terrain=1: N=2≠1→false, S=1=terrain→true → mask = 4.
+        let typed = compute_tile_mask_typed(&tiles, 1, 1, Neighborhood::Edge4, false, 1);
+        assert_eq!(
+            typed, 4,
+            "typed terrain=1: only S(value=1) connects → mask 4"
+        );
+        assert_ne!(
+            untyped, typed,
+            "the two functions must differ on mixed-terrain grids"
         );
     }
 }

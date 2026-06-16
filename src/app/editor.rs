@@ -829,6 +829,14 @@ impl App {
     /// On wasm only the reflect + clone + serde registrations run (the editor buttons
     /// are native-only); the method still compiles on both targets.
     ///
+    /// # Platform-gated registrations
+    ///
+    /// [`register_component`](Self::register_component) (the "Add Component" factory) and
+    /// [`register_component_remover`](Self::register_component_remover) (the "Remove
+    /// Component" button) are **native-only** — they drive the docked editor UI which does
+    /// not exist on wasm. On wasm only the reflect, clone, and serde registrations apply,
+    /// which still cover `Inspector` field display, entity clone, and scene round-trips.
+    ///
     /// # Example
     /// ```rust,no_run
     /// use engine::{App, Reflect};

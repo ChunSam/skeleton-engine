@@ -82,12 +82,35 @@ impl ColliderHandle {
 /// `PhysicsWorld::add_*_joint` methods.
 ///
 /// Wraps rapier's `ImpulseJointHandle` so the rapier type does not leak through
-/// the engine's public API (mirrors how [`CollisionGroups`] wraps
-/// `InteractionGroups`). Pass it back to [`PhysicsWorld::remove_joint`] to remove
-/// the joint. The inner handle is engine-private, so it can only be obtained from
-/// `add_*_joint` — not forged.
+/// the engine's public API (mirrors how [`BodyHandle`] and [`ColliderHandle`]
+/// wrap their corresponding rapier types). Pass it back to
+/// [`PhysicsWorld::remove_joint`] to remove the joint. The inner handle is
+/// engine-private, so it can only be obtained from `add_*_joint` — not forged.
+///
+/// **Escape hatch for forks:** call [`JointHandle::raw`] to retrieve the
+/// underlying `rapier2d::prelude::ImpulseJointHandle` if you need to drop down
+/// to raw rapier APIs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct JointHandle(pub(crate) ImpulseJointHandle);
+
+impl JointHandle {
+    /// Returns the underlying rapier `ImpulseJointHandle`.
+    ///
+    /// This is an escape hatch for forks that need direct rapier access.
+    /// Prefer the engine's `PhysicsWorld` accessors where possible.
+    pub fn raw(self) -> ImpulseJointHandle {
+        self.0
+    }
+
+    // Escape hatch for forks: reconstruct a JointHandle from a raw rapier handle
+    // obtained via `raw()`. Not used internally (joint handles are created by
+    // `JointHandle(impulse_joint_set.insert(...))` directly), but provided for
+    // symmetry with `BodyHandle::from_raw` and `ColliderHandle::from_raw`.
+    #[allow(dead_code)]
+    pub(crate) fn from_raw(h: ImpulseJointHandle) -> Self {
+        Self(h)
+    }
+}
 
 // ── Collision groups ──────────────────────────────────────────────────────────
 
