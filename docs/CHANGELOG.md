@@ -4,6 +4,25 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 9.6.1
+
+**Cleanups (additive / docs / CI).** Small fork-friction + doc-quality fixes.
+
+### Added
+
+- `Wander::direction_fn: Option<fn(u32, Vec2) -> Vec2>` + `Wander::with_direction_fn(f)` builder —
+  lets a game override the wander direction picker (e.g. plug in real `rand`) without forking
+  `SteeringSystem`. Defaults to `None` (the existing deterministic built-in picker), so behavior is
+  unchanged unless set. It's a plain `fn` pointer, so `Wander` stays `Clone`/`Debug`.
+
+### Fixed
+
+- Two broken rustdoc examples that never compiled (CI skipped doctests): `register_serde_component`
+  used the stale `App::new(Default::default())` (now `App::new()`), and `register_editable_component`
+  imported the `Reflect` *trait* instead of the derive macro (now `use engine_reflect_derive::Reflect`).
+- CI + `scripts/verify.sh` now run `cargo test --doc` (which `--all-targets` skips) so fork-facing
+  doc examples can't silently rot again.
+
 ## 9.6.0
 
 **Pluggable render-pass hook (cohesion review item 7, additive).** A fork could not inject a

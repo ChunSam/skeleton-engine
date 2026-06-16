@@ -27,6 +27,11 @@ cargo build --target wasm32-unknown-unknown
 echo "[verify] cargo test --all-targets"
 cargo test --all-targets
 
+# --all-targets does NOT run doctests, so run them explicitly — doc examples are
+# fork-facing copy-paste sources and must compile/pass.
+echo "[verify] cargo test --doc"
+cargo test --doc
+
 echo "[verify] RUSTDOCFLAGS=-D warnings cargo doc --no-deps"
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
 

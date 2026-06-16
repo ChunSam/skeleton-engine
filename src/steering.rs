@@ -83,6 +83,24 @@ pub struct Wander {
     pub max_speed: f32,
     /// Direction change interval (seconds).
     pub change_interval: f32,
+    /// Optional override for the direction picker. When `Some`, it is called each
+    /// time `change_interval` elapses, receiving `(entity_index, previous_dir)` and
+    /// returning the new wander direction (should be unit-length). When `None`, a
+    /// deterministic built-in placeholder is used (see [`Wander::with_initial_dir`]).
+    ///
+    /// Set this to plug in real randomness (e.g. via the `rand` crate) without
+    /// forking `SteeringSystem` — the override is a plain `fn` pointer so `Wander`
+    /// stays `Clone`/`Debug`:
+    ///
+    /// ```
+    /// use engine::{Wander, Vec2};
+    /// let w = Wander::new(100.0, 0.5).with_direction_fn(|idx, _prev| {
+    ///     let a = (idx as f32 * 2.399963).sin();
+    ///     Vec2::new(a.cos(), a.sin())
+    /// });
+    /// assert!(w.direction_fn.is_some());
+    /// ```
+    pub direction_fn: Option<fn(u32, Vec2) -> Vec2>,
     pub(crate) timer: f32,
     pub(crate) current_dir: Vec2,
 }
@@ -92,9 +110,17 @@ impl Wander {
         Self {
             max_speed,
             change_interval,
+            direction_fn: None,
             timer: 0.0,
             current_dir: Vec2::X,
         }
+    }
+
+    /// Sets a custom direction picker (see [`Wander::direction_fn`]). Builder form
+    /// of assigning the public `direction_fn` field.
+    pub fn with_direction_fn(mut self, f: fn(u32, Vec2) -> Vec2) -> Self {
+        self.direction_fn = Some(f);
+        self
     }
 
     /// Like [`Wander::new`] but sets an explicit initial wander direction instead of
@@ -112,6 +138,7 @@ impl Wander {
         Self {
             max_speed,
             change_interval,
+            direction_fn: None,
             timer: 0.0,
             current_dir: dir,
         }
@@ -246,12 +273,18 @@ impl System for SteeringSystem {
                     wander.timer += dt;
                     if wander.timer >= wander.change_interval {
                         wander.timer = 0.0;
-                        // Pseudo-random direction: simple deterministic calculation based on entity id
-                        // (use the `rand` crate in a real project)
-                        let seed =
-                            (entity.index() as f32 * 1.6180339) + wander.current_dir.x * 31.7;
-                        let angle = (seed.sin() * 6283.185).abs() % std::f32::consts::TAU;
-                        wander.current_dir = Vec2::new(angle.cos(), angle.sin());
+                        wander.current_dir = match wander.direction_fn {
+                            // Caller-supplied picker (e.g. real RNG) — no need to fork the system.
+                            Some(pick) => pick(entity.index(), wander.current_dir),
+                            // Pseudo-random direction: simple deterministic calculation based on
+                            // entity id (use the `rand` crate, or `direction_fn`, in a real project)
+                            None => {
+                                let seed = (entity.index() as f32 * 1.6180339)
+                                    + wander.current_dir.x * 31.7;
+                                let angle = (seed.sin() * 6283.185).abs() % std::f32::consts::TAU;
+                                Vec2::new(angle.cos(), angle.sin())
+                            }
+                        };
                     }
                     (wander.max_speed, wander.current_dir)
                 };
@@ -367,6 +400,39 @@ mod tests {
         assert!(
             sv.length() < 1e-5,
             "velocity should be ~0 within stop_radius, got {sv:?}"
+        );
+    }
+
+    #[test]
+    fn wander_direction_fn_overrides_builtin_picker() {
+        // The override always points +y; once change_interval elapses, the wander
+        // direction (hence velocity) must follow it rather than the deterministic
+        // builtin picker — proving the RNG is swappable without forking the system.
+        let (mut world, e) = make_world_with_transform(Vec2::ZERO);
+        world.add_component(e, SteeringVelocity::default());
+        world.add_component(
+            e,
+            Wander::new(100.0, 0.1).with_direction_fn(|_idx, _prev| Vec2::new(0.0, 1.0)),
+        );
+
+        let mut sys = SteeringSystem;
+        // dt exceeds change_interval, so the picker fires this tick.
+        sys.run(&mut world, 0.2);
+
+        let sv = world
+            .query::<SteeringVelocity>()
+            .find(|(en, _)| *en == e)
+            .map(|(_, sv)| sv.velocity)
+            .unwrap();
+
+        assert!(
+            sv.x.abs() < 1e-5,
+            "override sets dir=+y, velocity.x should be ~0, got {}",
+            sv.x
+        );
+        assert!(
+            (sv.y - 100.0).abs() < 1e-3,
+            "velocity should be +y * max_speed=100, got {sv:?}"
         );
     }
 

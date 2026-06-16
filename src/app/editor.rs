@@ -891,7 +891,8 @@ impl App {
     ///
     /// # Example
     /// ```rust,no_run
-    /// use engine::{App, Reflect};
+    /// use engine::App;
+    /// use engine_reflect_derive::Reflect;
     /// use serde::{Serialize, Deserialize};
     ///
     /// #[derive(Reflect, Serialize, Deserialize, Clone, Default)]
@@ -998,7 +999,7 @@ impl App {
     /// #[derive(Clone, Serialize, Deserialize)]
     /// struct Health { max: f32 }
     ///
-    /// let mut app = App::new(Default::default());
+    /// let mut app = App::new();
     /// app.register_serde_component::<Health>("Health", None);
     /// ```
     #[allow(clippy::type_complexity)]
