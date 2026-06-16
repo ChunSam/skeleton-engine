@@ -4,6 +4,24 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 9.4.1
+
+**Module-home reorganization (cohesion review item 3, pure relocation).** Zero behavior change,
+all public API paths preserved via re-export. Splits two god-files for fork-friendliness.
+
+### Changed (internal — no API change)
+
+- `SerdeComponentRegistry` + `SerdeComponentEntry` moved out of `prefab.rs` into a dedicated
+  `serde_registry` module (re-exported from `prefab`, so `engine::SerdeComponentRegistry` is
+  unchanged).
+- The docked editor's **State Machine** and **Timeline** inspector panels were extracted from the
+  2003-line `editor/ui/docked.rs` into `editor/ui/state_machine_panel.rs` +
+  `editor/ui/timeline_panel.rs` (mirroring the existing `audio_panel.rs`/`data_table_panel.rs`).
+  `docked.rs` 2003 → 1259 lines.
+- The tile-paint input methods moved out of `editor/ui/gizmo.rs` into `editor/ui/tile_paint.rs`
+  (tile painting is not a gizmo op). `gizmo.rs` 1869 → 1183 lines.
+- *(`CameraUniform` dedup was skipped — the two definitions differ in field visibility.)*
+
 ## 9.4.0
 
 **Module-cohesion review follow-ups (safe additive subset).** The first batch from
