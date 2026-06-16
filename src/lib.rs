@@ -9,6 +9,7 @@ pub mod camera;
 pub mod collision;
 pub mod color;
 pub mod components;
+pub mod coroutine;
 pub mod data_table;
 pub mod debug_ui;
 pub mod ecs;
@@ -78,6 +79,7 @@ pub use collision::{
 };
 pub use color::Color;
 pub use components::{OffscreenCamera, PointLight, RenderLayer, Sprite, Transform};
+pub use coroutine::{Coroutine, CoroutineRunner, CoroutineSystem};
 pub use data_table::{DataTable, DataTableRegistry};
 pub use debug_ui::DebugUi;
 pub use ecs::schedule::{ScheduleError, SystemConfig, SystemLabel};
