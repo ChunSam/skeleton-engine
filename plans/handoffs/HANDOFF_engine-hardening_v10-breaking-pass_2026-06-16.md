@@ -1,7 +1,16 @@
-# v10 breaking architecture pass — 8 PRs shipped (v9.6.0 → v10.0.0 in progress)
+# v10 breaking architecture pass — 8 PRs shipped (v9.6.0 → v10.0.0)
 
 **Date:** 2026-06-16
-**Status:** PAUSED — loop ended by user ("루프 종료") after item G; v10 arc 6/8 items done.
+**Status:** v10 arc **COMPLETE** — 7/8 items done (#73–#79), F descoped. main @ `25c3c11`, v10.0.0, clean+green.
+
+> **UPDATE (after the loop reopened):** the user then asked to "finish H with the sprite smoke test."
+> **Item H shipped as PR #79** (SpriteRenderer → TextureCache + MaterialRenderer), **visually
+> smoke-tested** (`basic` + `security_camera` render clean, no wgpu validation panic — macOS
+> screencapture+osascript). The `## 10.0.0` CHANGELOG heading dropped "(in progress)". **Item F stays
+> descoped.** So the only remaining open question is whether to ever do F (with a full render-mode
+> playtest) — otherwise the v10 arc is done. Below is the original post-item-G handoff.
+
+**(original) Status:** PAUSED — loop ended by user ("루프 종료") after item G; v10 arc 6/8 items done.
 **Bead(s):** none (beads unavailable in this repo)
 **Epic:** skeleton-engine — engine hardening / architecture
 **Chain:** `engine-hardening` seq `9`
