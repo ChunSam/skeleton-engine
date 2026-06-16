@@ -215,6 +215,12 @@ pub struct App {
     stepped_this_iteration: bool,
     /// All editor/inspector-only state grouped for clean fork extraction.
     editor: EditorState,
+    /// Registered hot-reload forwarders. Each entry is a monomorphized fn that calls
+    /// `HotReloadable::reload_path` on one resource type. Populated by
+    /// [`App::register_hot_reloadable`] and the three built-in auto-registrations in
+    /// `App::new`. Native-only — hot reload is not supported on wasm.
+    #[cfg(not(target_arch = "wasm32"))]
+    hot_reload_forwarders: Vec<fn(&mut crate::ecs::World, &[String])>,
 }
 
 impl App {
@@ -295,9 +301,19 @@ impl App {
             egui_output: None,
             stepped_this_iteration: false,
             editor: editor_state,
+            #[cfg(not(target_arch = "wasm32"))]
+            hot_reload_forwarders: Vec::new(),
         };
         #[cfg(not(target_arch = "wasm32"))]
         app.register_default_components();
+
+        // Auto-register the three built-in hot-reloadable registries.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            app.register_hot_reloadable::<crate::data_table::DataTableRegistry>();
+            app.register_hot_reloadable::<crate::animation::clip_set::AnimationClipRegistry>();
+            app.register_hot_reloadable::<crate::particle::ParticleConfigRegistry>();
+        }
 
         // Register HierarchySystem as the one permanent tail built-in.
         //
@@ -316,6 +332,48 @@ impl App {
         app.schedule_dirty = true;
 
         app
+    }
+
+    /// Register a resource type as a hot-reload target (native only).
+    ///
+    /// After registration, the engine calls `T::reload_path` on the resource every frame
+    /// for each changed asset path detected by the file watcher.
+    ///
+    /// # Requirements
+    /// - `T` must implement [`crate::asset::HotReloadable`].
+    /// - `T` must already be inserted as a resource in `self.world` before hot-reload ticks
+    ///   fire (typically done right after `App::new()`).
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// # use engine::{App, asset::HotReloadable};
+    /// struct MyRegistry;
+    /// impl HotReloadable for MyRegistry {
+    ///     fn reload_path(&mut self, path: &str) { /* ... */ }
+    /// }
+    ///
+    /// let mut app = App::new();
+    /// // app.world.insert_resource(MyRegistry);
+    /// app.register_hot_reloadable::<MyRegistry>();
+    /// ```
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn register_hot_reloadable<T: crate::asset::HotReloadable>(&mut self) {
+        self.hot_reload_forwarders.push(forward_hot_reload::<T>);
+    }
+}
+
+/// Monomorphized hot-reload forwarder: extracts resource `T` from the world and forwards
+/// each changed path to it via the `HotReloadable` trait. Stored as a function pointer so
+/// `App` does not need to carry a `Box<dyn Fn>` per registry.
+#[cfg(not(target_arch = "wasm32"))]
+fn forward_hot_reload<T: crate::asset::HotReloadable>(
+    world: &mut crate::ecs::World,
+    paths: &[String],
+) {
+    if let Some(reg) = world.resource_mut::<T>() {
+        for p in paths {
+            reg.reload_path(p);
+        }
     }
 }
 
@@ -938,5 +996,76 @@ mod tests {
             (x - 25.0).abs() < 1e-3,
             "after scene replace, child GT.x expected 25.0, got {x}"
         );
+    }
+
+    // ── HotReloadable / register_hot_reloadable tests (native only) ───────────
+
+    #[cfg(not(target_arch = "wasm32"))]
+    mod hot_reload_tests {
+        use super::super::{forward_hot_reload, App};
+        use crate::asset::HotReloadable;
+        use crate::ecs::World;
+
+        /// A simple recorder that collects every path forwarded to it.
+        #[derive(Default)]
+        struct Recorder(Vec<String>);
+
+        impl HotReloadable for Recorder {
+            fn reload_path(&mut self, path: &str) {
+                self.0.push(path.to_owned());
+            }
+        }
+
+        /// `forward_hot_reload` calls `HotReloadable::reload_path` on the resource.
+        #[test]
+        fn forward_hot_reload_drives_recorder() {
+            let mut world = World::new();
+            world.insert_resource(Recorder::default());
+
+            let paths = vec!["assets/foo.ron".to_owned(), "assets/bar.ron".to_owned()];
+            forward_hot_reload::<Recorder>(&mut world, &paths);
+
+            let rec = world.resource::<Recorder>().unwrap();
+            assert_eq!(rec.0, paths, "recorder should have received both paths");
+        }
+
+        /// `register_hot_reloadable` pushes exactly one forwarder per call.
+        #[test]
+        fn register_hot_reloadable_pushes_one_forwarder() {
+            let mut app = App::new();
+            let count_before = app.hot_reload_forwarders.len();
+            app.register_hot_reloadable::<Recorder>();
+            assert_eq!(
+                app.hot_reload_forwarders.len(),
+                count_before + 1,
+                "one forwarder should have been added"
+            );
+        }
+
+        /// `register_hot_reloadable` + `forward_hot_reload` round-trip through App.
+        #[test]
+        fn round_trip_recorder_via_app() {
+            let mut app = App::new();
+            app.world.insert_resource(Recorder::default());
+            app.register_hot_reloadable::<Recorder>();
+
+            let paths = vec!["my/asset.ron".to_owned()];
+            // Drive via the forwarder fn directly (avoids needing a live window/GPU).
+            let f = *app.hot_reload_forwarders.last().unwrap();
+            f(&mut app.world, &paths);
+
+            let rec = app.world.resource::<Recorder>().unwrap();
+            assert_eq!(rec.0, paths);
+        }
+
+        /// Verifies the `DataTableRegistry` HotReloadable impl does NOT stack-overflow
+        /// (UFCS delegation is correct — trait method calls the inherent, not itself).
+        #[test]
+        fn data_table_registry_no_infinite_recursion() {
+            use crate::data_table::DataTableRegistry;
+            let mut reg = DataTableRegistry::default();
+            // Call the trait method with a path that won't match any table → no-op, no crash.
+            HotReloadable::reload_path(&mut reg, "nonexistent/path.ron");
+        }
     }
 }
