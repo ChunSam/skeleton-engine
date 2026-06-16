@@ -13,10 +13,6 @@ pub(super) fn file_texture_aliases(path: &str) -> Vec<String> {
 }
 
 impl SpriteRenderer {
-    pub fn texture_layout(&self) -> &wgpu::BindGroupLayout {
-        &self.texture_layout
-    }
-
     pub(crate) fn has_texture_key(&self, key: &str) -> bool {
         self.texture_cache.contains_key(key)
             || self
