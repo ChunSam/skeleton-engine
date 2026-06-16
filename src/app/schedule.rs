@@ -130,6 +130,44 @@ impl App {
 
     pub(super) fn update(&mut self, dt: f32) {
         self.world.clear_change_tracking();
+
+        // 1. Viewport + scale-factor computation
+        if self.gpu.is_some() {
+            self.compute_viewport();
+        }
+
+        // 2. Egui frame begin
+        let egui_ctx: Option<egui::Context> = {
+            use super::egui_pass::begin_egui_frame;
+            begin_egui_frame(
+                self.window.as_deref(),
+                self.render.egui_state.as_mut(),
+                self.world.resource::<DebugUi>(),
+            )
+        };
+
+        // 3–6. Schedule recompute, editor pause, system loop, camera update
+        self.run_systems(dt, &egui_ctx);
+
+        // 7–13. Editor UI, egui end, flush, scene cmd, fade, hot-reload, asset upload
+        self.post_systems(dt, egui_ctx);
+    }
+
+    /// Concern 1 — Viewport + scale-factor computation.
+    ///
+    /// Reads `gpu.config` (physical buffer size) and the window DPR (native) or the authored
+    /// canvas size (`WASM_LOGICAL_SIZE`, wasm) to derive the logical `ViewportSize` and
+    /// `DisplayScaleFactor` resources that the rest of the frame reads.
+    ///
+    /// In Docked editor mode (native), the viewport is narrowed to the central panel rect so the
+    /// game camera and screen-space UI do not see the panel chrome.
+    ///
+    /// Caller must ensure `self.gpu.is_some()` before calling.
+    fn compute_viewport(&mut self) {
+        let gpu = self
+            .gpu
+            .as_ref()
+            .expect("compute_viewport called without gpu");
         // The world coordinate system is logical pixels; the GPU surface (gpu.config) is the
         // physical drawing buffer. Divide the buffer by the render scale to recover the logical
         // viewport (otherwise sprites/UI look half-size on Retina/HiDPI) and expose the scale as
@@ -141,96 +179,85 @@ impl App {
         // = the authored canvas attributes (WASM_LOGICAL_SIZE, captured in finish_init). (Pre-fix,
         // wasm forced scale = 1 on a logical-size buffer, which rendered correctly but soft on
         // Retina.)
-        if let Some(gpu) = &self.gpu {
-            #[cfg(not(target_arch = "wasm32"))]
-            let scale_factor = self
-                .window
-                .as_ref()
-                .map(|w| w.scale_factor() as f32)
-                .unwrap_or(1.0)
-                .max(1.0);
-            #[cfg(target_arch = "wasm32")]
-            let scale_factor = {
-                // Logical size = the authored canvas attributes captured in finish_init (stable
-                // across scene resets, unlike WindowConfig). render scale = buffer / logical.
-                let logical_w = super::WASM_LOGICAL_SIZE.with(|c| c.get()).0;
-                if logical_w >= 1 {
-                    (gpu.config.width as f32 / logical_w as f32).max(1.0)
-                } else {
-                    1.0
-                }
-            };
-
-            // In Docked mode the game camera and screen-space UI must see the central
-            // viewport rect, not the full window. Compute the placeholder rect each
-            // frame from the window's logical size; package 2 will overwrite
-            // `editor.central_rect` with the real egui panel rect instead.
-            //
-            // The scale factor always tracks the real window DPR — only the logical
-            // size reported to the game changes.
-            #[cfg(not(target_arch = "wasm32"))]
-            let viewport_size = {
-                use crate::app::editor::docked_rt::compute_central_rect;
-                use crate::app::editor::EditorMode;
-                if self.editor.mode == EditorMode::Docked {
-                    let win_logical_w = gpu.config.width as f32 / scale_factor;
-                    let win_logical_h = gpu.config.height as f32 / scale_factor;
-                    // Use the cached central_rect when package 2 writes it; otherwise
-                    // recompute from the placeholder margins every frame.
-                    let rect = self
-                        .editor
-                        .central_rect
-                        .or_else(|| compute_central_rect(win_logical_w, win_logical_h));
-                    match rect {
-                        Some(r) => ViewportSize {
-                            width: r.width(),
-                            height: r.height(),
-                        },
-                        None => ViewportSize {
-                            width: (win_logical_w
-                                - crate::app::editor::docked_rt::MARGIN_LEFT
-                                - crate::app::editor::docked_rt::MARGIN_RIGHT)
-                                .max(1.0),
-                            height: (win_logical_h
-                                - crate::app::editor::docked_rt::MARGIN_TOP
-                                - crate::app::editor::docked_rt::MARGIN_BOTTOM)
-                                .max(1.0),
-                        },
-                    }
-                } else {
-                    ViewportSize {
-                        width: gpu.config.width as f32 / scale_factor,
-                        height: gpu.config.height as f32 / scale_factor,
-                    }
-                }
-            };
-            #[cfg(target_arch = "wasm32")]
-            let viewport_size = ViewportSize {
-                width: gpu.config.width as f32 / scale_factor,
-                height: gpu.config.height as f32 / scale_factor,
-            };
-
-            self.world.insert_resource(viewport_size);
-            self.world.insert_resource(DisplayScaleFactor(scale_factor));
-        }
-
-        // Begin egui frame
-        let egui_ctx: Option<egui::Context> = {
-            let window = self.window.as_ref();
-            let state = self.render.egui_state.as_mut();
-            if let (Some(window), Some(state)) = (window, state) {
-                if let Some(debug_ui) = self.world.resource::<DebugUi>() {
-                    let ctx = debug_ui.ctx().clone();
-                    let raw_input = state.take_egui_input(window);
-                    ctx.begin_pass(raw_input);
-                    Some(ctx)
-                } else {
-                    None
-                }
+        #[cfg(not(target_arch = "wasm32"))]
+        let scale_factor = self
+            .window
+            .as_ref()
+            .map(|w| w.scale_factor() as f32)
+            .unwrap_or(1.0)
+            .max(1.0);
+        #[cfg(target_arch = "wasm32")]
+        let scale_factor = {
+            // Logical size = the authored canvas attributes captured in finish_init (stable
+            // across scene resets, unlike WindowConfig). render scale = buffer / logical.
+            let logical_w = super::WASM_LOGICAL_SIZE.with(|c| c.get()).0;
+            if logical_w >= 1 {
+                (gpu.config.width as f32 / logical_w as f32).max(1.0)
             } else {
-                None
+                1.0
             }
         };
+
+        // In Docked mode the game camera and screen-space UI must see the central
+        // viewport rect, not the full window. Compute the placeholder rect each
+        // frame from the window's logical size; package 2 will overwrite
+        // `editor.central_rect` with the real egui panel rect instead.
+        //
+        // The scale factor always tracks the real window DPR — only the logical
+        // size reported to the game changes.
+        #[cfg(not(target_arch = "wasm32"))]
+        let viewport_size = {
+            use crate::app::editor::docked_rt::compute_central_rect;
+            use crate::app::editor::EditorMode;
+            if self.editor.mode == EditorMode::Docked {
+                let win_logical_w = gpu.config.width as f32 / scale_factor;
+                let win_logical_h = gpu.config.height as f32 / scale_factor;
+                // Use the cached central_rect when package 2 writes it; otherwise
+                // recompute from the placeholder margins every frame.
+                let rect = self
+                    .editor
+                    .central_rect
+                    .or_else(|| compute_central_rect(win_logical_w, win_logical_h));
+                match rect {
+                    Some(r) => ViewportSize {
+                        width: r.width(),
+                        height: r.height(),
+                    },
+                    None => ViewportSize {
+                        width: (win_logical_w
+                            - crate::app::editor::docked_rt::MARGIN_LEFT
+                            - crate::app::editor::docked_rt::MARGIN_RIGHT)
+                            .max(1.0),
+                        height: (win_logical_h
+                            - crate::app::editor::docked_rt::MARGIN_TOP
+                            - crate::app::editor::docked_rt::MARGIN_BOTTOM)
+                            .max(1.0),
+                    },
+                }
+            } else {
+                ViewportSize {
+                    width: gpu.config.width as f32 / scale_factor,
+                    height: gpu.config.height as f32 / scale_factor,
+                }
+            }
+        };
+        #[cfg(target_arch = "wasm32")]
+        let viewport_size = ViewportSize {
+            width: gpu.config.width as f32 / scale_factor,
+            height: gpu.config.height as f32 / scale_factor,
+        };
+
+        self.world.insert_resource(viewport_size);
+        self.world.insert_resource(DisplayScaleFactor(scale_factor));
+    }
+
+    /// Concerns 3–6 — Schedule recompute, editor pause logic, system execution loop,
+    /// camera update + bounds clamp.
+    ///
+    /// `egui_ctx` is passed through so systems that want to draw egui widgets have access
+    /// to the live `egui::Context`.
+    fn run_systems(&mut self, dt: f32, egui_ctx: &Option<egui::Context>) {
+        let _ = egui_ctx; // held for future use; systems access DebugUi via the World resource
 
         // Recompute the schedule (when labels/ordering changed)
         if self.schedule_dirty {
@@ -400,32 +427,26 @@ impl App {
                 }
             }
         }
+    }
 
-        // Keep the Tile Paint swatch atlas registered with egui before building the UI.
+    /// Concerns 7–13 — editor UI, egui frame end, event/input flush, scene transition,
+    /// fade tick, hot-reload, async asset upload.
+    ///
+    /// Takes ownership of `egui_ctx` so it can be consumed by [`end_egui_frame`].
+    fn post_systems(&mut self, dt: f32, egui_ctx: Option<egui::Context>) {
+        // 7. Keep the Tile Paint swatch atlas registered with egui before building the UI.
         #[cfg(not(target_arch = "wasm32"))]
         self.register_paint_atlas_texture();
 
         self.update_editor_ui(&egui_ctx, dt);
 
-        // End egui frame + tessellate → hand off to render()
+        // 8. End egui frame + tessellate → hand off to render()
         if let Some(ctx) = egui_ctx {
-            let ppp = self
-                .window
-                .as_ref()
-                .map(|w| w.scale_factor() as f32)
-                .unwrap_or(1.0);
-            let full_output = ctx.end_pass();
-            let paint_jobs = ctx.tessellate(full_output.shapes, ppp);
-            let textures_delta = merge_textures_delta(
-                self.render
-                    .egui_output
-                    .take()
-                    .map(|(_, pending, _)| pending),
-                full_output.textures_delta,
-            );
-            self.render.egui_output = Some((paint_jobs, textures_delta, ppp));
+            use super::egui_pass::end_egui_frame;
+            end_egui_frame(ctx, self.window.as_deref(), &mut self.render.egui_output);
         }
-        // Flush the event queue after all systems have run.
+
+        // 9. Flush the event queue after all systems have run.
         // Must use std::mem::take to avoid conflicting borrows of &mut self.world.
         let flushers = std::mem::take(&mut self.event_flushers);
         for flush in &flushers {
@@ -441,7 +462,8 @@ impl App {
         if let Some(ts) = self.world.resource_mut::<TouchState>() {
             ts.flush();
         }
-        // Process scene-transition command (after event/input flush)
+
+        // 10. Process scene-transition command (after event/input flush)
         let cmd = self
             .world
             .resource_mut::<SceneChange>()
@@ -450,7 +472,7 @@ impl App {
             self.apply_scene_cmd(cmd);
         }
 
-        // Advance FadeTransition alpha
+        // 11. Advance FadeTransition alpha
         if let Some(fade) = self
             .world
             .resource_mut::<crate::resources::FadeTransition>()
@@ -471,7 +493,7 @@ impl App {
             fade.update(dt);
         }
 
-        // Hot reload: receive list of changed files and re-upload their GPU textures.
+        // 12. Hot reload: receive list of changed files and re-upload their GPU textures.
         let reloaded: Vec<String> = self
             .world
             .resource_mut::<AssetServer>()
@@ -498,7 +520,7 @@ impl App {
             }
         }
 
-        // Async load completion: upload finished assets to the GPU and update LoadProgress.
+        // 13. Async load completion: upload finished assets to the GPU and update LoadProgress.
         let async_completed: Vec<(String, ImageAsset)> = self
             .world
             .resource_mut::<AssetServer>()
