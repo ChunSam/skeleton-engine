@@ -158,7 +158,7 @@ impl App {
 
         // Free the stale registration.
         if let (Some(er), Some((_, old_id))) = (
-            self.egui_renderer.as_mut(),
+            self.render.egui_renderer.as_mut(),
             self.editor.paint_atlas_tex.take(),
         ) {
             er.free_texture(&old_id);
@@ -166,10 +166,15 @@ impl App {
 
         // Register the new atlas texture, if it has been uploaded to the GPU yet.
         if let Some(path) = desired {
+            let RenderState {
+                egui_renderer,
+                sprite_renderer,
+                ..
+            } = &mut self.render;
             if let (Some(er), Some(gpu), Some(sr)) = (
-                self.egui_renderer.as_mut(),
+                egui_renderer.as_mut(),
                 self.gpu.as_ref(),
-                self.sprite_renderer.as_ref(),
+                sprite_renderer.as_ref(),
             ) {
                 if let Some(view) = sr.texture_view(&path) {
                     let id =
@@ -216,6 +221,7 @@ impl App {
                     if let Some((target_pw, target_ph)) = rect_to_physical(rect, scale) {
                         // Tick the debounce — only recreate when stable for 3 frames.
                         let current_size = self
+                            .render
                             .docked_scene_texture
                             .as_ref()
                             .map(|(w, h, _, _, _)| (*w, *h));
@@ -225,57 +231,70 @@ impl App {
                             .tick((target_pw, target_ph), current_size)
                         {
                             // Free the old egui texture registration before recreating.
-                            if let (Some(er), Some(old_id)) = (
-                                &mut self.egui_renderer,
-                                self.editor.docked_texture_id.take(),
-                            ) {
-                                er.free_texture(&old_id);
-                            }
-                            // Create new offscreen texture.
-                            let tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
-                                label: Some("docked_scene"),
-                                size: wgpu::Extent3d {
-                                    width: new_w,
-                                    height: new_h,
-                                    depth_or_array_layers: 1,
-                                },
-                                mip_level_count: 1,
-                                sample_count: 1,
-                                dimension: wgpu::TextureDimension::D2,
-                                format: gpu.config.format,
-                                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                                    | wgpu::TextureUsages::TEXTURE_BINDING,
-                                view_formats: &[],
-                            });
-                            let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
-                            self.docked_scene_texture =
-                                Some((new_w, new_h, gpu.config.format, tex, view));
-
-                            // Register with egui so CentralPanel can display the texture.
-                            if let (Some(er), Some((_, _, _, _, view))) =
-                                (&mut self.egui_renderer, &self.docked_scene_texture)
                             {
-                                let id = er.register_native_texture(
-                                    &gpu.device,
-                                    view,
-                                    wgpu::FilterMode::Linear,
-                                );
-                                self.editor.docked_texture_id = Some(id);
+                                let RenderState {
+                                    egui_renderer,
+                                    docked_scene_texture,
+                                    ..
+                                } = &mut self.render;
+                                if let (Some(er), Some(old_id)) =
+                                    (egui_renderer.as_mut(), self.editor.docked_texture_id.take())
+                                {
+                                    er.free_texture(&old_id);
+                                }
+                                // Create new offscreen texture.
+                                let tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
+                                    label: Some("docked_scene"),
+                                    size: wgpu::Extent3d {
+                                        width: new_w,
+                                        height: new_h,
+                                        depth_or_array_layers: 1,
+                                    },
+                                    mip_level_count: 1,
+                                    sample_count: 1,
+                                    dimension: wgpu::TextureDimension::D2,
+                                    format: gpu.config.format,
+                                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                                    view_formats: &[],
+                                });
+                                let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+                                *docked_scene_texture =
+                                    Some((new_w, new_h, gpu.config.format, tex, view));
+
+                                // Register with egui so CentralPanel can display the texture.
+                                if let (Some(er), Some((_, _, _, _, view))) =
+                                    (egui_renderer.as_mut(), docked_scene_texture.as_ref())
+                                {
+                                    let id = er.register_native_texture(
+                                        &gpu.device,
+                                        view,
+                                        wgpu::FilterMode::Linear,
+                                    );
+                                    self.editor.docked_texture_id = Some(id);
+                                }
                             }
                         }
 
                         // Also refresh the egui registration when format changed (e.g. surface re-created).
-                        if let Some((_, _, fmt, _, _)) = &self.docked_scene_texture {
-                            if *fmt != gpu.config.format {
-                                if let (Some(er), Some(old_id)) = (
-                                    &mut self.egui_renderer,
-                                    self.editor.docked_texture_id.take(),
-                                ) {
-                                    er.free_texture(&old_id);
+                        {
+                            let RenderState {
+                                egui_renderer,
+                                docked_scene_texture,
+                                ..
+                            } = &mut self.render;
+                            if let Some((_, _, fmt, _, _)) = docked_scene_texture.as_ref() {
+                                if *fmt != gpu.config.format {
+                                    if let (Some(er), Some(old_id)) = (
+                                        egui_renderer.as_mut(),
+                                        self.editor.docked_texture_id.take(),
+                                    ) {
+                                        er.free_texture(&old_id);
+                                    }
+                                    // Force a debounce flush next frame — set stable_count to 0.
+                                    self.editor.rt_debounce.reset();
+                                    *docked_scene_texture = None;
                                 }
-                                // Force a debounce flush next frame — set stable_count to 0.
-                                self.editor.rt_debounce.reset();
-                                self.docked_scene_texture = None;
                             }
                         }
 
@@ -285,9 +304,12 @@ impl App {
                         // We cannot return a &wgpu::TextureView here because it would
                         // borrow self for the rest of the function. Instead, create a
                         // second view from the texture (zero-cost, same GPU object).
-                        self.docked_scene_texture.as_ref().map(|(_, _, _, tex, _)| {
-                            tex.create_view(&wgpu::TextureViewDescriptor::default())
-                        })
+                        self.render
+                            .docked_scene_texture
+                            .as_ref()
+                            .map(|(_, _, _, tex, _)| {
+                                tex.create_view(&wgpu::TextureViewDescriptor::default())
+                            })
                     } else {
                         // Degenerate central rect (zero physical size) — skip scene render this frame.
                         None
@@ -297,15 +319,21 @@ impl App {
                 }
             } else {
                 // Not docked: tear down the RT so it's freed when mode exits.
-                if self.docked_scene_texture.is_some() {
-                    if let (Some(er), Some(old_id)) = (
-                        &mut self.egui_renderer,
-                        self.editor.docked_texture_id.take(),
-                    ) {
-                        er.free_texture(&old_id);
+                {
+                    let RenderState {
+                        egui_renderer,
+                        docked_scene_texture,
+                        ..
+                    } = &mut self.render;
+                    if docked_scene_texture.is_some() {
+                        if let (Some(er), Some(old_id)) =
+                            (egui_renderer.as_mut(), self.editor.docked_texture_id.take())
+                        {
+                            er.free_texture(&old_id);
+                        }
+                        *docked_scene_texture = None;
+                        self.editor.rt_debounce.reset();
                     }
-                    self.docked_scene_texture = None;
-                    self.editor.rt_debounce.reset();
                 }
                 None
             }
@@ -322,9 +350,10 @@ impl App {
         // Initialize / resize the post-process renderer
         if use_post {
             let (w, h, fmt) = (gpu.config.width, gpu.config.height, gpu.config.format);
-            match &mut self.post_renderer {
+            match &mut self.render.post_renderer {
                 None => {
-                    self.post_renderer = Some(PostProcessRenderer::new(&gpu.device, w, h, fmt));
+                    self.render.post_renderer =
+                        Some(PostProcessRenderer::new(&gpu.device, w, h, fmt));
                 }
                 Some(pr) if pr.format() != fmt => {
                     pr.reconfigure(&gpu.device, w, h, fmt);
@@ -345,9 +374,9 @@ impl App {
                 .is_some();
             let (w, h, fmt) = (gpu.config.width, gpu.config.height, gpu.config.format);
             if has_lighting {
-                match &mut self.lighting_renderer {
+                match &mut self.render.lighting_renderer {
                     None => {
-                        self.lighting_renderer =
+                        self.render.lighting_renderer =
                             Some(crate::renderer::lighting::LightingRenderer::new(
                                 &gpu.device,
                                 w,
@@ -366,18 +395,18 @@ impl App {
                 // Create / resize the scene intermediate texture (only needed when post_renderer is absent)
                 if !use_post {
                     Self::ensure_intermediate_texture(
-                        &mut self.scene_texture_for_lighting,
+                        &mut self.render.scene_texture_for_lighting,
                         &gpu.device,
                         "scene_for_lighting",
                         w,
                         h,
                         fmt,
                     );
-                    self.post_texture_for_lighting = None;
+                    self.render.post_texture_for_lighting = None;
                 } else {
-                    self.scene_texture_for_lighting = None;
+                    self.render.scene_texture_for_lighting = None;
                     Self::ensure_intermediate_texture(
-                        &mut self.post_texture_for_lighting,
+                        &mut self.render.post_texture_for_lighting,
                         &gpu.device,
                         "post_for_lighting",
                         w,
@@ -386,9 +415,9 @@ impl App {
                     );
                 }
             } else {
-                self.lighting_renderer = None;
-                self.scene_texture_for_lighting = None;
-                self.post_texture_for_lighting = None;
+                self.render.lighting_renderer = None;
+                self.render.scene_texture_for_lighting = None;
+                self.render.post_texture_for_lighting = None;
             }
             has_lighting
         };
@@ -444,9 +473,10 @@ impl App {
                 }
                 gpu.queue.submit(std::iter::once(enc.finish()));
                 // Egui pass (shows "no game frame yet" placeholder).
-                if let (Some(mut er), Some((paint_jobs, textures_delta, ppp))) =
-                    (self.egui_renderer.take(), self.egui_output.take())
-                {
+                if let (Some(mut er), Some((paint_jobs, textures_delta, ppp))) = (
+                    self.render.egui_renderer.take(),
+                    self.render.egui_output.take(),
+                ) {
                     let screen_desc = egui_wgpu::ScreenDescriptor {
                         size_in_pixels: [gpu.config.width, gpu.config.height],
                         pixels_per_point: ppp,
@@ -471,7 +501,7 @@ impl App {
                     for id in &textures_delta.free {
                         er.free_texture(id);
                     }
-                    self.egui_renderer = Some(er);
+                    self.render.egui_renderer = Some(er);
                 }
                 if let Some(window) = &self.window {
                     window.pre_present_notify();
@@ -525,7 +555,7 @@ impl App {
             let rt_info: Vec<OffscreenRenderInfo> = offscreen_cams
                 .into_iter()
                 .filter_map(|(name, cam, layer_mask)| {
-                    self.render_targets.get(&name).map(|rt| {
+                    self.render.render_targets.get(&name).map(|rt| {
                         // Create a fresh owned TextureView each frame (zero-cost GPU handle).
                         // Safe to use after this point even if render_targets is later touched.
                         let owned_view = rt
@@ -598,7 +628,7 @@ impl App {
                 }
 
                 // ④ Render sprites → RT (layer_mask prevents self-capture)
-                if let Some(sr) = &mut self.sprite_renderer {
+                if let Some(sr) = &mut self.render.sprite_renderer {
                     sr.render(
                         &mut FrameContext {
                             device: &gpu.device,
@@ -627,7 +657,7 @@ impl App {
                 }
 
                 // ⑥ Register the RT bind_group with the sprite renderer (sampleable via Sprite.texture key)
-                if let Some(sr) = &mut self.sprite_renderer {
+                if let Some(sr) = &mut self.render.sprite_renderer {
                     sr.register_render_target(&target_name, bg);
                 }
             }
@@ -652,7 +682,7 @@ impl App {
         } else if use_lighting && !use_post {
             #[cfg(not(target_arch = "wasm32"))]
             {
-                if let Some((_, view, _, _, _)) = self.scene_texture_for_lighting.as_ref() {
+                if let Some((_, view, _, _, _)) = self.render.scene_texture_for_lighting.as_ref() {
                     view
                 } else {
                     log::warn!(
@@ -666,7 +696,7 @@ impl App {
                 &final_view
             }
         } else if use_post {
-            if let Some(pr) = self.post_renderer.as_ref() {
+            if let Some(pr) = self.render.post_renderer.as_ref() {
                 &pr.target_view
             } else {
                 log::warn!(
@@ -717,7 +747,7 @@ impl App {
         let logical_h = viewport.height.round().max(1.0) as u32;
 
         // Step 2: Draw sprites (main pass — no layer filter)
-        if let Some(sr) = &mut self.sprite_renderer {
+        if let Some(sr) = &mut self.render.sprite_renderer {
             let render_stats = sr.render(
                 &mut FrameContext {
                     device: &gpu.device,
@@ -778,7 +808,7 @@ impl App {
             .map(|q| std::mem::take(&mut q.items))
             .unwrap_or_default();
         if !ui_rects.is_empty() || !ui_images.is_empty() {
-            if let Some(sr) = &mut self.sprite_renderer {
+            if let Some(sr) = &mut self.render.sprite_renderer {
                 sr.render_ui_primitives_from_slices(
                     &mut FrameContext {
                         device: &gpu.device,
@@ -803,15 +833,15 @@ impl App {
                 .query::<crate::gpu_particle::GpuParticleEmitter>()
                 .next()
                 .is_some();
-            if has_emitters && self.gpu_particle_renderer.is_none() {
-                self.gpu_particle_renderer =
+            if has_emitters && self.render.gpu_particle_renderer.is_none() {
+                self.render.gpu_particle_renderer =
                     Some(crate::renderer::gpu_particle::GpuParticleRenderer::new(
                         &gpu.device,
                         gpu.config.format,
                         4096,
                     ));
             }
-            if let Some(gpr) = &self.gpu_particle_renderer {
+            if let Some(gpr) = &self.render.gpu_particle_renderer {
                 let mut frame_cursor = 0u32;
                 let new_particles = crate::gpu_particle::collect_new_particles(
                     &mut self.world,
@@ -837,7 +867,7 @@ impl App {
         // Step 3: User render plugins — custom scene passes (outlines, overlays, effects).
         // Records into render_view before post-process/lighting so downstream effects apply.
         // No-op (and byte-identical to no-plugin output) when none are registered.
-        if !self.render_plugins.is_empty() {
+        if !self.render.render_plugins.is_empty() {
             let mut plugin_ctx = FrameContext {
                 device: &gpu.device,
                 queue: &gpu.queue,
@@ -845,7 +875,7 @@ impl App {
                 format: gpu.config.format,
                 encoder: &mut enc,
             };
-            for plugin in &mut self.render_plugins {
+            for plugin in &mut self.render.render_plugins {
                 plugin.record(&mut plugin_ctx, &self.world, (logical_w, logical_h));
             }
         }
@@ -854,7 +884,8 @@ impl App {
         if use_post {
             #[cfg(not(target_arch = "wasm32"))]
             let post_output: &wgpu::TextureView = if use_lighting {
-                self.post_texture_for_lighting
+                self.render
+                    .post_texture_for_lighting
                     .as_ref()
                     .map(|(_, view, _, _, _)| view)
                     .unwrap_or(scene_target)
@@ -864,7 +895,7 @@ impl App {
             #[cfg(target_arch = "wasm32")]
             let post_output: &wgpu::TextureView = scene_target;
 
-            if let (Some(pr), Some(cfg)) = (&self.post_renderer, pp_config.as_ref()) {
+            if let (Some(pr), Some(cfg)) = (&self.render.post_renderer, pp_config.as_ref()) {
                 pr.update_uniforms(&gpu.queue, cfg);
                 pr.run_pass(&mut enc, post_output);
             }
@@ -875,15 +906,17 @@ impl App {
         if use_lighting {
             // scene input: post output if post is enabled, otherwise the scene intermediate texture
             let scene_input: Option<&wgpu::TextureView> = if use_post {
-                self.post_texture_for_lighting
+                self.render
+                    .post_texture_for_lighting
                     .as_ref()
                     .map(|(_, view, _, _, _)| view)
             } else {
-                self.scene_texture_for_lighting
+                self.render
+                    .scene_texture_for_lighting
                     .as_ref()
                     .map(|(_, view, _, _, _)| view)
             };
-            if let Some(lr) = &mut self.lighting_renderer {
+            if let Some(lr) = &mut self.render.lighting_renderer {
                 // Light positions must use the same logical viewport the sprite pass
                 // uses (render.rs), not the physical surface size — otherwise on a
                 // HiDPI display (scale > 1) lights drift from their sprites and shrink.
@@ -909,11 +942,13 @@ impl App {
                 // In docked mode, text should lay out to the offscreen texture size (which
                 // matches the viewport logical size × scale).
                 (
-                    self.docked_scene_texture
+                    self.render
+                        .docked_scene_texture
                         .as_ref()
                         .map(|(w, _, _, _, _)| *w)
                         .unwrap_or(gpu.config.width),
-                    self.docked_scene_texture
+                    self.render
+                        .docked_scene_texture
                         .as_ref()
                         .map(|(_, h, _, _, _)| *h)
                         .unwrap_or(gpu.config.height),
@@ -923,7 +958,7 @@ impl App {
             };
             #[cfg(target_arch = "wasm32")]
             let (w, h) = (gpu.config.width, gpu.config.height);
-            if let Some(tr) = &mut self.text_renderer {
+            if let Some(tr) = &mut self.render.text_renderer {
                 tr.render(
                     &gpu.device,
                     &gpu.queue,
@@ -940,14 +975,14 @@ impl App {
         #[cfg(not(target_arch = "wasm32"))]
         {
             // Lazy init if needed
-            if self.fade_renderer.is_none() {
-                self.fade_renderer = Some(crate::renderer::fade::FadeRenderer::new(
+            if self.render.fade_renderer.is_none() {
+                self.render.fade_renderer = Some(crate::renderer::fade::FadeRenderer::new(
                     &gpu.device,
                     gpu.config.format,
                 ));
             }
             if let (Some(fr), Some(fade)) = (
-                &self.fade_renderer,
+                &self.render.fade_renderer,
                 self.world.resource::<crate::resources::FadeTransition>(),
             ) {
                 if fade.alpha > 0.001 {
@@ -989,9 +1024,10 @@ impl App {
         gpu.queue.submit(std::iter::once(enc.finish()));
 
         // Step 5: egui overlay pass
-        if let (Some(mut er), Some((paint_jobs, textures_delta, ppp))) =
-            (self.egui_renderer.take(), self.egui_output.take())
-        {
+        if let (Some(mut er), Some((paint_jobs, textures_delta, ppp))) = (
+            self.render.egui_renderer.take(),
+            self.render.egui_output.take(),
+        ) {
             let screen_desc = egui_wgpu::ScreenDescriptor {
                 size_in_pixels: [gpu.config.width, gpu.config.height],
                 pixels_per_point: ppp,
@@ -1024,7 +1060,7 @@ impl App {
             for id in &textures_delta.free {
                 er.free_texture(id);
             }
-            self.egui_renderer = Some(er);
+            self.render.egui_renderer = Some(er);
         }
 
         // winit recommendation: notify the compositor just before present to reduce display latency.

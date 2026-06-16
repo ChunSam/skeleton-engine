@@ -23,6 +23,9 @@ the arc.
 - Split the 1620-line `src/tilemap.rs` into `src/tilemap/{mod,autotile,system}.rs` (data model /
   autotiling / reactive render system), mirroring `src/physics/`. Pure relocation — the 10
   re-exported public names (`engine::tilemap::*`) are unchanged.
+- Extracted the 14 renderer/texture/egui fields from the `App` god-struct into a new internal
+  `RenderState` (`src/app/render_state.rs`); `App` now holds one `render: RenderState` field (`gpu`
+  and `world` stay on `App`). No public API change — sets up the `render()`/`update()` splits.
 
 ### Changed (breaking)
 
