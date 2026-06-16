@@ -34,13 +34,18 @@ use sort::{
 // ─── Frame context ───────────────────────────────────────────────────────────
 /// Bundle of wgpu handles required for a single render-pass call.
 ///
-/// Groups the four recurring arguments `device`/`queue`/`view`/`encoder` so they
+/// Groups the five recurring arguments `device`/`queue`/`view`/`format`/`encoder` so they
 /// don't have to be listed individually on every call.
 /// Constructed by reference immediately before the call (no ownership taken).
+/// `format` is the [`wgpu::TextureFormat`] of `view`; [`RenderPlugin`](crate::RenderPlugin)
+/// implementations use it when creating their own render pipelines.
 pub struct FrameContext<'a> {
     pub device: &'a wgpu::Device,
     pub queue: &'a wgpu::Queue,
     pub view: &'a wgpu::TextureView,
+    /// Texture format of `view`. Use this when building a [`wgpu::RenderPipeline`]
+    /// that targets the same render pass.
+    pub format: wgpu::TextureFormat,
     pub encoder: &'a mut wgpu::CommandEncoder,
 }
 

@@ -118,8 +118,8 @@ pub use skeletal::{
 pub use reflect::{Reflect, ReflectValue};
 pub use renderer::texture::TextureError;
 pub use renderer::{
-    BlendUv, DrawImage, DrawRect, DrawText, PostProcessConfig, RenderTarget, TextAlign, TextAnchor,
-    TextQueue, TextRenderer, UiImageQueue, UiQueue, UvRect,
+    BlendUv, DrawImage, DrawRect, DrawText, FrameContext, PostProcessConfig, RenderPlugin,
+    RenderTarget, TextAlign, TextAnchor, TextQueue, TextRenderer, UiImageQueue, UiQueue, UvRect,
 };
 pub use resources::{
     AmbientLight, CullConfig, DebugDraw, DebugShape, DisplayScaleFactor, ExtraFonts,
