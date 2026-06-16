@@ -3,6 +3,7 @@ use wgpu::util::DeviceExt;
 
 use crate::camera::Camera;
 use crate::ecs::World;
+use crate::renderer::CameraUniform;
 
 // ─── GPU Particle Data (64 bytes, 16 B aligned) ───────────────────────────────
 #[repr(C)]
@@ -26,12 +27,7 @@ struct ComputeUniforms {
     _pad: [f32; 3],
 }
 
-// ─── Camera Uniform ──────────────────────────────────────────────────────────
-#[repr(C)]
-#[derive(Copy, Clone, Pod, Zeroable)]
-struct CameraUniform {
-    view_proj: [[f32; 4]; 4],
-}
+// CameraUniform is defined in `crate::renderer` (shared with sprite/geometry).
 
 /// GPU compute-shader based particle renderer (native only).
 ///

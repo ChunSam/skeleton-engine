@@ -4,6 +4,20 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 9.5.1
+
+**Internal cleanup (cohesion review, behavior-identical).** No public API or behavior change.
+
+### Changed (internal)
+
+- `AssetServer`'s three separate hot-reload watch-sets (`data_table_paths` /
+  `animation_clip_paths` / `particle_config_paths`) are unified into one `watched_paths` set with
+  a single `watch_path` method. The three public `watch_*` methods are **kept as delegates** (no
+  break). Forwarding was already unified via `HotReloadable` in 9.3.0, so adding a new
+  hot-reloadable registry no longer needs a new watch-set/method/branch (closes the OCP finding).
+- `CameraUniform` (identical `#[repr(C)]` view-proj struct) was duplicated in `gpu_particle.rs`
+  and `sprite/geometry.rs`; now defined once as `pub(crate)` in `renderer`.
+
 ## 9.5.0
 
 **Pluggable editor inspector panels (cohesion review item 7, additive).** The docked editor's

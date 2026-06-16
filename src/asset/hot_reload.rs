@@ -16,9 +16,9 @@ impl AssetServer {
     /// Returns a list of changed file paths and refreshes the internal CPU cache.
     ///
     /// `App` calls this every frame and re-uploads GPU textures for the returned paths.
-    /// Data-table paths registered via `watch_data_table_path` are also included in
-    /// the returned `Vec` so that `App` can forward them to
-    /// `crate::data_table::DataTableRegistry::reload_path`.
+    /// Paths registered via `watch_path` (or the typed delegates) are also included in
+    /// the returned `Vec` so that `App` can forward them to registered
+    /// [`crate::asset::HotReloadable`] registries.
     ///
     /// **Platform note:** hot reloading is native-only. On `wasm32` targets this method
     /// always returns an empty `Vec` (no-op on wasm32).
@@ -40,9 +40,7 @@ impl AssetServer {
                 let key_str = key.to_string();
                 let is_known = self.path_to_id.contains_key(&key)
                     || self.script_path_to_id.contains_key(&key)
-                    || self.data_table_paths.contains(&key)
-                    || self.animation_clip_paths.contains(&key)
-                    || self.particle_config_paths.contains(&key)
+                    || self.watched_paths.contains(&key)
                     || self.atlas_path_to_id.contains_key(&key);
                 if is_known && !seen.contains(&key_str) {
                     seen.push(key_str);
@@ -58,10 +56,34 @@ impl AssetServer {
                 if let Some(&id) = self.script_path_to_id.get(&key) {
                     self.scripts.insert(id, compile_script_file(path_str));
                 }
-                // Data-table paths are returned as-is; the registry reloads them in schedule.rs.
+                // Non-image/script paths are returned as-is; registries reload them in schedule.rs.
             }
             seen
         }
+    }
+
+    /// Register a file path with the filesystem watcher so that edits on disk are
+    /// included in the next `poll_reloads` result.
+    ///
+    /// This is the canonical, type-agnostic entry point. The typed helpers
+    /// `watch_data_table_path`, `watch_animation_clip_path`, and
+    /// `watch_particle_config_path` are thin delegates to this method and are kept
+    /// for backwards compatibility.
+    ///
+    /// Idempotent: calling with the same path a second time is a no-op.
+    ///
+    /// Native-only. Excluded from wasm builds.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn watch_path(&mut self, path: impl Into<String>) {
+        let path_str = path.into();
+        let key = asset_key(std::path::Path::new(&path_str));
+        if self.watched_paths.contains(&key) {
+            return;
+        }
+        if let Some(ref mut w) = self._watcher {
+            let _ = w.watch(std::path::Path::new(&path_str), RecursiveMode::NonRecursive);
+        }
+        self.watched_paths.insert(key);
     }
 
     /// Register a data-table file path with the filesystem watcher so that edits
@@ -70,17 +92,11 @@ impl AssetServer {
     /// Idempotent: calling with the same path a second time is a no-op.
     ///
     /// Native-only. Excluded from wasm builds.
+    ///
+    /// Delegates to [`Self::watch_path`].
     #[cfg(not(target_arch = "wasm32"))]
     pub fn watch_data_table_path(&mut self, path: impl Into<String>) {
-        let path_str = path.into();
-        let key = asset_key(std::path::Path::new(&path_str));
-        if self.data_table_paths.contains(&key) {
-            return;
-        }
-        if let Some(ref mut w) = self._watcher {
-            let _ = w.watch(std::path::Path::new(&path_str), RecursiveMode::NonRecursive);
-        }
-        self.data_table_paths.insert(key);
+        self.watch_path(path);
     }
 
     /// Register an animation-clip file path with the filesystem watcher so that edits
@@ -89,33 +105,23 @@ impl AssetServer {
     /// Idempotent: calling with the same path a second time is a no-op.
     ///
     /// Native-only. Excluded from wasm builds.
+    ///
+    /// Delegates to [`Self::watch_path`].
     #[cfg(not(target_arch = "wasm32"))]
     pub fn watch_animation_clip_path(&mut self, path: impl Into<String>) {
-        let path_str = path.into();
-        let key = asset_key(std::path::Path::new(&path_str));
-        if self.animation_clip_paths.contains(&key) {
-            return;
-        }
-        if let Some(ref mut w) = self._watcher {
-            let _ = w.watch(std::path::Path::new(&path_str), RecursiveMode::NonRecursive);
-        }
-        self.animation_clip_paths.insert(key);
+        self.watch_path(path);
     }
 
     /// Register a particle-config file path with the filesystem watcher so that
     /// edits on disk are included in the next `poll_reloads` result.
     ///
+    /// Idempotent: calling with the same path a second time is a no-op.
+    ///
     /// Native-only. Excluded from wasm builds.
+    ///
+    /// Delegates to [`Self::watch_path`].
     #[cfg(not(target_arch = "wasm32"))]
     pub fn watch_particle_config_path(&mut self, path: impl Into<String>) {
-        let path_str = path.into();
-        let key = asset_key(std::path::Path::new(&path_str));
-        if self.particle_config_paths.contains(&key) {
-            return;
-        }
-        if let Some(ref mut w) = self._watcher {
-            let _ = w.watch(std::path::Path::new(&path_str), RecursiveMode::NonRecursive);
-        }
-        self.particle_config_paths.insert(key);
+        self.watch_path(path);
     }
 }

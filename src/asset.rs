@@ -237,18 +237,11 @@ pub struct AssetServer {
     reload_rx: Option<Receiver<PathBuf>>,
     #[cfg(not(target_arch = "wasm32"))]
     _watcher: Option<RecommendedWatcher>,
-    /// Set of canonical paths registered as data-table files (native only).
-    /// Used by `poll_reloads` to include data-table changes in the returned Vec.
+    /// Unified set of canonical paths registered for hot-reload watching (native only).
+    /// Covers data-table, animation-clip, and particle-config paths. Used by `poll_reloads`
+    /// to include non-image asset changes in the returned Vec.
     #[cfg(not(target_arch = "wasm32"))]
-    data_table_paths: std::collections::HashSet<std::sync::Arc<str>>,
-    /// Set of canonical paths registered as animation-clip files (native only).
-    /// Used by `poll_reloads` to include animation-clip changes in the returned Vec.
-    #[cfg(not(target_arch = "wasm32"))]
-    animation_clip_paths: std::collections::HashSet<std::sync::Arc<str>>,
-    /// Set of canonical paths registered as particle-config files (native only).
-    /// Used by `poll_reloads` to include particle-config changes in the returned Vec.
-    #[cfg(not(target_arch = "wasm32"))]
-    particle_config_paths: std::collections::HashSet<std::sync::Arc<str>>,
+    watched_paths: std::collections::HashSet<std::sync::Arc<str>>,
     // Channel for async loading (native only)
     #[cfg(not(target_arch = "wasm32"))]
     async_tx: std::sync::mpsc::SyncSender<async_loading::AsyncImageResult>,
@@ -304,9 +297,7 @@ impl AssetServer {
                 atlas_path_to_id: HashMap::new(),
                 reload_rx,
                 _watcher: watcher,
-                data_table_paths: std::collections::HashSet::new(),
-                animation_clip_paths: std::collections::HashSet::new(),
-                particle_config_paths: std::collections::HashSet::new(),
+                watched_paths: std::collections::HashSet::new(),
                 async_tx,
                 async_rx,
             }
