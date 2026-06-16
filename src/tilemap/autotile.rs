@@ -1,165 +1,4 @@
-use std::collections::{HashMap, HashSet};
-
-use glam::Vec2;
-
-use crate::components::{Sprite, Transform};
-use crate::ecs::{Entity, System, World};
-use crate::renderer::uv::UvRect;
-
-// ─── Data types ───────────────────────────────────────────────────────────────
-
-/// Texture atlas configuration for a tilemap.
-#[derive(Debug, Clone)]
-pub struct TilemapAtlas {
-    /// Texture file path.
-    pub texture: String,
-    /// Number of tile columns in the atlas.
-    pub columns: u32,
-    /// Number of tile rows in the atlas.
-    pub rows: u32,
-}
-
-impl TilemapAtlas {
-    pub fn new(texture: impl Into<String>, columns: u32, rows: u32) -> Self {
-        Self {
-            texture: texture.into(),
-            columns,
-            rows,
-        }
-    }
-
-    /// Returns the UV coordinates for the given tile ID (0-based).
-    ///
-    /// Returns [`UvRect::FULL`] (safe fallback) when the tile ID is out of range
-    /// (i.e. `tile_id >= columns * rows`) to avoid producing UVs outside `[0, 1]`.
-    pub fn uv_for(&self, tile_id: u32) -> UvRect {
-        if self.columns == 0 || self.rows == 0 {
-            return UvRect::FULL;
-        }
-        let col = tile_id % self.columns;
-        let row = tile_id / self.columns;
-        // Guard: out-of-range tile ID would produce a row >= rows, yielding UV offset >= 1.0.
-        if row >= self.rows {
-            return UvRect::FULL;
-        }
-        UvRect::from_grid(col, row, self.columns, self.rows)
-    }
-}
-
-/// Tilemap component.
-///
-/// Attach to an entity and `TilemapSystem` will automatically spawn tile entities.
-/// `tiles[row][col]` = 0 means an empty tile; 1 or more means use `atlas.uv_for(tile_id - 1)`.
-#[derive(Debug, Clone)]
-pub struct Tilemap {
-    pub atlas: TilemapAtlas,
-    /// `tiles[row][col]` layout. 0 = empty cell, 1+ = tile ID + 1.
-    ///
-    /// Mutating this field directly (rather than via [`set_tile`](Self::set_tile)) requires a
-    /// follow-up [`bump_generation`](Self::bump_generation) call so the reactive `TilemapSystem`
-    /// re-renders the change.
-    pub tiles: Vec<Vec<u32>>,
-    /// Side length of one tile (pixels).
-    pub tile_size: f32,
-    /// Top-left origin of the tilemap (world coordinates).
-    pub origin: Vec2,
-    /// Monotonically increasing counter, bumped on every tile mutation.
-    /// [`TilemapSystem`] uses this to skip the diff pass when the map is unchanged.
-    pub(crate) generation: u64,
-}
-
-impl Tilemap {
-    pub fn new(atlas: TilemapAtlas, tiles: Vec<Vec<u32>>, tile_size: f32, origin: Vec2) -> Self {
-        Self {
-            atlas,
-            tiles,
-            tile_size,
-            origin,
-            generation: 0,
-        }
-    }
-
-    /// Sets the tile value at `(row, col)`.
-    ///
-    /// `value` follows the [`Tilemap`] encoding: `0` = empty cell, `1+` = filled
-    /// (the renderer uses `atlas.uv_for(value - 1)` without autotiling, or — with a
-    /// [`TilemapAutotile`] attached — treats any non-zero value as connecting
-    /// terrain and picks the display tile from the neighbor mask). So to dig a hole
-    /// pass `0`; to fill, pass any non-zero value (commonly `1`).
-    ///
-    /// Returns `true` if the cell was in bounds and the value actually changed.
-    /// Returns `false` if the cell was out of bounds or already had that value.
-    pub fn set_tile(&mut self, row: usize, col: usize, value: u32) -> bool {
-        if row >= self.tiles.len() {
-            return false;
-        }
-        if col >= self.tiles[row].len() {
-            return false;
-        }
-        if self.tiles[row][col] == value {
-            return false;
-        }
-        self.tiles[row][col] = value;
-        self.generation = self.generation.wrapping_add(1);
-        true
-    }
-
-    /// Marks the tilemap dirty so the reactive `TilemapSystem` rebuilds its cells next frame.
-    ///
-    /// [`set_tile`](Self::set_tile) bumps the generation automatically; call this **only** after
-    /// mutating the public [`tiles`](Self::tiles), [`tile_size`](Self::tile_size), or
-    /// [`origin`](Self::origin) fields directly (e.g. replacing the whole grid). Without it the
-    /// system's change-detection fast-path skips the rebuild and the change is not rendered.
-    pub fn bump_generation(&mut self) {
-        self.generation = self.generation.wrapping_add(1);
-    }
-
-    /// Returns the tile value at `(row, col)`, or `None` if out of bounds.
-    pub fn get_tile(&self, row: usize, col: usize) -> Option<u32> {
-        self.tiles.get(row)?.get(col).copied()
-    }
-
-    /// Returns `(rows, cols)` where `cols` is the maximum row length (jagged-safe).
-    /// Returns `(0, 0)` if the tile grid is empty.
-    pub fn dims(&self) -> (usize, usize) {
-        let rows = self.tiles.len();
-        let cols = self.tiles.iter().map(|r| r.len()).max().unwrap_or(0);
-        (rows, cols)
-    }
-
-    /// Returns the world-space center of cell `(row, col)`.
-    ///
-    /// Matches the sprite placement formula used by [`TilemapSystem`]:
-    /// `origin + (col * tile_size + tile_size * 0.5, row * tile_size + tile_size * 0.5)`.
-    pub fn cell_center_world(&self, row: usize, col: usize) -> Vec2 {
-        Vec2::new(
-            self.origin.x + col as f32 * self.tile_size + self.tile_size * 0.5,
-            self.origin.y + row as f32 * self.tile_size + self.tile_size * 0.5,
-        )
-    }
-
-    /// Returns the `(row, col)` cell that contains `world_pos`, or `None` if outside
-    /// the grid bounds.
-    ///
-    /// Inverse of [`cell_center_world`](Self::cell_center_world).
-    pub fn cell_at_world(&self, world_pos: Vec2) -> Option<(usize, usize)> {
-        if self.tile_size <= 0.0 {
-            return None;
-        }
-        let rel_x = world_pos.x - self.origin.x;
-        let rel_y = world_pos.y - self.origin.y;
-        if rel_x < 0.0 || rel_y < 0.0 {
-            return None;
-        }
-        let col = (rel_x / self.tile_size) as usize;
-        let row = (rel_y / self.tile_size) as usize;
-        let (rows, cols) = self.dims();
-        if row >= rows || col >= cols {
-            return None;
-        }
-        Some((row, col))
-    }
-}
+use std::collections::HashMap;
 
 // ─── Autotiling ───────────────────────────────────────────────────────────────
 
@@ -188,13 +27,15 @@ pub struct ConnectRule;
 /// Component that makes [`TilemapSystem`] choose tile display UVs based on
 /// neighbor connectivity rather than the raw tile value.
 ///
-/// Attach this component to the same entity as [`Tilemap`].
+/// Attach this component to the same entity as [`super::Tilemap`].
 ///
 /// # Example
 ///
 /// ```rust,ignore
 /// world.add_component(map_entity, TilemapAutotile::edge_16(0));
 /// ```
+///
+/// [`TilemapSystem`]: super::system::TilemapSystem
 pub struct TilemapAutotile {
     /// Which neighborhood scheme to use.
     pub neighborhood: Neighborhood,
@@ -372,7 +213,7 @@ pub struct TerrainRule {
     pub mask_to_tile: HashMap<u8, u32>,
 }
 
-/// Multi-terrain autotile component. Attach to the same entity as the [`Tilemap`]
+/// Multi-terrain autotile component. Attach to the same entity as the [`super::Tilemap`]
 /// **instead of** [`TilemapAutotile`]. Each non-zero cell autotiles using the rule
 /// whose `terrain` equals the cell's value, connecting only to same-value neighbors.
 ///
@@ -426,7 +267,7 @@ impl MultiTerrainAutotile {
     }
 
     /// Returns the rule for the given terrain value, or `None` if no rule exists.
-    fn rule_for(&self, terrain: u32) -> Option<&TerrainRule> {
+    pub(super) fn rule_for(&self, terrain: u32) -> Option<&TerrainRule> {
         self.rules.iter().find(|r| r.terrain == terrain)
     }
 }
@@ -461,545 +302,17 @@ pub fn compute_tile_mask_typed(
     compute_mask_raw(row, col, nb, filled)
 }
 
-// ─── System internals ─────────────────────────────────────────────────────────
-
-/// Per-tilemap-entity view tracked by [`TilemapSystem`].
-struct TilemapView {
-    /// (row, col) → tile entity
-    cells: HashMap<(usize, usize), Entity>,
-    /// Last-seen tile grid (for diffing)
-    cached_tiles: Vec<Vec<u32>>,
-    /// Last-seen dimensions
-    cached_dims: (usize, usize),
-    /// Generation counter mirrored from [`Tilemap::generation`] after each rebuild.
-    /// When this equals `Tilemap::generation` and dims are unchanged, the diff is skipped.
-    cached_generation: u64,
-}
-
-// ─── Systems ──────────────────────────────────────────────────────────────────
-
-/// System that reads Tilemap components and manages tile entities.
-///
-/// - Spawns tile entities the first time a Tilemap entity is seen.
-/// - Reacts to tile mutations each frame: despawns removed tiles, spawns new ones,
-///   and updates UvRect in place for changed tiles.
-/// - Despawns all tile entities when the Tilemap entity disappears.
-/// - When a [`TilemapAutotile`] component is present, chooses display UVs based on
-///   neighbor connectivity and propagates UV updates to the 8 surrounding cells when
-///   any cell changes.
-pub struct TilemapSystem {
-    views: HashMap<Entity, TilemapView>,
-}
-
-impl TilemapSystem {
-    pub fn new() -> Self {
-        Self {
-            views: HashMap::new(),
-        }
-    }
-}
-
-impl Default for TilemapSystem {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl TilemapSystem {
-    /// Schedule label for ordering via `add_system_labeled`.
-    pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::tilemap";
-}
-
-/// Chooses the display UV for a non-zero cell.
-///
-/// When `autotile` is `None`, falls back to `tilemap.atlas.uv_for(value - 1)`.
-/// When `Some`, computes the neighbor bitmask and looks up the display atlas id.
-///
-/// This is the clean seam for autotiling: [`TilemapSystem`] delegates all UV
-/// resolution through this function so future connection-rule changes live here.
-pub fn cell_display_uv(
-    tilemap: &Tilemap,
-    autotile: Option<&TilemapAutotile>,
-    row: usize,
-    col: usize,
-    value: u32,
-) -> UvRect {
-    match autotile {
-        None => tilemap.atlas.uv_for(value - 1),
-        Some(at) => {
-            let mask = compute_tile_mask(&tilemap.tiles, row, col, at.neighborhood, at.oob_filled);
-            let display_id = at.mask_to_tile.get(&mask).copied().unwrap_or(0);
-            tilemap.atlas.uv_for(display_id)
-        }
-    }
-}
-
-/// Spawns a single tile entity for cell `(row, col)` with the given UV.
-fn spawn_tile_entity(
-    world: &mut World,
-    tm: &Tilemap,
-    row: usize,
-    col: usize,
-    uv: UvRect,
-) -> Entity {
-    let x = tm.origin.x + col as f32 * tm.tile_size + tm.tile_size * 0.5;
-    let y = tm.origin.y + row as f32 * tm.tile_size + tm.tile_size * 0.5;
-    let tile_entity = world.spawn();
-    world.add_component(
-        tile_entity,
-        Transform {
-            position: Vec2::new(x, y),
-            scale: Vec2::splat(tm.tile_size),
-            rotation: 0.0,
-            z: -1.0,
-        },
-    );
-    world.add_component(tile_entity, Sprite::textured(tm.atlas.texture.as_str()));
-    world.add_component(tile_entity, uv);
-    tile_entity
-}
-
-impl System for TilemapSystem {
-    // `clippy::map_entry` is suppressed here because the "first-time" branch
-    // calls `world.spawn`/`world.add_component` (mutable World borrows) between
-    // the `contains_key` check and the eventual `self.views.insert`.  The entry
-    // API would require holding a mutable borrow on `self.views` across those
-    // world mutations, which the borrow checker disallows.
-    #[allow(clippy::map_entry)]
-    fn run(&mut self, world: &mut World, _dt: f32) {
-        // ── Step 1: collect alive tilemap entities (avoids holding borrow) ──────
-        let tilemap_entities: Vec<Entity> = world.query::<Tilemap>().map(|(e, _)| e).collect();
-
-        // ── Step 2: despawn views for disappeared tilemap entities ────────────
-        // Build a HashSet for O(1) membership checks instead of O(M×N) Vec::contains.
-        let alive_set: HashSet<Entity> = tilemap_entities.iter().copied().collect();
-        let removed: Vec<Entity> = self
-            .views
-            .keys()
-            .filter(|e| !alive_set.contains(e))
-            .copied()
-            .collect();
-        for map_entity in removed {
-            if let Some(view) = self.views.remove(&map_entity) {
-                for (_, tile_e) in view.cells {
-                    world.despawn(tile_e);
-                }
-            }
-        }
-
-        // ── Step 3: process each alive tilemap entity ──────────────────────────
-        for map_entity in tilemap_entities {
-            // Clone out the data we need before any mutation.
-            // Precedence: MultiTerrainAutotile > TilemapAutotile > plain.
-            enum AutotileMode {
-                None,
-                Single {
-                    nb: Neighborhood,
-                    oob: bool,
-                    m2t: HashMap<u8, u32>,
-                },
-                Multi(MultiTerrainAutotile),
-            }
-
-            let (tm_clone, autotile_mode) = {
-                let tm = world.get::<Tilemap>(map_entity).unwrap();
-                let mode = if let Some(mt) = world.get::<MultiTerrainAutotile>(map_entity) {
-                    AutotileMode::Multi(mt.clone())
-                } else if let Some(at) = world.get::<TilemapAutotile>(map_entity) {
-                    AutotileMode::Single {
-                        nb: at.neighborhood,
-                        oob: at.oob_filled,
-                        m2t: at.mask_to_tile.clone(),
-                    }
-                } else {
-                    AutotileMode::None
-                };
-                (tm.clone(), mode)
-            };
-
-            // Whether any autotile mode is active (controls neighbor UV refresh).
-            let any_autotile = !matches!(autotile_mode, AutotileMode::None);
-
-            // Helper: resolve UV for a non-zero cell.
-            let resolve_uv = |row: usize, col: usize, value: u32| -> UvRect {
-                match &autotile_mode {
-                    AutotileMode::None => tm_clone.atlas.uv_for(value - 1),
-                    AutotileMode::Single { nb, oob, m2t } => {
-                        let mask = compute_tile_mask(&tm_clone.tiles, row, col, *nb, *oob);
-                        let display_id = m2t.get(&mask).copied().unwrap_or(0);
-                        tm_clone.atlas.uv_for(display_id)
-                    }
-                    AutotileMode::Multi(mt) => {
-                        if let Some(rule) = mt.rule_for(value) {
-                            let mask = compute_tile_mask_typed(
-                                &tm_clone.tiles,
-                                row,
-                                col,
-                                mt.neighborhood,
-                                mt.oob_filled,
-                                value,
-                            );
-                            let display_id = rule.mask_to_tile.get(&mask).copied().unwrap_or(0);
-                            tm_clone.atlas.uv_for(display_id)
-                        } else {
-                            // No rule for this terrain value: plain non-autotiled mapping.
-                            tm_clone.atlas.uv_for(value - 1)
-                        }
-                    }
-                }
-            };
-
-            if !self.views.contains_key(&map_entity) {
-                // ── First time seen: full build ────────────────────────────────
-                let dims = tm_clone.dims();
-                let mut cells: HashMap<(usize, usize), Entity> = HashMap::new();
-
-                for (row_idx, row) in tm_clone.tiles.iter().enumerate() {
-                    for (col_idx, &tile_value) in row.iter().enumerate() {
-                        if tile_value == 0 {
-                            continue;
-                        }
-                        let uv = resolve_uv(row_idx, col_idx, tile_value);
-                        let tile_e = spawn_tile_entity(world, &tm_clone, row_idx, col_idx, uv);
-                        cells.insert((row_idx, col_idx), tile_e);
-                    }
-                }
-
-                self.views.insert(
-                    map_entity,
-                    TilemapView {
-                        cells,
-                        cached_tiles: tm_clone.tiles.clone(),
-                        cached_dims: dims,
-                        cached_generation: tm_clone.generation,
-                    },
-                );
-            } else {
-                // ── Already seen: diff and react ───────────────────────────────
-                let current_dims = tm_clone.dims();
-                let cached_dims = self.views[&map_entity].cached_dims;
-
-                // Fast path: generation unchanged and dims identical → nothing mutated.
-                if tm_clone.generation == self.views[&map_entity].cached_generation
-                    && current_dims == cached_dims
-                {
-                    continue;
-                }
-
-                if current_dims != cached_dims {
-                    // Dimension changed — full rebuild.
-                    let old_cells: Vec<Entity> = self
-                        .views
-                        .get_mut(&map_entity)
-                        .unwrap()
-                        .cells
-                        .drain()
-                        .map(|(_, e)| e)
-                        .collect();
-                    for e in old_cells {
-                        world.despawn(e);
-                    }
-
-                    let mut cells: HashMap<(usize, usize), Entity> = HashMap::new();
-                    for (row_idx, row) in tm_clone.tiles.iter().enumerate() {
-                        for (col_idx, &tile_value) in row.iter().enumerate() {
-                            if tile_value == 0 {
-                                continue;
-                            }
-                            let uv = resolve_uv(row_idx, col_idx, tile_value);
-                            let tile_e = spawn_tile_entity(world, &tm_clone, row_idx, col_idx, uv);
-                            cells.insert((row_idx, col_idx), tile_e);
-                        }
-                    }
-
-                    let view = self.views.get_mut(&map_entity).unwrap();
-                    view.cells = cells;
-                    view.cached_tiles = tm_clone.tiles.clone();
-                    view.cached_dims = current_dims;
-                    view.cached_generation = tm_clone.generation;
-                } else {
-                    // Same dimensions: cell-level diff.
-                    // Collect changed cells first (borrow checker: we need view after).
-                    let cached_clone = self.views[&map_entity].cached_tiles.clone();
-
-                    // Find changed cells.
-                    let mut changed_cells: Vec<(usize, usize, u32, u32)> = Vec::new(); // (row, col, old, new)
-                    for (r, row) in tm_clone.tiles.iter().enumerate() {
-                        for (c, &new_val) in row.iter().enumerate() {
-                            let old_val = cached_clone
-                                .get(r)
-                                .and_then(|rr| rr.get(c))
-                                .copied()
-                                .unwrap_or(0);
-                            if old_val != new_val {
-                                changed_cells.push((r, c, old_val, new_val));
-                            }
-                        }
-                    }
-
-                    if changed_cells.is_empty() {
-                        continue;
-                    }
-
-                    // Determine which cells need a UV refresh (changed + neighbors when autotile is active).
-                    // HashSet deduplicates neighbor cells that multiple changed tiles share.
-                    let mut uv_refresh: HashSet<(usize, usize)> = HashSet::new();
-
-                    for &(r, c, old_val, new_val) in &changed_cells {
-                        let view = self.views.get_mut(&map_entity).unwrap();
-
-                        if old_val != 0 && new_val == 0 {
-                            // Non-zero → zero: despawn tile entity.
-                            if let Some(tile_e) = view.cells.remove(&(r, c)) {
-                                world.despawn(tile_e);
-                            }
-                        } else if old_val == 0 && new_val != 0 {
-                            // Zero → non-zero: spawn new tile entity.
-                            let uv = resolve_uv(r, c, new_val);
-                            let tile_e = spawn_tile_entity(world, &tm_clone, r, c, uv);
-                            view.cells.insert((r, c), tile_e);
-                        } else if old_val != 0 && new_val != 0 {
-                            // Non-zero → different non-zero: update UvRect in place.
-                            let uv = resolve_uv(r, c, new_val);
-                            if let Some(&tile_e) = view.cells.get(&(r, c)) {
-                                if let Some(uv_comp) = world.get_mut::<UvRect>(tile_e) {
-                                    *uv_comp = uv;
-                                }
-                            } else {
-                                // Safety spawn (shouldn't happen in normal flow).
-                                let tile_e = spawn_tile_entity(world, &tm_clone, r, c, uv);
-                                view.cells.insert((r, c), tile_e);
-                            }
-                        }
-
-                        // When autotile is active, neighbors also need UV refresh.
-                        if any_autotile {
-                            let (rows, cols) = current_dims;
-                            for dr in -1i32..=1 {
-                                for dc in -1i32..=1 {
-                                    if dr == 0 && dc == 0 {
-                                        continue;
-                                    }
-                                    let nr = r as i32 + dr;
-                                    let nc = c as i32 + dc;
-                                    if nr >= 0 && nr < rows as i32 && nc >= 0 && nc < cols as i32 {
-                                        uv_refresh.insert((nr as usize, nc as usize));
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Apply neighbor UV refreshes (only for non-zero cells that have entities).
-                    for (nr, nc) in uv_refresh {
-                        let current_val = tm_clone
-                            .tiles
-                            .get(nr)
-                            .and_then(|r| r.get(nc))
-                            .copied()
-                            .unwrap_or(0);
-                        if current_val == 0 {
-                            continue;
-                        }
-                        let uv = resolve_uv(nr, nc, current_val);
-                        let view = self.views.get_mut(&map_entity).unwrap();
-                        if let Some(&tile_e) = view.cells.get(&(nr, nc)) {
-                            if let Some(uv_comp) = world.get_mut::<UvRect>(tile_e) {
-                                *uv_comp = uv;
-                            }
-                        }
-                    }
-
-                    // Update cached tiles.
-                    let view = self.views.get_mut(&map_entity).unwrap();
-                    view.cached_tiles = tm_clone.tiles.clone();
-                    view.cached_dims = current_dims;
-                    view.cached_generation = tm_clone.generation;
-                }
-            }
-        }
-    }
-}
-
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ecs::World;
+    use crate::ecs::{System, World};
+    use crate::tilemap::{Tilemap, TilemapAtlas};
 
-    fn make_atlas() -> TilemapAtlas {
-        TilemapAtlas::new("tiles.png", 4, 4) // 16 tiles in a 4×4 grid
-    }
-
-    fn make_tilemap(tiles: Vec<Vec<u32>>) -> Tilemap {
-        Tilemap::new(make_atlas(), tiles, 32.0, Vec2::ZERO)
-    }
-
-    // ── TilemapAtlas ──────────────────────────────────────────────────────────
-
-    #[test]
-    fn tilemap_atlas_zero_grid_returns_full_uv() {
-        let atlas = TilemapAtlas::new("tiles.png", 0, 0);
-        assert_eq!(atlas.uv_for(0), UvRect::FULL);
-    }
-
-    #[test]
-    fn tilemap_atlas_out_of_range_tile_id_returns_full_uv() {
-        let atlas = TilemapAtlas::new("tiles.png", 2, 2);
-        let uv = atlas.uv_for(99);
-        assert_eq!(
-            uv,
-            UvRect::FULL,
-            "out-of-range tile_id must return UvRect::FULL, got {uv:?}"
-        );
-        let boundary = atlas.uv_for(4);
-        assert_eq!(
-            boundary,
-            UvRect::FULL,
-            "tile_id == columns*rows must return UvRect::FULL, got {boundary:?}"
-        );
-    }
-
-    #[test]
-    fn tilemap_atlas_in_range_tile_id_returns_correct_uv() {
-        let atlas = TilemapAtlas::new("tiles.png", 2, 2);
-        let uv0 = atlas.uv_for(0);
-        assert!(
-            uv0.u_offset.abs() < 1e-5 && uv0.v_offset.abs() < 1e-5,
-            "tile 0 must be top-left, got {uv0:?}"
-        );
-        let uv3 = atlas.uv_for(3);
-        assert!(
-            (uv3.u_offset - 0.5).abs() < 1e-5 && (uv3.v_offset - 0.5).abs() < 1e-5,
-            "tile 3 must be bottom-right, got {uv3:?}"
-        );
-        for id in 0..4 {
-            let uv = atlas.uv_for(id);
-            assert!(
-                uv.u_offset < 1.0 && uv.v_offset < 1.0,
-                "tile {id} UV offset must be < 1.0, got {uv:?}"
-            );
-        }
-    }
-
-    // ── Tilemap mutation API ──────────────────────────────────────────────────
-
-    #[test]
-    fn set_tile_in_bounds_returns_true_on_change() {
-        let mut tm = make_tilemap(vec![vec![1, 2], vec![3, 4]]);
-        assert!(tm.set_tile(0, 0, 5), "in-bounds change should return true");
-        assert_eq!(tm.tiles[0][0], 5);
-    }
-
-    #[test]
-    fn set_tile_unchanged_returns_false() {
-        let mut tm = make_tilemap(vec![vec![1, 2]]);
-        assert!(
-            !tm.set_tile(0, 0, 1),
-            "setting the same value should return false"
-        );
-    }
-
-    #[test]
-    fn set_tile_out_of_bounds_returns_false() {
-        let mut tm = make_tilemap(vec![vec![1, 2]]);
-        assert!(!tm.set_tile(5, 0, 3), "row OOB should return false");
-        assert!(!tm.set_tile(0, 5, 3), "col OOB should return false");
-    }
-
-    #[test]
-    fn get_tile_bounds() {
-        let tm = make_tilemap(vec![vec![7, 8]]);
-        assert_eq!(tm.get_tile(0, 0), Some(7));
-        assert_eq!(tm.get_tile(0, 1), Some(8));
-        assert_eq!(tm.get_tile(1, 0), None, "out of row bounds");
-        assert_eq!(tm.get_tile(0, 2), None, "out of col bounds");
-    }
-
-    #[test]
-    fn dims_jagged() {
-        let tm = Tilemap::new(make_atlas(), vec![vec![1, 2, 3], vec![4]], 32.0, Vec2::ZERO);
-        assert_eq!(tm.dims(), (2, 3), "cols = max row length");
-        let empty = Tilemap::new(make_atlas(), vec![], 32.0, Vec2::ZERO);
-        assert_eq!(empty.dims(), (0, 0));
-    }
-
-    #[test]
-    fn cell_center_world_and_at_world_round_trip() {
-        let tm = make_tilemap(vec![vec![1, 2], vec![3, 4]]);
-        // center of (0, 0) should map back to (0, 0)
-        let center = tm.cell_center_world(0, 0);
-        assert_eq!(center, Vec2::new(16.0, 16.0));
-        assert_eq!(tm.cell_at_world(center), Some((0, 0)));
-
-        // center of (1, 1) round-trip
-        let center11 = tm.cell_center_world(1, 1);
-        assert_eq!(tm.cell_at_world(center11), Some((1, 1)));
-    }
-
-    #[test]
-    fn cell_at_world_outside_returns_none() {
-        let tm = make_tilemap(vec![vec![1, 2], vec![3, 4]]);
-        // Negative coordinates
-        assert_eq!(tm.cell_at_world(Vec2::new(-1.0, 0.0)), None);
-        // Beyond grid (2 rows × 2 cols × 32 pixels = 64×64)
-        assert_eq!(tm.cell_at_world(Vec2::new(100.0, 100.0)), None);
-    }
-
-    // ── Reactive TilemapSystem ────────────────────────────────────────────────
-
-    fn run_tilemap_system(world: &mut World, sys: &mut TilemapSystem) {
-        sys.run(world, 0.0);
-    }
-
-    #[test]
-    fn tilemap_system_spawns_one_entity_per_non_zero_cell() {
-        let mut world = World::new();
-        let mut sys = TilemapSystem::new();
-
-        // 2×2 map: 3 non-zero cells
-        let map_e = world.spawn();
-        world.add_component(map_e, make_tilemap(vec![vec![1, 0], vec![2, 3]]));
-        run_tilemap_system(&mut world, &mut sys);
-
-        let count = world.query::<UvRect>().count();
-        assert_eq!(
-            count, 3,
-            "should spawn 3 tile entities for 3 non-zero cells"
-        );
-    }
-
-    #[test]
-    fn tilemap_system_reactive_despawn_on_zero() {
-        let mut world = World::new();
-        let mut sys = TilemapSystem::new();
-
-        let map_e = world.spawn();
-        world.add_component(map_e, make_tilemap(vec![vec![1, 2], vec![3, 4]]));
-        run_tilemap_system(&mut world, &mut sys);
-        assert_eq!(world.query::<UvRect>().count(), 4, "initial: 4 tiles");
-
-        // Erase cell (0,0)
-        world.get_mut::<Tilemap>(map_e).unwrap().set_tile(0, 0, 0);
-        run_tilemap_system(&mut world, &mut sys);
-        assert_eq!(world.query::<UvRect>().count(), 3, "after erase: 3 tiles");
-    }
-
-    #[test]
-    fn tilemap_system_reactive_spawn_on_fill() {
-        let mut world = World::new();
-        let mut sys = TilemapSystem::new();
-
-        let map_e = world.spawn();
-        world.add_component(map_e, make_tilemap(vec![vec![1, 0], vec![0, 0]]));
-        run_tilemap_system(&mut world, &mut sys);
-        assert_eq!(world.query::<UvRect>().count(), 1, "initial: 1 tile");
-
-        // Fill cell (1,1)
-        world.get_mut::<Tilemap>(map_e).unwrap().set_tile(1, 1, 2);
-        run_tilemap_system(&mut world, &mut sys);
-        assert_eq!(world.query::<UvRect>().count(), 2, "after fill: 2 tiles");
+    fn make_multi_terrain_atlas() -> TilemapAtlas {
+        // 32 tiles in a 32×1 strip: grass tiles 0–15, water tiles 16–31.
+        TilemapAtlas::new("tiles.png", 32, 1)
     }
 
     // ── compute_tile_mask / Edge4 ─────────────────────────────────────────────
@@ -1102,10 +415,10 @@ mod tests {
         // Center cell (1,1): all 4 neighbors filled → mask=15 → atlas tile 15.
         let tiles = vec![vec![1, 1, 1], vec![1, 1, 1], vec![1, 1, 1]];
         let atlas = TilemapAtlas::new("tiles.png", 16, 1); // 16 tiles in a 1-row strip
-        let tm = Tilemap::new(atlas.clone(), tiles, 32.0, Vec2::ZERO);
+        let tm = Tilemap::new(atlas.clone(), tiles, 32.0, glam::Vec2::ZERO);
 
         let mut world = World::new();
-        let mut sys = TilemapSystem::new();
+        let mut sys = crate::tilemap::TilemapSystem::new();
 
         let map_e = world.spawn();
         world.add_component(map_e, tm);
@@ -1115,7 +428,9 @@ mod tests {
 
         // Find the tile entity at cell (1,1) — position (48, 48)
         let expected_uv = atlas.uv_for(15); // mask 15 → all neighbors
-        let found = world.query::<UvRect>().any(|(_, uv)| *uv == expected_uv);
+        let found = world
+            .query::<crate::renderer::uv::UvRect>()
+            .any(|(_, uv)| *uv == expected_uv);
         assert!(
             found,
             "center cell should have UV for mask=15 (all neighbors filled)"
@@ -1128,10 +443,10 @@ mod tests {
         // neighbor of the center cell and verify the center's UvRect updates.
         let tiles = vec![vec![1, 1, 1], vec![1, 1, 1], vec![1, 1, 1]];
         let atlas = TilemapAtlas::new("tiles.png", 16, 1);
-        let tm = Tilemap::new(atlas.clone(), tiles, 32.0, Vec2::ZERO);
+        let tm = Tilemap::new(atlas.clone(), tiles, 32.0, glam::Vec2::ZERO);
 
         let mut world = World::new();
-        let mut sys = TilemapSystem::new();
+        let mut sys = crate::tilemap::TilemapSystem::new();
 
         let map_e = world.spawn();
         world.add_component(map_e, tm);
@@ -1142,6 +457,8 @@ mod tests {
 
         // Find center tile entity (position 48,48 in a 32-pixel grid)
         // We identify it by its Transform position.
+        use crate::components::Transform;
+        use crate::ecs::Entity;
         let center_entity: Option<Entity> = world
             .query::<Transform>()
             .find(|(_, t)| (t.position.x - 48.0).abs() < 0.1 && (t.position.y - 48.0).abs() < 0.1)
@@ -1155,7 +472,7 @@ mod tests {
         // Center (1,1) mask now: N=0, E=1, S=1, W=1 → mask = 2+4+8 = 14
         let expected_uv = atlas.uv_for(14);
         let actual_uv = world
-            .get::<UvRect>(center_entity)
+            .get::<crate::renderer::uv::UvRect>(center_entity)
             .copied()
             .expect("center tile entity must still have UvRect");
         assert_eq!(
@@ -1214,11 +531,6 @@ mod tests {
 
     // ── MultiTerrainAutotile reactive system ─────────────────────────────────
 
-    fn make_multi_terrain_atlas() -> TilemapAtlas {
-        // 32 tiles in a 32×1 strip: grass tiles 0–15, water tiles 16–31.
-        TilemapAtlas::new("tiles.png", 32, 1)
-    }
-
     #[test]
     fn multi_terrain_center_grass_cell_has_full_mask_uv() {
         // 5×5 map: 3×3 grass patch (value 1) in the center, surrounded by water (2).
@@ -1231,10 +543,10 @@ mod tests {
             vec![2, 2, 2, 2, 2],
         ];
         let atlas = make_multi_terrain_atlas();
-        let tm = Tilemap::new(atlas.clone(), tiles, 32.0, Vec2::ZERO);
+        let tm = Tilemap::new(atlas.clone(), tiles, 32.0, glam::Vec2::ZERO);
 
         let mut world = World::new();
-        let mut sys = TilemapSystem::new();
+        let mut sys = crate::tilemap::TilemapSystem::new();
 
         let map_e = world.spawn();
         world.add_component(map_e, tm);
@@ -1242,18 +554,19 @@ mod tests {
             map_e,
             MultiTerrainAutotile::edge_16(&[(1, 0), (2, 16)]).with_oob_filled(false),
         );
-        run_tilemap_system(&mut world, &mut sys);
+        sys.run(&mut world, 0.0);
 
         // Center grass cell: (2,2) — all 4 grass neighbors → mask 15 → atlas tile 15.
         let expected_center_uv = atlas.uv_for(15);
         // Center cell world pos: origin(0,0) + col*32+16, row*32+16 = (80, 80).
+        use crate::components::Transform;
         let center_entity = world
             .query::<Transform>()
             .find(|(_, t)| (t.position.x - 80.0).abs() < 0.1 && (t.position.y - 80.0).abs() < 0.1)
             .map(|(e, _)| e)
             .expect("center grass tile entity at (2,2) must exist");
         let center_uv = world
-            .get::<UvRect>(center_entity)
+            .get::<crate::renderer::uv::UvRect>(center_entity)
             .copied()
             .expect("center grass entity must have UvRect");
         assert_eq!(
@@ -1271,7 +584,7 @@ mod tests {
             .map(|(e, _)| e)
             .expect("edge grass tile entity at (1,2) must exist");
         let edge_uv = world
-            .get::<UvRect>(edge_entity)
+            .get::<crate::renderer::uv::UvRect>(edge_entity)
             .copied()
             .expect("edge grass entity must have UvRect");
         assert_eq!(
@@ -1290,7 +603,7 @@ mod tests {
             .map(|(e, _)| e)
             .expect("water tile entity at (0,2) must exist");
         let water_uv = world
-            .get::<UvRect>(water_entity)
+            .get::<crate::renderer::uv::UvRect>(water_entity)
             .copied()
             .expect("water entity must have UvRect");
         assert_eq!(
@@ -1306,10 +619,10 @@ mod tests {
         // Assert: center (1,1) UV changes from mask=0 (no grass neighbors) to mask=1 (N=grass).
         let tiles = vec![vec![2, 2, 2], vec![2, 1, 2], vec![2, 2, 2]];
         let atlas = make_multi_terrain_atlas();
-        let tm = Tilemap::new(atlas.clone(), tiles, 32.0, Vec2::ZERO);
+        let tm = Tilemap::new(atlas.clone(), tiles, 32.0, glam::Vec2::ZERO);
 
         let mut world = World::new();
-        let mut sys = TilemapSystem::new();
+        let mut sys = crate::tilemap::TilemapSystem::new();
 
         let map_e = world.spawn();
         world.add_component(map_e, tm);
@@ -1319,8 +632,9 @@ mod tests {
         );
 
         // Initial build: center grass at (1,1), all neighbors are water → grass mask=0 → atlas tile 0.
-        run_tilemap_system(&mut world, &mut sys);
+        sys.run(&mut world, 0.0);
 
+        use crate::components::Transform;
         let center_entity = world
             .query::<Transform>()
             .find(|(_, t)| (t.position.x - 48.0).abs() < 0.1 && (t.position.y - 48.0).abs() < 0.1)
@@ -1328,7 +642,7 @@ mod tests {
             .expect("center grass tile entity at (1,1) must exist");
 
         let uv_before = world
-            .get::<UvRect>(center_entity)
+            .get::<crate::renderer::uv::UvRect>(center_entity)
             .copied()
             .expect("center grass entity must have UvRect");
         assert_eq!(
@@ -1339,11 +653,11 @@ mod tests {
 
         // Set north neighbor (0,1) to grass (1).
         world.get_mut::<Tilemap>(map_e).unwrap().set_tile(0, 1, 1);
-        run_tilemap_system(&mut world, &mut sys);
+        sys.run(&mut world, 0.0);
 
         // Now center (1,1): N=(0,1)=1=grass → mask N=1 → atlas tile 1.
         let uv_after = world
-            .get::<UvRect>(center_entity)
+            .get::<crate::renderer::uv::UvRect>(center_entity)
             .copied()
             .expect("center grass entity must still have UvRect");
         assert_eq!(
@@ -1360,7 +674,7 @@ mod tests {
             .map(|(e, _)| e)
             .expect("newly-placed grass tile at (0,1) must exist");
         let north_uv = world
-            .get::<UvRect>(north_entity)
+            .get::<crate::renderer::uv::UvRect>(north_entity)
             .copied()
             .expect("must have UvRect");
         assert_eq!(
@@ -1378,10 +692,10 @@ mod tests {
         // If multi takes precedence, UV matches atlas tile 115, not 15.
         let tiles = vec![vec![1, 1, 1], vec![1, 1, 1], vec![1, 1, 1]];
         let atlas = TilemapAtlas::new("tiles.png", 200, 1);
-        let tm = Tilemap::new(atlas.clone(), tiles, 32.0, Vec2::ZERO);
+        let tm = Tilemap::new(atlas.clone(), tiles, 32.0, glam::Vec2::ZERO);
 
         let mut world = World::new();
-        let mut sys = TilemapSystem::new();
+        let mut sys = crate::tilemap::TilemapSystem::new();
 
         let map_e = world.spawn();
         world.add_component(map_e, tm);
@@ -1389,19 +703,20 @@ mod tests {
         world.add_component(map_e, TilemapAutotile::edge_16(0));
         // Multi-terrain: center → tile 115 (100 + 15).
         world.add_component(map_e, MultiTerrainAutotile::edge_16(&[(1, 100)]));
-        run_tilemap_system(&mut world, &mut sys);
+        sys.run(&mut world, 0.0);
 
         let expected_multi_uv = atlas.uv_for(115);
         let expected_single_uv = atlas.uv_for(15);
 
         // Center cell (1,1) at world pos (48, 48).
+        use crate::components::Transform;
         let center_entity = world
             .query::<Transform>()
             .find(|(_, t)| (t.position.x - 48.0).abs() < 0.1 && (t.position.y - 48.0).abs() < 0.1)
             .map(|(e, _)| e)
             .expect("center tile entity must exist");
         let center_uv = world
-            .get::<UvRect>(center_entity)
+            .get::<crate::renderer::uv::UvRect>(center_entity)
             .copied()
             .expect("must have UvRect");
 
@@ -1465,11 +780,11 @@ mod tests {
         // never a valid result for any blob mask hit (the lowest is base+0 = 1).
         let tiles = vec![vec![1u32; 3]; 3];
         let atlas = TilemapAtlas::new("tiles.png", 47, 1);
-        let tm = Tilemap::new(atlas.clone(), tiles, 32.0, Vec2::ZERO);
+        let tm = Tilemap::new(atlas.clone(), tiles, 32.0, glam::Vec2::ZERO);
         let at = TilemapAutotile::blob_47(1);
 
         let mut world = World::new();
-        let mut sys = TilemapSystem::new();
+        let mut sys = crate::tilemap::TilemapSystem::new();
         let map_e = world.spawn();
         world.add_component(map_e, tm);
         world.add_component(map_e, at);
@@ -1478,59 +793,13 @@ mod tests {
         // All 9 non-zero cells should have spawned tile entities.
         // For each, the UvRect must NOT equal atlas.uv_for(0) (the tile-0 fallback).
         let fallback_uv = atlas.uv_for(0);
-        for (_, uv) in world.query::<UvRect>() {
+        for (_, uv) in world.query::<crate::renderer::uv::UvRect>() {
             assert_ne!(
                 *uv, fallback_uv,
                 "blob_47 must not fall back to atlas tile 0 for any reachable mask; \
                  got uv={uv:?} which equals tile-0 UV={fallback_uv:?}"
             );
         }
-    }
-
-    // ── Generation guard / set_tile bumps generation (Task 2) ────────────────
-
-    #[test]
-    fn set_tile_bumps_generation() {
-        let mut tm = make_tilemap(vec![vec![1, 2], vec![3, 4]]);
-        let gen0 = tm.generation;
-        tm.set_tile(0, 0, 5);
-        assert!(
-            tm.generation > gen0,
-            "generation must increase after a tile change"
-        );
-    }
-
-    #[test]
-    fn set_tile_no_change_does_not_bump_generation() {
-        let mut tm = make_tilemap(vec![vec![1, 2]]);
-        let gen0 = tm.generation;
-        tm.set_tile(0, 0, 1); // same value — returns false
-        assert_eq!(
-            tm.generation, gen0,
-            "generation must not change when set_tile is a no-op"
-        );
-    }
-
-    /// TilemapSystem must not re-process a map that has not been mutated.
-    /// After initial spawn, run the system once more with no mutation and verify
-    /// the tile entity count stays identical (no duplicate spawns or despawns).
-    #[test]
-    fn tilemap_system_no_work_when_generation_unchanged() {
-        let mut world = World::new();
-        let mut sys = TilemapSystem::new();
-
-        let map_e = world.spawn();
-        world.add_component(map_e, make_tilemap(vec![vec![1, 2], vec![3, 4]]));
-        sys.run(&mut world, 0.0); // initial build: 4 tiles
-        assert_eq!(world.query::<UvRect>().count(), 4);
-
-        // Run again without any mutation — generation is unchanged.
-        sys.run(&mut world, 0.0);
-        assert_eq!(
-            world.query::<UvRect>().count(),
-            4,
-            "re-running with no mutation must not change the tile entity count"
-        );
     }
 
     // ── compute_mask_raw DRY refactor equivalence (Task 2a) ──────────────────

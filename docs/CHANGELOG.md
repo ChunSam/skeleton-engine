@@ -4,6 +4,30 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 10.0.0 (in progress)
+
+**v10 architecture pass** — a scoped set of breaking + internal refactors from the cohesion review
+(`docs/MODULE_COHESION_REVIEW_2026-06-16.md`); plan + PR sequencing in
+`plans/V10_BREAKING_PASS_PLAN_2026-06-16.md`. Shipped incrementally; this section accumulates across
+the arc.
+
+### Changed (internal)
+
+- Split the 1620-line `src/tilemap.rs` into `src/tilemap/{mod,autotile,system}.rs` (data model /
+  autotiling / reactive render system), mirroring `src/physics/`. Pure relocation — the 10
+  re-exported public names (`engine::tilemap::*`) are unchanged.
+
+### Removed (breaking)
+
+- `engine::tilemap::cell_display_uv` — an unused public helper (zero callers in-tree; was redundant
+  with `TilemapSystem`'s inline UV resolution).
+
+### Fixed
+
+- `scripts/verify.sh` is now executable in git (`100755`); the documented `./scripts/verify.sh` gate
+  command previously failed with "permission denied" on a fresh clone (it relied on a local-only
+  execute bit).
+
 ## 9.6.1
 
 **Cleanups (additive / docs / CI).** Small fork-friction + doc-quality fixes.
