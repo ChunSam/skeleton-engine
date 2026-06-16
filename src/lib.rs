@@ -21,6 +21,7 @@ pub mod input;
 pub mod locale;
 pub mod material;
 pub mod network;
+pub mod nine_slice;
 pub mod parallax;
 pub mod particle;
 pub mod pathfinding;
@@ -97,6 +98,7 @@ pub use material::ShaderMaterial;
 pub use network::{
     NetworkClient, NetworkConfig, NetworkEvent, NetworkSystem, RemoteEntities, SnapshotBuffer,
 };
+pub use nine_slice::NineSlice;
 pub use parallax::{ParallaxLayer, ParallaxSystem};
 pub use particle::{
     Particle, ParticleBurst, ParticleConfigError, ParticleConfigRegistry, ParticleConfigSet,

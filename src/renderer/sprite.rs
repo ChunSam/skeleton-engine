@@ -12,6 +12,7 @@ use crate::components::{Sprite, Transform};
 use crate::ecs::World;
 use crate::hierarchy::GlobalTransform;
 use crate::material::ShaderMaterial;
+use crate::nine_slice::{nine_slice_subquads, NineSlice};
 use crate::renderer::texture::Texture;
 use crate::renderer::ui::{DrawImage, DrawRect};
 use crate::renderer::uv::{BlendUv, UvRect};
@@ -368,6 +369,46 @@ impl SpriteRenderer {
                 .map(|h| h.path_arc())
                 .or_else(|| sprite.texture.clone())
                 .unwrap_or_else(|| Arc::from(""));
+            // Nine-slice: emit nine sub-quads (corners fixed-size, edges/center
+            // stretched) instead of one. Only this new branch runs when a NineSlice
+            // is present — ordinary sprites below remain byte-identical to before.
+            if let Some(ns) = world.get::<NineSlice>(entity) {
+                let ns = *ns;
+                let (pos, panel_size, rotation, z) =
+                    if let Some(gt) = world.get::<GlobalTransform>(entity) {
+                        (gt.position, gt.scale, gt.rotation, gt.z)
+                    } else if let Some(tr) = world.get::<Transform>(entity) {
+                        (tr.position, tr.scale, tr.rotation, tr.z)
+                    } else {
+                        continue;
+                    };
+                let rot = glam::Vec2::from_angle(rotation);
+                let color = sprite.color.to_array();
+                for sq in nine_slice_subquads(panel_size, uv, &ns) {
+                    let center = pos + rot.rotate(sq.local_center);
+                    let model = Mat4::from_scale_rotation_translation(
+                        Vec3::new(sq.size.x, sq.size.y, 1.0),
+                        Quat::from_rotation_z(rotation),
+                        Vec3::new(center.x, center.y, 0.0),
+                    )
+                    .to_cols_array_2d();
+                    push_sprite_if_visible(
+                        center,
+                        sq.size,
+                        rotation,
+                        z,
+                        layer,
+                        tex_key.clone(),
+                        InstanceRaw::single(model, color, sq.uv),
+                        &is_visible,
+                        &is_above_lod,
+                        &mut stats,
+                        &mut next_order,
+                        &mut self.draw_entries,
+                    );
+                }
+                continue;
+            }
             if let Some(gt) = world.get::<GlobalTransform>(entity) {
                 push_sprite_if_visible(
                     gt.position,
