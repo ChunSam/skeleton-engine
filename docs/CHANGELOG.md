@@ -4,6 +4,24 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 10.5.0
+
+**Coroutine sequencer (new feature + example).** The engine had `Timer`, `Tween`, and
+`Timeline` (data keyframes) but no imperative "do these actions with waits between them"
+primitive. `Coroutine` adds scripted-gameplay sequencing — chain `wait` / `run` / `run_for`
+steps that execute arbitrary closures against the `World`. Distinct from `Timeline`
+(keyframe data) and `TweenSequence` (value interpolation). Purely additive.
+
+### Added
+
+- `Coroutine` — builder: `new` / `wait(secs)` / `run(|&mut World|)` / `run_for(dur, |&mut World, t|)`
+  (progress `t` runs 0→1). `CoroutineRunner` — World resource (`start` / `active_count`).
+  `CoroutineSystem` — ticks active coroutines each frame; it removes the runner resource,
+  ticks (so closures get a free `&mut World`), then reinserts it (closures must not re-enter
+  the runner). Leftover `dt` carries across steps within a frame. Re-exported at the crate root.
+- Example `examples/coroutine_demo.rs` — a scripted scene: wait → spawn a box → slide it across
+  via `run_for` → recolor → loop.
+
 ## 10.4.0
 
 **Music-track crossfade (new feature + example).** `AudioManager` had per-channel fades
