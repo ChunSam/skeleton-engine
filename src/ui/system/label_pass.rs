@@ -6,10 +6,16 @@ use crate::ui::node::UiNode;
 
 use super::state::UiOutput;
 
-pub(super) fn run(world: &mut World, viewport: &ViewportSize, output: &mut UiOutput) {
-    let label_entities: Vec<Entity> = world.query2::<UiNode, Label>().map(|(e, _, _)| e).collect();
+pub(super) fn run(
+    world: &mut World,
+    viewport: &ViewportSize,
+    output: &mut UiOutput,
+    scratch: &mut Vec<Entity>,
+) {
+    scratch.clear();
+    scratch.extend(world.query2::<UiNode, Label>().map(|(e, _, _)| e));
 
-    for entity in label_entities {
+    for entity in scratch.iter().copied() {
         let (pos, size, visible) = match world.get::<UiNode>(entity) {
             Some(node) => (node.screen_pos(viewport), node.size, node.visible),
             None => continue,

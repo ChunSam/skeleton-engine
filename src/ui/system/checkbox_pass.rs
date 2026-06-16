@@ -14,13 +14,12 @@ pub(super) fn run(
     viewport: &ViewportSize,
     input: &InputSnapshot,
     output: &mut UiOutput,
+    scratch: &mut Vec<Entity>,
 ) {
-    let checkbox_entities: Vec<Entity> = world
-        .query2::<UiNode, CheckBox>()
-        .map(|(e, _, _)| e)
-        .collect();
+    scratch.clear();
+    scratch.extend(world.query2::<UiNode, CheckBox>().map(|(e, _, _)| e));
 
-    for entity in checkbox_entities {
+    for entity in scratch.iter().copied() {
         let (pos, size, z, visible) = match node_layout(world, entity, viewport) {
             Some(layout) => layout,
             None => continue,

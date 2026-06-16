@@ -22,10 +22,16 @@ the arc.
   autotiling / reactive render system), mirroring `src/physics/`. Pure relocation — the 10
   re-exported public names (`engine::tilemap::*`) are unchanged.
 
-### Changed (breaking — Theme 3 encapsulation)
+### Changed (breaking)
 
-- `RenderTarget`'s wgpu fields `texture` / `view` / `sampler` / `bind_group` are now `pub(crate)`
-  (use the new accessors above). `width` / `height` / `clear_color` stay `pub`.
+- **`UiSystem` and `SteeringSystem` are no longer unit structs** — they now hold reused scratch
+  buffers, so construct them with `UiSystem::default()` / `SteeringSystem::default()` (or `::new()`)
+  instead of the bare `UiSystem` / `SteeringSystem` in `add_system(...)`. Eliminates 11 per-frame
+  `Vec<Entity>` allocations (6 UI widget passes + 5 steering passes); behavior is identical. (Closes
+  the deferred allocation finding #76.)
+- _(Theme 3 encapsulation)_ `RenderTarget`'s wgpu fields `texture` / `view` / `sampler` /
+  `bind_group` are now `pub(crate)` (use the new accessors above). `width` / `height` / `clear_color`
+  stay `pub`.
 - `RenderTarget::new` no longer takes a `texture_layout` argument — it builds its own bind-group
   layout internally. Forks create RTs via `App::create_render_target`, which is unchanged.
 - `LightingRenderer`'s `normal_view` / `width` / `height` are now `pub(crate)` (native-only type,

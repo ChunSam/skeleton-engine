@@ -13,13 +13,12 @@ pub(super) fn run(
     viewport: &ViewportSize,
     input: &InputSnapshot,
     output: &mut UiOutput,
+    scratch: &mut Vec<Entity>,
 ) {
-    let scroll_entities: Vec<Entity> = world
-        .query2::<UiNode, ScrollView>()
-        .map(|(e, _, _)| e)
-        .collect();
+    scratch.clear();
+    scratch.extend(world.query2::<UiNode, ScrollView>().map(|(e, _, _)| e));
 
-    for entity in scroll_entities {
+    for entity in scratch.iter().copied() {
         let (pos, size, z, visible) = match world.get::<UiNode>(entity) {
             Some(n) => (n.screen_pos(viewport), n.size, n.z, n.visible),
             None => continue,
