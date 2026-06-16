@@ -4,12 +4,14 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
-## 10.0.0 (in progress)
+## 10.0.0
 
 **v10 architecture pass** — a scoped set of breaking + internal refactors from the cohesion review
 (`docs/MODULE_COHESION_REVIEW_2026-06-16.md`); plan + PR sequencing in
-`plans/V10_BREAKING_PASS_PLAN_2026-06-16.md`. Shipped incrementally; this section accumulates across
-the arc.
+`plans/V10_BREAKING_PASS_PLAN_2026-06-16.md`. The one planned item **not** done — splitting the 839-line
+`App::render()` — was intentionally descoped: its fork-friendliness goal is already met by the
+`RenderPlugin` hook (added in 9.6.0), and it's the only refactor CI can't verify (no GPU test), so the
+internal-readability gain didn't justify the render-path regression risk.
 
 ### Added
 
@@ -29,6 +31,10 @@ the arc.
 - Split the 386-line `schedule::update()` god-function into `compute_viewport()` / `run_systems()` /
   `post_systems()` helpers, and moved egui frame begin/end into `egui_pass.rs`. Operation order is
   unchanged (guarded by the existing pause / egui-delta-merge / scene-transition tests). Internal-only.
+- Split the 5-concern `SpriteRenderer` into `SpriteRenderer` (sprite batching + UI primitives) owning
+  a `TextureCache` (texture/RT-bind-group cache + texture layout) and a `MaterialRenderer` (ShaderMaterial
+  custom pipelines). All bind-group layouts / pipeline configs / draw order are byte-identical (verified
+  by a visual smoke test of the `basic` + `security_camera` examples). Internal-only (new types `pub(crate)`).
 
 ### Changed (breaking)
 

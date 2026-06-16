@@ -1,5 +1,4 @@
 use std::cmp::Ordering;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
@@ -27,10 +26,13 @@ mod textures;
 mod ui_primitives;
 
 use geometry::{CameraUniform, InstanceRaw, Vertex, INDICES, VERTICES};
+use material::MaterialRenderer;
 use sort::{
     assign_instance_offsets, layer_matches_mask, sort_render_entries, SpriteRenderEntry,
     SpriteRenderKind,
 };
+use textures::TextureCache;
+
 // ─── Frame context ───────────────────────────────────────────────────────────
 /// Bundle of wgpu handles required for a single render-pass call.
 ///
@@ -58,32 +60,15 @@ pub struct SpriteRenderer {
     instance_capacity: usize,
     camera_buf: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
-    texture_layout: wgpu::BindGroupLayout,
-    white_texture: Texture,
-    texture_cache: HashMap<String, Arc<Texture>>,
     // For UI screen-space rendering
     ui_camera_buf: wgpu::Buffer,
     ui_camera_bind_group: wgpu::BindGroup,
     ui_instance_buf: wgpu::Buffer,
     ui_instance_capacity: usize,
-    // ── For ShaderMaterial custom rendering ────────────────────────────────────────
-    sprite_shader: wgpu::ShaderModule,
-    camera_layout: wgpu::BindGroupLayout,
-    surface_format: wgpu::TextureFormat,
-    params_layout: wgpu::BindGroupLayout,
-    mat_instance_buf: wgpu::Buffer,
-    mat_instance_capacity: usize,
-    custom_pipelines: HashMap<u64, wgpu::RenderPipeline>,
-    params_buffers: HashMap<crate::ecs::Entity, (wgpu::Buffer, wgpu::BindGroup)>,
-    /// RenderTarget bind_group cache (key = RenderTarget name)
-    rt_cache: HashMap<String, Arc<wgpu::BindGroup>>,
-    // ── Per-frame scratch Vecs/Sets promoted to fields to avoid per-frame heap allocs ──
-    // Each collection is cleared at the top of `render()` and refilled. The backing
-    // memory is reused across frames so no heap allocation occurs on steady-state
-    // frames (same pattern as instance_capacity above).
+    // Per-frame scratch Vecs promoted to fields to avoid per-frame heap allocs.
+    // Each collection is cleared at the top of `render()` and refilled.
     draw_entries: Vec<SpriteRenderEntry>,
     sprite_instances_scratch: Vec<InstanceRaw>,
-    material_instances_scratch: Vec<InstanceRaw>,
     /// Scratch: AtlasSprite query results (entity, index, color, atlas handle).
     /// Promoted from a per-frame local `Vec` — cleared and refilled each frame.
     atlas_entries_scratch: Vec<(
@@ -92,12 +77,9 @@ pub struct SpriteRenderer {
         crate::color::Color,
         crate::asset::Handle<crate::atlas::TextureAtlas>,
     )>,
-    /// Scratch: set of entities that have a `ShaderMaterial` this frame.
-    /// Used to cull stale `params_buffers` entries without a per-frame HashSet allocation.
-    live_material_entities_scratch: std::collections::HashSet<crate::ecs::Entity>,
-    /// Scratch: set of ShaderMaterial source hashes whose pipeline source has already
-    /// been claimed this frame, so we clone the WGSL at most once per new hash.
-    seen_new_hashes_scratch: std::collections::HashSet<u64>,
+    // Sub-structs owning texture caching and material pipeline concerns.
+    texture_cache: TextureCache,
+    material: MaterialRenderer,
 }
 
 /// Culls a sprite against frustum + LOD thresholds and — if visible — appends a
@@ -173,14 +155,13 @@ impl SpriteRenderer {
             }],
         });
 
-        // ── Texture layout + default white texture ─────────────────────────────
-        let texture_layout = Texture::bind_group_layout(device);
-        let white_texture = Texture::white(device, queue, &texture_layout);
+        // ── Texture cache (owns texture_layout + white_texture) ────────────────
+        let texture_cache = TextureCache::new(device, queue);
 
         // ── Render pipeline ─────────────────────────────────────────────────
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("sprite pipeline layout"),
-            bind_group_layouts: &[Some(&camera_layout), Some(&texture_layout)],
+            bind_group_layouts: &[Some(&camera_layout), Some(&texture_cache.texture_layout)],
             immediate_size: 0,
         });
         let vertex_layout = wgpu::VertexBufferLayout {
@@ -267,29 +248,8 @@ impl SpriteRenderer {
             mapped_at_creation: false,
         });
 
-        // ── ShaderMaterial: params uniform layout (@group(2)) ──────────────
-        let params_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("material params layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
-
-        // ── ShaderMaterial: instance buffer (dynamically reallocated as material entity count grows) ──
-        let mat_capacity = 16usize;
-        let mat_instance_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("material instance buffer"),
-            size: (mat_capacity * std::mem::size_of::<InstanceRaw>()) as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        // ── MaterialRenderer (takes ownership of camera_layout + shader) ───
+        let material = MaterialRenderer::new(device, shader, camera_layout, format);
 
         Self {
             pipeline,
@@ -299,28 +259,15 @@ impl SpriteRenderer {
             instance_capacity: capacity,
             camera_buf,
             camera_bind_group,
-            texture_layout,
-            white_texture,
-            texture_cache: HashMap::new(),
             ui_camera_buf,
             ui_camera_bind_group,
             ui_instance_buf,
             ui_instance_capacity: ui_capacity,
-            sprite_shader: shader,
-            camera_layout,
-            surface_format: format,
-            params_layout,
-            mat_instance_buf,
-            mat_instance_capacity: mat_capacity,
-            custom_pipelines: HashMap::new(),
-            params_buffers: HashMap::new(),
-            rt_cache: HashMap::new(),
             draw_entries: Vec::new(),
             sprite_instances_scratch: Vec::new(),
-            material_instances_scratch: Vec::new(),
             atlas_entries_scratch: Vec::new(),
-            live_material_entities_scratch: std::collections::HashSet::new(),
-            seen_new_hashes_scratch: std::collections::HashSet::new(),
+            texture_cache,
+            material,
         }
     }
 
@@ -330,7 +277,7 @@ impl SpriteRenderer {
     /// hand an atlas texture to egui (`register_native_texture`) for the tile-paint
     /// swatch palette.
     pub fn texture_view(&self, path: &str) -> Option<&wgpu::TextureView> {
-        self.texture_cache.get(path).map(|t| &t.view)
+        self.texture_cache.texture_cache.get(path).map(|t| &t.view)
     }
 
     pub fn render(
@@ -539,14 +486,15 @@ impl SpriteRenderer {
         // Populated from the full world-query result regardless of culling, so retaining
         // params_buffers to this set at frame end removes GPU buffers only for
         // despawned or material-removed entities. Field is cleared+reused each frame.
-        self.live_material_entities_scratch.clear();
-        self.live_material_entities_scratch
+        self.material.live_material_entities_scratch.clear();
+        self.material
+            .live_material_entities_scratch
             .extend(mat_ids.iter().map(|(e, ..)| *e));
 
         // seen_new_hashes_scratch: hashes whose source has already been claimed by a
         // surviving entity this call — keeps frag_source clones to at most one per new
         // pipeline. Field is cleared+reused each frame.
-        self.seen_new_hashes_scratch.clear();
+        self.material.seen_new_hashes_scratch.clear();
         for (entity, hash, params) in mat_ids {
             let uv = world.get::<UvRect>(entity).copied().unwrap_or(UvRect::FULL);
             let sprite = match world.get::<Sprite>(entity) {
@@ -586,8 +534,8 @@ impl SpriteRenderer {
 
             // Clone the WGSL source only for the first surviving entity of a
             // not-yet-compiled hash; every other entry carries an empty string.
-            let frag_source = if !self.custom_pipelines.contains_key(&hash)
-                && self.seen_new_hashes_scratch.insert(hash)
+            let frag_source = if !self.material.custom_pipelines.contains_key(&hash)
+                && self.material.seen_new_hashes_scratch.insert(hash)
             {
                 world
                     .get::<ShaderMaterial>(entity)
@@ -619,7 +567,7 @@ impl SpriteRenderer {
         assign_instance_offsets(
             &mut self.draw_entries,
             &mut self.sprite_instances_scratch,
-            &mut self.material_instances_scratch,
+            &mut self.material.material_instances_scratch,
         );
 
         if !self.sprite_instances_scratch.is_empty() {
@@ -639,21 +587,26 @@ impl SpriteRenderer {
             );
         }
 
-        if !self.material_instances_scratch.is_empty() {
-            if self.material_instances_scratch.len() > self.mat_instance_capacity {
-                self.mat_instance_capacity =
-                    self.material_instances_scratch.len().next_power_of_two();
-                self.mat_instance_buf = device.create_buffer(&wgpu::BufferDescriptor {
+        if !self.material.material_instances_scratch.is_empty() {
+            if self.material.material_instances_scratch.len() > self.material.mat_instance_capacity
+            {
+                self.material.mat_instance_capacity = self
+                    .material
+                    .material_instances_scratch
+                    .len()
+                    .next_power_of_two();
+                self.material.mat_instance_buf = device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("material instance buffer"),
-                    size: (self.mat_instance_capacity * std::mem::size_of::<InstanceRaw>()) as u64,
+                    size: (self.material.mat_instance_capacity * std::mem::size_of::<InstanceRaw>())
+                        as u64,
                     usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                     mapped_at_creation: false,
                 });
             }
             queue.write_buffer(
-                &self.mat_instance_buf,
+                &self.material.mat_instance_buf,
                 0,
-                bytemuck::cast_slice(&self.material_instances_scratch),
+                bytemuck::cast_slice(&self.material.material_instances_scratch),
             );
 
             // Compile pipelines for new material hashes.
@@ -667,7 +620,9 @@ impl SpriteRenderer {
                         hash, frag_source, ..
                     } = &e.kind
                     {
-                        if !frag_source.is_empty() && !self.custom_pipelines.contains_key(hash) {
+                        if !frag_source.is_empty()
+                            && !self.material.custom_pipelines.contains_key(hash)
+                        {
                             return Some((*hash, frag_source.clone()));
                         }
                     }
@@ -680,7 +635,7 @@ impl SpriteRenderer {
 
             // Write material params uniforms.
             // Collect (entity, params) first so self.draw_entries borrow ends
-            // before we mutably access self.params_buffers.
+            // before we mutably access self.material.params_buffers.
             let mat_params: Vec<(crate::ecs::Entity, [f32; 4])> = self
                 .draw_entries
                 .iter()
@@ -693,7 +648,7 @@ impl SpriteRenderer {
                 })
                 .collect();
             for (eid, params) in mat_params {
-                if !self.params_buffers.contains_key(&eid) {
+                if !self.material.params_buffers.contains_key(&eid) {
                     let buf = device.create_buffer(&wgpu::BufferDescriptor {
                         label: Some("material params buf"),
                         size: 16,
@@ -702,15 +657,15 @@ impl SpriteRenderer {
                     });
                     let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("material params bind group"),
-                        layout: &self.params_layout,
+                        layout: &self.material.params_layout,
                         entries: &[wgpu::BindGroupEntry {
                             binding: 0,
                             resource: buf.as_entire_binding(),
                         }],
                     });
-                    self.params_buffers.insert(eid, (buf, bg));
+                    self.material.params_buffers.insert(eid, (buf, bg));
                 }
-                let (buf, _) = &self.params_buffers[&eid];
+                let (buf, _) = &self.material.params_buffers[&eid];
                 queue.write_buffer(buf, 0, bytemuck::cast_slice(&params));
             }
         }
@@ -791,12 +746,12 @@ impl SpriteRenderer {
                     } => {
                         let byte_start = *instance_offset as u64 * instance_size;
                         let byte_end = byte_start + instance_size;
-                        let pipeline = &self.custom_pipelines[hash];
+                        let pipeline = &self.material.custom_pipelines[hash];
                         let tex_bg = texture_key
                             .as_deref()
-                            .map(|k| self.bind_group_for_texture_key(Some(k)))
-                            .unwrap_or(&self.white_texture.bind_group);
-                        let (_, params_bg) = &self.params_buffers[entity];
+                            .map(|k| self.texture_cache.bind_group_for_texture_key(Some(k)))
+                            .unwrap_or(&self.texture_cache.white_texture.bind_group);
+                        let (_, params_bg) = &self.material.params_buffers[entity];
 
                         pass.set_pipeline(pipeline);
                         pass.set_bind_group(0, &self.camera_bind_group, &[]);
@@ -805,7 +760,7 @@ impl SpriteRenderer {
                         pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
                         pass.set_vertex_buffer(
                             1,
-                            self.mat_instance_buf.slice(byte_start..byte_end),
+                            self.material.mat_instance_buf.slice(byte_start..byte_end),
                         );
                         pass.set_index_buffer(self.index_buf.slice(..), wgpu::IndexFormat::Uint16);
                         pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
@@ -820,8 +775,9 @@ impl SpriteRenderer {
         // buffers/bind-groups for entities that are no longer alive (despawned or
         // had their ShaderMaterial removed). params_buffers previously only grew
         // because nothing ever removed from it.
-        self.params_buffers
-            .retain(|e, _| self.live_material_entities_scratch.contains(e));
+        self.material
+            .params_buffers
+            .retain(|e, _| self.material.live_material_entities_scratch.contains(e));
 
         stats
     }

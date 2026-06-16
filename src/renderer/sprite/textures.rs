@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use super::*;
 
 pub(super) fn push_unique(values: &mut Vec<String>, value: String) {
@@ -12,7 +15,25 @@ pub(super) fn file_texture_aliases(path: &str) -> Vec<String> {
     aliases
 }
 
-impl SpriteRenderer {
+pub(crate) struct TextureCache {
+    pub(crate) white_texture: Texture,
+    pub(crate) texture_cache: HashMap<String, Arc<Texture>>,
+    pub(crate) rt_cache: HashMap<String, Arc<wgpu::BindGroup>>,
+    pub(crate) texture_layout: wgpu::BindGroupLayout,
+}
+
+impl TextureCache {
+    pub(crate) fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+        let texture_layout = Texture::bind_group_layout(device);
+        let white_texture = Texture::white(device, queue, &texture_layout);
+        Self {
+            white_texture,
+            texture_cache: HashMap::new(),
+            rt_cache: HashMap::new(),
+            texture_layout,
+        }
+    }
+
     pub(crate) fn has_texture_key(&self, key: &str) -> bool {
         self.texture_cache.contains_key(key)
             || self
@@ -20,7 +41,7 @@ impl SpriteRenderer {
                 .contains_key(crate::asset::asset_key(key).as_ref())
     }
 
-    pub fn load_texture(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, path: &str) {
+    pub(crate) fn load_texture(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, path: &str) {
         let aliases = file_texture_aliases(path);
         if let Some(existing) = aliases
             .iter()
@@ -57,7 +78,12 @@ impl SpriteRenderer {
         self.texture_cache.insert(key.to_string(), Arc::new(tex));
     }
 
-    pub fn reload_texture(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, path: &str) {
+    pub(crate) fn reload_texture(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        path: &str,
+    ) {
         let reload_key = crate::asset::asset_key(path).to_string();
         let mut aliases = file_texture_aliases(path);
         for key in self.texture_cache.keys() {
@@ -78,7 +104,7 @@ impl SpriteRenderer {
         log::info!("texture hot-reload: {path}");
     }
 
-    pub fn register_render_target(&mut self, key: &str, bg: Arc<wgpu::BindGroup>) {
+    pub(crate) fn register_render_target(&mut self, key: &str, bg: Arc<wgpu::BindGroup>) {
         self.rt_cache.insert(key.to_string(), bg);
     }
 
@@ -92,5 +118,38 @@ impl SpriteRenderer {
                 .unwrap_or(&self.white_texture.bind_group),
             None => &self.white_texture.bind_group,
         }
+    }
+}
+
+impl SpriteRenderer {
+    pub(crate) fn has_texture_key(&self, key: &str) -> bool {
+        self.texture_cache.has_texture_key(key)
+    }
+
+    pub fn load_texture(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, path: &str) {
+        self.texture_cache.load_texture(device, queue, path);
+    }
+
+    pub(crate) fn load_texture_from_image(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        key: &str,
+        asset: &crate::asset::ImageAsset,
+    ) {
+        self.texture_cache
+            .load_texture_from_image(device, queue, key, asset);
+    }
+
+    pub fn reload_texture(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, path: &str) {
+        self.texture_cache.reload_texture(device, queue, path);
+    }
+
+    pub fn register_render_target(&mut self, key: &str, bg: Arc<wgpu::BindGroup>) {
+        self.texture_cache.register_render_target(key, bg);
+    }
+
+    pub(super) fn bind_group_for_texture_key(&self, key: Option<&str>) -> &wgpu::BindGroup {
+        self.texture_cache.bind_group_for_texture_key(key)
     }
 }
