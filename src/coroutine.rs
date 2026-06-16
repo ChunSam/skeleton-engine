@@ -1,6 +1,6 @@
 //! Imperative coroutine sequencer for scripted gameplay.
 //!
-//! A [`Coroutine`] is an ordered queue of [`CoroutineStep`]s that run against the [`World`]
+//! A [`Coroutine`] is an ordered queue of `CoroutineStep`s that run against the [`World`]
 //! over time. This is distinct from [`crate::timeline`] (data-driven keyframes on entity
 //! Transform/Sprite) and pure tween interpolation: a coroutine runs **arbitrary closures**
 //! against the world and is well suited for scripted sequences such as wave spawning, boss
