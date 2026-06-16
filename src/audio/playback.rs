@@ -363,6 +363,59 @@ impl AudioManager {
         self.sinks.insert(channel.to_string(), sink);
     }
 
+    /// Crossfades from the current track on `channel` to a new one.
+    ///
+    /// The old track (if any) fades **out** over `dur` seconds on a temporary
+    /// internal channel (`"<channel>__xfade"`) while the new track simultaneously
+    /// fades **in** over `dur` seconds on `channel`. The two sounds overlap for a
+    /// true crossfade rather than a cut.
+    ///
+    /// When the fade-out completes, `AudioSystem` (via `update`) automatically
+    /// tears down the temporary channel — no manual cleanup is required.
+    ///
+    /// If nothing is currently playing on `channel`, this is equivalent to
+    /// [`play_fade_in`](Self::play_fade_in).
+    ///
+    /// # Arguments
+    /// * `channel` — logical channel name for the *new* track.
+    /// * `new_path` — audio file path for the new track.
+    /// * `repeat`   — whether the new track loops.
+    /// * `dur`      — crossfade duration in seconds (both fade-out and fade-in).
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// # use engine::AudioManager;
+    /// # let mut am = AudioManager::new().unwrap();
+    /// am.play("bgm", "assets/track_a.ogg", true);
+    /// // … later …
+    /// am.crossfade("bgm", "assets/track_b.ogg", true, 2.0);
+    /// ```
+    pub fn crossfade(&mut self, channel: &str, new_path: &str, repeat: bool, dur: f32) {
+        let temp = format!("{channel}__xfade");
+
+        // If something is currently on `channel`, relocate it to the temp channel
+        // so the two sinks overlap during the crossfade.
+        if let Some(old_sink) = self.sinks.remove(channel) {
+            // Carry over the existing fade (if any) so the volume ramp starts
+            // from the correct interpolated level rather than jumping.
+            let old_fade = self.fades.remove(channel);
+            // Transfer the sink and any in-progress fade to the temp channel.
+            // Stop whatever was already there (shouldn't exist in normal use).
+            self.stop_immediate(&temp);
+            self.sinks.insert(temp.clone(), old_sink);
+            if let Some(f) = old_fade {
+                self.fades.insert(temp.clone(), f);
+            }
+
+            // Schedule a stop-when-done fade-out on the temp channel.
+            let start_vol = self.fade_start_vol(&temp);
+            self.fades.insert(temp, Fade::stop_fade(start_vol, dur));
+        }
+
+        // Start the new track on `channel` with a fade-in.
+        self.play_fade_in(channel, new_path, repeat, dur);
+    }
+
     /// Clears the in-memory file-bytes cache.
     ///
     /// The cache grows unbounded as new paths are played (one entry per unique path). Call
