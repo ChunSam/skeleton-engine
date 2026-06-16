@@ -108,9 +108,11 @@ ECS는 Entity Component System의 약자다. 게임 오브젝트를 상속 구�
 | Texture Handle | 이미지 에셋을 가리키는 타입 안전 참조 | `Handle<ImageAsset>` |
 | Texture Atlas | 여러 이미지를 하나의 큰 이미지에 모아둔 것 | `TextureAtlas` |
 | Atlas Sprite | 아틀라스 안의 특정 칸을 그리는 스프라이트 | `AtlasSprite` |
+| Nine-Slice (9-patch) | 모서리 크기를 유지한 채 늘어나는 패널·버튼·프레임 스프라이트 | `NineSlice` |
 | UV | 텍스처 안에서 어느 부분을 샘플링할지 나타내는 0.0-1.0 좌표 | `UvRect` |
 | UV Flip | 같은 이미지를 좌우 또는 상하로 뒤집어 읽는 것 | `UvRect::flipped_x`, `flipped_y` |
 | Render Layer | 렌더링 순서를 나누는 층 | `RenderLayer` |
+| Parallax | 배경이 카메라보다 느리게/빠르게 흘러 깊이감을 주는 스크롤 층 | `ParallaxLayer`, `ParallaxSystem` |
 | Culling | 화면 밖 오브젝트를 그리지 않아 성능을 아끼는 것 | `CullConfig` |
 | Render Stats | 이번 프레임 렌더링 통계 | `RenderStats` |
 
@@ -244,6 +246,7 @@ UI는 체력바, 메뉴 버튼, 인벤토리, 설정 화면처럼 게임 위에 
 | Tile Atlas | 타일 이미지가 모여 있는 아틀라스 | `TilemapAtlas` |
 | Tile Size | 타일 한 칸의 픽셀 크기 | `Tilemap.tile_size` |
 | Origin | 타일맵 좌상단 기준 위치 | `Tilemap.origin` |
+| Animated Tile | 시간에 따라 프레임이 바뀌는 타일(물·용암 등) | `TileAnimation`, `TileAnimationSet`, `AnimatedTileSystem` |
 | Pathfinding | 목표까지 이동 경로를 찾는 기능 | `find_path` |
 | A Star | 비용이 낮은 경로를 우선 탐색하는 알고리즘 | `find_path` 구현 |
 | Walkable | 지나갈 수 있는 칸 | `PathGrid::is_walkable` |
@@ -307,6 +310,7 @@ CPU 파티클은 구조가 단순하고 디버깅이 쉽다. GPU 파티클은 �
 | Volume | 소리 크기 | `set_volume` |
 | Fade In | 소리가 서서히 커짐 | `play_fade_in` |
 | Fade Out | 소리가 서서히 작아진 뒤 정지 | `fade_out` |
+| Crossfade | 한 곡을 페이드아웃하며 다른 곡을 페이드인해 끊김 없이 음악 전환 | `AudioManager::crossfade` |
 | Audio Bus | 여러 채널을 묶어 볼륨을 같이 조절하는 그룹 | `assign_bus`, `set_bus_volume` |
 | Panning | 소리가 왼쪽/오른쪽에서 나는 것처럼 조절 | `set_pan` |
 | Positional Audio | 소리 발생 위치와 리스너 위치로 볼륨/팬을 계산 | `play_at`, `update_position` |
@@ -391,12 +395,14 @@ CPU 파티클은 구조가 단순하고 디버깅이 쉽다. GPU 파티클은 �
 | --- | --- | --- |
 | Timer | 일정 시간이 지났는지 재는 도구 | `Timer` |
 | Tween | 값이 시작값에서 끝값으로 부드럽게 변하는 것 | `Tween` |
+| Tween Sequence | 여러 트윈 구간을 이어 붙여 다단계 연출 | `TweenSequence` |
 | Easing | 트윈이 빠르게 시작할지, 천천히 끝날지 정하는 곡선 | `Easing` |
 | Timeline | 여러 값을 시간표처럼 키프레임으로 제어 | `Timeline` |
 | Keyframe | 특정 시간의 특정 값 | `Keyframe<T>` |
 | Track | 같은 종류의 키프레임 묶음 | `Track<T>` |
 | Cutscene | 카메라나 오브젝트를 시간에 맞춰 연출하는 장면 | `TimelineSystem` 활용 |
 | Lerp | 두 값 사이를 보간하는 계산 | `Lerp` trait |
+| Coroutine | 대기·실행·구간 실행을 순서대로 엮는 명령형 스크립트 시퀀서 | `Coroutine`, `CoroutineRunner`, `CoroutineSystem` |
 
 예를 들어 문이 0.5초 동안 열리게 하거나, 카메라가 2초 동안 보스에게 이동하게 하거나, 화면이 서서히 어두워지는 효과를 만들 때 타이머, 트윈, 타임라인을 쓴다.
 
@@ -483,6 +489,7 @@ CPU 파티클은 구조가 단순하고 디버깅이 쉽다. GPU 파티클은 �
 | `Animation Clip`과 `Animation State` | 클립은 실제 프레임 묶음이고, 상태는 현재 논리 상태다. |
 | `Handle`과 실제 에셋 | 핸들은 참조 표식이고, 실제 데이터는 `AssetServer`가 가진다. |
 | `Timer`와 `Tween` | 타이머는 시간이 지났는지 재고, 트윈은 값이 부드럽게 변하게 한다. |
+| `Coroutine`와 `Timeline`/`TweenSequence` | 코루틴은 월드에 임의 클로저를 순서대로 실행(명령형), 타임라인은 키프레임 데이터로 Transform/Sprite를 제어, 트윈 시퀀스는 값만 보간한다. |
 | `Prefab`과 `SceneDef` | 프리팹은 재사용 가능한 일부 오브젝트 묶음, 씬 정의는 전체 씬 저장 데이터에 가깝다. |
 
 ## 기능별 대표 파일
@@ -506,9 +513,9 @@ CPU 파티클은 구조가 단순하고 디버깅이 쉽다. GPU 파티클은 �
 | 저장/불러오기 | `src/save.rs` |
 | 스크립팅 | `src/scripting.rs` |
 | AI 행동 | `src/behavior.rs`, `src/steering.rs` |
-| 타일맵과 경로 탐색 | `src/tilemap.rs`, `src/pathfinding.rs` |
+| 타일맵과 경로 탐색 | `src/tilemap/`, `src/pathfinding.rs` |
 | 오디오 | `src/audio.rs` |
-| 파티클 | `src/particle.rs`, `src/gpu_particle.rs` |
+| 파티클 | `src/particle/`, `src/gpu_particle.rs` |
 | 로컬라이제이션 | `src/locale.rs` |
 | 네트워크 | `src/network.rs` |
 
