@@ -1,5 +1,46 @@
 use super::*;
 
+/// Task 1 — unified watch-set: a path registered via `watch_path` (or any of the
+/// typed delegate helpers) ends up in `watched_paths` and is recognised as known,
+/// and a second registration of the same path is a no-op (idempotent).
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn watch_path_round_trips_and_is_idempotent() {
+    let mut server = AssetServer::new();
+    let path = "__test_watch_path_roundtrip__.ron";
+
+    // Before registering: path must not be in watched_paths.
+    let key: Arc<str> = asset_key(std::path::Path::new(path));
+    assert!(
+        !server.watched_paths.contains(&key),
+        "watched_paths must be empty before watch_path"
+    );
+
+    // After watch_path: the path must be recorded.
+    server.watch_path(path);
+    assert!(
+        server.watched_paths.contains(&key),
+        "watched_paths must contain the path after watch_path"
+    );
+
+    // Idempotent: a second call must not duplicate the entry.
+    server.watch_path(path);
+    assert_eq!(
+        server.watched_paths.len(),
+        1,
+        "watched_paths must have exactly one entry after duplicate watch_path"
+    );
+
+    // Typed delegates must route to the same set.
+    let path2 = "__test_watch_path_delegate__.ron";
+    let key2: Arc<str> = asset_key(std::path::Path::new(path2));
+    server.watch_data_table_path(path2);
+    assert!(
+        server.watched_paths.contains(&key2),
+        "watch_data_table_path must populate watched_paths"
+    );
+}
+
 #[test]
 fn missing_asset_key_preserves_input_path() {
     let key = asset_key("__definitely_missing_asset__.png");

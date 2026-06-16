@@ -156,9 +156,5 @@ impl InstanceRaw {
     }
 }
 
-// ─── Camera uniform ────────────────────────────────────────────────────────────
-#[repr(C)]
-#[derive(Copy, Clone, Pod, Zeroable)]
-pub(super) struct CameraUniform {
-    pub(super) view_proj: [[f32; 4]; 4],
-}
+// CameraUniform is defined in `crate::renderer` (shared with gpu_particle).
+pub(super) use crate::renderer::CameraUniform;

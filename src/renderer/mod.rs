@@ -13,6 +13,19 @@ pub mod texture;
 pub mod ui;
 pub mod uv;
 
+// ─── Shared renderer GPU types ────────────────────────────────────────────────
+
+/// Camera view-projection uniform uploaded to the GPU each frame.
+///
+/// Shared between the sprite renderer (`sprite/geometry.rs`) and the GPU-particle
+/// renderer (`gpu_particle.rs`). Both previously held a local copy; deduplicated here
+/// to close the OCP finding noted in `docs/MODULE_COHESION_REVIEW_2026-06-16.md`.
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct CameraUniform {
+    pub(crate) view_proj: [[f32; 4]; 4],
+}
+
 pub use context::{GpuContext, GpuContextError};
 pub use post_process::{PostProcessConfig, PostProcessRenderer};
 pub use render_target::RenderTarget;
