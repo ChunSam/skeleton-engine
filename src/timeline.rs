@@ -13,12 +13,14 @@
 //! app.add_system(TimelineSystem);
 //! ```
 
+use serde::{Deserialize, Serialize};
+
 use crate::tween::{Easing, Lerp};
 
 // ── Keyframe<T> ──────────────────────────────────────────────────────────────
 
 /// A keyframe that sets a specific value at a specific time.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Keyframe<T: Clone> {
     pub time: f32,
     pub value: T,
@@ -28,7 +30,7 @@ pub struct Keyframe<T: Clone> {
 // ── Track<T> ─────────────────────────────────────────────────────────────────
 
 /// A sequence of keyframes of the same type, kept sorted by time.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Track<T: Clone + Lerp> {
     keyframes: Vec<Keyframe<T>>,
 }
@@ -191,7 +193,7 @@ impl<T: Clone + Lerp> Default for Track<T> {
 /// world.add_component(rig, cam_tl);
 /// world.add_component(rig, CameraTarget);
 /// ```
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct CameraTarget;
 
 // ── Timeline component ─────────────────────────────────────────────────────────
@@ -207,7 +209,7 @@ pub struct CameraTarget;
 /// world.add_component(entity, tl);
 /// app.add_system(TimelineSystem);
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Timeline {
     /// Total playback duration in seconds.
     pub duration: f32,
@@ -710,5 +712,121 @@ mod tests {
         // Out-of-range index is a no-op false.
         assert!(!track.set_value(9, 0.0));
         assert!(!track.set_easing(9, Easing::Linear));
+    }
+
+    // ── Serde round-trip tests ─────────────────────────────────────────────────
+
+    fn rich_timeline() -> Timeline {
+        let mut tl = Timeline::new(3.0);
+        tl.position
+            .add(0.0, Vec2::ZERO, Easing::Linear)
+            .add(1.5, Vec2::new(100.0, 50.0), Easing::EaseInOut)
+            .add(3.0, Vec2::new(200.0, 100.0), Easing::EaseOut);
+        tl.rotation.add(0.0, 0.0_f32, Easing::Linear).add(
+            3.0,
+            std::f32::consts::PI,
+            Easing::EaseIn,
+        );
+        tl.color.add(
+            0.0,
+            crate::color::Color::rgba(1.0, 0.0, 0.0, 1.0),
+            Easing::Linear,
+        );
+        tl.zoom
+            .add(0.0, 1.0_f32, Easing::Linear)
+            .add(3.0, 2.0_f32, Easing::EaseOut);
+        tl.looping = true;
+        tl
+    }
+
+    #[test]
+    fn timeline_serde_round_trip_ron() {
+        let original = rich_timeline();
+        let serialized = ron::to_string(&original).expect("serialize must succeed");
+        let deserialized: Timeline = ron::from_str(&serialized).expect("deserialize must succeed");
+
+        // Keyframe counts survive.
+        assert_eq!(
+            deserialized.position.len(),
+            original.position.len(),
+            "position keyframe count must survive round-trip"
+        );
+        assert_eq!(
+            deserialized.rotation.len(),
+            original.rotation.len(),
+            "rotation keyframe count must survive round-trip"
+        );
+        assert_eq!(
+            deserialized.color.len(),
+            original.color.len(),
+            "color keyframe count must survive round-trip"
+        );
+        assert_eq!(
+            deserialized.zoom.len(),
+            original.zoom.len(),
+            "zoom keyframe count must survive round-trip"
+        );
+
+        // A sampled value survives (position at t=1.5 should be ~(100, 50)).
+        let pos = deserialized.position.sample(1.5).unwrap();
+        assert!(
+            (pos.x - 100.0).abs() < 1e-3 && (pos.y - 50.0).abs() < 1e-3,
+            "sampled position at t=1.5 must be ~(100, 50), got {:?}",
+            pos
+        );
+
+        // Metadata fields survive.
+        assert!((deserialized.duration - 3.0).abs() < 1e-6);
+        assert!(deserialized.looping);
+    }
+
+    #[test]
+    fn camera_target_serde_round_trip_ron() {
+        let ct = CameraTarget;
+        let s = ron::to_string(&ct).expect("CameraTarget serialize must succeed");
+        let _rt: CameraTarget = ron::from_str(&s).expect("CameraTarget deserialize must succeed");
+    }
+
+    #[test]
+    fn timeline_serde_registry_round_trip() {
+        use crate::ecs::World;
+        use crate::prefab::SerdeComponentRegistry;
+
+        let mut registry = SerdeComponentRegistry::default();
+        registry.register::<Timeline>("Timeline", None);
+        registry.register::<CameraTarget>("CameraTarget", None);
+
+        // Build world with both components.
+        let mut world = World::new();
+        let e = world.spawn();
+        world.add_component(e, rich_timeline());
+        world.add_component(e, CameraTarget);
+
+        // Serialize.
+        let components = registry.serialize_entity(&world, e);
+        assert!(
+            components.contains_key("Timeline"),
+            "registry must serialize Timeline"
+        );
+        assert!(
+            components.contains_key("CameraTarget"),
+            "registry must serialize CameraTarget"
+        );
+
+        // Deserialize into a fresh entity.
+        let mut world2 = World::new();
+        let e2 = world2.spawn();
+        registry.deserialize_into(&mut world2, e2, &components);
+
+        let tl = world2
+            .get::<Timeline>(e2)
+            .expect("Timeline must be present after registry round-trip");
+        assert_eq!(tl.position.len(), 3, "position keyframes must survive");
+        assert!(tl.looping, "looping flag must survive");
+
+        assert!(
+            world2.get::<CameraTarget>(e2).is_some(),
+            "CameraTarget must be present after registry round-trip"
+        );
     }
 }

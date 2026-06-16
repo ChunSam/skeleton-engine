@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::animation::player::AnimationPlayer;
 use crate::ecs::{Entity, System, World};
 
 // ─── Parameters ───────────────────────────────────────────────────────────────
 
 /// Parameter value held by the state machine.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum AnimParam {
     Bool(bool),
     Float(f32),
@@ -17,7 +19,7 @@ pub enum AnimParam {
 // ─── Transition conditions ────────────────────────────────────────────────────
 
 /// A single condition that must be satisfied for a state transition to occur.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TransitionCond {
     /// When a bool parameter matches the expected value.
     BoolEq(String, bool),
@@ -34,7 +36,7 @@ pub enum TransitionCond {
 // ─── Transitions ─────────────────────────────────────────────────────────────
 
 /// A single state transition edge: target state + list of conditions that must all be met (AND).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnimTransition {
     /// Name of the state to transition to.
     pub to: String,
@@ -47,7 +49,7 @@ pub struct AnimTransition {
 // ─── State node ───────────────────────────────────────────────────────────────
 
 /// One node in the state machine: an `AnimationPlayer` clip index and a list of transitions.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnimState {
     /// `AnimationPlayer` clip index to play in this state.
     pub clip_index: usize,
@@ -90,7 +92,7 @@ pub struct AnimState {
 /// sm.add_transition("jump", "idle", vec![TransitionCond::AnimationEnd]);
 /// world.add_component(entity, sm);
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnimationStateMachine {
     states: HashMap<String, AnimState>,
     current: String,
@@ -1041,5 +1043,110 @@ mod tests {
             0,
             "clip must remain 0 when transition target state does not exist"
         );
+    }
+
+    // ── Serde round-trip tests ─────────────────────────────────────────────────
+
+    fn rich_sm() -> AnimationStateMachine {
+        let mut sm = AnimationStateMachine::new("idle", 0);
+        sm.add_state("run", 1).add_state("jump", 2);
+        sm.set_bool("is_running", false);
+        sm.set_float("speed", 0.0);
+        sm.add_trigger("jump");
+        sm.add_transition(
+            "idle",
+            "run",
+            vec![TransitionCond::BoolEq("is_running".into(), true)],
+        );
+        sm.add_transition_crossfade(
+            "run",
+            "idle",
+            vec![TransitionCond::FloatLt("speed".into(), 0.1)],
+            0.2,
+        );
+        sm.add_transition("idle", "jump", vec![TransitionCond::Trigger("jump".into())]);
+        sm.add_transition("jump", "idle", vec![TransitionCond::AnimationEnd]);
+        sm
+    }
+
+    #[test]
+    fn state_machine_serde_round_trip_ron() {
+        let original = rich_sm();
+        let serialized = ron::to_string(&original).expect("serialize must succeed");
+        let deserialized: AnimationStateMachine =
+            ron::from_str(&serialized).expect("deserialize must succeed");
+
+        assert_eq!(original, deserialized, "round-trip must be lossless");
+    }
+
+    #[test]
+    fn state_machine_serde_preserves_state_count_and_names() {
+        let sm = rich_sm();
+        let s = ron::to_string(&sm).unwrap();
+        let rt: AnimationStateMachine = ron::from_str(&s).unwrap();
+
+        assert_eq!(rt.state_count(), 3);
+        assert_eq!(rt.state_names(), sm.state_names());
+    }
+
+    #[test]
+    fn state_machine_serde_preserves_transitions_and_crossfade() {
+        let sm = rich_sm();
+        let s = ron::to_string(&sm).unwrap();
+        let rt: AnimationStateMachine = ron::from_str(&s).unwrap();
+
+        // idle has two transitions: →run (bool) and →jump (trigger)
+        let idle = rt.state("idle").expect("idle must exist after round-trip");
+        assert_eq!(idle.transitions.len(), 2);
+
+        // run has one crossfade transition back to idle
+        let run = rt.state("run").expect("run must exist after round-trip");
+        assert_eq!(run.transitions.len(), 1);
+        assert!((run.transitions[0].crossfade_duration - 0.2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn state_machine_serde_preserves_params() {
+        let sm = rich_sm();
+        let s = ron::to_string(&sm).unwrap();
+        let rt: AnimationStateMachine = ron::from_str(&s).unwrap();
+
+        assert!(matches!(
+            rt.param("is_running"),
+            Some(AnimParam::Bool(false))
+        ));
+        assert!(matches!(rt.param("speed"), Some(AnimParam::Float(_))));
+        assert!(matches!(rt.param("jump"), Some(AnimParam::Trigger(false))));
+    }
+
+    #[test]
+    fn state_machine_serde_registry_round_trip() {
+        use crate::ecs::World;
+        use crate::prefab::SerdeComponentRegistry;
+
+        let mut registry = SerdeComponentRegistry::default();
+        registry.register::<AnimationStateMachine>("AnimationStateMachine", None);
+
+        // Build world with the component.
+        let mut world = World::new();
+        let e = world.spawn();
+        world.add_component(e, rich_sm());
+
+        // Serialize.
+        let components = registry.serialize_entity(&world, e);
+        assert!(
+            components.contains_key("AnimationStateMachine"),
+            "registry must serialize the component"
+        );
+
+        // Deserialize into a fresh entity in a new world.
+        let mut world2 = World::new();
+        let e2 = world2.spawn();
+        registry.deserialize_into(&mut world2, e2, &components);
+
+        let restored = world2
+            .get::<AnimationStateMachine>(e2)
+            .expect("component must be present after registry round-trip");
+        assert_eq!(*restored, rich_sm());
     }
 }
