@@ -1,5 +1,12 @@
 # Execution plan/progress — docs/CODE_ANALYSIS_2026-06-16.md (80 findings)
 
+> ✅ **RESOLVED / SUPERSEDED (2026-06-16).** All iterations (incl. the WU8–14 marked TODO
+> below) shipped as **v9.0.0** via PR #60 and are merged to `main`. The post-v9.0.0 follow-up
+> loop additionally closed finding #9 (HotReloadable, v9.3.0) and #42 (Track mutators, v9.2.0).
+> The authoritative line-by-line audit of all 80 findings is now
+> `docs/CODE_ANALYSIS_2026-06-16_COVERAGE.md` (69/80 fully addressed). The TODO checkboxes
+> below are historical — do not act on them.
+
 > Branch: `chore/engine-hardening-2026-06-16` | Loop: Opus plans/reviews/supervises, Sonnet implements.
 > Rule: no intermediate reports; full code review + tests only at the end; final report when clean.
 > Agents EDIT + write inline `#[cfg(test)]` tests, do NOT run cargo (avoid lock contention); Opus runs the central gate per iteration. Agents must NOT edit `src/lib.rs` (report needed re-exports → Opus adds centrally). Physics is native-only → cfg-gate any `crate::physics` ref. Prefer additive; breaking allowed (pre-1.0, rust-survivors dropped).
