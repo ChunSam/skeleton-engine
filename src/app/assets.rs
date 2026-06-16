@@ -58,11 +58,19 @@ impl App {
     pub fn load_script(
         &mut self,
         path: impl AsRef<std::path::Path>,
-    ) -> Handle<crate::asset::ScriptAsset> {
+    ) -> Handle<crate::scripting::ScriptAsset> {
+        let path_ref = path.as_ref();
+        // Register the path with the AssetServer file watcher so changes are
+        // detected and forwarded to ScriptRegistry::reload_path via the
+        // HotReloadable forwarder registered in App::new.
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(assets) = self.world.resource_mut::<AssetServer>() {
+            assets.watch_path(path_ref.to_string_lossy().as_ref());
+        }
         self.world
-            .resource_mut::<AssetServer>()
-            .expect("AssetServer missing")
-            .load_script(path)
+            .resource_mut::<crate::scripting::ScriptRegistry>()
+            .expect("ScriptRegistry missing")
+            .load_script(path_ref)
     }
 
     pub(super) fn upload_asset_server_images_to_gpu(&mut self) {

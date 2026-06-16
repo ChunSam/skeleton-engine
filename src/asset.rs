@@ -17,13 +17,12 @@ mod async_loading;
 mod atlas_loading;
 mod hot_reload;
 mod image_loading;
-mod script_loading;
 
 pub type AssetId = u64;
 
 static NEXT_ASSET_ID: AtomicU64 = AtomicU64::new(1);
 
-fn alloc_id() -> AssetId {
+pub(crate) fn alloc_id() -> AssetId {
     NEXT_ASSET_ID.fetch_add(1, Ordering::Relaxed)
 }
 
@@ -36,7 +35,7 @@ fn alloc_id() -> AssetId {
 pub struct Handle<T> {
     pub(crate) id: AssetId,
     pub(crate) path: Arc<str>,
-    _marker: PhantomData<fn() -> T>,
+    pub(crate) _marker: PhantomData<fn() -> T>,
 }
 
 impl<T> Handle<T> {
@@ -146,18 +145,6 @@ pub struct ImageEntry {
     pub height: u32,
 }
 
-// ─── ScriptAsset ─────────────────────────────────────────────────────────────
-
-/// CPU-side Rhai script asset.
-///
-/// `ast` is wrapped in an `Arc`. `ScriptingSystem` clones the AST handle for every
-/// script entity each frame; with `Arc` only the refcount is bumped instead of
-/// deep-cloning the entire tree.
-pub struct ScriptAsset {
-    pub source: String,
-    pub ast: Arc<rhai::AST>,
-}
-
 // ─── HotReloadable ───────────────────────────────────────────────────────────
 
 /// A resource that can hot-reload itself from a changed asset path.
@@ -229,8 +216,6 @@ pub struct AssetServer {
     images: HashMap<AssetId, ImageAsset>,
     image_load_states: HashMap<AssetId, AssetLoadState>,
     path_to_id: HashMap<Arc<str>, AssetId>,
-    scripts: HashMap<AssetId, ScriptAsset>,
-    script_path_to_id: HashMap<Arc<str>, AssetId>,
     atlases: HashMap<AssetId, crate::atlas::TextureAtlas>,
     atlas_path_to_id: HashMap<Arc<str>, AssetId>,
     #[cfg(not(target_arch = "wasm32"))]
@@ -291,8 +276,6 @@ impl AssetServer {
                 images: HashMap::new(),
                 image_load_states: HashMap::new(),
                 path_to_id: HashMap::new(),
-                scripts: HashMap::new(),
-                script_path_to_id: HashMap::new(),
                 atlases: HashMap::new(),
                 atlas_path_to_id: HashMap::new(),
                 reload_rx,
@@ -307,8 +290,6 @@ impl AssetServer {
             images: HashMap::new(),
             image_load_states: HashMap::new(),
             path_to_id: HashMap::new(),
-            scripts: HashMap::new(),
-            script_path_to_id: HashMap::new(),
             atlases: HashMap::new(),
             atlas_path_to_id: HashMap::new(),
         }
