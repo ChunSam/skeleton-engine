@@ -97,20 +97,13 @@ impl SpatialGrid {
     pub fn rebuild(&mut self, world: &World) {
         self.clear();
 
-        // Iterate only entities that have both Transform and Collider via query2
-        let pairs: Vec<(Entity, Vec2, Collider, CollisionLayer)> = world
-            .query2::<Transform, Collider>()
-            .map(|(entity, transform, collider)| {
-                let center = transform.position;
-                let layer = world
-                    .get::<CollisionLayer>(entity)
-                    .copied()
-                    .unwrap_or(CollisionLayer::ALL);
-                (entity, center, *collider, layer)
-            })
-            .collect();
+        for (entity, transform, collider) in world.query2::<Transform, Collider>() {
+            let center = transform.position;
+            let layer = world
+                .get::<CollisionLayer>(entity)
+                .copied()
+                .unwrap_or(CollisionLayer::ALL);
 
-        for (entity, center, collider, layer) in pairs {
             // Compute cell index range
             let (aabb_min, aabb_max) = collider.aabb(center);
             let col_min = (aabb_min.x / self.cell).floor() as i32;
@@ -128,7 +121,7 @@ impl SpatialGrid {
                 entity,
                 GridEntry {
                     center,
-                    collider,
+                    collider: *collider,
                     layer,
                 },
             );

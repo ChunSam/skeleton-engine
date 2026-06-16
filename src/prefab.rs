@@ -122,6 +122,10 @@ pub struct EntityDef {
 /// after a scene Replace world reset.
 #[allow(clippy::type_complexity)]
 pub struct SerdeComponentEntry {
+    /// Returns `true` iff `entity` has this component, without serializing any values.
+    /// Used by [`SerdeComponentRegistry::component_names_for`] for the per-frame
+    /// inspector component list, which only needs names (not values).
+    pub has_component: Box<dyn Fn(&World, Entity) -> bool + Send + Sync>,
     /// Extracts the component from `entity` and serializes it to a RON [`ron::Value`].
     /// Returns `None` when the entity does not have this component.
     pub serialize: Box<dyn Fn(&World, Entity) -> Option<ron::Value> + Send + Sync>,
@@ -191,13 +195,25 @@ impl SerdeComponentRegistry {
         self.entries.insert(
             key,
             SerdeComponentEntry {
+                // Cheap presence check: no serialization, just a component lookup.
+                has_component: Box::new(|world, entity| world.get::<T>(entity).is_some()),
                 serialize: Box::new(|world, entity| {
                     // Serialize `T` to a RON string and store it as ron::Value::String.
                     // We do not parse to ron::Value::Map because that path loses enum
                     // variant names (the Value representation has no enum concept).
-                    world
-                        .get::<T>(entity)
-                        .and_then(|c| ron::to_string(c).ok().map(ron::Value::String))
+                    world.get::<T>(entity).and_then(|c| {
+                        match ron::to_string(c) {
+                            Ok(s) => Some(ron::Value::String(s)),
+                            Err(e) => {
+                                log::warn!(
+                                    "SerdeComponentRegistry: failed to serialize {}: {} — omitted from scene",
+                                    std::any::type_name::<T>(),
+                                    e
+                                );
+                                None
+                            }
+                        }
+                    })
                 }),
                 deserialize: Box::new(|world, entity, val| {
                     // Extract the stored RON string and parse it as T.
@@ -211,6 +227,23 @@ impl SerdeComponentRegistry {
                 post_spawn,
             },
         );
+    }
+
+    /// Returns the names of all registered components present on `entity`, sorted
+    /// alphabetically for stable ordering.
+    ///
+    /// Cheaper than [`Self::serialize_entity`] because it uses the `has_component` closure
+    /// (a single `world.get::<T>()` check) and never converts values to RON. Use this
+    /// when only the name list is needed (e.g., the per-frame inspector component list).
+    pub fn component_names_for(&self, world: &World, entity: Entity) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .entries
+            .iter()
+            .filter(|(_, entry)| (entry.has_component)(world, entity))
+            .map(|(name, _)| name.clone())
+            .collect();
+        names.sort();
+        names
     }
 
     /// Serializes all registered components present on `entity`.
@@ -456,6 +489,14 @@ pub fn spawn_entity_def(world: &mut World, def: &EntityDef) -> Entity {
         if let Some(registry) = world.remove_resource::<SerdeComponentRegistry>() {
             registry.deserialize_into(world, entity, &def.components);
             world.insert_resource(registry);
+        } else {
+            log::warn!(
+                "spawn_entity_def: entity has {} serde component(s) {:?} but no \
+                 SerdeComponentRegistry is present — components dropped. \
+                 Call App::register_serde_component to register them.",
+                def.components.len(),
+                def.components.keys().collect::<Vec<_>>(),
+            );
         }
     }
 
@@ -1029,6 +1070,89 @@ SceneDef(
         assert_eq!(
             ti.text, "hi",
             "post_spawn hook must copy initial_text to text"
+        );
+    }
+
+    // ── component_names_for ────────────────────────────────────────────────────
+
+    #[derive(Clone, serde::Serialize, serde::Deserialize)]
+    struct CompA {
+        x: f32,
+    }
+    #[derive(Clone, serde::Serialize, serde::Deserialize)]
+    struct CompB {
+        y: i32,
+    }
+
+    /// `component_names_for` returns only the names whose component is present on
+    /// the entity, sorted alphabetically, without doing a full RON serialization.
+    #[test]
+    fn component_names_for_present_and_absent() {
+        let mut world = World::new();
+        let mut registry = SerdeComponentRegistry::default();
+        registry.register::<CompA>("CompA", None);
+        registry.register::<CompB>("CompB", None);
+
+        let e = world.spawn();
+        world.add_component(e, CompA { x: 1.0 });
+        // CompB is NOT added.
+
+        let names = registry.component_names_for(&world, e);
+        assert_eq!(names, vec!["CompA".to_string()]);
+    }
+
+    /// `component_names_for` returns all registered names when all components are present.
+    #[test]
+    fn component_names_for_all_present_sorted() {
+        let mut world = World::new();
+        let mut registry = SerdeComponentRegistry::default();
+        // Register in reverse alphabetical order to verify sort.
+        registry.register::<CompB>("CompB", None);
+        registry.register::<CompA>("CompA", None);
+
+        let e = world.spawn();
+        world.add_component(e, CompA { x: 2.0 });
+        world.add_component(e, CompB { y: 3 });
+
+        let names = registry.component_names_for(&world, e);
+        assert_eq!(names, vec!["CompA".to_string(), "CompB".to_string()]);
+    }
+
+    /// `component_names_for` returns empty when no registered components are present.
+    #[test]
+    fn component_names_for_none_present() {
+        let mut world = World::new();
+        let mut registry = SerdeComponentRegistry::default();
+        registry.register::<CompA>("CompA", None);
+
+        let e = world.spawn(); // no CompA added
+        let names = registry.component_names_for(&world, e);
+        assert!(names.is_empty());
+    }
+
+    /// When `def.components` is non-empty but no `SerdeComponentRegistry` resource
+    /// is present, `spawn_entity_def` must still return a valid entity (no panic),
+    /// and the components are simply dropped (the warn log is not captured here but
+    /// the absence of a panic confirms the guard path is taken).
+    #[test]
+    fn spawn_entity_def_no_registry_with_components_does_not_panic() {
+        let mut world = World::new(); // no SerdeComponentRegistry inserted
+
+        let mut def = EntityDef {
+            tag: Some("ghost".into()),
+            ..Default::default()
+        };
+        def.components.insert(
+            "SomeComponent".to_string(),
+            ron::Value::String("value".to_string()),
+        );
+
+        // Must not panic; entity is alive and its Tag is set, serde components dropped.
+        let entity = spawn_entity_def(&mut world, &def);
+        assert!(world.is_alive(entity));
+        assert_eq!(
+            world.get::<Tag>(entity).map(|t| t.0.as_str()),
+            Some("ghost")
         );
     }
 }

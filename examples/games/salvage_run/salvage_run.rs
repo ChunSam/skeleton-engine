@@ -111,7 +111,7 @@ impl Scene for SalvageScene {
             })
             .collect();
 
-        systems.add(NetworkSystem);
+        systems.add(NetworkSystem::new());
         systems.add(SalvageClient::new(player, ring));
     }
 }

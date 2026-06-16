@@ -510,10 +510,12 @@ impl App {
 
         // ── Offscreen pass: render each OffscreenCamera entity into its RT ─────────────
         {
-            // Step 1: collect (target_name, camera, rt_width, rt_height, view_ptr, bind_group_clone)
-            // render_targets and sprite_renderer cannot be borrowed simultaneously,
-            // so we store the view reference as a raw pointer.
-            // Safety: the render_targets HashMap is not modified inside this loop.
+            // Step 1: collect render info for each offscreen camera.
+            // We call `Texture::create_view` up front to obtain owned `TextureView` handles.
+            // A `TextureView` is a zero-cost reference-counted GPU handle: creating a second
+            // view on the same texture is safe and free — it does not copy GPU memory.
+            // This replaces the previous `*const wgpu::TextureView` raw-pointer scheme that
+            // required `unsafe` and could dangle if the HashMap reallocated.
             let offscreen_cams: Vec<(String, crate::camera::Camera, u32)> = self
                 .world
                 .query::<crate::components::OffscreenCamera>()
@@ -524,26 +526,32 @@ impl App {
                 .into_iter()
                 .filter_map(|(name, cam, layer_mask)| {
                     self.render_targets.get(&name).map(|rt| {
+                        // Create a fresh owned TextureView each frame (zero-cost GPU handle).
+                        // Safe to use after this point even if render_targets is later touched.
+                        let owned_view = rt
+                            .texture
+                            .create_view(&wgpu::TextureViewDescriptor::default());
                         (
                             name,
                             cam,
                             rt.width,
                             rt.height,
-                            &rt.view as *const wgpu::TextureView,
+                            owned_view,
                             std::sync::Arc::clone(&rt.bind_group),
                             layer_mask,
+                            rt.clear_color,
                         )
                     })
                 })
                 .collect();
 
-            for (target_name, cam, rt_w, rt_h, view_ptr, bg, layer_mask) in rt_info {
+            for (target_name, cam, rt_w, rt_h, rt_view, bg, layer_mask, rt_clear_color) in rt_info {
                 // ① Swap camera — if no prior camera existed remove it after render, otherwise restore
                 let saved_cam = self.world.resource::<crate::camera::Camera>().copied();
                 self.world.insert_resource(cam);
 
-                // ② Safety: render_targets is not modified during this loop.
-                let rt_view = unsafe { &*view_ptr };
+                // ② The owned TextureView was created up front; no unsafe dereference needed.
+                let rt_view = &rt_view;
 
                 // Each offscreen target is rendered with its **own command submission**.
                 // The SpriteRenderer's camera uniform is a single shared buffer (`camera_buf`)
@@ -558,8 +566,14 @@ impl App {
                         label: Some("offscreen encoder"),
                     });
 
-                // ③ Clear the RT
+                // ③ Clear the RT — use per-target color if set, else inherit WindowConfig::clear_color.
                 {
+                    let [cr, cg, cb, ca] = rt_clear_color.unwrap_or_else(|| {
+                        self.world
+                            .resource::<WindowConfig>()
+                            .map(|c| c.clear_color)
+                            .unwrap_or([0.0, 0.0, 0.0, 1.0])
+                    });
                     let _pass = oenc.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("offscreen clear"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -568,10 +582,10 @@ impl App {
                             depth_slice: None,
                             ops: wgpu::Operations {
                                 load: wgpu::LoadOp::Clear(wgpu::Color {
-                                    r: 0.0,
-                                    g: 0.0,
-                                    b: 0.0,
-                                    a: 1.0,
+                                    r: cr,
+                                    g: cg,
+                                    b: cb,
+                                    a: ca,
                                 }),
                                 store: wgpu::StoreOp::Store,
                             },
@@ -795,10 +809,12 @@ impl App {
                     ));
             }
             if let Some(gpr) = &self.gpu_particle_renderer {
+                let mut frame_cursor = 0u32;
                 let new_particles = crate::gpu_particle::collect_new_particles(
                     &mut self.world,
                     gpr.capacity(),
                     self.last_dt,
+                    &mut frame_cursor,
                 );
                 for (slot, p) in &new_particles {
                     gpr.upload_particles(&gpu.queue, std::slice::from_ref(p), *slot);
@@ -1003,6 +1019,16 @@ impl App {
             gpu.reconfigure();
         }
         Ok(())
+    }
+
+    /// Advance the game loop at most once per event-loop iteration. Both `Resized`
+    /// (macOS modal resize) and `RedrawRequested` can fire in the same iteration; the
+    /// `stepped_this_iteration` guard prevents a double step (reset in `about_to_wait`).
+    pub(super) fn step_frame_once(&mut self, event_loop: &ActiveEventLoop) {
+        if !self.stepped_this_iteration {
+            self.stepped_this_iteration = true;
+            self.step_frame(event_loop);
+        }
     }
 
     pub(super) fn step_frame(&mut self, event_loop: &ActiveEventLoop) {

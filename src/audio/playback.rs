@@ -176,14 +176,36 @@ impl AudioManager {
         self.progress_ducks(dt);
 
         // ── Fade progression ──────────────────────────────────────────────────
-        let channels: Vec<String> = self.fades.keys().cloned().collect();
-        for ch in channels {
+        // Collect channel keys once; use `smallvec`-style stack buffer to avoid a
+        // heap allocation on the common case of ≤ 4 simultaneous fades. We fall
+        // back to a Vec for larger counts. Using a plain array avoids re-borrowing
+        // `self.fades` inside the loop.
+        //
+        // Note: we intentionally do NOT rewrite ducking.rs allocations here —
+        // those loops are less hot and the refactor risk outweighs the gain.
+        let mut channel_buf: [Option<String>; 8] = Default::default();
+        let mut overflow: Vec<String> = Vec::new();
+        let mut buf_len = 0usize;
+        for ch in self.fades.keys() {
+            if buf_len < channel_buf.len() {
+                channel_buf[buf_len] = Some(ch.clone());
+                buf_len += 1;
+            } else {
+                overflow.push(ch.clone());
+            }
+        }
+
+        let iter_stack = channel_buf[..buf_len].iter().filter_map(|o| o.as_deref());
+        let iter_overflow = overflow.iter().map(|s| s.as_str());
+
+        let mut to_stop: Vec<String> = Vec::new(); // only populated when a fade completes
+        for ch in iter_stack.chain(iter_overflow) {
             let done = {
-                let fade = self.fades.get_mut(&ch).unwrap();
+                let fade = self.fades.get_mut(ch).unwrap();
                 fade.elapsed += dt;
                 let vol = fade.current_vol();
-                if let Some(sink) = self.sinks.get(&ch) {
-                    let bus = self.channel_buses.get(&ch);
+                if let Some(sink) = self.sinks.get(ch) {
+                    let bus = self.channel_buses.get(ch);
                     let bus_vol = bus
                         .and_then(|b| self.bus_volumes.get(b))
                         .copied()
@@ -205,7 +227,7 @@ impl AudioManager {
                     // down; writing 0.0 into volume_overrides would silence the channel's
                     // NEXT play (finding 1).
                     if !stop {
-                        self.volume_overrides.insert(ch.clone(), fade.target_vol);
+                        self.volume_overrides.insert(ch.to_owned(), fade.target_vol);
                     }
                     stop
                 } else {
@@ -213,11 +235,14 @@ impl AudioManager {
                 }
             };
             if done {
-                // Use stop_immediate: the fade already ran to completion; no release
-                // needed (and calling stop() would re-trigger release for release fades).
-                self.fades.remove(&ch);
-                self.stop_immediate(&ch);
+                to_stop.push(ch.to_owned());
             }
+        }
+        for ch in to_stop {
+            // Use stop_immediate: the fade already ran to completion; no release
+            // needed (and calling stop() would re-trigger release for release fades).
+            self.fades.remove(&ch);
+            self.stop_immediate(&ch);
         }
     }
 
@@ -336,6 +361,15 @@ impl AudioManager {
         }
 
         self.sinks.insert(channel.to_string(), sink);
+    }
+
+    /// Clears the in-memory file-bytes cache.
+    ///
+    /// The cache grows unbounded as new paths are played (one entry per unique path). Call
+    /// this when a level unloads to free the retained audio bytes. The next `play` call for
+    /// a previously-cached path will re-read the file from disk.
+    pub fn clear_file_cache(&mut self) {
+        self.file_cache.clear();
     }
 
     /// Returns the **pre-bus** base volume to use as the start of a new fade.

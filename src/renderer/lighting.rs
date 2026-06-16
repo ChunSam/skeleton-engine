@@ -393,7 +393,10 @@ impl LightingRenderer {
         }
 
         let positions: Vec<glam::Vec2> = collected.iter().map(|(p, _)| *p).collect();
-        let selected = select_nearest_lights(&positions, camera.position);
+        // Cull anchor = viewport center in world space (camera.position is the top-left corner).
+        let cull_center = camera.position
+            + glam::Vec2::new(vp_w as f32, vp_h as f32) / (2.0 * camera.zoom.max(f32::EPSILON));
+        let selected = select_nearest_lights(&positions, cull_center);
 
         let mut lights_gpu = [GpuLightData::zeroed(); MAX_LIGHTS];
         let mut light_count = 0u32;
@@ -611,5 +614,41 @@ mod tests {
         assert_eq!(sorted, (0..MAX_LIGHTS).collect::<Vec<usize>>());
         assert!(!selected.contains(&16));
         assert!(!selected.contains(&17));
+    }
+
+    #[test]
+    fn select_nearest_lights_uses_viewport_center_not_top_left() {
+        // Camera top-left at (0,0), zoom=1, viewport 800×600 → center = (400, 300).
+        // Place one light at (400,300) (center) and one at (10,10) (near top-left).
+        // The center light should be closer to the cull anchor (400,300).
+        let camera = Camera::default();
+        let (vp_w, vp_h) = (800u32, 600u32);
+        let cull_center = camera.position
+            + glam::Vec2::new(vp_w as f32, vp_h as f32) / (2.0 * camera.zoom.max(f32::EPSILON));
+        assert!(
+            (cull_center - glam::Vec2::new(400.0, 300.0)).length() < 1e-3,
+            "cull center should be viewport center: {cull_center:?}"
+        );
+
+        // With 18 lights: 16 near (400,300) and 2 far near top-left corner.
+        // The 16 near-center lights should be selected; the 2 top-left lights excluded.
+        let mut positions: Vec<glam::Vec2> = (0..16)
+            .map(|i| glam::Vec2::new(400.0 + i as f32, 300.0))
+            .collect();
+        let far_idx_0 = positions.len();
+        positions.push(glam::Vec2::new(1.0, 1.0)); // near top-left
+        let far_idx_1 = positions.len();
+        positions.push(glam::Vec2::new(2.0, 1.0)); // near top-left
+
+        let selected = select_nearest_lights(&positions, cull_center);
+        assert_eq!(selected.len(), MAX_LIGHTS);
+        assert!(
+            !selected.contains(&far_idx_0),
+            "top-left light should be excluded"
+        );
+        assert!(
+            !selected.contains(&far_idx_1),
+            "top-left light should be excluded"
+        );
     }
 }

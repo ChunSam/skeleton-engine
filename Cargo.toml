@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name        = "skeleton-engine"
-version     = "8.27.0"
+version     = "9.0.0"
 edition     = "2021"
 description = "Lightweight 2D game engine — wgpu rendering, custom ECS, rapier2d physics"
 repository  = "https://github.com/ChunSam/skeleton-engine"
@@ -14,7 +14,7 @@ readme      = "README.md"
 license     = "MIT"
 keywords    = ["game", "engine", "wgpu", "ecs", "2d"]
 categories  = ["game-engines", "rendering", "wasm"]
-rust-version = "1.92"
+rust-version = "1.95"
 include     = [
     ".cargo/config.toml",
     "docs/CHANGELOG.md",
@@ -142,7 +142,6 @@ log      = "0.4"
 pollster = "0.3"
 rand     = "0.8"
 serde    = { version = "1", features = ["derive", "rc"] }
-serde_json = "1"
 ron      = "0.8"
 chacha20poly1305 = "0.10"
 glyphon  = "0.11"
@@ -159,6 +158,7 @@ rhai        = { version = "1", features = ["sync"] }
 # Cargo.toml the same way they add `engine`.
 [dev-dependencies]
 engine_reflect_derive = { path = "engine_reflect_derive" }
+serde_json = "1"
 
 # ── 네이티브 전용 (OS API 의존) ──────────────────────────────────────────────
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -181,7 +181,7 @@ wasm-bindgen-futures  = "0.4"
 js-sys                = "0.3"
 web-sys               = { version = "0.3", features = [
     "Window", "Performance", "HtmlCanvasElement", "Document", "Element",
-    "WebSocket", "MessageEvent", "CloseEvent", "BinaryType",
+    "WebSocket", "MessageEvent", "CloseEvent", "ErrorEvent", "BinaryType",
     "Response", "Headers",
 ] }
 console_error_panic_hook = "0.1"

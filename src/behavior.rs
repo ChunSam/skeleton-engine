@@ -224,12 +224,12 @@ impl BehaviorNode for Sequence {
                 BehaviorStatus::Success => self.current += 1,
                 BehaviorStatus::Running => return BehaviorStatus::Running,
                 BehaviorStatus::Failure => {
-                    self.current = 0;
+                    self.reset();
                     return BehaviorStatus::Failure;
                 }
             }
         }
-        self.current = 0;
+        self.reset();
         BehaviorStatus::Success
     }
 
@@ -267,12 +267,12 @@ impl BehaviorNode for Selector {
                 BehaviorStatus::Failure => self.current += 1,
                 BehaviorStatus::Running => return BehaviorStatus::Running,
                 BehaviorStatus::Success => {
-                    self.current = 0;
+                    self.reset();
                     return BehaviorStatus::Success;
                 }
             }
         }
-        self.current = 0;
+        self.reset();
         BehaviorStatus::Failure
     }
 
@@ -676,5 +676,135 @@ mod tests {
         assert!(bb.get_int("x").is_none());
         assert!(bb.get_vec2("x").is_none());
         assert!(bb.get_string("x").is_none());
+    }
+
+    // ── Stale-child-state reset tests ─────────────────────────────────────────
+
+    /// A stateful node that tracks how many times it has been ticked; returns
+    /// `Running` on the first tick, then `Success` thereafter. Its `reset()`
+    /// clears the counter. Used to verify that parent nodes call `child.reset()`
+    /// when they complete so the child starts fresh on the next evaluation.
+    struct CountingNode {
+        tick_count: u32,
+        /// Status returned from the second tick onward (first tick is always `Running`).
+        terminal: BehaviorStatus,
+    }
+    impl CountingNode {
+        /// `Running` on the first tick, then `Success`.
+        fn new() -> Self {
+            Self {
+                tick_count: 0,
+                terminal: BehaviorStatus::Success,
+            }
+        }
+        /// `Running` on the first tick, then `Failure` — drives a Selector to advance.
+        fn new_failing() -> Self {
+            Self {
+                tick_count: 0,
+                terminal: BehaviorStatus::Failure,
+            }
+        }
+    }
+    impl BehaviorNode for CountingNode {
+        fn tick(&mut self, _: &mut World, _: Entity, _: f32) -> BehaviorStatus {
+            self.tick_count += 1;
+            if self.tick_count == 1 {
+                BehaviorStatus::Running
+            } else {
+                self.terminal
+            }
+        }
+        fn reset(&mut self) {
+            self.tick_count = 0;
+        }
+    }
+
+    /// Sequence: after a successful completion the child's state must be reset so
+    /// the next re-evaluation starts from scratch (tick_count == 0 again).
+    #[test]
+    fn sequence_resets_children_on_success() {
+        let (mut w, e) = dummy();
+        // Wrap CountingNode in a Box so we can later check tick_count via a raw ptr.
+        // Using two ticks to succeed: tick 1 → Running (child ticked once),
+        // tick 2 → Success (child ticked again, returns Success; Sequence completes).
+        // On tick 3 the child must be at tick_count == 1 again (was reset), not 3.
+        let mut seq = Sequence::new(vec![Box::new(CountingNode::new())]);
+
+        // tick 1: child tick_count 0→1, returns Running
+        assert_eq!(seq.tick(&mut w, e, 0.016), BehaviorStatus::Running);
+        // tick 2: child tick_count 1→2, returns Success; Sequence completes and resets
+        assert_eq!(seq.tick(&mut w, e, 0.016), BehaviorStatus::Success);
+        // tick 3: child must have been reset — tick_count is 0 before this tick,
+        // so it returns Running (not Success which would happen if tick_count were 2).
+        assert_eq!(
+            seq.tick(&mut w, e, 0.016),
+            BehaviorStatus::Running,
+            "child state was not reset after Sequence completed (stale tick_count retained)"
+        );
+    }
+
+    /// Sequence: on early Failure the failed child's state must also be reset.
+    #[test]
+    fn sequence_resets_children_on_failure() {
+        let (mut w, e) = dummy();
+        // CountingNode as child 0, AlwaysFail as child 1.
+        // Tick 1: child 0 → Running (not yet advanced to child 1).
+        // Actually simpler: just put AlwaysFail first so Sequence fails immediately,
+        // then verify a second Sequence (wrapping CountingNode) sees a fresh child.
+        let mut seq = Sequence::new(vec![Box::new(CountingNode::new()), Box::new(AlwaysFail)]);
+        // tick 1: CountingNode tick_count 0→1 → Running; Sequence returns Running
+        assert_eq!(seq.tick(&mut w, e, 0.016), BehaviorStatus::Running);
+        // tick 2: CountingNode tick_count 1→2 → Success; Sequence advances to AlwaysFail
+        //         AlwaysFail → Failure; Sequence resets all children and returns Failure
+        assert_eq!(seq.tick(&mut w, e, 0.016), BehaviorStatus::Failure);
+        // tick 3: if CountingNode was reset, tick_count == 0 → returns Running again
+        assert_eq!(
+            seq.tick(&mut w, e, 0.016),
+            BehaviorStatus::Running,
+            "child state was not reset after Sequence failed"
+        );
+    }
+
+    /// Selector: after a successful completion the winning child's state must be reset.
+    #[test]
+    fn selector_resets_children_on_success() {
+        let (mut w, e) = dummy();
+        // Child 0: CountingNode (Running first tick, Success on second)
+        // Tick 1: child 0 → Running → Selector returns Running
+        // Tick 2: child 0 → Success → Selector completes (reset called)
+        // Tick 3: child 0 must be reset → returns Running again
+        let mut sel = Selector::new(vec![Box::new(CountingNode::new())]);
+
+        assert_eq!(sel.tick(&mut w, e, 0.016), BehaviorStatus::Running);
+        assert_eq!(sel.tick(&mut w, e, 0.016), BehaviorStatus::Success);
+        assert_eq!(
+            sel.tick(&mut w, e, 0.016),
+            BehaviorStatus::Running,
+            "child state was not reset after Selector completed"
+        );
+    }
+
+    /// Selector: after exhausting all children (Failure) state must be reset.
+    #[test]
+    fn selector_resets_children_on_failure() {
+        let (mut w, e) = dummy();
+        // Child 0: CountingNode (Running then *Failure* — a Selector advances on
+        // Failure, not Success), Child 1: AlwaysFail.
+        // Tick 1: child 0 → Running → Selector returns Running
+        // Tick 2: child 0 → Failure → Selector advances to child 1;
+        //         child 1 → Failure → Selector exhausted → reset + return Failure
+        // Tick 3: child 0 must be reset → returns Running again
+        let mut sel = Selector::new(vec![
+            Box::new(CountingNode::new_failing()),
+            Box::new(AlwaysFail),
+        ]);
+
+        assert_eq!(sel.tick(&mut w, e, 0.016), BehaviorStatus::Running);
+        assert_eq!(sel.tick(&mut w, e, 0.016), BehaviorStatus::Failure);
+        assert_eq!(
+            sel.tick(&mut w, e, 0.016),
+            BehaviorStatus::Running,
+            "child state was not reset after Selector failed"
+        );
     }
 }

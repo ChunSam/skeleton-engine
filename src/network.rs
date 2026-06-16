@@ -35,6 +35,11 @@ pub struct NetworkConfig {
     pub max_pending_messages: usize,
     /// Max inbound event queue size. When exceeded, new events are dropped and an overflow event is reported.
     pub max_pending_events: usize,
+    /// WASM only: maximum number of bytes the browser's WebSocket send buffer (`bufferedAmount`)
+    /// may hold before outbound messages are dropped. `None` means no limit.
+    /// Native sends are bounded by `max_pending_messages` instead; this field has no effect
+    /// on native targets.
+    pub max_buffered_bytes: Option<u32>,
 }
 
 impl Default for NetworkConfig {
@@ -43,6 +48,7 @@ impl Default for NetworkConfig {
             max_message_bytes: DEFAULT_MAX_MESSAGE_BYTES,
             max_pending_messages: DEFAULT_MAX_PENDING_MESSAGES,
             max_pending_events: DEFAULT_MAX_PENDING_EVENTS,
+            max_buffered_bytes: None,
         }
     }
 }
@@ -141,6 +147,11 @@ mod native {
         event_buffer: Arc<Mutex<VecDeque<NetworkEvent>>>,
         msg_tx: std::sync::mpsc::SyncSender<OutMsg>,
         connected: Arc<AtomicBool>,
+        /// Set by `disconnect()` and checked by the background thread each loop iteration.
+        /// This guarantees the Close reaches the thread even when the outbound queue is full.
+        /// `pub(super)` so the sibling `tests` module can assert on the flag without going
+        /// through the public API.
+        pub(super) close_requested: Arc<AtomicBool>,
     }
 
     impl NetworkClient {
@@ -160,6 +171,8 @@ mod native {
             let max_pending_events = config.max_pending_events;
             let connected = Arc::new(AtomicBool::new(false));
             let thread_connected = Arc::clone(&connected);
+            let close_requested = Arc::new(AtomicBool::new(false));
+            let thread_close_requested = Arc::clone(&close_requested);
 
             std::thread::spawn(move || {
                 let (mut socket, _) = match tungstenite::connect(&url) {
@@ -195,6 +208,21 @@ mod native {
                 );
 
                 loop {
+                    // Check the close flag first — reliable close path even when the
+                    // outbound channel queue is full (task 1).
+                    if thread_close_requested.load(Ordering::Acquire) {
+                        thread_connected.store(false, Ordering::Release);
+                        socket.close(None).ok();
+                        super::push_event_bounded(
+                            &thread_event_buffer,
+                            NetworkEvent::Disconnected {
+                                reason: "local close".into(),
+                            },
+                            max_pending_events,
+                        );
+                        return;
+                    }
+
                     // Process outbound messages
                     loop {
                         match msg_rx.try_recv() {
@@ -315,6 +343,7 @@ mod native {
                 event_buffer,
                 msg_tx,
                 connected,
+                close_requested,
             }
         }
 
@@ -345,8 +374,19 @@ mod native {
             self.msg_tx.try_send(OutMsg::Text(text.into())).is_ok()
         }
 
+        /// Requests the background thread to close the WebSocket and exit.
+        ///
+        /// The close flag (`close_requested`) is set unconditionally so the thread will see
+        /// it on its next loop iteration even if the outbound message queue is full. A
+        /// best-effort `OutMsg::Close` is also enqueued for faster response; if the queue is
+        /// full the flag alone is sufficient.
         pub fn disconnect(&self) {
-            let _ = self.msg_tx.try_send(OutMsg::Close);
+            self.close_requested.store(true, Ordering::Release);
+            if self.msg_tx.try_send(OutMsg::Close).is_err() {
+                log::warn!(
+                    "network: disconnect — outbound queue full; close flag set, thread will exit on next tick"
+                );
+            }
         }
 
         /// Returns `true` while the WebSocket handshake has completed and no disconnect or error
@@ -371,6 +411,18 @@ mod native {
             }
         }
     }
+
+    /// Signals the background thread to close the socket when the [`NetworkClient`] is dropped.
+    ///
+    /// The thread checks `close_requested` each loop iteration and exits cleanly (calling
+    /// `socket.close()`). This prevents the background thread from outliving the resource.
+    impl Drop for NetworkClient {
+        fn drop(&mut self) {
+            self.close_requested.store(true, Ordering::Release);
+            // Best-effort fast path — ignored if the queue is full; the flag is the guarantee.
+            let _ = self.msg_tx.try_send(OutMsg::Close);
+        }
+    }
 }
 
 // ── WASM implementation ────────────────────────────────────────────────────────────────
@@ -382,10 +434,16 @@ mod wasm_impl {
     use wasm_bindgen::prelude::*;
     use wasm_bindgen::JsCast;
 
+    /// WebSocket client for WASM targets.
+    ///
+    /// Drop this resource (or replace it in the World) to close the socket and unregister all
+    /// browser callbacks. To reconnect, create a new `NetworkClient::connect(...)` and insert it
+    /// as the resource.
     pub struct NetworkClient {
         socket: Option<web_sys::WebSocket>,
         buffer: Rc<RefCell<Vec<NetworkEvent>>>,
-        // Keep closures alive
+        max_buffered_bytes: Option<u32>,
+        // Keep closures alive; set to None on drop to release them.
         _on_open: Option<Closure<dyn FnMut()>>,
         _on_message: Option<Closure<dyn FnMut(web_sys::MessageEvent)>>,
         _on_error: Option<Closure<dyn FnMut(web_sys::Event)>>,
@@ -401,6 +459,7 @@ mod wasm_impl {
             let buffer: Rc<RefCell<Vec<NetworkEvent>>> = Rc::new(RefCell::new(Vec::new()));
             let max_message_bytes = config.max_message_bytes;
             let max_pending_events = config.max_pending_events;
+            let max_buffered_bytes = config.max_buffered_bytes;
 
             let ws = match web_sys::WebSocket::new(url) {
                 Ok(ws) => ws,
@@ -416,6 +475,7 @@ mod wasm_impl {
                     return Self {
                         socket: None,
                         buffer,
+                        max_buffered_bytes,
                         _on_open: None,
                         _on_message: None,
                         _on_error: None,
@@ -477,12 +537,15 @@ mod wasm_impl {
             ws.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
 
             let buf = buffer.clone();
-            let on_error = Closure::<dyn FnMut(web_sys::Event)>::new(move |_ev: web_sys::Event| {
-                push_event_bounded(
-                    &buf,
-                    NetworkEvent::Error("WebSocket error".into()),
-                    max_pending_events,
-                );
+            // Extract error detail from ErrorEvent when available; fall back to a generic
+            // message otherwise (the browser fires a plain Event, not ErrorEvent, for
+            // network-level errors where no message is available).
+            let on_error = Closure::<dyn FnMut(web_sys::Event)>::new(move |ev: web_sys::Event| {
+                let msg = ev
+                    .dyn_ref::<web_sys::ErrorEvent>()
+                    .map(|e| e.message())
+                    .unwrap_or_else(|| "WebSocket error".into());
+                push_event_bounded(&buf, NetworkEvent::Error(msg), max_pending_events);
             });
             ws.set_onerror(Some(on_error.as_ref().unchecked_ref()));
 
@@ -502,6 +565,7 @@ mod wasm_impl {
             Self {
                 socket: Some(ws),
                 buffer,
+                max_buffered_bytes,
                 _on_open: Some(on_open),
                 _on_message: Some(on_message),
                 _on_error: Some(on_error),
@@ -525,7 +589,20 @@ mod wasm_impl {
 
         pub fn try_send_bytes(&self, data: &[u8]) -> bool {
             match &self.socket {
-                Some(socket) => socket.send_with_u8_array(data).is_ok(),
+                Some(socket) => {
+                    if let Some(limit) = self.max_buffered_bytes {
+                        if socket.buffered_amount() >= limit {
+                            log::warn!(
+                                "network: WASM send buffer full (bufferedAmount={} >= limit={}) — binary message dropped ({} bytes)",
+                                socket.buffered_amount(),
+                                limit,
+                                data.len()
+                            );
+                            return false;
+                        }
+                    }
+                    socket.send_with_u8_array(data).is_ok()
+                }
                 None => false,
             }
         }
@@ -533,7 +610,20 @@ mod wasm_impl {
         pub fn try_send_text(&self, text: impl Into<String>) -> bool {
             let text = text.into();
             match &self.socket {
-                Some(socket) => socket.send_with_str(&text).is_ok(),
+                Some(socket) => {
+                    if let Some(limit) = self.max_buffered_bytes {
+                        if socket.buffered_amount() >= limit {
+                            log::warn!(
+                                "network: WASM send buffer full (bufferedAmount={} >= limit={}) — text message dropped ({} bytes)",
+                                socket.buffered_amount(),
+                                limit,
+                                text.len()
+                            );
+                            return false;
+                        }
+                    }
+                    socket.send_with_str(&text).is_ok()
+                }
                 None => false,
             }
         }
@@ -563,6 +653,28 @@ mod wasm_impl {
         }
     }
 
+    /// Closes the WebSocket and nulls all browser callbacks when the [`NetworkClient`] is dropped.
+    ///
+    /// Nulling the callbacks (`set_on*` to `None`) before the `Closure` values are dropped
+    /// prevents in-flight browser events from invoking already-freed Rust closures.
+    ///
+    /// Note: unlike the native `Drop` (which emits `NetworkEvent::Disconnected`), dropping the
+    /// client on WASM does NOT emit `Disconnected` — the `on_close` callback is nulled before
+    /// `close()`. Drive any reconnect-on-drop logic by other means on the WASM target.
+    impl Drop for NetworkClient {
+        fn drop(&mut self) {
+            if let Some(socket) = &self.socket {
+                // Unregister callbacks first so no in-flight events fire into freed state.
+                socket.set_onopen(None);
+                socket.set_onmessage(None);
+                socket.set_onerror(None);
+                socket.set_onclose(None);
+                socket.close().ok();
+            }
+            // The Option fields drop here, releasing the Closure allocations.
+        }
+    }
+
     fn js_value_to_string(value: &JsValue) -> String {
         value.as_string().unwrap_or_else(|| format!("{value:?}"))
     }
@@ -584,11 +696,20 @@ pub use wasm_impl::NetworkClient;
 /// ```text
 /// app.world.insert_resource(NetworkClient::connect("ws://localhost:9001"));
 /// app.world.register_event::<NetworkEvent>();
-/// app.add_system(NetworkSystem);
+/// app.add_system(NetworkSystem::new());
 /// ```
-pub struct NetworkSystem;
+#[derive(Default)]
+pub struct NetworkSystem {
+    /// Guard for the one-time warning emitted when `Events<NetworkEvent>` is absent.
+    warned_missing_events: bool,
+}
 
 impl NetworkSystem {
+    /// Creates a new `NetworkSystem`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     /// Schedule label. Systems consuming `Events<NetworkEvent>` should declare
     /// `.after(NetworkSystem::LABEL)`.
     pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::network";
@@ -609,6 +730,13 @@ impl System for NetworkSystem {
             for ev in incoming {
                 bus.send(ev);
             }
+        } else if !self.warned_missing_events {
+            self.warned_missing_events = true;
+            log::warn!(
+                "network: NetworkSystem received events but Events<NetworkEvent> is not registered. \
+                 Call app.world.register_event::<NetworkEvent>() to receive network events. \
+                 Events will be discarded until it is registered."
+            );
         }
     }
 }
@@ -665,19 +793,25 @@ impl<K: Eq + std::hash::Hash> RemoteEntities<K> {
     }
 
     /// Returns the entity mapped to `key`, spawning and inserting one via `spawn` on first sight.
+    ///
+    /// If the cached entity has been despawned externally (e.g. after a scene reset), a new entity
+    /// is spawned and the map entry is replaced. Call [`clear`](Self::clear) on scene reset to
+    /// avoid stale entries accumulating; this liveness check is a safety net, not a substitute.
     pub fn get_or_spawn(
         &mut self,
         world: &mut World,
         key: K,
         spawn: impl FnOnce(&mut World) -> Entity,
     ) -> Entity {
-        if let Some(&entity) = self.map.get(&key) {
-            entity
-        } else {
-            let entity = spawn(world);
-            self.map.insert(key, entity);
-            entity
+        if let Some(&cached) = self.map.get(&key) {
+            if world.is_alive(cached) {
+                return cached;
+            }
+            // Stale entry — the entity was despawned externally; fall through to re-spawn.
         }
+        let entity = spawn(world);
+        self.map.insert(key, entity);
+        entity
     }
 
     /// The entity currently mapped to `key`, if any.
@@ -1157,6 +1291,82 @@ mod tests {
         assert!(
             !client.is_connected(),
             "is_connected should remain false after a failed connection attempt"
+        );
+    }
+
+    // ── Task 4: RemoteEntities::get_or_spawn re-spawns after external despawn ──
+
+    #[test]
+    fn remote_entities_respawns_dead_entity() {
+        let mut world = World::new();
+        let mut remotes: RemoteEntities<usize> = RemoteEntities::new();
+
+        // Spawn for key 1 normally.
+        let original = remotes.get_or_spawn(&mut world, 1, |w| w.spawn());
+        assert!(
+            world.is_alive(original),
+            "entity should be alive after spawn"
+        );
+
+        // Externally despawn the entity (simulating a scene reset that cleared entities).
+        world.despawn(original);
+        assert!(
+            !world.is_alive(original),
+            "entity should be dead after despawn"
+        );
+
+        // get_or_spawn should detect the stale entry and re-spawn.
+        let replacement = remotes.get_or_spawn(&mut world, 1, |w| w.spawn());
+        assert_ne!(
+            replacement, original,
+            "re-spawn must produce a different entity"
+        );
+        assert!(
+            world.is_alive(replacement),
+            "replacement entity must be alive"
+        );
+        assert_eq!(
+            remotes.len(),
+            1,
+            "map still holds exactly one entry for key 1"
+        );
+    }
+
+    // ── Task 3: NetworkSystem warns once when Events<NetworkEvent> is absent ───
+
+    #[test]
+    fn network_system_default_initialises_warn_flag_false() {
+        let sys = NetworkSystem::default();
+        assert!(!sys.warned_missing_events, "warn flag must start false");
+    }
+
+    // ── Task 1: disconnect() sets close_requested flag ────────────────────────
+
+    #[test]
+    fn disconnect_sets_close_flag() {
+        use std::sync::atomic::Ordering;
+        // Connect to a guaranteed-to-fail address; the thread exits on connect error
+        // before setting `connected`, but the close_requested flag is on the struct side.
+        let client = native::NetworkClient::connect("ws://127.0.0.1:1");
+        assert!(
+            !client.close_requested.load(Ordering::Acquire),
+            "close_requested starts false"
+        );
+        client.disconnect();
+        assert!(
+            client.close_requested.load(Ordering::Acquire),
+            "close_requested must be true after disconnect()"
+        );
+    }
+
+    // ── Task 5: NetworkConfig carries max_buffered_bytes, defaults to None ────
+
+    #[test]
+    fn network_config_max_buffered_bytes_defaults_to_none() {
+        let cfg = NetworkConfig::default();
+        assert_eq!(
+            cfg.max_buffered_bytes, None,
+            "max_buffered_bytes should default to None"
         );
     }
 }

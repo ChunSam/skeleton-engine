@@ -7,6 +7,7 @@ use crate::reflect::{Reflect, ReflectValue};
 use super::button::Button;
 use super::checkbox::CheckBox;
 use super::label::Label;
+use super::text_input::TextInput;
 
 /// Binds a translation `key` to a text-bearing UI widget.
 ///
@@ -109,7 +110,10 @@ impl System for LocalizationSystem {
                 button.label = text.clone();
             }
             if let Some(checkbox) = world.get_mut::<CheckBox>(entity) {
-                checkbox.label = text;
+                checkbox.label = text.clone();
+            }
+            if let Some(ti) = world.get_mut::<TextInput>(entity) {
+                ti.placeholder = text.clone();
             }
         }
     }
@@ -190,5 +194,34 @@ mod tests {
 
         LocalizationSystem.run(&mut world, 0.0);
         assert_eq!(world.get::<Label>(e).unwrap().text, "does.not.exist");
+    }
+
+    #[test]
+    fn locale_switch_updates_text_input_placeholder() {
+        let mut world = world_with_locale();
+
+        let ti_entity = world.spawn();
+        world.add_component(ti_entity, TextInput::new(""));
+        world.add_component(ti_entity, LocalizedText::new("menu.start"));
+
+        // First run: English locale.
+        LocalizationSystem.run(&mut world, 0.0);
+        assert_eq!(
+            world.get::<TextInput>(ti_entity).unwrap().placeholder,
+            "Start",
+            "TextInput placeholder should be resolved for the current locale"
+        );
+
+        // Switch to Korean and re-run.
+        world
+            .resource_mut::<LocaleResource>()
+            .unwrap()
+            .set_locale("ko");
+        LocalizationSystem.run(&mut world, 0.0);
+        assert_eq!(
+            world.get::<TextInput>(ti_entity).unwrap().placeholder,
+            "시작",
+            "TextInput placeholder should update after set_locale"
+        );
     }
 }

@@ -8,6 +8,15 @@ pub struct RenderTarget {
     pub bind_group: Arc<wgpu::BindGroup>,
     pub width: u32,
     pub height: u32,
+    /// Optional per-target clear color `[r, g, b, a]` (sRGB, `f64`).
+    ///
+    /// When `Some`, the offscreen pass clears with this color instead of
+    /// inheriting `WindowConfig::clear_color`.  Useful for render-to-texture
+    /// targets that require a transparent or differently-colored background
+    /// (e.g. a security-camera feed over a different background).
+    ///
+    /// `None` (the default) means "inherit the global `WindowConfig::clear_color`."
+    pub clear_color: Option<[f64; 4]>,
 }
 
 impl RenderTarget {
@@ -62,6 +71,20 @@ impl RenderTarget {
             bind_group,
             width,
             height,
+            clear_color: None,
         }
+    }
+
+    /// Sets a per-target clear color, overriding `WindowConfig::clear_color` for this RT.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// // Transparent black background for compositing.
+    /// let rt = app.create_render_target("overlay", 320, 240)
+    ///     .with_clear_color([0.0, 0.0, 0.0, 0.0]);
+    /// ```
+    pub fn with_clear_color(mut self, color: [f64; 4]) -> Self {
+        self.clear_color = Some(color);
+        self
     }
 }

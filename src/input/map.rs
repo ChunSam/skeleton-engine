@@ -220,11 +220,11 @@ impl<A: Eq + Hash + Clone> InputMap<A> {
 
     /// Returns `true` if **any** binding for `action` was newly activated this frame.
     ///
-    /// For gamepad axes the "just pressed" semantics are: the axis crossed the
-    /// threshold this frame (i.e. it was below threshold last frame). Because
-    /// `GamepadState` only tracks `just_pressed` for digital buttons (not axes),
-    /// axis bindings are tested as "currently active" only — edge detection for
-    /// axes requires a custom cooldown in the calling system if needed.
+    /// Axis bindings are included: they contribute `true` when the axis is currently
+    /// above the threshold. True edge-detection (crossing the threshold this frame)
+    /// is not available because `GamepadState` does not record a previous-frame axis
+    /// snapshot. Callers that need one-shot axis edges should apply a per-action
+    /// cooldown in their own system.
     pub fn just_pressed_with_gamepad(
         &self,
         action: &A,
@@ -239,10 +239,17 @@ impl<A: Eq + Hash + Clone> InputMap<A> {
             || b.gamepad_buttons
                 .iter()
                 .any(|&btn| gamepad.just_pressed(pad, btn))
+            || b.gamepad_axes
+                .iter()
+                .any(|ab| ab.is_active(gamepad.axis(pad, ab.axis)))
     }
 
     /// Returns `true` if **any** keyboard key or gamepad button for `action` was
     /// released this frame.
+    ///
+    /// Axis bindings are **not** included here: `GamepadState` does not track a
+    /// previous-frame axis snapshot, so axis "just released" (threshold crossing
+    /// from active → inactive) cannot be detected without external state.
     pub fn just_released_with_gamepad(
         &self,
         action: &A,
@@ -257,6 +264,37 @@ impl<A: Eq + Hash + Clone> InputMap<A> {
             || b.gamepad_buttons
                 .iter()
                 .any(|&btn| gamepad.just_released(pad, btn))
+    }
+
+    /// Returns the maximum-magnitude active axis value across all `AxisBinding`s
+    /// for `action`, or `0.0` if none are active.
+    ///
+    /// This is the analog equivalent of `is_pressed_with_gamepad`: instead of a
+    /// boolean "is the axis past the threshold?", you get the raw axis magnitude
+    /// (−1.0 ~ 1.0) of the dominant active binding. Useful for smooth analog
+    /// movement without bypassing `InputMap`.
+    ///
+    /// `pad` is the gamepad slot index (0 = first connected controller).
+    pub fn axis_value(&self, action: &A, gamepad: &GamepadState, pad: usize) -> f32 {
+        let Some(b) = self.bindings.get(action) else {
+            return 0.0;
+        };
+        b.gamepad_axes
+            .iter()
+            .map(|ab| {
+                let v = gamepad.axis(pad, ab.axis);
+                if ab.is_active(v) {
+                    v
+                } else {
+                    0.0
+                }
+            })
+            .max_by(|a, b| {
+                a.abs()
+                    .partial_cmp(&b.abs())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .unwrap_or(0.0)
     }
 }
 
@@ -459,5 +497,72 @@ mod tests {
         let gs = GamepadState::default();
         assert!(!map.is_pressed(&Act::Jump, &input));
         assert!(!map.is_pressed_with_gamepad(&Act::Jump, &input, &gs, 0));
+    }
+
+    // ── just_pressed_with_gamepad includes axis bindings ──────────────────────
+
+    #[test]
+    fn just_pressed_includes_axis_when_no_gamepad() {
+        // With no gamepad connected, axis() returns 0.0, so a positive-threshold
+        // axis binding should NOT fire — confirms the axis clause was added without
+        // false-positives.
+        let mut map: InputMap<Act> = InputMap::new();
+        map.bind_gamepad_axis(
+            Act::Left,
+            AxisBinding::positive(GamepadAxis::LeftStickX, 0.5),
+        );
+        let input = InputState::default();
+        let gs = GamepadState::default();
+        assert!(!map.just_pressed_with_gamepad(&Act::Left, &input, &gs, 0));
+    }
+
+    #[test]
+    fn just_pressed_axis_only_action_false_with_keyboard_press() {
+        // An action bound ONLY to an axis never fires from keyboard just_pressed
+        // (regression guard: previously axis-only actions always returned false
+        // from just_pressed_with_gamepad even with an active axis value).
+        let mut map: InputMap<Act> = InputMap::new();
+        map.bind_gamepad_axis(
+            Act::Left,
+            AxisBinding::negative(GamepadAxis::LeftStickX, 0.5),
+        );
+        // No keyboard bindings; keyboard just-pressed should still be false.
+        let mut input = InputState::default();
+        input.press(KeyCode::ArrowLeft);
+        let gs = GamepadState::default();
+        // Keyboard path irrelevant (not bound); axis 0.0 → inactive → false.
+        assert!(!map.just_pressed_with_gamepad(&Act::Left, &input, &gs, 0));
+    }
+
+    // ── axis_value ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn axis_value_zero_when_no_gamepad() {
+        let mut map: InputMap<Act> = InputMap::new();
+        map.bind_gamepad_axis(
+            Act::Left,
+            AxisBinding::negative(GamepadAxis::LeftStickX, 0.5),
+        );
+        let gs = GamepadState::default();
+        assert_eq!(map.axis_value(&Act::Left, &gs, 0), 0.0);
+    }
+
+    #[test]
+    fn axis_value_zero_for_unbound_action() {
+        let map: InputMap<Act> = InputMap::new();
+        let gs = GamepadState::default();
+        assert_eq!(map.axis_value(&Act::Left, &gs, 0), 0.0);
+    }
+
+    #[test]
+    fn axis_value_inactive_binding_returns_zero() {
+        // A positive-threshold binding with axis at 0.0 (below threshold) → 0.0.
+        let mut map: InputMap<Act> = InputMap::new();
+        map.bind_gamepad_axis(
+            Act::Left,
+            AxisBinding::positive(GamepadAxis::LeftStickX, 0.5),
+        );
+        let gs = GamepadState::default(); // axis == 0.0 < 0.5 threshold
+        assert_eq!(map.axis_value(&Act::Left, &gs, 0), 0.0);
     }
 }

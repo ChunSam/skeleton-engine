@@ -72,6 +72,13 @@ pub struct SpriteRenderer {
     params_buffers: HashMap<crate::ecs::Entity, (wgpu::Buffer, wgpu::BindGroup)>,
     /// RenderTarget bind_group cache (key = RenderTarget name)
     rt_cache: HashMap<String, Arc<wgpu::BindGroup>>,
+    // ── Per-frame scratch Vecs promoted to fields to avoid per-frame heap allocs ──
+    // Each vec is cleared at the top of `render()` and refilled. The backing memory
+    // is reused across frames so no heap allocation occurs on steady-state frames
+    // (same pattern as instance_capacity above).
+    draw_entries: Vec<SpriteRenderEntry>,
+    sprite_instances_scratch: Vec<InstanceRaw>,
+    material_instances_scratch: Vec<InstanceRaw>,
 }
 
 /// Culls a sprite against frustum + LOD thresholds and — if visible — appends a
@@ -289,6 +296,9 @@ impl SpriteRenderer {
             custom_pipelines: HashMap::new(),
             params_buffers: HashMap::new(),
             rt_cache: HashMap::new(),
+            draw_entries: Vec::new(),
+            sprite_instances_scratch: Vec::new(),
+            material_instances_scratch: Vec::new(),
         }
     }
 
@@ -355,7 +365,10 @@ impl SpriteRenderer {
         // ── Collect all sprites into (layer, z) globally-sorted entries ──────
         // If GlobalTransform is present, use the hierarchy-composed result; otherwise fall back to Transform.
         // Entities without RenderLayer(i32) are treated as layer 0.
-        let mut draw_entries: Vec<SpriteRenderEntry> = Vec::new();
+        //
+        // draw_entries is a field on SpriteRenderer so its backing Vec<> allocation is
+        // reused across frames (no per-frame heap alloc on steady state).
+        self.draw_entries.clear();
         let mut next_order = 0usize;
         for (entity, sprite) in world.query::<Sprite>() {
             if world.get::<ShaderMaterial>(entity).is_some() {
@@ -399,7 +412,7 @@ impl SpriteRenderer {
                     &is_above_lod,
                     &mut stats,
                     &mut next_order,
-                    &mut draw_entries,
+                    &mut self.draw_entries,
                 );
             } else if let Some(transform) = world.get::<Transform>(entity) {
                 push_sprite_if_visible(
@@ -414,7 +427,7 @@ impl SpriteRenderer {
                     &is_above_lod,
                     &mut stats,
                     &mut next_order,
-                    &mut draw_entries,
+                    &mut self.draw_entries,
                 );
             }
         }
@@ -438,7 +451,8 @@ impl SpriteRenderer {
                             .get::<UvRect>(*entity)
                             .copied()
                             .unwrap_or_else(|| atlas.uv_rect(*index));
-                        let tex_key: Arc<str> = Arc::from(atlas.texture_path());
+                        // O(1) refcount bump; Arc::from(path()) would copy the string bytes.
+                        let tex_key: Arc<str> = atlas.texture_path_arc();
                         let layer = world
                             .get::<crate::components::RenderLayer>(*entity)
                             .map(|l| l.0)
@@ -463,7 +477,7 @@ impl SpriteRenderer {
                                 &is_above_lod,
                                 &mut stats,
                                 &mut next_order,
-                                &mut draw_entries,
+                                &mut self.draw_entries,
                             );
                         } else if let Some(tr) = world.get::<Transform>(*entity) {
                             push_sprite_if_visible(
@@ -482,15 +496,13 @@ impl SpriteRenderer {
                                 &is_above_lod,
                                 &mut stats,
                                 &mut next_order,
-                                &mut draw_entries,
+                                &mut self.draw_entries,
                             );
                         }
                     }
                 }
             }
         }
-
-        let mut entries = draw_entries;
 
         // ── Collect ShaderMaterials: merge into the same (layer, z) stream as regular sprites.
         // No source clone here — the clone decision happens below, after the layer/cull
@@ -562,7 +574,7 @@ impl SpriteRenderer {
                     String::new()
                 };
 
-            entries.push(SpriteRenderEntry::material(
+            self.draw_entries.push(SpriteRenderEntry::material(
                 layer,
                 z,
                 next_order,
@@ -576,14 +588,20 @@ impl SpriteRenderer {
             next_order += 1;
         }
 
-        sort_render_entries(&mut entries);
-        stats.sprites_rendered = entries.len() as u32;
+        sort_render_entries(&mut self.draw_entries);
+        stats.sprites_rendered = self.draw_entries.len() as u32;
 
-        let (sprite_instances, material_instances) = assign_instance_offsets(&mut entries);
+        // assign_instance_offsets fills the pre-allocated scratch vecs on self,
+        // avoiding per-frame heap allocation in steady state.
+        assign_instance_offsets(
+            &mut self.draw_entries,
+            &mut self.sprite_instances_scratch,
+            &mut self.material_instances_scratch,
+        );
 
-        if !sprite_instances.is_empty() {
-            if sprite_instances.len() > self.instance_capacity {
-                self.instance_capacity = sprite_instances.len().next_power_of_two();
+        if !self.sprite_instances_scratch.is_empty() {
+            if self.sprite_instances_scratch.len() > self.instance_capacity {
+                self.instance_capacity = self.sprite_instances_scratch.len().next_power_of_two();
                 self.instance_buf = device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("instance buffer"),
                     size: (self.instance_capacity * std::mem::size_of::<InstanceRaw>()) as u64,
@@ -594,13 +612,14 @@ impl SpriteRenderer {
             queue.write_buffer(
                 &self.instance_buf,
                 0,
-                bytemuck::cast_slice(&sprite_instances),
+                bytemuck::cast_slice(&self.sprite_instances_scratch),
             );
         }
 
-        if !material_instances.is_empty() {
-            if material_instances.len() > self.mat_instance_capacity {
-                self.mat_instance_capacity = material_instances.len().next_power_of_two();
+        if !self.material_instances_scratch.is_empty() {
+            if self.material_instances_scratch.len() > self.mat_instance_capacity {
+                self.mat_instance_capacity =
+                    self.material_instances_scratch.len().next_power_of_two();
                 self.mat_instance_buf = device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("material instance buffer"),
                     size: (self.mat_instance_capacity * std::mem::size_of::<InstanceRaw>()) as u64,
@@ -611,46 +630,65 @@ impl SpriteRenderer {
             queue.write_buffer(
                 &self.mat_instance_buf,
                 0,
-                bytemuck::cast_slice(&material_instances),
+                bytemuck::cast_slice(&self.material_instances_scratch),
             );
 
-            // Compile pipelines for new material hashes; borrow frag_source in
-            // place — no clone needed since frag_source is non-empty only for
-            // entries whose pipeline hasn't been compiled yet.
-            for entry in &entries {
-                if let SpriteRenderKind::Material {
-                    hash, frag_source, ..
-                } = &entry.kind
-                {
-                    if !frag_source.is_empty() && !self.custom_pipelines.contains_key(hash) {
-                        self.compile_material_pipeline(device, *hash, frag_source);
+            // Compile pipelines for new material hashes.
+            // Collect (hash, frag_source) first so no live borrow from self.draw_entries
+            // conflicts with the &mut self call to compile_material_pipeline.
+            let to_compile: Vec<(u64, String)> = self
+                .draw_entries
+                .iter()
+                .filter_map(|e| {
+                    if let SpriteRenderKind::Material {
+                        hash, frag_source, ..
+                    } = &e.kind
+                    {
+                        if !frag_source.is_empty() && !self.custom_pipelines.contains_key(hash) {
+                            return Some((*hash, frag_source.clone()));
+                        }
                     }
-                }
+                    None
+                })
+                .collect();
+            for (hash, frag_source) in to_compile {
+                self.compile_material_pipeline(device, hash, &frag_source);
             }
 
-            for entry in &entries {
-                if let SpriteRenderKind::Material { entity, params, .. } = &entry.kind {
-                    let eid = *entity;
-                    if !self.params_buffers.contains_key(&eid) {
-                        let buf = device.create_buffer(&wgpu::BufferDescriptor {
-                            label: Some("material params buf"),
-                            size: 16,
-                            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                            mapped_at_creation: false,
-                        });
-                        let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                            label: Some("material params bind group"),
-                            layout: &self.params_layout,
-                            entries: &[wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: buf.as_entire_binding(),
-                            }],
-                        });
-                        self.params_buffers.insert(eid, (buf, bg));
+            // Write material params uniforms.
+            // Collect (entity, params) first so self.draw_entries borrow ends
+            // before we mutably access self.params_buffers.
+            let mat_params: Vec<(crate::ecs::Entity, [f32; 4])> = self
+                .draw_entries
+                .iter()
+                .filter_map(|e| {
+                    if let SpriteRenderKind::Material { entity, params, .. } = &e.kind {
+                        Some((*entity, *params))
+                    } else {
+                        None
                     }
-                    let (buf, _) = &self.params_buffers[&eid];
-                    queue.write_buffer(buf, 0, bytemuck::cast_slice(params));
+                })
+                .collect();
+            for (eid, params) in mat_params {
+                if !self.params_buffers.contains_key(&eid) {
+                    let buf = device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("material params buf"),
+                        size: 16,
+                        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    });
+                    let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("material params bind group"),
+                        layout: &self.params_layout,
+                        entries: &[wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: buf.as_entire_binding(),
+                        }],
+                    });
+                    self.params_buffers.insert(eid, (buf, bg));
                 }
+                let (buf, _) = &self.params_buffers[&eid];
+                queue.write_buffer(buf, 0, bytemuck::cast_slice(&params));
             }
         }
 
@@ -662,7 +700,7 @@ impl SpriteRenderer {
         // Previously every texture-run AND every material opened its own
         // `begin_render_pass`, forcing a full attachment load+store per run.
         // (Skip opening a pass entirely when there is nothing to draw.)
-        if !entries.is_empty() {
+        if !self.draw_entries.is_empty() {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("sprite pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -681,8 +719,8 @@ impl SpriteRenderer {
             });
 
             let mut i = 0usize;
-            while i < entries.len() {
-                match &entries[i].kind {
+            while i < self.draw_entries.len() {
+                match &self.draw_entries[i].kind {
                     SpriteRenderKind::Sprite {
                         texture_key,
                         instance_offset,
@@ -692,8 +730,8 @@ impl SpriteRenderer {
                         let run_start_offset = *instance_offset;
                         let mut run_len = 1usize;
                         i += 1;
-                        while i < entries.len() {
-                            match &entries[i].kind {
+                        while i < self.draw_entries.len() {
+                            match &self.draw_entries[i].kind {
                                 SpriteRenderKind::Sprite {
                                     texture_key,
                                     instance_offset,

@@ -1267,7 +1267,7 @@ dependencies = [
  "vec_map",
  "wasm-bindgen",
  "web-sys",
- "windows 0.54.0",
+ "windows 0.62.2",
 ]
 
 [[package]]
@@ -1341,7 +1341,7 @@ dependencies = [
  "log",
  "presser",
  "thiserror 2.0.18",
- "windows 0.54.0",
+ "windows 0.62.2",
 ]
 
 [[package]]
@@ -3291,7 +3291,7 @@ checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
 name = "skeleton-engine"
-version = "8.27.0"
+version = "9.0.0"
 dependencies = [
  "bytemuck",
  "chacha20poly1305",

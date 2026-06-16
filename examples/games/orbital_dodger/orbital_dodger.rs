@@ -85,7 +85,7 @@ impl Scene for DodgerScene {
             [1.0, 1.0, 1.0],
         );
 
-        systems.add(NetworkSystem);
+        systems.add(NetworkSystem::new());
         systems.add(DodgerClient::new(player));
     }
 }

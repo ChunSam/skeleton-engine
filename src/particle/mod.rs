@@ -19,6 +19,7 @@ type ParticleUpdate = (Entity, f32, f32, Vec2, Color, Color);
 type EmitterSnapshot = (
     Entity,
     Vec2,
+    f32, // z
     bool,
     f32,
     f32,
@@ -55,6 +56,8 @@ pub struct ParticleEmitter {
     /// Uses `Arc<str>` so per-spawn clones are refcount bumps, consistent with
     /// [`Sprite::texture`].
     pub texture: Option<Arc<str>>,
+    /// Z-depth of spawned particles.
+    pub z: f32,
     /// Set to false to stop emitting.
     pub emit: bool,
     /// Internal timer (no need to modify directly).
@@ -72,6 +75,7 @@ impl Default for ParticleEmitter {
             color_end: Color::rgba(1.0, 1.0, 1.0, 0.0),
             size: Vec2::splat(8.0),
             texture: None,
+            z: 0.0,
             emit: true,
             timer: 0.0,
         }
@@ -97,9 +101,16 @@ impl ParticleEmitter {
             color_end: Color::rgba(1.0, 0.25, 0.1, 0.0),
             size: Vec2::splat(6.0),
             texture: None,
+            z: 0.0,
             emit: false,
             timer: 0.0,
         }
+    }
+
+    /// Sets the Z-depth of spawned particles and returns `self` (builder style).
+    pub fn with_z(mut self, z: f32) -> Self {
+        self.z = z;
+        self
     }
 }
 
@@ -186,6 +197,7 @@ impl System for ParticleSystem {
                 (
                     e,
                     tr.position,
+                    em.z,
                     em.emit,
                     em.spawn_rate,
                     em.lifetime,
@@ -205,6 +217,7 @@ impl System for ParticleSystem {
         for (
             emitter_entity,
             pos,
+            z,
             emit,
             spawn_rate,
             lifetime,
@@ -249,6 +262,7 @@ impl System for ParticleSystem {
                         spawn_particle(
                             world,
                             pos,
+                            z,
                             size,
                             &texture,
                             actual_velocity,
@@ -276,6 +290,7 @@ impl System for ParticleSystem {
                     spawn_particle(
                         world,
                         pos,
+                        z,
                         size,
                         &texture,
                         vel,
@@ -298,6 +313,7 @@ impl System for ParticleSystem {
 fn spawn_particle(
     world: &mut World,
     pos: Vec2,
+    z: f32,
     size: Vec2,
     texture: &Option<Arc<str>>,
     velocity: Vec2,
@@ -312,7 +328,7 @@ fn spawn_particle(
             position: pos,
             scale: size,
             rotation: 0.0,
-            z: 0.0,
+            z,
         },
     );
     // Arc<str> clone here is a refcount bump, not a heap allocation.
@@ -356,6 +372,35 @@ mod tests {
         assert_eq!(world.query::<Particle>().count(), 8);
         // The emitter entity is despawned after the burst (one-shot).
         assert!(!world.is_alive(emitter));
+    }
+
+    #[test]
+    fn emitter_z_propagates_to_spawned_particles() {
+        let mut world = World::new();
+        let emitter = world.spawn();
+        world.add_component(emitter, Transform::default());
+        world.add_component(
+            emitter,
+            ParticleEmitter {
+                spawn_rate: 100.0,
+                emit: true,
+                ..ParticleEmitter::default()
+            }
+            .with_z(5.0),
+        );
+
+        ParticleSystem.run(&mut world, 0.05);
+
+        // Every spawned particle inherits the emitter's z-depth (previously hardcoded 0.0).
+        let zs: Vec<f32> = world
+            .query2::<Particle, Transform>()
+            .map(|(_, _, tr)| tr.z)
+            .collect();
+        assert_eq!(zs.len(), 5, "expected 5 particles");
+        assert!(
+            zs.iter().all(|&z| (z - 5.0).abs() < 1e-6),
+            "particles did not inherit emitter z: {zs:?}"
+        );
     }
 
     #[test]

@@ -23,7 +23,7 @@ use crate::app::editor::EditorMode;
 pub(in crate::app) fn update_docked_ui(
     ctx: &egui::Context,
     app: &mut App,
-    comp_fields: &mut Vec<(&'static str, Vec<(&'static str, ReflectValue)>)>,
+    comp_fields: &mut super::InspectorCompFields,
     entity_list: &[Entity],
     tag_map: &HashMap<Entity, String>,
     selected_comp_names: &[&'static str],
@@ -422,7 +422,7 @@ pub(in crate::app) fn scene_tab_body(
 pub(in crate::app) fn inspector_tab_body(
     ui: &mut egui::Ui,
     app: &mut App,
-    comp_fields: &mut Vec<(&'static str, Vec<(&'static str, ReflectValue)>)>,
+    comp_fields: &mut super::InspectorCompFields,
     selected_comp_names: &[&'static str],
     tag_map: &HashMap<Entity, String>,
     _entity_list: &[Entity],
@@ -438,7 +438,7 @@ pub(in crate::app) fn inspector_tab_body(
                 });
 
             // Component field editor
-            for (comp_name, fields) in comp_fields.iter_mut() {
+            for (_, comp_name, fields) in comp_fields.iter_mut() {
                 ui.collapsing(*comp_name, |ui| {
                     egui::Grid::new(*comp_name)
                         .num_columns(2)
@@ -642,10 +642,12 @@ pub(in crate::app) fn inspector_tab_body(
                 ui.strong("Component List");
 
                 // Serde-registered components on this entity can be copied to the clipboard.
+                // `component_names_for` checks presence only (no RON serialization), so this
+                // is O(registry size) instead of serializing every component value per frame.
                 let copyable: std::collections::HashSet<String> = app
                     .world
                     .resource::<crate::prefab::SerdeComponentRegistry>()
-                    .map(|r| r.serialize_entity(&app.world, sel).into_keys().collect())
+                    .map(|r| r.component_names_for(&app.world, sel).into_iter().collect())
                     .unwrap_or_default();
 
                 let mut to_remove: Option<&'static str> = None;
@@ -697,7 +699,14 @@ pub(in crate::app) fn inspector_tab_body(
                     names
                 };
                 if !factory_names.is_empty() {
-                    if app.editor.add_component_selected.is_empty() {
+                    // Reset the selection if it is empty or stale (e.g. after a scene reload
+                    // where the factory map can change and the stored name may no longer be
+                    // a valid key — silently no-op-ing the "+ Add" button otherwise).
+                    if app.editor.add_component_selected.is_empty()
+                        || !factory_names
+                            .iter()
+                            .any(|n| n == &app.editor.add_component_selected)
+                    {
                         app.editor.add_component_selected = factory_names[0].clone();
                     }
                     let cur = app.editor.add_component_selected.clone();
@@ -1297,9 +1306,23 @@ fn state_machine_panel(ui: &mut egui::Ui, app: &mut App, sel: crate::ecs::Entity
     }
 }
 
+/// Returns all `Easing` variants in display order. Kept in sync with `src/tween.rs`.
+#[cfg(not(target_arch = "wasm32"))]
+fn easing_variants() -> [crate::tween::Easing; 6] {
+    use crate::tween::Easing;
+    [
+        Easing::Linear,
+        Easing::EaseIn,
+        Easing::EaseOut,
+        Easing::EaseInOut,
+        Easing::EaseInBack,
+        Easing::EaseOutBack,
+    ]
+}
+
 /// Render one [`Track`](crate::timeline::Track) of a `Timeline` as a collapsible keyframe list:
-/// each keyframe shows an editable time (re-sorts on change), a value summary (via `fmt`), and the
-/// easing, with a remove button. Empty tracks render nothing.
+/// each keyframe shows an editable time (re-sorts on change), a value summary (via `fmt`), an
+/// easing ComboBox, and a remove button. Empty tracks render nothing.
 #[cfg(not(target_arch = "wasm32"))]
 fn timeline_track_ui<T: Clone + crate::tween::Lerp>(
     ui: &mut egui::Ui,
@@ -1313,10 +1336,14 @@ fn timeline_track_ui<T: Clone + crate::tween::Lerp>(
     egui::CollapsingHeader::new(format!("{label} ({} kf)", track.len()))
         .id_salt(label)
         .show(ui, |ui| {
+            // Collect deferred mutations — must not mutate `track` while iterating
+            // `track.keyframes()` since the slice borrow would conflict.
             let mut retime: Option<(usize, f32)> = None;
+            let mut rease: Option<(usize, crate::tween::Easing)> = None;
             let mut remove: Option<usize> = None;
             for (i, kf) in track.keyframes().iter().enumerate() {
                 ui.horizontal(|ui| {
+                    // Editable keyframe time (re-sorts on change).
                     let mut t = kf.time;
                     if ui
                         .add(
@@ -1329,7 +1356,29 @@ fn timeline_track_ui<T: Clone + crate::tween::Lerp>(
                     {
                         retime = Some((i, t));
                     }
-                    ui.label(format!("{}  {:?}", fmt(&kf.value), kf.easing));
+
+                    // Value display (read-only label — generic editing would require
+                    // type-specific widgets per track type; deferred to a future pass).
+                    ui.label(fmt(&kf.value));
+
+                    // Easing ComboBox — editable for all track types via the Easing enum.
+                    let easing_label = format!("{:?}", kf.easing);
+                    let combo_id = egui::Id::new(label).with(i).with("ease");
+                    egui::ComboBox::from_id_salt(combo_id)
+                        .selected_text(&easing_label)
+                        .width(100.0)
+                        .show_ui(ui, |ui| {
+                            for variant in easing_variants() {
+                                let name = format!("{variant:?}");
+                                // Compare by debug string since Easing is not PartialEq.
+                                let selected = name == easing_label;
+                                if ui.selectable_label(selected, &name).clicked() {
+                                    // `variant` is owned (moved from the array), no clone needed.
+                                    rease = Some((i, variant));
+                                }
+                            }
+                        });
+
                     if ui
                         .small_button("✕")
                         .on_hover_text("remove keyframe")
@@ -1338,6 +1387,11 @@ fn timeline_track_ui<T: Clone + crate::tween::Lerp>(
                         remove = Some(i);
                     }
                 });
+            }
+            // Apply deferred mutations in a safe order: easing first (index-stable),
+            // retime next (may re-sort), remove last (changes indices).
+            if let Some((i, e)) = rease {
+                track.set_easing(i, e);
             }
             if let Some((i, t)) = retime {
                 track.set_time(i, t);

@@ -38,6 +38,10 @@ impl PhysicsWorld {
     }
 
     /// PrismaticJoint (slider) — allows relative movement along a specific axis only.
+    ///
+    /// `axis` must be a non-zero direction vector; it is normalised internally.
+    /// If a near-zero `axis` is supplied (length² ≤ ε²), a warning is logged and
+    /// [`Vec2::X`] is used as a fallback so the joint is never created with a NaN axis.
     pub fn add_prismatic_joint(
         &mut self,
         body1: BodyHandle,
@@ -46,7 +50,15 @@ impl PhysicsWorld {
         anchor2: Vec2,
         axis: Vec2,
     ) -> JointHandle {
-        let unit_axis = UnitVector::new_normalize(vector![axis.x, axis.y]);
+        let safe_axis = if axis.length_squared() <= f32::EPSILON * f32::EPSILON {
+            log::warn!(
+                "add_prismatic_joint: near-zero axis supplied ({axis:?}), using Vec2::X fallback"
+            );
+            Vec2::X
+        } else {
+            axis
+        };
+        let unit_axis = UnitVector::new_normalize(vector![safe_axis.x, safe_axis.y]);
         let data = PrismaticJointBuilder::new(unit_axis)
             .local_anchor1(point![anchor1.x, anchor1.y])
             .local_anchor2(point![anchor2.x, anchor2.y])
@@ -57,5 +69,76 @@ impl PhysicsWorld {
     /// Removes a joint.
     pub fn remove_joint(&mut self, handle: JointHandle) {
         self.impulse_joint_set.remove(handle.0, true);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use glam::Vec2;
+
+    fn make_two_bodies(physics: &mut PhysicsWorld) -> (BodyHandle, BodyHandle) {
+        let (b1, _) = physics.add_dynamic_box(Vec2::ZERO, 0.5, 0.5, false);
+        let (b2, _) = physics.add_dynamic_box(Vec2::new(1.0, 0.0), 0.5, 0.5, false);
+        (b1, b2)
+    }
+
+    /// A zero axis must not produce a NaN-axis prismatic joint — the guard must
+    /// substitute Vec2::X and the joint data must contain only finite values.
+    #[test]
+    fn prismatic_joint_zero_axis_uses_fallback() {
+        let mut physics = PhysicsWorld::new(Vec2::ZERO);
+        let (b1, b2) = make_two_bodies(&mut physics);
+        let handle = physics.add_prismatic_joint(b1, b2, Vec2::ZERO, Vec2::ZERO, Vec2::ZERO);
+
+        // The joint must exist and its motor axis must be finite (no NaN).
+        let joint = physics
+            .impulse_joint_set
+            .get(handle.0)
+            .expect("joint present");
+        let unit = joint
+            .data
+            .as_prismatic()
+            .expect("is prismatic")
+            .local_axis1();
+        let v = unit.into_inner();
+        assert!(
+            v.x.is_finite() && v.y.is_finite(),
+            "joint axis must be finite after zero-axis guard: ({}, {})",
+            v.x,
+            v.y
+        );
+        // The fallback axis is Vec2::X, so the normalised axis should be (1, 0).
+        assert!(
+            (v.x - 1.0).abs() < 1e-5 && v.y.abs() < 1e-5,
+            "fallback axis should be X (1, 0): ({}, {})",
+            v.x,
+            v.y
+        );
+    }
+
+    /// A normal axis must produce a correctly oriented prismatic joint.
+    #[test]
+    fn prismatic_joint_normal_axis_preserved() {
+        let mut physics = PhysicsWorld::new(Vec2::ZERO);
+        let (b1, b2) = make_two_bodies(&mut physics);
+        let handle = physics.add_prismatic_joint(b1, b2, Vec2::ZERO, Vec2::ZERO, Vec2::Y);
+
+        let joint = physics
+            .impulse_joint_set
+            .get(handle.0)
+            .expect("joint present");
+        let unit = joint
+            .data
+            .as_prismatic()
+            .expect("is prismatic")
+            .local_axis1();
+        let v = unit.into_inner();
+        assert!(
+            v.x.abs() < 1e-5 && (v.y - 1.0).abs() < 1e-5,
+            "axis should be Y (0, 1): ({}, {})",
+            v.x,
+            v.y
+        );
     }
 }

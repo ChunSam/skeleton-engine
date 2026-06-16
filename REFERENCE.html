@@ -2503,6 +2503,22 @@ lto           = true</code></pre>
 
 # 로컬 서버
 python3 -m http.server --directory dist 8080</code></pre>
+
+<h2 id="엔진-하드닝-v900">엔진 하드닝 (v9.0.0)</h2>
+<p>14개 서브시스템 코드 분석(80건, <code>docs/CODE_ANALYSIS_2026-06-16.md</code>)에 따른 전반적 견고성 패스.
+주제는 <strong>fail-quiet → fail-loud</strong>. 전체 변경 목록은 <code>docs/CHANGELOG.md</code>의 9.0.0 항목 참조.</p>
+<p><strong>Breaking 변경(포크 시 확인):</strong></p>
+<ul>
+<li><code>NetworkSystem</code>이 unit 구조체에서 필드 구조체로 바뀜 → <code>app.add_system(NetworkSystem::new())</code>로 생성(기존 <code>NetworkSystem</code> 값 사용 불가).</li>
+<li><code>GamepadButton</code> / <code>GamepadAxis</code>에 <code>#[non_exhaustive]</code> 추가 → 외부 <code>match</code>에 와일드카드(<code>_ =&gt;</code>) 분기 필요.</li>
+<li><code>SerdeComponentEntry</code>에 <code>has_component</code> 필드 추가(직접 구조체 리터럴 생성 시 영향; <code>register_*</code> 경로는 무영향).</li>
+<li><code>SolidTiles::Only</code>가 <code>Vec&lt;u32&gt;</code> → <code>HashSet&lt;u32&gt;</code>(추가형 <code>IntoIterator</code> 생성자 제공).</li>
+<li>MSRV 1.92 → <strong>1.95</strong>(CI가 실제 검증하는 툴체인과 일치).</li>
+</ul>
+<p><strong>주요 신규 공개 API:</strong> <code>World::has_component::&lt;T&gt;()</code>, <code>Track::set_value/set_easing</code>,
+<code>ParticleEmitter::with_z</code>, <code>InputMap::axis_value</code>, <code>save_versioned_with_key</code>/<code>load_migrated_with_key</code>,
+<code>RenderTarget</code> <code>clear_color</code>, <code>AudioManager::clear_file_cache</code>,
+<code>SerdeComponentRegistry::component_names_for</code>.</p>
     </main>
   </div>
 </body>

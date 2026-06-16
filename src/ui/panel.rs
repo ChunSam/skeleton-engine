@@ -16,6 +16,24 @@ pub enum LayoutDir {
     Horizontal,
 }
 
+impl LayoutDir {
+    /// Maps each variant to a stable integer index (0 = Vertical, 1 = Horizontal).
+    pub fn to_i32(self) -> i32 {
+        match self {
+            LayoutDir::Vertical => 0,
+            LayoutDir::Horizontal => 1,
+        }
+    }
+
+    /// Converts a stable integer index back to a `LayoutDir` (unknown values → `Vertical`).
+    pub fn from_i32(i: i32) -> LayoutDir {
+        match i {
+            1 => LayoutDir::Horizontal,
+            _ => LayoutDir::Vertical,
+        }
+    }
+}
+
 /// Layout container that automatically positions child entities.
 ///
 /// Attach alongside a `UiNode` on the same entity.
@@ -48,6 +66,7 @@ impl Reflect for Panel {
                 "background_color",
                 ReflectValue::Color(self.background_color.to_array()),
             ),
+            ("direction", ReflectValue::I32(self.direction.to_i32())),
         ]
     }
 
@@ -63,6 +82,10 @@ impl Reflect for Panel {
             }
             ("background_color", ReflectValue::Color(c)) => {
                 self.background_color = Color::from(c);
+                true
+            }
+            ("direction", ReflectValue::I32(v)) => {
+                self.direction = LayoutDir::from_i32(v);
                 true
             }
             _ => false,
@@ -233,5 +256,43 @@ mod tests {
         assert!((p.padding - 8.0).abs() < f32::EPSILON);
         let fields = p.fields();
         assert!(fields.iter().any(|(n, _)| *n == "background_color"));
+    }
+
+    #[test]
+    fn layout_dir_to_i32_from_i32_roundtrip() {
+        assert_eq!(
+            LayoutDir::from_i32(LayoutDir::Vertical.to_i32()),
+            LayoutDir::Vertical
+        );
+        assert_eq!(
+            LayoutDir::from_i32(LayoutDir::Horizontal.to_i32()),
+            LayoutDir::Horizontal
+        );
+        // Unknown values fall back to Vertical.
+        assert_eq!(LayoutDir::from_i32(99), LayoutDir::Vertical);
+    }
+
+    #[test]
+    fn panel_direction_reflect_set_field() {
+        // Start Vertical, switch to Horizontal via set_field.
+        let mut p = Panel::new(LayoutDir::Vertical);
+        assert_eq!(p.direction, LayoutDir::Vertical);
+
+        assert!(p.set_field("direction", ReflectValue::I32(1)));
+        assert_eq!(
+            p.direction,
+            LayoutDir::Horizontal,
+            "set_field(\"direction\", I32(1)) should switch layout to Horizontal"
+        );
+
+        // Verify the field round-trips through fields() → I32.
+        let fields = p.fields();
+        let dir_field = fields.iter().find(|(n, _)| *n == "direction");
+        assert!(dir_field.is_some(), "direction missing from fields()");
+        assert_eq!(dir_field.unwrap().1, ReflectValue::I32(1));
+
+        // Switch back to Vertical.
+        assert!(p.set_field("direction", ReflectValue::I32(0)));
+        assert_eq!(p.direction, LayoutDir::Vertical);
     }
 }

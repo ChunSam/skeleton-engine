@@ -107,7 +107,7 @@ struct CoinRaceScene;
 impl Scene for CoinRaceScene {
     fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar) {
         world.insert_resource(NetworkClient::connect(SERVER_URL));
-        systems.add(NetworkSystem);
+        systems.add(NetworkSystem::new());
         systems.add(CoinRaceSystem::new());
     }
 }

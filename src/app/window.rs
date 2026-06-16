@@ -125,8 +125,10 @@ impl ApplicationHandler for App {
                 }
                 // Render one frame during a live resize drag to reduce visual stutter.
                 // (On macOS, Resized fires during the modal resize loop even when RedrawRequested stalls.)
+                // Guard: if RedrawRequested already called step_frame this iteration, skip here
+                // to prevent double-stepping physics/tween/timer on macOS modal resize.
                 #[cfg(not(target_arch = "wasm32"))]
-                self.step_frame(event_loop);
+                self.step_frame_once(event_loop);
             }
 
             // ── Keyboard input ──────────────────────────────────────────────────
@@ -406,13 +408,23 @@ impl ApplicationHandler for App {
             }
 
             // ── Touch input ────────────────────────────────────────────────────
+            // winit delivers touch locations in physical pixels. Divide by the window
+            // scale factor to convert to logical (scale-adjusted) pixels, consistent
+            // with the mouse cursor path (CursorMoved) and UI hit-testing.
             WindowEvent::Touch(winit::event::Touch {
                 phase,
                 location,
                 id,
                 ..
             }) => {
-                let pos = Vec2::new(location.x as f32, location.y as f32);
+                let scale = self
+                    .window
+                    .as_ref()
+                    .map(|w| w.scale_factor() as f32)
+                    .unwrap_or(1.0);
+                // Convert physical → logical pixels so TouchState positions match
+                // InputState::cursor() and Camera::screen_to_world conventions.
+                let pos = Vec2::new(location.x as f32 / scale, location.y as f32 / scale);
                 if let Some(ts) = self.world.resource_mut::<TouchState>() {
                     match phase {
                         winit::event::TouchPhase::Started => ts.on_touch_started(id, pos),
@@ -423,14 +435,8 @@ impl ApplicationHandler for App {
                     }
                 }
                 // Emulate touch as left mouse button (for compatibility with existing UI systems).
-                // The `InputState` cursor used by UI hit-testing must be in logical pixels, same
-                // as the mouse, so divide by the scale factor (`TouchState` keeps physical coords).
-                let scale = self
-                    .window
-                    .as_ref()
-                    .map(|w| w.scale_factor() as f32)
-                    .unwrap_or(1.0);
-                let logical = Vec2::new(pos.x / scale, pos.y / scale);
+                // `pos` is already logical (divided by scale above).
+                let logical = pos;
                 if let Some(input) = self.world.resource_mut::<InputState>() {
                     match phase {
                         winit::event::TouchPhase::Started => {
@@ -459,7 +465,17 @@ impl ApplicationHandler for App {
                 // (Splitting update into about_to_wait introduced a one-frame delay that
                 // made input feel sluggish. Click accuracy is preserved by recording the
                 // cursor position at press/release time.) The same sequence is reused in Resized.
-                self.step_frame(event_loop);
+                self.step_frame_once(event_loop);
+            }
+
+            // ── Focus loss ────────────────────────────────────────────────────
+            // When the window loses focus the OS stops delivering key-up events.
+            // Flush all held keys immediately so the game does not see phantom
+            // held state (e.g. a character moving forever after Alt-Tab).
+            WindowEvent::Focused(false) => {
+                if let Some(input) = self.world.resource_mut::<InputState>() {
+                    input.release_all();
+                }
             }
 
             _ => {}
@@ -475,6 +491,10 @@ impl ApplicationHandler for App {
     /// because it only woke on input. Input events wake the loop immediately regardless.
     #[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // Reset per-iteration step guard: each new event-loop iteration may step at most once.
+        // This prevents Resized + RedrawRequested from both calling step_frame in one iteration.
+        self.stepped_this_iteration = false;
+
         #[cfg(not(target_arch = "wasm32"))]
         self.poll_gilrs();
 

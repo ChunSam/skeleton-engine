@@ -324,8 +324,15 @@ impl App {
                 let name = self.systems[i].name();
                 let t0 = Instant::now();
                 // Panic isolation: wrap in catch_unwind so the engine keeps running if a system panics.
-                // AssertUnwindSafe: World consistency is not guaranteed after a panic, but
-                // disabling the offending system prevents further damage.
+                // AssertUnwindSafe: World consistency is not guaranteed after a panic.
+                //
+                // On panic this frame:
+                //   DisableSystemAndContinue — records the system as permanently disabled for
+                //   future frames, then **aborts the remaining systems for the current frame**
+                //   (breaks out of the loop). Subsequent systems are skipped because the World
+                //   may be half-mutated; they run normally next frame.
+                //   AbortAfterLog — re-panics immediately (no frame-abort needed).
+                //
                 // Note: does not work with panic = "abort" builds or FFI panics.
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     self.systems[i].run(&mut self.world, dt);
@@ -348,6 +355,11 @@ impl App {
                                 {
                                     ps.disabled.push(name.to_string());
                                 }
+                                // Abort remaining systems this frame: the World may be
+                                // half-mutated after the panic, so running subsequent
+                                // systems risks cascading corruption. They resume normally
+                                // next frame (the panicked system is now permanently skipped).
+                                break;
                             }
                             SystemPanicPolicy::AbortAfterLog => std::panic::resume_unwind(panic),
                         }
@@ -440,6 +452,19 @@ impl App {
             .world
             .resource_mut::<crate::resources::FadeTransition>()
         {
+            // On wasm the fade renderer field is absent and the fade effect is not rendered.
+            // Log a one-time warning so developers know fades are visual no-ops on wasm.
+            #[cfg(target_arch = "wasm32")]
+            {
+                use std::sync::OnceLock;
+                static WARNED: OnceLock<()> = OnceLock::new();
+                WARNED.get_or_init(|| {
+                    log::warn!(
+                        "FadeTransition: fade rendering is not supported on wasm (native-only). \
+                         The FadeTransition resource is updated but no fade effect is rendered."
+                    );
+                });
+            }
             fade.update(dt);
         }
 
@@ -457,43 +482,25 @@ impl App {
             }
         }
 
-        // Hot-reload data tables: forward changed paths to the registry.
+        // Hot-reload RON registries: forward changed paths to each registered registry.
+        // Each registry type that supports hot-reload implements a `reload_path(&str)`
+        // method; we forward every changed path to every registry that is present.
+        // To add a new registry: add one more block here following the same pattern.
         #[cfg(not(target_arch = "wasm32"))]
         if !reloaded.is_empty() {
-            if let Some(reg) = self
-                .world
-                .resource_mut::<crate::data_table::DataTableRegistry>()
-            {
-                for path in &reloaded {
-                    reg.reload_path(path);
-                }
+            // Helper macro: if the resource exists, forward all reloaded paths to it.
+            macro_rules! forward_reloads {
+                ($reg_ty:ty) => {
+                    if let Some(reg) = self.world.resource_mut::<$reg_ty>() {
+                        for path in &reloaded {
+                            reg.reload_path(path);
+                        }
+                    }
+                };
             }
-        }
-
-        // Hot-reload animation clip sets: forward changed paths to the registry.
-        #[cfg(not(target_arch = "wasm32"))]
-        if !reloaded.is_empty() {
-            if let Some(reg) = self
-                .world
-                .resource_mut::<crate::animation::clip_set::AnimationClipRegistry>()
-            {
-                for path in &reloaded {
-                    reg.reload_path(path);
-                }
-            }
-        }
-
-        // Hot-reload particle configs: forward changed paths to the registry.
-        #[cfg(not(target_arch = "wasm32"))]
-        if !reloaded.is_empty() {
-            if let Some(reg) = self
-                .world
-                .resource_mut::<crate::particle::ParticleConfigRegistry>()
-            {
-                for path in &reloaded {
-                    reg.reload_path(path);
-                }
-            }
+            forward_reloads!(crate::data_table::DataTableRegistry);
+            forward_reloads!(crate::animation::clip_set::AnimationClipRegistry);
+            forward_reloads!(crate::particle::ParticleConfigRegistry);
         }
 
         // Async load completion: upload finished assets to the GPU and update LoadProgress.

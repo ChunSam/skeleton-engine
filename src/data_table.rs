@@ -104,9 +104,17 @@ impl DataTable {
 
         // Build all rows in column order.
         let mut rows: Vec<Vec<(String, ron::Value)>> = Vec::with_capacity(rows_raw.len());
-        for raw in rows_raw {
+        for (idx, raw) in rows_raw.into_iter().enumerate() {
             let pairs = extract_pairs(raw)?;
             let pair_map: HashMap<String, ron::Value> = pairs.into_iter().collect();
+            // Warn about keys present in this row but absent from the schema (row 0).
+            for key in pair_map.keys() {
+                if !columns.contains(key) {
+                    log::warn!(
+                        "data_table: row {idx} has extra column '{key}' not in schema; value discarded"
+                    );
+                }
+            }
             let row: Vec<(String, ron::Value)> = columns
                 .iter()
                 .map(|col| {

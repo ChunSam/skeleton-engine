@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use glam::Vec2;
 
@@ -201,10 +201,23 @@ pub enum SolidTiles {
     /// Any non-zero tile id is solid (the common "0 = empty, anything else = wall" convention).
     NonZero,
     /// Only these specific tile ids are solid; everything else is empty.
-    Only(Vec<u32>),
+    ///
+    /// Stored as a [`HashSet`] for O(1) membership tests — prefer the [`SolidTiles::only`]
+    /// constructor over constructing this variant directly.
+    Only(HashSet<u32>),
 }
 
 impl SolidTiles {
+    /// Builds a `SolidTiles::Only` from any iterable of tile ids.
+    ///
+    /// ```rust,no_run
+    /// use engine::SolidTiles;
+    /// let solid = SolidTiles::only([1, 2, 3]);
+    /// ```
+    pub fn only(ids: impl IntoIterator<Item = u32>) -> Self {
+        SolidTiles::Only(ids.into_iter().collect())
+    }
+
     /// The `collider_for` rule this variant represents: solid tiles → [`TileCollider::solid`].
     pub fn collider_for(&self, tile_id: u32) -> Option<TileCollider> {
         let solid = match self {
@@ -223,6 +236,27 @@ impl SolidTiles {
 /// infer) plus the persistent [`TileColliderIndex`] that makes resyncs incremental. Build the initial
 /// colliders through [`sync`](Self::sync) (a fresh index does a full build) — do **not** also call
 /// [`PhysicsWorld::add_static_from_tilemap`] on the same tiles, or you get untracked duplicates.
+///
+/// # Cleanup — call `drain_into_physics` before despawning
+///
+/// `World::despawn` has no lifecycle hook, so **the rapier bodies owned by this component are
+/// NOT removed automatically when the entity is despawned**. Failing to clean up leaks every
+/// `(BodyHandle, ColliderHandle)` tracked by the internal index. Always call
+/// [`drain_into_physics`](Self::drain_into_physics) before (or instead of) despawning the entity:
+///
+/// ```rust,no_run
+/// # use engine::{TilemapColliders, PhysicsWorld};
+/// # use engine::ecs::World;
+/// # let mut world = World::new();
+/// # let e = world.spawn();
+/// # world.insert_resource(PhysicsWorld::new(glam::Vec2::ZERO));
+/// world.with_resource_mut::<PhysicsWorld, _>(|physics, world| {
+///     if let Some(tc) = world.get_mut::<TilemapColliders>(e) {
+///         tc.drain_into_physics(physics);
+///     }
+/// });
+/// world.despawn(e);
+/// ```
 ///
 /// # Example
 /// ```rust,no_run
@@ -273,6 +307,22 @@ impl TilemapColliders {
     /// Number of tile colliders currently tracked.
     pub fn collider_count(&self) -> usize {
         self.index.len()
+    }
+
+    /// Removes every rapier body tracked by this component from `physics` and clears the
+    /// internal index.
+    ///
+    /// **Must be called before despawning the entity** — `World::despawn` has no lifecycle
+    /// hook, so bodies are not cleaned up automatically. After this call the component holds an
+    /// empty index; calling [`sync`](Self::sync) again will perform a full rebuild.
+    pub fn drain_into_physics(&mut self, physics: &mut PhysicsWorld) {
+        for (_key, (body_handle, collider_handle)) in self.index.cells.drain() {
+            let body = PhysicsBody {
+                rigid_body_handle: body_handle,
+                collider_handle,
+            };
+            physics.remove_body(&body);
+        }
     }
 }
 
@@ -465,11 +515,32 @@ mod tests {
     fn solid_tiles_rules() {
         assert!(SolidTiles::NonZero.collider_for(1).is_some());
         assert!(SolidTiles::NonZero.collider_for(0).is_none());
-        let only = SolidTiles::Only(vec![2, 3]);
+        let only = SolidTiles::only([2, 3]);
         assert!(only.collider_for(2).is_some());
         assert!(only.collider_for(3).is_some());
         assert!(only.collider_for(1).is_none());
         assert!(only.collider_for(0).is_none());
+    }
+
+    /// `SolidTiles::only` constructor — a tile in the set is solid, one not in it is not.
+    #[test]
+    fn solid_tiles_only_constructor_membership() {
+        let solid = SolidTiles::only([10u32, 20, 30]);
+        // Members → solid.
+        assert!(solid.collider_for(10).is_some(), "tile 10 should be solid");
+        assert!(solid.collider_for(20).is_some(), "tile 20 should be solid");
+        assert!(solid.collider_for(30).is_some(), "tile 30 should be solid");
+        // Non-members → empty.
+        assert!(
+            solid.collider_for(0).is_none(),
+            "tile 0 should not be solid"
+        );
+        assert!(
+            solid.collider_for(11).is_none(),
+            "tile 11 should not be solid"
+        );
+        // Clone equivalence — HashSet preserves equality.
+        assert_eq!(solid, SolidTiles::only([30u32, 20, 10]));
     }
 
     #[test]
@@ -531,5 +602,56 @@ mod tests {
             "PhysicsWorld present so with_resource_mut returns true"
         );
         assert!(world.get::<TilemapColliders>(e).is_none());
+    }
+
+    // ── Task 6: drain_into_physics removes bodies from physics ────────────────
+
+    /// Build colliders for a 3×3 tilemap, call `drain_into_physics`, and assert that the
+    /// physics body count returns to the baseline (no bodies leaked).
+    #[test]
+    fn drain_into_physics_removes_all_bodies() {
+        let tilemap = solid_3x3();
+        let mut physics = make_world();
+        let baseline = physics.rigid_body_set.len();
+
+        let mut tc = TilemapColliders::new(32.0, SolidTiles::NonZero);
+        tc.sync(&mut physics, &tilemap);
+
+        assert_eq!(
+            physics.rigid_body_set.len(),
+            baseline + 9,
+            "sync should have added 9 bodies"
+        );
+
+        tc.drain_into_physics(&mut physics);
+
+        assert_eq!(
+            physics.rigid_body_set.len(),
+            baseline,
+            "after drain, body count must return to baseline (no leak)"
+        );
+        assert_eq!(tc.collider_count(), 0, "index must be empty after drain");
+    }
+
+    /// A second `sync` after `drain_into_physics` must rebuild the full set of colliders.
+    #[test]
+    fn drain_then_resync_rebuilds() {
+        let tilemap = solid_3x3();
+        let mut physics = make_world();
+        let mut tc = TilemapColliders::new(32.0, SolidTiles::NonZero);
+
+        tc.sync(&mut physics, &tilemap);
+        assert_eq!(tc.collider_count(), 9);
+
+        tc.drain_into_physics(&mut physics);
+        assert_eq!(tc.collider_count(), 0);
+
+        // A fresh sync must treat the empty index as a full build.
+        tc.sync(&mut physics, &tilemap);
+        assert_eq!(
+            tc.collider_count(),
+            9,
+            "resync after drain must rebuild 9 colliders"
+        );
     }
 }

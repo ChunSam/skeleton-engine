@@ -139,6 +139,27 @@ impl<T: Clone + Lerp> Track<T> {
         true
     }
 
+    /// Set the value of the keyframe at `index`. Returns `false` if out of range.
+    /// Does not re-sort — the value does not affect keyframe ordering (time does).
+    pub fn set_value(&mut self, index: usize, value: T) -> bool {
+        if let Some(kf) = self.keyframes.get_mut(index) {
+            kf.value = value;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Set the easing of the keyframe at `index`. Returns `false` if out of range.
+    pub fn set_easing(&mut self, index: usize, easing: Easing) -> bool {
+        if let Some(kf) = self.keyframes.get_mut(index) {
+            kf.easing = easing;
+            true
+        } else {
+            false
+        }
+    }
+
     /// Remove all keyframes.
     pub fn clear(&mut self) {
         self.keyframes.clear();
@@ -670,5 +691,24 @@ mod tests {
         track.clear();
         assert!(track.is_empty());
         assert_eq!(track.len(), 0);
+    }
+
+    #[test]
+    fn track_set_value_and_easing() {
+        let mut track = three_kf_track();
+        // Keyframe 1 is (t=1.0, value=10.0). set_value changes value without re-sorting.
+        assert!(track.set_value(1, 99.0));
+        assert_eq!(track.keyframes()[1].value, 99.0);
+        assert_eq!(
+            track.keyframes()[1].time,
+            1.0,
+            "set_value must not move the keyframe"
+        );
+        // set_easing updates the easing in place.
+        assert!(track.set_easing(0, Easing::EaseInOut));
+        assert!(matches!(track.keyframes()[0].easing, Easing::EaseInOut));
+        // Out-of-range index is a no-op false.
+        assert!(!track.set_value(9, 0.0));
+        assert!(!track.set_easing(9, Easing::Linear));
     }
 }

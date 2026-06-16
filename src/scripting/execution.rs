@@ -69,7 +69,6 @@ impl System for ScriptingSystem {
             // and the `take()` in the steering application below, so no explicit reset is needed.
             cmd_buf.despawn.clear();
             cmd_buf.spawn_count = 0;
-            cmd_buf.spawned_ids.clear();
             bb_buf.clear();
             bb_snap.clear();
 

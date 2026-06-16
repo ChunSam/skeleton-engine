@@ -25,9 +25,7 @@ impl ScriptingSystem {
         engine.register_fn("spawn_entity", || -> i64 {
             with_ctx_mut(|ctx| {
                 ctx.cmd_buf.spawn_count += 1;
-                let handle = -(ctx.cmd_buf.spawn_count as i64);
-                ctx.cmd_buf.spawned_ids.push(handle);
-                handle
+                -(ctx.cmd_buf.spawn_count as i64)
             })
         });
 

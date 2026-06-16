@@ -122,11 +122,18 @@ fn warn_unmaskable_layer_once(layer: i32) {
     }
 }
 
+/// Assign `instance_offset` fields and fill the caller-provided scratch buffers.
+///
+/// Accepts pre-allocated `&mut Vec<InstanceRaw>` so the renderer can reuse the
+/// same backing allocation across frames (no per-frame heap alloc on steady state).
+/// Both vecs are cleared before use.
 pub(super) fn assign_instance_offsets(
     entries: &mut [SpriteRenderEntry],
-) -> (Vec<InstanceRaw>, Vec<InstanceRaw>) {
-    let mut sprite_instances = Vec::new();
-    let mut material_instances = Vec::new();
+    sprite_instances: &mut Vec<InstanceRaw>,
+    material_instances: &mut Vec<InstanceRaw>,
+) {
+    sprite_instances.clear();
+    material_instances.clear();
 
     for entry in entries {
         match &mut entry.kind {
@@ -148,8 +155,6 @@ pub(super) fn assign_instance_offsets(
             }
         }
     }
-
-    (sprite_instances, material_instances)
 }
 
 #[cfg(test)]

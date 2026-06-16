@@ -180,14 +180,15 @@ thread_local! {
 /// value is optimal the first time it is popped. Skipping stale duplicate heap entries for
 /// already-closed nodes therefore preserves shortest-path guarantees.
 pub fn find_path(grid: &PathGrid, start: IVec2, goal: IVec2) -> Option<Vec<IVec2>> {
-    // start == goal
-    if start == goal {
-        return Some(vec![goal]);
-    }
-
-    // goal is blocked — return None immediately
+    // goal is blocked — return None immediately. Checked before the start == goal
+    // short-circuit so a blocked start==goal cell yields None, not Some([blocked]).
     if !grid.is_walkable(goal.x, goal.y) {
         return None;
+    }
+
+    // start == goal (and walkable) — trivial single-cell path
+    if start == goal {
+        return Some(vec![goal]);
     }
 
     ASTAR_SCRATCH.with(|cell| {
@@ -287,14 +288,15 @@ thread_local! {
 /// Returns the path **excluding the start and including the goal**, or `None` if no path
 /// exists (same endpoint convention as [`find_path`]).
 pub fn find_path_diagonal(grid: &PathGrid, start: IVec2, goal: IVec2) -> Option<Vec<IVec2>> {
-    // start == goal — return single-cell vec matching find_path behaviour
-    if start == goal {
-        return Some(vec![goal]);
-    }
-
-    // goal is blocked — return None immediately
+    // goal is blocked — return None immediately. Checked before the start == goal
+    // short-circuit so a blocked start==goal cell yields None, not Some([blocked]).
     if !grid.is_walkable(goal.x, goal.y) {
         return None;
+    }
+
+    // start == goal (and walkable) — single-cell vec matching find_path behaviour
+    if start == goal {
+        return Some(vec![goal]);
     }
 
     ASTAR_SCRATCH_DIAG.with(|cell| {
@@ -499,6 +501,28 @@ mod tests {
         let again = find_path(&grid, IVec2::new(0, 0), IVec2::new(2, 0)).unwrap();
         assert_eq!(again.last(), Some(&IVec2::new(2, 0)));
         assert_eq!(again.len(), 2);
+    }
+
+    #[test]
+    fn blocked_start_equals_goal_returns_none() {
+        // start == goal on a blocked cell must yield None (no path to a blocked cell),
+        // not Some([blocked]). Both the 4-dir and 8-dir variants.
+        let mut grid = PathGrid::new(3, 3);
+        grid.set_walkable(1, 1, false);
+        let p = IVec2::new(1, 1);
+        assert!(
+            find_path(&grid, p, p).is_none(),
+            "find_path start==goal blocked"
+        );
+        assert!(
+            find_path_diagonal(&grid, p, p).is_none(),
+            "find_path_diagonal start==goal blocked"
+        );
+
+        // Sanity: an open start == goal still returns the single-cell path.
+        let open = IVec2::new(0, 0);
+        assert_eq!(find_path(&grid, open, open), Some(vec![open]));
+        assert_eq!(find_path_diagonal(&grid, open, open), Some(vec![open]));
     }
 
     #[test]
