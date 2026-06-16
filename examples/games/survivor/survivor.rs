@@ -310,7 +310,7 @@ fn main() {
     app.add_system(BulletSystem);
     app.add_system(SpawnSystem);
     app.add_system(SeekSystem);
-    app.add_system(SteeringSystem);
+    app.add_system(SteeringSystem::default());
     app.add_system(ThrusterSystem);
     app.add_system(CollisionSystem);
     app.add_system(ParticleSystem);

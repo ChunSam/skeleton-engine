@@ -196,7 +196,7 @@ fn main() {
     app.add_system(QuitSystem);
     app.add_system(TargetWriterSystem);
     app.add_system(ScriptingSystem::new());
-    app.add_system(SteeringSystem);
+    app.add_system(SteeringSystem::default());
     app.add_system(LabelSystem);
 
     app.run();

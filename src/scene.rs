@@ -49,7 +49,7 @@ impl<'a> SystemRegistrar<'a> {
     /// fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar) {
     ///     systems.add(LayoutSystem);
     ///     // UiSystem reads layout results — must run after LayoutSystem.
-    ///     systems.add_labeled(UiSystem, SystemConfig::new().after(LayoutSystem::LABEL));
+    ///     systems.add_labeled(UiSystem::default(), SystemConfig::new().after(LayoutSystem::LABEL));
     /// }
     /// # fn on_exit(&mut self, _: &mut World) {}
     /// # }

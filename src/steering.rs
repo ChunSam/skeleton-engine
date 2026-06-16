@@ -21,7 +21,7 @@
 //! app.world.add_component(e, Transform::default());
 //! app.world.add_component(e, SteeringVelocity { velocity: Vec2::ZERO, max_speed: 200.0 });
 //! app.world.add_component(e, Seek { target: Vec2::new(400.0, 300.0), max_speed: 200.0 });
-//! app.add_system(SteeringSystem);
+//! app.add_system(SteeringSystem::default());
 //! ```
 
 use glam::Vec2;
@@ -154,20 +154,34 @@ impl Wander {
 /// the **last behavior evaluated wins** (silent last-wins). Attach only one
 /// steering component per entity unless the intentional behaviour is to have
 /// Wander always override Seek/Flee/Arrive.
-pub struct SteeringSystem;
+#[derive(Default)]
+pub struct SteeringSystem {
+    seek_scratch: Vec<Entity>,
+    flee_scratch: Vec<Entity>,
+    arrive_scratch: Vec<Entity>,
+    wander_scratch: Vec<Entity>,
+    velocity_scratch: Vec<Entity>,
+}
 
 impl SteeringSystem {
     /// Schedule label for ordering via `add_system_labeled`.
     pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::steering";
+
+    /// Creates a new `SteeringSystem`. Equivalent to `SteeringSystem::default()`.
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 impl System for SteeringSystem {
     fn run(&mut self, world: &mut World, dt: f32) {
         // ── 1. Seek ────────────────────────────────────────────────────────────
         {
-            let entities: Vec<Entity> = world.query::<Seek>().map(|(e, _)| e).collect();
+            self.seek_scratch.clear();
+            self.seek_scratch
+                .extend(world.query::<Seek>().map(|(e, _)| e));
 
-            for entity in entities {
+            for entity in self.seek_scratch.iter().copied() {
                 let (pos, target, max_speed) = {
                     let t = world.get::<Transform>(entity).map(|t| t.position);
                     let seek = world.get::<Seek>(entity).map(|s| (s.target, s.max_speed));
@@ -193,9 +207,11 @@ impl System for SteeringSystem {
 
         // ── 2. Flee ────────────────────────────────────────────────────────────
         {
-            let entities: Vec<Entity> = world.query::<Flee>().map(|(e, _)| e).collect();
+            self.flee_scratch.clear();
+            self.flee_scratch
+                .extend(world.query::<Flee>().map(|(e, _)| e));
 
-            for entity in entities {
+            for entity in self.flee_scratch.iter().copied() {
                 let (pos, target, max_speed, flee_radius) = {
                     let t = world.get::<Transform>(entity).map(|t| t.position);
                     let flee = world
@@ -224,9 +240,11 @@ impl System for SteeringSystem {
 
         // ── 3. Arrive ──────────────────────────────────────────────────────────
         {
-            let entities: Vec<Entity> = world.query::<Arrive>().map(|(e, _)| e).collect();
+            self.arrive_scratch.clear();
+            self.arrive_scratch
+                .extend(world.query::<Arrive>().map(|(e, _)| e));
 
-            for entity in entities {
+            for entity in self.arrive_scratch.iter().copied() {
                 let (pos, target, max_speed, slow_radius, stop_radius) = {
                     let t = world.get::<Transform>(entity).map(|t| t.position);
                     let arrive = world
@@ -261,9 +279,11 @@ impl System for SteeringSystem {
 
         // ── 4. Wander ─────────────────────────────────────────────────────────
         {
-            let entities: Vec<Entity> = world.query::<Wander>().map(|(e, _)| e).collect();
+            self.wander_scratch.clear();
+            self.wander_scratch
+                .extend(world.query::<Wander>().map(|(e, _)| e));
 
-            for entity in entities {
+            for entity in self.wander_scratch.iter().copied() {
                 // Advance timer and determine direction
                 let (max_speed, current_dir) = {
                     let wander = match world.get_mut::<Wander>(entity) {
@@ -298,9 +318,11 @@ impl System for SteeringSystem {
 
         // ── 5. Apply movement to Transform ────────────────────────────────────
         {
-            let entities: Vec<Entity> = world.query::<SteeringVelocity>().map(|(e, _)| e).collect();
+            self.velocity_scratch.clear();
+            self.velocity_scratch
+                .extend(world.query::<SteeringVelocity>().map(|(e, _)| e));
 
-            for entity in entities {
+            for entity in self.velocity_scratch.iter().copied() {
                 let velocity = match world.get::<SteeringVelocity>(entity).map(|sv| sv.velocity) {
                     Some(v) => v,
                     None => continue,
@@ -354,7 +376,7 @@ mod tests {
             },
         );
 
-        let mut sys = SteeringSystem;
+        let mut sys = SteeringSystem::default();
         sys.run(&mut world, 0.016);
 
         let sv = world
@@ -388,7 +410,7 @@ mod tests {
             },
         );
 
-        let mut sys = SteeringSystem;
+        let mut sys = SteeringSystem::default();
         sys.run(&mut world, 0.016);
 
         let sv = world
@@ -415,7 +437,7 @@ mod tests {
             Wander::new(100.0, 0.1).with_direction_fn(|_idx, _prev| Vec2::new(0.0, 1.0)),
         );
 
-        let mut sys = SteeringSystem;
+        let mut sys = SteeringSystem::default();
         // dt exceeds change_interval, so the picker fires this tick.
         sys.run(&mut world, 0.2);
 
@@ -450,7 +472,7 @@ mod tests {
             },
         );
 
-        let mut sys = SteeringSystem;
+        let mut sys = SteeringSystem::default();
         sys.run(&mut world, 0.016);
 
         let sv = world
@@ -479,7 +501,7 @@ mod tests {
             },
         );
 
-        let mut sys = SteeringSystem;
+        let mut sys = SteeringSystem::default();
         sys.run(&mut world, 0.016);
 
         let sv = world
@@ -536,7 +558,7 @@ mod tests {
         }
 
         let dt = 0.1;
-        let mut sys = SteeringSystem;
+        let mut sys = SteeringSystem::default();
         sys.run(&mut world, dt);
 
         for (e, start) in entities {

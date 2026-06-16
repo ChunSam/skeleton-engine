@@ -467,7 +467,7 @@ impl Scene for TitleScene {
 
         systems.add(LocalizationSystem);
         systems.add(SpinnerSystem::new());
-        systems.add(UiSystem);
+        systems.add(UiSystem::default());
         systems.add(TitleSystem { start, quit });
     }
 
@@ -722,7 +722,10 @@ impl Scene for SettingsScene {
         systems.add(LayoutSystem);
         systems.add(SpinnerSystem::new());
         // UiSystem reads the layout geometry computed by LayoutSystem each frame — must run after it.
-        systems.add_labeled(UiSystem, SystemConfig::new().after(LayoutSystem::LABEL));
+        systems.add_labeled(
+            UiSystem::default(),
+            SystemConfig::new().after(LayoutSystem::LABEL),
+        );
         systems.add(SettingsSystem {
             name_input,
             music_slider,
@@ -922,7 +925,7 @@ impl Scene for DialogueScene {
         systems.add(LocalizationSystem);
         systems.add(LayoutSystem);
         systems.add(SpinnerSystem::new());
-        systems.add(UiSystem);
+        systems.add(UiSystem::default());
         systems.add(DialogueSystem {
             speaker,
             body,

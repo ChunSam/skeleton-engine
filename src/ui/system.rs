@@ -1,4 +1,4 @@
-use crate::ecs::{System, World};
+use crate::ecs::{Entity, System, World};
 
 mod button_pass;
 mod checkbox_pass;
@@ -24,12 +24,25 @@ use state::{submit_output, viewport_from_world, InputSnapshot, UiOutput};
 /// 7. CheckBox pass
 /// 8. Submit render queue
 /// 9. Batch-emit events
-pub struct UiSystem;
+#[derive(Default)]
+pub struct UiSystem {
+    button_scratch: Vec<Entity>,
+    checkbox_scratch: Vec<Entity>,
+    label_scratch: Vec<Entity>,
+    scroll_view_scratch: Vec<Entity>,
+    slider_scratch: Vec<Entity>,
+    text_input_scratch: Vec<Entity>,
+}
 
 impl UiSystem {
     /// Schedule label. Recommended order: **after** `LayoutSystem::LABEL`
     /// (`SystemConfig::new().label(UiSystem::LABEL).after(LayoutSystem::LABEL)`).
     pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::ui";
+
+    /// Creates a new `UiSystem`. Equivalent to `UiSystem::default()`.
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 impl System for UiSystem {
@@ -44,12 +57,43 @@ impl System for UiSystem {
         };
 
         let mut output = UiOutput::default();
-        button_pass::run(world, &viewport, &input, &mut output);
-        text_input_pass::run(world, &viewport, &input, dt, &mut output);
-        scroll_view_pass::run(world, &viewport, &input, &mut output);
-        label_pass::run(world, &viewport, &mut output);
-        slider_pass::run(world, &viewport, &input, &mut output);
-        checkbox_pass::run(world, &viewport, &input, &mut output);
+        button_pass::run(
+            world,
+            &viewport,
+            &input,
+            &mut output,
+            &mut self.button_scratch,
+        );
+        text_input_pass::run(
+            world,
+            &viewport,
+            &input,
+            dt,
+            &mut output,
+            &mut self.text_input_scratch,
+        );
+        scroll_view_pass::run(
+            world,
+            &viewport,
+            &input,
+            &mut output,
+            &mut self.scroll_view_scratch,
+        );
+        label_pass::run(world, &viewport, &mut output, &mut self.label_scratch);
+        slider_pass::run(
+            world,
+            &viewport,
+            &input,
+            &mut output,
+            &mut self.slider_scratch,
+        );
+        checkbox_pass::run(
+            world,
+            &viewport,
+            &input,
+            &mut output,
+            &mut self.checkbox_scratch,
+        );
         submit_output(world, output);
     }
 }
@@ -97,7 +141,7 @@ mod tests {
     #[test]
     fn button_click_emits_once_on_release_in_bounds() {
         let (mut world, entity) = setup_button_world(Vec2::new(20.0, 20.0));
-        let mut system = UiSystem;
+        let mut system = UiSystem::default();
 
         world
             .resource_mut::<InputState>()
@@ -128,7 +172,7 @@ mod tests {
         input.press_mouse(MouseButton::Left);
         input.release_mouse(MouseButton::Left);
 
-        let mut system = UiSystem;
+        let mut system = UiSystem::default();
         system.run(&mut world, 0.016);
 
         assert_eq!(click_count(&world, entity), 1);
@@ -137,7 +181,7 @@ mod tests {
     #[test]
     fn button_click_does_not_emit_when_released_outside() {
         let (mut world, entity) = setup_button_world(Vec2::new(20.0, 20.0));
-        let mut system = UiSystem;
+        let mut system = UiSystem::default();
 
         world
             .resource_mut::<InputState>()
@@ -162,7 +206,7 @@ mod tests {
         // same frame, then release. The press was off the button, so no click fires —
         // this is the regression for "click applied at the moved-to position".
         let (mut world, entity) = setup_button_world(Vec2::new(150.0, 20.0));
-        let mut system = UiSystem;
+        let mut system = UiSystem::default();
 
         {
             let input = world.resource_mut::<InputState>().unwrap();
@@ -179,7 +223,7 @@ mod tests {
         // Press + release on the button, then the cursor moves away afterwards.
         // The click must still register (it is decided by the press/release cursors).
         let (mut world, entity) = setup_button_world(Vec2::new(20.0, 20.0));
-        let mut system = UiSystem;
+        let mut system = UiSystem::default();
 
         {
             let input = world.resource_mut::<InputState>().unwrap();
@@ -227,7 +271,7 @@ mod tests {
             input.release_mouse(MouseButton::Left);
         }
 
-        let mut system = UiSystem;
+        let mut system = UiSystem::default();
         system.run(&mut world, 0.016);
 
         let events: Vec<_> = world
@@ -269,7 +313,7 @@ mod tests {
         sv.item_height = 0.0; // explicitly zero (also tests the reflect/editor path)
         world.add_component(entity, sv);
 
-        let mut system = UiSystem;
+        let mut system = UiSystem::default();
         // Must complete without panicking.
         system.run(&mut world, 0.016);
     }
@@ -322,7 +366,7 @@ mod tests {
             input.set_cursor(Vec2::new(250.0, 60.0)); // live cursor moves to the right
         }
 
-        let mut system = UiSystem;
+        let mut system = UiSystem::default();
         system.run(&mut world, 0.016);
 
         let values = count_slider_events(&world);

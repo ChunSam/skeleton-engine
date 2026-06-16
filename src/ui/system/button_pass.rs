@@ -14,11 +14,11 @@ pub(super) fn run(
     viewport: &ViewportSize,
     input: &InputSnapshot,
     output: &mut UiOutput,
+    scratch: &mut Vec<Entity>,
 ) {
-    let button_entities: Vec<Entity> = world
-        .query2::<UiNode, Button>()
-        .map(|(e, _, _)| e)
-        .collect();
+    scratch.clear();
+    scratch.extend(world.query2::<UiNode, Button>().map(|(e, _, _)| e));
+    let button_entities = &*scratch;
 
     // Collect click candidates: (entity, z) for buttons that pass the hit-test this frame.
     // Only the topmost (greatest z) candidate fires ButtonClicked; visual state updates
@@ -27,8 +27,7 @@ pub(super) fn run(
     // shared pointer-consumption across widget kinds is a broader concern left for a future pass.
     let mut click_candidate: Option<(Entity, f32)> = None;
 
-    for entity in &button_entities {
-        let entity = *entity;
+    for entity in button_entities.iter().copied() {
         let (pos, size, z, visible) = match node_layout(world, entity, viewport) {
             Some(layout) => layout,
             None => continue,
@@ -75,7 +74,7 @@ pub(super) fn run(
     }
 
     // Second pass: render each button (borrow immutably now that state mutations are done).
-    for entity in button_entities {
+    for entity in button_entities.iter().copied() {
         let (pos, size, z, visible) = match node_layout(world, entity, viewport) {
             Some(layout) => layout,
             None => continue,

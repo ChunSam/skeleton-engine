@@ -288,7 +288,7 @@ impl Scene for MenuScene {
         );
 
         systems.add(BackdropSystem);
-        systems.add(UiSystem);
+        systems.add(UiSystem::default());
         systems.add(MenuSystem {
             start,
             quit,
@@ -382,7 +382,7 @@ impl Scene for PlayScene {
         );
 
         systems.add(BackdropSystem);
-        systems.add(UiSystem);
+        systems.add(UiSystem::default());
         systems.add(PlaySystem {
             complete,
             pause,

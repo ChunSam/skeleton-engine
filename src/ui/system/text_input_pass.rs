@@ -15,11 +15,10 @@ pub(super) fn run(
     input: &InputSnapshot,
     dt: f32,
     output: &mut UiOutput,
+    scratch: &mut Vec<Entity>,
 ) {
-    let text_input_entities: Vec<Entity> = world
-        .query2::<UiNode, TextInput>()
-        .map(|(e, _, _)| e)
-        .collect();
+    scratch.clear();
+    scratch.extend(world.query2::<UiNode, TextInput>().map(|(e, _, _)| e));
 
     // Determine which TextInput (if any) should receive focus on this press.
     // Collect all in-bounds candidates with their z values, then pick the
@@ -28,7 +27,7 @@ pub(super) fn run(
     let mut newly_focused: Option<Entity> = None;
     if input.just_pressed {
         let mut best: Option<(Entity, f32)> = None;
-        for &entity in &text_input_entities {
+        for &entity in scratch.iter() {
             let (pos, size, z, visible) = match node_layout(world, entity, viewport) {
                 Some(layout) => layout,
                 None => continue,
@@ -49,7 +48,7 @@ pub(super) fn run(
         newly_focused = best.map(|(e, _)| e);
     }
 
-    for &entity in &text_input_entities {
+    for &entity in scratch.iter() {
         let (pos, size, z, visible) = match node_layout(world, entity, viewport) {
             Some(layout) => layout,
             None => continue,
@@ -271,8 +270,9 @@ mod tests {
         let vp = viewport();
         let input = press_at(Vec2::new(50.0, 15.0)); // inside both widgets
         let mut output = UiOutput::default();
+        let mut scratch = Vec::new();
 
-        super::run(&mut world, &vp, &input, 0.016, &mut output);
+        super::run(&mut world, &vp, &input, 0.016, &mut output, &mut scratch);
 
         assert!(
             world.get::<TextInput>(high_z).unwrap().focused,
@@ -309,8 +309,9 @@ mod tests {
         let vp = viewport();
         let input = press_at(Vec2::new(50.0, 15.0)); // inside widget bounds
         let mut output = UiOutput::default();
+        let mut scratch = Vec::new();
 
-        super::run(&mut world, &vp, &input, 0.016, &mut output);
+        super::run(&mut world, &vp, &input, 0.016, &mut output, &mut scratch);
 
         assert!(
             !world.get::<TextInput>(e).unwrap().focused,
@@ -339,8 +340,16 @@ mod tests {
 
         let vp = viewport();
         let mut output = UiOutput::default();
+        let mut scratch = Vec::new();
 
-        super::run(&mut world, &vp, &no_press(), 0.016, &mut output);
+        super::run(
+            &mut world,
+            &vp,
+            &no_press(),
+            0.016,
+            &mut output,
+            &mut scratch,
+        );
 
         assert!(
             !world.get::<TextInput>(e).unwrap().focused,
