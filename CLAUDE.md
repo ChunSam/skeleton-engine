@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.6.40 | package `skeleton-engine` v9.5.1, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
+> Version v1.6.41 | package `skeleton-engine` v9.6.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example game ships to
 > the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`
@@ -107,6 +107,7 @@ Where to read to find a given thing:
 | PostProcessConfig, PostProcessRenderer | `src/renderer/post_process.rs` |
 | PointLight, AmbientLight, LightingRenderer (2D point-light pass, nearest-16 cull; native-only) | `src/renderer/lighting.rs` |
 | RenderTarget, OffscreenCamera, create_render_target (render-to-texture; each offscreen target submits its **own** command buffer so it uses its own camera — exclude RT-display sprites via `layer_mask`; example: `security_camera`) | `src/renderer/render_target.rs`, `src/app/render.rs`, `src/components.rs` |
+| **RenderPlugin** trait + `App::add_render_plugin` (fork-friendly custom render-pass hook — `record(ctx: &mut FrameContext, world, viewport)` runs per-frame after the sprite/UI/particle passes, before post/lighting; `FrameContext.format` lets a plugin build its own pipeline; additive — no-op when none registered; native+wasm; example `render_plugin`) | `src/renderer/render_plugin.rs`, `src/app/render.rs` (dispatch) |
 | DrawText, TextQueue, TextAlign (Left/Center/Right/**End**/**Auto** — Auto right-aligns RTL automatically), TextAnchor (screen-space text, top-left origin; `DrawText::centered` anchors at text center; place at a world position via `Camera::world_to_screen`); **bidi/RTL shaping is built in** (`Shaping::Advanced`); `ExtraFonts` resource (multi-script font fallback alongside `FontData`); example `rtl_text` (Hebrew + multi-font) | `src/renderer/text.rs` |
 | wgpu render pipeline (rarely edited directly) | `src/renderer/` |
 

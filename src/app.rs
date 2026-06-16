@@ -169,6 +169,10 @@ pub struct App {
     /// GPU compute-shader particle renderer (lazy init).
     #[cfg(not(target_arch = "wasm32"))]
     gpu_particle_renderer: Option<crate::renderer::gpu_particle::GpuParticleRenderer>,
+    /// Custom render plugins registered via [`App::add_render_plugin`].
+    /// Invoked once per frame after the main sprite/UI/particle passes, before
+    /// post-processing and lighting. Runs on both native and wasm.
+    render_plugins: Vec<Box<dyn crate::renderer::RenderPlugin>>,
     last_frame: Option<Instant>,
     last_dt: f32,
     /// Next scheduled frame time. The native event loop uses `ControlFlow::WaitUntil`
@@ -279,6 +283,7 @@ impl App {
             post_texture_for_lighting: None,
             #[cfg(not(target_arch = "wasm32"))]
             gpu_particle_renderer: None,
+            render_plugins: Vec::new(),
             #[cfg(not(target_arch = "wasm32"))]
             docked_scene_texture: None,
             last_frame: None,
@@ -359,6 +364,17 @@ impl App {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn register_hot_reloadable<T: crate::asset::HotReloadable>(&mut self) {
         self.hot_reload_forwarders.push(forward_hot_reload::<T>);
+    }
+
+    /// Register a custom render pass invoked once per frame after the main sprite
+    /// pass and before post-processing/lighting. See [`RenderPlugin`](crate::RenderPlugin).
+    /// Plugins run in registration order. Available on native and wasm.
+    pub fn add_render_plugin(
+        &mut self,
+        plugin: impl crate::renderer::RenderPlugin + 'static,
+    ) -> &mut Self {
+        self.render_plugins.push(Box::new(plugin));
+        self
     }
 }
 
@@ -996,6 +1012,32 @@ mod tests {
             (x - 25.0).abs() < 1e-3,
             "after scene replace, child GT.x expected 25.0, got {x}"
         );
+    }
+
+    #[test]
+    fn render_plugins_starts_empty() {
+        let app = App::new();
+        assert_eq!(app.render_plugins.len(), 0);
+    }
+
+    #[test]
+    fn add_render_plugin_preserves_order() {
+        #[allow(dead_code)]
+        struct DummyPlugin(u32);
+        impl crate::renderer::RenderPlugin for DummyPlugin {
+            fn record(
+                &mut self,
+                _ctx: &mut crate::renderer::FrameContext<'_>,
+                _world: &crate::ecs::World,
+                _viewport: (u32, u32),
+            ) {
+            }
+        }
+
+        let mut app = App::new();
+        app.add_render_plugin(DummyPlugin(1));
+        app.add_render_plugin(DummyPlugin(2));
+        assert_eq!(app.render_plugins.len(), 2);
     }
 
     // ── HotReloadable / register_hot_reloadable tests (native only) ───────────

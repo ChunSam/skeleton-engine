@@ -604,6 +604,7 @@ impl App {
                             device: &gpu.device,
                             queue: &gpu.queue,
                             view: rt_view,
+                            format: gpu.config.format,
                             encoder: &mut oenc,
                         },
                         &self.world,
@@ -722,6 +723,7 @@ impl App {
                     device: &gpu.device,
                     queue: &gpu.queue,
                     view: render_view,
+                    format: gpu.config.format,
                     encoder: &mut enc,
                 },
                 &self.world,
@@ -782,6 +784,7 @@ impl App {
                         device: &gpu.device,
                         queue: &gpu.queue,
                         view: render_view,
+                        format: gpu.config.format,
                         encoder: &mut enc,
                     },
                     &ui_rects,
@@ -828,6 +831,22 @@ impl App {
                     logical_w,
                     logical_h,
                 );
+            }
+        }
+
+        // Step 3: User render plugins — custom scene passes (outlines, overlays, effects).
+        // Records into render_view before post-process/lighting so downstream effects apply.
+        // No-op (and byte-identical to no-plugin output) when none are registered.
+        if !self.render_plugins.is_empty() {
+            let mut plugin_ctx = FrameContext {
+                device: &gpu.device,
+                queue: &gpu.queue,
+                view: render_view,
+                format: gpu.config.format,
+                encoder: &mut enc,
+            };
+            for plugin in &mut self.render_plugins {
+                plugin.record(&mut plugin_ctx, &self.world, (logical_w, logical_h));
             }
         }
 

@@ -6,6 +6,7 @@ pub mod gpu_particle;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod lighting;
 pub mod post_process;
+pub mod render_plugin;
 pub mod render_target;
 pub mod sprite;
 pub mod text;
@@ -28,6 +29,7 @@ pub(crate) struct CameraUniform {
 
 pub use context::{GpuContext, GpuContextError};
 pub use post_process::{PostProcessConfig, PostProcessRenderer};
+pub use render_plugin::RenderPlugin;
 pub use render_target::RenderTarget;
 pub use sprite::{FrameContext, SpriteRenderer};
 pub use text::{DrawText, TextAlign, TextAnchor, TextQueue, TextRenderer};

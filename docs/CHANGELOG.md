@@ -4,6 +4,27 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 9.6.0
+
+**Pluggable render-pass hook (cohesion review item 7, additive).** A fork could not inject a
+custom GPU pass (outlines, shadows, debug overlays, screen effects) without forking the engine's
+`render()`. Now there's a registration hook. Fully additive — when no plugin is registered the
+dispatch is skipped and the rendered output is byte-identical to before.
+
+### Added
+
+- `RenderPlugin` trait — `fn record(&mut self, ctx: &mut FrameContext, world: &World, viewport: (u32, u32))`.
+  Implement it to record a custom render pass; runs once per frame after the main
+  sprite/UI/particle passes and **before** post-processing/lighting, so downstream effects still
+  apply to whatever the plugin draws. Read-only `&World` access. Native + wasm.
+- `App::add_render_plugin(impl RenderPlugin + 'static) -> &mut Self` — registers a plugin; plugins
+  run in registration order.
+- `FrameContext` gains a `pub format: wgpu::TextureFormat` field (the target view's format) so a
+  plugin can build its own `wgpu::RenderPipeline`. `FrameContext` and `RenderPlugin` are now
+  re-exported from the crate root.
+- Example `examples/render_plugin.rs` — an animated vignette plugin (lazy self-built pipeline via
+  `ctx.format`, reads a `Pulse` ECS resource each frame, composites with `LoadOp::Load`).
+
 ## 9.5.1
 
 **Internal cleanup (cohesion review, behavior-identical).** No public API or behavior change.
