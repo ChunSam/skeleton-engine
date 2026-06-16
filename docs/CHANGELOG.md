@@ -4,6 +4,28 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 10.2.1
+
+**Partial split of `App::render()` (v10 item F — internal, risk-managed).** The ~890-line
+`render()` god-function had its **separable concerns** extracted into named helper methods, while the
+inherently-sequential scene-pass core (sprite → UI → particles → plugins → post → lighting → text →
+fade, whose `render_view` aliases into `RenderState`) was deliberately **left inline** as one annotated
+flow — splitting it would mean threading the encoder + target view through eight micro-functions, hurting
+readability and adding GPU-silent-regression surface for no benefit. `render()` drops from ~890 to ~610
+lines. No public API change.
+
+### Changed (internal)
+
+- Extracted from `App::render()` into private helpers on `impl App`: `setup_post_renderer` /
+  `setup_lighting` (pre-frame renderer init/resize), `render_offscreen_targets` (the per-`OffscreenCamera`
+  RT pass, each its own submission), `present_docked_placeholder` (the docked-editor RT warm-up frame),
+  and `present_egui` (the final egui overlay pass). Behavior is byte-identical — same operation order,
+  submit boundaries, and `cfg` gates.
+- Verified by a **full render-mode visual playtest** (CI has no GPU test): normal + custom-shader
+  pipeline (`shader_material`), offscreen RT (`security_camera`), lighting + post-process
+  (`lit_dungeon`), docked editor (`basic` + F2), GPU particles (`gpu_particles`), and a fade-using
+  scene (`timeline_cutscene`) all render correctly with no validation errors.
+
 ## 10.2.0
 
 **Parallax scrolling (new feature + example).** A genre-agnostic 2D primitive the engine lacked —
