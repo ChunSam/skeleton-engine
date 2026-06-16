@@ -4,6 +4,22 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 10.3.0
+
+**`TweenSequence` — chained tweens (new feature + example).** `Tween` interpolates one value
+over one duration; there was no primitive to chain multiple eased legs into a single animation.
+`TweenSequence` plays a list of `Tween` segments back-to-back, each with its own easing,
+optionally looping, carrying leftover `dt` across segment boundaries so a large frame step
+doesn't stall on a segment edge. Purely additive.
+
+### Added
+
+- `TweenSequence` — builder (`new` / `then` / `push` / `looping`) + runtime (`tick` / `value` /
+  `finished` / `fraction` / `reset` / `current_segment` / `segment_count`). Re-exported as
+  `engine::TweenSequence`.
+- Example `examples/tween_sequence.rs` — a square loops a rectangular path driven by two
+  `TweenSequence`s (one per axis), each leg using a different easing.
+
 ## 10.2.1
 
 **Partial split of `App::render()` (v10 item F — internal, risk-managed).** The ~890-line

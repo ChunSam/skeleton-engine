@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.6.52 | package `skeleton-engine` v10.2.1, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
+> Version v1.6.53 | package `skeleton-engine` v10.3.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example game ships to
 > the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`
@@ -97,7 +97,7 @@ Where to read to find a given thing:
 | Slider (horizontal slider), CheckBox (toggle checkbox) | `src/ui/slider.rs`, `src/ui/checkbox.rs` |
 | LocalizedText (key bound to a widget), LocalizationSystem (resolves `LocaleResource::t` into Label/Button/CheckBox each frame) | `src/ui/localized.rs` |
 | Tag, EntityDef (+ `components` map), SceneDef, Prefab, spawn_entity_def, spawn_scene_def, **SerdeComponentRegistry** + `App::register_serde_component::<T>` (any serde component persists to scene RON; UI widgets + `AnimationStateMachine`/`Timeline`/`CameraTarget` auto-registered; `SerdeComponentRegistry` now lives in `src/serde_registry.rs`, re-exported from prefab) | `src/prefab.rs`, `src/serde_registry.rs` |
-| Timer, Tween, Easing, Lerp (general interpolation trait) | `src/timer.rs`, `src/tween.rs` |
+| Timer, Tween, TweenSequence (chained multi-segment tweens: per-segment easing + `looping`, carries leftover `dt` across segments; example `tween_sequence`), Easing, Lerp (general interpolation trait) | `src/timer.rs`, `src/tween.rs` |
 | Timeline, Track, Keyframe, TimelineSystem (keyframe cutscenes → entity Transform/Sprite; **CameraTarget** marker + `zoom` track route a timeline into the **Camera** resource as a virtual rig; `Track::add`/`keyframes`/`len`/`remove`/`set_time`/`set_value`/`set_easing`/`clear` editor accessors+edit ops drive the docked **Timeline panel** (per-track keyframe list + add-keyframe + per-type value editing + playback controls); example: `timeline_cutscene`) | `src/timeline.rs` |
 | History (generic snapshot undo/redo for grid puzzles, turn-based, editors) | `src/history.rs` |
 | ParticleEmitter, ParticleSystem, ParticleBurst (one-shot burst + `ParticleEmitter::burst()`); ParticleConfigSet/ParticleConfigRegistry/ClipSetError-style ParticleConfigError (data-driven emitter configs from RON; `App::load_particle_configs` = registry + DataTable-style hot-reload) | `src/particle/` (`mod.rs`, `config_set.rs`) |
