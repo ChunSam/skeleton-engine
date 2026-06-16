@@ -54,6 +54,10 @@ impl TilemapAtlas {
 pub struct Tilemap {
     pub atlas: TilemapAtlas,
     /// `tiles[row][col]` layout. 0 = empty cell, 1+ = tile ID + 1.
+    ///
+    /// Mutating this field directly (rather than via [`set_tile`](Self::set_tile)) requires a
+    /// follow-up [`bump_generation`](Self::bump_generation) call so the reactive `TilemapSystem`
+    /// re-renders the change.
     pub tiles: Vec<Vec<u32>>,
     /// Side length of one tile (pixels).
     pub tile_size: f32,
@@ -98,6 +102,16 @@ impl Tilemap {
         self.tiles[row][col] = value;
         self.generation = self.generation.wrapping_add(1);
         true
+    }
+
+    /// Marks the tilemap dirty so the reactive `TilemapSystem` rebuilds its cells next frame.
+    ///
+    /// [`set_tile`](Self::set_tile) bumps the generation automatically; call this **only** after
+    /// mutating the public [`tiles`](Self::tiles), [`tile_size`](Self::tile_size), or
+    /// [`origin`](Self::origin) fields directly (e.g. replacing the whole grid). Without it the
+    /// system's change-detection fast-path skips the rebuild and the change is not rendered.
+    pub fn bump_generation(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
     }
 
     /// Returns the tile value at `(row, col)`, or `None` if out of bounds.

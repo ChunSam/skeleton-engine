@@ -48,6 +48,8 @@ Mostly additive; a handful of small breaking changes are listed first.
 
 - **`blob_47` autotile mask table** used the wrong bit convention — 36 reachable masks silently fell
   back to atlas tile 0 (plain orthogonal-neighbor tiles rendered as tile 0).
+  **Migration:** the mask→atlas-index mapping is now the canonical Blob-47 order. If you previously
+  rearranged your atlas to match the old (mostly tile-0) indices, regenerate/reorder it to match.
 - **Gamepad axis `just_pressed`/`just_released`** ignored axis bindings (stick-triggered one-shot
   actions never fired).
 - **Held keys stuck on focus loss** — `WindowEvent::Focused(false)` now calls `InputState::release_all()`

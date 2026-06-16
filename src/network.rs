@@ -657,6 +657,10 @@ mod wasm_impl {
     ///
     /// Nulling the callbacks (`set_on*` to `None`) before the `Closure` values are dropped
     /// prevents in-flight browser events from invoking already-freed Rust closures.
+    ///
+    /// Note: unlike the native `Drop` (which emits `NetworkEvent::Disconnected`), dropping the
+    /// client on WASM does NOT emit `Disconnected` — the `on_close` callback is nulled before
+    /// `close()`. Drive any reconnect-on-drop logic by other means on the WASM target.
     impl Drop for NetworkClient {
         fn drop(&mut self) {
             if let Some(socket) = &self.socket {

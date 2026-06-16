@@ -232,7 +232,9 @@ struct PlainTextCacheKey {
     /// Position (affects buffer width/height for TopLeft anchor).
     position_x_bits: u32,
     position_y_bits: u32,
-    /// Whether the DrawText is in single-line mode (affects Wrap).
+    /// Whether the DrawText is in single-line mode (affects Wrap). The caret *byte offset* is
+    /// deliberately NOT part of the key: scroll is always recomputed from the shaped buffer after
+    /// a cache hit (via `caret_x`), so two carets over identical text safely share one buffer.
     is_single_line: bool,
     align: TextAlign,
     anchor: TextAnchor,

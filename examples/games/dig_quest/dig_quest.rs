@@ -150,6 +150,9 @@ impl DigSystem {
         // Restore tile grid.
         if let Some(tm) = world.get_mut::<Tilemap>(tilemap_entity) {
             tm.tiles = initial_tiles();
+            // Direct field replacement bypasses set_tile's generation bump, so mark the
+            // tilemap dirty explicitly or the reactive TilemapSystem won't re-render the reset.
+            tm.bump_generation();
         }
 
         // Re-sync colliders against the restored grid using the SAME index: the
