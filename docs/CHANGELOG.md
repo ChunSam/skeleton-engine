@@ -4,6 +4,25 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 10.6.0
+
+**Animated tiles (new feature + example).** A `Tilemap` was static per cell; common 2D needs
+(water, lava, animated decals) want per-tile frame animation. `TileAnimationSet` maps a tile value
+to a `TileAnimation` (frame list + frame time); matching cells cycle their atlas frame at runtime.
+Decoupled from the reactive diff so non-animated maps pay nothing. Additive.
+
+### Added
+
+- `TileAnimation` (frame ids + `frame_time`, `frame_at(elapsed)`), `TileAnimationSet` (a component on
+  the tilemap entity mapping a tile value → animation), `AnimatedTileCell` (per-tile-entity tag with
+  precomputed frame UVs), `AnimatedTileSystem` (cycles tagged cells' `UvRect` each frame). Re-exported
+  at the crate root.
+- `TilemapSystem` tags animated cells at spawn and refreshes the tag when a cell's value changes; the
+  per-frame cycling is render-only and does not bump the tilemap generation, so the unchanged-map
+  fast path is fully preserved.
+- Example `examples/animated_tiles.rs` — a procedurally generated atlas with cycling water/lava tiles
+  beside static ground.
+
 ## 10.5.0
 
 **Coroutine sequencer (new feature + example).** The engine had `Timer`, `Tween`, and

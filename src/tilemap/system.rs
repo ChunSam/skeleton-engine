@@ -6,6 +6,7 @@ use crate::components::{Sprite, Transform};
 use crate::ecs::{Entity, System, World};
 use crate::renderer::uv::UvRect;
 
+use super::animation::{AnimatedTileCell, TileAnimationSet};
 use super::autotile::{
     compute_tile_mask, compute_tile_mask_typed, MultiTerrainAutotile, Neighborhood, TilemapAutotile,
 };
@@ -61,12 +62,16 @@ impl TilemapSystem {
 }
 
 /// Spawns a single tile entity for cell `(row, col)` with the given UV.
+///
+/// If `anim_cell` is `Some`, the `AnimatedTileCell` marker is also attached so
+/// `AnimatedTileSystem` can advance the animation each frame.
 fn spawn_tile_entity(
     world: &mut World,
     tm: &Tilemap,
     row: usize,
     col: usize,
     uv: UvRect,
+    anim_cell: Option<AnimatedTileCell>,
 ) -> Entity {
     let x = tm.origin.x + col as f32 * tm.tile_size + tm.tile_size * 0.5;
     let y = tm.origin.y + row as f32 * tm.tile_size + tm.tile_size * 0.5;
@@ -82,7 +87,31 @@ fn spawn_tile_entity(
     );
     world.add_component(tile_entity, Sprite::textured(tm.atlas.texture.as_str()));
     world.add_component(tile_entity, uv);
+    if let Some(cell) = anim_cell {
+        world.add_component(tile_entity, cell);
+    }
     tile_entity
+}
+
+/// Builds an [`AnimatedTileCell`] for `tile_value` if the tilemap entity has a
+/// `TileAnimationSet` containing that value.  Returns `None` for non-animated values.
+fn make_anim_cell(
+    world: &World,
+    map_entity: Entity,
+    tile_value: u32,
+    tm: &Tilemap,
+    row: usize,
+    col: usize,
+) -> Option<AnimatedTileCell> {
+    let anim_set = world.get::<TileAnimationSet>(map_entity)?;
+    let anim = anim_set.get(tile_value)?;
+    if anim.frames.is_empty() {
+        return None;
+    }
+    let frame_uvs: Vec<UvRect> = anim.frames.iter().map(|&id| tm.atlas.uv_for(id)).collect();
+    // Phase offset based on cell position so neighbouring cells don't sync-flash.
+    let phase = ((row + col) as f32 * anim.frame_time * 0.37) % anim.total_time().max(f32::EPSILON);
+    Some(AnimatedTileCell::new(frame_uvs, anim.frame_time, phase))
 }
 
 impl System for TilemapSystem {
@@ -186,7 +215,11 @@ impl System for TilemapSystem {
                             continue;
                         }
                         let uv = resolve_uv(row_idx, col_idx, tile_value);
-                        let tile_e = spawn_tile_entity(world, &tm_clone, row_idx, col_idx, uv);
+                        let anim_cell = make_anim_cell(
+                            world, map_entity, tile_value, &tm_clone, row_idx, col_idx,
+                        );
+                        let tile_e =
+                            spawn_tile_entity(world, &tm_clone, row_idx, col_idx, uv, anim_cell);
                         cells.insert((row_idx, col_idx), tile_e);
                     }
                 }
@@ -233,7 +266,12 @@ impl System for TilemapSystem {
                                 continue;
                             }
                             let uv = resolve_uv(row_idx, col_idx, tile_value);
-                            let tile_e = spawn_tile_entity(world, &tm_clone, row_idx, col_idx, uv);
+                            let anim_cell = make_anim_cell(
+                                world, map_entity, tile_value, &tm_clone, row_idx, col_idx,
+                            );
+                            let tile_e = spawn_tile_entity(
+                                world, &tm_clone, row_idx, col_idx, uv, anim_cell,
+                            );
                             cells.insert((row_idx, col_idx), tile_e);
                         }
                     }
@@ -282,18 +320,32 @@ impl System for TilemapSystem {
                         } else if old_val == 0 && new_val != 0 {
                             // Zero → non-zero: spawn new tile entity.
                             let uv = resolve_uv(r, c, new_val);
-                            let tile_e = spawn_tile_entity(world, &tm_clone, r, c, uv);
+                            let anim_cell =
+                                make_anim_cell(world, map_entity, new_val, &tm_clone, r, c);
+                            let tile_e = spawn_tile_entity(world, &tm_clone, r, c, uv, anim_cell);
                             view.cells.insert((r, c), tile_e);
                         } else if old_val != 0 && new_val != 0 {
-                            // Non-zero → different non-zero: update UvRect in place.
+                            // Non-zero → different non-zero: update UvRect in place and
+                            // refresh the AnimatedTileCell tag (remove old, add new if animated).
                             let uv = resolve_uv(r, c, new_val);
                             if let Some(&tile_e) = view.cells.get(&(r, c)) {
                                 if let Some(uv_comp) = world.get_mut::<UvRect>(tile_e) {
                                     *uv_comp = uv;
                                 }
+                                // Refresh animation tag: remove stale tag first, then add if
+                                // new value is animated (handles animated→static and vice-versa).
+                                world.remove_component::<AnimatedTileCell>(tile_e);
+                                if let Some(anim_cell) =
+                                    make_anim_cell(world, map_entity, new_val, &tm_clone, r, c)
+                                {
+                                    world.add_component(tile_e, anim_cell);
+                                }
                             } else {
                                 // Safety spawn (shouldn't happen in normal flow).
-                                let tile_e = spawn_tile_entity(world, &tm_clone, r, c, uv);
+                                let anim_cell =
+                                    make_anim_cell(world, map_entity, new_val, &tm_clone, r, c);
+                                let tile_e =
+                                    spawn_tile_entity(world, &tm_clone, r, c, uv, anim_cell);
                                 view.cells.insert((r, c), tile_e);
                             }
                         }
