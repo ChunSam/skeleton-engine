@@ -122,6 +122,351 @@ impl App {
         needs_new
     }
 
+    /// Lazily create / resize the post-process renderer for the current surface.
+    /// Extracted from `render()` (pre-frame setup; no encoder/submit involved).
+    fn setup_post_renderer(
+        render: &mut RenderState,
+        device: &wgpu::Device,
+        w: u32,
+        h: u32,
+        fmt: wgpu::TextureFormat,
+    ) {
+        match &mut render.post_renderer {
+            None => {
+                render.post_renderer = Some(PostProcessRenderer::new(device, w, h, fmt));
+            }
+            Some(pr) if pr.format() != fmt => {
+                pr.reconfigure(device, w, h, fmt);
+            }
+            Some(pr) if pr.width != w || pr.height != h => {
+                pr.resize(device, w, h);
+            }
+            _ => {}
+        }
+    }
+
+    /// Lazily create / resize / disable the lighting renderer + its scene-intermediate
+    /// texture, returning whether lighting is active this frame. Extracted from `render()`
+    /// (pre-frame setup; no encoder/submit involved). Native-only.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn setup_lighting(
+        render: &mut RenderState,
+        world: &World,
+        device: &wgpu::Device,
+        w: u32,
+        h: u32,
+        fmt: wgpu::TextureFormat,
+        use_post: bool,
+    ) -> bool {
+        let has_lighting = world.resource::<crate::resources::AmbientLight>().is_some();
+        if has_lighting {
+            match &mut render.lighting_renderer {
+                None => {
+                    render.lighting_renderer = Some(
+                        crate::renderer::lighting::LightingRenderer::new(device, w, h, fmt),
+                    );
+                }
+                Some(lr) if lr.format() != fmt => {
+                    lr.reconfigure(device, w, h, fmt);
+                }
+                Some(lr) if lr.width != w || lr.height != h => {
+                    lr.resize(device, w, h);
+                }
+                _ => {}
+            }
+            // Create / resize the scene intermediate texture (only needed when post_renderer is absent)
+            if !use_post {
+                Self::ensure_intermediate_texture(
+                    &mut render.scene_texture_for_lighting,
+                    device,
+                    "scene_for_lighting",
+                    w,
+                    h,
+                    fmt,
+                );
+                render.post_texture_for_lighting = None;
+            } else {
+                render.scene_texture_for_lighting = None;
+                Self::ensure_intermediate_texture(
+                    &mut render.post_texture_for_lighting,
+                    device,
+                    "post_for_lighting",
+                    w,
+                    h,
+                    fmt,
+                );
+            }
+        } else {
+            render.lighting_renderer = None;
+            render.scene_texture_for_lighting = None;
+            render.post_texture_for_lighting = None;
+        }
+        has_lighting
+    }
+
+    /// Render every `OffscreenCamera` entity's scene into its `RenderTarget` texture, each as
+    /// its **own** command submission. The `SpriteRenderer`'s camera uniform is a single shared
+    /// buffer, so each offscreen draw must be submitted together with its camera write before the
+    /// main pass overwrites it. Extracted from `render()`; uses its own encoders and does not touch
+    /// the main frame encoder, render target, or post/lighting state.
+    fn render_offscreen_targets(render: &mut RenderState, world: &mut World, gpu: &GpuContext) {
+        // Step 1: collect render info for each offscreen camera.
+        // We call `Texture::create_view` up front to obtain owned `TextureView` handles.
+        // A `TextureView` is a zero-cost reference-counted GPU handle: creating a second
+        // view on the same texture is safe and free — it does not copy GPU memory.
+        // This replaces the previous `*const wgpu::TextureView` raw-pointer scheme that
+        // required `unsafe` and could dangle if the HashMap reallocated.
+        let offscreen_cams: Vec<(String, crate::camera::Camera, u32)> = world
+            .query::<crate::components::OffscreenCamera>()
+            .map(|(_, oc)| (oc.target.clone(), oc.camera, oc.layer_mask))
+            .collect();
+
+        let rt_info: Vec<OffscreenRenderInfo> = offscreen_cams
+            .into_iter()
+            .filter_map(|(name, cam, layer_mask)| {
+                render.render_targets.get(&name).map(|rt| {
+                    // Create a fresh owned TextureView each frame (zero-cost GPU handle).
+                    // Safe to use after this point even if render_targets is later touched.
+                    let owned_view = rt
+                        .texture
+                        .create_view(&wgpu::TextureViewDescriptor::default());
+                    (
+                        name,
+                        cam,
+                        rt.width,
+                        rt.height,
+                        owned_view,
+                        std::sync::Arc::clone(&rt.bind_group),
+                        layer_mask,
+                        rt.clear_color,
+                    )
+                })
+            })
+            .collect();
+
+        for (target_name, cam, rt_w, rt_h, rt_view, bg, layer_mask, rt_clear_color) in rt_info {
+            // ① Swap camera — if no prior camera existed remove it after render, otherwise restore
+            let saved_cam = world.resource::<crate::camera::Camera>().copied();
+            world.insert_resource(cam);
+
+            // ② The owned TextureView was created up front; no unsafe dereference needed.
+            let rt_view = &rt_view;
+
+            // Each offscreen target is rendered with its **own command submission**.
+            // The SpriteRenderer's camera uniform is a single shared buffer (`camera_buf`)
+            // updated via `queue.write_buffer`. Within a single submit only the **last**
+            // write to that buffer takes effect, so recording the offscreen draw and the main
+            // pass in the same submit would cause the offscreen target to render with the
+            // (later-written) **main camera**.
+            // Submitting here ties this target's camera write and its draw together as a pair.
+            let mut oenc = gpu
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("offscreen encoder"),
+                });
+
+            // ③ Clear the RT — use per-target color if set, else inherit WindowConfig::clear_color.
+            {
+                let [cr, cg, cb, ca] = rt_clear_color.unwrap_or_else(|| {
+                    world
+                        .resource::<WindowConfig>()
+                        .map(|c| c.clear_color)
+                        .unwrap_or([0.0, 0.0, 0.0, 1.0])
+                });
+                let _pass = oenc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("offscreen clear"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: rt_view,
+                        resolve_target: None,
+                        depth_slice: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color {
+                                r: cr,
+                                g: cg,
+                                b: cb,
+                                a: ca,
+                            }),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                    multiview_mask: None,
+                });
+            }
+
+            // ④ Render sprites → RT (layer_mask prevents self-capture)
+            if let Some(sr) = &mut render.sprite_renderer {
+                sr.render(
+                    &mut FrameContext {
+                        device: &gpu.device,
+                        queue: &gpu.queue,
+                        view: rt_view,
+                        format: gpu.config.format,
+                        encoder: &mut oenc,
+                    },
+                    world,
+                    rt_w,
+                    rt_h,
+                    layer_mask,
+                );
+            }
+
+            // Immediately flush this target's camera write + draw. (Applied before the main
+            // pass's camera write; the RT texture is filled before the main pass samples it.)
+            gpu.queue.submit(std::iter::once(oenc.finish()));
+
+            // ⑤ Restore camera — remove it if it was absent before to avoid polluting the World
+            match saved_cam {
+                Some(c) => world.insert_resource(c),
+                None => {
+                    world.remove_resource::<crate::camera::Camera>();
+                }
+            }
+
+            // ⑥ Register the RT bind_group with the sprite renderer (sampleable via Sprite.texture key)
+            if let Some(sr) = &mut render.sprite_renderer {
+                sr.register_render_target(&target_name, bg);
+            }
+        }
+    }
+
+    /// Docked-editor warm-up frame: the game-scene offscreen RT is not ready yet (debounce not
+    /// fired), so skip all scene rendering but still acquire + clear + present the surface with
+    /// the egui overlay, keeping the window responsive. Returns the present result. Extracted from
+    /// `render()`; native-only (no docked mode on wasm).
+    #[cfg(not(target_arch = "wasm32"))]
+    fn present_docked_placeholder(
+        render: &mut RenderState,
+        window: Option<&winit::window::Window>,
+        gpu: &mut GpuContext,
+    ) -> Result<(), wgpu::CurrentSurfaceTexture> {
+        // RT not ready yet — still need to acquire + present the frame so the
+        // window stays responsive, but skip all scene rendering.
+        let (frame, suboptimal) = match gpu.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(t) => (t, false),
+            wgpu::CurrentSurfaceTexture::Suboptimal(t) => (t, true),
+            e => return Err(e),
+        };
+        let final_view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        // Submit a clear-only pass so egui has a surface to draw on.
+        let mut enc = gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("docked-wait encoder"),
+            });
+        {
+            let _pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("docked-wait clear"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &final_view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.08,
+                            g: 0.08,
+                            b: 0.12,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+        }
+        gpu.queue.submit(std::iter::once(enc.finish()));
+        // Egui pass (shows "no game frame yet" placeholder).
+        if let (Some(mut er), Some((paint_jobs, textures_delta, ppp))) =
+            (render.egui_renderer.take(), render.egui_output.take())
+        {
+            let screen_desc = egui_wgpu::ScreenDescriptor {
+                size_in_pixels: [gpu.config.width, gpu.config.height],
+                pixels_per_point: ppp,
+            };
+            for (id, delta) in &textures_delta.set {
+                er.update_texture(&gpu.device, &gpu.queue, *id, delta);
+            }
+            let mut egui_enc = gpu
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("egui encoder"),
+                });
+            er.update_buffers(
+                &gpu.device,
+                &gpu.queue,
+                &mut egui_enc,
+                &paint_jobs,
+                &screen_desc,
+            );
+            egui_render_pass(&er, &mut egui_enc, &paint_jobs, &screen_desc, &final_view);
+            gpu.queue.submit(std::iter::once(egui_enc.finish()));
+            for id in &textures_delta.free {
+                er.free_texture(id);
+            }
+            render.egui_renderer = Some(er);
+        }
+        if let Some(window) = window {
+            window.pre_present_notify();
+        }
+        frame.present();
+        // If the surface became suboptimal (e.g. DPI/monitor change), reconfigure
+        // so subsequent frames are optimal. Present first, reconfigure after.
+        if suboptimal {
+            gpu.reconfigure();
+        }
+        Ok(())
+    }
+
+    /// Final egui overlay pass: record + submit the editor/debug UI onto the surface view.
+    /// Paint callbacks are unsupported (skipped) to preserve render-pass lifetime safety.
+    /// Extracted from `render()`.
+    fn present_egui(render: &mut RenderState, gpu: &GpuContext, final_view: &wgpu::TextureView) {
+        if let (Some(mut er), Some((paint_jobs, textures_delta, ppp))) =
+            (render.egui_renderer.take(), render.egui_output.take())
+        {
+            let screen_desc = egui_wgpu::ScreenDescriptor {
+                size_in_pixels: [gpu.config.width, gpu.config.height],
+                pixels_per_point: ppp,
+            };
+            for (id, delta) in &textures_delta.set {
+                er.update_texture(&gpu.device, &gpu.queue, *id, delta);
+            }
+            let mut egui_enc = gpu
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("egui encoder"),
+                });
+            er.update_buffers(
+                &gpu.device,
+                &gpu.queue,
+                &mut egui_enc,
+                &paint_jobs,
+                &screen_desc,
+            );
+            if paint_jobs_contain_callbacks(&paint_jobs) {
+                log::warn!(
+                    "egui paint callbacks are unsupported and were skipped to preserve render-pass lifetime safety"
+                );
+            } else {
+                // Due to the Renderer::render<'rp>(&'rp self, &mut RenderPass<'rp>) lifetime constraint,
+                // we tie &er and &mut egui_enc to the same lifetime 'a in a standalone function.
+                egui_render_pass(&er, &mut egui_enc, &paint_jobs, &screen_desc, final_view);
+            }
+            gpu.queue.submit(std::iter::once(egui_enc.finish()));
+            for id in &textures_delta.free {
+                er.free_texture(id);
+            }
+            render.egui_renderer = Some(er);
+        }
+    }
+
     /// Keep the egui-side registration of the Tile Paint swatch atlas in sync with the
     /// current selection. Called once per frame just before the editor UI is built so the
     /// inspector can draw real tile thumbnails via the stored [`egui::TextureId`].
@@ -349,78 +694,26 @@ impl App {
 
         // Initialize / resize the post-process renderer
         if use_post {
-            let (w, h, fmt) = (gpu.config.width, gpu.config.height, gpu.config.format);
-            match &mut self.render.post_renderer {
-                None => {
-                    self.render.post_renderer =
-                        Some(PostProcessRenderer::new(&gpu.device, w, h, fmt));
-                }
-                Some(pr) if pr.format() != fmt => {
-                    pr.reconfigure(&gpu.device, w, h, fmt);
-                }
-                Some(pr) if pr.width != w || pr.height != h => {
-                    pr.resize(&gpu.device, w, h);
-                }
-                _ => {}
-            }
+            Self::setup_post_renderer(
+                &mut self.render,
+                &gpu.device,
+                gpu.config.width,
+                gpu.config.height,
+                gpu.config.format,
+            );
         }
 
         // Initialize / resize / disable the lighting renderer
         #[cfg(not(target_arch = "wasm32"))]
-        let use_lighting = {
-            let has_lighting = self
-                .world
-                .resource::<crate::resources::AmbientLight>()
-                .is_some();
-            let (w, h, fmt) = (gpu.config.width, gpu.config.height, gpu.config.format);
-            if has_lighting {
-                match &mut self.render.lighting_renderer {
-                    None => {
-                        self.render.lighting_renderer =
-                            Some(crate::renderer::lighting::LightingRenderer::new(
-                                &gpu.device,
-                                w,
-                                h,
-                                fmt,
-                            ));
-                    }
-                    Some(lr) if lr.format() != fmt => {
-                        lr.reconfigure(&gpu.device, w, h, fmt);
-                    }
-                    Some(lr) if lr.width != w || lr.height != h => {
-                        lr.resize(&gpu.device, w, h);
-                    }
-                    _ => {}
-                }
-                // Create / resize the scene intermediate texture (only needed when post_renderer is absent)
-                if !use_post {
-                    Self::ensure_intermediate_texture(
-                        &mut self.render.scene_texture_for_lighting,
-                        &gpu.device,
-                        "scene_for_lighting",
-                        w,
-                        h,
-                        fmt,
-                    );
-                    self.render.post_texture_for_lighting = None;
-                } else {
-                    self.render.scene_texture_for_lighting = None;
-                    Self::ensure_intermediate_texture(
-                        &mut self.render.post_texture_for_lighting,
-                        &gpu.device,
-                        "post_for_lighting",
-                        w,
-                        h,
-                        fmt,
-                    );
-                }
-            } else {
-                self.render.lighting_renderer = None;
-                self.render.scene_texture_for_lighting = None;
-                self.render.post_texture_for_lighting = None;
-            }
-            has_lighting
-        };
+        let use_lighting = Self::setup_lighting(
+            &mut self.render,
+            &self.world,
+            &gpu.device,
+            gpu.config.width,
+            gpu.config.height,
+            gpu.config.format,
+            use_post,
+        );
         #[cfg(target_arch = "wasm32")]
         let use_lighting = false;
 
@@ -432,87 +725,11 @@ impl App {
         {
             use crate::app::editor::EditorMode;
             if self.editor.mode == EditorMode::Docked && docked_render_view.is_none() {
-                // RT not ready yet — still need to acquire + present the frame so the
-                // window stays responsive, but skip all scene rendering.
-                let (frame, suboptimal) = match gpu.surface.get_current_texture() {
-                    wgpu::CurrentSurfaceTexture::Success(t) => (t, false),
-                    wgpu::CurrentSurfaceTexture::Suboptimal(t) => (t, true),
-                    e => return Err(e),
-                };
-                let final_view = frame
-                    .texture
-                    .create_view(&wgpu::TextureViewDescriptor::default());
-                // Submit a clear-only pass so egui has a surface to draw on.
-                let mut enc = gpu
-                    .device
-                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                        label: Some("docked-wait encoder"),
-                    });
-                {
-                    let _pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("docked-wait clear"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &final_view,
-                            resolve_target: None,
-                            depth_slice: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(wgpu::Color {
-                                    r: 0.08,
-                                    g: 0.08,
-                                    b: 0.12,
-                                    a: 1.0,
-                                }),
-                                store: wgpu::StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        occlusion_query_set: None,
-                        timestamp_writes: None,
-                        multiview_mask: None,
-                    });
-                }
-                gpu.queue.submit(std::iter::once(enc.finish()));
-                // Egui pass (shows "no game frame yet" placeholder).
-                if let (Some(mut er), Some((paint_jobs, textures_delta, ppp))) = (
-                    self.render.egui_renderer.take(),
-                    self.render.egui_output.take(),
-                ) {
-                    let screen_desc = egui_wgpu::ScreenDescriptor {
-                        size_in_pixels: [gpu.config.width, gpu.config.height],
-                        pixels_per_point: ppp,
-                    };
-                    for (id, delta) in &textures_delta.set {
-                        er.update_texture(&gpu.device, &gpu.queue, *id, delta);
-                    }
-                    let mut egui_enc =
-                        gpu.device
-                            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                                label: Some("egui encoder"),
-                            });
-                    er.update_buffers(
-                        &gpu.device,
-                        &gpu.queue,
-                        &mut egui_enc,
-                        &paint_jobs,
-                        &screen_desc,
-                    );
-                    egui_render_pass(&er, &mut egui_enc, &paint_jobs, &screen_desc, &final_view);
-                    gpu.queue.submit(std::iter::once(egui_enc.finish()));
-                    for id in &textures_delta.free {
-                        er.free_texture(id);
-                    }
-                    self.render.egui_renderer = Some(er);
-                }
-                if let Some(window) = &self.window {
-                    window.pre_present_notify();
-                }
-                frame.present();
-                // If the surface became suboptimal (e.g. DPI/monitor change), reconfigure
-                // so subsequent frames are optimal. Present first, reconfigure after.
-                if suboptimal {
-                    gpu.reconfigure();
-                }
-                return Ok(());
+                return Self::present_docked_placeholder(
+                    &mut self.render,
+                    self.window.as_deref(),
+                    gpu,
+                );
             }
         }
 
@@ -539,129 +756,7 @@ impl App {
             });
 
         // ── Offscreen pass: render each OffscreenCamera entity into its RT ─────────────
-        {
-            // Step 1: collect render info for each offscreen camera.
-            // We call `Texture::create_view` up front to obtain owned `TextureView` handles.
-            // A `TextureView` is a zero-cost reference-counted GPU handle: creating a second
-            // view on the same texture is safe and free — it does not copy GPU memory.
-            // This replaces the previous `*const wgpu::TextureView` raw-pointer scheme that
-            // required `unsafe` and could dangle if the HashMap reallocated.
-            let offscreen_cams: Vec<(String, crate::camera::Camera, u32)> = self
-                .world
-                .query::<crate::components::OffscreenCamera>()
-                .map(|(_, oc)| (oc.target.clone(), oc.camera, oc.layer_mask))
-                .collect();
-
-            let rt_info: Vec<OffscreenRenderInfo> = offscreen_cams
-                .into_iter()
-                .filter_map(|(name, cam, layer_mask)| {
-                    self.render.render_targets.get(&name).map(|rt| {
-                        // Create a fresh owned TextureView each frame (zero-cost GPU handle).
-                        // Safe to use after this point even if render_targets is later touched.
-                        let owned_view = rt
-                            .texture
-                            .create_view(&wgpu::TextureViewDescriptor::default());
-                        (
-                            name,
-                            cam,
-                            rt.width,
-                            rt.height,
-                            owned_view,
-                            std::sync::Arc::clone(&rt.bind_group),
-                            layer_mask,
-                            rt.clear_color,
-                        )
-                    })
-                })
-                .collect();
-
-            for (target_name, cam, rt_w, rt_h, rt_view, bg, layer_mask, rt_clear_color) in rt_info {
-                // ① Swap camera — if no prior camera existed remove it after render, otherwise restore
-                let saved_cam = self.world.resource::<crate::camera::Camera>().copied();
-                self.world.insert_resource(cam);
-
-                // ② The owned TextureView was created up front; no unsafe dereference needed.
-                let rt_view = &rt_view;
-
-                // Each offscreen target is rendered with its **own command submission**.
-                // The SpriteRenderer's camera uniform is a single shared buffer (`camera_buf`)
-                // updated via `queue.write_buffer`. Within a single submit only the **last**
-                // write to that buffer takes effect, so recording the offscreen draw and the main
-                // pass in the same submit would cause the offscreen target to render with the
-                // (later-written) **main camera**.
-                // Submitting here ties this target's camera write and its draw together as a pair.
-                let mut oenc = gpu
-                    .device
-                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                        label: Some("offscreen encoder"),
-                    });
-
-                // ③ Clear the RT — use per-target color if set, else inherit WindowConfig::clear_color.
-                {
-                    let [cr, cg, cb, ca] = rt_clear_color.unwrap_or_else(|| {
-                        self.world
-                            .resource::<WindowConfig>()
-                            .map(|c| c.clear_color)
-                            .unwrap_or([0.0, 0.0, 0.0, 1.0])
-                    });
-                    let _pass = oenc.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("offscreen clear"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: rt_view,
-                            resolve_target: None,
-                            depth_slice: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(wgpu::Color {
-                                    r: cr,
-                                    g: cg,
-                                    b: cb,
-                                    a: ca,
-                                }),
-                                store: wgpu::StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        occlusion_query_set: None,
-                        timestamp_writes: None,
-                        multiview_mask: None,
-                    });
-                }
-
-                // ④ Render sprites → RT (layer_mask prevents self-capture)
-                if let Some(sr) = &mut self.render.sprite_renderer {
-                    sr.render(
-                        &mut FrameContext {
-                            device: &gpu.device,
-                            queue: &gpu.queue,
-                            view: rt_view,
-                            format: gpu.config.format,
-                            encoder: &mut oenc,
-                        },
-                        &self.world,
-                        rt_w,
-                        rt_h,
-                        layer_mask,
-                    );
-                }
-
-                // Immediately flush this target's camera write + draw. (Applied before the main
-                // pass's camera write; the RT texture is filled before the main pass samples it.)
-                gpu.queue.submit(std::iter::once(oenc.finish()));
-
-                // ⑤ Restore camera — remove it if it was absent before to avoid polluting the World
-                match saved_cam {
-                    Some(c) => self.world.insert_resource(c),
-                    None => {
-                        self.world.remove_resource::<crate::camera::Camera>();
-                    }
-                }
-
-                // ⑥ Register the RT bind_group with the sprite renderer (sampleable via Sprite.texture key)
-                if let Some(sr) = &mut self.render.sprite_renderer {
-                    sr.register_render_target(&target_name, bg);
-                }
-            }
-        }
+        Self::render_offscreen_targets(&mut self.render, &mut self.world, gpu);
 
         // In docked mode the scene renders into a separate offscreen texture; the
         // surface pass then shows only the egui UI (which contains the game image).
@@ -1024,44 +1119,7 @@ impl App {
         gpu.queue.submit(std::iter::once(enc.finish()));
 
         // Step 5: egui overlay pass
-        if let (Some(mut er), Some((paint_jobs, textures_delta, ppp))) = (
-            self.render.egui_renderer.take(),
-            self.render.egui_output.take(),
-        ) {
-            let screen_desc = egui_wgpu::ScreenDescriptor {
-                size_in_pixels: [gpu.config.width, gpu.config.height],
-                pixels_per_point: ppp,
-            };
-            for (id, delta) in &textures_delta.set {
-                er.update_texture(&gpu.device, &gpu.queue, *id, delta);
-            }
-            let mut egui_enc = gpu
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("egui encoder"),
-                });
-            er.update_buffers(
-                &gpu.device,
-                &gpu.queue,
-                &mut egui_enc,
-                &paint_jobs,
-                &screen_desc,
-            );
-            if paint_jobs_contain_callbacks(&paint_jobs) {
-                log::warn!(
-                    "egui paint callbacks are unsupported and were skipped to preserve render-pass lifetime safety"
-                );
-            } else {
-                // Due to the Renderer::render<'rp>(&'rp self, &mut RenderPass<'rp>) lifetime constraint,
-                // we tie &er and &mut egui_enc to the same lifetime 'a in a standalone function.
-                egui_render_pass(&er, &mut egui_enc, &paint_jobs, &screen_desc, &final_view);
-            }
-            gpu.queue.submit(std::iter::once(egui_enc.finish()));
-            for id in &textures_delta.free {
-                er.free_texture(id);
-            }
-            self.render.egui_renderer = Some(er);
-        }
+        Self::present_egui(&mut self.render, gpu, &final_view);
 
         // winit recommendation: notify the compositor just before present to reduce display latency.
         if let Some(window) = &self.window {
