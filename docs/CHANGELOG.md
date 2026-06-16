@@ -4,6 +4,23 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 10.4.0
+
+**Music-track crossfade (new feature + example).** `AudioManager` had per-channel fades
+(`fade_out` / `play_fade_in` / `fade_volume`) but no single call to crossfade one track into
+another with the two overlapping. `crossfade` adds it: the current track on a channel fades out
+while the new track fades in, reusing the existing `Fade` + `update` infrastructure. Native-only,
+purely additive.
+
+### Added
+
+- `AudioManager::crossfade(channel, new_path, repeat, dur)` — relocates the channel's current sink
+  to an internal temp channel and schedules a stop-when-done fade-out there, then `play_fade_in`s
+  the new track on the channel, so the two overlap. Degrades to a plain fade-in when nothing is
+  playing. The temp sink is torn down by `update()` when its fade completes.
+- Example `examples/music_crossfade.rs` — generates two short sine-wave WAVs in the temp dir and
+  crossfades between them on a key press.
+
 ## 10.3.0
 
 **`TweenSequence` — chained tweens (new feature + example).** `Tween` interpolates one value

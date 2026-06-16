@@ -747,6 +747,208 @@ fn sidechain_registration_add_replace_remove() {
     assert!(audio.sidechains.is_empty());
 }
 
+// ─── crossfade scheduling tests (device-free) ─────────────────────────────────
+
+/// After `crossfade`, the new channel has a fade-in scheduled and the temp
+/// channel has a stop-when-done fade-out — verified purely via the `fades` and
+/// `sinks` maps without audio hardware.
+///
+/// We test scheduling + bookkeeping only; actual audio output is intentionally
+/// not asserted so the test passes on CI (no audio device).
+#[test]
+fn crossfade_schedules_fade_in_on_channel_and_fade_out_on_temp() {
+    let Some(mut audio) = AudioManager::new() else {
+        return;
+    };
+
+    // Put something on the "bgm" channel to simulate a playing track.
+    audio.play_tone("bgm", 330.0, 60.0, 0.5);
+    assert!(audio.is_playing("bgm"), "precondition: bgm must be playing");
+
+    // The new path doesn't need to exist for the scheduling assertions:
+    // play_internal will warn + return early if the file is missing, which
+    // means the new sink won't be created, but the OLD sink moves to __xfade
+    // and its fade-out IS scheduled regardless.  We use a temp file so
+    // play_fade_in creates the new sink too.
+    let dir = std::env::temp_dir().join(format!("engine-xfade-sched-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let track_b = dir.join("track_b.bin");
+    // Minimal WAV header (44 bytes header + silence) so Decoder succeeds.
+    // rodio's Decoder requires at least a parseable container.
+    // Using a raw Hound-compatible minimal PCM WAV:
+    // RIFF header: "RIFF" + size + "WAVE" + "fmt " + 16 + PCM params + "data" + size + samples
+    let mut wav: Vec<u8> = Vec::new();
+    let pcm_data: &[u8] = &[0u8; 2]; // 1 sample of silence (16-bit mono)
+    let data_len = pcm_data.len() as u32;
+    let file_len = 36 + data_len;
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&file_len.to_le_bytes());
+    wav.extend_from_slice(b"WAVE");
+    wav.extend_from_slice(b"fmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes()); // chunk size
+    wav.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    wav.extend_from_slice(&1u16.to_le_bytes()); // mono
+    wav.extend_from_slice(&44100u32.to_le_bytes()); // sample rate
+    wav.extend_from_slice(&88200u32.to_le_bytes()); // byte rate
+    wav.extend_from_slice(&2u16.to_le_bytes()); // block align
+    wav.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&data_len.to_le_bytes());
+    wav.extend_from_slice(pcm_data);
+    std::fs::write(&track_b, &wav).unwrap();
+
+    let track_b_path = track_b.to_str().unwrap();
+    audio.crossfade("bgm", track_b_path, true, 2.0);
+
+    // The temp channel must have the old sink and a stop-when-done fade-out.
+    assert!(
+        audio.sinks.contains_key("bgm__xfade"),
+        "old sink must be relocated to bgm__xfade"
+    );
+    let xfade_fade = audio
+        .fades
+        .get("bgm__xfade")
+        .expect("bgm__xfade must have a fade entry");
+    assert!(
+        xfade_fade.stop_when_done,
+        "bgm__xfade fade must be stop_when_done (fade-out)"
+    );
+    assert!(
+        (xfade_fade.target_vol - 0.0).abs() < 0.001,
+        "bgm__xfade fade must target 0.0"
+    );
+
+    // The new sink on "bgm" must exist.
+    assert!(
+        audio.sinks.contains_key("bgm"),
+        "new track must have a sink on the bgm channel"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// After `crossfade` with no prior track, behavior is identical to `play_fade_in`:
+/// no temp channel is created.
+#[test]
+fn crossfade_with_no_prior_track_acts_like_play_fade_in() {
+    let Some(mut audio) = AudioManager::new() else {
+        return;
+    };
+
+    // Ensure there is nothing on "bgm".
+    assert!(
+        !audio.sinks.contains_key("bgm"),
+        "precondition: bgm must be absent"
+    );
+
+    let dir = std::env::temp_dir().join(format!("engine-xfade-empty-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let track = dir.join("track.wav");
+    // Same minimal WAV as above.
+    let mut wav: Vec<u8> = Vec::new();
+    let pcm_data: &[u8] = &[0u8; 2];
+    let data_len = pcm_data.len() as u32;
+    let file_len = 36 + data_len;
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&file_len.to_le_bytes());
+    wav.extend_from_slice(b"WAVE");
+    wav.extend_from_slice(b"fmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&44100u32.to_le_bytes());
+    wav.extend_from_slice(&88200u32.to_le_bytes());
+    wav.extend_from_slice(&2u16.to_le_bytes());
+    wav.extend_from_slice(&16u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&data_len.to_le_bytes());
+    wav.extend_from_slice(pcm_data);
+    std::fs::write(&track, &wav).unwrap();
+
+    let path = track.to_str().unwrap();
+    audio.crossfade("bgm", path, false, 1.5);
+
+    // No temp channel should exist.
+    assert!(
+        !audio.sinks.contains_key("bgm__xfade"),
+        "no temp channel when there was no prior track"
+    );
+    // The new sink must be on "bgm".
+    assert!(
+        audio.sinks.contains_key("bgm"),
+        "new track must have a sink on bgm"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// After `crossfade` and driving `update(dur)`, the temp channel is torn down
+/// and the main channel reaches full volume.
+#[test]
+fn crossfade_temp_channel_torn_down_after_update() {
+    use super::AudioSystem;
+    use crate::ecs::{System, World};
+
+    let Some(mut audio) = AudioManager::new() else {
+        return;
+    };
+
+    audio.play_tone("bgm", 330.0, 60.0, 0.5);
+    assert!(audio.is_playing("bgm"));
+
+    let dir = std::env::temp_dir().join(format!("engine-xfade-update-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let track = dir.join("track.wav");
+    let mut wav: Vec<u8> = Vec::new();
+    let pcm_data: &[u8] = &[0u8; 2];
+    let data_len = pcm_data.len() as u32;
+    let file_len = 36 + data_len;
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&file_len.to_le_bytes());
+    wav.extend_from_slice(b"WAVE");
+    wav.extend_from_slice(b"fmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&44100u32.to_le_bytes());
+    wav.extend_from_slice(&88200u32.to_le_bytes());
+    wav.extend_from_slice(&2u16.to_le_bytes());
+    wav.extend_from_slice(&16u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&data_len.to_le_bytes());
+    wav.extend_from_slice(pcm_data);
+    std::fs::write(&track, &wav).unwrap();
+
+    let path = track.to_str().unwrap();
+    audio.crossfade("bgm", path, false, 0.1);
+
+    // Temp channel must exist immediately after crossfade.
+    assert!(
+        audio.sinks.contains_key("bgm__xfade"),
+        "temp channel must exist right after crossfade"
+    );
+
+    // Drive update past the fade duration so the temp channel is torn down.
+    let mut world = World::new();
+    world.insert_resource(audio);
+    let mut sys = AudioSystem;
+    for _ in 0..10 {
+        sys.run(&mut world, 0.02); // 0.2 s > 0.1 s fade
+    }
+
+    let audio = world.resource::<AudioManager>().unwrap();
+    assert!(
+        !audio.sinks.contains_key("bgm__xfade"),
+        "temp channel must be torn down after fade completes"
+    );
+    assert!(
+        !audio.fades.contains_key("bgm__xfade"),
+        "no stale fade entry for the temp channel"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// Sidechain drive: without a real playing channel we can't assert automatic
 /// trigger-active detection, but we CAN assert that manually calling duck_bus +
 /// update drives the ducked bus to the target and release_bus brings it back.
