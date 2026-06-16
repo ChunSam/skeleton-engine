@@ -153,6 +153,197 @@ impl Tween {
     }
 }
 
+// ── TweenSequence ──────────────────────────────────────────────────────────
+
+/// A sequence of [`Tween`] segments played back-to-back.
+///
+/// Segments are advanced one at a time; leftover `dt` carries into the next
+/// segment within the same [`tick`](TweenSequence::tick) call, so a large
+/// delta-time never stalls at a segment boundary.
+///
+/// # Empty sequence
+///
+/// An empty `TweenSequence` is always [`finished`](TweenSequence::finished)
+/// and returns `0.0` from [`value`](TweenSequence::value).
+///
+/// # `fraction` semantics
+///
+/// [`fraction`](TweenSequence::fraction) is the **segment count fraction**:
+/// `current_segment_index / total_segments` plus the within-segment fraction
+/// divided by total segments. This gives uniform progress per-segment regardless
+/// of individual durations.
+///
+/// # Example
+///
+/// ```rust
+/// use engine::{TweenSequence, Easing};
+///
+/// let mut seq = TweenSequence::new()
+///     .then(0.0, 100.0, 1.0, Easing::EaseOut)
+///     .then(100.0, 0.0, 1.0, Easing::EaseIn)
+///     .looping(true);
+///
+/// let v = seq.tick(0.5); // mid-way through first segment
+/// assert!(v > 50.0);     // EaseOut is fast at the start
+/// ```
+#[derive(Clone, Debug)]
+pub struct TweenSequence {
+    segments: Vec<Tween>,
+    current: usize,
+    looping: bool,
+    done: bool,
+}
+
+impl TweenSequence {
+    /// Creates an empty sequence with no segments.
+    pub fn new() -> Self {
+        Self {
+            segments: Vec::new(),
+            current: 0,
+            looping: false,
+            done: false,
+        }
+    }
+
+    /// Appends a segment that interpolates from `start` to `end` over
+    /// `duration` seconds using the given `easing`. Returns `self` for chaining.
+    pub fn then(mut self, start: f32, end: f32, duration: f32, easing: Easing) -> Self {
+        self.segments
+            .push(Tween::new(start, end, duration).with_easing(easing));
+        self
+    }
+
+    /// Appends an already-constructed [`Tween`] segment. Returns `self` for chaining.
+    pub fn push(mut self, tween: Tween) -> Self {
+        self.segments.push(tween);
+        self
+    }
+
+    /// Sets whether the sequence restarts from the first segment after the last
+    /// one finishes. Returns `self` for chaining.
+    pub fn looping(mut self, enabled: bool) -> Self {
+        self.looping = enabled;
+        self
+    }
+
+    /// Advances the sequence by `dt` seconds and returns the current interpolated value.
+    ///
+    /// Leftover time carries across segment boundaries within a single call, so
+    /// passing a large `dt` correctly skips through multiple segments.
+    ///
+    /// Returns `0.0` when the sequence is empty or already finished.
+    pub fn tick(&mut self, mut dt: f32) -> f32 {
+        if self.segments.is_empty() || self.done {
+            return self.value();
+        }
+
+        // Drive the current segment, carrying leftover dt into subsequent segments.
+        loop {
+            let seg = &mut self.segments[self.current];
+
+            // Compute how much time is left in this segment.
+            let remaining = seg.timer.duration() - seg.timer.elapsed();
+            if dt < remaining {
+                // Segment won't finish this tick.
+                seg.timer.tick(dt);
+                break;
+            }
+
+            // Consume enough dt to finish the current segment exactly.
+            seg.timer.tick(remaining);
+            dt -= remaining;
+
+            // Advance to the next segment.
+            let next = self.current + 1;
+            if next >= self.segments.len() {
+                if self.looping {
+                    // Reset all segments and wrap around.
+                    for s in &mut self.segments {
+                        s.reset();
+                    }
+                    self.current = 0;
+                } else {
+                    self.done = true;
+                    break;
+                }
+            } else {
+                self.current = next;
+            }
+
+            if dt <= 0.0 {
+                break;
+            }
+        }
+
+        self.value()
+    }
+
+    /// Returns the current interpolated value without advancing time.
+    ///
+    /// Returns `0.0` when the sequence is empty.
+    pub fn value(&self) -> f32 {
+        if self.segments.is_empty() {
+            return 0.0;
+        }
+        self.segments[self.current].value()
+    }
+
+    /// Returns `true` when all segments have finished and the sequence is not looping.
+    ///
+    /// Always `true` for an empty sequence.
+    pub fn finished(&self) -> bool {
+        if self.segments.is_empty() {
+            return true;
+        }
+        self.done
+    }
+
+    /// Overall progress from `0.0` to `1.0`, measured in **segment count fraction**:
+    /// each segment contributes `1 / total_segments` of the total range, and the
+    /// within-segment [`fraction`](Tween::fraction) fills that share.
+    ///
+    /// Returns `0.0` for an empty sequence and `1.0` when finished.
+    pub fn fraction(&self) -> f32 {
+        let n = self.segments.len();
+        if n == 0 {
+            return 0.0;
+        }
+        if self.done {
+            return 1.0;
+        }
+        let seg_share = 1.0 / n as f32;
+        let within = self.segments[self.current].fraction();
+        self.current as f32 * seg_share + within * seg_share
+    }
+
+    /// Resets the sequence to the beginning of the first segment.
+    pub fn reset(&mut self) {
+        for s in &mut self.segments {
+            s.reset();
+        }
+        self.current = 0;
+        self.done = false;
+    }
+
+    /// Returns the index of the currently active segment (0-based).
+    ///
+    /// For a finished non-looping sequence this is the index of the last segment.
+    pub fn current_segment(&self) -> usize {
+        self.current
+    }
+
+    /// Returns the total number of segments.
+    pub fn segment_count(&self) -> usize {
+        self.segments.len()
+    }
+}
+
+impl Default for TweenSequence {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,5 +368,113 @@ mod tests {
         tw.tick(2.0);
         assert!(tw.finished());
         assert!((tw.value() - 20.0).abs() < 1e-4);
+    }
+
+    // ── TweenSequence tests ────────────────────────────────────────────────
+
+    #[test]
+    fn empty_sequence_is_finished() {
+        let seq = TweenSequence::new();
+        assert!(seq.finished());
+        assert_eq!(seq.value(), 0.0);
+        assert_eq!(seq.fraction(), 0.0);
+    }
+
+    #[test]
+    fn single_segment_basic() {
+        let mut seq = TweenSequence::new().then(0.0, 10.0, 1.0, Easing::Linear);
+        let v = seq.tick(0.5);
+        assert!((v - 5.0).abs() < 1e-4, "got {v}");
+        assert!(!seq.finished());
+    }
+
+    #[test]
+    fn single_segment_finishes() {
+        let mut seq = TweenSequence::new().then(0.0, 10.0, 1.0, Easing::Linear);
+        seq.tick(2.0);
+        assert!(seq.finished());
+        assert!((seq.value() - 10.0).abs() < 1e-4);
+        assert!((seq.fraction() - 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn two_segments_carry_dt() {
+        // Two 1-second segments: 0→10, then 10→20.
+        // dt=1.5 should complete the first and advance 0.5 into the second.
+        let mut seq = TweenSequence::new()
+            .then(0.0, 10.0, 1.0, Easing::Linear)
+            .then(10.0, 20.0, 1.0, Easing::Linear);
+
+        let v = seq.tick(1.5);
+        // 0.5 into segment 1 (10→20, linear): 10 + 0.5*10 = 15
+        assert!((v - 15.0).abs() < 1e-4, "expected 15, got {v}");
+        assert_eq!(seq.current_segment(), 1);
+        assert!(!seq.finished());
+    }
+
+    #[test]
+    fn two_segments_full_completion() {
+        let mut seq = TweenSequence::new()
+            .then(0.0, 10.0, 1.0, Easing::Linear)
+            .then(10.0, 20.0, 1.0, Easing::Linear);
+
+        seq.tick(3.0); // well past both segments
+        assert!(seq.finished());
+        assert!((seq.value() - 20.0).abs() < 1e-4);
+        assert!((seq.fraction() - 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn looping_wraps_around() {
+        let mut seq = TweenSequence::new()
+            .then(0.0, 10.0, 1.0, Easing::Linear)
+            .looping(true);
+
+        // Advance past the end to trigger a loop.
+        seq.tick(1.5);
+        assert!(!seq.finished());
+        assert_eq!(seq.current_segment(), 0);
+        // 0.5 into the restarted first segment: value = 5
+        let v = seq.value();
+        assert!((v - 5.0).abs() < 1e-4, "expected 5 after loop, got {v}");
+    }
+
+    #[test]
+    fn reset_restarts_sequence() {
+        let mut seq = TweenSequence::new()
+            .then(0.0, 10.0, 1.0, Easing::Linear)
+            .then(10.0, 20.0, 1.0, Easing::Linear);
+
+        seq.tick(3.0); // finish
+        assert!(seq.finished());
+
+        seq.reset();
+        assert!(!seq.finished());
+        assert_eq!(seq.current_segment(), 0);
+        let v = seq.tick(0.5);
+        assert!((v - 5.0).abs() < 1e-4, "after reset got {v}");
+    }
+
+    #[test]
+    fn fraction_midway_two_segments() {
+        // Two equal segments — at the midpoint of segment 1, fraction = 0.75.
+        let mut seq = TweenSequence::new()
+            .then(0.0, 1.0, 1.0, Easing::Linear)
+            .then(1.0, 2.0, 1.0, Easing::Linear);
+
+        seq.tick(1.5); // exactly in the middle of segment 1
+        let f = seq.fraction();
+        // segment_share = 0.5; current=1, within=0.5 → 1*0.5 + 0.5*0.5 = 0.75
+        assert!((f - 0.75).abs() < 1e-4, "expected 0.75 got {f}");
+    }
+
+    #[test]
+    fn push_api_works() {
+        let tween = Tween::new(5.0, 15.0, 2.0).with_easing(Easing::EaseIn);
+        let mut seq = TweenSequence::new().push(tween);
+        seq.tick(1.0);
+        // EaseIn at t=0.5: t^2 = 0.25 → 5 + 0.25*10 = 7.5
+        let v = seq.value();
+        assert!((v - 7.5).abs() < 1e-4, "got {v}");
     }
 }
