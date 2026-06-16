@@ -20,6 +20,7 @@ pub mod input;
 pub mod locale;
 pub mod material;
 pub mod network;
+pub mod parallax;
 pub mod particle;
 pub mod pathfinding;
 #[cfg(not(target_arch = "wasm32"))]
@@ -94,6 +95,7 @@ pub use material::ShaderMaterial;
 pub use network::{
     NetworkClient, NetworkConfig, NetworkEvent, NetworkSystem, RemoteEntities, SnapshotBuffer,
 };
+pub use parallax::{ParallaxLayer, ParallaxSystem};
 pub use particle::{
     Particle, ParticleBurst, ParticleConfigError, ParticleConfigRegistry, ParticleConfigSet,
     ParticleEmitter, ParticleSystem,

@@ -4,6 +4,29 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 10.2.0
+
+**Parallax scrolling (new feature + example).** A genre-agnostic 2D primitive the engine lacked —
+background/foreground layers that scroll at a fraction of the camera's motion to fake depth.
+Purely additive; pairs with the existing camera shake/follow.
+
+### Added
+
+- `ParallaxLayer` component — `factor: Vec2` per-axis scroll rate (`1.0` = world-locked, `0.0` =
+  screen-locked, `0.0..1.0` = depth, `>1.0` = faster-than-world foreground). Constructors `new` /
+  `horizontal(fx)` / `vertical(fy)`. The rest anchor is **lazily captured** from the entity's
+  `Transform` on the first system run (plus the camera position at that moment), so you just place
+  the sprite — no base bookkeeping.
+- `ParallaxSystem` — offsets every `ParallaxLayer` entity's `Transform` each frame via
+  `pos = base + (cam - cam_ref) * (1 - factor)`. Add with `app.add_system(ParallaxSystem)`. As a
+  normal user system it reads the camera from the end of the previous frame (engine finalizes camera
+  follow after the user loop), a sub-perceptual one-frame lag for backgrounds; add it after the
+  systems that move the camera-followed entity.
+- Both re-exported at the crate root (`engine::{ParallaxLayer, ParallaxSystem}`).
+- Example `examples/parallax_scroll.rs` — a playable side-scroller: A/D moves a player, the camera
+  follows (via an anchor entity, since `Camera::position` is the viewport top-left), and four layers
+  (sky `0.10`, mountains `0.35`, trees `0.65`, foreground `1.10`) scroll at visibly different rates.
+
 ## 10.1.0
 
 **`ShaderMaterial` example (VISION acceptance test, additive).** The custom per-entity
