@@ -21,9 +21,13 @@ pub(in crate::app) use audio_panel::audio_mixer_panel_body;
 pub(in crate::app) use data_table_panel::data_table_panel_body;
 #[cfg(not(target_arch = "wasm32"))]
 pub(in crate::app) use docked::{
-    assets_tab_body, entities_tab_body, inspector_tab_body, save_load_controls, scene_tab_body,
-    update_docked_ui,
+    assets_tab_body, entities_tab_body, inspector_tab_body, particle_tuner_grid, point_light_grid,
+    save_load_controls, scene_tab_body, update_docked_ui,
 };
+#[cfg(not(target_arch = "wasm32"))]
+pub(in crate::app) use state_machine_panel::state_machine_panel;
+#[cfg(not(target_arch = "wasm32"))]
+pub(in crate::app) use timeline_panel::timeline_panel;
 
 /// Per-component reflected field data shown in the inspector:
 /// `(component TypeId, display name, [(field name, value)])`. Keyed by `TypeId` so write-back

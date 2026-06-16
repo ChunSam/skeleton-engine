@@ -10,7 +10,7 @@ pub(super) use state::EditorState;
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) use state::ResizeHandle;
 #[cfg(not(target_arch = "wasm32"))]
-pub(super) use state::{apply_f1, apply_f2, EditorMode, PaintTool};
+pub(super) use state::{apply_f1, apply_f2, EditorMode, InspectorPanel, PaintTool};
 
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(clippy::enum_variant_names)]
@@ -638,6 +638,58 @@ impl App {
         self.register_component_remover("Panel", |world, e| {
             world.remove_component::<crate::ui::panel::Panel>(e);
         });
+
+        // ── Built-in inspector sub-panels ─────────────────────────────────────
+        // Registered via the same API available to forkers; order here determines
+        // the render order in the docked inspector.
+        self.register_inspector_panel::<crate::particle::ParticleEmitter>(
+            "Particle Tuner",
+            |ui_panel, app, e| {
+                ui::particle_tuner_grid(ui_panel, app, e);
+                if ui_panel
+                    .button("↺ Reset to Default")
+                    .on_hover_text("reset all fields (keeps the texture)")
+                    .clicked()
+                {
+                    app.reset_particle_emitter(e);
+                }
+                ui_panel.label(
+                    egui::RichText::new("edits apply live while the sim runs (unpause)").weak(),
+                );
+            },
+        );
+
+        self.register_inspector_panel::<crate::components::PointLight>(
+            "Point Light",
+            |ui_panel, app, e| {
+                ui::point_light_grid(ui_panel, app, e);
+                if ui_panel
+                    .button("↺ Reset to Default")
+                    .on_hover_text("reset color / radius / intensity / height")
+                    .clicked()
+                {
+                    app.reset_point_light(e);
+                }
+                ui_panel.label(
+                    egui::RichText::new("the entity's Transform position is the light position")
+                        .weak(),
+                );
+            },
+        );
+
+        self.register_inspector_panel::<crate::animation::AnimationStateMachine>(
+            "State Machine",
+            |ui_panel, app, e| {
+                ui::state_machine_panel(ui_panel, app, e);
+            },
+        );
+
+        self.register_inspector_panel::<crate::timeline::Timeline>(
+            "Timeline",
+            |ui_panel, app, e| {
+                ui::timeline_panel(ui_panel, app, e);
+            },
+        );
     }
 
     pub fn register_component(
@@ -881,6 +933,52 @@ impl App {
                 world.remove_component::<T>(entity);
             });
         }
+    }
+
+    /// Registers a custom inspector sub-panel that appears in the docked editor whenever
+    /// the selected entity has component `T`.
+    ///
+    /// The panel is rendered as a [`egui::CollapsingHeader`] with the given `title`,
+    /// open by default, inserted **after** the built-in sub-panels (Particle Tuner,
+    /// Point Light, State Machine, Timeline) and **before** the Component List.
+    ///
+    /// This is a **native-only** method — it compiles out on wasm. Gate any call
+    /// site with `#[cfg(not(target_arch = "wasm32"))]` when needed.
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use engine::App;
+    ///
+    /// #[derive(Default)]
+    /// struct HeatSource { temperature: f32, radius: f32 }
+    ///
+    /// let mut app = App::new();
+    /// app.register_inspector_panel::<HeatSource>("Heat Source", |ui, app, entity| {
+    ///     if let Some(h) = app.world.get_mut::<HeatSource>(entity) {
+    ///         ui.horizontal(|ui| {
+    ///             ui.label("temperature");
+    ///             ui.add(egui::DragValue::new(&mut h.temperature).speed(0.5));
+    ///         });
+    ///         ui.horizontal(|ui| {
+    ///             ui.label("radius");
+    ///             ui.add(egui::DragValue::new(&mut h.radius).range(0.0..=1000.0).speed(1.0));
+    ///         });
+    ///     }
+    /// });
+    /// ```
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn register_inspector_panel<T: 'static>(
+        &mut self,
+        title: impl Into<String>,
+        draw: impl Fn(&mut egui::Ui, &mut App, Entity) + 'static,
+    ) {
+        self.editor
+            .inspector_panels
+            .push(crate::app::editor::InspectorPanel {
+                presence: |world, entity| world.has_component::<T>(entity),
+                title: title.into(),
+                draw: Box::new(draw),
+            });
     }
 
     /// Registers a serde-capable component type so it is included in scene save/load.

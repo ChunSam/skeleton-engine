@@ -560,83 +560,19 @@ pub(in crate::app) fn inspector_tab_body(
                     app.editor.paint_mode = false;
                 }
 
-                // ── Particle Tuner (shown only for ParticleEmitter entities) ──
-                if app
-                    .world
-                    .get::<crate::particle::ParticleEmitter>(sel)
-                    .is_some()
-                {
-                    ui.separator();
-                    egui::CollapsingHeader::new("Particle Tuner")
-                        .default_open(true)
-                        .show(ui, |ui| {
-                            particle_tuner_grid(ui, app, sel);
-                            if ui
-                                .button("↺ Reset to Default")
-                                .on_hover_text("reset all fields (keeps the texture)")
-                                .clicked()
-                            {
-                                app.reset_particle_emitter(sel);
-                            }
-                            ui.label(
-                                egui::RichText::new(
-                                    "edits apply live while the sim runs (unpause)",
-                                )
-                                .weak(),
-                            );
-                        });
+                // ── Registered inspector panels (built-in + user-defined) ─────
+                // Take the vec off `app.editor` to avoid holding a borrow of
+                // `app.editor` while the draw closure receives `&mut app`.
+                let panels = std::mem::take(&mut app.editor.inspector_panels);
+                for p in &panels {
+                    if (p.presence)(&app.world, sel) {
+                        ui.separator();
+                        egui::CollapsingHeader::new(&p.title)
+                            .default_open(true)
+                            .show(ui, |ui| (p.draw)(ui, app, sel));
+                    }
                 }
-
-                // ── Point Light editor (shown only for PointLight entities) ───
-                if app
-                    .world
-                    .get::<crate::components::PointLight>(sel)
-                    .is_some()
-                {
-                    ui.separator();
-                    egui::CollapsingHeader::new("Point Light")
-                        .default_open(true)
-                        .show(ui, |ui| {
-                            point_light_grid(ui, app, sel);
-                            if ui
-                                .button("↺ Reset to Default")
-                                .on_hover_text("reset color / radius / intensity / height")
-                                .clicked()
-                            {
-                                app.reset_point_light(sel);
-                            }
-                            ui.label(
-                                egui::RichText::new(
-                                    "the entity's Transform position is the light position",
-                                )
-                                .weak(),
-                            );
-                        });
-                }
-
-                // ── State Machine editor (entities with AnimationStateMachine) ─
-                if app
-                    .world
-                    .get::<crate::animation::AnimationStateMachine>(sel)
-                    .is_some()
-                {
-                    ui.separator();
-                    egui::CollapsingHeader::new("State Machine")
-                        .default_open(true)
-                        .show(ui, |ui| {
-                            super::state_machine_panel::state_machine_panel(ui, app, sel);
-                        });
-                }
-
-                // ── Timeline editor (entities with a Timeline) ────────────────
-                if app.world.get::<crate::timeline::Timeline>(sel).is_some() {
-                    ui.separator();
-                    egui::CollapsingHeader::new("Timeline")
-                        .default_open(true)
-                        .show(ui, |ui| {
-                            super::timeline_panel::timeline_panel(ui, app, sel);
-                        });
-                }
+                app.editor.inspector_panels = panels;
 
                 ui.separator();
                 ui.strong("Component List");
@@ -954,7 +890,11 @@ pub(in crate::app) fn do_load_scene(app: &mut App) {
 /// drag editors. Edits mutate the component in place, so they take effect on the next spawn while
 /// the simulation runs. No-op (renders nothing) if the entity has no `ParticleEmitter`.
 #[cfg(not(target_arch = "wasm32"))]
-fn particle_tuner_grid(ui: &mut egui::Ui, app: &mut App, sel: crate::ecs::Entity) {
+pub(in crate::app) fn particle_tuner_grid(
+    ui: &mut egui::Ui,
+    app: &mut App,
+    sel: crate::ecs::Entity,
+) {
     let Some(em) = app.world.get_mut::<crate::particle::ParticleEmitter>(sel) else {
         return;
     };
@@ -1068,7 +1008,7 @@ fn color_rgb_drags(ui: &mut egui::Ui, c: &mut crate::color::Color) {
 /// intensity / light_height). Edits mutate the component so the lighting pass reflects them next
 /// frame. No-op if the entity has no `PointLight`.
 #[cfg(not(target_arch = "wasm32"))]
-fn point_light_grid(ui: &mut egui::Ui, app: &mut App, sel: crate::ecs::Entity) {
+pub(in crate::app) fn point_light_grid(ui: &mut egui::Ui, app: &mut App, sel: crate::ecs::Entity) {
     let Some(l) = app.world.get_mut::<crate::components::PointLight>(sel) else {
         return;
     };

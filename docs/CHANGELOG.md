@@ -4,6 +4,26 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 9.5.0
+
+**Pluggable editor inspector panels (cohesion review item 7, additive).** The docked editor's
+inspector hardcoded its per-component sub-panels, so a fork couldn't add one for their own
+component without editing `docked.rs`. Now there's a registration hook. Fully additive.
+
+### Added
+
+- `App::register_inspector_panel::<T>(title, draw)` (native-only) — registers a collapsing
+  inspector sub-panel shown whenever the selected entity has component `T`. `draw` is
+  `Fn(&mut egui::Ui, &mut App, Entity)`. Forks can add inspector UI for their own components
+  without touching the engine.
+
+### Changed (internal, behavior-identical)
+
+- The four uniform built-in inspector panels (Particle Tuner / Point Light / State Machine /
+  Timeline) are now registered through `register_inspector_panel` and dispatched by a single
+  loop instead of hardcoded `if has_component` blocks (`docked.rs` −81 lines). Tile Paint stays
+  hardcoded (non-uniform shape). No user-visible change.
+
 ## 9.4.1
 
 **Module-home reorganization (cohesion review item 3, pure relocation).** Zero behavior change,
