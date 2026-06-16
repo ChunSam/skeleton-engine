@@ -452,20 +452,45 @@ impl App {
     pub(in crate::app) fn draw_pathfinding_overlay(&mut self) {
         use crate::pathfinding::PathGrid;
         use crate::tilemap::Tilemap;
-        // Snapshot the tilemaps first so the immutable world borrow is released before DebugDraw.
-        let maps: Vec<Tilemap> = self
+
+        // We need a mutable borrow of DebugDraw and an immutable borrow of each Tilemap
+        // at the same time, which the borrow checker forbids via `world`. To avoid
+        // cloning the full Tilemap (which includes a TilemapAtlas with a heap-allocated
+        // texture String), we collect only the minimal data needed by the overlay:
+        // the tile grid (unavoidable — PathGrid::from_tilemap reads every cell),
+        // plus tile_size and origin (two f32 + Vec2 scalars). The atlas is not needed
+        // and is not cloned.
+        struct TilemapSnapshot {
+            tiles: Vec<Vec<u32>>,
+            tile_size: f32,
+            origin: glam::Vec2,
+        }
+        let snapshots: Vec<TilemapSnapshot> = self
             .world
             .query::<Tilemap>()
-            .map(|(_, tm)| tm.clone())
+            .map(|(_, tm)| TilemapSnapshot {
+                tiles: tm.tiles.clone(),
+                tile_size: tm.tile_size,
+                origin: tm.origin,
+            })
             .collect();
+
         let Some(dbg) = self.world.resource_mut::<crate::resources::DebugDraw>() else {
             return;
         };
         let blocked_color = crate::color::Color::rgba(1.0, 0.3, 0.3, 0.35);
         let walkable_color = crate::color::Color::rgba(0.3, 1.0, 0.5, 0.25);
-        for tm in &maps {
-            let grid = PathGrid::from_tilemap(tm, |id| id != 0);
-            let half = glam::Vec2::splat(tm.tile_size * 0.5);
+        for snap in snapshots {
+            // Build a temporary Tilemap using the moved tile grid (no second clone).
+            // The atlas is not used by PathGrid::from_tilemap; a zero-cost dummy is fine.
+            let tm = Tilemap::new(
+                crate::tilemap::TilemapAtlas::new("", 0, 0),
+                snap.tiles,
+                snap.tile_size,
+                snap.origin,
+            );
+            let grid = PathGrid::from_tilemap(&tm, |id| id != 0);
+            let half = glam::Vec2::splat(snap.tile_size * 0.5);
             for y in 0..grid.height {
                 for x in 0..grid.width {
                     let center = tm.cell_center_world(y as usize, x as usize);
@@ -546,6 +571,33 @@ impl App {
         self.register_component("PointLight", |world, e| {
             world.add_component(e, crate::components::PointLight::default());
         });
+        // UI widget component factories — names must match the serde registration names
+        // used by `core_resources::init_ui_serde_components` so "+ Add Component" and
+        // scene save/load agree on the key strings.
+        self.register_component("UiNode", |world, e| {
+            world.add_component(e, crate::ui::UiNode::default());
+        });
+        self.register_component("Button", |world, e| {
+            world.add_component(e, crate::ui::Button::default());
+        });
+        self.register_component("Label", |world, e| {
+            world.add_component(e, crate::ui::Label::default());
+        });
+        self.register_component("TextInput", |world, e| {
+            world.add_component(e, crate::ui::TextInput::default());
+        });
+        self.register_component("Slider", |world, e| {
+            world.add_component(e, crate::ui::Slider::default());
+        });
+        self.register_component("CheckBox", |world, e| {
+            world.add_component(e, crate::ui::CheckBox::default());
+        });
+        self.register_component("ScrollView", |world, e| {
+            world.add_component(e, crate::ui::ScrollView::default());
+        });
+        self.register_component("Panel", |world, e| {
+            world.add_component(e, crate::ui::panel::Panel::default());
+        });
         // register removal closures — the Inspector "✕" button uses this map to show/act
         self.register_component_remover("Sprite", |world, e| {
             world.remove_component::<crate::components::Sprite>(e);
@@ -561,6 +613,30 @@ impl App {
         });
         self.register_component_remover("Tag", |world, e| {
             world.remove_component::<crate::prefab::Tag>(e);
+        });
+        self.register_component_remover("UiNode", |world, e| {
+            world.remove_component::<crate::ui::UiNode>(e);
+        });
+        self.register_component_remover("Button", |world, e| {
+            world.remove_component::<crate::ui::Button>(e);
+        });
+        self.register_component_remover("Label", |world, e| {
+            world.remove_component::<crate::ui::Label>(e);
+        });
+        self.register_component_remover("TextInput", |world, e| {
+            world.remove_component::<crate::ui::TextInput>(e);
+        });
+        self.register_component_remover("Slider", |world, e| {
+            world.remove_component::<crate::ui::Slider>(e);
+        });
+        self.register_component_remover("CheckBox", |world, e| {
+            world.remove_component::<crate::ui::CheckBox>(e);
+        });
+        self.register_component_remover("ScrollView", |world, e| {
+            world.remove_component::<crate::ui::ScrollView>(e);
+        });
+        self.register_component_remover("Panel", |world, e| {
+            world.remove_component::<crate::ui::panel::Panel>(e);
         });
     }
 
