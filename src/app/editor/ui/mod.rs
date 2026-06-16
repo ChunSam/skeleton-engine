@@ -7,6 +7,11 @@ mod data_table_panel;
 mod docked;
 mod gizmo;
 mod shortcuts;
+#[cfg(not(target_arch = "wasm32"))]
+mod state_machine_panel;
+mod tile_paint;
+#[cfg(not(target_arch = "wasm32"))]
+mod timeline_panel;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::app::editor::EditorMode;
