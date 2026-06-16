@@ -229,6 +229,8 @@
         <a href="#debug-draw-api">Debug Draw API</a>
         <a href="#씬-전환-트랜지션">씬 전환 트랜지션</a>
         <a href="#타임라인컷씬">타임라인/컷씬</a>
+        <a href="#rtl--양방향-텍스트--다중-폰트">RTL / 양방향 텍스트 + 다중 폰트</a>
+        <a href="#에디터-서브시스템-패널-v811v827">에디터 서브시스템 패널 (v8.11–v8.27)</a>
       </details>
       <details>
         <summary>게임플레이 로직</summary>
@@ -237,6 +239,9 @@
         <a href="#물리-레이어--센서-phase-48">물리 레이어 / 센서</a>
         <a href="#충돌-경량-그리드">충돌 (경량 그리드)</a>
         <a href="#경로-탐색-a">경로 탐색 (A*)</a>
+        <a href="#대각선-경로탐색-8방향-a">대각선 경로탐색 (8방향 A*)</a>
+        <a href="#물리-조인트">물리 조인트</a>
+        <a href="#스켈레탈-애니메이션">스켈레탈 애니메이션</a>
         <a href="#스티어링-행동">스티어링 행동</a>
         <a href="#비헤이비어-트리">비헤이비어 트리</a>
         <a href="#blackboard">Blackboard</a>
@@ -248,6 +253,7 @@
         <a href="#에셋-비동기-로딩-phase-51">에셋 비동기 로딩</a>
         <a href="#씬-직렬화-scenedef">씬 직렬화 (SceneDef)</a>
         <a href="#저장불러오기">저장/불러오기</a>
+        <a href="#저장-마이그레이션">저장 마이그레이션</a>
         <a href="#저장-암호화-phase-53">저장 암호화</a>
         <a href="#rhai-스크립팅">Rhai 스크립팅</a>
         <a href="#오브젝트-풀">오브젝트 풀</a>
@@ -260,14 +266,19 @@
         <a href="#파티클">파티클</a>
         <a href="#gpu-파티클-phase-56a">GPU 파티클</a>
         <a href="#타일맵">타일맵</a>
+        <a href="#타일맵-오토타일링--런타임-변경--콜라이더-동기화">타일맵 오토타일링 + 콜라이더 동기화</a>
+        <a href="#데이터-주도-에셋-ron--핫리로드">데이터 주도 에셋 (RON + 핫리로드)</a>
+        <a href="#오디오--버스-믹서--더킹사이드체인">오디오 — 버스 믹서 + 더킹/사이드체인</a>
         <a href="#timer--tween">Timer / Tween</a>
         <a href="#네트워크">네트워크</a>
         <a href="#배포-패키징-phase-55">배포 패키징</a>
+        <a href="#에디터-서브시스템-패널-v811v827">에디터 서브시스템 패널</a>
+        <a href="#변경-이력-v91v93">변경 이력 (v9.1–v9.3)</a>
       </details>
     </nav>
     <main class="doc">
 <h1 id="skeleton-engine-레퍼런스">skeleton-engine 레퍼런스</h1>
-<blockquote>버전 v5.0.0 기준. 패키지명은 <code>skeleton-engine</code>, 라이브러리 크레이트명은 <code>engine</code>인 wgpu 기반 2D 게임 엔진.</blockquote>
+<blockquote>버전 v9.3.0 기준. 패키지명 <code>skeleton-engine</code>, 라이브러리 크레이트명 <code>engine</code>. wgpu 29 기반 2D 게임 엔진. MSRV 1.95, Cargo 워크스페이스 (<code>.</code> + <code>engine_reflect_derive</code>). WASM 지원: <code>cargo build --target wasm32-unknown-unknown</code>.</blockquote>
 <hr>
 <h2 id="목차">목차</h2>
 <div class="toc-grid">
@@ -281,19 +292,19 @@
   </section>
   <section class="toc-group">
     <h3>렌더링과 카메라</h3>
-    <ul><li><a href="#렌더링">렌더링</a></li><li><a href="#렌더-레이어">렌더 레이어</a></li><li><a href="#렌더-텍스처-phase-46">렌더 텍스처</a></li><li><a href="#2d-라이팅">2D 라이팅</a></li><li><a href="#포스트-프로세스-색보정-phase-56b">포스트 프로세스 색보정</a></li><li><a href="#카메라">카메라</a></li><li><a href="#카메라-이펙트">카메라 이펙트</a></li><li><a href="#debug-draw-api">Debug Draw API</a></li><li><a href="#씬-전환-트랜지션">씬 전환 트랜지션</a></li><li><a href="#타임라인컷씬">타임라인/컷씬</a></li></ul>
+    <ul><li><a href="#렌더링">렌더링</a></li><li><a href="#렌더-레이어">렌더 레이어</a></li><li><a href="#렌더-텍스처-phase-46">렌더 텍스처</a></li><li><a href="#2d-라이팅">2D 라이팅</a></li><li><a href="#포스트-프로세스-색보정-phase-56b">포스트 프로세스 색보정</a></li><li><a href="#rtl--양방향-텍스트--다중-폰트">RTL / 양방향 텍스트 + 다중 폰트</a></li><li><a href="#카메라">카메라</a></li><li><a href="#카메라-이펙트">카메라 이펙트</a></li><li><a href="#debug-draw-api">Debug Draw API</a></li><li><a href="#씬-전환-트랜지션">씬 전환 트랜지션</a></li><li><a href="#타임라인컷씬">타임라인/컷씬</a></li></ul>
   </section>
   <section class="toc-group">
     <h3>게임플레이 로직</h3>
-    <ul><li><a href="#애니메이션">애니메이션</a></li><li><a href="#물리-rapier2d">물리 (Rapier2D)</a></li><li><a href="#물리-레이어--센서-phase-48">물리 레이어 / 센서</a></li><li><a href="#충돌-경량-그리드">충돌 (경량 그리드)</a></li><li><a href="#경로-탐색-a">경로 탐색 (A*)</a></li><li><a href="#스티어링-행동">스티어링 행동</a></li><li><a href="#비헤이비어-트리">비헤이비어 트리</a></li><li><a href="#blackboard">Blackboard</a></li><li><a href="#commandbuffer">CommandBuffer</a></li></ul>
+    <ul><li><a href="#애니메이션">애니메이션</a></li><li><a href="#스켈레탈-애니메이션">스켈레탈 애니메이션</a></li><li><a href="#물리-rapier2d">물리 (Rapier2D)</a></li><li><a href="#물리-레이어--센서-phase-48">물리 레이어 / 센서</a></li><li><a href="#물리-조인트">물리 조인트</a></li><li><a href="#충돌-경량-그리드">충돌 (경량 그리드)</a></li><li><a href="#경로-탐색-a">경로 탐색 (A*)</a></li><li><a href="#대각선-경로탐색-8방향-a">대각선 경로탐색 (8방향)</a></li><li><a href="#스티어링-행동">스티어링 행동</a></li><li><a href="#비헤이비어-트리">비헤이비어 트리</a></li><li><a href="#blackboard">Blackboard</a></li><li><a href="#commandbuffer">CommandBuffer</a></li></ul>
   </section>
   <section class="toc-group">
     <h3>콘텐츠와 데이터</h3>
-    <ul><li><a href="#에셋-서버">에셋 서버</a></li><li><a href="#에셋-비동기-로딩-phase-51">에셋 비동기 로딩</a></li><li><a href="#씬-직렬화-scenedef">씬 직렬화 (SceneDef)</a></li><li><a href="#저장불러오기">저장/불러오기</a></li><li><a href="#저장-암호화-phase-53">저장 암호화</a></li><li><a href="#rhai-스크립팅">Rhai 스크립팅</a></li><li><a href="#오브젝트-풀">오브젝트 풀</a></li><li><a href="#엔티티-복제">엔티티 복제</a></li><li><a href="#좌표-규약">좌표 규약</a></li></ul>
+    <ul><li><a href="#에셋-서버">에셋 서버</a></li><li><a href="#에셋-비동기-로딩-phase-51">에셋 비동기 로딩</a></li><li><a href="#데이터-주도-에셋-ron--핫리로드">데이터 주도 에셋 (RON + 핫리로드)</a></li><li><a href="#씬-직렬화-scenedef">씬 직렬화 (SceneDef)</a></li><li><a href="#저장불러오기">저장/불러오기</a></li><li><a href="#저장-마이그레이션">저장 마이그레이션</a></li><li><a href="#저장-암호화-phase-53">저장 암호화</a></li><li><a href="#rhai-스크립팅">Rhai 스크립팅</a></li><li><a href="#오브젝트-풀">오브젝트 풀</a></li><li><a href="#엔티티-복제">엔티티 복제</a></li><li><a href="#좌표-규약">좌표 규약</a></li></ul>
   </section>
   <section class="toc-group">
     <h3>효과와 배포</h3>
-    <ul><li><a href="#오디오">오디오</a></li><li><a href="#파티클">파티클</a></li><li><a href="#gpu-파티클-phase-56a">GPU 파티클</a></li><li><a href="#타일맵">타일맵</a></li><li><a href="#timer--tween">Timer / Tween</a></li><li><a href="#네트워크">네트워크</a></li><li><a href="#배포-패키징-phase-55">배포 패키징</a></li></ul>
+    <ul><li><a href="#오디오">오디오</a></li><li><a href="#오디오--버스-믹서--더킹사이드체인">오디오 — 버스 믹서 + 더킹/사이드체인</a></li><li><a href="#파티클">파티클</a></li><li><a href="#gpu-파티클-phase-56a">GPU 파티클</a></li><li><a href="#타일맵">타일맵</a></li><li><a href="#타일맵-오토타일링--런타임-변경--콜라이더-동기화">타일맵 오토타일링 + 콜라이더 동기화</a></li><li><a href="#rtl--양방향-텍스트--다중-폰트">RTL / 양방향 텍스트 + 다중 폰트</a></li><li><a href="#에디터-서브시스템-패널-v811v827">에디터 서브시스템 패널 (v8.11–v8.27)</a></li><li><a href="#timer--tween">Timer / Tween</a></li><li><a href="#네트워크">네트워크</a></li><li><a href="#배포-패키징-phase-55">배포 패키징</a></li><li><a href="#변경-이력-v91v93">변경 이력 (v9.1–v9.3)</a></li></ul>
   </section>
 </div>
 <hr>
@@ -691,6 +702,45 @@ sm.add_transition_crossfade(
 <p><strong>등록 순서 요약</strong></p>
 <pre><code>BlendTreeSystem → AnimationSystem → StateMachineSystem</code></pre>
 <hr>
+<h2 id="스켈레탈-애니메이션">스켈레탈 애니메이션</h2>
+<p>2D 커트아웃(리그드) 스켈레탈 애니메이션. 뼈대는 <code>Transform</code> + <code>Parent</code>를 가진 계층 엔티티이며, 스프라이트 피스는 각 본에 붙는다. 자세한 내용은 <code>docs/SKELETAL.md</code> 참조. 예제: <code>examples/skeletal_puppet</code>.</p>
+<pre><code class="language-rust">use engine::{SkeletonBuilder, SkeletalClip, BoneTrack, BoneKeyframe, SkeletalAnimationSystem};
+use engine::components::{Transform, Sprite};
+use glam::Vec2;
+
+// 뼈대 계층 구축
+let mut builder = SkeletonBuilder::new(
+    &amp;mut app.world,
+    "hip",
+    Transform { position: Vec2::new(480.0, 270.0), ..Default::default() },
+);
+builder.add_bone(&amp;mut app.world, "torso", "hip",
+    Transform { position: Vec2::new(0.0, 40.0), ..Default::default() },
+    Some(Sprite::colored(0.8, 0.7, 0.6)));
+
+// 클립 정의
+let clip = SkeletalClip {
+    name: "idle".into(),
+    duration: 1.0,
+    looping: true,
+    tracks: vec![BoneTrack {
+        bone: "torso".into(),
+        keys: vec![
+            BoneKeyframe { time: 0.0, position: Vec2::new(0.0, 40.0), rotation: 0.0, scale: Vec2::ONE },
+            BoneKeyframe { time: 0.5, position: Vec2::new(0.0, 40.0), rotation: 0.2, scale: Vec2::ONE },
+            BoneKeyframe { time: 1.0, position: Vec2::new(0.0, 40.0), rotation: 0.0, scale: Vec2::ONE },
+        ],
+    }],
+};
+
+builder.finish(&amp;mut app.world, vec![clip]);
+app.add_system(SkeletalAnimationSystem);</code></pre>
+<ul>
+<li><code>SkeletalAnimator</code>: 루트 엔티티에 붙는 컴포넌트. <code>play(idx)</code> / <code>play_named(name)</code> / <code>is_finished()</code>.</li>
+<li><code>BoneTrack::sample(t)</code>: 위치·회전·스케일 선형 보간 (회전은 최단경로 각도 보간).</li>
+<li><code>HierarchySystem</code>이 <code>SkeletalAnimationSystem</code> 뒤에 자동 실행되어 <code>GlobalTransform</code>을 전파한다.</li>
+</ul>
+<hr>
 <h2 id="물리-rapier2d">물리 (Rapier2D)</h2>
 <p><code>PhysicsWorld</code>를 시스템 구조체에 직접 소유하거나 ECS 리소스로 삽입한다. 팩토리 메서드는 rapier 내부 타입 대신 엔진 newtype인 <code>BodyHandle</code> / <code>ColliderHandle</code>을 반환한다. 코드에서 타입을 명시해야 한다면 <code>engine::{BodyHandle, ColliderHandle}</code>을 임포트한다. rapier 로우 타입이 필요한 포크(fork)는 <code>.raw()</code> 이스케이프 해치를 사용한다.</p>
 <pre><code class="language-rust">use engine::{PhysicsBody, PhysicsSystem, PhysicsWorld};
@@ -914,6 +964,148 @@ world.add_component(map_entity, Tilemap::new(
 
 app.add_system(TilemapSystem::new());</code></pre>
 <p><code>TilemapSystem</code>은 타일맵 엔티티가 처음 등장하면 타일 엔티티를 자동 스폰하고, 사라지면 자동 디스폰한다.</p>
+<hr>
+<h2 id="타일맵-오토타일링--런타임-변경--콜라이더-동기화">타일맵 오토타일링 + 런타임 변경 + 콜라이더 동기화</h2>
+<h3 id="런타임-타일-변경">런타임 타일 변경</h3>
+<pre><code class="language-rust">// 셀 변경 (범위 밖이면 false 반환, panic 없음)
+if tilemap.set_tile(row, col, 0) { /* 굴착 성공 */ }
+
+// 읽기
+let v: Option&lt;u32&gt; = tilemap.get_tile(row, col);
+
+// 크기 (rows, cols)
+let (rows, cols) = tilemap.dims();
+
+// 세계 좌표 → 셀 좌표
+if let Some((row, col)) = tilemap.cell_at_world(mouse_world_pos) { /* ... */ }
+
+// tiles 필드를 직접 교체한 후에는 반드시 호출
+tilemap.bump_generation();</code></pre>
+<blockquote><code>set_tile</code>은 변경이 있을 때만 <code>generation</code>을 증가시켜 <code>TilemapSystem</code>이 diff 패스를 건너뛸 수 있게 한다.</blockquote>
+<h3 id="오토타일링">오토타일링</h3>
+<p>같은 엔티티에 <code>TilemapAutotile</code> 컴포넌트를 붙이면 <code>TilemapSystem</code>이 이웃 연결성으로 표시 UV를 자동 결정한다.</p>
+<pre><code class="language-rust">use engine::{TilemapAutotile, MultiTerrainAutotile};
+
+// 16타일 엣지 레이아웃 (atlas strip 시작 id = 0)
+world.add_component(map_entity, TilemapAutotile::edge_16(0));
+
+// 47타일 blob-8 레이아웃
+world.add_component(map_entity, TilemapAutotile::blob_47(0));
+
+// 경계 밖 이웃을 채워진 것으로 취급 (동굴/지하 맵 용)
+world.add_component(map_entity,
+    TilemapAutotile::edge_16(0).with_oob_filled(true));
+
+// 다중 지형: 값 1 = grass (atlas 0번~), 값 2 = water (atlas 16번~)
+world.add_component(map_entity,
+    MultiTerrainAutotile::edge_16(&amp;[(1, 0), (2, 16)]));</code></pre>
+<ul>
+<li><code>Neighborhood::Edge4</code>: 4방향, 16가지 마스크 (N=1, E=2, S=4, W=8)</li>
+<li><code>Neighborhood::Blob8</code>: 8방향 blob 감소, 47가지 마스크 — 대각 비트는 인접 직교 비트가 모두 1일 때만 유효</li>
+<li><code>MultiTerrainAutotile</code>은 같은 값의 이웃끼리만 연결 (값 1 ↔ 값 1, 값 2 ↔ 값 2)</li>
+</ul>
+<p>예제: <code>examples/dig_quest</code>, <code>examples/multi_terrain</code></p>
+<h3 id="콜라이더-동기화">콜라이더 동기화</h3>
+<pre><code class="language-rust">use engine::{TilemapColliders, SolidTiles};
+
+// 엔티티에 붙이기
+world.add_component(map_entity,
+    TilemapColliders::new(32.0, SolidTiles::NonZero));
+// 특정 id만 solid
+world.add_component(map_entity,
+    TilemapColliders::new(32.0, SolidTiles::only([1, 2])));
+
+// set_tile 후 또는 paint stroke 후 호출
+app.sync_tilemap_colliders(map_entity);  // → bool (PhysicsWorld 없으면 false)
+
+// 엔티티 despawn 전 반드시 정리
+world.with_resource_mut::&lt;PhysicsWorld, _&gt;(|physics, world| {
+    if let Some(tc) = world.get_mut::&lt;TilemapColliders&gt;(map_entity) {
+        tc.drain_into_physics(physics);
+    }
+});
+world.despawn(map_entity);</code></pre>
+<blockquote><code>add_static_from_tilemap</code>은 일회성 전체 빌드이고, <code>sync_static_from_tilemap</code>/<code>TilemapColliders</code>는 증분 diff 방식이다. 같은 타일에 두 방식을 혼용하면 중복 콜라이더가 생긴다.</blockquote>
+<hr>
+<h2 id="데이터-주도-에셋-ron--핫리로드">데이터 주도 에셋 (RON + 핫리로드)</h2>
+<p>세 가지 레지스트리가 RON 파일에서 에셋을 로드하고 파일 변경 시 자동 핫리로드된다 (네이티브 전용).</p>
+<h3 id="datatable">DataTable</h3>
+<pre><code class="language-rust">// 로드 (영속 — 씬 Replace 후에도 살아남음)
+app.load_data_table("enemies", "assets/enemies.ron");
+
+// 읽기 (시스템 안)
+if let Some(reg) = world.resource::&lt;DataTableRegistry&gt;() {
+    if let Some(table) = reg.get("enemies") {
+        for row in &amp;table.rows {
+            // row: Vec&lt;(String, ron::Value)&gt;
+        }
+    }
+}</code></pre>
+<p>에디터 Data Tables 패널에서 행/셀을 직접 편집하고 저장하면 핫리로드된다.</p>
+<h3 id="animationclipset">AnimationClipSet</h3>
+<pre><code class="language-rust">// 로드
+app.load_animation_clips("hero", "assets/hero_clips.ron");
+
+// 사용
+if let Some(reg) = world.resource::&lt;AnimationClipRegistry&gt;() {
+    if let Some(set) = reg.get("hero") {
+        let clips = set.clips().to_vec();
+        let idle_idx = set.index("idle").unwrap();
+        world.add_component(e, AnimationPlayer::new(clips, idle_idx));
+    }
+}</code></pre>
+<p>RON 형식: <code>(atlas: (columns: 4, rows: 4), clips: {"idle": (frames: [0,1,2], fps: 6.0, looping: true)})</code></p>
+<h3 id="particleconfigset">ParticleConfigSet</h3>
+<pre><code class="language-rust">app.load_particle_configs("effects", "assets/effects.ron");
+
+if let Some(reg) = world.resource::&lt;ParticleConfigRegistry&gt;() {
+    if let Some(set) = reg.get("effects") {
+        if let Some(emitter) = set.emitter("explosion") {
+            world.add_component(e, emitter);
+        }
+    }
+}</code></pre>
+<h3 id="커스텀-핫리로드-등록">커스텀 핫리로드 등록</h3>
+<pre><code class="language-rust">use engine::asset::HotReloadable;
+
+struct MyRegistry { /* ... */ }
+impl HotReloadable for MyRegistry {
+    fn reload_path(&amp;mut self, path: &amp;str) { /* path 일치 시 리로드 */ }
+}
+
+app.world.insert_resource(MyRegistry { /* ... */ });
+app.register_hot_reloadable::&lt;MyRegistry&gt;(); // 네이티브 전용</code></pre>
+<hr>
+<h2 id="오디오--버스-믹서--더킹사이드체인">오디오 — 버스 믹서 + 더킹/사이드체인</h2>
+<h3 id="버스-믹서">버스 믹서</h3>
+<pre><code class="language-rust">// 채널을 버스에 할당 (play 전·후 모두 가능)
+audio.assign_bus("bgm",      "music");
+audio.assign_bus("sfx_jump", "sfx");
+
+// 버스 전체 볼륨 조정
+audio.set_bus_volume("music", 0.5);
+let v: f32 = audio.bus_volume("music");  // 1.0 = 미설정
+
+// 존재하는 모든 버스 이름 목록 (에디터 믹서 패널 등에 유용)
+let names: Vec&lt;String&gt; = audio.bus_names();</code></pre>
+<h3 id="더킹--사이드체인">더킹 + 사이드체인</h3>
+<pre><code class="language-rust">// 수동 더킹: "sfx" 버스를 0.2 게인으로 0.1초 안에 낮춤
+audio.duck_bus("sfx", 0.2, 0.1);
+
+// 릴리스: 0.3초 안에 1.0으로 복원
+audio.release_bus("sfx", 0.3);
+
+// 현재 duck 배율 조회
+let gain: f32 = audio.bus_duck("sfx");
+
+// 자동 사이드체인: "music" 버스가 재생 중이면 "sfx"를 0.3으로 자동 덕
+audio.set_sidechain("music", "sfx", 0.3, 0.05, 0.2);
+// 해제
+audio.clear_sidechain("sfx");</code></pre>
+<blockquote>사이드체인이 설정된 버스는 매 프레임 자동으로 duck 목표값이 덮어쓰인다. 같은 버스에 <code>duck_bus</code>/<code>release_bus</code>를 수동으로 호출해도 다음 프레임에 사이드체인 규칙이 우선 적용된다.</blockquote>
+<h3 id="audiosystem-등록">AudioSystem 등록</h3>
+<p>페이드와 더킹 진행은 <code>AudioManager::update(dt)</code>가 필요하므로 <code>AudioSystem</code>을 등록해야 한다.</p>
+<pre><code class="language-rust">app.add_system(AudioSystem);  // 또는 AudioSystem::default()</code></pre>
 <hr>
 <h2 id="timer--tween">Timer / Tween</h2>
 <h3 id="timer">Timer</h3>
@@ -1305,7 +1497,23 @@ let grid = PathGrid::new(tilemap.width as i32, tilemap.height as i32);
 // 적 AI: 매 프레임 또는 경로 갱신 주기마다 호출
 if let Some(path) = find_path(&amp;grid, enemy_tile, player_tile) {
     // path[0]이 다음 이동 목표 셀
-}</code></pre>
+}
+
+// Tilemap 에서 직접 생성 (is_blocked 조건 지정)
+let grid = PathGrid::from_tilemap(&amp;tilemap, |id| id == 1);</code></pre>
+<hr>
+<h2 id="대각선-경로탐색-8방향-a">대각선 경로탐색 (8방향 A*)</h2>
+<p><code>find_path_diagonal</code>은 8방향(상하좌우 + 대각선) A* 알고리즘이다. 정수 비용(직교 = 10, 대각 = 14)과 옥타일 휴리스틱을 사용해 가장 짧은 경로를 찾는다.</p>
+<pre><code class="language-rust">use engine::{PathGrid, find_path_diagonal};
+use glam::IVec2;
+
+let grid = PathGrid::from_tilemap(&amp;tilemap, |id| id != 0);
+let path = find_path_diagonal(&amp;grid, IVec2::new(0, 0), IVec2::new(10, 8));</code></pre>
+<ul>
+<li>코너 컷 없음: 대각 이동 시 인접한 직교 두 셀이 모두 통행 가능해야 한다.</li>
+<li>반환 경로 규약은 <code>find_path</code>와 동일: start 미포함, goal 포함.</li>
+<li><code>PathGrid::from_tilemap(&amp;tilemap, is_blocked)</code>로 Tilemap에서 직접 그리드를 생성할 수 있다 (<code>tiles[y][x]</code> → grid <code>(x, y)</code> 매핑).</li>
+</ul>
 <hr>
 <h2 id="렌더-레이어">렌더 레이어</h2>
 <p><code>RenderLayer(i32)</code> 컴포넌트로 스프라이트의 렌더링 순서를 명시적으로 제어한다.</p>
@@ -1934,6 +2142,35 @@ world.add_component(cam_entity, tl);
 
 // Camera 리소스를 cam_entity Transform과 동기화하는 별도 시스템 추가</code></pre>
 <hr>
+<h2 id="rtl--양방향-텍스트--다중-폰트">RTL / 양방향 텍스트 + 다중 폰트</h2>
+<p>엔진은 <code>cosmic-text</code>를 통해 히브리어·아랍어 등 RTL 텍스트와 LTR+RTL 혼합 양방향(bidi) 텍스트를 기본 지원한다(<code>Shaping::Advanced</code>). 별도 플래그 없이 UTF-8 문자열을 전달하면 자동으로 올바르게 정형된다.</p>
+<h3 id="textalign-rtl-옵션">TextAlign RTL 옵션</h3>
+<ul>
+<li><code>TextAlign::Auto</code> — 각 줄의 방향(LTR/RTL)에 따라 자동 정렬. 혼합 UI 권장.</li>
+<li><code>TextAlign::End</code> — 읽기 방향 끝 정렬: LTR이면 오른쪽, RTL이면 왼쪽.</li>
+<li><code>TextAlign::Left</code> / <code>Center</code> / <code>Right</code> — 절대 정렬.</li>
+</ul>
+<pre><code class="language-rust">use engine::{DrawText, TextAlign, TextQueue};
+use glam::Vec2;
+
+// 히브리어 자동 정렬 — RTL 단락은 자동 오른쪽 정렬
+tq.push(DrawText::new("שלום עולם", Vec2::new(400.0, 100.0), 28.0, [1.0; 4])
+    .with_align(TextAlign::Auto));
+
+// 강제 끝 정렬
+tq.push(DrawText::new("Hello / שלום", Vec2::new(400.0, 140.0), 28.0, [1.0; 4])
+    .with_align(TextAlign::End));</code></pre>
+<h3 id="extrafont-다중-폰트-폴백">ExtraFonts — 다중 폰트 폴백</h3>
+<p><code>FontData</code>에 주 폰트, <code>ExtraFonts</code>에 보조 폰트(RTL 스크립트, 이모지, CJK 등)를 추가하면 cosmic-text가 글리프 스크립트별로 자동 폴백한다.</p>
+<pre><code class="language-rust">// run() 전에 삽입
+app.world.insert_resource(FontData(
+    std::fs::read("assets/NotoSans.ttf").unwrap()
+));
+app.world.insert_resource(ExtraFonts(vec![
+    std::fs::read("assets/NotoSansHebrew.ttf").unwrap(),
+]));</code></pre>
+<p>예제: <code>examples/rtl_text</code> (히브리어 + 다중 폰트 혼합 렌더링)</p>
+<hr>
 <h2 id="좌표-규약">좌표 규약</h2>
 <pre><code>(0, 0) ──────────────────→ X+
   │
@@ -2086,6 +2323,37 @@ for ev in world.resource::&lt;Events&lt;TriggerEvent&gt;&gt;().unwrap().read() {
     }
 }</code></pre>
 <hr>
+<h2 id="물리-조인트">물리 조인트</h2>
+<p><code>PhysicsWorld</code>에서 두 바디를 연결하는 조인트를 생성한다. 반환된 <code>JointHandle</code>로 나중에 제거할 수 있다. 예제: <code>examples/crane_wrecking_ball</code>.</p>
+<pre><code class="language-rust">use engine::{PhysicsWorld, JointHandle};
+
+if let Some(physics) = world.resource_mut::&lt;PhysicsWorld&gt;() {
+    // 회전 조인트 (힌지) — 두 바디가 공유 축 주위를 자유 회전
+    let hinge: JointHandle = physics.add_revolute_joint(
+        body1, body2,
+        Vec2::new(0.0, -16.0),  // body1 로컬 앵커
+        Vec2::new(0.0,  16.0),  // body2 로컬 앵커
+    );
+
+    // 거리 조인트 (스프링) — rest_length 거리 유지
+    let rope: JointHandle = physics.add_distance_joint(
+        body1, body2,
+        Vec2::ZERO, Vec2::ZERO,
+        80.0, // rest_length (픽셀)
+    );
+
+    // 프리즘 조인트 (슬라이더) — 지정 축을 따라서만 이동 허용
+    let slider: JointHandle = physics.add_prismatic_joint(
+        body1, body2,
+        Vec2::ZERO, Vec2::ZERO,
+        Vec2::X, // 이동 허용 축 (정규화됨)
+    );
+
+    // 제거
+    physics.remove_joint(hinge);
+}</code></pre>
+<blockquote>물리 기능은 네이티브 전용이다. WASM 타겟에서는 <code>#[cfg(not(target_arch = "wasm32"))]</code>로 감싸야 한다.</blockquote>
+<hr>
 <h2 id="텍스트-완성--ime-phase-49">텍스트 완성 + IME (Phase 49)</h2>
 <h3 id="drawtext--멀티라인--정렬">DrawText — 멀티라인 + 정렬</h3>
 <p><code>DrawText</code>의 <code>align</code>과 <code>bounds</code> 필드를 활용해 멀티라인 정렬 텍스트를 렌더링한다.</p>
@@ -2214,6 +2482,34 @@ if let Some(locale) = world.resource_mut::&lt;LocaleResource&gt;() {
     data.translations.insert(&quot;msg.hello&quot;.into(), &quot;안녕하세요&quot;.into());
     locale.insert_locale(&quot;ko&quot;, data);
 }</code></pre>
+<hr>
+<h2 id="저장-마이그레이션">저장 마이그레이션</h2>
+<p>세이브 파일 스키마가 바뀔 때 <code>SaveMigrator</code>로 이전 버전을 새 버전으로 단계적으로 업그레이드한다. 네이티브 전용 (<code>cfg(not(target_arch = "wasm32"))</code>).</p>
+<pre><code class="language-rust">use engine::{save_versioned, load_migrated, SaveMigrator};
+
+// 저장: 현재 스키마 버전 태그를 함께 기록
+save_versioned(&amp;path, 1, &amp;my_save_data)?;
+
+// 로드: 저장 버전에서 현재 버전까지 단계적 마이그레이션
+let migrator = SaveMigrator::new()
+    // 버전 0 → 1: "coins" 필드 추가
+    .step(0, |mut v| {
+        if let ron::Value::Map(ref mut m) = v {
+            m.insert(
+                ron::Value::String("coins".into()),
+                ron::Value::Number(ron::value::Number::new(0i64)),
+            );
+        }
+        v
+    });
+// migrator.current_version() == 1
+
+let data: MySave = load_migrated(&amp;path, &amp;migrator)?;</code></pre>
+<ul>
+<li>저장된 버전이 <code>migrator.current_version()</code>보다 <strong>크면</strong> (미래 버전 세이브) → <code>SaveError::Unsupported</code></li>
+<li>같은 버전이면 마이그레이션 없이 역직렬화</li>
+<li>커스텀 키: <code>save_versioned_with_key</code> / <code>load_migrated_with_key</code></li>
+</ul>
 <hr>
 <h2 id="저장-암호화-phase-53">저장 암호화 (Phase 53)</h2>
 <p><code>save</code> / <code>load</code>는 기존 시그니처를 유지하며 기본 키로 자동 암호화한다. 앱별 키가 필요하면 <code>SaveKey</code>, <code>save_with_key</code>, <code>load_with_key</code>를 사용한다.</p>
@@ -2519,6 +2815,43 @@ python3 -m http.server --directory dist 8080</code></pre>
 <code>ParticleEmitter::with_z</code>, <code>InputMap::axis_value</code>, <code>save_versioned_with_key</code>/<code>load_migrated_with_key</code>,
 <code>RenderTarget</code> <code>clear_color</code>, <code>AudioManager::clear_file_cache</code>,
 <code>SerdeComponentRegistry::component_names_for</code>.</p>
+<hr>
+<h2 id="에디터-서브시스템-패널-v811v827">에디터 서브시스템 패널 (v8.11–v8.27)</h2>
+<p>F2 도킹 에디터에 추가된 비주얼 툴 패널 목록. 이 기능들은 에디터 UI 전용이며 별도 코드 API 없이 인스펙터/뷰포트에서 직접 조작한다.</p>
+<ul>
+<li><strong>Tile Paint</strong>: 선택한 <code>Tilemap</code> 엔티티에 타일을 그린다. 브러시(N×N)/사각형/버킷 채우기/스포이드(Alt+클릭) 도구. 왼클릭=그리기, 오른클릭=지우기, 숫자 키=타일 선택. 이미지 스와치 팔레트(아틀라스 썸네일 egui 텍스처 등록). 스트로크 단위 Undo. 시각적 오버레이만 — 실제 <code>set_tile</code>과 동일한 경로를 통해 물리/AI 그리드에도 반영.</li>
+<li><strong>오디오 버스 믹서</strong>: 등록된 모든 버스 볼륨 슬라이더를 실시간으로 조정.</li>
+<li><strong>파티클 라이브 튜너</strong>: 선택된 <code>ParticleEmitter</code>의 필드를 인스펙터 드래그로 실시간 조정 + Reset.</li>
+<li><strong>라이팅 에디터</strong>: <code>PointLight</code> 추가/편집 + 전역 <code>AmbientLight</code> 조정.</li>
+<li><strong>상태머신 에디터</strong>: <code>AnimationStateMachine</code>의 상태·전이·파라미터를 리스트 기반 그래프 편집기에서 확인하고 편집.</li>
+<li><strong>타임라인 에디터</strong>: <code>Timeline</code>의 트랙별 키프레임 목록 + 재생 컨트롤.</li>
+<li><strong>경로탐색/bounds 오버레이</strong>: <code>PathGrid</code> walkable/blocked 셀 + 콜라이더 bounds를 뷰포트에 오버레이.</li>
+<li><strong>설정 영속화</strong>: 에디터 레이아웃·카메라·선택 상태를 RON 파일에 자동 저장/복원.</li>
+</ul>
+<hr>
+<h2 id="변경-이력-v91v93">변경 이력 (v9.1–v9.3)</h2>
+<h3 id="v910-상태머신--타임라인-직렬화">v9.1.0 — 상태머신 / 타임라인 직렬화</h3>
+<ul>
+<li><code>AnimationStateMachine</code>과 <code>Timeline</code>이 <code>Serialize</code>/<code>Deserialize</code>를 구현. <code>App::register_serde_component</code>에 자동 등록되어 씬 RON에 포함된다.</li>
+<li>에디터에서 편집한 상태머신/타임라인이 씬 저장/불러오기 후에도 유지된다.</li>
+</ul>
+<h3 id="v920-상태머신--타임라인-에디터-깊이">v9.2.0 — 상태머신 / 타임라인 에디터 깊이</h3>
+<ul>
+<li><code>AnimationStateMachine</code>에 편집 전용 메서드 추가:
+  <ul>
+    <li><code>set_transition_conditions(from, index, conds)</code> → 전이 조건 교체. 없으면 <code>false</code></li>
+    <li><code>set_transition_crossfade(from, index, seconds)</code> → 전이 크로스페이드 시간 교체. 없으면 <code>false</code></li>
+  </ul>
+</li>
+<li>에디터 상태머신 패널: 라이브 파라미터 편집, 전이 추가, 조건 편집 지원.</li>
+<li>타임라인 에디터 패널: 키프레임 추가 + 값 직접 편집 지원.</li>
+</ul>
+<h3 id="v930-hotreloadable-확장-포인트">v9.3.0 — HotReloadable 확장 포인트</h3>
+<ul>
+<li><code>HotReloadable</code> 트레잇 공개 (<code>engine::asset::HotReloadable</code>): 포크가 자체 레지스트리를 핫리로드 파이프라인에 꽂을 수 있는 공식 확장 포인트.</li>
+<li><code>App::register_hot_reloadable::&lt;T&gt;()</code>: 구현체를 등록하면 파일 변경마다 <code>T::reload_path</code>가 호출된다 (네이티브 전용).</li>
+<li>내장 레지스트리 3종(<code>DataTableRegistry</code>, <code>AnimationClipRegistry</code>, <code>ParticleConfigRegistry</code>)은 <code>App::new()</code>에서 자동 등록된다.</li>
+</ul>
     </main>
   </div>
 </body>
