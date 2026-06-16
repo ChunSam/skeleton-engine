@@ -25,7 +25,10 @@ the arc.
   re-exported public names (`engine::tilemap::*`) are unchanged.
 - Extracted the 14 renderer/texture/egui fields from the `App` god-struct into a new internal
   `RenderState` (`src/app/render_state.rs`); `App` now holds one `render: RenderState` field (`gpu`
-  and `world` stay on `App`). No public API change — sets up the `render()`/`update()` splits.
+  and `world` stay on `App`). No public API change — sets up the `update()` split.
+- Split the 386-line `schedule::update()` god-function into `compute_viewport()` / `run_systems()` /
+  `post_systems()` helpers, and moved egui frame begin/end into `egui_pass.rs`. Operation order is
+  unchanged (guarded by the existing pause / egui-delta-merge / scene-transition tests). Internal-only.
 
 ### Changed (breaking)
 

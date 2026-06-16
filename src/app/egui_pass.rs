@@ -1,3 +1,47 @@
+/// Begin an egui frame.
+///
+/// Takes the pending raw input from `egui_winit::State`, calls `ctx.begin_pass`, and
+/// returns the `egui::Context` that must be passed to every egui draw call this frame
+/// and ultimately handed back to [`end_egui_frame`].
+///
+/// Returns `None` when the window or egui state is not yet available (pre-GPU-init),
+/// or when no `DebugUi` resource is registered.
+pub(super) fn begin_egui_frame(
+    window: Option<&winit::window::Window>,
+    egui_state: Option<&mut egui_winit::State>,
+    debug_ui: Option<&super::DebugUi>,
+) -> Option<egui::Context> {
+    let window = window?;
+    let state = egui_state?;
+    let debug_ui = debug_ui?;
+    let ctx = debug_ui.ctx().clone();
+    let raw_input = state.take_egui_input(window);
+    ctx.begin_pass(raw_input);
+    Some(ctx)
+}
+
+/// End an egui frame: tessellate, merge pending texture deltas, and store the result
+/// in `egui_output` for [`render()`][super::App::render] to consume.
+///
+/// **Ordering:** reads and clears the PREVIOUS `egui_output` (the pending delta) BEFORE
+/// writing the new one. This preserves the old → new delta ordering documented on
+/// [`super::schedule::merge_textures_delta`].
+pub(super) fn end_egui_frame(
+    ctx: egui::Context,
+    window: Option<&winit::window::Window>,
+    egui_output: &mut Option<(Vec<egui::ClippedPrimitive>, egui::TexturesDelta, f32)>,
+) {
+    use super::schedule::merge_textures_delta;
+    let ppp = window.map(|w| w.scale_factor() as f32).unwrap_or(1.0);
+    let full_output = ctx.end_pass();
+    let paint_jobs = ctx.tessellate(full_output.shapes, ppp);
+    let textures_delta = merge_textures_delta(
+        egui_output.take().map(|(_, pending, _)| pending),
+        full_output.textures_delta,
+    );
+    *egui_output = Some((paint_jobs, textures_delta, ppp));
+}
+
 pub(super) fn paint_jobs_contain_callbacks(paint_jobs: &[egui::ClippedPrimitive]) -> bool {
     paint_jobs
         .iter()
