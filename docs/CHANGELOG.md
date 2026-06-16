@@ -4,6 +4,95 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 9.0.0
+
+Engine-wide **hardening pass** — 80 findings from a 14-subsystem code analysis
+(`docs/CODE_ANALYSIS_2026-06-16.md`). Dominant theme: **fail-loud over fail-quiet** — bad
+input/data/state that used to silently misbehave now panics-guards, logs, or returns `None`.
+Mostly additive; a handful of small breaking changes are listed first.
+
+### Changed (breaking)
+
+- **`NetworkSystem` is now a struct** (holds warn-once state for a missing `Events<NetworkEvent>`).
+  Construct it with `NetworkSystem::new()` (or `::default()`) instead of the bare `NetworkSystem`
+  unit value — `app.add_system(NetworkSystem::new())`.
+- **`GamepadButton` / `GamepadAxis` are `#[non_exhaustive]`** — external `match`es must add a
+  wildcard (`_ =>`) arm. Future button/axis additions are now non-breaking (before v1.0 freeze).
+- **`SerdeComponentEntry` gained a `has_component` field** — only `register_arc` constructs it
+  internally, but external code building the struct literal directly must add the field.
+- **`SolidTiles::Only` stores a `HashSet<u32>`** (was `Vec<u32>`) for O(1) per-tile lookup; an
+  additive `IntoIterator` constructor preserves the ergonomic build path.
+- **MSRV raised 1.92 → 1.95** to match the only toolchain CI actually verifies (the declared 1.92
+  was never built/tested).
+
+### Added
+
+- `ParticleEmitter::z` + `with_z()` (+ RON `EmitterDef` `z`) — spawned particles inherit the
+  emitter's z-depth instead of being hardcoded to `0.0`.
+- `Track<T>::set_value(i, v)` / `set_easing(i, e)` keyframe mutators; the editor Timeline panel
+  wires per-keyframe easing editing.
+- `World::has_component::<T>()` public existence check (no wasteful downcast).
+- `save_versioned_with_key` / `load_migrated_with_key` (custom-key + versioned migration).
+- `InputMap::axis_value(action, gamepad, pad)`; gamepad **axis** bindings are now honored by
+  `just_pressed` / `just_released` (previously axis-only actions always read `false`).
+- `Camera` shake / zoom-tween accessors; `RenderTarget` per-target `clear_color`.
+- `Panel::direction` exposed via `Reflect`; `LocalizationSystem` can bind `TextInput.placeholder`.
+- Editor: `+ Add Component` / remove `✕` now cover all 8 serde UI widgets (UiNode/Button/Label/
+  TextInput/Slider/CheckBox/ScrollView/Panel); `SerdeComponentRegistry::component_names_for`
+  (presence check without RON serialization).
+- Audio `clear_file_cache()`; hot-reload dispatch de-duplicated so a fork wires a new RON registry
+  in one line.
+- Four crate-boundary integration tests (`tests/{pathfinding,timeline,behavior,save}_smoke.rs`).
+
+### Fixed
+
+- **`blob_47` autotile mask table** used the wrong bit convention — 36 reachable masks silently fell
+  back to atlas tile 0 (plain orthogonal-neighbor tiles rendered as tile 0).
+- **Gamepad axis `just_pressed`/`just_released`** ignored axis bindings (stick-triggered one-shot
+  actions never fired).
+- **Held keys stuck on focus loss** — `WindowEvent::Focused(false)` now calls `InputState::release_all()`
+  (no phantom `just_released`); spurious `just_released` for never-pressed keys fixed.
+- **macOS modal resize double-stepped** physics/tween/timer (`Resized` + `RedrawRequested` both
+  stepped in one iteration) — guarded to one step per event-loop iteration.
+- **A panicking system no longer runs the frame's remaining systems** on a half-mutated World
+  (frame aborts; the system is disabled for subsequent frames).
+- `find_path` / `find_path_diagonal` return `None` (not `Some([blocked])`) for a blocked `start == goal`.
+- Animation RON robustness: `columns == 0` div-by-zero panic, out-of-bounds frame index, `play(OOB)`
+  freeze + immediate `AnimationEnd`, dead-transition (nonexistent target) warning, skeletal
+  `is_finished()` at construction.
+- `add_prismatic_joint` zero-axis NaN guard; `contact_pairs` ordered-pair symmetry.
+- Audio fade interactions: `set_bus_volume`/`set_volume`/`update_position` mid-fade no longer snap/drop.
+- **Offscreen render loop**: raw `*const TextureView` (dangle-on-realloc UB) replaced with owned
+  `TextureView` handles — `unsafe` removed.
+- TextInput focus respects z-order and ignores hidden widgets; inspector write-back keyed by `TypeId`.
+- Many **fail-loud `log::warn!`s** where data silently vanished (DataTable extra columns, serde
+  serialize failures, missing registries, dropped network events, glyphon errors).
+- wasm: `web_sys::ErrorEvent` feature enabled so the network `on_error` diagnostic path compiles.
+
+### Performance
+
+- **Tilemap** no longer clones the full grid every frame — a `generation` counter dirty-guards the
+  `TilemapSystem` (idle cost is one `u64` compare); removed-entity check is a `HashSet`.
+- Per-frame scratch allocations reused as fields across `SpriteRenderer`, `PhysicsSystem`,
+  `SteeringSystem`, `SpatialGrid::rebuild`, `AudioManager::update`, `query_added/changed`.
+- Atlas sprite path is `Arc`-cloned (refcount bump) not string-copied; glyphon shaped-buffer cache for
+  static text; bloom `texel_size` uniform; light cull measured from viewport center + frustum prefilter.
+- Inspector component list no longer full-RON-serializes every component each frame; pathfinding
+  overlay snapshots tiles instead of cloning whole `Tilemap`s.
+
+### Build / CI
+
+- `serde_json` moved to `[dev-dependencies]` (the lib never used it — examples/tests only).
+- wasm CI job gains a clippy pass (`--target wasm32 --lib -D warnings`).
+
+### Notes
+
+- Iterations 1–4 of the batch; **603 → 698 lib tests (+95)** plus 33 new integration tests. Full
+  Gate6 green (fmt, clippy `--all-targets -D warnings`, wasm lib+bins build, `test --all-targets`,
+  doc `-D warnings`).
+- `#9` hot-reload fork-friendliness shipped as a `macro_rules!` dedup (a full `HotReloadable` trait is
+  a planned follow-up).
+
 ## 8.27.0
 
 Editor timeline editor (MVP) + `Track` keyframe inspection/edit API. Additive.
