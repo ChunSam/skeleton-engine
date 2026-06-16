@@ -1,7 +1,8 @@
 use crate::timer::Timer;
+use serde::{Deserialize, Serialize};
 
 /// Interpolation curve.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub enum Easing {
     /// Linear.
     #[default]

@@ -94,5 +94,13 @@ pub(super) fn register_core_component_metadata(world: &mut World) {
         registry.register::<crate::ui::ScrollView>("ScrollView", None);
         registry.register::<crate::ui::panel::Panel>("Panel", None);
         registry.register::<crate::ui::LocalizedText>("LocalizedText", None);
+
+        // Animation and timeline components for editor save/load
+        registry.register::<crate::animation::state_machine::AnimationStateMachine>(
+            "AnimationStateMachine",
+            None,
+        );
+        registry.register::<crate::timeline::Timeline>("Timeline", None);
+        registry.register::<crate::timeline::CameraTarget>("CameraTarget", None);
     }
 }

@@ -4,6 +4,30 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 9.1.0
+
+**Editor-edit persistence** — `AnimationStateMachine` and `Timeline` now persist through
+scene save/load. Both component families gained `serde::{Serialize, Deserialize}` derives and
+are **auto-registered** in the `SerdeComponentRegistry` (alongside the UI widgets), so the
+in-editor State-Machine and Timeline editors' edits survive a save/load round-trip with no
+user action. Fully additive.
+
+### Added
+
+- `AnimationStateMachine`, `AnimParam`, `TransitionCond`, `AnimTransition`, `AnimState` now
+  derive `Serialize, Deserialize` (and `PartialEq`).
+- `Timeline`, `Track<T>`, `Keyframe<T>`, `CameraTarget` now derive `Serialize, Deserialize`.
+  `Track<T>`/`Keyframe<T>` serialize for any `T: Serialize` (the concrete tracks are
+  `Vec2`/`f32`/`Color`).
+- `Easing` (`src/tween.rs`) now derives `Serialize, Deserialize` (required by `Keyframe`).
+- `AnimationStateMachine`, `Timeline`, and `CameraTarget` are auto-registered for serde in
+  `register_core_component_metadata`, so scene save/load captures them automatically.
+
+### Notes
+
+- `Timeline::time` and `Timeline::playing` are serialized (lossless save of the playback
+  position); add a `post_spawn` hook if you want a reset-on-load policy.
+
 ## 9.0.0
 
 Engine-wide **hardening pass** — 80 findings from a 14-subsystem code analysis
