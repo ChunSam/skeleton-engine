@@ -12,6 +12,7 @@ mod core_resources;
 mod editor;
 mod egui_pass;
 mod render;
+mod render_state;
 mod scenes;
 mod schedule;
 mod window;
@@ -21,6 +22,7 @@ pub use schedule::{ScheduleErrorPolicy, SystemPanicPolicy};
 use editor::EditorState;
 #[cfg(test)]
 use egui_pass::paint_jobs_contain_callbacks;
+use render_state::RenderState;
 
 // WASM: GPU init is async (WebGPU Promise-based), so we use thread_local to pass the result.
 #[cfg(target_arch = "wasm32")]
@@ -122,57 +124,7 @@ pub struct App {
     scene_stack: Vec<(Box<dyn Scene>, usize)>,
     window: Option<Arc<Window>>,
     gpu: Option<GpuContext>,
-    sprite_renderer: Option<SpriteRenderer>,
-    /// Overlays text immediately after the sprite pass. Filled with Some after GPU init.
-    text_renderer: Option<TextRenderer>,
-    /// Activated when the `PostProcessConfig` resource has `enabled = true`.
-    post_renderer: Option<PostProcessRenderer>,
-    /// Lighting renderer active while the `AmbientLight` resource is registered.
-    #[cfg(not(target_arch = "wasm32"))]
-    lighting_renderer: Option<crate::renderer::lighting::LightingRenderer>,
-    /// Fade renderer executed as the final pass when `FadeTransition` has `alpha > 0`.
-    ///
-    /// **Platform note:** This field exists on native targets only. On wasm,
-    /// `FadeTransition` is accepted without error but the fade effect is not rendered
-    /// (no render pass is issued). Use `#[cfg(not(target_arch = "wasm32"))]` guards
-    /// if your game relies on fade transitions for scene changes.
-    #[cfg(not(target_arch = "wasm32"))]
-    fade_renderer: Option<crate::renderer::fade::FadeRenderer>,
-    /// Intermediate texture the lighting pass renders the scene into first.
-    #[cfg(not(target_arch = "wasm32"))]
-    scene_texture_for_lighting: Option<(
-        wgpu::Texture,
-        wgpu::TextureView,
-        u32,
-        u32,
-        wgpu::TextureFormat,
-    )>,
-    /// Intermediate texture that passes the post-process result as input to the lighting pass.
-    #[cfg(not(target_arch = "wasm32"))]
-    post_texture_for_lighting: Option<(
-        wgpu::Texture,
-        wgpu::TextureView,
-        u32,
-        u32,
-        wgpu::TextureFormat,
-    )>,
-    /// Offscreen texture the docked editor renders the game scene into.
-    /// (width, height, format, texture, view) — recreated when the central panel resizes.
-    #[cfg(not(target_arch = "wasm32"))]
-    docked_scene_texture: Option<(
-        u32,
-        u32,
-        wgpu::TextureFormat,
-        wgpu::Texture,
-        wgpu::TextureView,
-    )>,
-    /// GPU compute-shader particle renderer (lazy init).
-    #[cfg(not(target_arch = "wasm32"))]
-    gpu_particle_renderer: Option<crate::renderer::gpu_particle::GpuParticleRenderer>,
-    /// Custom render plugins registered via [`App::add_render_plugin`].
-    /// Invoked once per frame after the main sprite/UI/particle passes, before
-    /// post-processing and lighting. Runs on both native and wasm.
-    render_plugins: Vec<Box<dyn crate::renderer::RenderPlugin>>,
+    render: RenderState,
     last_frame: Option<Instant>,
     last_dt: f32,
     /// Next scheduled frame time. The native event loop uses `ControlFlow::WaitUntil`
@@ -188,8 +140,6 @@ pub struct App {
     frame_interval: Duration,
     /// Texture paths registered before GPU init. Actually loaded in `resumed()`.
     pending_textures: Vec<String>,
-    /// Map of registered offscreen render targets (name → RenderTarget).
-    render_targets: HashMap<String, crate::renderer::render_target::RenderTarget>,
     /// Render target info registered before GPU init. Actually created in `finish_init()`.
     pending_render_targets: Vec<(String, u32, u32)>,
     /// Closures that drain event queues at the end of each frame.
@@ -206,12 +156,6 @@ pub struct App {
     /// gilrs gamepad context. None if initialization failed (runs without gamepad).
     #[cfg(not(target_arch = "wasm32"))]
     gilrs: Option<gilrs::Gilrs>,
-    /// egui renderer (wgpu backend).
-    egui_renderer: Option<egui_wgpu::Renderer>,
-    /// winit ↔ egui event adapter.
-    egui_state: Option<egui_winit::State>,
-    /// Temporary buffer carrying tessellated output from `update()` to `render()`.
-    egui_output: Option<(Vec<egui::ClippedPrimitive>, egui::TexturesDelta, f32)>,
     /// Guard flag: set to `true` the first time `step_frame` runs in a given winit
     /// event-loop iteration. Reset in `about_to_wait` at the start of each new
     /// iteration. Prevents both `Resized` and `RedrawRequested` from calling
@@ -270,22 +214,7 @@ impl App {
             scene_stack: Vec::new(),
             window: None,
             gpu: None,
-            sprite_renderer: None,
-            text_renderer: None,
-            post_renderer: None,
-            #[cfg(not(target_arch = "wasm32"))]
-            lighting_renderer: None,
-            #[cfg(not(target_arch = "wasm32"))]
-            fade_renderer: None,
-            #[cfg(not(target_arch = "wasm32"))]
-            scene_texture_for_lighting: None,
-            #[cfg(not(target_arch = "wasm32"))]
-            post_texture_for_lighting: None,
-            #[cfg(not(target_arch = "wasm32"))]
-            gpu_particle_renderer: None,
-            render_plugins: Vec::new(),
-            #[cfg(not(target_arch = "wasm32"))]
-            docked_scene_texture: None,
+            render: RenderState::new(),
             last_frame: None,
             last_dt: 1.0 / 60.0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -293,7 +222,6 @@ impl App {
             #[cfg(not(target_arch = "wasm32"))]
             frame_interval: Duration::from_secs_f64(1.0 / 60.0),
             pending_textures: Vec::new(),
-            render_targets: HashMap::new(),
             pending_render_targets: Vec::new(),
             event_flushers: Vec::new(),
             event_initializers: Vec::new(),
@@ -301,9 +229,6 @@ impl App {
             persistent_resources: Vec::new(),
             #[cfg(not(target_arch = "wasm32"))]
             gilrs,
-            egui_renderer: None,
-            egui_state: None,
-            egui_output: None,
             stepped_this_iteration: false,
             editor: editor_state,
             #[cfg(not(target_arch = "wasm32"))]
@@ -374,7 +299,7 @@ impl App {
         &mut self,
         plugin: impl crate::renderer::RenderPlugin + 'static,
     ) -> &mut Self {
-        self.render_plugins.push(Box::new(plugin));
+        self.render.render_plugins.push(Box::new(plugin));
         self
     }
 }
@@ -1018,7 +943,7 @@ mod tests {
     #[test]
     fn render_plugins_starts_empty() {
         let app = App::new();
-        assert_eq!(app.render_plugins.len(), 0);
+        assert_eq!(app.render.render_plugins.len(), 0);
     }
 
     #[test]
@@ -1038,7 +963,7 @@ mod tests {
         let mut app = App::new();
         app.add_render_plugin(DummyPlugin(1));
         app.add_render_plugin(DummyPlugin(2));
-        assert_eq!(app.render_plugins.len(), 2);
+        assert_eq!(app.render.render_plugins.len(), 2);
     }
 
     // ── HotReloadable / register_hot_reloadable tests (native only) ───────────

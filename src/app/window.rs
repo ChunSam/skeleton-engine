@@ -77,7 +77,7 @@ impl ApplicationHandler for App {
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         // Forward the event to egui first
-        if let (Some(state), Some(window)) = (&mut self.egui_state, &self.window) {
+        if let (Some(state), Some(window)) = (&mut self.render.egui_state, &self.window) {
             let _ = state.on_window_event(window, &event);
         }
 
@@ -632,7 +632,7 @@ impl App {
                 h,
                 gpu.config.format,
             );
-            self.render_targets.insert(name, rt);
+            self.render.render_targets.insert(name, rt);
         }
         let font_bytes = self
             .world
@@ -684,10 +684,10 @@ impl App {
             },
         );
         self.world.insert_resource(DebugUi::new_with_ctx(egui_ctx));
-        self.egui_renderer = Some(egui_renderer);
-        self.egui_state = Some(egui_state);
-        self.sprite_renderer = Some(sprite_renderer);
-        self.text_renderer = text_renderer;
+        self.render.egui_renderer = Some(egui_renderer);
+        self.render.egui_state = Some(egui_state);
+        self.render.sprite_renderer = Some(sprite_renderer);
+        self.render.text_renderer = text_renderer;
         self.gpu = Some(gpu);
         // IME support is controlled by the `ImeConfig` resource (default: off — see `src/resources.rs`).
         // When enabled, CJK input on macOS etc. arrives via `Ime::Preedit/Commit`, but active CJK

@@ -217,7 +217,7 @@ impl App {
         // Begin egui frame
         let egui_ctx: Option<egui::Context> = {
             let window = self.window.as_ref();
-            let state = self.egui_state.as_mut();
+            let state = self.render.egui_state.as_mut();
             if let (Some(window), Some(state)) = (window, state) {
                 if let Some(debug_ui) = self.world.resource::<DebugUi>() {
                     let ctx = debug_ui.ctx().clone();
@@ -417,10 +417,13 @@ impl App {
             let full_output = ctx.end_pass();
             let paint_jobs = ctx.tessellate(full_output.shapes, ppp);
             let textures_delta = merge_textures_delta(
-                self.egui_output.take().map(|(_, pending, _)| pending),
+                self.render
+                    .egui_output
+                    .take()
+                    .map(|(_, pending, _)| pending),
                 full_output.textures_delta,
             );
-            self.egui_output = Some((paint_jobs, textures_delta, ppp));
+            self.render.egui_output = Some((paint_jobs, textures_delta, ppp));
         }
         // Flush the event queue after all systems have run.
         // Must use std::mem::take to avoid conflicting borrows of &mut self.world.
@@ -475,7 +478,7 @@ impl App {
             .map(|as_| as_.poll_reloads())
             .unwrap_or_default();
         if !reloaded.is_empty() {
-            if let (Some(sr), Some(gpu)) = (&mut self.sprite_renderer, &self.gpu) {
+            if let (Some(sr), Some(gpu)) = (&mut self.render.sprite_renderer, &self.gpu) {
                 for path in &reloaded {
                     sr.reload_texture(&gpu.device, &gpu.queue, path);
                 }
@@ -502,7 +505,7 @@ impl App {
             .map(|as_| as_.poll_async_completions())
             .unwrap_or_default();
         if !async_completed.is_empty() {
-            if let (Some(sr), Some(gpu)) = (&mut self.sprite_renderer, &self.gpu) {
+            if let (Some(sr), Some(gpu)) = (&mut self.render.sprite_renderer, &self.gpu) {
                 for (path, asset) in &async_completed {
                     sr.load_texture_from_image(&gpu.device, &gpu.queue, path, asset);
                 }

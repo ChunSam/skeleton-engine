@@ -11,7 +11,7 @@ impl App {
                 height,
                 gpu.config.format,
             );
-            self.render_targets.insert(name, rt);
+            self.render.render_targets.insert(name, rt);
         } else {
             // GPU not yet initialized — defer to pending
             self.pending_render_targets.push((name, width, height));
@@ -74,7 +74,7 @@ impl App {
     }
 
     pub(super) fn upload_asset_server_images_to_gpu(&mut self) {
-        let (Some(sr), Some(gpu)) = (&mut self.sprite_renderer, &self.gpu) else {
+        let (Some(sr), Some(gpu)) = (&mut self.render.sprite_renderer, &self.gpu) else {
             return;
         };
         let images = self
