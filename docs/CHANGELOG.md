@@ -4,6 +4,29 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 9.2.0
+
+**Editor depth — State-Machine & Timeline panels gain real editing.** The docked editor's
+SM and Timeline inspector panels were display-mostly; they now author content. Fully additive.
+
+### Added
+
+- `AnimationStateMachine::set_transition_conditions(from, index, conditions) -> bool` and
+  `set_transition_crossfade(from, index, seconds) -> bool` — mutate an existing transition's
+  conditions / crossfade (false on missing state or out-of-range index).
+- **State-Machine panel:** live parameter editing (bool checkbox / float drag / trigger fire),
+  add-transition (target ComboBox + crossfade), and per-transition condition add/remove — all
+  routed through the tested edit ops.
+- **Timeline panel:** per-track add-keyframe (empty tracks now render an add button) and
+  per-track-type value editing (Vec2 = x/y drags, f32 = drag, Color = r/g/b/a drags), in
+  addition to the existing time / easing / remove controls. `timeline_track_ui` now takes a
+  `make_default` + `value_edit` closure instead of a read-only `fmt`.
+
+### Notes
+
+- The egui panel *layout* (condition-editor row width, value-drag rows) is functional but not
+  visually tuned — a known cosmetic follow-up. All data mutations go through unit-tested ops.
+
 ## 9.1.0
 
 **Editor-edit persistence** — `AnimationStateMachine` and `Timeline` now persist through

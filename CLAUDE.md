@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.6.34 | package `skeleton-engine` v9.1.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
+> Version v1.6.35 | package `skeleton-engine` v9.2.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example game ships to
 > the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`
@@ -89,7 +89,7 @@ Where to read to find a given thing:
 | AnimationPlayer, AnimationClip, AnimationSystem, BlendWeight (crossfade = true 2-UV shader-lerp; renderer `mix`es from/to frames) | `src/animation/player.rs`, `src/animation/system.rs` |
 | AnimationClipSet, AnimationClipRegistry, ClipSetError (data-driven animation: named clips loaded from RON `(atlas, clips)`, frame indices → UvRect; `App::load_animation_clips` = registry + DataTable-style hot-reload) | `src/animation/clip_set.rs` |
 | UvRect, BlendUv (GPU UV-region types, consumed engine-wide) | `src/renderer/uv.rs` |
-| AnimationStateMachine, StateMachineSystem, TransitionCond, AnimParam (per-transition crossfade via `add_transition_crossfade`; editor **State Machine panel** — `state_names`/`state`/`param` accessors + `set_current_state`/`set_state_clip`/`remove_state`/`remove_transition` edit ops drive a list-based graph editor in the docked inspector; example `sm_crossfade`) | `src/animation/state_machine.rs` |
+| AnimationStateMachine, StateMachineSystem, TransitionCond, AnimParam (per-transition crossfade via `add_transition_crossfade`; editor **State Machine panel** — `state_names`/`state`/`param` accessors + `set_current_state`/`set_state_clip`/`remove_state`/`remove_transition`/`set_transition_conditions`/`set_transition_crossfade` edit ops drive a list-based graph editor in the docked inspector — live param editing + add-transition + condition add/remove; example `sm_crossfade`) | `src/animation/state_machine.rs` |
 | BlendTree1D, BlendEntry, BlendTreeSystem (1D parameter-driven auto transitions + crossfade) | `src/animation/blend_tree.rs`, `src/animation/blend_system.rs` |
 | SkeletalAnimator, SkeletalClip, BoneTrack, BoneKeyframe, SkeletalAnimationSystem, SkeletonBuilder (2D cutout skeletal animation) | `src/skeletal.rs` (details: `docs/SKELETAL.md`) |
 | UI (UiNode, Button, Label, TextInput, ScrollView, Panel, LayoutSystem, UiEvent) | `src/ui/` |
@@ -97,7 +97,7 @@ Where to read to find a given thing:
 | LocalizedText (key bound to a widget), LocalizationSystem (resolves `LocaleResource::t` into Label/Button/CheckBox each frame) | `src/ui/localized.rs` |
 | Tag, EntityDef (+ `components` map), SceneDef, Prefab, spawn_entity_def, spawn_scene_def, **SerdeComponentRegistry** + `App::register_serde_component::<T>` (any serde component persists to scene RON; UI widgets + `AnimationStateMachine`/`Timeline`/`CameraTarget` auto-registered) | `src/prefab.rs` |
 | Timer, Tween, Easing, Lerp (general interpolation trait) | `src/timer.rs`, `src/tween.rs` |
-| Timeline, Track, Keyframe, TimelineSystem (keyframe cutscenes → entity Transform/Sprite; **CameraTarget** marker + `zoom` track route a timeline into the **Camera** resource as a virtual rig; `Track::keyframes`/`len`/`remove`/`set_time`/`clear` editor accessors+edit ops drive the docked **Timeline panel** (per-track keyframe list + playback controls); example: `timeline_cutscene`) | `src/timeline.rs` |
+| Timeline, Track, Keyframe, TimelineSystem (keyframe cutscenes → entity Transform/Sprite; **CameraTarget** marker + `zoom` track route a timeline into the **Camera** resource as a virtual rig; `Track::add`/`keyframes`/`len`/`remove`/`set_time`/`set_value`/`set_easing`/`clear` editor accessors+edit ops drive the docked **Timeline panel** (per-track keyframe list + add-keyframe + per-type value editing + playback controls); example: `timeline_cutscene`) | `src/timeline.rs` |
 | History (generic snapshot undo/redo for grid puzzles, turn-based, editors) | `src/history.rs` |
 | ParticleEmitter, ParticleSystem, ParticleBurst (one-shot burst + `ParticleEmitter::burst()`); ParticleConfigSet/ParticleConfigRegistry/ClipSetError-style ParticleConfigError (data-driven emitter configs from RON; `App::load_particle_configs` = registry + DataTable-style hot-reload) | `src/particle/` (`mod.rs`, `config_set.rs`) |
 | Tilemap (+ runtime `set_tile`/`get_tile`/`cell_at_world`/`dims`), TilemapAtlas, TilemapSystem (reactive — diffs cached grid, updates only changed cells), TilemapAutotile (neighbor-bitmask autotiling: `Neighborhood::Edge4`/`Blob8`, `edge_16`/`blob_47`, `with_oob_filled`, `compute_tile_mask`), MultiTerrainAutotile + TerrainRule + compute_tile_mask_typed (per-terrain same-value autotiling) | `src/tilemap.rs` |
