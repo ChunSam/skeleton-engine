@@ -232,7 +232,7 @@ impl SerdeComponentRegistry {
     /// Returns the names of all registered components present on `entity`, sorted
     /// alphabetically for stable ordering.
     ///
-    /// Cheaper than [`serialize_entity`] because it uses the `has_component` closure
+    /// Cheaper than [`Self::serialize_entity`] because it uses the `has_component` closure
     /// (a single `world.get::<T>()` check) and never converts values to RON. Use this
     /// when only the name list is needed (e.g., the per-frame inspector component list).
     pub fn component_names_for(&self, world: &World, entity: Entity) -> Vec<String> {
@@ -1138,8 +1138,10 @@ SceneDef(
     fn spawn_entity_def_no_registry_with_components_does_not_panic() {
         let mut world = World::new(); // no SerdeComponentRegistry inserted
 
-        let mut def = EntityDef::default();
-        def.tag = Some("ghost".into());
+        let mut def = EntityDef {
+            tag: Some("ghost".into()),
+            ..Default::default()
+        };
         def.components.insert(
             "SomeComponent".to_string(),
             ron::Value::String("value".to_string()),

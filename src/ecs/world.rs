@@ -806,7 +806,7 @@ impl World {
 
     /// Returns `true` if the entity has component `T`.
     ///
-    /// Zero-cost wrapper around [`has_component_typeid`] — no downcast or allocation.
+    /// Zero-cost wrapper around `has_component_typeid` — no downcast or allocation.
     ///
     /// # Example
     /// ```rust,ignore

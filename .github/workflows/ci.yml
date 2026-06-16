@@ -63,6 +63,7 @@ jobs:
         uses: dtolnay/rust-toolchain@1.95.0
         with:
           targets: wasm32-unknown-unknown
+          components: clippy
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -76,6 +77,9 @@ jobs:
 
       - name: cargo build --target wasm32-unknown-unknown
         run: cargo build --target wasm32-unknown-unknown
+
+      - name: cargo clippy (wasm, lib only)
+        run: cargo clippy --target wasm32-unknown-unknown --lib -- -D warnings
 
   # ── 문서 빌드 ─────────────────────────────────────────────────────────────
   docs:

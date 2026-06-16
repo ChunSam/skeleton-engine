@@ -142,8 +142,6 @@ pub(crate) fn collect_new_particles(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     /// Two emitters must receive disjoint slots when the shared frame cursor is used.
     #[test]
     fn disjoint_slots_across_emitters() {

@@ -1455,7 +1455,7 @@ mod tests {
             }
             true
         };
-        for (&mask, _) in &at.mask_to_tile {
+        for &mask in at.mask_to_tile.keys() {
             assert!(
                 is_valid_blob(mask),
                 "mask {mask} in blob_47 is not a valid reduced blob mask"

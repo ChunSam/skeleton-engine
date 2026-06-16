@@ -4,15 +4,14 @@ use std::collections::HashMap;
 /// Individual touch point data.
 ///
 /// # Coordinate convention
-/// All positions are in **physical pixels** as reported by the OS/winit.
-/// To compare with [`crate::input::state::InputState::cursor`] or UI layout
-/// rects (which use logical pixels), divide by the window's `scale_factor`:
-/// `logical = physical / scale_factor`.
+/// All positions are in **logical (scale-adjusted) screen coordinates** (physical
+/// pixels divided by the window `scale_factor`), matching
+/// [`crate::input::state::InputState::cursor`] and UI layout rects.
 #[derive(Clone)]
 pub(crate) struct TouchPoint {
-    /// Current screen position in **physical pixels**.
+    /// Current position in logical (scale-adjusted) screen coordinates.
     pub(crate) position: Vec2,
-    /// Touch start position in **physical pixels** (used for swipe detection).
+    /// Touch start position in logical (scale-adjusted) screen coordinates (used for swipe detection).
     pub(crate) start_position: Vec2,
 }
 
@@ -22,16 +21,18 @@ pub(crate) struct TouchPoint {
 /// Read in systems via `world.resource::<TouchState>()`.
 ///
 /// # Coordinate convention
-/// All positions exposed by this type are in **physical pixels** (as reported
-/// by the OS). To compare with `InputState::cursor()` or UI layout rects
-/// (logical pixels), divide by the window's `scale_factor`:
-/// `logical = physical / scale_factor`.
+/// All positions exposed by this type are in **logical (scale-adjusted) screen
+/// coordinates** — physical pixels divided by the window's `scale_factor` — so
+/// they match `InputState::cursor()`, UI layout rects, and `Camera::screen_to_world`.
+///
+/// The [`swipe_threshold`](TouchState::swipe_threshold) is also expressed in
+/// logical pixels (default `50.0`).
 ///
 /// # Example
 /// ```ignore
 /// if let Some(ts) = world.resource::<TouchState>() {
 ///     if ts.is_touching() {
-///         // First touch position (physical pixels).
+///         // First touch position (logical pixels, scale-adjusted).
 ///         if let Some(pos) = ts.primary_position() {
 ///             println!("touch position: {pos:?}");
 ///         }
@@ -61,9 +62,9 @@ pub struct TouchState {
     /// least `swipe_threshold` physical pixels from its start position).
     swipe: Option<Vec2>,
 
-    /// Minimum travel distance in **physical pixels** required to register a
-    /// swipe. Defaults to `50.0`. Increase on high-DPI displays if swipes are
-    /// too sensitive, or decrease for shorter gestures.
+    /// Minimum travel distance in **logical pixels** required to register a
+    /// swipe. Defaults to `50.0`. Adjust if swipes feel too sensitive or
+    /// require too long a gesture.
     pub swipe_threshold: f32,
 }
 
@@ -313,8 +314,10 @@ mod tests {
 
     #[test]
     fn custom_swipe_threshold_respected() {
-        let mut ts = TouchState::default();
-        ts.swipe_threshold = 20.0;
+        let mut ts = TouchState {
+            swipe_threshold: 20.0,
+            ..Default::default()
+        };
         ts.on_touch_started(0, Vec2::new(0.0, 0.0));
         // 30 px travel — above the new threshold of 20, below the old default of 50.
         ts.on_touch_ended(0, Vec2::new(30.0, 0.0));
@@ -323,8 +326,10 @@ mod tests {
 
     #[test]
     fn custom_swipe_threshold_blocks_short_swipe() {
-        let mut ts = TouchState::default();
-        ts.swipe_threshold = 100.0;
+        let mut ts = TouchState {
+            swipe_threshold: 100.0,
+            ..Default::default()
+        };
         ts.on_touch_started(0, Vec2::new(0.0, 0.0));
         // 60 px travel — above the default 50 but below the new threshold of 100.
         ts.on_touch_ended(0, Vec2::new(60.0, 0.0));

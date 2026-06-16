@@ -62,7 +62,7 @@ type OffscreenRenderInfo = (
     crate::camera::Camera,
     u32, // rt_w
     u32, // rt_h
-    *const wgpu::TextureView,
+    wgpu::TextureView,
     Arc<wgpu::BindGroup>,
     u32,              // layer_mask
     Option<[f64; 4]>, // clear_color
@@ -131,8 +131,11 @@ pub struct App {
     #[cfg(not(target_arch = "wasm32"))]
     lighting_renderer: Option<crate::renderer::lighting::LightingRenderer>,
     /// Fade renderer executed as the final pass when `FadeTransition` has `alpha > 0`.
-    /// This field exists on native targets only. On wasm, `FadeTransition` is accepted
-    /// without error but the fade effect is silently skipped (no render pass is issued).
+    ///
+    /// **Platform note:** This field exists on native targets only. On wasm,
+    /// `FadeTransition` is accepted without error but the fade effect is not rendered
+    /// (no render pass is issued). Use `#[cfg(not(target_arch = "wasm32"))]` guards
+    /// if your game relies on fade transitions for scene changes.
     #[cfg(not(target_arch = "wasm32"))]
     fade_renderer: Option<crate::renderer::fade::FadeRenderer>,
     /// Intermediate texture the lighting pass renders the scene into first.
@@ -205,6 +208,11 @@ pub struct App {
     egui_state: Option<egui_winit::State>,
     /// Temporary buffer carrying tessellated output from `update()` to `render()`.
     egui_output: Option<(Vec<egui::ClippedPrimitive>, egui::TexturesDelta, f32)>,
+    /// Guard flag: set to `true` the first time `step_frame` runs in a given winit
+    /// event-loop iteration. Reset in `about_to_wait` at the start of each new
+    /// iteration. Prevents both `Resized` and `RedrawRequested` from calling
+    /// `step_frame` in the same iteration (double-stepping physics/tween/timer).
+    stepped_this_iteration: bool,
     /// All editor/inspector-only state grouped for clean fork extraction.
     editor: EditorState,
 }
@@ -285,6 +293,7 @@ impl App {
             egui_renderer: None,
             egui_state: None,
             egui_output: None,
+            stepped_this_iteration: false,
             editor: editor_state,
         };
         #[cfg(not(target_arch = "wasm32"))]
@@ -392,11 +401,40 @@ mod tests {
         app.add_system(PanicSystem);
         app.add_system(CountSystem);
 
+        // Frame 1: PanicSystem panics → remaining systems aborted this frame (counter stays 0).
+        // Frame 2: PanicSystem disabled, CountSystem runs → counter = 1.
+        // Frame 3: same → counter = 2.
+        app.update(1.0 / 60.0);
         app.update(1.0 / 60.0);
         app.update(1.0 / 60.0);
 
         assert_eq!(app.world.resource::<Counter>().unwrap().0, 2);
         assert_eq!(app.panicked_systems.len(), 1);
+    }
+
+    /// When a system panics, subsequent systems in the SAME frame must not run
+    /// (the World may be half-mutated). On the NEXT frame they resume normally.
+    #[test]
+    fn panic_aborts_remaining_systems_this_frame() {
+        let mut app = app_with_counter();
+        app.add_system(PanicSystem);
+        app.add_system(CountSystem);
+
+        // Frame 1: PanicSystem panics → CountSystem must NOT run this frame.
+        app.update(1.0 / 60.0);
+        assert_eq!(
+            app.world.resource::<Counter>().unwrap().0,
+            0,
+            "CountSystem must not run in the same frame as a panic"
+        );
+
+        // Frame 2: PanicSystem is disabled, CountSystem runs normally.
+        app.update(1.0 / 60.0);
+        assert_eq!(
+            app.world.resource::<Counter>().unwrap().0,
+            1,
+            "CountSystem must run on subsequent frames after panic"
+        );
     }
 
     #[test]
@@ -466,9 +504,10 @@ mod tests {
         app.world.insert_resource(Counter::default());
         app.set_scene(Box::new(SceneA));
 
-        // Scene A: PanicSystem(idx0) panics → disabled, CountSystem(idx1) runs → +1
+        // Scene A: PanicSystem(idx0) panics → disabled AND the frame aborts, so
+        // CountSystem(idx1) does NOT run this frame → Counter stays 0.
         app.update(1.0 / 60.0);
-        assert_eq!(app.world.resource::<Counter>().unwrap().0, 1);
+        assert_eq!(app.world.resource::<Counter>().unwrap().0, 0);
         assert!(app.panicked_systems.contains(&0));
 
         // Replace with scene B: panicked_systems is cleared so idx0/idx1 both run → +2
@@ -476,7 +515,7 @@ mod tests {
         app.update(1.0 / 60.0);
         assert_eq!(
             app.world.resource::<Counter>().unwrap().0,
-            3,
+            2,
             "stale panicked index suppressed a new scene's system"
         );
         assert!(app.panicked_systems.is_empty());

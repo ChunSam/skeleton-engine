@@ -239,7 +239,7 @@ impl SolidTiles {
 ///
 /// # Cleanup — call `drain_into_physics` before despawning
 ///
-/// [`World::despawn`] has no lifecycle hook, so **the rapier bodies owned by this component are
+/// `World::despawn` has no lifecycle hook, so **the rapier bodies owned by this component are
 /// NOT removed automatically when the entity is despawned**. Failing to clean up leaks every
 /// `(BodyHandle, ColliderHandle)` tracked by the internal index. Always call
 /// [`drain_into_physics`](Self::drain_into_physics) before (or instead of) despawning the entity:
@@ -312,7 +312,7 @@ impl TilemapColliders {
     /// Removes every rapier body tracked by this component from `physics` and clears the
     /// internal index.
     ///
-    /// **Must be called before despawning the entity** — [`World::despawn`] has no lifecycle
+    /// **Must be called before despawning the entity** — `World::despawn` has no lifecycle
     /// hook, so bodies are not cleaned up automatically. After this call the component holds an
     /// empty index; calling [`sync`](Self::sync) again will perform a full rebuild.
     pub fn drain_into_physics(&mut self, physics: &mut PhysicsWorld) {
