@@ -16,15 +16,14 @@
 //!   sprite's UV region taken by each border in the source texture.
 //!
 //! ```no_run
-//! use engine::{NineSlice, Sprite, Transform};
-//! use glam::Vec2;
-//! # let mut app = engine::App::new(Default::default());
+//! use engine::{App, NineSlice, Sprite, Transform, Vec2};
+//! # let mut app = App::new();
 //! # let handle = app.load_image("panel.png");
-//! let panel = app.world_mut().spawn();
-//! app.world_mut().add_component(panel, Sprite::with_handle(handle));
-//! app.world_mut().add_component(panel, Transform::new(Vec2::ZERO, Vec2::new(300.0, 120.0), 0.0));
+//! let panel = app.world.spawn();
+//! app.world.add_component(panel, Sprite::with_handle(handle));
+//! app.world.add_component(panel, Transform::new(Vec2::ZERO, Vec2::new(300.0, 120.0), 0.0));
 //! // 16px corners; the source border is 25% of the texture on every edge.
-//! app.world_mut().add_component(panel, NineSlice::uniform(16.0, 0.25));
+//! app.world.add_component(panel, NineSlice::uniform(16.0, 0.25));
 //! ```
 //!
 //! `NineSlice` works with the `texture`/`image_handle` path of [`Sprite`]; it does
