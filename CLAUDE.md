@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.6.35 | package `skeleton-engine` v9.2.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
+> Version v1.6.36 | package `skeleton-engine` v9.3.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example game ships to
 > the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`
@@ -61,7 +61,7 @@ Where to read to find a given thing:
 | Looking for | File |
 |---------|------|
 | Engine entry point, main loop, render orchestration, `load_image` | `src/app.rs` |
-| Handle<T>, ImageAsset, ScriptAsset, AssetServer (asset load / caching / hot reload) | `src/asset.rs` |
+| Handle<T>, ImageAsset, ScriptAsset, AssetServer (asset load / caching / hot reload); **HotReloadable** trait + `App::register_hot_reloadable::<T>` (fork-friendly hot-reload extension point — built-in registries auto-registered; native-only) | `src/asset.rs` |
 | TextureAtlas (uniform grid atlas), AtlasSprite (atlas tile render component) | `src/atlas.rs` |
 | Reflect trait, ReflectValue (`F32`/`I32`/`Vec2`/`Bool`/`String`/`Color`, `#[non_exhaustive]`; runtime field read/write, egui Inspector integration); **`#[derive(Reflect)]`** proc-macro (`derive` feature, default on) | `src/reflect.rs`, `engine_reflect_derive/` |
 | DataTable, DataTableRegistry (schema-agnostic RON data tables; `App::load_data_table`, hot-reloaded, edited in the editor's Data Tables panel); `App::register_editable_component::<T>` (one-call reflect+clone+serde+inspector registration) | `src/data_table.rs`, `src/app/editor.rs` |

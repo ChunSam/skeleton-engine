@@ -119,6 +119,36 @@ pub struct ScriptAsset {
     pub ast: Arc<rhai::AST>,
 }
 
+// ─── HotReloadable ───────────────────────────────────────────────────────────
+
+/// A resource that can hot-reload itself from a changed asset path.
+///
+/// Register concrete implementors with [`crate::app::App::register_hot_reloadable`] so the
+/// engine forwards every changed path to them each frame (native only).
+///
+/// # Example — registering a custom registry
+/// ```rust,no_run
+/// # use engine::{App, asset::HotReloadable};
+/// struct MyRegistry { /* ... */ }
+/// impl HotReloadable for MyRegistry {
+///     fn reload_path(&mut self, path: &str) {
+///         // check if `path` matches a tracked asset and reload
+///     }
+/// }
+///
+/// let mut app = App::new();
+/// // Insert the registry as a resource first so the engine can find it.
+/// // app.world.insert_resource(MyRegistry { ... });
+/// #[cfg(not(target_arch = "wasm32"))]
+/// app.register_hot_reloadable::<MyRegistry>();
+/// ```
+#[cfg(not(target_arch = "wasm32"))]
+pub trait HotReloadable: 'static {
+    /// Called with each changed asset path. The implementor decides whether the path
+    /// matches one of its tracked assets and reloads if so.
+    fn reload_path(&mut self, path: &str);
+}
+
 // ─── AssetLoadState ───────────────────────────────────────────────────────────
 
 /// Asset load result state. Query via `AssetServer::load_state()`.

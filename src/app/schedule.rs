@@ -483,24 +483,16 @@ impl App {
         }
 
         // Hot-reload RON registries: forward changed paths to each registered registry.
-        // Each registry type that supports hot-reload implements a `reload_path(&str)`
-        // method; we forward every changed path to every registry that is present.
-        // To add a new registry: add one more block here following the same pattern.
+        // Registries are registered via `App::register_hot_reloadable`; the three built-ins
+        // (DataTableRegistry, AnimationClipRegistry, ParticleConfigRegistry) are auto-registered
+        // in `App::new`. Forkers can add their own registries without editing engine internals.
         #[cfg(not(target_arch = "wasm32"))]
         if !reloaded.is_empty() {
-            // Helper macro: if the resource exists, forward all reloaded paths to it.
-            macro_rules! forward_reloads {
-                ($reg_ty:ty) => {
-                    if let Some(reg) = self.world.resource_mut::<$reg_ty>() {
-                        for path in &reloaded {
-                            reg.reload_path(path);
-                        }
-                    }
-                };
+            // Clone the fn-pointer vec to avoid a simultaneous borrow of `self.world`.
+            let forwarders = self.hot_reload_forwarders.clone();
+            for f in &forwarders {
+                f(&mut self.world, &reloaded);
             }
-            forward_reloads!(crate::data_table::DataTableRegistry);
-            forward_reloads!(crate::animation::clip_set::AnimationClipRegistry);
-            forward_reloads!(crate::particle::ParticleConfigRegistry);
         }
 
         // Async load completion: upload finished assets to the GPU and update LoadProgress.

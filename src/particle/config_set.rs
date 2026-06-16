@@ -300,6 +300,17 @@ impl ParticleConfigRegistry {
     }
 }
 
+// ── HotReloadable impl ────────────────────────────────────────────────────────
+
+#[cfg(not(target_arch = "wasm32"))]
+impl crate::asset::HotReloadable for ParticleConfigRegistry {
+    fn reload_path(&mut self, path: &str) {
+        // Delegate to the inherent method via UFCS to avoid any same-name
+        // trait/inherent ambiguity or accidental self-recursion.
+        ParticleConfigRegistry::reload_path(self, path);
+    }
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

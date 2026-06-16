@@ -4,6 +4,25 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 9.3.0
+
+**`HotReloadable` trait — fork-friendly hot-reload extension point.** The hot-reload loop
+forwarded changed asset paths to a hardcoded set of three registries via an internal macro;
+adding a new hot-reloadable registry required editing engine internals. It's now a public
+trait + registration, so forks register their own registries without touching the engine.
+Fully additive (the three built-ins are auto-registered — behavior unchanged). Native-only,
+matching the existing hot-reload code.
+
+### Added
+
+- `engine::HotReloadable` trait (`fn reload_path(&mut self, path: &str)`) — implement it on a
+  resource to make it hot-reloadable.
+- `App::register_hot_reloadable::<T: HotReloadable>()` — register a resource to receive every
+  changed asset path each frame.
+- `DataTableRegistry`, `AnimationClipRegistry`, and `ParticleConfigRegistry` implement
+  `HotReloadable` and are auto-registered in `App::new` (replacing the internal
+  `forward_reloads!` macro; same runtime behavior).
+
 ## 9.2.0
 
 **Editor depth — State-Machine & Timeline panels gain real editing.** The docked editor's

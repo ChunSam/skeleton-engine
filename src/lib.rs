@@ -56,6 +56,8 @@ pub use animation::{
     BlendTreeSystem, BlendWeight, ClipSetError, StateMachineSystem, TransitionCond,
 };
 pub use app::{App, ScheduleErrorPolicy, SystemPanicPolicy};
+#[cfg(not(target_arch = "wasm32"))]
+pub use asset::HotReloadable;
 pub use asset::{
     AssetId, AssetLoadState, AssetServer, Handle, ImageAsset, ImageEntry, ScriptAsset,
 };
