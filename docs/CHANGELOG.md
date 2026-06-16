@@ -4,6 +4,26 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 10.7.0
+
+**Nine-slice (9-patch) scalable sprites (new feature + example).** Resizing a bordered/rounded
+sprite (a UI panel, button, frame) by scaling the whole quad distorts its corners. `NineSlice`
+makes the sprite renderer emit nine sub-quads instead of one — the four corners keep their fixed
+size while the edges and center stretch to fill. Additive: the new branch only runs when a
+`NineSlice` component is present, so ordinary sprites render byte-identically.
+
+### Added
+
+- `NineSlice` component — `border: [f32; 4]` (world-pixel border widths) + `uv_border: [f32; 4]`
+  (matching source-texture UV fractions), both indexed `[left, right, top, bottom]`. Constructors
+  `new` and `uniform(border_px, uv_frac)`. Re-exported as `engine::NineSlice`.
+- The sprite pass computes the nine sub-quads (each with its own model matrix + UV sub-rect) for a
+  `NineSlice` entity; corners stay fixed-size at any panel size, and the whole panel rotates rigidly.
+  Does not apply to `AtlasSprite` or entities carrying a `ShaderMaterial`.
+- Example `examples/nine_slice.rs` — one generated bordered texture drawn at many sizes (wide/tall/
+  small/large), a rotating panel, and a naive-stretch comparison showing the corner distortion a
+  9-slice avoids.
+
 ## 10.6.0
 
 **Animated tiles (new feature + example).** A `Tilemap` was static per cell; common 2D needs
