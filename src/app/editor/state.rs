@@ -296,6 +296,12 @@ pub(in crate::app) struct EditorState {
     /// Name typed into the State Machine panel's "add state" box.
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) sm_add_state_name: String,
+    /// Per-state add-transition target (state name) typed in the SM panel. Keyed by source state.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) sm_add_trans_target: std::collections::HashMap<String, String>,
+    /// Per-state add-transition crossfade duration input in the SM panel. Keyed by source state.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) sm_add_trans_xf: std::collections::HashMap<String, f32>,
 
     // ── Prefab create/instancing (native only) ────────────────────────────────
     /// File path used by the Save-as-Prefab / Spawn-Prefab controls.
@@ -365,6 +371,8 @@ impl EditorState {
             rotate_start_rotation: 0.0,
             rotate_start_angle: 0.0,
             sm_add_state_name: String::new(),
+            sm_add_trans_target: std::collections::HashMap::new(),
+            sm_add_trans_xf: std::collections::HashMap::new(),
             prefab_path: "prefab.ron".into(),
             prefab_status: None,
             settings_loaded: false,

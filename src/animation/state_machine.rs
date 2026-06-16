@@ -342,6 +342,35 @@ impl AnimationStateMachine {
         false
     }
 
+    /// Replace the conditions of the transition at `index` from state `from`. Returns `false` if
+    /// `from` is missing or `index` is out of range.
+    pub fn set_transition_conditions(
+        &mut self,
+        from: &str,
+        index: usize,
+        conditions: Vec<TransitionCond>,
+    ) -> bool {
+        if let Some(state) = self.states.get_mut(from) {
+            if index < state.transitions.len() {
+                state.transitions[index].conditions = conditions;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Set the crossfade duration of the transition at `index` from state `from`. Returns `false`
+    /// if `from` is missing or `index` is out of range.
+    pub fn set_transition_crossfade(&mut self, from: &str, index: usize, seconds: f32) -> bool {
+        if let Some(state) = self.states.get_mut(from) {
+            if index < state.transitions.len() {
+                state.transitions[index].crossfade_duration = seconds;
+                return true;
+            }
+        }
+        false
+    }
+
     // ── Internal evaluation ────────────────────────────────────────────────────
 
     fn check_condition(&self, cond: &TransitionCond, anim_finished: bool) -> bool {
@@ -1148,5 +1177,55 @@ mod tests {
             .get::<AnimationStateMachine>(e2)
             .expect("component must be present after registry round-trip");
         assert_eq!(*restored, rich_sm());
+    }
+
+    // ── set_transition_conditions tests ───────────────────────────────────────
+
+    #[test]
+    fn set_transition_conditions_success() {
+        let mut sm = editor_sm();
+        // editor_sm() has idle→run (index 0) and idle→jump (index 1).
+        let new_conds = vec![
+            TransitionCond::FloatGt("speed".into(), 0.5),
+            TransitionCond::BoolEq("running".into(), true),
+        ];
+        assert!(sm.set_transition_conditions("idle", 0, new_conds.clone()));
+        let idle = sm.state("idle").unwrap();
+        assert_eq!(idle.transitions[0].conditions, new_conds);
+    }
+
+    #[test]
+    fn set_transition_conditions_missing_state() {
+        let mut sm = editor_sm();
+        assert!(!sm.set_transition_conditions("nope", 0, vec![]));
+    }
+
+    #[test]
+    fn set_transition_conditions_out_of_range() {
+        let mut sm = editor_sm();
+        assert!(!sm.set_transition_conditions("idle", 99, vec![]));
+    }
+
+    // ── set_transition_crossfade tests ────────────────────────────────────────
+
+    #[test]
+    fn set_transition_crossfade_success() {
+        let mut sm = editor_sm();
+        // idle→run is transition index 0; set crossfade to 0.3 s.
+        assert!(sm.set_transition_crossfade("idle", 0, 0.3));
+        let idle = sm.state("idle").unwrap();
+        assert!((idle.transitions[0].crossfade_duration - 0.3).abs() < 1e-6);
+    }
+
+    #[test]
+    fn set_transition_crossfade_missing_state() {
+        let mut sm = editor_sm();
+        assert!(!sm.set_transition_crossfade("nope", 0, 0.5));
+    }
+
+    #[test]
+    fn set_transition_crossfade_out_of_range() {
+        let mut sm = editor_sm();
+        assert!(!sm.set_transition_crossfade("idle", 99, 0.5));
     }
 }

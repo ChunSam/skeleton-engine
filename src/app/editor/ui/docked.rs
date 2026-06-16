@@ -1154,19 +1154,37 @@ fn param_display(p: Option<&crate::animation::AnimParam>) -> String {
 /// borrow, collects edit intents during render, then applies them under a fresh mutable borrow.
 #[cfg(not(target_arch = "wasm32"))]
 fn state_machine_panel(ui: &mut egui::Ui, app: &mut App, sel: crate::ecs::Entity) {
-    use crate::animation::AnimationStateMachine;
+    use crate::animation::{AnimParam, AnimationStateMachine, TransitionCond};
 
+    // ── Snapshot ─────────────────────────────────────────────────────────────
+    struct TransView {
+        to: String,
+        crossfade: f32,
+        conditions: Vec<TransitionCond>,
+        cond_summary: String,
+    }
     struct StateView {
         name: String,
         clip: usize,
-        /// (target, condition-summary, crossfade)
-        transitions: Vec<(String, String, f32)>,
+        transitions: Vec<TransView>,
     }
-    let (current, states, params): (String, Vec<StateView>, Vec<String>) = {
+    // Param: name, value clone (for mutable widget without holding borrow)
+    struct ParamView {
+        name: String,
+        value: AnimParam,
+    }
+
+    let (current, states, param_views, all_state_names): (
+        String,
+        Vec<StateView>,
+        Vec<ParamView>,
+        Vec<String>,
+    ) = {
         let Some(sm) = app.world.get::<AnimationStateMachine>(sel) else {
             return;
         };
         let current = sm.current_state().to_string();
+        let all_state_names = sm.state_names();
         let states = sm
             .state_names()
             .into_iter()
@@ -1176,7 +1194,7 @@ fn state_machine_panel(ui: &mut egui::Ui, app: &mut App, sel: crate::ecs::Entity
                     .transitions
                     .iter()
                     .map(|t| {
-                        let conds = if t.conditions.is_empty() {
+                        let cond_summary = if t.conditions.is_empty() {
                             "always".to_string()
                         } else {
                             t.conditions
@@ -1185,7 +1203,12 @@ fn state_machine_panel(ui: &mut egui::Ui, app: &mut App, sel: crate::ecs::Entity
                                 .collect::<Vec<_>>()
                                 .join(" & ")
                         };
-                        (t.to.clone(), conds, t.crossfade_duration)
+                        TransView {
+                            to: t.to.clone(),
+                            crossfade: t.crossfade_duration,
+                            conditions: t.conditions.clone(),
+                            cond_summary,
+                        }
                     })
                     .collect();
                 StateView {
@@ -1195,20 +1218,44 @@ fn state_machine_panel(ui: &mut egui::Ui, app: &mut App, sel: crate::ecs::Entity
                 }
             })
             .collect();
-        let params = sm
+        let param_views = sm
             .param_names()
             .into_iter()
-            .map(|n| format!("{n} = {}", param_display(sm.param(&n))))
+            .map(|n| {
+                let value = sm.param(&n).cloned().unwrap_or(AnimParam::Bool(false));
+                ParamView { name: n, value }
+            })
             .collect();
-        (current, states, params)
+        (current, states, param_views, all_state_names)
     };
 
+    // ── Edit intents ─────────────────────────────────────────────────────────
+    #[allow(clippy::enum_variant_names)]
     enum Edit {
         SetCurrent(String),
         RemoveState(String),
         SetClip(String, usize),
         RemoveTransition(String, usize),
         AddState(String),
+        // New:
+        SetBool(String, bool),
+        SetFloat(String, f32),
+        FireTrigger(String),
+        AddTransition {
+            from: String,
+            to: String,
+            crossfade: f32,
+        },
+        SetConditions {
+            from: String,
+            index: usize,
+            conditions: Vec<TransitionCond>,
+        },
+        SetTransitionCrossfade {
+            from: String,
+            index: usize,
+            seconds: f32,
+        },
     }
     let mut edits: Vec<Edit> = Vec::new();
 
@@ -1238,25 +1285,207 @@ fn state_machine_panel(ui: &mut egui::Ui, app: &mut App, sel: crate::ecs::Entity
                 edits.push(Edit::RemoveState(st.name.clone()));
             }
         });
-        for (i, (to, conds, xf)) in st.transitions.iter().enumerate() {
-            ui.horizontal(|ui| {
-                let xf_txt = if *xf > 0.0 {
-                    format!("  xf {xf:.2}s")
-                } else {
-                    String::new()
-                };
-                ui.label(format!("    → {to}   [{conds}]{xf_txt}"));
-                if ui
-                    .small_button("✕")
-                    .on_hover_text("remove transition")
-                    .clicked()
-                {
-                    edits.push(Edit::RemoveTransition(st.name.clone(), i));
+
+        // Transitions (with condition editing + crossfade editing + remove)
+        for (i, tv) in st.transitions.iter().enumerate() {
+            egui::CollapsingHeader::new(format!("→ {}  [{}]", tv.to, tv.cond_summary))
+                .id_salt(egui::Id::new(&st.name).with(i).with("trans"))
+                .show(ui, |ui| {
+                    // Crossfade edit
+                    ui.horizontal(|ui| {
+                        ui.label("xf");
+                        let mut xf = tv.crossfade;
+                        if ui
+                            .add(
+                                egui::DragValue::new(&mut xf)
+                                    .speed(0.01)
+                                    .range(0.0..=60.0)
+                                    .suffix("s"),
+                            )
+                            .changed()
+                        {
+                            edits.push(Edit::SetTransitionCrossfade {
+                                from: st.name.clone(),
+                                index: i,
+                                seconds: xf,
+                            });
+                        }
+                        if ui
+                            .small_button("✕")
+                            .on_hover_text("remove transition")
+                            .clicked()
+                        {
+                            edits.push(Edit::RemoveTransition(st.name.clone(), i));
+                        }
+                    });
+
+                    // Condition list (edit / remove each condition)
+                    let mut new_conds: Option<Vec<TransitionCond>> = None;
+                    for (ci, cond) in tv.conditions.iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            ui.label(cond_summary(cond));
+                            if ui.small_button("✕").on_hover_text("remove cond").clicked() {
+                                let mut c = tv.conditions.clone();
+                                c.remove(ci);
+                                new_conds = Some(c);
+                            }
+                        });
+                    }
+                    if let Some(c) = new_conds {
+                        edits.push(Edit::SetConditions {
+                            from: st.name.clone(),
+                            index: i,
+                            conditions: c,
+                        });
+                    }
+
+                    // Add-condition row
+                    let add_cond_key = egui::Id::new(&st.name).with(i).with("add_cond");
+                    // Persist selected cond variant + param name + f32 value + bool value in
+                    // egui memory (avoids adding more fields to EditorState for each combo).
+                    let (mut cond_variant, mut cond_param, mut cond_f, mut cond_b) =
+                        ui.memory_mut(|m| {
+                            m.data
+                                .get_temp_mut_or_insert_with::<(u8, String, f32, bool)>(
+                                    add_cond_key,
+                                    || (0u8, String::new(), 0.0, true),
+                                )
+                                .clone()
+                        });
+                    let variant_names = ["BoolEq", "FloatGt", "FloatLt", "Trigger", "AnimEnd"];
+                    ui.horizontal(|ui| {
+                        egui::ComboBox::from_id_salt(add_cond_key.with("v"))
+                            .selected_text(variant_names[cond_variant as usize])
+                            .width(80.0)
+                            .show_ui(ui, |ui| {
+                                for (idx, name) in variant_names.iter().enumerate() {
+                                    ui.selectable_value(&mut cond_variant, idx as u8, *name);
+                                }
+                            });
+                        // Show param name input for variants that need it
+                        if cond_variant < 4 {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut cond_param)
+                                    .hint_text("param")
+                                    .desired_width(60.0),
+                            );
+                        }
+                        // Show value inputs per variant
+                        match cond_variant {
+                            0 => {
+                                // BoolEq
+                                ui.checkbox(&mut cond_b, "");
+                            }
+                            1 | 2 => {
+                                // FloatGt / FloatLt
+                                ui.add(egui::DragValue::new(&mut cond_f).speed(0.05));
+                            }
+                            _ => {}
+                        }
+                        if ui
+                            .small_button("+")
+                            .on_hover_text("add condition")
+                            .clicked()
+                        {
+                            let new_cond = match cond_variant {
+                                0 => Some(TransitionCond::BoolEq(cond_param.clone(), cond_b)),
+                                1 => Some(TransitionCond::FloatGt(cond_param.clone(), cond_f)),
+                                2 => Some(TransitionCond::FloatLt(cond_param.clone(), cond_f)),
+                                3 => Some(TransitionCond::Trigger(cond_param.clone())),
+                                _ => Some(TransitionCond::AnimationEnd),
+                            };
+                            if let Some(c) = new_cond {
+                                if matches!(c, TransitionCond::AnimationEnd)
+                                    || !cond_param.is_empty()
+                                {
+                                    let mut updated = tv.conditions.clone();
+                                    updated.push(c);
+                                    edits.push(Edit::SetConditions {
+                                        from: st.name.clone(),
+                                        index: i,
+                                        conditions: updated,
+                                    });
+                                }
+                            }
+                        }
+                    });
+                    // Write back transient state to egui memory
+                    ui.memory_mut(|m| {
+                        *m.data
+                            .get_temp_mut_or_insert_with::<(u8, String, f32, bool)>(
+                                add_cond_key,
+                                || (0u8, String::new(), 0.0, true),
+                            ) = (cond_variant, cond_param, cond_f, cond_b);
+                    });
+                });
+        }
+
+        // Add-transition row (per state)
+        {
+            let other_states: Vec<&str> = all_state_names
+                .iter()
+                .filter(|n| n.as_str() != st.name)
+                .map(|n| n.as_str())
+                .collect();
+            if !other_states.is_empty() {
+                let target = app
+                    .editor
+                    .sm_add_trans_target
+                    .entry(st.name.clone())
+                    .or_insert_with(|| other_states[0].to_string())
+                    .clone();
+                let xf = *app
+                    .editor
+                    .sm_add_trans_xf
+                    .entry(st.name.clone())
+                    .or_insert(0.0);
+                let mut selected_target = target.clone();
+                let mut selected_xf = xf;
+                let mut do_add = false;
+                ui.horizontal(|ui| {
+                    ui.label("+trans→");
+                    let combo_id = egui::Id::new(&st.name).with("add_trans_combo");
+                    egui::ComboBox::from_id_salt(combo_id)
+                        .selected_text(&selected_target)
+                        .width(80.0)
+                        .show_ui(ui, |ui| {
+                            for &n in &other_states {
+                                ui.selectable_value(&mut selected_target, n.to_string(), n);
+                            }
+                        });
+                    ui.add(
+                        egui::DragValue::new(&mut selected_xf)
+                            .speed(0.01)
+                            .range(0.0..=60.0)
+                            .suffix("s"),
+                    );
+                    if ui
+                        .small_button("+")
+                        .on_hover_text("add transition")
+                        .clicked()
+                    {
+                        do_add = true;
+                    }
+                });
+                // Persist input state back into editor
+                app.editor
+                    .sm_add_trans_target
+                    .insert(st.name.clone(), selected_target.clone());
+                app.editor
+                    .sm_add_trans_xf
+                    .insert(st.name.clone(), selected_xf);
+                if do_add {
+                    edits.push(Edit::AddTransition {
+                        from: st.name.clone(),
+                        to: selected_target,
+                        crossfade: selected_xf,
+                    });
                 }
-            });
+            }
         }
     }
 
+    // Add-state row
     ui.separator();
     ui.horizontal(|ui| {
         ui.label("add state:");
@@ -1269,16 +1498,40 @@ fn state_machine_panel(ui: &mut egui::Ui, app: &mut App, sel: crate::ecs::Entity
         }
     });
 
-    if !params.is_empty() {
+    // Parameters (now editable)
+    if !param_views.is_empty() {
         ui.separator();
         ui.label(egui::RichText::new("parameters").weak());
-        for p in &params {
-            ui.label(format!("  {p}"));
+        for pv in &param_views {
+            ui.horizontal(|ui| {
+                ui.label(&pv.name);
+                match &pv.value {
+                    AnimParam::Bool(v) => {
+                        let mut b = *v;
+                        if ui.checkbox(&mut b, "").changed() {
+                            edits.push(Edit::SetBool(pv.name.clone(), b));
+                        }
+                    }
+                    AnimParam::Float(v) => {
+                        let mut f = *v;
+                        if ui.add(egui::DragValue::new(&mut f).speed(0.05)).changed() {
+                            edits.push(Edit::SetFloat(pv.name.clone(), f));
+                        }
+                    }
+                    AnimParam::Trigger(_) => {
+                        if ui.small_button("fire").clicked() {
+                            edits.push(Edit::FireTrigger(pv.name.clone()));
+                        }
+                        ui.label(param_display(Some(&pv.value)));
+                    }
+                }
+            });
         }
     }
 
+    // ── Apply edits ───────────────────────────────────────────────────────────
     if !edits.is_empty() {
-        let added = edits.iter().any(|e| matches!(e, Edit::AddState(_)));
+        let added_state = edits.iter().any(|e| matches!(e, Edit::AddState(_)));
         if let Some(sm) = app.world.get_mut::<AnimationStateMachine>(sel) {
             for e in edits {
                 match e {
@@ -1297,10 +1550,40 @@ fn state_machine_panel(ui: &mut egui::Ui, app: &mut App, sel: crate::ecs::Entity
                     Edit::AddState(n) => {
                         sm.add_state(n, 0);
                     }
+                    Edit::SetBool(n, v) => {
+                        sm.set_bool(n, v);
+                    }
+                    Edit::SetFloat(n, v) => {
+                        sm.set_float(n, v);
+                    }
+                    Edit::FireTrigger(n) => {
+                        sm.fire_trigger(&n);
+                    }
+                    Edit::AddTransition {
+                        from,
+                        to,
+                        crossfade,
+                    } => {
+                        sm.add_transition_crossfade(&from, &to, vec![], crossfade);
+                    }
+                    Edit::SetConditions {
+                        from,
+                        index,
+                        conditions,
+                    } => {
+                        sm.set_transition_conditions(&from, index, conditions);
+                    }
+                    Edit::SetTransitionCrossfade {
+                        from,
+                        index,
+                        seconds,
+                    } => {
+                        sm.set_transition_crossfade(&from, index, seconds);
+                    }
                 }
             }
         }
-        if added {
+        if added_state {
             app.editor.sm_add_state_name.clear();
         }
     }
@@ -1321,30 +1604,59 @@ fn easing_variants() -> [crate::tween::Easing; 6] {
 }
 
 /// Render one [`Track`](crate::timeline::Track) of a `Timeline` as a collapsible keyframe list:
-/// each keyframe shows an editable time (re-sorts on change), a value summary (via `fmt`), an
-/// easing ComboBox, and a remove button. Empty tracks render nothing.
+/// each keyframe shows an editable time (re-sorts on change), a value widget (via `value_edit`), an
+/// easing ComboBox, and a remove button. Renders even when empty (shows an "+kf" add button).
+/// `make_default` supplies a default value for new keyframes; `value_edit` renders a mutable widget
+/// and returns `true` when the value changed.
 #[cfg(not(target_arch = "wasm32"))]
 fn timeline_track_ui<T: Clone + crate::tween::Lerp>(
     ui: &mut egui::Ui,
     label: &str,
     track: &mut crate::timeline::Track<T>,
-    fmt: impl Fn(&T) -> String,
+    at_time: f32,
+    make_default: impl Fn() -> T,
+    value_edit: impl Fn(&mut egui::Ui, &mut T) -> bool,
 ) {
-    if track.is_empty() {
-        return;
-    }
-    egui::CollapsingHeader::new(format!("{label} ({} kf)", track.len()))
+    let header_text = if track.is_empty() {
+        format!("{label} (empty)")
+    } else {
+        format!("{label} ({} kf)", track.len())
+    };
+    egui::CollapsingHeader::new(header_text)
         .id_salt(label)
         .show(ui, |ui| {
+            // "+kf" button (available whether or not the track has keyframes)
+            if ui
+                .small_button("+kf")
+                .on_hover_text("add keyframe at current time")
+                .clicked()
+            {
+                track.add(at_time, make_default(), crate::tween::Easing::Linear);
+            }
+
+            if track.is_empty() {
+                return;
+            }
+
             // Collect deferred mutations — must not mutate `track` while iterating
             // `track.keyframes()` since the slice borrow would conflict.
             let mut retime: Option<(usize, f32)> = None;
             let mut rease: Option<(usize, crate::tween::Easing)> = None;
             let mut remove: Option<usize> = None;
-            for (i, kf) in track.keyframes().iter().enumerate() {
+            let mut revalue: Option<(usize, T)> = None;
+
+            // Clone all values so we can hand mutable temporaries to `value_edit` without
+            // holding an immutable reference to `track` at the same time.
+            let kf_snapshots: Vec<_> = track
+                .keyframes()
+                .iter()
+                .map(|kf| (kf.time, kf.value.clone(), kf.easing.clone()))
+                .collect();
+
+            for (i, (t_snap, v_snap, e_snap)) in kf_snapshots.into_iter().enumerate() {
                 ui.horizontal(|ui| {
                     // Editable keyframe time (re-sorts on change).
-                    let mut t = kf.time;
+                    let mut t = t_snap;
                     if ui
                         .add(
                             egui::DragValue::new(&mut t)
@@ -1357,12 +1669,14 @@ fn timeline_track_ui<T: Clone + crate::tween::Lerp>(
                         retime = Some((i, t));
                     }
 
-                    // Value display (read-only label — generic editing would require
-                    // type-specific widgets per track type; deferred to a future pass).
-                    ui.label(fmt(&kf.value));
+                    // Value widget — type-specific, supplied by caller.
+                    let mut v = v_snap;
+                    if value_edit(ui, &mut v) {
+                        revalue = Some((i, v));
+                    }
 
                     // Easing ComboBox — editable for all track types via the Easing enum.
-                    let easing_label = format!("{:?}", kf.easing);
+                    let easing_label = format!("{e_snap:?}");
                     let combo_id = egui::Id::new(label).with(i).with("ease");
                     egui::ComboBox::from_id_salt(combo_id)
                         .selected_text(&easing_label)
@@ -1388,8 +1702,11 @@ fn timeline_track_ui<T: Clone + crate::tween::Lerp>(
                     }
                 });
             }
-            // Apply deferred mutations in a safe order: easing first (index-stable),
+            // Apply deferred mutations in a safe order: value + easing first (index-stable),
             // retime next (may re-sort), remove last (changes indices).
+            if let Some((i, v)) = revalue {
+                track.set_value(i, v);
+            }
             if let Some((i, e)) = rease {
                 track.set_easing(i, e);
             }
@@ -1436,19 +1753,118 @@ fn timeline_panel(ui: &mut egui::Ui, app: &mut App, sel: crate::ecs::Entity) {
                 .range(0.0..=dur),
         );
     });
+    let cur_time = tl.time;
     ui.separator();
-    timeline_track_ui(ui, "position", &mut tl.position, |v| {
-        format!("({:.0}, {:.0})", v.x, v.y)
-    });
-    timeline_track_ui(ui, "rotation", &mut tl.rotation, |v| format!("{v:.3} rad"));
-    timeline_track_ui(ui, "scale", &mut tl.scale, |v| {
-        format!("({:.2}, {:.2})", v.x, v.y)
-    });
-    timeline_track_ui(ui, "color", &mut tl.color, |c| {
-        format!("{:.2},{:.2},{:.2},{:.2}", c.r, c.g, c.b, c.a)
-    });
-    timeline_track_ui(ui, "alpha", &mut tl.alpha, |a| format!("{a:.2}"));
-    timeline_track_ui(ui, "zoom", &mut tl.zoom, |z| format!("{z:.2}"));
+    timeline_track_ui(
+        ui,
+        "position",
+        &mut tl.position,
+        cur_time,
+        || glam::Vec2::ZERO,
+        |ui, v| {
+            let mut changed = false;
+            changed |= ui
+                .add(egui::DragValue::new(&mut v.x).speed(1.0).prefix("x:"))
+                .changed();
+            changed |= ui
+                .add(egui::DragValue::new(&mut v.y).speed(1.0).prefix("y:"))
+                .changed();
+            changed
+        },
+    );
+    timeline_track_ui(
+        ui,
+        "rotation",
+        &mut tl.rotation,
+        cur_time,
+        || 0.0f32,
+        |ui, v| {
+            ui.add(egui::DragValue::new(v).speed(0.01).suffix("rad"))
+                .changed()
+        },
+    );
+    timeline_track_ui(
+        ui,
+        "scale",
+        &mut tl.scale,
+        cur_time,
+        || glam::Vec2::ZERO,
+        |ui, v| {
+            let mut changed = false;
+            changed |= ui
+                .add(egui::DragValue::new(&mut v.x).speed(0.01).prefix("x:"))
+                .changed();
+            changed |= ui
+                .add(egui::DragValue::new(&mut v.y).speed(0.01).prefix("y:"))
+                .changed();
+            changed
+        },
+    );
+    timeline_track_ui(
+        ui,
+        "color",
+        &mut tl.color,
+        cur_time,
+        || crate::color::Color::WHITE,
+        |ui, c| {
+            let mut changed = false;
+            changed |= ui
+                .add(
+                    egui::DragValue::new(&mut c.r)
+                        .speed(0.01)
+                        .range(0.0..=1.0)
+                        .prefix("r:"),
+                )
+                .changed();
+            changed |= ui
+                .add(
+                    egui::DragValue::new(&mut c.g)
+                        .speed(0.01)
+                        .range(0.0..=1.0)
+                        .prefix("g:"),
+                )
+                .changed();
+            changed |= ui
+                .add(
+                    egui::DragValue::new(&mut c.b)
+                        .speed(0.01)
+                        .range(0.0..=1.0)
+                        .prefix("b:"),
+                )
+                .changed();
+            changed |= ui
+                .add(
+                    egui::DragValue::new(&mut c.a)
+                        .speed(0.01)
+                        .range(0.0..=1.0)
+                        .prefix("a:"),
+                )
+                .changed();
+            changed
+        },
+    );
+    timeline_track_ui(
+        ui,
+        "alpha",
+        &mut tl.alpha,
+        cur_time,
+        || 1.0f32,
+        |ui, v| {
+            ui.add(egui::DragValue::new(v).speed(0.01).range(0.0..=1.0))
+                .changed()
+        },
+    );
+    timeline_track_ui(
+        ui,
+        "zoom",
+        &mut tl.zoom,
+        cur_time,
+        || 1.0f32,
+        |ui, v| {
+            ui.add(egui::DragValue::new(v).speed(0.01).range(0.01..=32.0))
+                .changed()
+        },
+    );
 }
 
 /// Convert an engine [`UvRect`](crate::renderer::uv::UvRect) (offset + size) into the
