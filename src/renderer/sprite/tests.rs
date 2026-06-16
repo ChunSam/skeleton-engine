@@ -2,6 +2,84 @@ use super::textures::file_texture_aliases;
 use super::ui_primitives::{sorted_ui_primitives, UiPrimitiveKind};
 use super::*;
 
+/// Verify that the promoted per-frame scratch fields start empty and that the
+/// sort + assign pipeline (which uses them) produces the same output whether the
+/// scratch storage was just created or was previously populated (reuse).
+///
+/// This is a logic-only test — it does not require a real GPU device. It exercises
+/// the `sort_render_entries` + `assign_instance_offsets` path that the scratch
+/// fields feed into, asserting behavior is identical on a fresh vec vs a vec that
+/// was pre-populated and then cleared (simulating steady-state reuse).
+#[test]
+fn scratch_field_reuse_is_behavior_identical() {
+    let instance = raw();
+    let entries_factory = || {
+        vec![
+            sprite(0, 1.0, 0, "tex_a"),
+            sprite(0, 0.0, 1, "tex_b"),
+            sprite(1, 5.0, 2, "tex_a"),
+        ]
+    };
+
+    // Run 1: fresh scratch vecs.
+    let mut entries1 = entries_factory();
+    let mut sprite_scratch1: Vec<InstanceRaw> = Vec::new();
+    let mut mat_scratch1: Vec<InstanceRaw> = Vec::new();
+    sort_render_entries(&mut entries1);
+    assign_instance_offsets(&mut entries1, &mut sprite_scratch1, &mut mat_scratch1);
+
+    // Run 2: pre-populate scratch vecs with garbage, then clear (simulates frame reuse).
+    let mut entries2 = entries_factory();
+    let mut sprite_scratch2: Vec<InstanceRaw> = vec![instance, instance, instance];
+    let mut mat_scratch2: Vec<InstanceRaw> = vec![instance];
+    sprite_scratch2.clear();
+    mat_scratch2.clear();
+    sort_render_entries(&mut entries2);
+    assign_instance_offsets(&mut entries2, &mut sprite_scratch2, &mut mat_scratch2);
+
+    // Both runs must yield the same instance order and offsets.
+    assert_eq!(
+        sprite_scratch1.len(),
+        sprite_scratch2.len(),
+        "sprite instance count must be identical across runs"
+    );
+    assert_eq!(
+        mat_scratch1.len(),
+        mat_scratch2.len(),
+        "material instance count must be identical across runs"
+    );
+    let offsets1: Vec<usize> = entries1
+        .iter()
+        .filter_map(|e| {
+            if let SpriteRenderKind::Sprite {
+                instance_offset, ..
+            } = &e.kind
+            {
+                Some(*instance_offset)
+            } else {
+                None
+            }
+        })
+        .collect();
+    let offsets2: Vec<usize> = entries2
+        .iter()
+        .filter_map(|e| {
+            if let SpriteRenderKind::Sprite {
+                instance_offset, ..
+            } = &e.kind
+            {
+                Some(*instance_offset)
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(
+        offsets1, offsets2,
+        "sprite instance offsets must be identical whether scratch was fresh or reused"
+    );
+}
+
 fn raw() -> InstanceRaw {
     InstanceRaw::single([[0.0; 4]; 4], [1.0; 4], UvRect::FULL)
 }

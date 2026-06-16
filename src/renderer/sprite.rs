@@ -72,13 +72,27 @@ pub struct SpriteRenderer {
     params_buffers: HashMap<crate::ecs::Entity, (wgpu::Buffer, wgpu::BindGroup)>,
     /// RenderTarget bind_group cache (key = RenderTarget name)
     rt_cache: HashMap<String, Arc<wgpu::BindGroup>>,
-    // ── Per-frame scratch Vecs promoted to fields to avoid per-frame heap allocs ──
-    // Each vec is cleared at the top of `render()` and refilled. The backing memory
-    // is reused across frames so no heap allocation occurs on steady-state frames
-    // (same pattern as instance_capacity above).
+    // ── Per-frame scratch Vecs/Sets promoted to fields to avoid per-frame heap allocs ──
+    // Each collection is cleared at the top of `render()` and refilled. The backing
+    // memory is reused across frames so no heap allocation occurs on steady-state
+    // frames (same pattern as instance_capacity above).
     draw_entries: Vec<SpriteRenderEntry>,
     sprite_instances_scratch: Vec<InstanceRaw>,
     material_instances_scratch: Vec<InstanceRaw>,
+    /// Scratch: AtlasSprite query results (entity, index, color, atlas handle).
+    /// Promoted from a per-frame local `Vec` — cleared and refilled each frame.
+    atlas_entries_scratch: Vec<(
+        crate::ecs::Entity,
+        u32,
+        crate::color::Color,
+        crate::asset::Handle<crate::atlas::TextureAtlas>,
+    )>,
+    /// Scratch: set of entities that have a `ShaderMaterial` this frame.
+    /// Used to cull stale `params_buffers` entries without a per-frame HashSet allocation.
+    live_material_entities_scratch: std::collections::HashSet<crate::ecs::Entity>,
+    /// Scratch: set of ShaderMaterial source hashes whose pipeline source has already
+    /// been claimed this frame, so we clone the WGSL at most once per new hash.
+    seen_new_hashes_scratch: std::collections::HashSet<u64>,
 }
 
 /// Culls a sprite against frustum + LOD thresholds and — if visible — appends a
@@ -299,6 +313,9 @@ impl SpriteRenderer {
             draw_entries: Vec::new(),
             sprite_instances_scratch: Vec::new(),
             material_instances_scratch: Vec::new(),
+            atlas_entries_scratch: Vec::new(),
+            live_material_entities_scratch: std::collections::HashSet::new(),
+            seen_new_hashes_scratch: std::collections::HashSet::new(),
         }
     }
 
@@ -433,19 +450,17 @@ impl SpriteRenderer {
         }
         // ── Collect AtlasSprites: first collect (index, color, atlas handle) ──
         // Break the query iterator borrow before reading AssetServer and GlobalTransform.
-        let atlas_entries: Vec<(
-            crate::ecs::Entity,
-            u32,
-            crate::color::Color,
-            crate::asset::Handle<crate::atlas::TextureAtlas>,
-        )> = world
-            .query::<AtlasSprite>()
-            .map(|(e, s)| (e, s.index, s.color, s.atlas.clone()))
-            .collect();
+        // atlas_entries_scratch is a field so its backing allocation is reused across frames.
+        self.atlas_entries_scratch.clear();
+        self.atlas_entries_scratch.extend(
+            world
+                .query::<AtlasSprite>()
+                .map(|(e, s)| (e, s.index, s.color, s.atlas.clone())),
+        );
 
-        if !atlas_entries.is_empty() {
+        if !self.atlas_entries_scratch.is_empty() {
             if let Some(server) = world.resource::<AssetServer>() {
-                for (entity, index, color, atlas_handle) in &atlas_entries {
+                for (entity, index, color, atlas_handle) in &self.atlas_entries_scratch {
                     if let Some(atlas) = server.get_atlas(atlas_handle) {
                         let uv = world
                             .get::<UvRect>(*entity)
@@ -515,16 +530,18 @@ impl SpriteRenderer {
             .map(|(e, mat)| (e, mat.source_hash(), mat.params))
             .collect();
 
-        // Set of live entities (= currently holding a ShaderMaterial). Populated
-        // from the full world-query result regardless of culling, so retaining
+        // live_material_entities_scratch: set of entities currently holding a ShaderMaterial.
+        // Populated from the full world-query result regardless of culling, so retaining
         // params_buffers to this set at frame end removes GPU buffers only for
-        // despawned or material-removed entities.
-        let live_material_entities: std::collections::HashSet<crate::ecs::Entity> =
-            mat_ids.iter().map(|(e, ..)| *e).collect();
+        // despawned or material-removed entities. Field is cleared+reused each frame.
+        self.live_material_entities_scratch.clear();
+        self.live_material_entities_scratch
+            .extend(mat_ids.iter().map(|(e, ..)| *e));
 
-        // Hashes whose source has already been claimed by a surviving entity this
-        // call — keeps frag_source clones to at most one per new pipeline.
-        let mut seen_new_hashes: std::collections::HashSet<u64> = std::collections::HashSet::new();
+        // seen_new_hashes_scratch: hashes whose source has already been claimed by a
+        // surviving entity this call — keeps frag_source clones to at most one per new
+        // pipeline. Field is cleared+reused each frame.
+        self.seen_new_hashes_scratch.clear();
         for (entity, hash, params) in mat_ids {
             let uv = world.get::<UvRect>(entity).copied().unwrap_or(UvRect::FULL);
             let sprite = match world.get::<Sprite>(entity) {
@@ -564,15 +581,16 @@ impl SpriteRenderer {
 
             // Clone the WGSL source only for the first surviving entity of a
             // not-yet-compiled hash; every other entry carries an empty string.
-            let frag_source =
-                if !self.custom_pipelines.contains_key(&hash) && seen_new_hashes.insert(hash) {
-                    world
-                        .get::<ShaderMaterial>(entity)
-                        .map(|m| m.frag_source().to_owned())
-                        .unwrap_or_default()
-                } else {
-                    String::new()
-                };
+            let frag_source = if !self.custom_pipelines.contains_key(&hash)
+                && self.seen_new_hashes_scratch.insert(hash)
+            {
+                world
+                    .get::<ShaderMaterial>(entity)
+                    .map(|m| m.frag_source().to_owned())
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
 
             self.draw_entries.push(SpriteRenderEntry::material(
                 layer,
@@ -798,7 +816,7 @@ impl SpriteRenderer {
         // had their ShaderMaterial removed). params_buffers previously only grew
         // because nothing ever removed from it.
         self.params_buffers
-            .retain(|e, _| live_material_entities.contains(e));
+            .retain(|e, _| self.live_material_entities_scratch.contains(e));
 
         stats
     }

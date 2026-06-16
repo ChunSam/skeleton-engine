@@ -54,33 +54,11 @@ struct AnimationClipSetDef {
 // ── Error type ───────────────────────────────────────────────────────────────
 
 /// Error from parsing or loading an [`AnimationClipSet`].
-#[derive(Debug)]
-pub enum ClipSetError {
-    /// RON parse or deserialization error.
-    Ron(String),
-    /// Filesystem I/O error (native only).
-    #[cfg(not(target_arch = "wasm32"))]
-    Io(std::io::Error),
-}
-
-impl std::fmt::Display for ClipSetError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ClipSetError::Ron(msg) => write!(f, "RON error: {msg}"),
-            #[cfg(not(target_arch = "wasm32"))]
-            ClipSetError::Io(e) => write!(f, "I/O error: {e}"),
-        }
-    }
-}
-
-impl std::error::Error for ClipSetError {}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl From<std::io::Error> for ClipSetError {
-    fn from(e: std::io::Error) -> Self {
-        ClipSetError::Io(e)
-    }
-}
+///
+/// This is a type alias for [`crate::asset::AssetLoadError`], which is shared
+/// with [`crate::particle::ParticleConfigError`]. The alias keeps the public
+/// name stable (non-breaking) while eliminating duplicated error boilerplate.
+pub type ClipSetError = crate::asset::AssetLoadError;
 
 // ── AnimationClipSet ─────────────────────────────────────────────────────────
 

@@ -141,4 +141,33 @@ mod tests {
             v.y
         );
     }
+
+    /// `JointHandle::raw` returns the underlying rapier handle; `from_raw`
+    /// reconstructs an identical `JointHandle`. Round-trip must be lossless.
+    #[test]
+    fn joint_handle_raw_round_trip() {
+        let mut physics = PhysicsWorld::new(Vec2::ZERO);
+        let (b1, b2) = make_two_bodies(&mut physics);
+        let handle = physics.add_revolute_joint(b1, b2, Vec2::ZERO, Vec2::ZERO);
+
+        // raw() must expose the inner rapier handle.
+        let raw = handle.raw();
+        assert_eq!(
+            raw, handle.0,
+            "raw() must return the inner ImpulseJointHandle"
+        );
+
+        // from_raw() must reconstruct an equivalent JointHandle.
+        let reconstructed = JointHandle::from_raw(raw);
+        assert_eq!(
+            reconstructed, handle,
+            "JointHandle::from_raw(handle.raw()) must equal the original"
+        );
+
+        // The reconstructed handle must still address the same joint in the rapier set.
+        assert!(
+            physics.impulse_joint_set.get(reconstructed.0).is_some(),
+            "reconstructed handle must address a live joint"
+        );
+    }
 }

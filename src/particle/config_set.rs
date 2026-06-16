@@ -122,33 +122,14 @@ struct ParticleConfigDoc {
 
 /// Error returned by [`ParticleConfigSet::from_ron_str`] and
 /// [`ParticleConfigRegistry::load`].
-#[derive(Debug)]
-pub enum ParticleConfigError {
-    /// RON parse error (cross-platform).
-    Ron(String),
-    /// File I/O error (native only).
-    #[cfg(not(target_arch = "wasm32"))]
-    Io(std::io::Error),
-}
-
-impl std::fmt::Display for ParticleConfigError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ParticleConfigError::Ron(msg) => write!(f, "RON parse error: {msg}"),
-            #[cfg(not(target_arch = "wasm32"))]
-            ParticleConfigError::Io(e) => write!(f, "I/O error: {e}"),
-        }
-    }
-}
-
-impl std::error::Error for ParticleConfigError {}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl From<std::io::Error> for ParticleConfigError {
-    fn from(e: std::io::Error) -> Self {
-        ParticleConfigError::Io(e)
-    }
-}
+///
+/// This is a type alias for [`crate::asset::AssetLoadError`], which is shared
+/// with [`crate::animation::ClipSetError`]. The alias keeps the public name
+/// stable (non-breaking) while eliminating duplicated error boilerplate.
+///
+/// **Note:** the `Display` output changed from `"RON parse error: …"` to
+/// `"RON error: …"` as part of this unification (cosmetic only).
+pub type ParticleConfigError = crate::asset::AssetLoadError;
 
 // ── ParticleConfigSet ─────────────────────────────────────────────────────────
 

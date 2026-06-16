@@ -4,6 +4,37 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 9.4.0
+
+**Module-cohesion review follow-ups (safe additive subset).** The first batch from
+`docs/MODULE_COHESION_REVIEW_2026-06-16.md` — the non-breaking, behavior-identical items.
+Breaking/architectural items (the `App`/`render()` extraction, encapsulation tightening,
+`UiSystem`/`SteeringSystem` scratch fields) are deferred to a future `v10` design pass.
+
+### Added
+
+- `engine::AssetLoadError` — a shared RON/IO asset-load error. `ClipSetError` and
+  `ParticleConfigError` are now type aliases of it (their public names + variant names are
+  unchanged, so existing `match` arms keep compiling).
+- `JointHandle::raw()` — escape hatch to the underlying rapier `ImpulseJointHandle`, matching
+  the existing `BodyHandle::raw()` / `ColliderHandle::raw()` pattern (native-only).
+
+### Changed (internal, behavior-identical)
+
+- `SpriteRenderer` now reuses three scratch buffers (`atlas_entries`, `live_material_entities`,
+  `seen_new_hashes`) across frames instead of allocating them per `render()` (closes the
+  per-frame-allocation finding #72 from the hardening coverage ledger).
+- `Tilemap::compute_tile_mask` / `compute_tile_mask_typed` now delegate to one shared
+  `compute_mask_raw` (a closure-parameterized core), removing ~50 lines of copy-pasted Blob8
+  logic — output is bit-identical.
+
+### Docs
+
+- `src/animation` gained a module-level "System registration order" doc (BlendTreeSystem →
+  AnimationSystem → StateMachineSystem).
+- `register_editable_component` now documents that its editor factory/remover halves are
+  native-only (reflect+clone+serde still apply on wasm).
+
 ## 9.3.0
 
 **`HotReloadable` trait — fork-friendly hot-reload extension point.** The hot-reload loop

@@ -88,6 +88,45 @@ impl<T> std::fmt::Debug for Handle<T> {
     }
 }
 
+// ─── AssetLoadError ───────────────────────────────────────────────────────────
+
+/// Shared error type for data-driven asset loaders (animation clip sets, particle
+/// configs, and similar RON-based registries).
+///
+/// Both [`crate::animation::ClipSetError`] and
+/// [`crate::particle::ParticleConfigError`] are type aliases of this type, so
+/// match arms and `From` impls written against either alias also work with the
+/// other — a fork that adds a third RON-loader can reuse the same pattern.
+///
+/// The `Io` variant is native-only (`wasm32` has no file system).
+#[derive(Debug)]
+pub enum AssetLoadError {
+    /// RON parse or deserialization error.
+    Ron(String),
+    /// Filesystem I/O error (native only).
+    #[cfg(not(target_arch = "wasm32"))]
+    Io(std::io::Error),
+}
+
+impl std::fmt::Display for AssetLoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AssetLoadError::Ron(msg) => write!(f, "RON error: {msg}"),
+            #[cfg(not(target_arch = "wasm32"))]
+            AssetLoadError::Io(e) => write!(f, "I/O error: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for AssetLoadError {}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl From<std::io::Error> for AssetLoadError {
+    fn from(e: std::io::Error) -> Self {
+        AssetLoadError::Io(e)
+    }
+}
+
 // ─── ImageAsset ───────────────────────────────────────────────────────────────
 
 /// CPU-side decoded image (RGBA8). Cheap to clone (data behind Arc).
