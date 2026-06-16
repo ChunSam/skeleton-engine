@@ -4,6 +4,25 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning beginning with 1.0.0.
 
+## 10.1.0
+
+**`ShaderMaterial` example (VISION acceptance test, additive).** The custom per-entity
+fragment-shader feature (`ShaderMaterial`, shipped earlier) had **no example** exercising it — a gap
+against the VISION rule that a feature isn't done until a playable example does. This adds one, which
+also serves as the only end-to-end validation of the `MaterialRenderer` custom-pipeline path (CI has
+no GPU test). No library/API change.
+
+### Added
+
+- Example `examples/shader_material.rs` — three side-by-side sprites, each with a **distinct** custom
+  WGSL fragment shader (hue-cycle, sin-wave plasma, noise dissolve), exercising the renderer's
+  per-source-hash pipeline cache with multiple live pipelines at once. A system writes `params[0] =
+  elapsed` into all three each frame (the per-frame `world.get_mut::<ShaderMaterial>` update path), and
+  ↑/↓ drive the dissolve sprite's threshold (`params[1]`). Self-contained — uses `Sprite::colored`
+  (white 1×1 fallback texture) so no asset files are needed, while still proving the `t_sprite` /
+  `s_sprite` bindings. Validates the documented `ShaderMaterial` shader contract (subset `VertexOutput`,
+  `@group(1)` texture + `@group(2)` params bindings) end-to-end via a visual playtest.
+
 ## 10.0.0
 
 **v10 architecture pass** — a scoped set of breaking + internal refactors from the cohesion review
