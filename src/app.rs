@@ -312,9 +312,10 @@ impl App {
         #[cfg(not(target_arch = "wasm32"))]
         app.register_default_components();
 
-        // Auto-register the three built-in hot-reloadable registries.
+        // Auto-register the four built-in hot-reloadable registries.
         #[cfg(not(target_arch = "wasm32"))]
         {
+            app.register_hot_reloadable::<crate::scripting::ScriptRegistry>();
             app.register_hot_reloadable::<crate::data_table::DataTableRegistry>();
             app.register_hot_reloadable::<crate::animation::clip_set::AnimationClipRegistry>();
             app.register_hot_reloadable::<crate::particle::ParticleConfigRegistry>();

@@ -15,6 +15,8 @@ the arc.
 
 - `RenderTarget` escape-hatch read accessors `texture()` / `view()` / `sampler()` / `bind_group()`
   (the underlying wgpu objects are no longer `pub` fields; these mirror the physics `.raw()` hatches).
+- `ScriptRegistry` — a World resource that owns Rhai script storage/loading + hot-reload (split out of
+  `AssetServer`; see the scripting-decouple entry below).
 
 ### Changed (internal)
 
@@ -36,6 +38,12 @@ the arc.
   layout internally. Forks create RTs via `App::create_render_target`, which is unchanged.
 - `LightingRenderer`'s `normal_view` / `width` / `height` are now `pub(crate)` (native-only type,
   not in the prelude).
+- **Scripting decoupled from the asset module.** `ScriptAsset` (and its Rhai `ast`) moved out of
+  `src/asset.rs` into `src/scripting/`, and script storage/loading/hot-reload moved from `AssetServer`
+  to the new `ScriptRegistry` resource — so `asset.rs` no longer references Rhai (a forker can swap
+  scripting backends without touching the generic asset module). `engine::ScriptAsset` is still
+  re-exported at the crate root (source-compatible), but `engine::asset::ScriptAsset` no longer exists
+  and `ScriptAsset::ast` is now `pub(crate)`. `App::load_script` is unchanged.
 
 ### Removed (breaking)
 

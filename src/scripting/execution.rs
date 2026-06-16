@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use rhai::{Engine, EvalAltResult, Scope};
 
-use crate::asset::AssetServer;
+use super::ScriptRegistry;
 use crate::behavior::Blackboard;
 use crate::components::Transform;
 use crate::ecs::{Entity, System, World};
@@ -56,7 +56,7 @@ impl System for ScriptingSystem {
 
             // Read AST
             let ast = match world
-                .resource::<AssetServer>()
+                .resource::<ScriptRegistry>()
                 .and_then(|s| s.get_script_by_id(script_id))
                 .map(|a| a.ast.clone())
             {

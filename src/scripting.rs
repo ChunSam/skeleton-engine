@@ -1,6 +1,11 @@
 use rhai::{Engine, Scope};
 
-use crate::asset::{Handle, ScriptAsset};
+pub mod asset;
+mod loading;
+
+pub use asset::{ScriptAsset, ScriptRegistry};
+
+use crate::asset::Handle;
 
 mod api;
 mod context;

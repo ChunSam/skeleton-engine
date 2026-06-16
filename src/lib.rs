@@ -61,8 +61,9 @@ pub use app::{App, ScheduleErrorPolicy, SystemPanicPolicy};
 pub use asset::HotReloadable;
 pub use asset::{
     AssetId, AssetLoadError, AssetLoadState, AssetServer, Handle, ImageAsset, ImageEntry,
-    ScriptAsset,
 };
+// ScriptAsset re-exported from scripting (canonical location after K-refactor).
+// Also bridged below via `pub use scripting::ScriptAsset` for source-compat.
 pub use atlas::{AtlasSprite, TextureAtlas};
 #[cfg(not(target_arch = "wasm32"))]
 pub use audio::{AudioChannelState, AudioEffect, AudioManager, AudioSystem, BusDuck, Sidechain};
@@ -128,7 +129,7 @@ pub use resources::{
     WindowConfig,
 };
 pub use scene::{Scene, SceneChange, SceneCmd, SystemRegistrar};
-pub use scripting::{ScriptRunner, ScriptingSystem};
+pub use scripting::{ScriptAsset, ScriptRegistry, ScriptRunner, ScriptingSystem};
 pub use steering::{Arrive, Flee, Seek, SteeringSystem, SteeringVelocity, Wander};
 pub use tilemap::{
     compute_tile_mask, compute_tile_mask_typed, ConnectRule, MultiTerrainAutotile, Neighborhood,

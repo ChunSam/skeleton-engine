@@ -29,6 +29,7 @@ pub(super) fn insert_core_resources(world: &mut World) {
     world.insert_resource(ProfilerData::default());
     world.insert_resource(SceneChange::default());
     world.insert_resource(AssetServer::new());
+    world.insert_resource(crate::scripting::ScriptRegistry::default());
     world.insert_resource(LoadProgress::default());
     world.insert_resource(PanickedSystems::default());
     world.insert_resource(crate::prefab::SerdeComponentRegistry::default());

@@ -8,8 +8,6 @@ use notify::{RecursiveMode, Watcher};
 use super::asset_key;
 #[cfg(not(target_arch = "wasm32"))]
 use super::image_loading::decode_image_with_state;
-#[cfg(not(target_arch = "wasm32"))]
-use super::script_loading::compile_script_file;
 use super::AssetServer;
 
 impl AssetServer {
@@ -39,7 +37,6 @@ impl AssetServer {
                 let key = asset_key(&path);
                 let key_str = key.to_string();
                 let is_known = self.path_to_id.contains_key(&key)
-                    || self.script_path_to_id.contains_key(&key)
                     || self.watched_paths.contains(&key)
                     || self.atlas_path_to_id.contains_key(&key);
                 if is_known && !seen.contains(&key_str) {
@@ -53,10 +50,9 @@ impl AssetServer {
                     self.images.insert(id, asset);
                     self.image_load_states.insert(id, state);
                 }
-                if let Some(&id) = self.script_path_to_id.get(&key) {
-                    self.scripts.insert(id, compile_script_file(path_str));
-                }
-                // Non-image/script paths are returned as-is; registries reload them in schedule.rs.
+                // Non-image paths are returned as-is; registries (ScriptRegistry,
+                // DataTableRegistry, etc.) reload them via the HotReloadable forwarder
+                // in schedule.rs.
             }
             seen
         }

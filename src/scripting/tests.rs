@@ -1,8 +1,8 @@
 use super::context::{
     set_script_ctx, take_script_ctx, BbEntry, ScriptCommands, ScriptCtx, SteeringCmd,
 };
+use super::ScriptRegistry;
 use super::*;
-use crate::asset::AssetServer;
 use crate::behavior::BlackboardValue;
 use crate::components::Transform;
 use crate::ecs::{Entity, System, World};
@@ -264,9 +264,9 @@ fn scripting_wander_overwrites_previous_steer_cmd() {
 // Helper: build a minimal World+entity with a ScriptRunner wired to `source`.
 fn make_world_with_script(source: &str) -> (World, Entity, ScriptingSystem) {
     let mut world = World::new();
-    let mut assets = AssetServer::new();
-    let handle = assets.load_script_inline(format!("inline::{source}"), source);
-    world.insert_resource(assets);
+    let mut scripts = ScriptRegistry::default();
+    let handle = scripts.load_script_inline(format!("inline::{source}"), source);
+    world.insert_resource(scripts);
     let e = world.spawn();
     world.add_component(
         e,
@@ -298,12 +298,12 @@ fn steering_exclusivity_wander_then_arrive_removes_wander() {
 
     // Second frame: swap to arrive_at() script
     // Simulate switching by overwriting the ScriptRunner with an arrive script.
-    let mut assets = world.remove_resource::<AssetServer>().unwrap();
-    let arrive_handle = assets.load_script_inline(
+    let mut scripts = world.remove_resource::<ScriptRegistry>().unwrap();
+    let arrive_handle = scripts.load_script_inline(
         "inline::arrive",
         "fn on_update(dt) { arrive_at(500.0, 300.0, 120.0, 60.0, 8.0); }",
     );
-    world.insert_resource(assets);
+    world.insert_resource(scripts);
     if let Some(runner) = world.get_mut::<ScriptRunner>(e) {
         runner.script = arrive_handle;
         runner.started = false;
@@ -335,12 +335,12 @@ fn steering_exclusivity_arrive_then_seek_removes_arrive() {
     );
 
     // Second frame: seek_target()
-    let mut assets = world.remove_resource::<AssetServer>().unwrap();
-    let seek_handle = assets.load_script_inline(
+    let mut scripts = world.remove_resource::<ScriptRegistry>().unwrap();
+    let seek_handle = scripts.load_script_inline(
         "inline::seek",
         "fn on_update(dt) { seek_target(200.0, 150.0, 100.0); }",
     );
-    world.insert_resource(assets);
+    world.insert_resource(scripts);
     if let Some(runner) = world.get_mut::<ScriptRunner>(e) {
         runner.script = seek_handle;
         runner.started = false;
@@ -376,10 +376,10 @@ fn steering_exclusivity_stop_clears_all_and_stays_stopped() {
     );
 
     // Frame 2: stop_steering()
-    let mut assets = world.remove_resource::<AssetServer>().unwrap();
+    let mut scripts = world.remove_resource::<ScriptRegistry>().unwrap();
     let stop_handle =
-        assets.load_script_inline("inline::stop", "fn on_update(dt) { stop_steering(); }");
-    world.insert_resource(assets);
+        scripts.load_script_inline("inline::stop", "fn on_update(dt) { stop_steering(); }");
+    world.insert_resource(scripts);
     if let Some(runner) = world.get_mut::<ScriptRunner>(e) {
         runner.script = stop_handle;
         runner.started = false;
