@@ -26,7 +26,7 @@
 //! app.world.add_component(panel, NineSlice::uniform(16.0, 0.25));
 //! ```
 //!
-//! `NineSlice` works with the `texture`/`image_handle` path of [`Sprite`]; it does
+//! `NineSlice` works with the `texture`/`image_handle` path of [`Sprite`](crate::components::Sprite); it does
 //! not apply to [`AtlasSprite`](crate::atlas::AtlasSprite) or to entities that
 //! also carry a [`ShaderMaterial`](crate::material::ShaderMaterial).
 
