@@ -6,6 +6,16 @@
 **Chain:** `engine-hardening` seq `19` · **Parent:** seq 18 (`HANDOFF_engine-hardening_phase6-and-roadmap-summary_2026-06-17.md`)
 **Prior:** 13 (P1) → 14 (P2) → 15 (P3) → 16 (P4) → 17 (P5) → 18 (P6 + Phase-7 deferral) → **19 (P7 done; roadmap complete)**
 
+> **✅ RESOLUTION (post-handoff, 2026-06-17 — machine unlocked):** The "Outstanding verification" debt
+> below is **CLEARED**. After this handoff was written the machine unlocked and all four unobserved demos
+> were verified live: Phase 4 `dialogue_demo` (typewriter + advance), Phase 5 `save_counter` (native file
+> 1→2 **and** browser localStorage reload 1→7 persists), Phase 6 `particles_showcase` (gravity arcs +
+> emit shapes), and Phase 7 **`WebAudio` beep HEARD in a browser**. Browser checks ran on a throwaway
+> `tmp/browser-test` branch (temp `#[wasm_bindgen]` exports + a generated-WAV beep + a dist/ HTML page),
+> fully discarded afterward — `main` untouched. This note was added late because the verification session
+> shipped no handoff of its own; the canonical record is the `engine-current-state` memory. The ⚠️
+> section below is kept verbatim as the as-written record.
+
 ## Outcome
 
 `/goal` = drive `plans/USER_EXPERIENCE_PLAN_2026-06-17.md` to its last phase, each phase PR → CI green →
@@ -38,11 +48,12 @@ self-contained, and the native module left untouched:
   `AudioBufferSourceNode`, `AudioNode`, `AudioDestinationNode`.
 - Verified via **`cargo build`/`clippy --target wasm32`** (validates the Web Audio API usage + features).
 
-## ⚠️ Outstanding verification (the locked-machine debt)
+## ⚠️ Outstanding verification (the locked-machine debt) — ✅ RESOLVED (see banner at top)
 
 The dev machine **locked mid-session** (display asleep → lock screen), blocking all live/visual/audio
-verification from Phase 4 onward. Compile + unit-tests + CI are green throughout, but the following were
-**not observed live** and should be checked when unlocked:
+verification from Phase 4 onward. Compile + unit-tests + CI are green throughout. The items below were
+**not observed live at the time of writing** but were **all verified live after unlock** (2026-06-17 — see
+the RESOLUTION banner at the top); kept verbatim as the as-written record:
 - **Phase 4 `dialogue_demo`** — eyeball the typewriter + advance.
 - **Phase 5 `save_counter`** — browser-test the `localStorage` round-trip (run the wasm build, reload, see
   the count persist).
@@ -64,8 +75,8 @@ verification from Phase 4 onward. Compile + unit-tests + CI are green throughout
 
 ## Follow-ups (open, none blocking)
 
-- **Hear/eyeball the 4 demos above** (locked-machine debt) — highest priority, cheap once unlocked.
-- `GpuParticleEmitter` mirror of gravity/emit_shape + RON `ParticleConfigSet` support for them.
+- ~~**Hear/eyeball the 4 demos above** (locked-machine debt)~~ — ✅ **DONE** (all 4 verified live post-unlock; see top banner).
+- `GpuParticleEmitter` mirror of gravity/emit_shape + RON `ParticleConfigSet` support for them. ← **now the top open follow-up.**
 - AEAD `save`/`load` on wasm (currently `Unsupported`); `DialogueBox` localization keys.
 - Fuller wasm audio (music/mixing/positional) — e.g. `kira` cross-platform unification.
 - **crates.io publish** — still deferred (fork-first). Mechanically unblocked (`engine_reflect_derive` is a
@@ -97,7 +108,8 @@ git log --oneline -3            # 6fb2dc6 Phase 7 (#102)
 grep -m1 '^version' Cargo.toml  # 0.17.0
 ./scripts/verify.sh             # green (786 lib tests); RUN AS-IS, no tail pipe
 # Read: plans/USER_EXPERIENCE_PLAN_2026-06-17.md (all 7 done), this handoff (seq 19).
-# The roadmap is COMPLETE. Highest-value next step: VERIFY the unobserved demos on an unlocked
-#   machine — especially HEAR WebAudio in a browser (Phase 7 sound output is unverified). Then pick
-#   from Follow-ups (GPU particle mirror, wasm AEAD save, dialogue localization, crates.io, tags).
+# The roadmap is COMPLETE and ALL DEMOS ARE LIVE-VERIFIED (post-unlock — see the RESOLUTION banner at top;
+#   verification debt is CLEARED). Highest-value next step is now a Follow-up: GpuParticleEmitter
+#   gravity/emit_shape mirror + RON ParticleConfigSet support. Or: wasm AEAD save, dialogue localization,
+#   crates.io publish, tag v0.11.1–v0.17.0.
 ```

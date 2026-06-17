@@ -4,6 +4,31 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.18.0
+
+**Particle depth, completed: `gravity` + `emit_shape` now reach the GPU emitter and RON configs too.**
+Phase 6 (v0.16.0) added `gravity` and `emit_shape` to the CPU `ParticleEmitter` only, leaving the
+compute-shader `GpuParticleEmitter` and the data-driven `ParticleConfigSet` (RON) without them. This
+closes that follow-up on both fronts. Purely additive — zero gravity / `Point` shape / omitted RON
+fields reproduce the prior behavior byte-for-byte; the native `AudioManager` and CPU particle paths are
+untouched.
+
+### Added
+- `GpuParticleEmitter::gravity: Vec2` + `emit_shape: EmitShape` (with `with_gravity`/`with_emit_shape`
+  builders), mirroring the CPU `ParticleEmitter`. Gravity is carried per-particle and integrated in the
+  compute shader (`p.vel += p.gravity * dt`); the emit shape is sampled on the CPU at emission time via
+  the existing `EmitShape::sample_offset`. `src/gpu_particle.rs`.
+- RON `ParticleConfigSet` (`EmitterDef`) gains optional `gravity` and `emit_shape` fields via a private
+  `EmitShapeDef` serde mirror (`Point` / `Circle(radius:)` / `Ring(radius:)` / `Box(half_extents:)`);
+  both default to zero / `Point`. `src/particle/config_set.rs` (+ 4 unit tests).
+- `examples/gpu_particles.rs` spawns with a gravity arc + `Circle` emit shape;
+  `examples/games/data_particles/assets/particles.ron` exercises both new RON fields (hot-reloadable).
+
+### Changed
+- `GpuParticle` GPU struct grew 64 → 80 bytes (added `gravity: vec2<f32>` at offset 64 + padding to a
+  16-byte-aligned stride); the compute and render WGSL `Particle` structs match. Native-only; the
+  per-particle buffer is 4096 slots (≈320 KB). No public API removed.
+
 ## 0.17.0
 
 **WASM audio (one-shot SFX) — Phase 7 of the user-experience roadmap, the final phase.** The native
