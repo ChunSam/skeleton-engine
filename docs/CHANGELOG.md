@@ -4,6 +4,28 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.16.0
+
+**Particle depth — Phase 6 of the user-experience roadmap.** `ParticleEmitter` gains the two knobs 2D
+effects most need — per-particle gravity and a spawn shape — so fire, fountains, and scatter showers
+are configurable instead of all-uniform. Additive: the defaults (`gravity = ZERO`, `emit_shape = Point`)
+reproduce the prior behavior exactly.
+
+### Added
+- `ParticleEmitter::gravity: Vec2` — constant per-particle acceleration integrated each frame (`ZERO` =
+  none, e.g. `(0, 300)` falling / `(0, -60)` rising). Builder `with_gravity`.
+- `ParticleEmitter::emit_shape: EmitShape` — `Point` (default) / `Circle { radius }` / `Ring { radius }` /
+  `Box { half_extents }`; new particles spawn at an offset sampled from the shape. Builder
+  `with_emit_shape`. `EmitShape` re-exported as `engine::EmitShape`.
+- Example `examples/particles_showcase.rs` — a fountain (gravity down), buoyant fire (gravity up + circle
+  base), and box-scattered sparks.
+
+### Notes
+- The `GpuParticleEmitter` (native GPU path) does not yet mirror these fields — follow-up.
+- Live visual playtest deferred (the dev machine was locked); the new math is unit-tested (gravity
+  integration, zero-gravity = constant velocity, emit-shape sample bounds), and existing particle
+  behavior is byte-identical with default values.
+
 ## 0.15.0
 
 **WASM persistence — Phase 5 of the user-experience roadmap.** Browser-deployed games can finally save

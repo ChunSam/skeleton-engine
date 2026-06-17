@@ -103,8 +103,8 @@ pub use network::{
 pub use nine_slice::NineSlice;
 pub use parallax::{ParallaxLayer, ParallaxSystem};
 pub use particle::{
-    Particle, ParticleBurst, ParticleConfigError, ParticleConfigRegistry, ParticleConfigSet,
-    ParticleEmitter, ParticleSystem,
+    EmitShape, Particle, ParticleBurst, ParticleConfigError, ParticleConfigRegistry,
+    ParticleConfigSet, ParticleEmitter, ParticleSystem,
 };
 pub use pathfinding::{find_path, find_path_diagonal, PathGrid};
 #[cfg(not(target_arch = "wasm32"))]
