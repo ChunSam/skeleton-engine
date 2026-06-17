@@ -4,6 +4,34 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.19.0
+
+**Dialogue depth: `DialogueBox` gains localization keys and branching choices.** The Phase-4
+`DialogueBox` was a linear typewriter over a `Vec<String>`; this makes it production-grade for
+RPG/visual-novel use on two fronts — (1) lines/speaker/choices can be driven by translation keys
+resolved against the existing `LocaleResource` each frame (so a live `set_locale` retranslates a
+conversation mid-flow without losing the reader's place), and (2) a line can present numbered
+choices that jump the conversation to another line. Purely additive — a box with no `line_keys`
+and no `choices` renders byte-identically to before; both new field groups are `#[serde(default)]`
+so pre-localization scene RON still loads. `DialogueSystem` stays input-agnostic (the game calls
+`advance`/`choose`).
+
+### Added
+- Localization: `DialogueBox::localized(speaker_key, line_keys)` constructor + `line_keys: Vec<String>`
+  / `speaker_key: Option<String>` fields + `resolve(&LocaleResource)`, which fills `lines`/`speaker`
+  from translation keys **without** touching `current`/`elapsed`/reveal state (safe to call every
+  frame). `DialogueSystem` resolves every box against the current locale before ticking. `src/dialogue.rs`.
+- Branching: new `DialogueChoice { text, key: Option<String>, goto }` type (`new`/`localized` ctors,
+  re-exported from the crate root) + `choices: Vec<(usize, Vec<DialogueChoice>)>` field + `with_choices`
+  builder + `pending_choices()` / `choose(i)`. Selecting choice `i` jumps to its `goto` line (out-of-range
+  `goto` clamps to the end, finishing the conversation); `advance()` is a no-op while a decision is
+  pending so a plain advance can't skip a choice. Localized choice labels resolve like line keys.
+  `DialogueSystem` draws the numbered choice list in place of the ▼ advance hint. `src/dialogue.rs`.
+- `examples/dialogue_branching.rs` — a localized, branching merchant scene: SPACE advances, `1`/`2`
+  pick choices, `L` toggles the locale between English and Korean live, `R` replays. The buy/dark
+  branches show distinct lines and reconverge on a shared farewell. (12 new unit tests; the existing
+  linear `dialogue_demo` is unchanged.)
+
 ## 0.18.0
 
 **Particle depth, completed: `gravity` + `emit_shape` now reach the GPU emitter and RON configs too.**
