@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.6.59 | package `skeleton-engine` v0.11.1, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
+> Version v1.6.60 | package `skeleton-engine` v0.12.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example game ships to
 > the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`  
@@ -75,7 +75,7 @@ Where to read to find a given thing:
 | `System` trait | `src/ecs/system.rs` |
 | Scene transitions (Scene, SceneCmd, SceneChange), SystemRegistrar (labeled system registration from `on_enter`) | `src/scene.rs` |
 | Transform, Sprite | `src/components.rs` |
-| WindowConfig, GameState, ShouldQuit, DebugDraw (filled rects via `rect_filled_z`; `DebugShape` is `#[non_exhaustive]`) | `src/resources.rs` |
+| WindowConfig, GameState, ShouldQuit, DebugDraw (filled rects via `rect_filled_z`; `DebugShape` is `#[non_exhaustive]`); **TimeScale** (global `dt` multiplier for scene systems → hit-stop/slow-mo, `App::set_time_scale`) + **RealDt** (real unscaled per-frame dt, for systems that must opt out of time-scaling) | `src/resources.rs` |
 | Camera (coordinate transforms, zoom; `screen_to_world`/`world_to_screen`; `bounds` + `clamp_to_bounds` world-bounds clamp, auto-applied by App after follow) | `src/camera.rs` |
 | ParallaxLayer (`factor: Vec2` depth scroll: 1=world-locked, 0=screen-locked, >1=foreground; lazy base capture), ParallaxSystem (user-added: `pos = base + (cam - cam_ref) * (1 - factor)`; reads `Camera`, add after camera-mover systems; example `parallax_scroll`) | `src/parallax.rs` |
 | InputState, InputMap (keyboard + gamepad bindings: `bind_gamepad_button`/`bind_gamepad_axis` + `AxisBinding`, `*_with_gamepad` resolution) | `src/input/` |
@@ -98,7 +98,7 @@ Where to read to find a given thing:
 | Slider (horizontal slider), CheckBox (toggle checkbox) | `src/ui/slider.rs`, `src/ui/checkbox.rs` |
 | LocalizedText (key bound to a widget), LocalizationSystem (resolves `LocaleResource::t` into Label/Button/CheckBox each frame) | `src/ui/localized.rs` |
 | Tag, EntityDef (+ `components` map), SceneDef, Prefab, spawn_entity_def, spawn_scene_def, **SerdeComponentRegistry** + `App::register_serde_component::<T>` (any serde component persists to scene RON; UI widgets + `AnimationStateMachine`/`Timeline`/`CameraTarget` auto-registered; `SerdeComponentRegistry` now lives in `src/serde_registry.rs`, re-exported from prefab) | `src/prefab.rs`, `src/serde_registry.rs` |
-| Timer, Tween, TweenSequence (chained multi-segment tweens: per-segment easing + `looping`, carries leftover `dt` across segments; example `tween_sequence`), Easing, Lerp (general interpolation trait) | `src/timer.rs`, `src/tween.rs` |
+| Timer, **`Tween<T: Lerp = f32>`** (generic over the value type — `Tween<Vec2>`/`Tween<Color>`; default `f32` keeps old call sites + `TweenSequence` unchanged), TweenSequence (chained multi-segment `f32` tweens: per-segment easing + `looping`, carries leftover `dt` across segments; example `tween_sequence`), **Easing** (`#[non_exhaustive]`; Linear/EaseIn/Out/InOut/InBack/OutBack/InBounce/OutBounce/InElastic/OutElastic), Lerp (general interpolation trait); game-feel example `juice_demo` (hit-stop + shake + easing + fade) | `src/timer.rs`, `src/tween.rs` |
 | Coroutine, CoroutineRunner, CoroutineSystem (imperative timed-action sequencer — `wait(secs)` / `run(\|&mut World\|)` / `run_for(dur, \|&mut World, t\|)` steps chained via a builder; `CoroutineSystem` removes the `CoroutineRunner` resource, ticks all coroutines passing `&mut World` to the closures, then reinserts — closures must not re-enter the runner; carries leftover `dt` across steps; distinct from `Timeline` (data keyframes) / `TweenSequence` (value interp); example `coroutine_demo`) | `src/coroutine.rs` |
 | Timeline, Track, Keyframe, TimelineSystem (keyframe cutscenes → entity Transform/Sprite; **CameraTarget** marker + `zoom` track route a timeline into the **Camera** resource as a virtual rig; `Track::add`/`keyframes`/`len`/`remove`/`set_time`/`set_value`/`set_easing`/`clear` editor accessors+edit ops drive the docked **Timeline panel** (per-track keyframe list + add-keyframe + per-type value editing + playback controls); example: `timeline_cutscene`) | `src/timeline.rs` |
 | History (generic snapshot undo/redo for grid puzzles, turn-based, editors) | `src/history.rs` |

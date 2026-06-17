@@ -10,7 +10,7 @@
 use crate::app::App;
 
 /// Returns all `Easing` variants in display order. Kept in sync with `src/tween.rs`.
-fn easing_variants() -> [crate::tween::Easing; 6] {
+fn easing_variants() -> [crate::tween::Easing; 10] {
     use crate::tween::Easing;
     [
         Easing::Linear,
@@ -19,6 +19,10 @@ fn easing_variants() -> [crate::tween::Easing; 6] {
         Easing::EaseInOut,
         Easing::EaseInBack,
         Easing::EaseOutBack,
+        Easing::EaseInBounce,
+        Easing::EaseOutBounce,
+        Easing::EaseInElastic,
+        Easing::EaseOutElastic,
     ]
 }
 
