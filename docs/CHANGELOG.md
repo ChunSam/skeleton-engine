@@ -4,6 +4,26 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.13.0
+
+**Core API ergonomics — Phase 3 of the user-experience roadmap.** Removes the most common ECS
+papercut (the "collect the entities, then `get_mut` each" workaround for mutating several
+components together) and the scene-stack asymmetry. The flagship WASM demo is refactored onto the
+new API, so the first code a newcomer reads no longer teaches the workaround.
+
+### Added
+- **`World::query2_mut<A, B>`** and **`World::query3_mut<A, B, C>`** — mutable multi-component
+  queries yielding `(Entity, &mut A, &mut B[, &mut C])`. They borrow the distinct archetype columns
+  simultaneously via `HashMap::get_disjoint_mut`, so a system updates several components in one pass
+  with no allocate-every-frame collect step. `A`/`B`/`C` must be distinct types.
+- **`App::push_scene`** / **`App::pop_scene`** — App-level convenience for `SceneCmd::Push`/`Pop`
+  (stack a pause menu or overlay over the running scene and resume it), mirroring `App::set_scene`.
+
+### Changed
+- `run_demo` (`src/lib.rs`, the WASM demo) now uses `query2_mut::<Transform, BounceVel>` instead of
+  collect-then-`get_mut`.
+- `FORKING.md` + the `CLAUDE.md` module map document the mutable queries and the scene-stack helpers.
+
 ## 0.12.0
 
 **Game-feel core ("juice") — Phase 2 of the user-experience roadmap.** Adds the highest-leverage

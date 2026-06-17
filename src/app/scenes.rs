@@ -59,8 +59,24 @@ impl App {
         self.panicked_systems.clear();
     }
 
+    /// Replaces the current scene (resets the world). See also [`push_scene`](App::push_scene) /
+    /// [`pop_scene`](App::pop_scene) for stacking (e.g. a pause menu over the game).
     pub fn set_scene(&mut self, scene: Box<dyn Scene>) {
         self.apply_scene_cmd(SceneCmd::Replace(scene));
+    }
+
+    /// Pushes a scene onto the stack, suspending (not destroying) the current one — the App-level
+    /// convenience for `SceneCmd::Push`, mirroring [`set_scene`](App::set_scene). Useful for
+    /// overlays like a pause menu or inventory that resume the scene beneath on
+    /// [`pop_scene`](App::pop_scene).
+    pub fn push_scene(&mut self, scene: Box<dyn Scene>) {
+        self.apply_scene_cmd(SceneCmd::Push(scene));
+    }
+
+    /// Pops the top scene off the stack, resuming the one beneath (no-op if the stack is empty).
+    /// The App-level convenience for `SceneCmd::Pop`.
+    pub fn pop_scene(&mut self) {
+        self.apply_scene_cmd(SceneCmd::Pop);
     }
 
     fn reconcile_meta(&mut self) {

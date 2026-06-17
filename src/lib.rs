@@ -190,33 +190,18 @@ pub fn run_demo() {
                 .unwrap_or((1280.0, 720.0));
             let margin = 32.0;
 
-            let data: Vec<(Entity, f32, f32, f32, f32)> = world
-                .query2::<Transform, BounceVel>()
-                .map(|(e, t, b)| (e, t.position.x, t.position.y, b.vx, b.vy))
-                .collect();
-
-            for (e, x, y, vx, vy) in data {
-                let nx = x + vx * dt;
-                let ny = y + vy * dt;
-                let nvx = if nx < margin || nx > w - margin {
-                    -vx
-                } else {
-                    vx
-                };
-                let nvy = if ny < margin || ny > h - margin {
-                    -vy
-                } else {
-                    vy
-                };
-                if let Some(t) = world.get_mut::<Transform>(e) {
-                    t.position.x = nx;
-                    t.position.y = ny;
-                    t.rotation += 1.5 * dt;
+            // Mutate Transform + BounceVel together in one pass — no collect-then-get_mut
+            // workaround (see World::query2_mut).
+            for (_e, t, b) in world.query2_mut::<Transform, BounceVel>() {
+                t.position.x += b.vx * dt;
+                t.position.y += b.vy * dt;
+                if t.position.x < margin || t.position.x > w - margin {
+                    b.vx = -b.vx;
                 }
-                if let Some(b) = world.get_mut::<BounceVel>(e) {
-                    b.vx = nvx;
-                    b.vy = nvy;
+                if t.position.y < margin || t.position.y > h - margin {
+                    b.vy = -b.vy;
                 }
+                t.rotation += 1.5 * dt;
             }
 
             if let Some(tq) = world.resource_mut::<TextQueue>() {

@@ -113,6 +113,34 @@ fn query2_returns_only_entities_with_both() {
 }
 
 #[test]
+fn query2_mut_mutates_both_components() {
+    let mut world = World::new();
+    let e0 = world.spawn();
+    world.add_component(e0, Position { x: 0.0, y: 0.0 });
+    world.add_component(e0, Velocity { vx: 1.0, vy: 2.0 });
+    // Entity with only Position must be skipped.
+    let e1 = world.spawn();
+    world.add_component(e1, Position { x: 5.0, y: 5.0 });
+
+    let mut visited = 0;
+    for (_e, p, v) in world.query2_mut::<Position, Velocity>() {
+        p.x += v.vx;
+        p.y += v.vy;
+        v.vx = 0.0; // mutate the second component too
+        visited += 1;
+    }
+    assert_eq!(
+        visited, 1,
+        "only the entity with both components is visited"
+    );
+
+    let p = world.get::<Position>(e0).unwrap();
+    assert_eq!((p.x, p.y), (1.0, 2.0));
+    assert_eq!(world.get::<Velocity>(e0).unwrap().vx, 0.0);
+    assert_eq!(world.get::<Position>(e1).unwrap().x, 5.0); // untouched
+}
+
+#[test]
 fn remove_component_keeps_entity_alive() {
     let mut world = World::new();
     let e = world.spawn();
