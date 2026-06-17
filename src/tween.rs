@@ -2,7 +2,11 @@ use crate::timer::Timer;
 use serde::{Deserialize, Serialize};
 
 /// Interpolation curve.
+///
+/// `#[non_exhaustive]`: more curves may be added in future releases, so external `match`es
+/// must include a `_` arm.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum Easing {
     /// Linear.
     #[default]
@@ -17,6 +21,14 @@ pub enum Easing {
     EaseInBack,
     /// Goes forward, overshoots slightly, then settles back (overshoot at end).
     EaseOutBack,
+    /// Accelerating bounce at the start (mirror of `EaseOutBounce`).
+    EaseInBounce,
+    /// Decelerating bounce at the end — like a ball dropping and settling.
+    EaseOutBounce,
+    /// Springy wind-up at the start (damped oscillation).
+    EaseInElastic,
+    /// Springy overshoot that oscillates and settles at the end.
+    EaseOutElastic,
 }
 
 impl Easing {
@@ -42,6 +54,46 @@ impl Easing {
                 let s = t - 1.0;
                 s * s * ((C + 1.0) * s + C) + 1.0
             }
+            Easing::EaseOutBounce => Self::out_bounce(t),
+            Easing::EaseInBounce => 1.0 - Self::out_bounce(1.0 - t),
+            Easing::EaseInElastic => {
+                if t <= 0.0 {
+                    0.0
+                } else if t >= 1.0 {
+                    1.0
+                } else {
+                    const C4: f32 = core::f32::consts::TAU / 3.0;
+                    -(2f32.powf(10.0 * t - 10.0)) * ((t * 10.0 - 10.75) * C4).sin()
+                }
+            }
+            Easing::EaseOutElastic => {
+                if t <= 0.0 {
+                    0.0
+                } else if t >= 1.0 {
+                    1.0
+                } else {
+                    const C4: f32 = core::f32::consts::TAU / 3.0;
+                    2f32.powf(-10.0 * t) * ((t * 10.0 - 0.75) * C4).sin() + 1.0
+                }
+            }
+        }
+    }
+
+    /// The classic decelerating "bounce" curve, shared by `EaseOutBounce`/`EaseInBounce`.
+    fn out_bounce(t: f32) -> f32 {
+        const N1: f32 = 7.5625;
+        const D1: f32 = 2.75;
+        if t < 1.0 / D1 {
+            N1 * t * t
+        } else if t < 2.0 / D1 {
+            let t = t - 1.5 / D1;
+            N1 * t * t + 0.75
+        } else if t < 2.5 / D1 {
+            let t = t - 2.25 / D1;
+            N1 * t * t + 0.9375
+        } else {
+            let t = t - 2.625 / D1;
+            N1 * t * t + 0.984375
         }
     }
 }
@@ -90,27 +142,38 @@ impl Lerp for crate::color::Color {
     }
 }
 
-/// Tween that interpolates an f32 value over time.
+/// Tween that interpolates a value of type `T` over time.
+///
+/// `T` is any [`Lerp`] type — `f32` (the default), [`glam::Vec2`], [`crate::Color`], etc. The
+/// type parameter defaults to `f32`, so existing `Tween::new(0.0, 100.0, 1.0)` call sites and
+/// [`TweenSequence`] (which is `f32`-only) are unaffected.
 ///
 /// # Example
 /// ```rust
 /// use engine::{Tween, Easing};
 ///
+/// // f32 (default type parameter)
 /// let mut tween = Tween::new(0.0, 100.0, 1.0).with_easing(Easing::EaseOut);
 /// let v = tween.tick(0.5);
 /// assert!(v > 50.0); // EaseOut is fast at the start
+///
+/// // Vec2 — interpolate a position in one tween
+/// use engine::Vec2;
+/// let mut pos = Tween::new(Vec2::ZERO, Vec2::new(200.0, 0.0), 1.0);
+/// let p = pos.tick(0.5);
+/// assert!((p.x - 100.0).abs() < 1e-4);
 /// ```
 #[derive(Clone, Debug)]
-pub struct Tween {
-    start: f32,
-    end: f32,
+pub struct Tween<T: Lerp = f32> {
+    start: T,
+    end: T,
     timer: Timer,
     easing: Easing,
 }
 
-impl Tween {
-    /// Creates a tween that linearly interpolates from `start` to `end` over `duration` seconds.
-    pub fn new(start: f32, end: f32, duration: f32) -> Self {
+impl<T: Lerp> Tween<T> {
+    /// Creates a tween that interpolates from `start` to `end` over `duration` seconds (linear).
+    pub fn new(start: T, end: T, duration: f32) -> Self {
         Self {
             start,
             end,
@@ -126,15 +189,18 @@ impl Tween {
     }
 
     /// Advances by `dt` and returns the current interpolated value.
-    pub fn tick(&mut self, dt: f32) -> f32 {
+    pub fn tick(&mut self, dt: f32) -> T {
         self.timer.tick(dt);
         self.value()
     }
 
     /// Returns the current interpolated value without advancing time.
-    pub fn value(&self) -> f32 {
-        let t = self.easing.apply(self.timer.fraction());
-        self.start + (self.end - self.start) * t
+    pub fn value(&self) -> T {
+        T::lerp(
+            &self.start,
+            &self.end,
+            self.easing.apply(self.timer.fraction()),
+        )
     }
 
     /// Returns true if the tween has finished.
@@ -476,5 +542,58 @@ mod tests {
         // EaseIn at t=0.5: t^2 = 0.25 → 5 + 0.25*10 = 7.5
         let v = seq.value();
         assert!((v - 7.5).abs() < 1e-4, "got {v}");
+    }
+
+    // ── Generic Tween<T> tests ─────────────────────────────────────────────
+
+    #[test]
+    fn generic_vec2_tween_midpoint() {
+        use glam::Vec2;
+        let mut tw = Tween::new(Vec2::ZERO, Vec2::new(200.0, 100.0), 2.0);
+        let v = tw.tick(1.0); // linear midpoint
+        assert!((v.x - 100.0).abs() < 1e-4, "x={}", v.x);
+        assert!((v.y - 50.0).abs() < 1e-4, "y={}", v.y);
+    }
+
+    #[test]
+    fn generic_color_tween_midpoint() {
+        use crate::color::Color;
+        let mut tw = Tween::new(
+            Color::rgba(0.0, 0.0, 0.0, 0.0),
+            Color::rgba(1.0, 1.0, 1.0, 1.0),
+            1.0,
+        );
+        let c = tw.tick(0.5);
+        assert!(
+            (c.r - 0.5).abs() < 1e-4 && (c.a - 0.5).abs() < 1e-4,
+            "got {c:?}"
+        );
+    }
+
+    // ── New easing curves ──────────────────────────────────────────────────
+
+    #[test]
+    fn bounce_and_elastic_hit_endpoints() {
+        for e in [
+            Easing::EaseInBounce,
+            Easing::EaseOutBounce,
+            Easing::EaseInElastic,
+            Easing::EaseOutElastic,
+        ] {
+            assert!(e.apply(0.0).abs() < 1e-4, "{e:?} at 0 should be ~0");
+            assert!((e.apply(1.0) - 1.0).abs() < 1e-4, "{e:?} at 1 should be ~1");
+        }
+    }
+
+    #[test]
+    fn out_elastic_overshoots() {
+        // Elastic oscillates past 1.0 somewhere in the middle.
+        let peak = (1..20)
+            .map(|i| Easing::EaseOutElastic.apply(i as f32 / 20.0))
+            .fold(f32::MIN, f32::max);
+        assert!(
+            peak > 1.0,
+            "EaseOutElastic should overshoot 1.0, peak={peak}"
+        );
     }
 }

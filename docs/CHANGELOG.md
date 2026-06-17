@@ -4,7 +4,34 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
-## 0.11.1
+## 0.12.0
+
+**Game-feel core ("juice") — Phase 2 of the user-experience roadmap.** Adds the highest-leverage
+"feel" primitives — global time-scaling (hit-stop/slow-mo) and value/easing tweening — and a
+`juice_demo` example that also gives the previously-undemonstrated `FadeTransition`, camera shake,
+and `PostProcessConfig` their first playable example.
+
+### Added
+- **`TimeScale`** resource + **`App::set_time_scale`** / **`App::time_scale`** — a global multiplier
+  applied to the `dt` that gameplay (scene) systems receive (`1.0` normal, `0.0` hit-stop, `0.5`
+  slow-mo, `2.0` fast-forward). Built-in tail systems (hierarchy/gizmo) and engine post-frame work
+  (fades, hot-reload, asset upload, camera) keep real time, so the editor and transitions stay
+  responsive at any scale.
+- **`RealDt`** resource — the real (unscaled) per-frame delta, written every frame before `TimeScale`
+  is applied. Lets a system opt out of time-scaling (e.g. a hit-stop controller that sets
+  `TimeScale(0.0)` still needs real time to end its own freeze).
+- **`Tween<T: Lerp>`** is now generic over the value type (defaults to `f32`). `Tween<Vec2>`,
+  `Tween<Color>`, etc. interpolate in one tween instead of juggling separate `f32` tweens. Existing
+  `Tween::new(0.0, 100.0, 1.0)` call sites and `TweenSequence` (still `f32`) are unchanged.
+- Four easing curves: **`EaseInBounce`**, **`EaseOutBounce`**, **`EaseInElastic`**, **`EaseOutElastic`**.
+  The editor's Timeline easing picker lists them too.
+- Example **`examples/juice_demo.rs`** — hit-stop + camera shake + vignette pulse on impact, a
+  `Tween<Vec2>` slide-in, and a row of sprites bobbing with the new easing curves. Doubles as the
+  acceptance example for `FadeTransition`, `Camera::shake`, and `PostProcessConfig`.
+
+### Changed
+- **`Easing` is now `#[non_exhaustive]`** — adding future curves is no longer a breaking change.
+  Downstream `match`es on `Easing` must add a `_` arm. (A one-time break, taken now while pre-1.0.)
 
 **First-hour onboarding pass (docs + example, no library API change).** Lowers the barrier
 for a new forker's first hour: a true minimal "image on screen" example, a fork-first README

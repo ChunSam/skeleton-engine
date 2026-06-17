@@ -128,6 +128,23 @@ impl App {
         self.system_panic_policy = policy;
     }
 
+    /// Sets the global [`TimeScale`](crate::TimeScale) — the multiplier applied to the `dt` that
+    /// gameplay (scene) systems receive. `1.0` = normal, `0.0` = frozen (hit-stop), `0.5` =
+    /// slow-mo, `2.0` = fast-forward. Built-in/editor systems are unaffected.
+    pub fn set_time_scale(&mut self, scale: f32) {
+        if let Some(ts) = self.world.resource_mut::<crate::resources::TimeScale>() {
+            ts.set(scale);
+        }
+    }
+
+    /// Returns the current global time scale (`1.0` if the resource is missing).
+    pub fn time_scale(&self) -> f32 {
+        self.world
+            .resource::<crate::resources::TimeScale>()
+            .map(|t| t.get())
+            .unwrap_or(1.0)
+    }
+
     pub(super) fn update(&mut self, dt: f32) {
         self.world.clear_change_tracking();
 
@@ -319,6 +336,21 @@ impl App {
         // First scene-system index = 0; tail starts at systems.len() - builtin_tail_count.
         let tail_start = self.systems.len().saturating_sub(self.builtin_tail_count);
 
+        // Global time-scale: scene systems (indices < tail_start) receive a scaled dt so games
+        // can hit-stop / slow-mo / fast-forward by setting the TimeScale resource. Built-in tail
+        // systems (hierarchy/gizmo) keep real dt so the editor stays responsive at time_scale == 0.
+        let time_scale = self
+            .world
+            .resource::<crate::resources::TimeScale>()
+            .map(|t| t.get())
+            .unwrap_or(1.0);
+        let scaled_dt = dt * time_scale;
+        // Expose the real (unscaled) dt so a system can opt out of time-scaling (e.g. a hit-stop
+        // controller that sets TimeScale(0) still needs real time to end its own freeze).
+        if let Some(rd) = self.world.resource_mut::<crate::resources::RealDt>() {
+            rd.0 = dt;
+        }
+
         // Execute systems + profiler instrumentation (iterate exec_order, skip disabled sets)
         {
             let system_count = self.systems.len();
@@ -361,8 +393,10 @@ impl App {
                 //   AbortAfterLog — re-panics immediately (no frame-abort needed).
                 //
                 // Note: does not work with panic = "abort" builds or FFI panics.
+                // Scene systems get time-scaled dt; built-in tail systems get real dt.
+                let sys_dt = if i < tail_start { scaled_dt } else { dt };
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    self.systems[i].run(&mut self.world, dt);
+                    self.systems[i].run(&mut self.world, sys_dt);
                 }));
                 match result {
                     Ok(()) => {
@@ -566,6 +600,54 @@ mod pause_tests {
         app.world.insert_resource(Counter::default());
         app.add_system(CountSystem);
         app
+    }
+
+    #[derive(Default)]
+    struct LastDt(f32);
+
+    struct RecordDtSystem;
+    impl System for RecordDtSystem {
+        fn run(&mut self, world: &mut World, dt: f32) {
+            world.resource_mut::<LastDt>().unwrap().0 = dt;
+        }
+        fn name(&self) -> &'static str {
+            "record_dt"
+        }
+    }
+
+    /// A scene system receives `dt * time_scale`; `0.0` freezes it (hit-stop).
+    #[test]
+    fn time_scale_scales_scene_system_dt() {
+        let mut app = App::new();
+        app.world.insert_resource(LastDt::default());
+        app.add_system(RecordDtSystem);
+
+        // Default time scale is 1.0 — dt passes through unchanged.
+        app.update(1.0);
+        assert!((app.world.resource::<LastDt>().unwrap().0 - 1.0).abs() < 1e-6);
+        assert!((app.time_scale() - 1.0).abs() < 1e-6);
+
+        // 0.5 → slow motion.
+        app.set_time_scale(0.5);
+        app.update(1.0);
+        let got = app.world.resource::<LastDt>().unwrap().0;
+        assert!(
+            (got - 0.5).abs() < 1e-6,
+            "expected scaled dt 0.5, got {got}"
+        );
+
+        // 0.0 → frozen.
+        app.set_time_scale(0.0);
+        app.update(1.0);
+        let got0 = app.world.resource::<LastDt>().unwrap().0;
+        assert!(
+            got0.abs() < 1e-6,
+            "time_scale 0 should give dt 0, got {got0}"
+        );
+
+        // Negative is clamped to 0 on read.
+        app.set_time_scale(-3.0);
+        assert!((app.time_scale() - 0.0).abs() < 1e-6);
     }
 
     /// In Docked+paused mode, scene systems (index < tail_start) are skipped.
