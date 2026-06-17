@@ -186,6 +186,8 @@ impl ParticleConfigSet {
             color_start: def.color_start.into(),
             color_end: def.color_end.into(),
             size: def.size.into(),
+            gravity: glam::Vec2::ZERO,
+            emit_shape: crate::particle::EmitShape::Point,
             texture: def.texture.as_deref().map(std::sync::Arc::from),
             z: def.z,
             emit: def.emit,

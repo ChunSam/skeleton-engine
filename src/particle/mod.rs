@@ -10,7 +10,7 @@ use crate::color::Color;
 use crate::components::{Sprite, Transform};
 use crate::ecs::{Entity, System, World};
 
-type ParticleUpdate = (Entity, f32, f32, Vec2, Color, Color);
+type ParticleUpdate = (Entity, f32, f32, Vec2, Vec2, Color, Color);
 // (entity, pos, emit, spawn_rate, lifetime, velocity, velocity_spread,
 //  color_start, color_end, size, has_burst, burst_remaining)
 // NOTE: `texture` is intentionally omitted — it is looked up lazily via
@@ -28,11 +28,51 @@ type EmitterSnapshot = (
     Color,
     Color,
     Vec2,
+    Vec2,      // gravity
+    EmitShape, // emit_shape
     bool,
     u32,
 );
 
 // ─── Components ───────────────────────────────────────────────────────────────
+
+/// Shape over which a [`ParticleEmitter`] scatters newly-spawned particles, as an offset from the
+/// emitter's position. `Point` (the default) spawns them all exactly at the emitter.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum EmitShape {
+    /// All particles spawn at the emitter position.
+    #[default]
+    Point,
+    /// Uniformly inside a disc of the given radius.
+    Circle { radius: f32 },
+    /// On the circumference of a circle of the given radius (hollow).
+    Ring { radius: f32 },
+    /// Uniformly inside an axis-aligned box of the given half-extents.
+    Box { half_extents: Vec2 },
+}
+
+impl EmitShape {
+    /// Samples a spawn offset (relative to the emitter) from this shape.
+    pub(crate) fn sample_offset(&self, rng: &mut impl rand::Rng) -> Vec2 {
+        match *self {
+            EmitShape::Point => Vec2::ZERO,
+            EmitShape::Circle { radius } => {
+                // sqrt of a uniform [0,1] gives a uniform-area disc sample.
+                let r = radius * rng.gen_range(0.0f32..=1.0).sqrt();
+                let a = rng.gen_range(0.0..std::f32::consts::TAU);
+                Vec2::new(a.cos(), a.sin()) * r
+            }
+            EmitShape::Ring { radius } => {
+                let a = rng.gen_range(0.0..std::f32::consts::TAU);
+                Vec2::new(a.cos(), a.sin()) * radius
+            }
+            EmitShape::Box { half_extents } => Vec2::new(
+                rng.gen_range(-half_extents.x..=half_extents.x),
+                rng.gen_range(-half_extents.y..=half_extents.y),
+            ),
+        }
+    }
+}
 
 /// Emitter component that spawns particles.
 ///
@@ -52,6 +92,11 @@ pub struct ParticleEmitter {
     pub color_end: Color,
     /// Particle size in pixels.
     pub size: Vec2,
+    /// Constant acceleration applied to each particle every frame (pixels/s²). `ZERO` = none.
+    /// e.g. `Vec2::new(0.0, 200.0)` for falling sparks, `Vec2::new(0.0, -60.0)` for rising smoke.
+    pub gravity: Vec2,
+    /// Shape the spawn position is scattered over (offset from the emitter). Default `Point`.
+    pub emit_shape: EmitShape,
     /// Texture path. `None` renders a solid-color rectangle.
     /// Uses `Arc<str>` so per-spawn clones are refcount bumps, consistent with
     /// [`Sprite::texture`].
@@ -74,6 +119,8 @@ impl Default for ParticleEmitter {
             color_start: Color::WHITE,
             color_end: Color::rgba(1.0, 1.0, 1.0, 0.0),
             size: Vec2::splat(8.0),
+            gravity: Vec2::ZERO,
+            emit_shape: EmitShape::Point,
             texture: None,
             z: 0.0,
             emit: true,
@@ -100,6 +147,8 @@ impl ParticleEmitter {
             color_start: Color::rgb(1.0, 0.85, 0.35),
             color_end: Color::rgba(1.0, 0.25, 0.1, 0.0),
             size: Vec2::splat(6.0),
+            gravity: Vec2::ZERO,
+            emit_shape: EmitShape::Point,
             texture: None,
             z: 0.0,
             emit: false,
@@ -112,6 +161,19 @@ impl ParticleEmitter {
         self.z = z;
         self
     }
+
+    /// Sets the constant per-particle acceleration (builder style). e.g. falling sparks /
+    /// rising smoke.
+    pub fn with_gravity(mut self, gravity: Vec2) -> Self {
+        self.gravity = gravity;
+        self
+    }
+
+    /// Sets the spawn scatter shape (builder style).
+    pub fn with_emit_shape(mut self, shape: EmitShape) -> Self {
+        self.emit_shape = shape;
+        self
+    }
 }
 
 /// Active particle component.
@@ -119,6 +181,8 @@ pub struct Particle {
     pub lifetime: f32,
     pub age: f32,
     pub velocity: Vec2,
+    /// Per-particle constant acceleration (copied from the emitter's `gravity` at spawn).
+    pub gravity: Vec2,
     pub color_start: Color,
     pub color_end: Color,
 }
@@ -153,18 +217,30 @@ impl System for ParticleSystem {
         // 1. Move and update color of existing particles; collect expired ones.
         let updates: Vec<ParticleUpdate> = world
             .query::<Particle>()
-            .map(|(e, p)| (e, p.age, p.lifetime, p.velocity, p.color_start, p.color_end))
+            .map(|(e, p)| {
+                (
+                    e,
+                    p.age,
+                    p.lifetime,
+                    p.velocity,
+                    p.gravity,
+                    p.color_start,
+                    p.color_end,
+                )
+            })
             .collect();
 
         let mut to_despawn = Vec::new();
-        for (entity, age, lifetime, velocity, color_start, color_end) in updates {
+        for (entity, age, lifetime, velocity, gravity, color_start, color_end) in updates {
             let new_age = age + dt;
             if new_age >= lifetime {
                 to_despawn.push(entity);
                 continue;
             }
+            // Integrate gravity (no-op when ZERO → constant-velocity, byte-identical to before).
+            let new_velocity = velocity + gravity * dt;
             if let Some(tr) = world.get_mut::<Transform>(entity) {
-                tr.position += velocity * dt;
+                tr.position += new_velocity * dt;
             }
             let t = new_age / lifetime;
             let lerped = Color::rgba(
@@ -178,6 +254,7 @@ impl System for ParticleSystem {
             }
             if let Some(p) = world.get_mut::<Particle>(entity) {
                 p.age = new_age;
+                p.velocity = new_velocity; // persist the gravity-integrated velocity
             }
         }
         for e in to_despawn {
@@ -206,6 +283,8 @@ impl System for ParticleSystem {
                     em.color_start,
                     em.color_end,
                     em.size,
+                    em.gravity,
+                    em.emit_shape,
                     has_burst,
                     burst_remaining,
                 )
@@ -226,6 +305,8 @@ impl System for ParticleSystem {
             color_start,
             color_end,
             size,
+            gravity,
+            emit_shape,
             has_burst,
             burst_remaining,
         ) in emitter_data
@@ -258,14 +339,16 @@ impl System for ParticleSystem {
                             velocity.x + rng.gen_range(-spread.x..=spread.x),
                             velocity.y + rng.gen_range(-spread.y..=spread.y),
                         );
+                        let spawn_pos = pos + emit_shape.sample_offset(&mut rng);
 
                         spawn_particle(
                             world,
-                            pos,
+                            spawn_pos,
                             z,
                             size,
                             &texture,
                             actual_velocity,
+                            gravity,
                             lifetime,
                             color_start,
                             color_end,
@@ -287,13 +370,15 @@ impl System for ParticleSystem {
                     let angle = rng.gen_range(0.0..std::f32::consts::TAU);
                     let speed = rng.gen_range(0.2..=1.0) * radius;
                     let vel = Vec2::new(angle.cos(), angle.sin()) * speed;
+                    let spawn_pos = pos + emit_shape.sample_offset(&mut rng);
                     spawn_particle(
                         world,
-                        pos,
+                        spawn_pos,
                         z,
                         size,
                         &texture,
                         vel,
+                        gravity,
                         lifetime,
                         color_start,
                         color_end,
@@ -317,6 +402,7 @@ fn spawn_particle(
     size: Vec2,
     texture: &Option<Arc<str>>,
     velocity: Vec2,
+    gravity: Vec2,
     lifetime: f32,
     color_start: Color,
     color_end: Color,
@@ -347,6 +433,7 @@ fn spawn_particle(
             lifetime,
             age: 0.0,
             velocity,
+            gravity,
             color_start,
             color_end,
         },
@@ -485,5 +572,70 @@ mod tests {
 
         assert_eq!(world.query::<Particle>().count(), 0);
         assert!(world.is_alive(emitter));
+    }
+
+    fn spawn_test_particle(world: &mut World, velocity: Vec2, gravity: Vec2) -> Entity {
+        let p = world.spawn();
+        world.add_component(
+            p,
+            Transform {
+                position: Vec2::ZERO,
+                scale: Vec2::splat(4.0),
+                rotation: 0.0,
+                z: 0.0,
+            },
+        );
+        world.add_component(p, Sprite::colored(1.0, 1.0, 1.0));
+        world.add_component(
+            p,
+            Particle {
+                lifetime: 100.0,
+                age: 0.0,
+                velocity,
+                gravity,
+                color_start: Color::WHITE,
+                color_end: Color::WHITE,
+            },
+        );
+        p
+    }
+
+    #[test]
+    fn gravity_integrates_velocity() {
+        let mut world = World::new();
+        let p = spawn_test_particle(&mut world, Vec2::ZERO, Vec2::new(0.0, 100.0));
+        ParticleSystem.run(&mut world, 0.1);
+        // new_vel = v + g*dt = (0,10); pos += new_vel*dt = (0,1).
+        assert!((world.get::<Particle>(p).unwrap().velocity.y - 10.0).abs() < 1e-3);
+        assert!((world.get::<Transform>(p).unwrap().position.y - 1.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn zero_gravity_is_constant_velocity() {
+        let mut world = World::new();
+        let p = spawn_test_particle(&mut world, Vec2::new(50.0, 0.0), Vec2::ZERO);
+        ParticleSystem.run(&mut world, 0.1);
+        assert_eq!(
+            world.get::<Particle>(p).unwrap().velocity,
+            Vec2::new(50.0, 0.0)
+        );
+        assert!((world.get::<Transform>(p).unwrap().position.x - 5.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn emit_shape_samples_stay_in_bounds() {
+        let mut rng = rand::thread_rng();
+        assert_eq!(EmitShape::Point.sample_offset(&mut rng), Vec2::ZERO);
+        for _ in 0..200 {
+            let o = EmitShape::Circle { radius: 10.0 }.sample_offset(&mut rng);
+            assert!(o.length() <= 10.0 + 1e-3);
+            let o = EmitShape::Ring { radius: 7.0 }.sample_offset(&mut rng);
+            assert!((o.length() - 7.0).abs() < 1e-3);
+            let o = EmitShape::Box {
+                half_extents: Vec2::new(5.0, 3.0),
+            }
+            .sample_offset(&mut rng);
+            assert!(o.x.abs() <= 5.0 + 1e-3 && o.y.abs() <= 3.0 + 1e-3);
+        }
     }
 }
