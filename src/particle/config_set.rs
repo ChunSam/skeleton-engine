@@ -37,6 +37,7 @@ use crate::color::Color;
 use glam::Vec2;
 
 use super::ParticleEmitter;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::gpu_particle::GpuParticleEmitter;
 
 // ── Private serde mirror types ────────────────────────────────────────────────
@@ -254,6 +255,10 @@ impl ParticleConfigSet {
     /// Two differences from [`emitter`](Self::emitter): a GPU particle is square, so the config's
     /// `size` `(w, h)` pair contributes its **width** (`size.0`) as the scalar GPU size; and
     /// `texture` / `z` have no `GpuParticleEmitter` equivalent and are ignored.
+    ///
+    /// Native-only: `GpuParticleEmitter` (and the GPU compute path) does not exist on wasm —
+    /// use [`emitter`](Self::emitter) (the CPU path) there.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn gpu_emitter(&self, name: &str) -> Option<GpuParticleEmitter> {
         let idx = self.names.iter().position(|n| n == name)?;
         let def = &self.configs[idx];
