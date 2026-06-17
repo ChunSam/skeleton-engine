@@ -28,6 +28,9 @@ use crate::locale::LocaleResource;
 use crate::renderer::{DrawText, TextQueue};
 use crate::resources::ViewportSize;
 
+mod tree;
+pub use tree::{DialogueRegistry, DialogueTree};
+
 /// One branching choice presented at a [`DialogueBox`] line: a label plus the line index the
 /// conversation jumps to when the player selects it.
 ///

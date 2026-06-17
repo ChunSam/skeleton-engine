@@ -244,6 +244,7 @@ impl App {
             app.register_hot_reloadable::<crate::data_table::DataTableRegistry>();
             app.register_hot_reloadable::<crate::animation::clip_set::AnimationClipRegistry>();
             app.register_hot_reloadable::<crate::particle::ParticleConfigRegistry>();
+            app.register_hot_reloadable::<crate::dialogue::DialogueRegistry>();
         }
 
         // Register HierarchySystem as the one permanent tail built-in.
