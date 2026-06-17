@@ -258,20 +258,21 @@ impl ParticleConfigSet {
         let idx = self.names.iter().position(|n| n == name)?;
         let def = &self.configs[idx];
         let size: Vec2 = def.size.into();
-        // GpuParticleEmitter has private fields (timer/next_slot), so build from default() and
-        // assign the public fields — same pattern as the `gpu_particles` example.
-        let mut e = GpuParticleEmitter::default();
-        e.spawn_rate = def.spawn_rate;
-        e.lifetime = def.lifetime;
-        e.velocity = def.velocity.into();
-        e.velocity_spread = def.velocity_spread.into();
-        e.color_start = def.color_start.into();
-        e.color_end = def.color_end.into();
-        e.size = size.x; // GPU particles are square → use the config width
-        e.gravity = def.gravity.into();
-        e.emit_shape = def.emit_shape.into();
-        e.emit = def.emit;
-        Some(e)
+        // Functional update: GpuParticleEmitter's private timer/next_slot come from Default
+        // (a plain default()+field-assignment trips clippy::field_reassign_with_default).
+        Some(GpuParticleEmitter {
+            spawn_rate: def.spawn_rate,
+            lifetime: def.lifetime,
+            velocity: def.velocity.into(),
+            velocity_spread: def.velocity_spread.into(),
+            color_start: def.color_start.into(),
+            color_end: def.color_end.into(),
+            size: size.x, // GPU particles are square → use the config width
+            gravity: def.gravity.into(),
+            emit_shape: def.emit_shape.into(),
+            emit: def.emit,
+            ..Default::default()
+        })
     }
 
     /// Iterate emitter names in **alphabetical order** (deterministic).
