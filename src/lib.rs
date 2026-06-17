@@ -168,7 +168,7 @@ pub fn run_demo() {
     use crate::{
         app::App,
         components::{Sprite, Transform},
-        ecs::{Entity, System, World},
+        ecs::{System, World},
         renderer::{DrawText, TextQueue},
         resources::{ViewportSize, WindowConfig},
     };
