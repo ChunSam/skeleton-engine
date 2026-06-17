@@ -4,6 +4,33 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.22.0
+
+**wasm AEAD save/load parity.** The encrypted player-save path (`save` / `load` /
+`save_versioned` / `load_migrated`) now works on wasm, not just native — closing the gap where
+those returned `SaveError::Unsupported` in the browser.
+
+### Changed
+- The ChaCha20-Poly1305 AEAD core (magic / nonce / cipher / encrypt / decrypt / versioned
+  envelope / migration) is now **cross-platform**; the only per-target difference is the storage
+  backend: a file on native, a **hex-encoded** blob in `localStorage` (keyed by the path string)
+  on wasm. So `save` / `load` / `load_or_default` / `save_versioned` / `load_migrated` all work on
+  both targets.
+- Nonce generation switched `rand::thread_rng()` → `rand::rngs::OsRng` (works on wasm via
+  `getrandom`'s `js` backend; `thread_rng` is not wired up there).
+- `SaveError::Unsupported` now means "storage unavailable / future save version" rather than
+  "no filesystem"; its `Display` text updated to match.
+
+### Notes
+- `localStorage` is user-inspectable, so the binary-embedded key gives tamper-detection +
+  obfuscation, **not** secrecy against a determined user — the same trust model as the native
+  save file (documented on `save_with_key`).
+
+### Added
+- Example `save_encrypted` — an encrypted launch counter persisted via `save` / `load` (a file
+  natively, hex in `localStorage` on the web). Playtested windowed (count persists across runs;
+  the saved file is `R2DAEAD01` magic + ciphertext, not plaintext).
+
 ## 0.21.0
 
 **Particle RON→GPU builder.** `ParticleConfigSet::gpu_emitter(name)` builds a

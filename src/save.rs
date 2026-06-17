@@ -3,18 +3,16 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-#[cfg(not(target_arch = "wasm32"))]
 use chacha20poly1305::{
     aead::{Aead, KeyInit},
     ChaCha20Poly1305, Key, Nonce,
 };
-#[cfg(not(target_arch = "wasm32"))]
-use rand::RngCore;
+use rand::{rngs::OsRng, RngCore};
 use serde::{de::DeserializeOwned, Serialize};
 
-#[cfg(not(target_arch = "wasm32"))]
+// AEAD core (magic, nonce, cipher, encrypt/decrypt) is cross-platform. Only the *storage*
+// backend differs per target: a file on native, a hex-encoded string in `localStorage` on wasm.
 const SAVE_MAGIC: &[u8; 9] = b"R2DAEAD01";
-#[cfg(not(target_arch = "wasm32"))]
 const NONCE_LEN: usize = 12;
 const SAVE_KEY_BYTES: [u8; 32] = [
     0x52, 0x32, 0x44, 0x45, 0x2d, 0x53, 0x41, 0x56, 0x45, 0x2d, 0x41, 0x45, 0x41, 0x44, 0x2d, 0x4b,
@@ -42,7 +40,8 @@ pub enum SaveError {
     Io(io::Error),
     Ron(String),
     Corrupted,
-    /// Save/load is not supported on the current target (e.g. wasm — no filesystem).
+    /// The operation isn't available in the current environment (e.g. no `localStorage`), or a
+    /// save is tagged with a schema version newer than the migrator knows.
     Unsupported,
 }
 
@@ -55,7 +54,7 @@ impl std::fmt::Display for SaveError {
             SaveError::Unsupported => {
                 write!(
                     f,
-                    "Save/load is not supported on this target (no filesystem)"
+                    "Operation not supported in this environment (no storage, or a future save version)"
                 )
             }
         }
@@ -122,23 +121,26 @@ pub fn save<T: Serialize>(path: &Path, data: &T) -> Result<(), SaveError> {
 }
 
 /// Creates the directory and saves data encrypted with AEAD using the specified key.
+///
+/// On wasm the encrypted blob is hex-encoded and stored in `localStorage` (keyed by the path
+/// string) instead of a file. Note that `localStorage` is inspectable by the user — like the
+/// native file, the embedded key offers tamper-detection and obfuscation, not true secrecy.
 pub fn save_with_key<T: Serialize>(path: &Path, data: &T, key: SaveKey) -> Result<(), SaveError> {
+    let plaintext = ron::ser::to_string_pretty(data, ron::ser::PrettyConfig::default())
+        .map_err(|e| SaveError::Ron(e.to_string()))?;
+    let encrypted = encrypt_save_bytes(plaintext.as_bytes(), key)?;
     #[cfg(not(target_arch = "wasm32"))]
     {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let plaintext = ron::ser::to_string_pretty(data, ron::ser::PrettyConfig::default())
-            .map_err(|e| SaveError::Ron(e.to_string()))?;
-        let encrypted = encrypt_save_bytes(plaintext.as_bytes(), key)?;
         fs::write(path, encrypted)?;
         Ok(())
     }
-    // wasm: no filesystem, so return explicit Unsupported instead of a runtime IO error.
+    // wasm: localStorage holds strings → hex-encode the binary AEAD blob.
     #[cfg(target_arch = "wasm32")]
     {
-        let _ = (path, data, key);
-        Err(SaveError::Unsupported)
+        wasm_storage::set(&path.to_string_lossy(), &to_hex(&encrypted))
     }
 }
 
@@ -150,20 +152,24 @@ pub fn load<T: DeserializeOwned>(path: &Path) -> Result<T, SaveError> {
     load_with_key(path, SaveKey::DEFAULT)
 }
 
-/// Decrypts the save file with the specified key and deserializes it from RON.
+/// Decrypts the save with the specified key and deserializes it from RON. Returns
+/// `Err(SaveError::Io(NotFound))` when the file (native) or `localStorage` key (wasm) is absent.
 pub fn load_with_key<T: DeserializeOwned>(path: &Path, key: SaveKey) -> Result<T, SaveError> {
     #[cfg(not(target_arch = "wasm32"))]
-    {
-        let bytes = fs::read(path)?;
-        let plaintext = decrypt_save_bytes(&bytes, key)?;
-        let s = std::str::from_utf8(&plaintext).map_err(|_| SaveError::Corrupted)?;
-        ron::from_str(s).map_err(|e| SaveError::Ron(e.to_string()))
-    }
+    let bytes = fs::read(path)?;
     #[cfg(target_arch = "wasm32")]
-    {
-        let _ = (path, key);
-        Err(SaveError::Unsupported)
-    }
+    let bytes = match wasm_storage::get(&path.to_string_lossy())? {
+        Some(hex) => from_hex(&hex).ok_or(SaveError::Corrupted)?,
+        None => {
+            return Err(SaveError::Io(io::Error::new(
+                io::ErrorKind::NotFound,
+                "key not present in localStorage",
+            )))
+        }
+    };
+    let plaintext = decrypt_save_bytes(&bytes, key)?;
+    let s = std::str::from_utf8(&plaintext).map_err(|_| SaveError::Corrupted)?;
+    ron::from_str(s).map_err(|e| SaveError::Ron(e.to_string()))
 }
 
 /// Serializes `data` to pretty RON and writes it as **plain text** — no encryption, no
@@ -266,9 +272,38 @@ pub fn delete(path: &Path) -> Result<(), SaveError> {
     }
 }
 
-/// Thin `localStorage` wrapper used by the wasm save paths (`write_ron` / `read_ron` / `exists` /
-/// `delete`). Player-save AEAD (`save` / `load`) stays `Unsupported` on wasm: a hardcoded key in a
-/// browser-inspectable store buys little, and binary ciphertext would need base64 in a string store.
+/// Lowercase-hex encode — wasm `localStorage` holds strings, so the binary AEAD blob is hex'd.
+#[cfg(target_arch = "wasm32")]
+fn to_hex(bytes: &[u8]) -> String {
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        s.push(char::from_digit((b >> 4) as u32, 16).unwrap());
+        s.push(char::from_digit((b & 0x0f) as u32, 16).unwrap());
+    }
+    s
+}
+
+/// Decode a hex string back to bytes; `None` on odd length or a non-hex digit.
+#[cfg(target_arch = "wasm32")]
+fn from_hex(s: &str) -> Option<Vec<u8>> {
+    let bytes = s.as_bytes();
+    if !bytes.len().is_multiple_of(2) {
+        return None;
+    }
+    let mut out = Vec::with_capacity(bytes.len() / 2);
+    let mut i = 0;
+    while i < bytes.len() {
+        let hi = (bytes[i] as char).to_digit(16)?;
+        let lo = (bytes[i + 1] as char).to_digit(16)?;
+        out.push(((hi << 4) | lo) as u8);
+        i += 2;
+    }
+    Some(out)
+}
+
+/// Thin `localStorage` wrapper used by the wasm save paths. Both plain-text designer assets
+/// (`write_ron` / `read_ron`) and encrypted player saves (`save` / `load`, hex-encoded) persist
+/// here, keyed by the path string; `exists` / `delete` operate on the same keys.
 #[cfg(target_arch = "wasm32")]
 mod wasm_storage {
     use super::SaveError;
@@ -296,15 +331,15 @@ mod wasm_storage {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 fn cipher(key: SaveKey) -> ChaCha20Poly1305 {
     ChaCha20Poly1305::new(Key::from_slice(&key.0))
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 fn encrypt_save_bytes(plaintext: &[u8], key: SaveKey) -> Result<Vec<u8>, SaveError> {
+    // OsRng works on both native and wasm (the latter via getrandom's `js` backend), unlike
+    // `thread_rng()` which is not wired up on wasm.
     let mut nonce_bytes = [0u8; NONCE_LEN];
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    OsRng.fill_bytes(&mut nonce_bytes);
     let ciphertext = cipher(key)
         .encrypt(Nonce::from_slice(&nonce_bytes), plaintext)
         .map_err(|_| SaveError::Corrupted)?;
@@ -316,7 +351,6 @@ fn encrypt_save_bytes(plaintext: &[u8], key: SaveKey) -> Result<Vec<u8>, SaveErr
     Ok(out)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 fn decrypt_save_bytes(bytes: &[u8], key: SaveKey) -> Result<Vec<u8>, SaveError> {
     let header_len = SAVE_MAGIC.len() + NONCE_LEN;
     if bytes.len() <= header_len || !bytes.starts_with(SAVE_MAGIC) {
@@ -336,7 +370,6 @@ fn decrypt_save_bytes(bytes: &[u8], key: SaveKey) -> Result<Vec<u8>, SaveError> 
 /// The `data` field holds the user payload serialized to a `ron::Value` so that
 /// migration steps can inspect and mutate individual fields before the final
 /// deserialization into the concrete target type.
-#[cfg(not(target_arch = "wasm32"))]
 #[derive(Serialize)]
 struct VersionedEnvelope<'a> {
     version: u32,
@@ -344,7 +377,6 @@ struct VersionedEnvelope<'a> {
 }
 
 /// Owned counterpart used during loading.
-#[cfg(not(target_arch = "wasm32"))]
 #[derive(serde::Deserialize)]
 struct VersionedEnvelopeOwned {
     version: u32,
@@ -414,7 +446,6 @@ impl SaveMigrator {
     }
 
     /// Applies all steps in `steps[stored_version .. current_version]` to `value`.
-    #[cfg(not(target_arch = "wasm32"))]
     fn migrate(&self, mut value: ron::Value, stored_version: u32) -> ron::Value {
         for step in &self.steps[stored_version as usize..] {
             value = step(value);
@@ -435,7 +466,7 @@ impl Default for SaveMigrator {
 /// The on-disk format is an encrypted RON envelope `(version: u32, data: <payload>)`.
 /// Use [`load_migrated`] to load and automatically upgrade old saves.
 ///
-/// Always returns `Err(SaveError::Unsupported)` on wasm (no filesystem).
+/// On wasm the encrypted envelope is hex-encoded into `localStorage` (see [`save_with_key`]).
 pub fn save_versioned<T: Serialize>(path: &Path, version: u32, data: &T) -> Result<(), SaveError> {
     save_versioned_with_key(path, version, data, SaveKey::DEFAULT)
 }
@@ -444,32 +475,24 @@ pub fn save_versioned<T: Serialize>(path: &Path, version: u32, data: &T) -> Resu
 ///
 /// Pair with [`load_migrated_with_key`] using the same key.
 ///
-/// Always returns `Err(SaveError::Unsupported)` on wasm (no filesystem).
+/// On wasm the encrypted envelope is hex-encoded into `localStorage` (see [`save_with_key`]).
 pub fn save_versioned_with_key<T: Serialize>(
     path: &Path,
     version: u32,
     data: &T,
     key: SaveKey,
 ) -> Result<(), SaveError> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        // Serialize the user payload to a generic ron::Value first so the envelope
-        // stores a plain data tree rather than a double-encoded string.
-        let data_value: ron::Value = {
-            let ron_str = ron::ser::to_string(data).map_err(|e| SaveError::Ron(e.to_string()))?;
-            ron::from_str(&ron_str).map_err(|e| SaveError::Ron(e.to_string()))?
-        };
-        let envelope = VersionedEnvelope {
-            version,
-            data: &data_value,
-        };
-        save_with_key(path, &envelope, key)
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        let _ = (path, version, data, key);
-        Err(SaveError::Unsupported)
-    }
+    // Serialize the user payload to a generic ron::Value first so the envelope stores a plain
+    // data tree rather than a double-encoded string.
+    let data_value: ron::Value = {
+        let ron_str = ron::ser::to_string(data).map_err(|e| SaveError::Ron(e.to_string()))?;
+        ron::from_str(&ron_str).map_err(|e| SaveError::Ron(e.to_string()))?
+    };
+    let envelope = VersionedEnvelope {
+        version,
+        data: &data_value,
+    };
+    save_with_key(path, &envelope, key)
 }
 
 /// Loads an encrypted versioned save written by [`save_versioned`], applies
@@ -486,7 +509,7 @@ pub fn save_versioned_with_key<T: Serialize>(
 /// - [`SaveError::Corrupted`] / [`SaveError::Ron`] / [`SaveError::Io`] for the
 ///   usual decrypt or parse failures.
 ///
-/// Always returns `Err(SaveError::Unsupported)` on wasm.
+/// On wasm this reads the hex-encoded envelope from `localStorage` (see [`load_with_key`]).
 pub fn load_migrated<T: DeserializeOwned>(
     path: &Path,
     migrator: &SaveMigrator,
@@ -498,34 +521,25 @@ pub fn load_migrated<T: DeserializeOwned>(
 ///
 /// Pair with [`save_versioned_with_key`] using the same key.
 ///
-/// Always returns `Err(SaveError::Unsupported)` on wasm.
+/// On wasm this reads the hex-encoded envelope from `localStorage` (see [`load_with_key`]).
 pub fn load_migrated_with_key<T: DeserializeOwned>(
     path: &Path,
     migrator: &SaveMigrator,
     key: SaveKey,
 ) -> Result<T, SaveError> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let envelope: VersionedEnvelopeOwned = load_with_key(path, key)?;
-        let stored = envelope.version;
-        let current = migrator.current_version();
-        if stored > current {
-            return Err(SaveError::Unsupported);
-        }
-        let migrated = migrator.migrate(envelope.data, stored);
-        // Drive serde deserialization directly from the ron::Value tree — avoids the
-        // struct-syntax round-trip issue where re-serialising a Value::Map produces
-        // `{"field": value}` instead of the `(field: value)` syntax RON expects for
-        // named structs.
-        migrated
-            .into_rust::<T>()
-            .map_err(|e| SaveError::Ron(e.to_string()))
+    let envelope: VersionedEnvelopeOwned = load_with_key(path, key)?;
+    let stored = envelope.version;
+    let current = migrator.current_version();
+    if stored > current {
+        return Err(SaveError::Unsupported);
     }
-    #[cfg(target_arch = "wasm32")]
-    {
-        let _ = (path, migrator, key);
-        Err(SaveError::Unsupported)
-    }
+    let migrated = migrator.migrate(envelope.data, stored);
+    // Drive serde deserialization directly from the ron::Value tree — avoids the struct-syntax
+    // round-trip issue where re-serialising a Value::Map produces `{"field": value}` instead of
+    // the `(field: value)` syntax RON expects for named structs.
+    migrated
+        .into_rust::<T>()
+        .map_err(|e| SaveError::Ron(e.to_string()))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
