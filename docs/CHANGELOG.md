@@ -4,6 +4,28 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.14.0
+
+**Dialogue box primitive — Phase 4 of the user-experience roadmap.** The most re-invented narrative
+boilerplate (a speaker + typewriter text box) is now a first-class component, so RPG / visual-novel /
+narrative forks no longer hand-roll it.
+
+### Added
+- **`DialogueBox`** component (`src/dialogue.rs`) — `speaker` + a list of `lines`, each revealed with a
+  per-character typewriter at `chars_per_sec` (`<= 0` = instant). Two-stage `advance()`: the first press
+  completes the current line's reveal, the next moves to the following line (then finishes after the
+  last). `is_finished`, `reset`, optional `portrait` handle. UTF-8-safe reveal. Re-exported as
+  `engine::DialogueBox`.
+- **`DialogueSystem`** — ticks every box's typewriter (via the `query_mut` added in 0.13.0) and renders
+  the active box (speaker + revealed text + an advance hint) as screen-space text near the bottom of the
+  viewport. Input-agnostic: the game calls `DialogueBox::advance` (e.g. on Space). Re-exported.
+- Example **`examples/dialogue_demo.rs`** — a multi-speaker conversation with the typewriter + advance.
+
+### Notes
+- Rendering is text-only (no background panel) so it composes with whatever box art the game draws; the
+  `portrait` field is data for the game to render. For localization, resolve keys via `LocaleResource`
+  into the box's lines (store resolved strings).
+
 ## 0.13.0
 
 **Core API ergonomics — Phase 3 of the user-experience roadmap.** Removes the most common ECS
