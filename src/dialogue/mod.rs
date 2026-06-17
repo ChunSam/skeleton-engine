@@ -23,10 +23,17 @@
 use serde::{Deserialize, Serialize};
 
 use crate::asset::{Handle, ImageAsset};
-use crate::ecs::{System, World};
+use crate::ecs::{Entity, Events, System, World};
 use crate::locale::LocaleResource;
 use crate::renderer::{DrawText, TextQueue};
 use crate::resources::ViewportSize;
+
+mod tree;
+mod vars;
+pub use tree::{DialogueRegistry, DialogueTree};
+pub use vars::{
+    DialogueCond, DialogueEffect, DialogueEvent, DialogueOp, DialogueValue, DialogueVars,
+};
 
 /// One branching choice presented at a [`DialogueBox`] line: a label plus the line index the
 /// conversation jumps to when the player selects it.
@@ -35,7 +42,7 @@ use crate::resources::ViewportSize;
 /// [`DialogueBox::resolve`] fills `text` from the active [`LocaleResource`] (same as line keys).
 /// `goto` is the target line index ([`DialogueBox::choose`] clamps an out-of-range value to the
 /// end, finishing the conversation, rather than panicking).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DialogueChoice {
     /// Display label for this choice (resolved from `key` when localized).
     pub text: String,
@@ -44,6 +51,14 @@ pub struct DialogueChoice {
     pub key: Option<String>,
     /// Line index the conversation jumps to when this choice is selected.
     pub goto: usize,
+    /// Optional gate: the choice is only shown when this condition passes against
+    /// [`DialogueVars`] (see [`DialogueBox::visible_choices`]). `None` = always shown.
+    #[serde(default)]
+    pub cond: Option<DialogueCond>,
+    /// Optional side effect applied when the choice is taken (set a var / emit an event) via
+    /// [`dialogue::choose`](crate::dialogue::choose). `None` = no effect.
+    #[serde(default)]
+    pub effect: Option<DialogueEffect>,
 }
 
 impl DialogueChoice {
@@ -53,6 +68,8 @@ impl DialogueChoice {
             text: text.into(),
             key: None,
             goto,
+            cond: None,
+            effect: None,
         }
     }
 
@@ -62,7 +79,26 @@ impl DialogueChoice {
             text: String::new(),
             key: Some(key.into()),
             goto,
+            cond: None,
+            effect: None,
         }
+    }
+
+    /// Gates this choice on `cond` (builder): it is only shown while the condition passes.
+    pub fn when(mut self, cond: DialogueCond) -> Self {
+        self.cond = Some(cond);
+        self
+    }
+
+    /// Attaches a side `effect` applied when this choice is taken (builder).
+    pub fn then(mut self, effect: DialogueEffect) -> Self {
+        self.effect = Some(effect);
+        self
+    }
+
+    /// Whether this choice is currently available (its `cond` passes, or it has none).
+    fn is_available(&self, vars: &DialogueVars) -> bool {
+        self.cond.as_ref().is_none_or(|c| c.eval(vars))
     }
 }
 
@@ -292,6 +328,60 @@ impl DialogueBox {
         self.full = false;
     }
 
+    /// The choices visible right now given `vars`: the [`pending_choices`](Self::pending_choices)
+    /// whose [`cond`](DialogueChoice::cond) passes (or have none). Empty when no decision is
+    /// pending. The index into this slice is what [`choose_visible`](Self::choose_visible) /
+    /// [`dialogue::choose`](crate::dialogue::choose) expect.
+    pub fn visible_choices(&self, vars: &DialogueVars) -> Vec<&DialogueChoice> {
+        match self.pending_choices() {
+            Some(cs) => cs.iter().filter(|c| c.is_available(vars)).collect(),
+            None => Vec::new(),
+        }
+    }
+
+    /// Whether a decision is pending given `vars` — the current line is revealed and at least
+    /// one choice is visible. A line whose every choice is gated out is *not* a decision.
+    pub fn is_choosing(&self, vars: &DialogueVars) -> bool {
+        !self.visible_choices(vars).is_empty()
+    }
+
+    /// Like [`advance`](Self::advance) but [`DialogueVars`]-aware: blocks only while
+    /// [`is_choosing`](Self::is_choosing) is true, so a line whose choices are all gated out
+    /// advances normally. Prefer [`dialogue::advance`](crate::dialogue::advance) from game code
+    /// (it clones the resource for you).
+    pub fn advance_with(&mut self, vars: &DialogueVars) {
+        if self.is_finished() {
+            return;
+        }
+        if self.is_choosing(vars) {
+            return;
+        }
+        if !self.line_fully_revealed() {
+            self.full = true;
+        } else {
+            self.current += 1;
+            self.elapsed = 0.0;
+            self.full = false;
+        }
+    }
+
+    /// Selects the `i`-th *visible* choice (see [`visible_choices`](Self::visible_choices)),
+    /// jumping to its `goto` line and returning its [`effect`](DialogueChoice::effect) for the
+    /// caller to apply. Returns `None` (a no-op) when `i` is out of range. An out-of-range
+    /// `goto` clamps to the end. Prefer [`dialogue::choose`](crate::dialogue::choose), which
+    /// also applies the effect.
+    pub fn choose_visible(&mut self, i: usize, vars: &DialogueVars) -> Option<DialogueEffect> {
+        let (goto, effect) = {
+            let visible = self.visible_choices(vars);
+            let choice = visible.get(i)?;
+            (choice.goto, choice.effect.clone())
+        };
+        self.current = goto.min(self.lines.len());
+        self.elapsed = 0.0;
+        self.full = false;
+        effect
+    }
+
     /// Whether the conversation has run past its last line.
     pub fn is_finished(&self) -> bool {
         self.current >= self.lines.len()
@@ -302,6 +392,56 @@ impl DialogueBox {
         self.current = 0;
         self.elapsed = 0.0;
         self.full = false;
+    }
+}
+
+/// Advances the [`DialogueBox`] on `entity`, honoring conditional choices (a no-op while a
+/// cond-passing choice is pending). Reads the [`DialogueVars`] resource (or an empty default)
+/// to decide. The game-code counterpart to [`DialogueBox::advance`] for gated dialogue — call
+/// it on your advance key.
+pub fn advance(world: &mut World, entity: Entity) {
+    let vars = world
+        .resource::<DialogueVars>()
+        .cloned()
+        .unwrap_or_default();
+    if let Some(d) = world.get_mut::<DialogueBox>(entity) {
+        d.advance_with(&vars);
+    }
+}
+
+/// Selects the `visible_index`-th visible choice on `entity`'s [`DialogueBox`], jumping to its
+/// target line and applying its [`effect`](DialogueChoice::effect): a `SetVar` writes the
+/// [`DialogueVars`] resource (inserting it if absent); an `EmitEvent` sends a [`DialogueEvent`]
+/// to `Events<DialogueEvent>` (register the bus with `App::register_event::<DialogueEvent>()`).
+pub fn choose(world: &mut World, entity: Entity, visible_index: usize) {
+    let vars = world
+        .resource::<DialogueVars>()
+        .cloned()
+        .unwrap_or_default();
+    let effect = match world.get_mut::<DialogueBox>(entity) {
+        Some(d) => d.choose_visible(visible_index, &vars),
+        None => return,
+    };
+    match effect {
+        Some(DialogueEffect::SetVar { key, value }) => {
+            if world.resource::<DialogueVars>().is_none() {
+                world.insert_resource(DialogueVars::default());
+            }
+            if let Some(v) = world.resource_mut::<DialogueVars>() {
+                v.set(key, value);
+            }
+        }
+        Some(DialogueEffect::EmitEvent { name }) => {
+            if let Some(ev) = world.resource_mut::<Events<DialogueEvent>>() {
+                ev.send(DialogueEvent { name, entity });
+            } else {
+                log::debug!(
+                    "dialogue::choose: EmitEvent('{name}') dropped — register the bus with \
+                     App::register_event::<DialogueEvent>()"
+                );
+            }
+        }
+        None => {}
     }
 }
 
@@ -334,15 +474,22 @@ impl System for DialogueSystem {
             .resource::<ViewportSize>()
             .map(|v| (v.width, v.height))
             .unwrap_or((1280.0, 720.0));
+        // Clone DialogueVars (or empty) to filter conditional choices without holding a
+        // resource borrow across the query below.
+        let vars = world
+            .resource::<DialogueVars>()
+            .cloned()
+            .unwrap_or_default();
         let items: Vec<(String, String, bool, Vec<String>)> = world
             .query::<DialogueBox>()
             .filter(|(_, d)| !d.is_finished())
             .map(|(_, d)| {
-                // Pending choice labels (already resolved into `text` by step 0), empty otherwise.
-                let choices = d
-                    .pending_choices()
-                    .map(|cs| cs.iter().map(|c| c.text.clone()).collect())
-                    .unwrap_or_default();
+                // Visible (cond-passing) choice labels, already resolved into `text` by step 0.
+                let choices: Vec<String> = d
+                    .visible_choices(&vars)
+                    .iter()
+                    .map(|c| c.text.clone())
+                    .collect();
                 (
                     d.speaker.clone(),
                     d.visible_text().to_string(),
@@ -685,5 +832,144 @@ mod tests {
         assert_eq!(back.choices[0].1[0], DialogueChoice::new("a", 1));
         assert_eq!(back.choices[0].1[1].goto, 2);
         assert_eq!(back.choices[0].1[1].key.as_deref(), Some("k"));
+    }
+
+    // --- P1 1b/1c: conditional choices + effect hooks --------------------------------------
+
+    use crate::ecs::{Events, World};
+
+    #[test]
+    fn conditional_choice_hidden_until_var_set() {
+        let mut d = DialogueBox::new("NPC", ["Pick", "secret", "normal"])
+            .with_chars_per_sec(0.0)
+            .with_choices(
+                0,
+                [
+                    DialogueChoice::new("secret", 1).when(DialogueCond::new(
+                        "vip",
+                        DialogueOp::Eq,
+                        DialogueValue::Bool(true),
+                    )),
+                    DialogueChoice::new("normal", 2),
+                ],
+            );
+        let mut vars = DialogueVars::new();
+        // vip unset → only the ungated choice is visible.
+        assert_eq!(d.visible_choices(&vars).len(), 1);
+        assert_eq!(d.visible_choices(&vars)[0].text, "normal");
+
+        vars.set_bool("vip", true);
+        assert_eq!(d.visible_choices(&vars).len(), 2);
+        // visible index 0 is now the secret branch → jumps to line 1.
+        assert!(d.choose_visible(0, &vars).is_none());
+        assert_eq!(d.current, 1);
+    }
+
+    #[test]
+    fn advance_with_skips_line_whose_choices_are_all_gated_out() {
+        let mut d = DialogueBox::new("NPC", ["gate", "after"])
+            .with_chars_per_sec(0.0)
+            .with_choices(
+                0,
+                [DialogueChoice::new("locked", 1).when(DialogueCond::new(
+                    "key",
+                    DialogueOp::Eq,
+                    DialogueValue::Bool(true),
+                ))],
+            );
+        let vars = DialogueVars::new(); // key unset → the only choice is gated out
+        assert!(!d.is_choosing(&vars));
+        d.advance_with(&vars); // line is full (cps 0) → advances past it like a normal line
+        assert_eq!(d.current, 1);
+    }
+
+    #[test]
+    fn choose_visible_returns_effect() {
+        let mut d = DialogueBox::new("NPC", ["q", "a"])
+            .with_chars_per_sec(0.0)
+            .with_choices(
+                0,
+                [DialogueChoice::new("take", 1).then(DialogueEffect::SetVar {
+                    key: "got".into(),
+                    value: DialogueValue::Bool(true),
+                })],
+            );
+        let vars = DialogueVars::new();
+        let effect = d.choose_visible(0, &vars).expect("effect returned");
+        assert_eq!(
+            effect,
+            DialogueEffect::SetVar {
+                key: "got".into(),
+                value: DialogueValue::Bool(true)
+            }
+        );
+        assert_eq!(d.current, 1);
+    }
+
+    #[test]
+    fn world_choose_applies_setvar() {
+        let mut world = World::new();
+        world.insert_resource(Events::<DialogueEvent>::default());
+        let e = world.spawn();
+        world.add_component(
+            e,
+            DialogueBox::new("NPC", ["q", "buy", "leave"])
+                .with_chars_per_sec(0.0)
+                .with_choices(
+                    0,
+                    [DialogueChoice::new("buy", 1).then(DialogueEffect::SetVar {
+                        key: "bought".into(),
+                        value: DialogueValue::Bool(true),
+                    })],
+                ),
+        );
+        super::choose(&mut world, e, 0);
+        assert_eq!(world.get::<DialogueBox>(e).unwrap().current, 1);
+        assert_eq!(
+            world.resource::<DialogueVars>().unwrap().get_bool("bought"),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn world_choose_emits_event() {
+        let mut world = World::new();
+        world.insert_resource(Events::<DialogueEvent>::default());
+        let e = world.spawn();
+        world.add_component(
+            e,
+            DialogueBox::new("NPC", ["q", "x"])
+                .with_chars_per_sec(0.0)
+                .with_choices(
+                    0,
+                    [
+                        DialogueChoice::new("go", 1).then(DialogueEffect::EmitEvent {
+                            name: "door".into(),
+                        }),
+                    ],
+                ),
+        );
+        super::choose(&mut world, e, 0);
+        let evs = world.resource::<Events<DialogueEvent>>().unwrap().read();
+        assert_eq!(evs.len(), 1);
+        assert_eq!(evs[0].name, "door");
+        assert_eq!(evs[0].entity, e);
+    }
+
+    #[test]
+    fn world_advance_blocks_on_visible_choice() {
+        let mut world = World::new();
+        let e = world.spawn();
+        world.add_component(
+            e,
+            DialogueBox::new("NPC", ["pick", "a", "b"])
+                .with_chars_per_sec(0.0)
+                .with_choices(
+                    0,
+                    [DialogueChoice::new("a", 1), DialogueChoice::new("b", 2)],
+                ),
+        );
+        super::advance(&mut world, e); // a decision is pending → no-op
+        assert_eq!(world.get::<DialogueBox>(e).unwrap().current, 0);
     }
 }

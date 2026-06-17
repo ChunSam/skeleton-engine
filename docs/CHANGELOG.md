@@ -4,6 +4,43 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.20.0
+
+**Data-driven dialogue: RON dialogue trees, conditional choices, and choice→event/effect
+hooks.** Builds on 0.19.0's in-code branching `DialogueBox` to make conversations data-driven
+and consequential — all purely additive (a box with no tree/cond/effect renders
+byte-identically to 0.19.0; old scene RON still loads).
+
+### Added
+- **RON dialogue-tree loader** — `DialogueTree` (an ordered list of named nodes, each a line
+  [literal or localization key] plus optional `goto`-by-id branching choices) flattens to an
+  ordinary `DialogueBox` at spawn (node order = line index), so the existing `DialogueSystem`
+  drives it unchanged. `DialogueRegistry` (World resource) + `App::load_dialogue(name, path)`
+  load and hot-reload it, mirroring `load_animation_clips` / `load_particle_configs`. Parsing
+  validates duplicate node ids, unknown `goto` targets, and literal/localized consistency.
+- **Conditional choices** — `DialogueChoice` gains an optional `cond: DialogueCond` (compares a
+  `DialogueVars` variable via `Eq/Ne/Gt/Lt/Ge/Le`); gated-out choices are hidden. `DialogueVars`
+  is a new World resource of `DialogueValue` (`Bool/Int/Float/Str`) flags/counters.
+- **Choice → event/effect hooks** — `DialogueChoice` gains an optional `effect: DialogueEffect`
+  (`SetVar` writes a variable; `EmitEvent` sends a `DialogueEvent` to `Events<DialogueEvent>`).
+  World-level `dialogue::advance(world, e)` / `dialogue::choose(world, e, i)` honor conditions
+  and apply effects; `DialogueBox` gains `visible_choices` / `is_choosing` / `advance_with` /
+  `choose_visible` for the vars-aware path (the original `advance` / `choose` stay for the
+  simple case). Choice builders `when(cond)` / `then(effect)`. RON authors `cond` / `effect`
+  inline via RON's IMPLICIT_SOME extension.
+- Example `dialogue_quest` — loads a branching quest from `dialogue_quest.dlg.ron`, grants a
+  lantern via an `EmitEvent` effect, gates a later "secret" choice on the granted variable, and
+  flips EN↔KO live (the VISION acceptance test; playtested windowed).
+
+### Changed
+- `src/dialogue.rs` is now the `src/dialogue/` module (`mod.rs` + `tree.rs` + `vars.rs`).
+- `DialogueChoice` no longer derives `Eq` (its new `cond` / `effect` can hold an `f32` via
+  `DialogueValue::Float`); it still derives `PartialEq`.
+
+### Deferred
+- Per-line portraits (the dialogue renderer is text-only today) and a `DialogueBox`-level node
+  `goto` (unconditional jumps use a single choice, as the examples do).
+
 ## 0.19.0
 
 **Dialogue depth: `DialogueBox` gains localization keys and branching choices.** The Phase-4
