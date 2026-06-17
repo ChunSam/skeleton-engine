@@ -94,6 +94,16 @@ for e in entities {
 }
 ```
 
+Better still, when you're updating components in place use the **mutable queries** and skip the
+collect entirely: `world.query_mut::<T>()` for one component, `world.query2_mut::<A, B>()` /
+`query3_mut` for two or three at once — each yields `&mut` references directly:
+
+```rust
+for (_e, transform, vel) in world.query2_mut::<Transform, Velocity>() {
+    transform.position += vel.0;
+}
+```
+
 For a single known entity, store the `Entity` and skip the query entirely (see
 `hello_sprite.rs`). See [`docs/PATTERNS.md`](docs/PATTERNS.md) for the query API
 (`query2` / `query_opt2`) and more recipes.

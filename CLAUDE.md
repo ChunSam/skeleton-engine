@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.6.60 | package `skeleton-engine` v0.12.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
+> Version v1.6.61 | package `skeleton-engine` v0.13.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example game ships to
 > the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`  
@@ -70,10 +70,10 @@ Where to read to find a given thing:
 | DebugUi (egui overlay, F1 toggle, custom panels via `ctx()`) | `src/debug_ui.rs` |
 | In-game editor: F1 overlay + F2 **docked mode** (dock layout, viewport input gate, engine-level editor pause, gizmo (move + 8-handle resize + rotation handle) + screen-space UI gizmo, scene save, Data Tables panel, component copy/paste + entity-list search, prefab save/spawn, world-aligned grid overlay + cursor readout, bounds/colliders debug overlay, pathfinding-grid overlay (per-`Tilemap` walkable/blocked cells), audio bus mixer panel (per-bus volume sliders), particle live-tuner (inspector `ParticleEmitter` field drags + reset), lighting editor (`PointLight` add/edit + global `AmbientLight` control), state-machine editor (list-based `AnimationStateMachine` graph: states/transitions/params + edits), timeline editor (`Timeline` per-track keyframe list + playback controls), settings persistence (RON config), **Tile Paint** = viewport tile-painting for selected `Tilemap` entities — brush(N×N)/rectangle/bucket tools + eyedropper(Alt+click), L-paint/R-erase/digit-pick, **image-swatch palette** (atlas thumbnails via egui `register_native_texture`), stroke-level undo, visual-only/native; example `tile_paint`) | `src/app/editor/` |
 | Full public API re-export list | `src/lib.rs` |
-| Entity / Component / Resource / Query (+ `register_persistent` survives scene reset, via `App`) | `src/ecs/world.rs`, `src/app.rs` |
+| Entity / Component / Resource / Query (`query`/`query2`/`query3`/`query4`/`query_opt2`; **mutable** `query_mut`/`query2_mut`/`query3_mut` — multi-component `*_mut` use `HashMap::get_disjoint_mut`, distinct types, no collect-then-`get_mut`); (+ `register_persistent` survives scene reset, via `App`) | `src/ecs/world.rs`, `src/app.rs` |
 | Event bus (`Events<E>`) | `src/ecs/events.rs` |
 | `System` trait | `src/ecs/system.rs` |
-| Scene transitions (Scene, SceneCmd, SceneChange), SystemRegistrar (labeled system registration from `on_enter`) | `src/scene.rs` |
+| Scene transitions (Scene, SceneCmd, SceneChange; `App::set_scene` = Replace, **`App::push_scene`/`pop_scene`** = stack overlays e.g. pause menu), SystemRegistrar (labeled system registration from `on_enter`) | `src/scene.rs` |
 | Transform, Sprite | `src/components.rs` |
 | WindowConfig, GameState, ShouldQuit, DebugDraw (filled rects via `rect_filled_z`; `DebugShape` is `#[non_exhaustive]`); **TimeScale** (global `dt` multiplier for scene systems → hit-stop/slow-mo, `App::set_time_scale`) + **RealDt** (real unscaled per-frame dt, for systems that must opt out of time-scaling) | `src/resources.rs` |
 | Camera (coordinate transforms, zoom; `screen_to_world`/`world_to_screen`; `bounds` + `clamp_to_bounds` world-bounds clamp, auto-applied by App after follow) | `src/camera.rs` |
