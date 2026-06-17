@@ -942,8 +942,11 @@ mod tests {
                 .with_chars_per_sec(0.0)
                 .with_choices(
                     0,
-                    [DialogueChoice::new("go", 1)
-                        .then(DialogueEffect::EmitEvent { name: "door".into() })],
+                    [
+                        DialogueChoice::new("go", 1).then(DialogueEffect::EmitEvent {
+                            name: "door".into(),
+                        }),
+                    ],
                 ),
         );
         super::choose(&mut world, e, 0);
@@ -963,10 +966,7 @@ mod tests {
                 .with_chars_per_sec(0.0)
                 .with_choices(
                     0,
-                    [
-                        DialogueChoice::new("a", 1),
-                        DialogueChoice::new("b", 2),
-                    ],
+                    [DialogueChoice::new("a", 1), DialogueChoice::new("b", 2)],
                 ),
         );
         super::advance(&mut world, e); // a decision is pending → no-op

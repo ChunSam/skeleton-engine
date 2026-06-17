@@ -19,9 +19,9 @@
 //! SPACE = advance · 1/2 = pick a choice · L = toggle language · R = replay · ESC = quit.
 
 use engine::{
-    dialogue, App, Color, DialogueBox, DialogueEvent, DialogueRegistry, DialogueSystem, DialogueVars,
-    DrawText, Entity, Events, InputState, KeyCode, LocaleResource, ShouldQuit, System, TextQueue,
-    Vec2, ViewportSize, WindowConfig, World,
+    dialogue, App, Color, DialogueBox, DialogueEvent, DialogueRegistry, DialogueSystem,
+    DialogueVars, DrawText, Entity, Events, InputState, KeyCode, LocaleResource, ShouldQuit,
+    System, TextQueue, Vec2, ViewportSize, WindowConfig, World,
 };
 
 const DLG_PATH: &str = "examples/dialogue_quest.dlg.ron";
@@ -96,7 +96,8 @@ struct QuestInput {
 
 impl System for QuestInput {
     fn run(&mut self, world: &mut World, _dt: f32) {
-        let (advance, p0, p1, p2, toggle_lang, replay, quit) = match world.resource::<InputState>() {
+        let (advance, p0, p1, p2, toggle_lang, replay, quit) = match world.resource::<InputState>()
+        {
             Some(i) => (
                 i.just_pressed(KeyCode::Space),
                 i.just_pressed(KeyCode::Digit1),
@@ -117,7 +118,11 @@ impl System for QuestInput {
 
         if toggle_lang {
             if let Some(locale) = world.resource_mut::<LocaleResource>() {
-                let next = if locale.current_locale() == "en" { "ko" } else { "en" };
+                let next = if locale.current_locale() == "en" {
+                    "ko"
+                } else {
+                    "en"
+                };
                 locale.set_locale(next);
             }
         }
@@ -162,7 +167,10 @@ impl QuestInput {
             .get::<DialogueBox>(self.box_entity)
             .map(|d| d.is_finished())
             .unwrap_or(true);
-        let vh = world.resource::<ViewportSize>().map(|v| v.height).unwrap_or(620.0);
+        let vh = world
+            .resource::<ViewportSize>()
+            .map(|v| v.height)
+            .unwrap_or(620.0);
 
         if let Some(tq) = world.resource_mut::<TextQueue>() {
             tq.push(DrawText::new(
@@ -209,7 +217,9 @@ fn main() {
         .world
         .resource::<DialogueRegistry>()
         .and_then(|r| r.box_of("quest"))
-        .unwrap_or_else(|| panic!("failed to load dialogue tree from {DLG_PATH} (run from repo root)"));
+        .unwrap_or_else(|| {
+            panic!("failed to load dialogue tree from {DLG_PATH} (run from repo root)")
+        });
     let box_entity = app.world.spawn();
     app.world.add_component(box_entity, quest_box);
 

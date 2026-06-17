@@ -343,15 +343,26 @@ mod tests {
         let tree = DialogueTree::from_ron_str(LITERAL_RON).expect("parse");
         let b = tree.to_box();
         assert_eq!(b.speaker, "Merchant");
-        assert_eq!(b.lines, vec!["Welcome.", "Buy or leave?", "A fine choice.", "Farewell."]);
+        assert_eq!(
+            b.lines,
+            vec!["Welcome.", "Buy or leave?", "A fine choice.", "Farewell."]
+        );
         assert_eq!(tree.node_ids(), ["intro", "ask", "buy", "bye"]);
         // "ask" is line 1: Buy → index 2 ("buy"), Leave → index 3 ("bye").
-        let ask = b.choices.iter().find(|(l, _)| *l == 1).expect("ask choices");
+        let ask = b
+            .choices
+            .iter()
+            .find(|(l, _)| *l == 1)
+            .expect("ask choices");
         assert_eq!(ask.1[0].goto, 2);
         assert_eq!(ask.1[0].text, "Buy");
         assert_eq!(ask.1[1].goto, 3);
         // "buy" is line 2: Go → index 3 ("bye").
-        let buy = b.choices.iter().find(|(l, _)| *l == 2).expect("buy choices");
+        let buy = b
+            .choices
+            .iter()
+            .find(|(l, _)| *l == 2)
+            .expect("buy choices");
         assert_eq!(buy.1[0].goto, 3);
     }
 
@@ -359,12 +370,22 @@ mod tests {
     fn localized_tree_builds_localized_box() {
         let tree = DialogueTree::from_ron_str(LOCALIZED_RON).expect("parse");
         let b = tree.to_box();
-        assert!(b.lines.is_empty(), "localized box starts with empty lines (resolved at runtime)");
-        assert_eq!(b.line_keys, vec!["dlg.intro", "dlg.ask", "dlg.buy", "dlg.bye"]);
+        assert!(
+            b.lines.is_empty(),
+            "localized box starts with empty lines (resolved at runtime)"
+        );
+        assert_eq!(
+            b.line_keys,
+            vec!["dlg.intro", "dlg.ask", "dlg.buy", "dlg.bye"]
+        );
         assert_eq!(b.speaker_key.as_deref(), Some("npc.merchant"));
         assert!((b.chars_per_sec - 40.0).abs() < 1e-6);
         // localized choices carry keys, goto resolved to index.
-        let ask = b.choices.iter().find(|(l, _)| *l == 1).expect("ask choices");
+        let ask = b
+            .choices
+            .iter()
+            .find(|(l, _)| *l == 1)
+            .expect("ask choices");
         assert_eq!(ask.1[0].key.as_deref(), Some("choice.buy"));
         assert_eq!(ask.1[0].goto, 2);
         assert_eq!(ask.1[1].goto, 3);
@@ -390,7 +411,10 @@ mod tests {
     fn unknown_goto_is_err() {
         let ron = r#"(nodes: [(id: "a", line: "x", choices: [(text: "go", goto: "nope")])])"#;
         let err = DialogueTree::from_ron_str(ron).unwrap_err();
-        assert!(format!("{err}").contains("unknown node id 'nope'"), "got: {err}");
+        assert!(
+            format!("{err}").contains("unknown node id 'nope'"),
+            "got: {err}"
+        );
     }
 
     #[test]

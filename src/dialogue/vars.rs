@@ -273,8 +273,12 @@ mod tests {
     fn cond_eq_and_ne() {
         let mut vars = DialogueVars::new();
         vars.set_bool("has_key", true);
-        assert!(DialogueCond::new("has_key", DialogueOp::Eq, DialogueValue::Bool(true)).eval(&vars));
-        assert!(DialogueCond::new("has_key", DialogueOp::Ne, DialogueValue::Bool(false)).eval(&vars));
+        assert!(
+            DialogueCond::new("has_key", DialogueOp::Eq, DialogueValue::Bool(true)).eval(&vars)
+        );
+        assert!(
+            DialogueCond::new("has_key", DialogueOp::Ne, DialogueValue::Bool(false)).eval(&vars)
+        );
     }
 
     #[test]
@@ -293,7 +297,7 @@ mod tests {
         let mut vars = DialogueVars::new();
         vars.set_int("gold", 7);
         assert!(DialogueCond::new("gold", DialogueOp::Ge, DialogueValue::Int(5)).eval(&vars));
-        assert!(DialogueCond::new("gold", DialogueOp::Gt, DialogueValue::Int(7)).eval(&vars) == false);
+        assert!(!DialogueCond::new("gold", DialogueOp::Gt, DialogueValue::Int(7)).eval(&vars));
         assert!(DialogueCond::new("gold", DialogueOp::Le, DialogueValue::Int(7)).eval(&vars));
         // int vs float cross-compare via f64
         assert!(DialogueCond::new("gold", DialogueOp::Gt, DialogueValue::Float(6.5)).eval(&vars));
@@ -303,7 +307,9 @@ mod tests {
     fn ordered_op_on_non_numeric_is_false() {
         let mut vars = DialogueVars::new();
         vars.set_str("name", "abc");
-        assert!(!DialogueCond::new("name", DialogueOp::Gt, DialogueValue::Str("a".into())).eval(&vars));
+        assert!(
+            !DialogueCond::new("name", DialogueOp::Gt, DialogueValue::Str("a".into())).eval(&vars)
+        );
     }
 
     #[test]
