@@ -31,7 +31,10 @@ impl System for HudSystem {
         }
         if let Some(tq) = world.resource_mut::<TextQueue>() {
             tq.push(DrawText::new(
-                format!("Launched {} time(s) — loaded from an encrypted save.", self.count),
+                format!(
+                    "Launched {} time(s) — loaded from an encrypted save.",
+                    self.count
+                ),
                 Vec2::new(60.0, 250.0),
                 26.0,
                 Color::WHITE,
