@@ -12,6 +12,7 @@ pub mod components;
 pub mod coroutine;
 pub mod data_table;
 pub mod debug_ui;
+pub mod dialogue;
 pub mod ecs;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod gpu_particle;
@@ -83,6 +84,7 @@ pub use components::{OffscreenCamera, PointLight, RenderLayer, Sprite, Transform
 pub use coroutine::{Coroutine, CoroutineRunner, CoroutineSystem};
 pub use data_table::{DataTable, DataTableRegistry};
 pub use debug_ui::DebugUi;
+pub use dialogue::{DialogueBox, DialogueSystem};
 pub use ecs::schedule::{ScheduleError, SystemConfig, SystemLabel};
 pub use ecs::{Commands, Entity, Events, System, World};
 #[cfg(not(target_arch = "wasm32"))]
