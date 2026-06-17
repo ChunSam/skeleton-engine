@@ -4,6 +4,25 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.23.0
+
+**WebAudio depth (wasm).** The browser audio player grows from fire-and-forget SFX into a
+small but usable mixer: a master volume, a looping music channel, and pause/resume.
+
+### Added
+- `WebAudio::set_volume` / `volume` — a master `GainNode` that all playback routes through.
+- `WebAudio::play_music` / `stop_music` — a single looping music channel (stops any current
+  music, starts the new clip looping; `stop_music` stops it).
+- `WebAudio::suspend` / `resume` — pause and resume all audio (also the call to satisfy the
+  browser's user-gesture gate).
+- web-sys features `GainNode`, `AudioParam`.
+
+### Notes
+- Native `AudioManager` (rodio) is unchanged. Per-source mixing, crossfade, buses, ducking and
+  positional audio remain native-only.
+- Compiles + wasm-clippy clean; runtime audio is verified in a browser (no autonomous audio
+  capture), consistent with how the v0.17.0 WebAudio one-shot was checked.
+
 ## 0.22.0
 
 **wasm AEAD save/load parity.** The encrypted player-save path (`save` / `load` /
