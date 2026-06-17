@@ -1,0 +1,22 @@
+// gpu_particles — RON config driving a GPU compute-shader emitter.
+//
+// Loaded via `App::load_particle_configs("vfx", "examples/gpu_particles.ron")` and turned into
+// a `GpuParticleEmitter` with `ParticleConfigSet::gpu_emitter("spark")` (the RON→GPU path).
+// `gravity` and `emit_shape` carry straight through to the compute shader. `size` is a (w, h)
+// pair for CPU parity but GPU particles are square, so the width (6.0) is used. Edit + save
+// while the demo runs to hot-reload.
+(
+    emitters: {
+        "spark": (
+            spawn_rate: 120.0,
+            lifetime: 2.0,
+            velocity: (0.0, -80.0),
+            velocity_spread: (40.0, 30.0),
+            color_start: (1.0, 0.7, 0.1, 1.0),
+            color_end: (1.0, 0.1, 0.0, 0.0),
+            size: (6.0, 6.0),
+            gravity: (0.0, 140.0),
+            emit_shape: Circle(radius: 14.0),
+        ),
+    },
+)

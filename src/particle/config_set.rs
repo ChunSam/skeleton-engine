@@ -37,6 +37,8 @@ use crate::color::Color;
 use glam::Vec2;
 
 use super::ParticleEmitter;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::gpu_particle::GpuParticleEmitter;
 
 // ── Private serde mirror types ────────────────────────────────────────────────
 
@@ -244,6 +246,40 @@ impl ParticleConfigSet {
         })
     }
 
+    /// Returns a fresh [`GpuParticleEmitter`] built from the named config, or `None` if no
+    /// emitter with that name exists — the GPU-emitter counterpart to [`emitter`](Self::emitter),
+    /// so a single RON file can drive either the CPU or the compute-shader particle path.
+    ///
+    /// The nine fields shared with the CPU emitter (`spawn_rate`, `lifetime`, `velocity`,
+    /// `velocity_spread`, `color_start`, `color_end`, `gravity`, `emit_shape`, `emit`) map 1:1.
+    /// Two differences from [`emitter`](Self::emitter): a GPU particle is square, so the config's
+    /// `size` `(w, h)` pair contributes its **width** (`size.0`) as the scalar GPU size; and
+    /// `texture` / `z` have no `GpuParticleEmitter` equivalent and are ignored.
+    ///
+    /// Native-only: `GpuParticleEmitter` (and the GPU compute path) does not exist on wasm —
+    /// use [`emitter`](Self::emitter) (the CPU path) there.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn gpu_emitter(&self, name: &str) -> Option<GpuParticleEmitter> {
+        let idx = self.names.iter().position(|n| n == name)?;
+        let def = &self.configs[idx];
+        let size: Vec2 = def.size.into();
+        // Functional update: GpuParticleEmitter's private timer/next_slot come from Default
+        // (a plain default()+field-assignment trips clippy::field_reassign_with_default).
+        Some(GpuParticleEmitter {
+            spawn_rate: def.spawn_rate,
+            lifetime: def.lifetime,
+            velocity: def.velocity.into(),
+            velocity_spread: def.velocity_spread.into(),
+            color_start: def.color_start.into(),
+            color_end: def.color_end.into(),
+            size: size.x, // GPU particles are square → use the config width
+            gravity: def.gravity.into(),
+            emit_shape: def.emit_shape.into(),
+            emit: def.emit,
+            ..Default::default()
+        })
+    }
+
     /// Iterate emitter names in **alphabetical order** (deterministic).
     pub fn names(&self) -> impl Iterator<Item = &str> {
         self.names.iter().map(String::as_str)
@@ -371,6 +407,38 @@ mod tests {
         assert_eq!(fire.lifetime, 0.8);
         assert_eq!(fire.size, Vec2::new(6.0, 6.0));
         assert!(set.emitter("nope").is_none());
+    }
+
+    /// `gpu_emitter` mirrors the CPU emitter: shared fields map 1:1, the square GPU `size`
+    /// uses the config width, `gravity`/`emit_shape` carry over, and a missing name → `None`.
+    #[test]
+    fn gpu_emitter_maps_fields_and_uses_width() {
+        let ron = r#"(emitters: {
+            "spark": (spawn_rate: 90.0, lifetime: 1.5, velocity: (0.0, -60.0),
+                      velocity_spread: (40.0, 30.0),
+                      color_start: (1.0, 0.7, 0.1, 1.0),
+                      color_end:   (1.0, 0.1, 0.0, 0.0),
+                      size: (7.0, 3.0),
+                      gravity: (0.0, 140.0),
+                      emit_shape: Circle(radius: 12.0)),
+        })"#;
+        let set = ParticleConfigSet::from_ron_str(ron).expect("parse");
+        let e = set.gpu_emitter("spark").expect("gpu emitter");
+        assert_eq!(e.spawn_rate, 90.0);
+        assert_eq!(e.lifetime, 1.5);
+        assert_eq!(e.velocity, Vec2::new(0.0, -60.0));
+        assert_eq!(e.color_start, Color::rgba(1.0, 0.7, 0.1, 1.0));
+        assert_eq!(
+            e.size, 7.0,
+            "square GPU particle uses the config width (size.0)"
+        );
+        assert_eq!(e.gravity, Vec2::new(0.0, 140.0));
+        assert_eq!(
+            e.emit_shape,
+            crate::particle::EmitShape::Circle { radius: 12.0 }
+        );
+        assert!(e.emit);
+        assert!(set.gpu_emitter("nope").is_none());
     }
 
     /// `names()` is alphabetical and deterministic.
