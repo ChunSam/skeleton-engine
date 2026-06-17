@@ -2,7 +2,17 @@
 
 All notable changes to `skeleton-engine` are documented here.
 
-The package follows semantic versioning beginning with 1.0.0.
+The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
+
+## 0.11.0
+
+**Version line reset: pre-1.0.** No code changes. The project moves from the 10.x SemVer
+line back to a 0.x ("pre-1.0") line to honestly signal that the public API is not yet
+stability-committed and may break between releases — matching the engine's actual state
+(feature-rich but still evolving, single author, never published). The full prior history
+(0.3.0 → 10.7.0) is preserved below and in git tags; only the go-forward line is
+renumbered. 0.x cadence: MINOR = any release (incl. breaking), PATCH = point fix. 1.0.0
+will mark a deliberate compatibility commitment later.
 
 ## 10.7.0
 
