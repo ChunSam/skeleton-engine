@@ -4,6 +4,26 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.21.0
+
+**Particle RON→GPU builder.** `ParticleConfigSet::gpu_emitter(name)` builds a
+`GpuParticleEmitter` from a RON particle config — the GPU-compute counterpart to `emitter()`
+(the CPU path) — so a single `.ron` file can drive either path. Closes the 0.18.0 gap where
+RON `gravity` / `emit_shape` reached only CPU emitters.
+
+### Added
+- `ParticleConfigSet::gpu_emitter(name) -> Option<GpuParticleEmitter>` (native-only, like
+  `GpuParticleEmitter` itself — wasm has no GPU compute path; use `emitter()` there). The nine
+  fields shared with the CPU emitter map 1:1 (`spawn_rate` / `lifetime` / `velocity` /
+  `velocity_spread` / `color_start` / `color_end` / `gravity` / `emit_shape` / `emit`); the
+  square GPU `size` takes the config width (`size.0`); `texture` / `z` have no GPU-emitter
+  equivalent and are ignored.
+
+### Changed
+- Example `gpu_particles` now loads its emitter from `examples/gpu_particles.ron` via
+  `App::load_particle_configs` + `gpu_emitter`, and auto-spawns one emitter at center so the
+  RON→GPU path is visible on launch (more spawn on left-click). Playtested windowed.
+
 ## 0.20.0
 
 **Data-driven dialogue: RON dialogue trees, conditional choices, and choice→event/effect
