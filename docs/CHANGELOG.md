@@ -4,6 +4,29 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.15.0
+
+**WASM persistence — Phase 5 of the user-experience roadmap.** Browser-deployed games can finally save
+data: the plain-text RON save functions route to `localStorage` on wasm instead of returning
+`Unsupported`, using the same API as the native filesystem path.
+
+### Changed
+- `save::write_ron` / `read_ron` / `exists` / `delete` now work on `wasm32` via `localStorage` (keyed by
+  the save-path string) — previously `Unsupported` / `false` / no-op. A small internal `wasm_storage`
+  wrapper (web-sys `Storage`, newly enabled) backs them. `read_ron` returns a `NotFound` `Io` error for an
+  absent key, so `unwrap_or` / default patterns behave the same as native.
+
+### Added
+- Example `examples/save_counter.rs` — a launch counter persisted with `write_ron`/`read_ron`; the
+  identical code uses a file natively and `localStorage` on the web.
+
+### Notes
+- Player-save AEAD (`save` / `load` / `save_versioned`) stays `Unsupported` on wasm: a hardcoded key in a
+  browser-inspectable store adds little, and binary ciphertext would need base64 in a string store. Use
+  `write_ron` / `read_ron` for browser persistence.
+- The live browser `localStorage` round-trip was not run this session (the dev machine was locked); the
+  wasm code compiles + lints clean (CI Build (WASM) + wasm clippy) and the native path is unchanged.
+
 ## 0.14.0
 
 **Dialogue box primitive — Phase 4 of the user-experience roadmap.** The most re-invented narrative

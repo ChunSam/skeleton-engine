@@ -183,10 +183,12 @@ pub fn write_ron<T: Serialize>(path: &Path, data: &T) -> Result<(), SaveError> {
         fs::write(path, text)?;
         Ok(())
     }
+    // wasm: persist the RON text to localStorage, keyed by the path string.
     #[cfg(target_arch = "wasm32")]
     {
-        let _ = (path, data);
-        Err(SaveError::Unsupported)
+        let text = ron::ser::to_string_pretty(data, ron::ser::PrettyConfig::default())
+            .map_err(|e| SaveError::Ron(e.to_string()))?;
+        wasm_storage::set(&path.to_string_lossy(), &text)
     }
 }
 
@@ -211,10 +213,16 @@ pub fn read_ron<T: DeserializeOwned>(path: &Path) -> Result<T, SaveError> {
         let s = std::str::from_utf8(&bytes).map_err(|_| SaveError::Corrupted)?;
         ron::from_str(s).map_err(|e| SaveError::Ron(e.to_string()))
     }
+    // wasm: read the RON text back from localStorage (absent key → NotFound, like the fs path).
     #[cfg(target_arch = "wasm32")]
     {
-        let _ = path;
-        Err(SaveError::Unsupported)
+        match wasm_storage::get(&path.to_string_lossy())? {
+            Some(s) => ron::from_str(&s).map_err(|e| SaveError::Ron(e.to_string())),
+            None => Err(SaveError::Io(io::Error::new(
+                io::ErrorKind::NotFound,
+                "key not present in localStorage",
+            ))),
+        }
     }
 }
 
@@ -227,7 +235,7 @@ pub fn load_or_default<T: DeserializeOwned + Default>(path: &Path) -> Result<T, 
     }
 }
 
-/// Returns whether the save file exists. Always `false` on wasm.
+/// Returns whether the save exists. On wasm, whether the `localStorage` key is present.
 pub fn exists(path: &Path) -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -235,12 +243,14 @@ pub fn exists(path: &Path) -> bool {
     }
     #[cfg(target_arch = "wasm32")]
     {
-        let _ = path;
-        false
+        wasm_storage::get(&path.to_string_lossy())
+            .ok()
+            .flatten()
+            .is_some()
     }
 }
 
-/// Deletes the save file. Returns `Ok(())` if the file does not exist. Always `Ok(())` on wasm.
+/// Deletes the save. Returns `Ok(())` if it does not exist. On wasm, removes the `localStorage` key.
 pub fn delete(path: &Path) -> Result<(), SaveError> {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -252,8 +262,37 @@ pub fn delete(path: &Path) -> Result<(), SaveError> {
     }
     #[cfg(target_arch = "wasm32")]
     {
-        let _ = path;
-        Ok(())
+        wasm_storage::remove(&path.to_string_lossy())
+    }
+}
+
+/// Thin `localStorage` wrapper used by the wasm save paths (`write_ron` / `read_ron` / `exists` /
+/// `delete`). Player-save AEAD (`save` / `load`) stays `Unsupported` on wasm: a hardcoded key in a
+/// browser-inspectable store buys little, and binary ciphertext would need base64 in a string store.
+#[cfg(target_arch = "wasm32")]
+mod wasm_storage {
+    use super::SaveError;
+
+    fn storage() -> Result<web_sys::Storage, SaveError> {
+        web_sys::window()
+            .and_then(|w| w.local_storage().ok().flatten())
+            .ok_or(SaveError::Unsupported)
+    }
+
+    pub fn get(key: &str) -> Result<Option<String>, SaveError> {
+        storage()?.get_item(key).map_err(|_| SaveError::Unsupported)
+    }
+
+    pub fn set(key: &str, value: &str) -> Result<(), SaveError> {
+        storage()?
+            .set_item(key, value)
+            .map_err(|_| SaveError::Unsupported)
+    }
+
+    pub fn remove(key: &str) -> Result<(), SaveError> {
+        storage()?
+            .remove_item(key)
+            .map_err(|_| SaveError::Unsupported)
     }
 }
 
