@@ -24,6 +24,13 @@ cargo clippy --all-targets -- -D warnings
 echo "[verify] cargo build --target wasm32-unknown-unknown"
 cargo build --target wasm32-unknown-unknown
 
+# CI's Build (WASM) job ALSO runs wasm clippy with -D warnings. The wasm build above
+# only WARNS on issues like unused imports in wasm-gated code; this step turns those
+# into errors locally, matching CI (a wasm-only unused import once passed local build
+# but failed CI clippy — see git history).
+echo "[verify] cargo clippy --target wasm32-unknown-unknown --lib -- -D warnings"
+cargo clippy --target wasm32-unknown-unknown --lib -- -D warnings
+
 echo "[verify] cargo test --all-targets"
 cargo test --all-targets
 
