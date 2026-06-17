@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.6.58 | package `skeleton-engine` v0.11.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
+> Version v1.6.59 | package `skeleton-engine` v0.11.1, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example game ships to
 > the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`  
@@ -64,7 +64,7 @@ Where to read to find a given thing:
 | Engine entry point, main loop, render orchestration, `load_image` | `src/app.rs` |
 | Handle<T>, ImageAsset, ScriptAsset, AssetServer (asset load / caching / hot reload); **HotReloadable** trait + `App::register_hot_reloadable::<T>` (fork-friendly hot-reload extension point — built-in registries auto-registered; native-only) | `src/asset.rs` |
 | TextureAtlas (uniform grid atlas), AtlasSprite (atlas tile render component) | `src/atlas.rs` |
-| Reflect trait, ReflectValue (`F32`/`I32`/`Vec2`/`Bool`/`String`/`Color`, `#[non_exhaustive]`; runtime field read/write, egui Inspector integration); **`#[derive(Reflect)]`** proc-macro (`derive` feature, default on) | `src/reflect.rs`, `engine_reflect_derive/` |
+| Reflect trait, ReflectValue (`F32`/`I32`/`Vec2`/`Bool`/`String`/`Color`, `#[non_exhaustive]`; runtime field read/write, egui Inspector integration); **`#[derive(Reflect)]`** proc-macro (in the `engine_reflect_derive` workspace crate, used via `engine_reflect_derive::Reflect`; path dev-dependency, not feature-gated) | `src/reflect.rs`, `engine_reflect_derive/` |
 | DataTable, DataTableRegistry (schema-agnostic RON data tables; `App::load_data_table`, hot-reloaded, edited in the editor's Data Tables panel); `App::register_editable_component::<T>` (one-call reflect+clone+serde+inspector registration) | `src/data_table.rs`, `src/app/editor.rs` |
 | ScriptAsset, ScriptRunner, ScriptingSystem, **ScriptRegistry** (Rhai scripting; `ScriptAsset`+loading live in `scripting/` not `asset.rs` — `ScriptRegistry` is the World resource that stores/loads/hot-reloads scripts, decoupled from `AssetServer`; `engine::ScriptAsset` re-exported at crate root) | `src/scripting.rs`, `src/scripting/{asset,loading,execution}.rs` |
 | DebugUi (egui overlay, F1 toggle, custom panels via `ctx()`) | `src/debug_ui.rs` |
