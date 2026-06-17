@@ -18,6 +18,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The native job builds --all-targets (debug) AND --release in one `target/`, on top of a
+      # restored cache; on a stock ubuntu-latest (~14 GB free on /) that has run the runner out of
+      # disk ("No space left on device"). Drop large preinstalled SDKs we never use to free ~25 GB.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift
+          df -h /
+
       - name: Install system dependencies
         run: |
           sudo apt-get update -q
