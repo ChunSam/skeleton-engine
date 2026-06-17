@@ -9,7 +9,9 @@ struct Particle {
     _pad:       f32,        // 28: padding
     color_start: vec4<f32>, // 32: start color
     color_end:   vec4<f32>, // 48: end color
-}                           // 64 bytes total
+    gravity:    vec2<f32>,  // 64: per-particle constant acceleration
+    _pad2:      vec2<f32>,  // 72: padding to 80
+}                           // 80 bytes total
 
 struct ComputeUniforms {
     dt:    f32,
@@ -28,6 +30,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     var p = particles[i];
     if p.life <= 0.0 { return; }
     p.life -= uniforms.dt;
+    p.vel  += p.gravity * uniforms.dt; // integrate gravity (no-op when zero)
     p.pos  += p.vel * uniforms.dt;
     particles[i] = p;
 }

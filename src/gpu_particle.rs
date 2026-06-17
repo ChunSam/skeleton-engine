@@ -4,6 +4,7 @@ use rand::Rng;
 use crate::color::Color;
 use crate::components::Transform;
 use crate::ecs::{Entity, World};
+use crate::particle::EmitShape;
 use crate::renderer::gpu_particle::GpuParticle;
 
 /// Particle emitter component updated via a GPU compute shader.
@@ -44,6 +45,12 @@ pub struct GpuParticleEmitter {
     pub color_end: Color,
     /// Particle size (pixels).
     pub size: f32,
+    /// Constant acceleration applied to each particle every frame (pixels/s²). `ZERO` = none.
+    /// Mirrors [`crate::ParticleEmitter::gravity`]; integrated per-particle in the compute shader.
+    pub gravity: Vec2,
+    /// Shape the spawn position is scattered over (offset from the emitter). Default `Point`.
+    /// Mirrors [`crate::ParticleEmitter::emit_shape`]; sampled on the CPU at emission time.
+    pub emit_shape: EmitShape,
     /// When false, emission is paused.
     pub emit: bool,
     /// Internal emission timer.
@@ -62,10 +69,27 @@ impl Default for GpuParticleEmitter {
             color_start: Color::rgb(1.0, 0.8, 0.2),
             color_end: Color::rgba(1.0, 0.2, 0.0, 0.0),
             size: 5.0,
+            gravity: Vec2::ZERO,
+            emit_shape: EmitShape::Point,
             emit: true,
             timer: 0.0,
             next_slot: 0,
         }
+    }
+}
+
+impl GpuParticleEmitter {
+    /// Sets the constant per-particle acceleration (builder style). e.g. falling sparks /
+    /// rising smoke.
+    pub fn with_gravity(mut self, gravity: Vec2) -> Self {
+        self.gravity = gravity;
+        self
+    }
+
+    /// Sets the spawn scatter shape (builder style).
+    pub fn with_emit_shape(mut self, shape: EmitShape) -> Self {
+        self.emit_shape = shape;
+        self
     }
 }
 
@@ -117,8 +141,12 @@ pub(crate) fn collect_new_particles(
             let vy = emitter.velocity.y
                 + rng.gen_range(-emitter.velocity_spread.y..=emitter.velocity_spread.y);
 
+            // Scatter the spawn position over the emit shape (offset from the emitter).
+            // `Point` (the default) yields `ZERO` → byte-identical to before.
+            let spawn = pos + emitter.emit_shape.sample_offset(&mut rng);
+
             let particle = GpuParticle {
-                pos: [pos.x, pos.y],
+                pos: [spawn.x, spawn.y],
                 vel: [vx, vy],
                 life: emitter.lifetime,
                 max_life: emitter.lifetime,
@@ -126,6 +154,8 @@ pub(crate) fn collect_new_particles(
                 _pad: 0.0,
                 color_start: emitter.color_start.to_array(),
                 color_end: emitter.color_end.to_array(),
+                gravity: [emitter.gravity.x, emitter.gravity.y],
+                _pad2: [0.0, 0.0],
             };
 
             // Use the shared frame cursor so every emitter gets disjoint slots.

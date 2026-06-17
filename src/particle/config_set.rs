@@ -9,14 +9,20 @@
 //!                   velocity_spread: (30.0, 20.0),
 //!                   color_start: (1.0, 0.85, 0.35, 1.0),
 //!                   color_end:   (1.0, 0.25, 0.1,  0.0),
-//!                   size:        (6.0, 6.0)),
-//!         "smoke": (spawn_rate: 15.0, lifetime: 2.0),
+//!                   size:        (6.0, 6.0),
+//!                   gravity:     (0.0, 200.0)),
+//!         "smoke": (spawn_rate: 15.0, lifetime: 2.0,
+//!                   emit_shape: Circle(radius: 8.0)),
 //!     },
 //! )
 //! ```
 //! All fields except the map key are optional and default to sensible values
-//! (see [`EmitterDef`] defaults).  Use [`ParticleConfigSet::emitter`] to obtain
-//! a fresh [`super::ParticleEmitter`] pre-filled from the config.
+//! (see [`EmitterDef`] defaults).  New optional fields: `gravity: (x, y)` applies
+//! per-particle constant acceleration (pixels/s²; default `(0.0, 0.0)`) and
+//! `emit_shape` controls spawn scatter — `Point` (default), `Circle(radius: r)`,
+//! `Ring(radius: r)`, or `Box(half_extents: (w, h))`.
+//! Use [`ParticleConfigSet::emitter`] to obtain a fresh [`super::ParticleEmitter`]
+//! pre-filled from the config.
 //!
 //! # Hot reload
 //! On native builds, call [`crate::App::load_particle_configs`] instead of
@@ -35,7 +41,7 @@ use super::ParticleEmitter;
 // ── Private serde mirror types ────────────────────────────────────────────────
 
 /// Serde-only tuple for [`Vec2`]: `(x, y)`.
-#[derive(Deserialize, Clone, Copy, Debug)]
+#[derive(Deserialize, Clone, Copy, Debug, Default)]
 struct Vec2Def(f32, f32);
 
 impl From<Vec2Def> for Vec2 {
@@ -51,6 +57,36 @@ struct ColorDef(f32, f32, f32, f32);
 impl From<ColorDef> for Color {
     fn from(c: ColorDef) -> Color {
         Color::rgba(c.0, c.1, c.2, c.3)
+    }
+}
+
+/// Serde-only mirror of [`super::EmitShape`]. RON: `Point` / `Circle(radius: 12.0)` /
+/// `Ring(radius: 20.0)` / `Box(half_extents: (10.0, 4.0))`.
+#[derive(Deserialize, Clone, Copy, Debug, Default)]
+enum EmitShapeDef {
+    #[default]
+    Point,
+    Circle {
+        radius: f32,
+    },
+    Ring {
+        radius: f32,
+    },
+    Box {
+        half_extents: Vec2Def,
+    },
+}
+
+impl From<EmitShapeDef> for super::EmitShape {
+    fn from(s: EmitShapeDef) -> super::EmitShape {
+        match s {
+            EmitShapeDef::Point => super::EmitShape::Point,
+            EmitShapeDef::Circle { radius } => super::EmitShape::Circle { radius },
+            EmitShapeDef::Ring { radius } => super::EmitShape::Ring { radius },
+            EmitShapeDef::Box { half_extents } => super::EmitShape::Box {
+                half_extents: half_extents.into(),
+            },
+        }
     }
 }
 
@@ -82,6 +118,12 @@ struct EmitterDef {
     /// Z-depth of spawned particles. Defaults to `0.0`.
     #[serde(default)]
     z: f32,
+    /// Per-particle constant acceleration (pixels/s²). Defaults to zero.
+    #[serde(default)]
+    gravity: Vec2Def,
+    /// Spawn scatter shape. Defaults to `Point`.
+    #[serde(default)]
+    emit_shape: EmitShapeDef,
 }
 
 // ── Serde defaults mirroring `ParticleEmitter::default()` ────────────────────
@@ -140,11 +182,18 @@ pub type ParticleConfigError = crate::asset::AssetLoadError;
 /// with hot-reload).
 ///
 /// ```rust,no_run
-/// # use engine::particle::{ParticleConfigSet};
-/// let ron = r#"(emitters: { "fire": (spawn_rate: 60.0) })"#;
+/// # use engine::particle::{ParticleConfigSet, EmitShape};
+/// # use glam::Vec2;
+/// let ron = r#"(emitters: {
+///     "fire":     (spawn_rate: 60.0, gravity: (0.0, 200.0)),
+///     "fountain": (spawn_rate: 70.0, emit_shape: Circle(radius: 8.0)),
+/// })"#;
 /// let set = ParticleConfigSet::from_ron_str(ron).unwrap();
-/// let emitter = set.emitter("fire").unwrap();
-/// assert_eq!(emitter.spawn_rate, 60.0);
+/// let fire = set.emitter("fire").unwrap();
+/// assert_eq!(fire.spawn_rate, 60.0);
+/// assert_eq!(fire.gravity, Vec2::new(0.0, 200.0));
+/// let fountain = set.emitter("fountain").unwrap();
+/// assert_eq!(fountain.emit_shape, EmitShape::Circle { radius: 8.0 });
 /// ```
 pub struct ParticleConfigSet {
     /// Alphabetically sorted emitter names — deterministic order guaranteed.
@@ -186,8 +235,8 @@ impl ParticleConfigSet {
             color_start: def.color_start.into(),
             color_end: def.color_end.into(),
             size: def.size.into(),
-            gravity: glam::Vec2::ZERO,
-            emit_shape: crate::particle::EmitShape::Point,
+            gravity: def.gravity.into(),
+            emit_shape: def.emit_shape.into(),
             texture: def.texture.as_deref().map(std::sync::Arc::from),
             z: def.z,
             emit: def.emit,
@@ -364,6 +413,44 @@ mod tests {
         assert_eq!(spark.size, Vec2::new(8.0, 8.0));
         assert!(spark.emit);
         assert!(spark.texture.is_none());
+        // Omitting gravity/emit_shape must yield zero gravity and Point shape.
+        assert_eq!(spark.gravity, Vec2::ZERO);
+        assert_eq!(spark.emit_shape, super::super::EmitShape::Point);
+    }
+
+    /// `gravity` field parses and converts correctly.
+    #[test]
+    fn gravity_field_parses_correctly() {
+        let ron = r#"(emitters: { "sparks": (gravity: (0.0, 200.0)) })"#;
+        let set = ParticleConfigSet::from_ron_str(ron).expect("parse");
+        let sparks = set.emitter("sparks").expect("sparks emitter");
+        assert_eq!(sparks.gravity, Vec2::new(0.0, 200.0));
+    }
+
+    /// `emit_shape: Circle(radius: ...)` parses correctly.
+    #[test]
+    fn emit_shape_circle_parses_correctly() {
+        let ron = r#"(emitters: { "burst": (emit_shape: Circle(radius: 12.0)) })"#;
+        let set = ParticleConfigSet::from_ron_str(ron).expect("parse");
+        let burst = set.emitter("burst").expect("burst emitter");
+        assert_eq!(
+            burst.emit_shape,
+            super::super::EmitShape::Circle { radius: 12.0 }
+        );
+    }
+
+    /// `emit_shape: Box(half_extents: ...)` parses and converts correctly.
+    #[test]
+    fn emit_shape_box_parses_correctly() {
+        let ron = r#"(emitters: { "area": (emit_shape: Box(half_extents: (10.0, 4.0))) })"#;
+        let set = ParticleConfigSet::from_ron_str(ron).expect("parse");
+        let area = set.emitter("area").expect("area emitter");
+        assert_eq!(
+            area.emit_shape,
+            super::super::EmitShape::Box {
+                half_extents: Vec2::new(10.0, 4.0)
+            }
+        );
     }
 
     /// Registry load + get round-trip (in-memory via from_ron_str, cross-platform).

@@ -13,6 +13,8 @@ struct Particle {
     _pad:       f32,
     color_start: vec4<f32>,
     color_end:   vec4<f32>,
+    gravity:    vec2<f32>,  // matches GpuParticle stride (80 bytes); unused at render time
+    _pad2:      vec2<f32>,
 }
 
 @group(0) @binding(0) var<uniform>        camera:    Camera;

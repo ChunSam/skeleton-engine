@@ -5,7 +5,7 @@ use crate::camera::Camera;
 use crate::ecs::World;
 use crate::renderer::CameraUniform;
 
-// ─── GPU Particle Data (64 bytes, 16 B aligned) ───────────────────────────────
+// ─── GPU Particle Data (80 bytes, 16 B aligned) ───────────────────────────────
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable, Debug)]
 pub struct GpuParticle {
@@ -17,6 +17,11 @@ pub struct GpuParticle {
     pub _pad: f32,
     pub color_start: [f32; 4],
     pub color_end: [f32; 4],
+    /// Per-particle constant acceleration (pixels/s²); integrated each step by the
+    /// compute shader. `[0.0, 0.0]` = constant-velocity (byte-identical to before).
+    pub gravity: [f32; 2],
+    /// Padding to keep the struct 16-byte aligned (array stride must be a multiple of 16).
+    pub _pad2: [f32; 2],
 }
 
 // ─── Compute Uniforms ────────────────────────────────────────────────────────

@@ -2,12 +2,14 @@
 //!
 //! `cargo run --example gpu_particles`
 //!
-//! Spawns a `GpuParticleEmitter` at the mouse-click position.
+//! Spawns a `GpuParticleEmitter` at the mouse-click position. Each emitter rises, then
+//! arcs back down under `gravity`, and scatters its spawn over a `Circle` emit shape —
+//! the GPU mirror of the CPU `ParticleEmitter` gravity/emit-shape support.
 //! - Space: toggle emission for the current emitters
 //! - R: remove all emitters
 use engine::{
-    App, Color, DrawText, GpuParticleEmitter, InputState, KeyCode, MouseButton, System, TextQueue,
-    Transform, WindowConfig, World,
+    App, Color, DrawText, EmitShape, GpuParticleEmitter, InputState, KeyCode, MouseButton, System,
+    TextQueue, Transform, WindowConfig, World,
 };
 use glam::Vec2;
 
@@ -48,6 +50,9 @@ impl System for GpuParticleDemo {
             emitter.color_start = Color::rgba(1.0, 0.7, 0.1, 1.0);
             emitter.color_end = Color::rgba(1.0, 0.1, 0.0, 0.0);
             emitter.size = 6.0;
+            // Sparks rise, then fall back under gravity (Y is down), spawning over a small disc.
+            emitter.gravity = Vec2::new(0.0, 140.0);
+            emitter.emit_shape = EmitShape::Circle { radius: 14.0 };
             emitter.emit = true;
             world.add_component(e, emitter);
             self.emitter_count += 1;
