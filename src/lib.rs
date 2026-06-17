@@ -4,6 +4,8 @@ pub mod asset;
 pub mod atlas;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod audio;
+#[cfg(target_arch = "wasm32")]
+pub mod audio_wasm;
 pub mod behavior;
 pub mod camera;
 pub mod collision;
@@ -71,6 +73,8 @@ pub use asset::{
 pub use atlas::{AtlasSprite, TextureAtlas};
 #[cfg(not(target_arch = "wasm32"))]
 pub use audio::{AudioChannelState, AudioEffect, AudioManager, AudioSystem, BusDuck, Sidechain};
+#[cfg(target_arch = "wasm32")]
+pub use audio_wasm::WebAudio;
 pub use behavior::{
     AlwaysSucceed, BehaviorNode, BehaviorStatus, BehaviorSystem, BehaviorTree, Blackboard,
     BlackboardValue, Inverter, Selector, Sequence,

@@ -4,6 +4,29 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.17.0
+
+**WASM audio (one-shot SFX) — Phase 7 of the user-experience roadmap, the final phase.** The native
+`AudioManager` is rodio-based and native-only, leaving browser builds silent. `WebAudio` adds a minimal
+Web Audio one-shot SFX path so wasm games can play sound effects.
+
+### Added
+- **`WebAudio`** (`src/audio_wasm.rs`, wasm-only) — a tiny `AudioContext` wrapper. `WebAudio::new()`
+  creates the context; `play(bytes)` decodes an encoded clip (WAV/MP3/OGG, whatever the browser supports)
+  and plays it once (fire-and-forget via `spawn_local`). Store it as a `World` resource. Re-exported as
+  `engine::WebAudio` on `wasm32`. Added the Web Audio `web-sys` features.
+
+### Scope / notes
+- Intentionally minimal — one-shot SFX only. Music, mixing, fades, buses, ducking, and positional audio
+  remain in the native `AudioManager` (rodio); a full cross-platform unification (e.g. via `kira`) is a
+  separate future effort.
+- Browsers gate audio behind a user gesture — trigger the first `play` from an input handler, or the
+  context may stay suspended.
+- ⚠️ The actual sound output was **not** verified this session (the dev machine was locked — no browser,
+  no way to hear it — and audio has no meaningful unit test). The wasm code **compiles + lints clean** (CI
+  Build (WASM) + wasm clippy) against the standard Web Audio API; **hearing it in a browser is the
+  outstanding verification step.**
+
 ## 0.16.0
 
 **Particle depth — Phase 6 of the user-experience roadmap.** `ParticleEmitter` gains the two knobs 2D
