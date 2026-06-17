@@ -4,6 +4,31 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.11.1
+
+**First-hour onboarding pass (docs + example, no library API change).** Lowers the barrier
+for a new forker's first hour: a true minimal "image on screen" example, a fork-first README
+that no longer lies about installation, and an English getting-started guide. No `src/` change,
+so the public API and the 772-test suite are untouched.
+
+### Added
+- `examples/hello_sprite.rs` — the smallest textured-sprite example (load a PNG → render it),
+  filling the ladder gap between `basic.rs` (solid-color, no asset) and the full example games.
+  It demonstrates the asset workflow (`App::load_image` → `Sprite::textured_with_handle`) and
+  is the recommended starting point to copy into your own `examples/my_game.rs`.
+- `examples/assets/player.png` — a 32×32 placeholder sprite for `hello_sprite`.
+- `FORKING.md` — English getting-started guide: the fork-first model, crate layout, how to
+  start your own game, asset-path resolution, the borrow-split pattern, and the verify gate.
+
+### Fixed
+- `README.md` — replaced the false `skeleton-engine = "2.0.0"` crates.io install block (the
+  crate is unpublished and at 0.x) with a fork-first **Getting Started** section; corrected the
+  stale MSRV (`1.88` → `1.95`); de-versioned the obsolete "v2.0 notes" framing; noted that
+  `REFERENCE.html` / `ARCHITECTURE.html` are written in Korean and linked `FORKING.md`.
+- `CLAUDE.md` — the module-map row for `#[derive(Reflect)]` said "(`derive` feature, default
+  on)", but that feature was removed when `engine_reflect_derive` became a path dev-dependency;
+  corrected to describe the actual state.
+
 ## 0.11.0
 
 **Version line reset: pre-1.0.** No code changes. The project moves from the 10.x SemVer

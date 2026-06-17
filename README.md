@@ -23,30 +23,41 @@ isolation. See [`docs/VISION.md`](docs/VISION.md) for the full rationale.
 
 ## Requirements
 
-- Rust 1.88 or newer
+- Rust 1.95 or newer (the CI toolchain is pinned to 1.95.0)
 - Native Linux builds need common window/audio development packages such as `libasound2-dev`, `libudev-dev`, `libxkbcommon-dev`, Wayland/X11 headers, and `pkg-config`
 - WASM builds use the `wasm32-unknown-unknown` target
 
-## Install
+## Getting Started
 
-```toml
-[dependencies]
-skeleton-engine = "2.0.0"
+This engine is meant to be **forked, not added as a crates.io dependency** — it is
+unpublished by design. You take the source and grow it into your own engine. The library
+crate is `engine`, so all code uses `use engine::*`.
+
+```sh
+# 1. Get the source
+git clone https://github.com/ChunSam/skeleton-engine
+cd skeleton-engine
+
+# 2. Run the smallest example — a textured sprite on screen
+cargo run --example hello_sprite
+
+# 3. Start your own game: copy an example and run it.
+#    Any file in examples/ is auto-discovered as `cargo run --example <name>`.
+cp examples/hello_sprite.rs examples/my_game.rs
+cargo run --example my_game
 ```
 
-```rust
-use engine::*;
-```
+From there, edit engine code directly under `src/` — that is the point of a skeleton.
+See [`FORKING.md`](FORKING.md) for the crate layout, where to put assets, and common patterns.
 
-## v2.0 notes
+## API notes
 
 - `Entity` is an opaque generation-checked handle. Use `entity.index()` and
   `entity.generation()` for display, serialization boundaries, or script calls.
 - `World::clone_entity(src)` returns `Option<Entity>`.
 - Rhai scripts use `entity_index()`, `entity_generation()`, and
   `despawn_entity(index, generation)`.
-- `Sprite.normal_texture` and `Sprite.normal_handle` were removed; v2 keeps flat-normal lighting
-  internally but does not expose per-sprite normal maps.
+- Sprites use flat-normal lighting internally; per-sprite normal maps are not exposed.
 
 ## Quick Start
 
@@ -126,7 +137,13 @@ fn main() {
 }
 ```
 
-Run the included beginner example:
+Run the smallest example — a textured sprite, the recommended starting point:
+
+```sh
+cargo run --example hello_sprite
+```
+
+`basic` is a slightly larger starting point (WASD movement, solid-color sprite):
 
 ```sh
 cargo run --example basic
@@ -162,8 +179,9 @@ python3 -m http.server --directory dist 8080
 
 ## Documentation
 
-- [`REFERENCE.html`](REFERENCE.html) in the repository root contains the public API reference and subsystem examples.
-- [`ARCHITECTURE.html`](ARCHITECTURE.html) explains the maintainer-oriented engine structure and frame flow.
+- [`REFERENCE.html`](REFERENCE.html) in the repository root contains the public API reference and subsystem examples. _(written in Korean)_
+- [`ARCHITECTURE.html`](ARCHITECTURE.html) explains the maintainer-oriented engine structure and frame flow. _(written in Korean)_
+- [`FORKING.md`](FORKING.md) is the English getting-started guide for building your own game on the engine.
 - Contributor handoff and agent notes live in the repository, outside the crates.io package.
 
 ## License
