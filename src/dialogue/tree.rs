@@ -33,9 +33,10 @@
 
 use std::collections::HashMap;
 
+use ron::extensions::Extensions;
 use serde::Deserialize;
 
-use super::{DialogueBox, DialogueChoice};
+use super::{DialogueBox, DialogueChoice, DialogueCond, DialogueEffect};
 
 /// Error from parsing or loading a [`DialogueTree`].
 ///
@@ -56,6 +57,10 @@ struct ChoiceDef {
     #[serde(default)]
     key: String,
     goto: String,
+    #[serde(default)]
+    cond: Option<DialogueCond>,
+    #[serde(default)]
+    effect: Option<DialogueEffect>,
 }
 
 #[derive(Deserialize)]
@@ -106,8 +111,13 @@ impl DialogueTree {
     /// Errors on: no nodes, duplicate node ids, a choice `goto` that references an unknown
     /// node id, or a tree that mixes localized (`line_key`) and literal (`line`) nodes.
     pub fn from_ron_str(s: &str) -> Result<Self, DialogueTreeError> {
-        let def: DialogueTreeDef =
-            ron::from_str(s).map_err(|e| DialogueTreeError::Ron(e.to_string()))?;
+        // IMPLICIT_SOME lets optional struct fields (a choice's `cond`/`effect`) be authored
+        // inline (e.g. `cond: (var: "gold", op: Ge, value: Int(5))`) instead of RON's verbose
+        // `Some(...)` wrapper.
+        let options = ron::Options::default().with_default_extension(Extensions::IMPLICIT_SOME);
+        let def: DialogueTreeDef = options
+            .from_str(s)
+            .map_err(|e| DialogueTreeError::Ron(e.to_string()))?;
 
         if def.nodes.is_empty() {
             return Err(DialogueTreeError::Ron("dialogue tree has no nodes".into()));
@@ -159,11 +169,18 @@ impl DialogueTree {
                         n.id, c.goto
                     ))
                 })?;
-                choices.push(if c.key.is_empty() {
+                let mut choice = if c.key.is_empty() {
                     DialogueChoice::new(c.text.clone(), goto)
                 } else {
                     DialogueChoice::localized(c.key.clone(), goto)
-                });
+                };
+                if let Some(cond) = &c.cond {
+                    choice = choice.when(cond.clone());
+                }
+                if let Some(effect) = &c.effect {
+                    choice = choice.then(effect.clone());
+                }
+                choices.push(choice);
             }
             dbox = dbox.with_choices(i, choices);
         }
@@ -387,6 +404,27 @@ mod tests {
     fn empty_tree_is_err() {
         let err = DialogueTree::from_ron_str(r#"(nodes: [])"#).unwrap_err();
         assert!(format!("{err}").contains("no nodes"), "got: {err}");
+    }
+
+    #[test]
+    fn tree_parses_cond_and_effect() {
+        let ron = r#"(
+    nodes: [
+        (id: "ask", line: "Pick", choices: [
+            (text: "vip", goto: "end",
+             cond: (var: "vip", op: Eq, value: Bool(true)),
+             effect: SetVar(key: "chose_vip", value: Bool(true))),
+        ]),
+        (id: "end", line: "Bye"),
+    ],
+)"#;
+        let tree = DialogueTree::from_ron_str(ron).expect("parse");
+        let b = tree.to_box();
+        let ask = b.choices.iter().find(|(l, _)| *l == 0).expect("ask");
+        let c = &ask.1[0];
+        assert_eq!(c.goto, 1, "goto id 'end' → index 1");
+        assert!(c.cond.is_some(), "cond parsed via IMPLICIT_SOME");
+        assert!(c.effect.is_some(), "effect parsed via IMPLICIT_SOME");
     }
 
     #[test]

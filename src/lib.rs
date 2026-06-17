@@ -88,7 +88,10 @@ pub use components::{OffscreenCamera, PointLight, RenderLayer, Sprite, Transform
 pub use coroutine::{Coroutine, CoroutineRunner, CoroutineSystem};
 pub use data_table::{DataTable, DataTableRegistry};
 pub use debug_ui::DebugUi;
-pub use dialogue::{DialogueBox, DialogueChoice, DialogueRegistry, DialogueSystem, DialogueTree};
+pub use dialogue::{
+    DialogueBox, DialogueChoice, DialogueCond, DialogueEffect, DialogueEvent, DialogueOp,
+    DialogueRegistry, DialogueSystem, DialogueTree, DialogueValue, DialogueVars,
+};
 pub use ecs::schedule::{ScheduleError, SystemConfig, SystemLabel};
 pub use ecs::{Commands, Entity, Events, System, World};
 #[cfg(not(target_arch = "wasm32"))]
