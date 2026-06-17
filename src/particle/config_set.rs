@@ -422,9 +422,15 @@ mod tests {
         assert_eq!(e.lifetime, 1.5);
         assert_eq!(e.velocity, Vec2::new(0.0, -60.0));
         assert_eq!(e.color_start, Color::rgba(1.0, 0.7, 0.1, 1.0));
-        assert_eq!(e.size, 7.0, "square GPU particle uses the config width (size.0)");
+        assert_eq!(
+            e.size, 7.0,
+            "square GPU particle uses the config width (size.0)"
+        );
         assert_eq!(e.gravity, Vec2::new(0.0, 140.0));
-        assert_eq!(e.emit_shape, crate::particle::EmitShape::Circle { radius: 12.0 });
+        assert_eq!(
+            e.emit_shape,
+            crate::particle::EmitShape::Circle { radius: 12.0 }
+        );
         assert!(e.emit);
         assert!(set.gpu_emitter("nope").is_none());
     }
