@@ -3,6 +3,18 @@ use std::collections::HashMap;
 // ─── Autotiling ───────────────────────────────────────────────────────────────
 
 /// Which set of neighbors to use when computing the autotile bitmask.
+///
+/// [`Edge4`](Self::Edge4) / [`Blob8`](Self::Blob8) are square-grid neighborhoods (4 / 8 neighbors).
+/// Because the bitmask is computed from the `tiles[row][col]` topology, these work unchanged for
+/// **both** [`Orthographic`](super::TilemapProjection::Orthographic) and
+/// [`Isometric`](super::TilemapProjection::Isometric) maps — isometric is the same square grid,
+/// just rendered as diamonds.
+///
+/// [`Hex6`](Self::Hex6) / [`Hex6Flat`](Self::Hex6Flat) are the 6-neighbor hex neighborhoods for
+/// [`Hexagonal`](super::TilemapProjection::Hexagonal) (pointy-top, odd-r) and
+/// [`HexagonalFlat`](super::TilemapProjection::HexagonalFlat) (flat-top, odd-q): the 6 neighbor
+/// offsets are parity-dependent (on row for odd-r, on column for odd-q), so the neighbor set
+/// matches the staggered hex layout `cell_center_world` produces.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Neighborhood {
     /// 4 orthogonal neighbors. Bit order: N=1, E=2, S=4, W=8.
@@ -14,6 +26,20 @@ pub enum Neighborhood {
     /// neighbors are also filled (the standard "blob" reduction). This yields the
     /// canonical 47 distinct reduced masks.
     Blob8,
+    /// 6 neighbors of a **pointy-top, odd-r** hex (for [`TilemapProjection::Hexagonal`]).
+    ///
+    /// Bit order: E=1, W=2, NE=4, NW=8, SE=16, SW=32 (mask range `0..64`). The four diagonal
+    /// neighbors shift with row parity (odd rows are offset right half a tile).
+    ///
+    /// [`TilemapProjection::Hexagonal`]: super::TilemapProjection::Hexagonal
+    Hex6,
+    /// 6 neighbors of a **flat-top, odd-q** hex (for [`TilemapProjection::HexagonalFlat`]).
+    ///
+    /// Bit order: N=1, S=2, NE=4, SE=8, NW=16, SW=32 (mask range `0..64`). The four diagonal
+    /// neighbors shift with column parity (odd columns are offset down half a tile).
+    ///
+    /// [`TilemapProjection::HexagonalFlat`]: super::TilemapProjection::HexagonalFlat
+    Hex6Flat,
 }
 
 /// How a [`TilemapAutotile`] maps neighbor connectivity to display tiles.
@@ -136,6 +162,34 @@ impl TilemapAutotile {
         }
     }
 
+    /// 64-tile pointy-top hex autotile layout (single terrain), for
+    /// [`TilemapProjection::Hexagonal`](super::TilemapProjection::Hexagonal).
+    ///
+    /// Assumes a contiguous 64-tile strip starting at `base_atlas_id` where tile
+    /// `base_atlas_id + mask` corresponds to the 6-bit [`Neighborhood::Hex6`] mask
+    /// (E=1, W=2, NE=4, NW=8, SE=16, SW=32).
+    pub fn hex_6(base_atlas_id: u32) -> Self {
+        let mask_to_tile = (0u8..64).map(|m| (m, base_atlas_id + m as u32)).collect();
+        Self {
+            neighborhood: Neighborhood::Hex6,
+            oob_filled: false,
+            mode: AutotileMode::Single { mask_to_tile },
+        }
+    }
+
+    /// 64-tile flat-top hex autotile layout (single terrain), for
+    /// [`TilemapProjection::HexagonalFlat`](super::TilemapProjection::HexagonalFlat). Like
+    /// [`hex_6`](Self::hex_6) but with the [`Neighborhood::Hex6Flat`] bit order
+    /// (N=1, S=2, NE=4, SE=8, NW=16, SW=32).
+    pub fn hex_6_flat(base_atlas_id: u32) -> Self {
+        let mask_to_tile = (0u8..64).map(|m| (m, base_atlas_id + m as u32)).collect();
+        Self {
+            neighborhood: Neighborhood::Hex6Flat,
+            oob_filled: false,
+            mode: AutotileMode::Single { mask_to_tile },
+        }
+    }
+
     /// Sets [`oob_filled`](Self::oob_filled) and returns `self` (builder style).
     ///
     /// Pass `true` for a contained field (e.g. a cave) whose outer world boundary
@@ -173,6 +227,12 @@ fn compute_mask_raw(
 ) -> u8 {
     let r = row as i32;
     let c = col as i32;
+
+    match nb {
+        Neighborhood::Hex6 => return hex6_mask(r, c, row % 2 == 1, filled),
+        Neighborhood::Hex6Flat => return hex6_flat_mask(r, c, col % 2 == 1, filled),
+        Neighborhood::Edge4 | Neighborhood::Blob8 => {}
+    }
 
     let n = filled(r - 1, c);
     let e = filled(r, c + 1);
@@ -212,6 +272,68 @@ fn compute_mask_raw(
         }
     }
 
+    mask
+}
+
+/// Pointy-top, odd-r hex bitmask: E=1, W=2, NE=4, NW=8, SE=16, SW=32. The NE/NW/SE/SW offsets
+/// depend on `odd_row` (odd rows are shifted right half a tile).
+fn hex6_mask(r: i32, c: i32, odd_row: bool, filled: impl Fn(i32, i32) -> bool) -> u8 {
+    // (drow, dcol) for NE, NW, SE, SW (E/W are parity-independent).
+    let (ne, nw, se, sw) = if odd_row {
+        ((-1, 1), (-1, 0), (1, 1), (1, 0))
+    } else {
+        ((-1, 0), (-1, -1), (1, 0), (1, -1))
+    };
+    let mut mask = 0u8;
+    if filled(r, c + 1) {
+        mask |= 1; // E
+    }
+    if filled(r, c - 1) {
+        mask |= 2; // W
+    }
+    if filled(r + ne.0, c + ne.1) {
+        mask |= 4; // NE
+    }
+    if filled(r + nw.0, c + nw.1) {
+        mask |= 8; // NW
+    }
+    if filled(r + se.0, c + se.1) {
+        mask |= 16; // SE
+    }
+    if filled(r + sw.0, c + sw.1) {
+        mask |= 32; // SW
+    }
+    mask
+}
+
+/// Flat-top, odd-q hex bitmask: N=1, S=2, NE=4, SE=8, NW=16, SW=32. The NE/SE/NW/SW offsets depend
+/// on `odd_col` (odd columns are shifted down half a tile).
+fn hex6_flat_mask(r: i32, c: i32, odd_col: bool, filled: impl Fn(i32, i32) -> bool) -> u8 {
+    // (drow, dcol) for NE, SE, NW, SW (N/S are parity-independent).
+    let (ne, se, nw, sw) = if odd_col {
+        ((0, 1), (1, 1), (0, -1), (1, -1))
+    } else {
+        ((-1, 1), (0, 1), (-1, -1), (0, -1))
+    };
+    let mut mask = 0u8;
+    if filled(r - 1, c) {
+        mask |= 1; // N
+    }
+    if filled(r + 1, c) {
+        mask |= 2; // S
+    }
+    if filled(r + ne.0, c + ne.1) {
+        mask |= 4; // NE
+    }
+    if filled(r + se.0, c + se.1) {
+        mask |= 8; // SE
+    }
+    if filled(r + nw.0, c + nw.1) {
+        mask |= 16; // NW
+    }
+    if filled(r + sw.0, c + sw.1) {
+        mask |= 32; // SW
+    }
     mask
 }
 
@@ -872,6 +994,132 @@ mod tests {
         assert_ne!(
             untyped, typed,
             "the two functions must differ on mixed-terrain grids"
+        );
+    }
+
+    // ── Hex6 (pointy-top, odd-r) ───────────────────────────────────────────────
+
+    #[test]
+    fn hex6_interior_cell_all_six_neighbors() {
+        // 5×5 filled; cell (2,2) (even row) has all 6 hex neighbors in bounds.
+        let tiles = vec![vec![1u32; 5]; 5];
+        let mask = compute_tile_mask(&tiles, 2, 2, Neighborhood::Hex6, false);
+        assert_eq!(mask, 63, "all 6 hex neighbors → mask 0b111111 = 63");
+    }
+
+    #[test]
+    fn hex6_isolated_and_east_only() {
+        let mut tiles = vec![vec![0u32; 5]; 5];
+        tiles[2][2] = 1;
+        assert_eq!(
+            compute_tile_mask(&tiles, 2, 2, Neighborhood::Hex6, false),
+            0,
+            "no neighbors → mask 0"
+        );
+        tiles[2][3] = 1; // east neighbor
+        assert_eq!(
+            compute_tile_mask(&tiles, 2, 2, Neighborhood::Hex6, false),
+            1,
+            "only east neighbor → bit E=1"
+        );
+    }
+
+    #[test]
+    fn hex6_ne_offset_depends_on_row_parity() {
+        // Odd row (1,1): NE neighbor is (0,2). Even row (2,1): NE neighbor is (1,1).
+        let mut odd = vec![vec![0u32; 4]; 4];
+        odd[1][1] = 1;
+        odd[0][2] = 1; // NE of the odd-row cell
+        assert_eq!(
+            compute_tile_mask(&odd, 1, 1, Neighborhood::Hex6, false) & 4,
+            4,
+            "odd-row NE neighbor at (0,2) sets the NE bit"
+        );
+        let mut even = vec![vec![0u32; 4]; 4];
+        even[2][1] = 1;
+        even[1][1] = 1; // NE of the even-row cell
+        assert_eq!(
+            compute_tile_mask(&even, 2, 1, Neighborhood::Hex6, false) & 4,
+            4,
+            "even-row NE neighbor at (1,1) sets the NE bit"
+        );
+    }
+
+    #[test]
+    fn hex_6_constructor_identity_mapping() {
+        let at = TilemapAutotile::hex_6(0);
+        assert_eq!(at.neighborhood, Neighborhood::Hex6);
+        assert_eq!(single_map(&at).len(), 64, "hex_6 covers all 64 masks");
+        assert_eq!(single_map(&at).get(&63).copied(), Some(63));
+        let at100 = TilemapAutotile::hex_6(100);
+        assert_eq!(single_map(&at100).get(&5).copied(), Some(105));
+    }
+
+    // ── Hex6Flat (flat-top, odd-q) ─────────────────────────────────────────────
+
+    #[test]
+    fn hex6_flat_interior_cell_all_six_neighbors() {
+        // 5×5 filled; cell (2,2) (even col) has all 6 flat-top hex neighbors in bounds.
+        let tiles = vec![vec![1u32; 5]; 5];
+        let mask = compute_tile_mask(&tiles, 2, 2, Neighborhood::Hex6Flat, false);
+        assert_eq!(mask, 63, "all 6 flat-top hex neighbors → mask 63");
+    }
+
+    #[test]
+    fn hex6_flat_ne_offset_depends_on_col_parity() {
+        // Odd col (1,1): NE neighbor is (1,2). Even col (1,2): NE neighbor is (0,3).
+        let mut odd = vec![vec![0u32; 4]; 4];
+        odd[1][1] = 1;
+        odd[1][2] = 1; // NE of the odd-col cell
+        assert_eq!(
+            compute_tile_mask(&odd, 1, 1, Neighborhood::Hex6Flat, false) & 4,
+            4,
+            "odd-col NE neighbor at (1,2) sets the NE bit"
+        );
+        let mut even = vec![vec![0u32; 4]; 4];
+        even[1][2] = 1;
+        even[0][3] = 1; // NE of the even-col cell
+        assert_eq!(
+            compute_tile_mask(&even, 1, 2, Neighborhood::Hex6Flat, false) & 4,
+            4,
+            "even-col NE neighbor at (0,3) sets the NE bit"
+        );
+    }
+
+    #[test]
+    fn hex_6_flat_constructor_uses_flat_neighborhood() {
+        let at = TilemapAutotile::hex_6_flat(0);
+        assert_eq!(at.neighborhood, Neighborhood::Hex6Flat);
+        assert_eq!(single_map(&at).len(), 64);
+    }
+
+    // ── Isometric autotile (same square topology as orthographic) ───────────────
+
+    #[test]
+    fn isometric_autotile_uses_square_topology_like_ortho() {
+        // Autotile masks come from the tiles[row][col] grid, which is identical for orthographic and
+        // isometric (iso only changes rendering). So an iso map autotiles exactly like an ortho one:
+        // a fully-filled 3×3 center cell still resolves to mask 15.
+        use crate::tilemap::{Tilemap, TilemapProjection};
+        let tiles = vec![vec![1u32; 3]; 3];
+        let atlas = TilemapAtlas::new("tiles.png", 16, 1);
+        let tm = Tilemap::new(atlas.clone(), tiles, 32.0, glam::Vec2::ZERO)
+            .with_projection(TilemapProjection::Isometric);
+
+        let mut world = World::new();
+        let mut sys = crate::tilemap::TilemapSystem::new();
+        let map_e = world.spawn();
+        world.add_component(map_e, tm);
+        world.add_component(map_e, TilemapAutotile::edge_16(0));
+        sys.run(&mut world, 0.0);
+
+        let expected_uv = atlas.uv_for(15); // center mask 15 (all 4 ortho neighbors)
+        let found = world
+            .query::<crate::renderer::uv::UvRect>()
+            .any(|(_, uv)| *uv == expected_uv);
+        assert!(
+            found,
+            "isometric autotile center cell should resolve to mask=15 (square topology)"
         );
     }
 }
