@@ -3,9 +3,9 @@
 //! Four sub-modules:
 //! - [`mod@animation`] — per-tile-value frame animation: [`TileAnimation`],
 //!   [`TileAnimationSet`], [`AnimatedTileCell`], [`AnimatedTileSystem`].
-//! - [`mod@autotile`] — autotile bitmask logic: [`Neighborhood`], [`ConnectRule`],
-//!   [`TilemapAutotile`], [`TerrainRule`], [`MultiTerrainAutotile`],
-//!   [`compute_tile_mask`], [`compute_tile_mask_typed`].
+//! - [`mod@autotile`] — autotile bitmask logic: [`Neighborhood`], [`TilemapAutotile`] +
+//!   [`AutotileMode`] (single or per-terrain), [`TerrainRule`], [`compute_tile_mask`],
+//!   [`compute_tile_mask_typed`].
 //! - [`mod@system`] — reactive render system: [`TilemapSystem`].
 //! - This file (`mod.rs`) — data model: [`TilemapAtlas`], [`Tilemap`].
 
@@ -15,8 +15,8 @@ pub mod system;
 
 pub use animation::{AnimatedTileCell, AnimatedTileSystem, TileAnimation, TileAnimationSet};
 pub use autotile::{
-    compute_tile_mask, compute_tile_mask_typed, ConnectRule, MultiTerrainAutotile, Neighborhood,
-    TerrainRule, TilemapAutotile,
+    compute_tile_mask, compute_tile_mask_typed, AutotileMode, Neighborhood, TerrainRule,
+    TilemapAutotile,
 };
 pub use system::TilemapSystem;
 

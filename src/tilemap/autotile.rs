@@ -16,39 +16,55 @@ pub enum Neighborhood {
     Blob8,
 }
 
-/// Connection rule for autotiling.
+/// How a [`TilemapAutotile`] maps neighbor connectivity to display tiles.
 ///
-/// Currently a unit struct (marker): any non-zero cell connects to any other
-/// non-zero cell. Kept as an extension point for future per-tile-type connection
-/// rules (e.g. "grass only connects to grass").
-#[derive(Debug, Clone, Copy, Default)]
-pub struct ConnectRule;
+/// [`Single`](Self::Single) treats **any** non-zero cell as connecting to any other non-zero cell
+/// (one terrain). [`Multi`](Self::Multi) gives each terrain value its own rule and connects only to
+/// same-value neighbors. This mirrors the dispatch [`TilemapSystem`] does internally.
+///
+/// [`TilemapSystem`]: super::system::TilemapSystem
+#[derive(Debug, Clone)]
+pub enum AutotileMode {
+    /// Single connecting terrain: bitmask → 0-based atlas display id.
+    Single {
+        /// Computed neighbor bitmask → 0-based atlas display id.
+        mask_to_tile: HashMap<u8, u32>,
+    },
+    /// Per-terrain rules: each non-zero value autotiles against same-value neighbors only.
+    Multi {
+        /// One rule per distinct terrain value.
+        rules: Vec<TerrainRule>,
+    },
+}
 
-/// Component that makes [`TilemapSystem`] choose tile display UVs based on
-/// neighbor connectivity rather than the raw tile value.
+/// Component that makes [`TilemapSystem`] choose tile display UVs based on neighbor connectivity
+/// rather than the raw tile value.
 ///
-/// Attach this component to the same entity as [`super::Tilemap`].
+/// Attach to the same entity as [`super::Tilemap`]. Use [`edge_16`](Self::edge_16) /
+/// [`blob_47`](Self::blob_47) for a single connecting terrain, or
+/// [`multi_edge_16`](Self::multi_edge_16) for per-terrain autotiling — both produce one
+/// `TilemapAutotile`, distinguished by its [`mode`](Self::mode).
 ///
 /// # Example
 ///
 /// ```rust,ignore
-/// world.add_component(map_entity, TilemapAutotile::edge_16(0));
+/// world.add_component(map_entity, TilemapAutotile::edge_16(0));            // single terrain
+/// world.add_component(other, TilemapAutotile::multi_edge_16(&[(1, 0), (2, 16)])); // per-terrain
 /// ```
 ///
 /// [`TilemapSystem`]: super::system::TilemapSystem
+#[derive(Debug, Clone)]
 pub struct TilemapAutotile {
     /// Which neighborhood scheme to use.
     pub neighborhood: Neighborhood,
-    /// Computed bitmask → 0-based atlas display id.
-    pub mask_to_tile: HashMap<u8, u32>,
     /// Treat out-of-bounds neighbors as filled (`true`) or empty (`false`).
     pub oob_filled: bool,
-    /// Connection rule (v1: any non-zero connects to any non-zero).
-    pub connect: ConnectRule,
+    /// Single-terrain or per-terrain mapping.
+    pub mode: AutotileMode,
 }
 
 impl TilemapAutotile {
-    /// 16-tile edge autotile layout.
+    /// 16-tile edge autotile layout (single terrain).
     ///
     /// Assumes a contiguous 16-tile strip in the atlas starting at `base_atlas_id`
     /// where tile `base_atlas_id + mask` corresponds to bitmask `mask` (N=1,E=2,S=4,W=8).
@@ -56,9 +72,8 @@ impl TilemapAutotile {
         let mask_to_tile = (0u8..16).map(|m| (m, base_atlas_id + m as u32)).collect();
         Self {
             neighborhood: Neighborhood::Edge4,
-            mask_to_tile,
             oob_filled: false,
-            connect: ConnectRule,
+            mode: AutotileMode::Single { mask_to_tile },
         }
     }
 
@@ -93,9 +108,31 @@ impl TilemapAutotile {
             .collect();
         Self {
             neighborhood: Neighborhood::Blob8,
-            mask_to_tile,
             oob_filled: false,
-            connect: ConnectRule,
+            mode: AutotileMode::Single { mask_to_tile },
+        }
+    }
+
+    /// 16-tile edge layout **per terrain** (multi-terrain autotiling).
+    ///
+    /// `terrains` is a slice of `(terrain_value, base_atlas_id)` pairs. Each terrain gets a
+    /// `mask_to_tile` mapping `m → base_atlas_id + m` for `m` in `0..16` (a contiguous 16-tile edge
+    /// strip), and connects only to same-value neighbors.
+    pub fn multi_edge_16(terrains: &[(u32, u32)]) -> Self {
+        let rules = terrains
+            .iter()
+            .map(|&(terrain, base)| {
+                let mask_to_tile = (0u8..16).map(|m| (m, base + m as u32)).collect();
+                TerrainRule {
+                    terrain,
+                    mask_to_tile,
+                }
+            })
+            .collect();
+        Self {
+            neighborhood: Neighborhood::Edge4,
+            oob_filled: false,
+            mode: AutotileMode::Multi { rules },
         }
     }
 
@@ -107,6 +144,14 @@ impl TilemapAutotile {
     pub fn with_oob_filled(mut self, oob_filled: bool) -> Self {
         self.oob_filled = oob_filled;
         self
+    }
+
+    /// For [`AutotileMode::Multi`], the rule whose `terrain` equals `terrain`; `None` otherwise.
+    pub(super) fn rule_for(&self, terrain: u32) -> Option<&TerrainRule> {
+        match &self.mode {
+            AutotileMode::Multi { rules } => rules.iter().find(|r| r.terrain == terrain),
+            AutotileMode::Single { .. } => None,
+        }
     }
 }
 
@@ -213,64 +258,8 @@ pub struct TerrainRule {
     pub mask_to_tile: HashMap<u8, u32>,
 }
 
-/// Multi-terrain autotile component. Attach to the same entity as the [`super::Tilemap`]
-/// **instead of** [`TilemapAutotile`]. Each non-zero cell autotiles using the rule
-/// whose `terrain` equals the cell's value, connecting only to same-value neighbors.
-///
-/// When both [`TilemapAutotile`] and [`MultiTerrainAutotile`] are present on the
-/// same entity, `MultiTerrainAutotile` takes precedence.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// // Grass (value 1) uses atlas tiles 0–15; water (value 2) uses tiles 16–31.
-/// world.add_component(map_entity, MultiTerrainAutotile::edge_16(&[(1, 0), (2, 16)]));
-/// ```
-#[derive(Debug, Clone)]
-pub struct MultiTerrainAutotile {
-    /// Which neighborhood scheme to use.
-    pub neighborhood: Neighborhood,
-    /// Treat out-of-bounds neighbors as filled (`true`) or empty (`false`).
-    pub oob_filled: bool,
-    /// Per-terrain rules. Each entry handles one distinct tile value.
-    pub rules: Vec<TerrainRule>,
-}
-
-impl MultiTerrainAutotile {
-    /// 16-tile edge layout per terrain.
-    ///
-    /// `terrains` is a slice of `(terrain_value, base_atlas_id)` pairs. Each terrain
-    /// gets a `mask_to_tile` mapping `m → base_atlas_id + m` for `m` in `0..16`,
-    /// matching a contiguous 16-tile edge strip in the atlas.
-    pub fn edge_16(terrains: &[(u32, u32)]) -> Self {
-        let rules = terrains
-            .iter()
-            .map(|&(terrain, base)| {
-                let mask_to_tile = (0u8..16).map(|m| (m, base + m as u32)).collect();
-                TerrainRule {
-                    terrain,
-                    mask_to_tile,
-                }
-            })
-            .collect();
-        Self {
-            neighborhood: Neighborhood::Edge4,
-            oob_filled: false,
-            rules,
-        }
-    }
-
-    /// Sets [`oob_filled`](Self::oob_filled) and returns `self` (builder style).
-    pub fn with_oob_filled(mut self, v: bool) -> Self {
-        self.oob_filled = v;
-        self
-    }
-
-    /// Returns the rule for the given terrain value, or `None` if no rule exists.
-    pub(super) fn rule_for(&self, terrain: u32) -> Option<&TerrainRule> {
-        self.rules.iter().find(|r| r.terrain == terrain)
-    }
-}
+// Per-terrain autotiling now lives on `TilemapAutotile` via `AutotileMode::Multi`
+// (built with `TilemapAutotile::multi_edge_16`); `TerrainRule` above is its per-terrain entry.
 
 /// Like [`compute_tile_mask`], but a neighbor counts as connected **only** when its
 /// value equals `terrain` (same-terrain connectivity). Out-of-bounds neighbors count
@@ -309,6 +298,14 @@ mod tests {
     use super::*;
     use crate::ecs::{System, World};
     use crate::tilemap::{Tilemap, TilemapAtlas};
+
+    /// Extracts the single-terrain `mask_to_tile`, panicking if `at` is multi-terrain.
+    fn single_map(at: &TilemapAutotile) -> &HashMap<u8, u32> {
+        match &at.mode {
+            AutotileMode::Single { mask_to_tile } => mask_to_tile,
+            AutotileMode::Multi { .. } => panic!("expected AutotileMode::Single"),
+        }
+    }
 
     fn make_multi_terrain_atlas() -> TilemapAtlas {
         // 32 tiles in a 32×1 strip: grass tiles 0–15, water tiles 16–31.
@@ -393,18 +390,18 @@ mod tests {
         let at = TilemapAutotile::edge_16(0);
         for m in 0u8..16 {
             assert_eq!(
-                at.mask_to_tile.get(&m).copied(),
+                single_map(&at).get(&m).copied(),
                 Some(m as u32),
                 "edge_16(0): mask {m} should map to tile {m}"
             );
         }
-        assert_eq!(at.mask_to_tile.get(&7).copied(), Some(7));
+        assert_eq!(single_map(&at).get(&7).copied(), Some(7));
     }
 
     #[test]
     fn edge_16_with_base_offset() {
         let at = TilemapAutotile::edge_16(100);
-        assert_eq!(at.mask_to_tile.get(&7).copied(), Some(107));
+        assert_eq!(single_map(&at).get(&7).copied(), Some(107));
     }
 
     // ── Autotile reactive: center cell UV update + neighbor propagation ───────
@@ -515,7 +512,7 @@ mod tests {
 
     #[test]
     fn multi_terrain_edge_16_rule_lookups() {
-        let mt = MultiTerrainAutotile::edge_16(&[(1, 0), (2, 16)]);
+        let mt = TilemapAutotile::multi_edge_16(&[(1, 0), (2, 16)]);
 
         // Terrain 1: base 0 → mask 7 maps to 7.
         let rule1 = mt.rule_for(1).expect("rule for terrain 1 must exist");
@@ -552,7 +549,7 @@ mod tests {
         world.add_component(map_e, tm);
         world.add_component(
             map_e,
-            MultiTerrainAutotile::edge_16(&[(1, 0), (2, 16)]).with_oob_filled(false),
+            TilemapAutotile::multi_edge_16(&[(1, 0), (2, 16)]).with_oob_filled(false),
         );
         sys.run(&mut world, 0.0);
 
@@ -628,7 +625,7 @@ mod tests {
         world.add_component(map_e, tm);
         world.add_component(
             map_e,
-            MultiTerrainAutotile::edge_16(&[(1, 0), (2, 16)]).with_oob_filled(false),
+            TilemapAutotile::multi_edge_16(&[(1, 0), (2, 16)]).with_oob_filled(false),
         );
 
         // Initial build: center grass at (1,1), all neighbors are water → grass mask=0 → atlas tile 0.
@@ -685,11 +682,10 @@ mod tests {
     }
 
     #[test]
-    fn multi_terrain_takes_precedence_over_single_autotile() {
-        // Entity with BOTH TilemapAutotile and MultiTerrainAutotile: multi wins.
-        // Single-terrain edge_16(0): for a fully-filled map, center mask=15 → atlas tile 15.
-        // Multi-terrain edge_16(&[(1, 100)]): center mask=15 → atlas tile 115 (100+15).
-        // If multi takes precedence, UV matches atlas tile 115, not 15.
+    fn multi_terrain_mode_resolves_via_terrain_base() {
+        // A fully-filled single-terrain map under AutotileMode::Multi: terrain 1 → base 100, center
+        // mask=15 → atlas tile 115. Confirms the Multi mode drives display-UV selection (not the
+        // raw value, which would be tile 0 = value-1).
         let tiles = vec![vec![1, 1, 1], vec![1, 1, 1], vec![1, 1, 1]];
         let atlas = TilemapAtlas::new("tiles.png", 200, 1);
         let tm = Tilemap::new(atlas.clone(), tiles, 32.0, glam::Vec2::ZERO);
@@ -699,14 +695,10 @@ mod tests {
 
         let map_e = world.spawn();
         world.add_component(map_e, tm);
-        // Single-terrain: center → tile 15.
-        world.add_component(map_e, TilemapAutotile::edge_16(0));
-        // Multi-terrain: center → tile 115 (100 + 15).
-        world.add_component(map_e, MultiTerrainAutotile::edge_16(&[(1, 100)]));
+        world.add_component(map_e, TilemapAutotile::multi_edge_16(&[(1, 100)]));
         sys.run(&mut world, 0.0);
 
-        let expected_multi_uv = atlas.uv_for(115);
-        let expected_single_uv = atlas.uv_for(15);
+        let expected_uv = atlas.uv_for(115);
 
         // Center cell (1,1) at world pos (48, 48).
         use crate::components::Transform;
@@ -721,12 +713,8 @@ mod tests {
             .expect("must have UvRect");
 
         assert_eq!(
-            center_uv, expected_multi_uv,
-            "MultiTerrainAutotile must take precedence: center should be tile 115"
-        );
-        assert_ne!(
-            center_uv, expected_single_uv,
-            "single-terrain result (tile 15) must NOT be used when multi is present"
+            center_uv, expected_uv,
+            "Multi mode: center (terrain 1, mask 15) should resolve to tile 115"
         );
     }
 
@@ -739,7 +727,7 @@ mod tests {
     fn blob_47_valid_masks_count_and_validity() {
         let at = TilemapAutotile::blob_47(0);
         assert_eq!(
-            at.mask_to_tile.len(),
+            single_map(&at).len(),
             47,
             "blob_47 must produce exactly 47 mask→tile entries"
         );
@@ -764,7 +752,7 @@ mod tests {
             }
             true
         };
-        for &mask in at.mask_to_tile.keys() {
+        for &mask in single_map(&at).keys() {
             assert!(
                 is_valid_blob(mask),
                 "mask {mask} in blob_47 is not a valid reduced blob mask"
