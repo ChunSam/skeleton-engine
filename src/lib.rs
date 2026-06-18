@@ -4,6 +4,7 @@ pub mod asset;
 pub mod atlas;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod audio;
+pub(crate) mod audio_spatial;
 #[cfg(target_arch = "wasm32")]
 pub mod audio_wasm;
 pub mod behavior;

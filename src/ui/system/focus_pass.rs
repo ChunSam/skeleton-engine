@@ -33,6 +33,17 @@ pub(super) fn run(
         if let Some(f) = world.resource_mut::<UiFocus>() {
             f.entity = None;
         }
+        // Clear focus on any TextInputs that may still have focused=true.
+        let all: Vec<_> = world.query::<TextInput>().map(|(e, _)| e).collect();
+        for e in all {
+            let was_focused = world.get::<TextInput>(e).is_some_and(|ti| ti.focused);
+            if was_focused {
+                if let Some(ti) = world.get_mut::<TextInput>(e) {
+                    ti.focused = false;
+                }
+                output.events.push(UiEvent::TextBlurred(e));
+            }
+        }
         return;
     }
     let focusables = &*scratch;
@@ -62,12 +73,41 @@ pub(super) fn run(
     }
 
     // Sync each TextInput's `focused` flag with the focus so typing targets the focused field.
+    // Detect focus transitions and emit TextFocused / TextBlurred events.
     for &e in focusables {
         if world.get::<TextInput>(e).is_some() {
             let should_focus = focus == Some(e);
+            let was_focused = world.get::<TextInput>(e).is_some_and(|ti| ti.focused);
             if let Some(ti) = world.get_mut::<TextInput>(e) {
                 ti.focused = should_focus;
+                if !was_focused && should_focus {
+                    // Reset caret on focus-in so the cursor appears immediately.
+                    ti.cursor_blink = 0.0;
+                    ti.cursor_visible = true;
+                }
             }
+            if !was_focused && should_focus {
+                output.events.push(UiEvent::TextFocused(e));
+            } else if was_focused && !should_focus {
+                output.events.push(UiEvent::TextBlurred(e));
+            }
+        }
+    }
+
+    // Also sync TextInputs that are NOT in the focusables list (e.g. invisible / despawned):
+    // they may still hold `focused = true` from a previous frame and need to be cleared.
+    let focusables_snapshot = scratch.clone();
+    let mut all_text_inputs: Vec<_> = world.query::<TextInput>().map(|(e, _)| e).collect();
+    for e in all_text_inputs.drain(..) {
+        if focusables_snapshot.contains(&e) {
+            continue; // already handled above
+        }
+        let was_focused = world.get::<TextInput>(e).is_some_and(|ti| ti.focused);
+        if was_focused {
+            if let Some(ti) = world.get_mut::<TextInput>(e) {
+                ti.focused = false;
+            }
+            output.events.push(UiEvent::TextBlurred(e));
         }
     }
 
@@ -306,5 +346,237 @@ mod tests {
             sys.run(&mut w, 0.0);
             assert_eq!(focus(&w), Some(expected));
         }
+    }
+
+    // ── TextInput focus authority tests ──────────────────────────────────────
+
+    use crate::ui::text_input::TextInput;
+    use winit::event::MouseButton;
+
+    /// Spawns a TextInput at the given screen position/size and z level.
+    fn spawn_text_input(
+        w: &mut World,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        z: f32,
+    ) -> crate::ecs::Entity {
+        let e = w.spawn();
+        let mut node = UiNode::new(x, y, width, height).with_z(z);
+        node.visible = true;
+        w.add_component(e, node);
+        w.add_component(e, TextInput::new(""));
+        e
+    }
+
+    /// Simulate a complete click (press + release) at `pos` in one frame.
+    fn click_at(w: &mut World, pos: glam::Vec2) {
+        let mut input = InputState::default();
+        input.set_cursor(pos);
+        input.press_mouse(MouseButton::Left);
+        input.release_mouse(MouseButton::Left);
+        w.insert_resource(input);
+    }
+
+    fn world_with_focus_resources() -> World {
+        let mut w = World::new();
+        w.insert_resource(ViewportSize::new(800, 600));
+        w.insert_resource(InputState::default());
+        w.insert_resource(UiFocus::default());
+        w.insert_resource(Events::<UiEvent>::default());
+        w
+    }
+
+    /// Two overlapping TextInputs: clicking the shared area focuses the last one in entity-index
+    /// order (focus_pass iterates focusables by entity index, last match wins). The TextFocused
+    /// event is emitted only for that entity.
+    #[test]
+    fn click_on_overlapping_text_inputs_focuses_last_spawned() {
+        let mut w = world_with_focus_resources();
+        // Spawn first (lower entity index) with a higher z; spawn second (higher entity index) with lower z.
+        // focus_pass will pick the last-spawned entity regardless of z.
+        let first = spawn_text_input(&mut w, 0.0, 0.0, 100.0, 30.0, 0.9);
+        let second = spawn_text_input(&mut w, 0.0, 0.0, 100.0, 30.0, 0.5);
+
+        click_at(&mut w, glam::Vec2::new(50.0, 15.0));
+        UiSystem::new().run(&mut w, 0.0);
+
+        // focus_pass last-entity-index wins: second (higher index) is focused.
+        assert!(
+            w.get::<TextInput>(second).unwrap().focused,
+            "last-spawned (higher entity index) TextInput should be focused after click"
+        );
+        assert!(
+            !w.get::<TextInput>(first).unwrap().focused,
+            "first-spawned TextInput should not be focused"
+        );
+
+        let events = w.resource::<Events<UiEvent>>().unwrap().read().to_vec();
+        let focused_entities: Vec<_> = events
+            .iter()
+            .filter_map(|ev| {
+                if let UiEvent::TextFocused(e) = ev {
+                    Some(*e)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(
+            focused_entities,
+            vec![second],
+            "TextFocused should be emitted only for the focused entity"
+        );
+    }
+
+    /// Clicking the position of an invisible TextInput must not focus it; no TextFocused event.
+    #[test]
+    fn invisible_text_input_does_not_receive_focus_on_click() {
+        let mut w = world_with_focus_resources();
+        let e = spawn_text_input(&mut w, 0.0, 0.0, 100.0, 30.0, 0.9);
+        w.get_mut::<UiNode>(e).unwrap().visible = false;
+
+        click_at(&mut w, glam::Vec2::new(50.0, 15.0));
+        UiSystem::new().run(&mut w, 0.0);
+
+        assert!(
+            !w.get::<TextInput>(e).unwrap().focused,
+            "invisible TextInput must not be focused"
+        );
+        let events = w.resource::<Events<UiEvent>>().unwrap().read().to_vec();
+        assert!(
+            !events
+                .iter()
+                .any(|ev| matches!(ev, UiEvent::TextFocused(_))),
+            "no TextFocused event expected for invisible widget"
+        );
+    }
+
+    /// A focused TextInput that becomes invisible has its focus cleared + TextBlurred emitted.
+    #[test]
+    fn focus_cleared_when_text_input_becomes_invisible() {
+        let mut w = world_with_focus_resources();
+        let e = spawn_text_input(&mut w, 0.0, 0.0, 100.0, 30.0, 0.9);
+        // Pre-focus the entity via UiFocus + ti.focused so focus_pass sees the transition.
+        w.resource_mut::<UiFocus>().unwrap().entity = Some(e);
+        w.get_mut::<TextInput>(e).unwrap().focused = true;
+        // Now hide it.
+        w.get_mut::<UiNode>(e).unwrap().visible = false;
+
+        w.insert_resource(InputState::default()); // no input this frame
+        UiSystem::new().run(&mut w, 0.0);
+
+        assert!(
+            !w.get::<TextInput>(e).unwrap().focused,
+            "focus must be cleared when the widget becomes invisible"
+        );
+        let events = w.resource::<Events<UiEvent>>().unwrap().read().to_vec();
+        assert!(
+            events
+                .iter()
+                .any(|ev| matches!(ev, UiEvent::TextBlurred(_))),
+            "TextBlurred should be emitted when invisible widget loses focus"
+        );
+    }
+
+    /// Clicking outside all focusable widgets does NOT blur a Tab-focused TextInput
+    /// (no spurious TextBlurred).
+    #[test]
+    fn click_outside_does_not_blur_tab_focused_text_input() {
+        let mut w = world_with_focus_resources();
+        let e = spawn_text_input(&mut w, 10.0, 10.0, 100.0, 30.0, 0.5);
+
+        // Tab-focus the TextInput first.
+        {
+            let mut input = InputState::default();
+            input.press(KeyCode::Tab);
+            w.insert_resource(input);
+            UiSystem::new().run(&mut w, 0.0);
+            // Flush events before the click frame.
+            w.resource_mut::<Events<UiEvent>>().unwrap().flush();
+        }
+
+        assert_eq!(focus(&w), Some(e), "TextInput should be focused after Tab");
+
+        // Now click far outside the widget.
+        click_at(&mut w, glam::Vec2::new(500.0, 500.0));
+        UiSystem::new().run(&mut w, 0.0);
+
+        assert!(
+            w.get::<TextInput>(e).unwrap().focused,
+            "TextInput should still be focused — click outside must not blur"
+        );
+        let events = w.resource::<Events<UiEvent>>().unwrap().read().to_vec();
+        assert!(
+            !events
+                .iter()
+                .any(|ev| matches!(ev, UiEvent::TextBlurred(_))),
+            "no spurious TextBlurred when clicking outside"
+        );
+    }
+
+    /// TextFocused is emitted on focus-in and caret is reset.
+    #[test]
+    fn tab_focus_on_text_input_emits_text_focused_and_resets_caret() {
+        let mut w = world_with_focus_resources();
+        let e = spawn_text_input(&mut w, 10.0, 10.0, 100.0, 30.0, 0.5);
+        // Give the TextInput some pre-existing blink state.
+        {
+            let ti = w.get_mut::<TextInput>(e).unwrap();
+            ti.cursor_blink = 0.42;
+            ti.cursor_visible = false;
+        }
+
+        press(&mut w, KeyCode::Tab);
+        UiSystem::new().run(&mut w, 0.0);
+
+        assert_eq!(focus(&w), Some(e));
+        let ti = w.get::<TextInput>(e).unwrap();
+        assert!(ti.focused, "TextInput should be focused after Tab");
+        assert_eq!(
+            ti.cursor_blink, 0.0,
+            "caret blink should be reset on focus-in"
+        );
+        assert!(ti.cursor_visible, "caret should be visible on focus-in");
+
+        let events = w.resource::<Events<UiEvent>>().unwrap().read().to_vec();
+        assert!(
+            events
+                .iter()
+                .any(|ev| matches!(ev, UiEvent::TextFocused(en) if *en == e)),
+            "TextFocused should be emitted on Tab focus-in"
+        );
+    }
+
+    /// TextBlurred is emitted when Tab moves focus away from a TextInput.
+    #[test]
+    fn tab_away_from_text_input_emits_text_blurred() {
+        let mut w = world_with_focus_resources();
+        let ti_e = spawn_text_input(&mut w, 10.0, 10.0, 100.0, 30.0, 0.5);
+        // Add a second focusable (Button) so Tab has somewhere to go.
+        let btn_e = w.spawn();
+        w.add_component(btn_e, UiNode::new(10.0, 60.0, 100.0, 30.0));
+        w.add_component(btn_e, Button::new("next"));
+
+        // Tab once → focus TextInput.
+        press(&mut w, KeyCode::Tab);
+        UiSystem::new().run(&mut w, 0.0);
+        w.resource_mut::<Events<UiEvent>>().unwrap().flush();
+
+        assert!(w.get::<TextInput>(ti_e).unwrap().focused);
+
+        // Tab again → focus moves to the Button; TextInput should emit TextBlurred.
+        press(&mut w, KeyCode::Tab);
+        UiSystem::new().run(&mut w, 0.0);
+
+        assert!(!w.get::<TextInput>(ti_e).unwrap().focused);
+        let events = w.resource::<Events<UiEvent>>().unwrap().read().to_vec();
+        assert!(
+            events
+                .iter()
+                .any(|ev| matches!(ev, UiEvent::TextBlurred(en) if *en == ti_e)),
+            "TextBlurred should be emitted when Tab moves focus away from TextInput"
+        );
     }
 }

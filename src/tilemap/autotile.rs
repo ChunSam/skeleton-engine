@@ -169,12 +169,7 @@ impl TilemapAutotile {
     /// `base_atlas_id + mask` corresponds to the 6-bit [`Neighborhood::Hex6`] mask
     /// (E=1, W=2, NE=4, NW=8, SE=16, SW=32).
     pub fn hex_6(base_atlas_id: u32) -> Self {
-        let mask_to_tile = (0u8..64).map(|m| (m, base_atlas_id + m as u32)).collect();
-        Self {
-            neighborhood: Neighborhood::Hex6,
-            oob_filled: false,
-            mode: AutotileMode::Single { mask_to_tile },
-        }
+        Self::hex_single(Neighborhood::Hex6, base_atlas_id)
     }
 
     /// 64-tile flat-top hex autotile layout (single terrain), for
@@ -182,9 +177,14 @@ impl TilemapAutotile {
     /// [`hex_6`](Self::hex_6) but with the [`Neighborhood::Hex6Flat`] bit order
     /// (N=1, S=2, NE=4, SE=8, NW=16, SW=32).
     pub fn hex_6_flat(base_atlas_id: u32) -> Self {
+        Self::hex_single(Neighborhood::Hex6Flat, base_atlas_id)
+    }
+
+    /// Shared constructor for the two 64-tile hex single-terrain layouts.
+    fn hex_single(nb: Neighborhood, base_atlas_id: u32) -> Self {
         let mask_to_tile = (0u8..64).map(|m| (m, base_atlas_id + m as u32)).collect();
         Self {
-            neighborhood: Neighborhood::Hex6Flat,
+            neighborhood: nb,
             oob_filled: false,
             mode: AutotileMode::Single { mask_to_tile },
         }
@@ -337,6 +337,28 @@ fn hex6_flat_mask(r: i32, c: i32, odd_col: bool, filled: impl Fn(i32, i32) -> bo
     mask
 }
 
+/// Builds the `filled(r, c)` bounds-checking closure shared by [`compute_tile_mask`] and
+/// [`compute_tile_mask_typed`]. Out-of-bounds cells return `oob_filled`; in-bounds cells
+/// are tested by `pred(cell_value)`.
+fn make_filled<'a>(
+    tiles: &'a [Vec<u32>],
+    oob_filled: bool,
+    pred: impl Fn(u32) -> bool + 'a,
+) -> impl Fn(i32, i32) -> bool + 'a {
+    move |r: i32, c: i32| {
+        let row_count = tiles.len() as i32;
+        if r < 0 || r >= row_count {
+            return oob_filled;
+        }
+        let row_ref = &tiles[r as usize];
+        let col_count = row_ref.len() as i32;
+        if c < 0 || c >= col_count {
+            return oob_filled;
+        }
+        pred(row_ref[c as usize])
+    }
+}
+
 /// Computes the autotile bitmask for cell `(row, col)` in the given grid.
 ///
 /// A neighbor is "filled" when in-bounds and non-zero; if out-of-bounds, it is
@@ -353,19 +375,7 @@ pub fn compute_tile_mask(
     nb: Neighborhood,
     oob_filled: bool,
 ) -> u8 {
-    let filled = |r: i32, c: i32| -> bool {
-        let row_count = tiles.len() as i32;
-        if r < 0 || r >= row_count {
-            return oob_filled;
-        }
-        let row_ref = &tiles[r as usize];
-        let col_count = row_ref.len() as i32;
-        if c < 0 || c >= col_count {
-            return oob_filled;
-        }
-        row_ref[c as usize] != 0
-    };
-    compute_mask_raw(row, col, nb, filled)
+    compute_mask_raw(row, col, nb, make_filled(tiles, oob_filled, |v| v != 0))
 }
 
 // ─── Multi-terrain autotiling ─────────────────────────────────────────────────
@@ -398,19 +408,12 @@ pub fn compute_tile_mask_typed(
     oob_filled: bool,
     terrain: u32,
 ) -> u8 {
-    let filled = |r: i32, c: i32| -> bool {
-        let row_count = tiles.len() as i32;
-        if r < 0 || r >= row_count {
-            return oob_filled;
-        }
-        let row_ref = &tiles[r as usize];
-        let col_count = row_ref.len() as i32;
-        if c < 0 || c >= col_count {
-            return oob_filled;
-        }
-        row_ref[c as usize] == terrain
-    };
-    compute_mask_raw(row, col, nb, filled)
+    compute_mask_raw(
+        row,
+        col,
+        nb,
+        make_filled(tiles, oob_filled, move |v| v == terrain),
+    )
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────

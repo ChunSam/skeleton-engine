@@ -219,11 +219,26 @@ pub fn read_ron<T: DeserializeOwned>(path: &Path) -> Result<T, SaveError> {
         let s = std::str::from_utf8(&bytes).map_err(|_| SaveError::Corrupted)?;
         ron::from_str(s).map_err(|e| SaveError::Ron(e.to_string()))
     }
-    // wasm: read the RON text back from localStorage (absent key → NotFound, like the fs path).
+    // wasm: read the value from localStorage. The value could be either:
+    //   - A hex-encoded AEAD blob (written by the old `save()` path) → decrypt then parse.
+    //   - A plain-text RON string (written by `write_ron()`) → parse directly.
     #[cfg(target_arch = "wasm32")]
     {
         match wasm_storage::get(&path.to_string_lossy())? {
-            Some(s) => ron::from_str(&s).map_err(|e| SaveError::Ron(e.to_string())),
+            Some(s) => {
+                // Try to decode as hex; if the resulting bytes start with SAVE_MAGIC it is an
+                // encrypted blob that we fall back to decrypting (back-compat with old save()).
+                if let Some(bytes) = from_hex(&s) {
+                    if bytes.starts_with(SAVE_MAGIC) {
+                        let plaintext = decrypt_save_bytes(&bytes, SaveKey::DEFAULT)?;
+                        let ron_str =
+                            std::str::from_utf8(&plaintext).map_err(|_| SaveError::Corrupted)?;
+                        return ron::from_str(ron_str).map_err(|e| SaveError::Ron(e.to_string()));
+                    }
+                }
+                // Not a hex AEAD blob — treat as plain-text RON.
+                ron::from_str(&s).map_err(|e| SaveError::Ron(e.to_string()))
+            }
             None => Err(SaveError::Io(io::Error::new(
                 io::ErrorKind::NotFound,
                 "key not present in localStorage",

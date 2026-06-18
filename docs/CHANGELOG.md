@@ -4,6 +4,54 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.40.0
+
+**Code-review hardening of the 2026-06-18 feature arc (audio / dialogue / UI focus / save) +
+cleanups.** A multi-angle review of the v0.32→v0.39 work surfaced several real bugs (mostly
+edge-case races and conditional-path footguns); this release fixes them. The one breaking change is
+`TilemapProjection` becoming `#[non_exhaustive]` (external exhaustive `match`es must add a wildcard
+arm) — a MINOR under the 0.x cadence. wasm audio + save smokes pass (38/38, 7/7); 870 lib tests.
+
+### Fixed
+- **wasm `WebAudio` races** (`src/audio_wasm.rs`): `Sfx::stop()` called before the async decode
+  finished was a no-op (the sound played anyway) — now a shared `stopped` flag suppresses the
+  deferred `start()`. Rapid `crossfade_music`/`play_music` calls within the decode window orphaned a
+  looping track that could never be stopped — a `music_gen` generation guard makes a superseded
+  pending track stop itself. `start_music` connected the per-track gain to master *before* decoding,
+  leaking a dead node on decode failure — the gain is now created/connected only after decode
+  succeeds.
+- **Dialogue conditional-choice deadlock** (`src/dialogue/mod.rs`): the vars-unaware
+  `advance`/`choose`/`pending_choices` ignored choice conditions, so a line whose choices were all
+  `cond`-gated blocked `advance()` forever (and `choose(i)` could pick a hidden choice). The plain
+  API now considers only *unconditional* choices (the vars-aware `advance_with`/`dialogue::*` path is
+  unchanged); no-condition dialogues are byte-identical.
+- **Dialogue typewriter on bad data**: a non-finite `chars_per_sec` (e.g. `NaN` from malformed RON)
+  rendered the line blank — the reveal guards now treat non-finite as "reveal instantly".
+- **UI focus split-authority** (`src/ui/system/`): `focus_pass` and `text_input_pass` both wrote
+  `ti.focused` with conflicting click semantics, so clicking outside a focused `TextInput` fired a
+  spurious `TextBlurred` + dropped a frame of input. `focus_pass` is now the single owner of
+  `ti.focused` and the `TextFocused`/`TextBlurred` events; `Enter`-to-submit clears `UiFocus` so the
+  field isn't re-focused next frame.
+- **wasm save parity** (`src/save.rs`): `read_ron` on wasm lacked native's `SAVE_MAGIC` fallback, so
+  reading an AEAD-saved key returned a confusing parse error instead of decrypting — the wasm branch
+  now mirrors native (hex-decode → magic check → decrypt, else plaintext RON).
+
+### Changed
+- **`TilemapProjection` is now `#[non_exhaustive]`** (`src/tilemap/mod.rs`) — matches the engine's
+  other growable enums (`DebugShape`, `ReflectValue`, `Easing`); external exhaustive matches must add
+  a `_ =>` arm. Breaking, hence MINOR.
+
+### Added
+- **`examples/hex_autotile_flat.rs`** — the flat-top (`HexagonalFlat` + `Neighborhood::Hex6Flat`)
+  counterpart of `hex_autotile`, closing the VISION "an example exercises it" gap for flat-top hex
+  autotiling.
+
+### Changed (internal)
+- `spatial_params` (linear distance falloff + x-pan) deduplicated into a cross-platform
+  `src/audio_spatial.rs` (`pub(crate)`), shared by native `AudioManager` and wasm `WebAudio` (was a
+  byte-for-byte copy in each). Autotile's duplicated bounds-check closure and the `hex_6`/`hex_6_flat`
+  constructors are unified via private helpers. No behavior change.
+
 ## 0.39.0
 
 **Autotiling across isometric and hexagonal projections.** Autotile bitmasks are computed from the
