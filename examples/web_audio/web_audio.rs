@@ -2,7 +2,8 @@
 //!
 //! [`WebAudio`](engine::WebAudio) is the wasm counterpart to the native rodio
 //! [`AudioManager`](engine::AudioManager): a small `AudioContext` wrapper with one-shot SFX, a
-//! single looping **music** channel, a **master volume**, and **suspend/resume**. It only exists
+//! single looping **music** channel, a **master volume**, **named mixer buses**, and
+//! **suspend/resume**. It only exists
 //! on `wasm32`, so this example is wasm-only — running it natively just prints how to build it.
 //!
 //! As well as being the demo, this drives the whole `WebAudio` surface in sequence and writes a
@@ -123,6 +124,45 @@ async fn run_checks() {
     );
     sfx.stop();
     check!(!sfx.is_playing(), "Sfx::stop() stopped the SFX");
+
+    // ── named mixer buses ─────────────────────────────────────────────────────
+    check!(
+        (audio.bus_volume("sfx") - 1.0).abs() < 1e-3,
+        "unknown bus volume defaults to 1.0"
+    );
+    audio.set_bus_volume("sfx", 0.5);
+    check!(
+        (audio.bus_volume("sfx") - 0.5).abs() < 1e-3,
+        "set_bus_volume(0.5) -> bus_volume() == 0.5"
+    );
+    audio.set_bus_volume("sfx", 2.0);
+    check!(
+        (audio.bus_volume("sfx") - 1.0).abs() < 1e-3,
+        "set_bus_volume(2.0) clamps to 1.0"
+    );
+    audio.set_bus_volume("sfx", -1.0);
+    check!(
+        audio.bus_volume("sfx").abs() < 1e-3,
+        "set_bus_volume(-1.0) clamps to 0.0"
+    );
+    audio.set_bus_volume("sfx", 0.6);
+    check!(
+        audio.bus_names() == vec!["sfx".to_string()],
+        "bus_names() lists the registered bus"
+    );
+    // A controllable SFX routed through the bus.
+    let bus_sfx = audio.play_sfx_on_bus(&beep, "sfx");
+    check!(
+        wait_until(|| bus_sfx.is_playing(), 60).await,
+        "play_sfx_on_bus() decoded and started SFX on the bus"
+    );
+    bus_sfx.stop();
+    // A fire-and-forget sound on a second bus registers it (sorted in bus_names).
+    audio.play_on_bus(&beep, "ui");
+    check!(
+        audio.bus_names() == vec!["sfx".to_string(), "ui".to_string()],
+        "play_on_bus() registers a new bus (names stay sorted)"
+    );
 
     // ── suspend / resume toggles the context ─────────────────────────────────
     audio.suspend();
