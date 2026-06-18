@@ -70,7 +70,8 @@ cleanup() {
 trap cleanup EXIT
 
 echo ">>> [1/4] building web_audio -> wasm (release)..."
-"$WEB_DIR/build.sh" >/dev/null
+# Invoke via `bash` so it works regardless of the script's executable bit (git stores it 0644).
+bash "$WEB_DIR/build.sh" >/dev/null
 
 echo ">>> [2/4] serving $WEB_DIR on :$PORT..."
 ( cd "$WEB_DIR" && python3 -m http.server "$PORT" ) >/dev/null 2>&1 &

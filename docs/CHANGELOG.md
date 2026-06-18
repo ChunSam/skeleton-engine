@@ -4,6 +4,29 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.26.0
+
+**WebAudio: controllable per-source SFX with stereo pan (wasm).** A step toward native↔wasm audio
+parity: `WebAudio` could only fire-and-forget sound effects (`play`) — you couldn't pan, set a
+per-sound volume, or stop one. New `play_sfx` returns an `Sfx` handle that does all three. Routes
+`source → StereoPannerNode → per-source GainNode → master`; the panner + gain are created
+synchronously, so `set_pan`/`set_volume` apply even before the clip finishes decoding. **Additive —
+`play` and the rest of `WebAudio` are unchanged.** Crossfade, buses, ducking and full positional
+audio remain native-only.
+
+### Added
+- `WebAudio::play_sfx(bytes) -> Sfx` — a controllable one-shot SFX.
+- `Sfx` handle (re-exported at the crate root): `set_volume` (per-source, 0..1), `set_pan`
+  (-1 left .. 1 right), `is_playing`, `stop`. Cloning a handle controls the same sound; if the
+  per-source nodes can't be created it falls back to routing straight to master (volume/pan no-op).
+- web-sys feature `StereoPannerNode`.
+- The `web_audio` example + `scripts/wasm_audio_smoke.sh` now also exercise `play_sfx`
+  (pan/volume/stop) — the headless lifecycle check is **12/12**.
+
+### Fixed
+- `examples/web_audio/web/build.sh` + `scripts/wasm_audio_smoke.sh` are now marked executable in
+  git (were 0644), and the smoke script invokes `build.sh` via `bash` so it works regardless.
+
 ## 0.25.0
 
 **Dialogue portrait rendering.** `DialogueBox::portrait` has existed (set via `with_portrait`) but
