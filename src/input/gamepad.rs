@@ -228,6 +228,22 @@ fn map_axis(axis: gilrs::Axis) -> Option<GamepadAxis> {
 }
 
 #[cfg(test)]
+impl GamepadState {
+    /// Test-only: connect `pad` (if needed) and mark `button` as just-pressed + held, as if a
+    /// `ButtonPressed` event had arrived this frame. Lets non-`gilrs` tests drive gamepad input.
+    pub(crate) fn test_press(&mut self, pad: usize, button: GamepadButton) {
+        let slot = self.slots[pad].get_or_insert_with(|| Slot {
+            pressed: HashSet::new(),
+            just_pressed: HashSet::new(),
+            just_released: HashSet::new(),
+            axes: HashMap::new(),
+        });
+        slot.pressed.insert(button);
+        slot.just_pressed.insert(button);
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

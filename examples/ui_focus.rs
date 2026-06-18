@@ -2,15 +2,17 @@
 //!
 //! A column of widgets (button, checkbox, slider, text field, button). `UiSystem` now cycles
 //! keyboard focus across them:
-//! - **Tab / Shift+Tab** move focus (a ring is drawn around the focused widget),
-//! - **Enter / Space** activate the focused button (click) or checkbox (toggle),
-//! - **Left / Right** nudge a focused slider,
+//! - **Tab / Shift+Tab** (or a gamepad **D-pad Down / Up**) move focus (a ring is drawn around the
+//!   focused widget),
+//! - **Enter / Space** (or gamepad **A**) activate the focused button (click) or checkbox (toggle),
+//! - **Left / Right** (or gamepad **D-pad Left / Right**) nudge a focused slider,
 //! - clicking a widget also focuses it, and a focused text field receives typed characters.
 //!
-//! The engine owns all of that; this example only spawns widgets and prints what happened.
+//! The engine owns all of that (the focus pass folds the first connected gamepad in alongside the
+//! keyboard); this example only spawns widgets and prints what happened.
 //!
 //! Run from the repo root:  `cargo run --example ui_focus`
-//! Tab/Shift+Tab = move focus · Enter/Space = activate · arrows = slider · ESC = quit.
+//! Tab/Shift+Tab or D-pad = move focus · Enter/Space or A = activate · arrows or D-pad = slider · ESC = quit.
 
 use engine::{
     App, Button, CheckBox, Color, DrawText, Events, InputState, KeyCode, ShouldQuit, Slider,
@@ -55,7 +57,7 @@ impl System for FocusDemo {
 
         if let Some(tq) = world.resource_mut::<TextQueue>() {
             tq.push(DrawText::new(
-                "Tab / Shift+Tab: move focus   Enter/Space: activate   ←/→: slider   ESC: quit",
+                "Tab/Shift+Tab or D-pad: focus   Enter/Space or A: activate   <-/-> or D-pad: slider   ESC: quit",
                 Vec2::new(60.0, 24.0),
                 17.0,
                 Color::rgb(0.7, 0.78, 0.92),

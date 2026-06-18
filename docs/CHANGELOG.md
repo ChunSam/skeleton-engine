@@ -4,6 +4,25 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.37.0
+
+**Gamepad navigation for UI keyboard focus.** The focus pass (v0.31.0) was keyboard + mouse only.
+It now also reads the first connected gamepad: **D-pad Down/Up** cycle focus (Up = reverse, like
+Shift+Tab), **D-pad Left/Right** nudge a focused slider, and **A** (South) activates the focused
+button/checkbox. Folded into `InputSnapshot` alongside the keyboard, so the existing focus-pass logic
+(ring, activation, slider nudge, TextInput sync) is reused unchanged. **Additive** — no pad / no
+`GamepadState` resource is a no-op; keyboard + mouse behavior is identical.
+
+### Added
+- Gamepad focus navigation in `UiSystem`'s focus pass (`src/ui/system/state.rs`): D-pad
+  Up/Down/Left/Right + A from `GamepadState::primary()`.
+- `ui_focus` example help text updated to mention the gamepad controls.
+
+### Notes
+- D-pad only (digital, edge-detected via `just_pressed`); the analog stick is not used (would need
+  per-frame threshold debounce). Real-pad operation is a human check; the focus-move/activate logic
+  is covered by unit tests via a new `GamepadState::test_press` test helper.
+
 ## 0.36.0
 
 **Positional audio on a mixer bus for the wasm `WebAudio` path.** `play_at` (0.35.0) routed straight
