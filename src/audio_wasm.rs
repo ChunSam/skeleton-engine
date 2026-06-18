@@ -7,8 +7,9 @@
 //! single looping **music** channel you can stop or **crossfade** between tracks
 //! ([`crossfade_music`]), a **master volume**, **named mixer buses** ([`set_bus_volume`] + the
 //! [`play_on_bus`]/[`play_sfx_on_bus`] variants) with **manual ducking** ([`duck_bus`] /
-//! [`release_bus`]), **2D positional** playback ([`play_at`] + [`Sfx::update_position`]), and
-//! **suspend/resume** for pausing all audio. (Automatic *sidechain* ducking remains native-only.)
+//! [`release_bus`]), **2D positional** playback ([`play_at`] / [`play_at_on_bus`] +
+//! [`Sfx::update_position`]), and **suspend/resume** for pausing all audio. (Automatic *sidechain*
+//! ducking remains native-only.)
 //!
 //! A **bus** is a `duck → volume → master` [`GainNode`](web_sys::GainNode) chain sitting between
 //! sounds and the master gain: route sounds to a bus by name and control them together with
@@ -24,6 +25,7 @@
 //! [`duck_bus`]: WebAudio::duck_bus
 //! [`release_bus`]: WebAudio::release_bus
 //! [`play_at`]: WebAudio::play_at
+//! [`play_at_on_bus`]: WebAudio::play_at_on_bus
 //!
 //! Store it as a `World` resource and drive it from systems:
 //!
@@ -323,6 +325,24 @@ impl WebAudio {
     /// the returned [`Sfx`] for per-source control).
     pub fn play_at(&self, bytes: &[u8], source: Vec2, listener: Vec2, max_dist: f32) -> Sfx {
         let sfx = self.play_sfx(bytes);
+        sfx.update_position(source, listener, max_dist);
+        sfx
+    }
+
+    /// Like [`play_at`](Self::play_at), but routes the positional SFX through the named mixer `bus`
+    /// (created on first use) instead of straight to master — so the named bus's
+    /// [`set_bus_volume`](Self::set_bus_volume) and [`duck_bus`](Self::duck_bus) scale the whole
+    /// group on top of this sound's distance-based volume/pan. The returned [`Sfx`]'s per-source
+    /// volume/pan still carry the spatial result (independent of the bus level).
+    pub fn play_at_on_bus(
+        &self,
+        bytes: &[u8],
+        source: Vec2,
+        listener: Vec2,
+        max_dist: f32,
+        bus: &str,
+    ) -> Sfx {
+        let sfx = self.play_sfx_on_bus(bytes, bus);
         sfx.update_position(source, listener, max_dist);
         sfx
     }
