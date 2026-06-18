@@ -5,9 +5,7 @@ use crate::ecs::{Entity, System, World};
 use crate::renderer::uv::UvRect;
 
 use super::animation::{AnimatedTileCell, TileAnimationSet};
-use super::autotile::{
-    compute_tile_mask, compute_tile_mask_typed, MultiTerrainAutotile, Neighborhood, TilemapAutotile,
-};
+use super::autotile::{compute_tile_mask, compute_tile_mask_typed, AutotileMode, TilemapAutotile};
 use super::Tilemap;
 
 // ─── System internals ─────────────────────────────────────────────────────────
@@ -143,54 +141,42 @@ impl System for TilemapSystem {
 
         // ── Step 3: process each alive tilemap entity ──────────────────────────
         for map_entity in tilemap_entities {
-            // Clone out the data we need before any mutation.
-            // Precedence: MultiTerrainAutotile > TilemapAutotile > plain.
-            enum AutotileMode {
-                None,
-                Single {
-                    nb: Neighborhood,
-                    oob: bool,
-                    m2t: HashMap<u8, u32>,
-                },
-                Multi(MultiTerrainAutotile),
-            }
-
-            let (tm_clone, autotile_mode) = {
+            // Clone out the data we need before any mutation. The optional `TilemapAutotile`
+            // (single- or multi-terrain via its `mode`) drives display-UV selection.
+            let (tm_clone, autotile) = {
                 let tm = world.get::<Tilemap>(map_entity).unwrap();
-                let mode = if let Some(mt) = world.get::<MultiTerrainAutotile>(map_entity) {
-                    AutotileMode::Multi(mt.clone())
-                } else if let Some(at) = world.get::<TilemapAutotile>(map_entity) {
-                    AutotileMode::Single {
-                        nb: at.neighborhood,
-                        oob: at.oob_filled,
-                        m2t: at.mask_to_tile.clone(),
-                    }
-                } else {
-                    AutotileMode::None
-                };
-                (tm.clone(), mode)
+                let at = world.get::<TilemapAutotile>(map_entity).cloned();
+                (tm.clone(), at)
             };
 
-            // Whether any autotile mode is active (controls neighbor UV refresh).
-            let any_autotile = !matches!(autotile_mode, AutotileMode::None);
+            // Whether autotiling is active (controls neighbor UV refresh on edits).
+            let any_autotile = autotile.is_some();
 
             // Helper: resolve UV for a non-zero cell.
             let resolve_uv = |row: usize, col: usize, value: u32| -> UvRect {
-                match &autotile_mode {
-                    AutotileMode::None => tm_clone.atlas.uv_for(value - 1),
-                    AutotileMode::Single { nb, oob, m2t } => {
-                        let mask = compute_tile_mask(&tm_clone.tiles, row, col, *nb, *oob);
-                        let display_id = m2t.get(&mask).copied().unwrap_or(0);
+                let Some(at) = &autotile else {
+                    return tm_clone.atlas.uv_for(value - 1);
+                };
+                match &at.mode {
+                    AutotileMode::Single { mask_to_tile } => {
+                        let mask = compute_tile_mask(
+                            &tm_clone.tiles,
+                            row,
+                            col,
+                            at.neighborhood,
+                            at.oob_filled,
+                        );
+                        let display_id = mask_to_tile.get(&mask).copied().unwrap_or(0);
                         tm_clone.atlas.uv_for(display_id)
                     }
-                    AutotileMode::Multi(mt) => {
-                        if let Some(rule) = mt.rule_for(value) {
+                    AutotileMode::Multi { .. } => {
+                        if let Some(rule) = at.rule_for(value) {
                             let mask = compute_tile_mask_typed(
                                 &tm_clone.tiles,
                                 row,
                                 col,
-                                mt.neighborhood,
-                                mt.oob_filled,
+                                at.neighborhood,
+                                at.oob_filled,
                                 value,
                             );
                             let display_id = rule.mask_to_tile.get(&mask).copied().unwrap_or(0);

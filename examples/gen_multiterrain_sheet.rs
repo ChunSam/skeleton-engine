@@ -8,7 +8,7 @@
 //! edge against a different terrain).
 //!
 //! Atlas tile index = row*16 + mask, matching
-//! `MultiTerrainAutotile::edge_16(&[(1, 0), (2, 16), (3, 32)])` (terrain value → base id).
+//! `TilemapAutotile::multi_edge_16(&[(1, 0), (2, 16), (3, 32)])` (terrain value → base id).
 //!
 //! Manual tool, not run by CI:
 //!     cargo run --example gen_multiterrain_sheet

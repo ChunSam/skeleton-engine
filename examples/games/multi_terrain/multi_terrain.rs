@@ -1,7 +1,7 @@
 //! Multi-terrain autotiling demo.
 //!
 //! A map of three terrains — grass (1), water (2), sand (3) — each autotiling its
-//! own border against the others via [`MultiTerrainAutotile`]. Move a cursor with the
+//! own border against the others via [`TilemapAutotile::multi_edge_16`]. Move a cursor with the
 //! arrow keys and paint the cursor cell with `1`/`2`/`3` (grass/water/sand) or `0`
 //! (erase): `Tilemap::set_tile` mutates the grid and the reactive `TilemapSystem`
 //! re-tiles the painted cell **and its neighbors** so every terrain border stays
@@ -11,8 +11,8 @@
 //! TOP-LEFT (Y down), so the map lives at POSITIVE world coordinates.
 
 use engine::{
-    App, Camera, DrawText, InputState, KeyCode, MultiTerrainAutotile, Sprite, System, TextQueue,
-    Tilemap, TilemapAtlas, TilemapSystem, Transform, WindowConfig, World,
+    App, Camera, DrawText, InputState, KeyCode, Sprite, System, TextQueue, Tilemap, TilemapAtlas,
+    TilemapAutotile, TilemapSystem, Transform, WindowConfig, World,
 };
 use glam::Vec2;
 
@@ -167,7 +167,7 @@ fn main() {
     // Three terrains: value 1 → atlas base 0, value 2 → base 16, value 3 → base 32.
     app.world.add_component(
         tilemap_entity,
-        MultiTerrainAutotile::edge_16(&[(GRASS, 0), (WATER, 16), (SAND, 32)])
+        TilemapAutotile::multi_edge_16(&[(GRASS, 0), (WATER, 16), (SAND, 32)])
             .with_oob_filled(false),
     );
 

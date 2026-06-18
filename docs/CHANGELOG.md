@@ -4,6 +4,31 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.30.0
+
+**Autotile API unification + dead-code removal.** The two separate autotile component types are now
+one. `TilemapAutotile` gains a `mode: AutotileMode` — `Single { mask_to_tile }` (any non-zero cell
+connects, built with `edge_16`/`blob_47`) or `Multi { rules }` (per-terrain same-value, built with
+the new `multi_edge_16`). This mirrors the dispatch `TilemapSystem` already did internally. The
+ghost `ConnectRule` (a do-nothing marker struct + field) is removed. **Breaking** (0.x MINOR):
+`MultiTerrainAutotile` and `ConnectRule` are gone, and `TilemapAutotile`'s `mask_to_tile` field
+moved into `mode`. Single-terrain users calling `TilemapAutotile::edge_16(..)` are unaffected.
+
+### Changed
+- **`MultiTerrainAutotile::edge_16(&terrains)` → `TilemapAutotile::multi_edge_16(&terrains)`** —
+  multi-terrain autotiling is now a `TilemapAutotile` in `AutotileMode::Multi`.
+- `TilemapAutotile { neighborhood, oob_filled, mask_to_tile, connect }` →
+  `TilemapAutotile { neighborhood, oob_filled, mode }` (the bitmask map lives in
+  `AutotileMode::Single`).
+- `TilemapSystem` reads the single `TilemapAutotile` (matches on `mode`) instead of two components.
+
+### Removed
+- `MultiTerrainAutotile` (folded into `TilemapAutotile` + `AutotileMode::Multi`).
+- `ConnectRule` (unused marker / extension-point stub that never did anything).
+
+### Added
+- `AutotileMode` enum + `TilemapAutotile::multi_edge_16`.
+
 ## 0.29.0
 
 **Hexagonal tilemaps.** Completes the projection set (C2 after C1's isometric): `TilemapProjection`
