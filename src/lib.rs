@@ -156,7 +156,7 @@ pub use timer::Timer;
 pub use tween::{Easing, Lerp, Tween, TweenSequence};
 pub use ui::{
     Anchor, Button, ButtonState, CheckBox, Label, LayoutDir, LayoutSystem, LocalizationSystem,
-    LocalizedText, Panel, ScrollView, Slider, TextInput, UiEvent, UiNode, UiSystem,
+    LocalizedText, Panel, ScrollView, Slider, TextInput, UiEvent, UiFocus, UiNode, UiSystem,
     VirtualJoystick,
 };
 

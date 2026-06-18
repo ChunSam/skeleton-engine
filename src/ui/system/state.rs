@@ -25,6 +25,12 @@ pub(super) struct InputSnapshot {
     pub(super) nav_home: bool,
     pub(super) nav_end: bool,
     pub(super) nav_delete: bool,
+    /// Tab pressed this frame (focus advance; combine with `shift` for reverse).
+    pub(super) tab: bool,
+    /// Either Shift key held this frame.
+    pub(super) shift: bool,
+    /// Enter or Space pressed this frame (activate the focused widget).
+    pub(super) activate: bool,
 }
 
 impl InputSnapshot {
@@ -49,6 +55,9 @@ impl InputSnapshot {
             nav_home: input.just_pressed(KeyCode::Home),
             nav_end: input.just_pressed(KeyCode::End),
             nav_delete: input.just_pressed(KeyCode::Delete),
+            tab: input.just_pressed(KeyCode::Tab),
+            shift: input.is_pressed(KeyCode::ShiftLeft) || input.is_pressed(KeyCode::ShiftRight),
+            activate: input.just_pressed(KeyCode::Enter) || input.just_pressed(KeyCode::Space),
         })
     }
 }

@@ -211,6 +211,9 @@ mod tests {
             nav_home: false,
             nav_end: false,
             nav_delete: false,
+            tab: false,
+            shift: false,
+            activate: false,
         }
     }
 
@@ -231,6 +234,9 @@ mod tests {
             nav_home: false,
             nav_end: false,
             nav_delete: false,
+            tab: false,
+            shift: false,
+            activate: false,
         }
     }
 

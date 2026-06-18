@@ -26,6 +26,7 @@ pub(super) fn insert_core_resources(world: &mut World) {
     world.insert_resource(TextQueue::default());
     world.insert_resource(UiQueue::default());
     world.insert_resource(UiImageQueue::default());
+    world.insert_resource(crate::ui::UiFocus::default());
     world.insert_resource(DebugDraw::new());
     world.insert_resource(SelectedEntity::default());
     world.insert_resource(ProfilerData::default());
