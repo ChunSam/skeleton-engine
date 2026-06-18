@@ -3,7 +3,7 @@ use winit::event::MouseButton;
 use winit::keyboard::KeyCode;
 
 use crate::ecs::{Entity, Events, World};
-use crate::input::InputState;
+use crate::input::{GamepadButton, GamepadState, InputState};
 use crate::renderer::{DrawRect, DrawText, TextQueue, UiQueue};
 use crate::resources::ViewportSize;
 use crate::ui::node::UiNode;
@@ -40,7 +40,7 @@ impl InputSnapshot {
 
         // Hit-test clicks against the cursor at the press/release moment, not the
         // live cursor. Hover/drag still use `cursor`.
-        Some(Self {
+        let mut snap = Self {
             cursor,
             just_pressed: input.mouse_just_pressed(MouseButton::Left),
             just_released: input.mouse_just_released(MouseButton::Left),
@@ -58,7 +58,26 @@ impl InputSnapshot {
             tab: input.just_pressed(KeyCode::Tab),
             shift: input.is_pressed(KeyCode::ShiftLeft) || input.is_pressed(KeyCode::ShiftRight),
             activate: input.just_pressed(KeyCode::Enter) || input.just_pressed(KeyCode::Space),
-        })
+        };
+
+        // Fold in gamepad focus navigation from the first connected pad, mirroring the keyboard:
+        // D-pad Down/Up cycle focus (Up = reverse, like Shift+Tab), D-pad Left/Right nudge a focused
+        // slider, A (South) activates. Optional resource — no pad / no GamepadState = no-op.
+        if let Some(gp) = world.resource::<GamepadState>() {
+            if let Some(p) = gp.primary() {
+                let down = gp.just_pressed(p, GamepadButton::DPadDown);
+                let up = gp.just_pressed(p, GamepadButton::DPadUp);
+                if down || up {
+                    snap.tab = true;
+                    snap.shift |= up;
+                }
+                snap.nav_left |= gp.just_pressed(p, GamepadButton::DPadLeft);
+                snap.nav_right |= gp.just_pressed(p, GamepadButton::DPadRight);
+                snap.activate |= gp.just_pressed(p, GamepadButton::South);
+            }
+        }
+
+        Some(snap)
     }
 }
 

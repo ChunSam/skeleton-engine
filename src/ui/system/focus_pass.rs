@@ -171,7 +171,7 @@ mod tests {
     use winit::keyboard::KeyCode;
 
     use crate::ecs::{Events, System, World};
-    use crate::input::InputState;
+    use crate::input::{GamepadButton, GamepadState, InputState};
     use crate::resources::ViewportSize;
     use crate::ui::{Button, ButtonState, CheckBox, UiEvent, UiFocus, UiNode, UiSystem};
 
@@ -202,6 +202,48 @@ mod tests {
 
     fn focus(w: &World) -> Option<crate::ecs::Entity> {
         w.resource::<UiFocus>().and_then(|f| f.entity)
+    }
+
+    /// Inserts a fresh `GamepadState` (slot 0) with `button` just-pressed, plus a cleared keyboard
+    /// `InputState`, so the next `UiSystem::run` sees only that gamepad input.
+    fn press_pad(w: &mut World, button: GamepadButton) {
+        w.insert_resource(InputState::default());
+        let mut gp = GamepadState::default();
+        gp.test_press(0, button);
+        w.insert_resource(gp);
+    }
+
+    #[test]
+    fn gamepad_dpad_down_advances_focus_and_wraps() {
+        let (mut w, e) = world_with_widgets();
+        let mut sys = UiSystem::new();
+        for expected in [e[0], e[1], e[2], e[0]] {
+            press_pad(&mut w, GamepadButton::DPadDown);
+            sys.run(&mut w, 0.0);
+            assert_eq!(focus(&w), Some(expected));
+        }
+    }
+
+    #[test]
+    fn gamepad_dpad_up_reverses_focus() {
+        let (mut w, e) = world_with_widgets();
+        // First D-pad Up from no focus lands on the last widget (like Shift+Tab).
+        press_pad(&mut w, GamepadButton::DPadUp);
+        UiSystem::new().run(&mut w, 0.0);
+        assert_eq!(focus(&w), Some(e[2]));
+    }
+
+    #[test]
+    fn gamepad_south_activates_focused_button() {
+        let (mut w, e) = world_with_widgets();
+        w.resource_mut::<UiFocus>().unwrap().entity = Some(e[0]);
+        press_pad(&mut w, GamepadButton::South);
+        UiSystem::new().run(&mut w, 0.0);
+        let events = w.resource::<Events<UiEvent>>().unwrap().read().to_vec();
+        assert!(
+            events.contains(&UiEvent::ButtonClicked(e[0])),
+            "A (South) on a focused button should emit ButtonClicked, got {events:?}"
+        );
     }
 
     #[test]
