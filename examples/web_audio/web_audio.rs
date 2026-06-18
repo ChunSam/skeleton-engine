@@ -3,7 +3,8 @@
 //! [`WebAudio`](engine::WebAudio) is the wasm counterpart to the native rodio
 //! [`AudioManager`](engine::AudioManager): a small `AudioContext` wrapper with one-shot SFX, a
 //! single looping **music** channel (with track-to-track **crossfade**), a **master volume**,
-//! **named mixer buses** (with **ducking**), and **suspend/resume**. It only exists
+//! **named mixer buses** (with **ducking**), **2D positional** playback, and **suspend/resume**.
+//! It only exists
 //! on `wasm32`, so this example is wasm-only — running it natively just prints how to build it.
 //!
 //! As well as being the demo, this drives the whole `WebAudio` surface in sequence and writes a
@@ -197,6 +198,43 @@ async fn run_checks() {
         (audio.bus_duck("sfx") - 1.0).abs() < 1e-3,
         "duck_bus(2.0) clamps the duck to 1.0"
     );
+
+    // ── 2D positional audio ────────────────────────────────────────────────────
+    // play_at/update_position set the SFX volume + pan via the directly-readable set_value path, so
+    // the spatial result is observable headless (unlike a smooth duck ramp).
+    let here = engine::Vec2::ZERO;
+    let near = audio.play_at(&beep, here, here, 100.0);
+    check!(
+        (near.volume() - 1.0).abs() < 1e-3,
+        "play_at() at the listener -> full volume"
+    );
+    check!(
+        near.pan().abs() < 1e-3,
+        "play_at() at the listener -> centered pan"
+    );
+    check!(
+        wait_until(|| near.is_playing(), 60).await,
+        "play_at() decoded and started the SFX"
+    );
+    near.stop();
+    let far = audio.play_at(&beep, engine::Vec2::new(200.0, 0.0), here, 100.0);
+    check!(
+        far.volume().abs() < 1e-3,
+        "play_at() at/beyond max_dist -> silent"
+    );
+    far.stop();
+    let right = audio.play_at(&beep, engine::Vec2::new(50.0, 0.0), here, 100.0);
+    check!(right.pan() > 0.4, "play_at() to the right -> positive pan");
+    check!(
+        (right.volume() - 0.5).abs() < 0.05,
+        "play_at() half-way to max_dist -> ~half volume"
+    );
+    right.update_position(engine::Vec2::new(-50.0, 0.0), here, 100.0);
+    check!(
+        right.pan() < -0.4,
+        "update_position() to the left -> negative pan"
+    );
+    right.stop();
 
     // ── music crossfade (track-to-track) ──────────────────────────────────────
     // Music (440 Hz) is still looping from play_music above; cross-fade to a lower tone. The new

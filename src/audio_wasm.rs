@@ -7,8 +7,8 @@
 //! single looping **music** channel you can stop or **crossfade** between tracks
 //! ([`crossfade_music`]), a **master volume**, **named mixer buses** ([`set_bus_volume`] + the
 //! [`play_on_bus`]/[`play_sfx_on_bus`] variants) with **manual ducking** ([`duck_bus`] /
-//! [`release_bus`]), and **suspend/resume** for pausing all audio. (Automatic *sidechain* ducking
-//! and full *positional* audio remain native-only.)
+//! [`release_bus`]), **2D positional** playback ([`play_at`] + [`Sfx::update_position`]), and
+//! **suspend/resume** for pausing all audio. (Automatic *sidechain* ducking remains native-only.)
 //!
 //! A **bus** is a `duck → volume → master` [`GainNode`](web_sys::GainNode) chain sitting between
 //! sounds and the master gain: route sounds to a bus by name and control them together with
@@ -23,6 +23,7 @@
 //! [`crossfade_music`]: WebAudio::crossfade_music
 //! [`duck_bus`]: WebAudio::duck_bus
 //! [`release_bus`]: WebAudio::release_bus
+//! [`play_at`]: WebAudio::play_at
 //!
 //! Store it as a `World` resource and drive it from systems:
 //!
@@ -50,6 +51,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use glam::Vec2;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{spawn_local, JsFuture};
 
@@ -313,6 +315,18 @@ impl WebAudio {
         self.play_sfx_to(bytes, &dest)
     }
 
+    /// Plays `bytes` as a **positional** one-shot SFX at `source` in 2D space, heard from
+    /// `listener`, and returns the [`Sfx`] handle. Volume falls off linearly with distance (silent
+    /// at `max_dist`) and stereo pan follows the x-offset — the wasm analogue of the native
+    /// [`AudioManager::play_at`](crate::audio::AudioManager::play_at). Keep the handle and call
+    /// [`Sfx::update_position`] each frame to track a moving source. Routes to the master gain (use
+    /// the returned [`Sfx`] for per-source control).
+    pub fn play_at(&self, bytes: &[u8], source: Vec2, listener: Vec2, max_dist: f32) -> Sfx {
+        let sfx = self.play_sfx(bytes);
+        sfx.update_position(source, listener, max_dist);
+        sfx
+    }
+
     /// Shared `play_sfx` path: wires `source → panner → per-source gain → dest` (where `dest` is the
     /// master gain or a bus gain). Per-source nodes are created now so `set_volume`/`set_pan` apply
     /// before the clip decodes; if node creation/wiring fails, the bare source routes straight to
@@ -505,6 +519,26 @@ impl Sfx {
         }
     }
 
+    /// This sound's current volume (its per-source gain; `1.0` if the gain node is absent).
+    pub fn volume(&self) -> f32 {
+        self.gain.as_ref().map(|g| g.gain().value()).unwrap_or(1.0)
+    }
+
+    /// This sound's current stereo pan (`0.0` if the panner is absent).
+    pub fn pan(&self) -> f32 {
+        self.panner.as_ref().map(|p| p.pan().value()).unwrap_or(0.0)
+    }
+
+    /// Repositions this sound in 2D space: recomputes volume (linear distance falloff, silent at
+    /// `max_dist`) and stereo pan (x-offset) from `source`/`listener` and applies them via
+    /// [`set_volume`](Self::set_volume)/[`set_pan`](Self::set_pan). Call every frame to track a
+    /// moving source. See [`WebAudio::play_at`].
+    pub fn update_position(&self, source: Vec2, listener: Vec2, max_dist: f32) {
+        let (vol, pan) = spatial_params(source, listener, max_dist);
+        self.set_volume(vol);
+        self.set_pan(pan);
+    }
+
     /// Whether this sound has started and not been [`stop`](Self::stop)ped. (A non-looping clip is
     /// **not** auto-cleared when it finishes naturally — same semantics as
     /// [`WebAudio::is_music_playing`].)
@@ -521,4 +555,16 @@ impl Sfx {
             let _ = src.stop();
         }
     }
+}
+
+/// Computes `(volume, pan)` for a positional sound: volume falls off linearly to `0.0` at
+/// `max_dist`, pan follows the x-offset (`-1.0` left … `1.0` right). Mirrors the native
+/// `AudioManager::spatial_params`.
+fn spatial_params(source: Vec2, listener: Vec2, max_dist: f32) -> (f32, f32) {
+    let delta = source - listener;
+    let dist = delta.length();
+    let max = max_dist.max(0.001);
+    let volume = (1.0 - (dist / max).min(1.0)).max(0.0);
+    let pan = (delta.x / max).clamp(-1.0, 1.0);
+    (volume, pan)
 }

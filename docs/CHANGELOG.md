@@ -4,6 +4,26 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.35.0
+
+**2D positional audio for the wasm `WebAudio` path.** SFX could be panned/volumed by hand, but
+positioning a sound from world coordinates was native-only (`AudioManager::play_at`). `WebAudio` now
+computes volume + pan from 2D positions, reusing the existing per-source gain + stereo panner on the
+[`Sfx`] handle. **Additive** — built entirely on the existing `Sfx` controls.
+
+### Added
+- `WebAudio::play_at(bytes, source, listener, max_dist) -> Sfx` — play a positional one-shot:
+  volume falls off linearly (silent at `max_dist`), stereo pan follows the x-offset (native parity).
+- `Sfx::update_position(source, listener, max_dist)` — reposition a playing sound each frame to
+  track a moving source.
+- `Sfx::volume()` / `Sfx::pan()` — read back the current per-source volume / pan.
+
+### Done — "remaining native-only audio" backlog
+- With ducking (0.34.0) and positional (this release), the wasm `WebAudio` mixer reaches native
+  parity for the common cases. The only native-only audio feature left is **automatic sidechain**
+  (`set_sidechain`), which needs continuous per-frame trigger-activity evaluation that doesn't fit
+  the fire-and-forget Web Audio model — use manual `duck_bus`/`release_bus` instead.
+
 ## 0.34.0
 
 **Bus ducking for the wasm `WebAudio` path.** Named buses could be volume-controlled but not ducked
