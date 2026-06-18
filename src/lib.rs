@@ -74,7 +74,7 @@ pub use atlas::{AtlasSprite, TextureAtlas};
 #[cfg(not(target_arch = "wasm32"))]
 pub use audio::{AudioChannelState, AudioEffect, AudioManager, AudioSystem, BusDuck, Sidechain};
 #[cfg(target_arch = "wasm32")]
-pub use audio_wasm::WebAudio;
+pub use audio_wasm::{Sfx, WebAudio};
 pub use behavior::{
     AlwaysSucceed, BehaviorNode, BehaviorStatus, BehaviorSystem, BehaviorTree, Blackboard,
     BlackboardValue, Inverter, Selector, Sequence,

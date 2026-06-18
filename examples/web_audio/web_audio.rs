@@ -108,6 +108,22 @@ async fn run_checks() {
         "play_music() decoded and started looping music"
     );
 
+    // ── controllable SFX: pan + volume + stop (play_sfx -> Sfx) ───────────────
+    let beep = sine_wav(660.0, 0.5);
+    let sfx = audio.play_sfx(&beep);
+    sfx.set_pan(-0.8); // pan left (works before decode finishes)
+    sfx.set_volume(0.5);
+    check!(
+        wait_until(|| sfx.is_playing(), 60).await,
+        "play_sfx() decoded and started a controllable SFX"
+    );
+    check!(
+        sfx.is_playing(),
+        "set_pan/set_volume applied without dropping the SFX"
+    );
+    sfx.stop();
+    check!(!sfx.is_playing(), "Sfx::stop() stopped the SFX");
+
     // ── suspend / resume toggles the context ─────────────────────────────────
     audio.suspend();
     check!(
