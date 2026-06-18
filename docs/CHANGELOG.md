@@ -4,6 +4,34 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.34.0
+
+**Bus ducking for the wasm `WebAudio` path.** Named buses could be volume-controlled but not ducked
+— ducking was native-only (`AudioManager`). Each bus is now a two-gain chain `duck → volume →
+master`: `set_bus_volume` drives `volume`, and the new `duck_bus`/`release_bus` ramp the `duck`
+multiplier independently (so ducking never clobbers the bus volume and vice-versa), matching the
+native mixer. Ramps run on the Web Audio clock (`AudioParam`), so — like the rest of the wasm audio
+path — there is **no per-frame `update()` tick**. **Additive** — existing bus behavior is unchanged
+(a bus rests at duck = 1.0, a transparent pass-through).
+
+### Added
+- `WebAudio::duck_bus(bus, gain, attack_secs)` / `release_bus(bus, release_secs)` — ramp a bus's
+  duck multiplier toward `gain` (clamped `0.0..=1.0`) / back to `1.0`. `attack/release <= 0.0` is an
+  instant set.
+- `WebAudio::bus_duck(bus)` — the current duck multiplier (`1.0` if none / unknown bus).
+- `web_audio` example + `scripts/wasm_audio_smoke.sh` extended to drive + self-check ducking
+  (headless lifecycle check now 28/28).
+
+### Changed (internal)
+- Buses now store a `Bus { volume, duck }` two-`GainNode` chain (was a single `GainNode`); sounds
+  routed to a bus connect to its `duck` input. `set_bus_volume`/`bus_volume`/`play_on_bus`/
+  `play_sfx_on_bus` are unchanged in behavior. No public API change to those methods.
+
+### Not ported (still native-only)
+- **Automatic sidechain** (`set_sidechain`/`clear_sidechain`): it requires continuously evaluating
+  "is the trigger bus playing?" every frame, which doesn't fit Web Audio's fire-and-forget model
+  (and music isn't bus-routed on wasm). Drive ducking manually with `duck_bus`/`release_bus`.
+
 ## 0.33.0
 
 **Track-to-track music crossfade for the wasm `WebAudio` path.** The music channel could be started

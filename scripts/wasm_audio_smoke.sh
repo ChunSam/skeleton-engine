@@ -11,6 +11,7 @@
 #   - crossfade_music() fades the music channel from one track to another
 #   - play_sfx() controllable SFX: pan/volume/stop
 #   - named mixer buses: set_bus_volume/clamp, bus_volume, bus_names, play_sfx_on_bus/play_on_bus
+#   - bus ducking: duck_bus/release_bus ramp the duck multiplier, bus_duck reads it, gain clamp
 #   - suspend()/resume() toggle the context state
 # The example drives every WebAudio method and stamps the verdict into the document title as
 # "AUDIO_CHECK: PASS (n/n)" / "...FAIL: <step>"; this script reads that title live over Chrome's

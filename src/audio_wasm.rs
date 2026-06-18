@@ -6,19 +6,23 @@
 //! **controllable** per-source SFX with **stereo pan** + volume + stop ([`play_sfx`] → [`Sfx`]), a
 //! single looping **music** channel you can stop or **crossfade** between tracks
 //! ([`crossfade_music`]), a **master volume**, **named mixer buses** ([`set_bus_volume`] + the
-//! [`play_on_bus`]/[`play_sfx_on_bus`] variants), and **suspend/resume** for pausing all audio.
-//! (Ducking and full positional audio remain native-only.)
+//! [`play_on_bus`]/[`play_sfx_on_bus`] variants) with **manual ducking** ([`duck_bus`] /
+//! [`release_bus`]), and **suspend/resume** for pausing all audio. (Automatic *sidechain* ducking
+//! and full *positional* audio remain native-only.)
 //!
-//! A **bus** is a named [`GainNode`](web_sys::GainNode) sitting between sounds and the master gain:
-//! route sounds to a bus by name and control them together with [`set_bus_volume`] — the wasm
-//! analogue of the native [`AudioManager`](crate::audio::AudioManager) bus mixer. Web Audio is a
-//! node graph, so this needs no per-frame `update()` tick.
+//! A **bus** is a `duck → volume → master` [`GainNode`](web_sys::GainNode) chain sitting between
+//! sounds and the master gain: route sounds to a bus by name and control them together with
+//! [`set_bus_volume`] (and dip them with [`duck_bus`]) — the wasm analogue of the native
+//! [`AudioManager`](crate::audio::AudioManager) bus mixer. Web Audio is a node graph, so this needs
+//! no per-frame `update()` tick.
 //!
 //! [`play_sfx`]: WebAudio::play_sfx
 //! [`play_on_bus`]: WebAudio::play_on_bus
 //! [`play_sfx_on_bus`]: WebAudio::play_sfx_on_bus
 //! [`set_bus_volume`]: WebAudio::set_bus_volume
 //! [`crossfade_music`]: WebAudio::crossfade_music
+//! [`duck_bus`]: WebAudio::duck_bus
+//! [`release_bus`]: WebAudio::release_bus
 //!
 //! Store it as a `World` resource and drive it from systems:
 //!
@@ -64,10 +68,12 @@ pub struct WebAudio {
     /// volume can be ramped independently for [`crossfade_music`](Self::crossfade_music). Set once
     /// decoding finishes (playback is async), cleared by `stop_music`.
     music: Rc<RefCell<Option<MusicChannel>>>,
-    /// Named mixer buses: each is a `GainNode` wired `bus → master`. Sounds routed to a bus
-    /// (via the `*_on_bus` methods) share its gain, so `set_bus_volume` controls them as a group.
-    /// Created lazily on first reference and kept (so a volume-only bus persists in `bus_names`).
-    buses: Rc<RefCell<HashMap<String, web_sys::GainNode>>>,
+    /// Named mixer buses, each a two-gain chain `duck → volume → master`. Sounds routed to a bus
+    /// (via the `*_on_bus` methods) connect to its `duck` node, so `set_bus_volume` (the `volume`
+    /// node) and `duck_bus`/`release_bus` (the `duck` node) control the group independently — the
+    /// duck multiplier rides on top of the bus volume, matching the native mixer. Created lazily on
+    /// first reference and kept (so a volume-only bus persists in `bus_names`).
+    buses: Rc<RefCell<HashMap<String, Bus>>>,
 }
 
 /// The currently-playing looping music: its buffer source and the per-music gain node it routes
@@ -76,6 +82,19 @@ pub struct WebAudio {
 struct MusicChannel {
     source: web_sys::AudioBufferSourceNode,
     gain: web_sys::GainNode,
+}
+
+/// A named mixer bus: two gain nodes in series, `duck → volume → master`. Sounds connect to `duck`
+/// (the input). `volume` is the user-set bus level ([`WebAudio::set_bus_volume`]); `duck` is the
+/// automatic/temporary ducking multiplier ([`WebAudio::duck_bus`]). Keeping them separate means a
+/// duck ramp never clobbers the bus volume and vice-versa. Cloning is cheap (JS nodes are
+/// reference-counted by the browser).
+#[derive(Clone)]
+struct Bus {
+    /// User-set bus volume (`volume → master`).
+    volume: web_sys::GainNode,
+    /// Ducking multiplier and the bus input (`duck → volume`); rests at `1.0`.
+    duck: web_sys::GainNode,
 }
 
 impl WebAudio {
@@ -119,17 +138,28 @@ impl WebAudio {
 
     // ── Named mixer buses ────────────────────────────────────────────────────
 
-    /// Returns the `GainNode` for the named `bus`, creating it (wired `bus → master`) on first
-    /// reference. `None` only if the browser refuses to create/wire the node — callers then route
-    /// straight to master so playback still happens.
-    fn bus_gain(&self, name: &str) -> Option<web_sys::GainNode> {
-        if let Some(g) = self.buses.borrow().get(name) {
-            return Some(g.clone());
+    /// Returns the named `bus` (its `duck`+`volume` gain chain), creating it wired
+    /// `duck → volume → master` on first reference. `None` only if the browser refuses to
+    /// create/wire the nodes — callers then route straight to master so playback still happens.
+    fn bus_entry(&self, name: &str) -> Option<Bus> {
+        if let Some(b) = self.buses.borrow().get(name) {
+            return Some(b.clone());
         }
-        let g = self.ctx.create_gain().ok()?;
-        g.connect_with_audio_node(&self.master).ok()?;
-        self.buses.borrow_mut().insert(name.to_string(), g.clone());
-        Some(g)
+        let volume = self.ctx.create_gain().ok()?;
+        let duck = self.ctx.create_gain().ok()?;
+        duck.connect_with_audio_node(&volume).ok()?;
+        volume.connect_with_audio_node(&self.master).ok()?;
+        let bus = Bus { volume, duck };
+        self.buses
+            .borrow_mut()
+            .insert(name.to_string(), bus.clone());
+        Some(bus)
+    }
+
+    /// The input node sounds connect to for the named `bus` (its `duck` gain), creating the bus on
+    /// first use. `None` if the bus can't be created (caller falls back to master).
+    fn bus_input(&self, name: &str) -> Option<web_sys::GainNode> {
+        self.bus_entry(name).map(|b| b.duck)
     }
 
     /// Sets the volume of the named mixer `bus`, clamped to `0.0..=1.0` — affects every sound
@@ -138,18 +168,19 @@ impl WebAudio {
     /// registers it (it then shows up in [`bus_names`](Self::bus_names)) — the wasm analogue of the
     /// native mixer's "volume-only" buses.
     pub fn set_bus_volume(&self, bus: &str, v: f32) {
-        if let Some(g) = self.bus_gain(bus) {
-            g.gain().set_value(v.clamp(0.0, 1.0));
+        if let Some(b) = self.bus_entry(bus) {
+            b.volume.gain().set_value(v.clamp(0.0, 1.0));
         }
     }
 
     /// The current volume of the named `bus` (`1.0` if the bus does not exist yet). Read-only — it
-    /// does **not** create the bus.
+    /// does **not** create the bus. This is the user-set bus level, independent of any active duck
+    /// (see [`bus_duck`](Self::bus_duck)).
     pub fn bus_volume(&self, bus: &str) -> f32 {
         self.buses
             .borrow()
             .get(bus)
-            .map(|g| g.gain().value())
+            .map(|b| b.volume.gain().value())
             .unwrap_or(1.0)
     }
 
@@ -159,6 +190,42 @@ impl WebAudio {
         let mut names: Vec<String> = self.buses.borrow().keys().cloned().collect();
         names.sort();
         names
+    }
+
+    /// Ducks the named `bus` — ramps its duck multiplier toward `gain` (clamped `0.0..=1.0`) over
+    /// `attack_secs` seconds on the audio clock, on top of the bus volume. Use it to dip music/SFX
+    /// while a voice line or important cue plays, then call [`release_bus`](Self::release_bus) to
+    /// bring it back. The bus is created on first use.
+    ///
+    /// Like all the bus/crossfade ramps this is scheduled on the Web Audio clock
+    /// (`AudioParam::linear_ramp_to_value_at_time`), so there is **no per-frame `update()` tick** to
+    /// drive — unlike the native [`AudioManager::duck_bus`](crate::audio::AudioManager::duck_bus).
+    /// (Automatic **sidechain** ducking stays native-only: it needs continuous "is the trigger bus
+    /// playing?" evaluation, which doesn't fit the fire-and-forget Web Audio model — drive ducking
+    /// manually from your game logic with `duck_bus`/`release_bus` instead.)
+    pub fn duck_bus(&self, bus: &str, gain: f32, attack_secs: f32) {
+        if let Some(b) = self.bus_entry(bus) {
+            self.ramp_gain_to(&b.duck, gain.clamp(0.0, 1.0), attack_secs.max(0.0) as f64);
+        }
+    }
+
+    /// Releases the duck on the named `bus` — ramps its duck multiplier back to `1.0` over
+    /// `release_secs` seconds. The inverse of [`duck_bus`](Self::duck_bus).
+    pub fn release_bus(&self, bus: &str, release_secs: f32) {
+        if let Some(b) = self.bus_entry(bus) {
+            self.ramp_gain_to(&b.duck, 1.0, release_secs.max(0.0) as f64);
+        }
+    }
+
+    /// The current duck multiplier for the named `bus` (`1.0` = no duck / unknown bus). Read-only —
+    /// does **not** create the bus. During a [`duck_bus`](Self::duck_bus)/[`release_bus`](Self::release_bus)
+    /// ramp this reflects the in-progress value.
+    pub fn bus_duck(&self, bus: &str) -> f32 {
+        self.buses
+            .borrow()
+            .get(bus)
+            .map(|b| b.duck.gain().value())
+            .unwrap_or(1.0)
     }
 
     /// Decodes `bytes` (an encoded audio clip — whatever the browser decodes: WAV/MP3/OGG) and
@@ -173,7 +240,7 @@ impl WebAudio {
     /// on first use) instead of straight to the master gain, so [`set_bus_volume`](Self::set_bus_volume)
     /// scales it along with everything else on that bus.
     pub fn play_on_bus(&self, bytes: &[u8], bus: &str) {
-        let dest = self.bus_gain(bus).unwrap_or_else(|| self.master.clone());
+        let dest = self.bus_input(bus).unwrap_or_else(|| self.master.clone());
         self.decode_then_play_to(bytes, &dest);
     }
 
@@ -237,11 +304,12 @@ impl WebAudio {
     }
 
     /// Like [`play_sfx`](Self::play_sfx), but the controllable SFX is routed through the named mixer
-    /// `bus` (created on first use): `source → panner → per-source gain → bus gain → master`. The
-    /// returned [`Sfx`] still has its own independent volume/pan; [`set_bus_volume`](Self::set_bus_volume)
-    /// scales the whole bus on top of that.
+    /// `bus` (created on first use): `source → panner → per-source gain → bus duck → bus volume →
+    /// master`. The returned [`Sfx`] still has its own independent volume/pan;
+    /// [`set_bus_volume`](Self::set_bus_volume) (and [`duck_bus`](Self::duck_bus)) scale the whole
+    /// bus on top of that.
     pub fn play_sfx_on_bus(&self, bytes: &[u8], bus: &str) -> Sfx {
-        let dest = self.bus_gain(bus).unwrap_or_else(|| self.master.clone());
+        let dest = self.bus_input(bus).unwrap_or_else(|| self.master.clone());
         self.play_sfx_to(bytes, &dest)
     }
 
@@ -377,9 +445,19 @@ impl WebAudio {
 
     /// Ramps a gain node's value to `target` over `dur` seconds on the audio clock, anchoring the
     /// current value first so the linear ramp starts from where the gain actually is.
+    ///
+    /// `dur <= 0.0` is an **instant** set: it cancels any pending automation and writes the value
+    /// directly (the `value=` setter), which also makes it immediately readable via
+    /// [`AudioParam::value`] (a scheduled ramp's live value is not — it's computed on the audio
+    /// render thread).
     fn ramp_gain_to(&self, gain: &web_sys::GainNode, target: f32, dur: f64) {
-        let now = self.ctx.current_time();
         let param = gain.gain();
+        if dur <= 0.0 {
+            let _ = param.cancel_scheduled_values(0.0);
+            param.set_value(target);
+            return;
+        }
+        let now = self.ctx.current_time();
         let _ = param.set_value_at_time(param.value(), now);
         let _ = param.linear_ramp_to_value_at_time(target, now + dur);
     }
