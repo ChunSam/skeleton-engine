@@ -4,6 +4,22 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.38.0
+
+**Flat-top hexagonal tilemap projection.** `TilemapProjection::Hexagonal` (v0.29.0) was pointy-top
+only; the new `HexagonalFlat` variant is the **flat-top** counterpart in odd-q offset coordinates
+(odd columns shifted down by half a tile) — the 90°-rotated mirror. `tile_size` is the flat-to-flat
+**height**, and a flat-top hex is wider than tall. All four projection methods branch on it, so
+`TilemapSystem` renders + picks it automatically. **Additive** — existing projections unchanged.
+
+### Added
+- `TilemapProjection::HexagonalFlat` — flat-top hex, odd-q offset. `cell_center_world` (col pitch
+  `tile_size·√3/2` + odd-col half-shift-down), `cell_at_world` (flat-top pixel→axial→cube-round→
+  odd-q), `cell_render_size` (`tile_size·2/√3 × tile_size`, wider than tall), `cell_z` (`-1`, no
+  overlap).
+- Example `hex_tilemap_flat` + generated `examples/assets/hex_tiles_flat.png` (flat-top hex atlas).
+- 4 unit tests (odd-col offset, center↔world round-trip, off-center picking, render-size/z).
+
 ## 0.37.0
 
 **Gamepad navigation for UI keyboard focus.** The focus pass (v0.31.0) was keyboard + mouse only.

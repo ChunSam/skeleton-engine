@@ -81,6 +81,11 @@ impl TilemapAtlas {
 /// (odd rows are shifted right by half a tile), so the rectangular `tiles[row][col]` array maps
 /// straight onto it. `tile_size` is the hex's flat-to-flat width; cell `(0, 0)`'s center sits at
 /// `origin`. Hexes tessellate without overlap, so they share a fixed render `z` like orthographic.
+///
+/// [`HexagonalFlat`](Self::HexagonalFlat) is the **flat-top** variant in **odd-q offset**
+/// coordinates (odd columns shifted down by half a tile) — the 90°-rotated counterpart of
+/// [`Hexagonal`](Self::Hexagonal). `tile_size` is the hex's flat-to-flat **height**; a flat-top hex
+/// is wider than it is tall (`cell_render_size` returns `tile_size·2/√3 × tile_size`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TilemapProjection {
     /// Square grid: cell `(row, col)` center = `origin + (col + 0.5, row + 0.5) * tile_size`.
@@ -90,6 +95,8 @@ pub enum TilemapProjection {
     Isometric,
     /// Pointy-top hex grid, odd-r offset coordinates (see the type docs).
     Hexagonal,
+    /// Flat-top hex grid, odd-q offset coordinates (see the type docs).
+    HexagonalFlat,
 }
 
 /// Tilemap component.
@@ -216,6 +223,20 @@ impl Tilemap {
                     self.origin.y + row as f32 * self.tile_size * (SQRT_3 * 0.5),
                 )
             }
+            TilemapProjection::HexagonalFlat => {
+                // Flat-top, odd-q offset (90°-rotated mirror of Hexagonal): odd columns shifted
+                // down by half a height; columns packed at 3/4 of the hex width (= height·√3/2,
+                // since height = √3·size). `tile_size` is the flat-to-flat height.
+                let y_off = if col % 2 == 1 {
+                    self.tile_size * 0.5
+                } else {
+                    0.0
+                };
+                Vec2::new(
+                    self.origin.x + col as f32 * self.tile_size * (SQRT_3 * 0.5),
+                    self.origin.y + row as f32 * self.tile_size + y_off,
+                )
+            }
         }
     }
 
@@ -227,8 +248,11 @@ impl Tilemap {
     /// entities meant to stand on the floor a `z` above the cells they occupy.)
     pub fn cell_z(&self, row: usize, col: usize) -> f32 {
         match self.projection {
-            // Orthographic and hexagonal tiles tessellate without overlap, so a fixed z is fine.
-            TilemapProjection::Orthographic | TilemapProjection::Hexagonal => -1.0,
+            // Orthographic and hexagonal (both orientations) tiles tessellate without overlap, so a
+            // fixed z is fine.
+            TilemapProjection::Orthographic
+            | TilemapProjection::Hexagonal
+            | TilemapProjection::HexagonalFlat => -1.0,
             TilemapProjection::Isometric => (row + col) as f32,
         }
     }
@@ -246,6 +270,10 @@ impl Tilemap {
             }
             TilemapProjection::Hexagonal => {
                 Vec2::new(self.tile_size, self.tile_size * 2.0 / SQRT_3)
+            }
+            // Flat-top hexes are wider than tall (the transpose of pointy-top).
+            TilemapProjection::HexagonalFlat => {
+                Vec2::new(self.tile_size * 2.0 / SQRT_3, self.tile_size)
             }
         }
     }
@@ -298,6 +326,22 @@ impl Tilemap {
                 // odd-r offset from axial: col = q + (r - (r & 1)) / 2, row = r.
                 let row = rr;
                 let col = rq + (rr - (rr & 1)) / 2;
+                if row < 0 || col < 0 {
+                    return None;
+                }
+                (row as usize, col as usize)
+            }
+            TilemapProjection::HexagonalFlat => {
+                // Flat-top pixel → fractional axial (size = height/√3) → cube-round → odd-q offset.
+                let size = self.tile_size / SQRT_3;
+                let px = world_pos.x - self.origin.x;
+                let py = world_pos.y - self.origin.y;
+                let q = (2.0 / 3.0 * px) / size;
+                let r = (-px / 3.0 + SQRT_3 / 3.0 * py) / size;
+                let (rq, rr) = axial_round(q, r);
+                // odd-q offset from axial: col = q, row = r + (q - (q & 1)) / 2.
+                let col = rq;
+                let row = rr + (rq - (rq & 1)) / 2;
                 if row < 0 || col < 0 {
                     return None;
                 }
@@ -570,6 +614,71 @@ mod tests {
         let tm = make_tilemap(vec![vec![1; 3]; 3]).with_projection(TilemapProjection::Hexagonal);
         assert_eq!(tm.cell_z(0, 0), -1.0);
         assert_eq!(tm.cell_z(2, 2), -1.0);
+    }
+
+    // ── Hexagonal-flat projection (flat-top, odd-q offset) ───────────────────────
+
+    #[test]
+    fn flat_top_cell_centers_offset_odd_cols() {
+        let tm =
+            make_tilemap(vec![vec![1; 3]; 3]).with_projection(TilemapProjection::HexagonalFlat);
+        // tile_size 32 = flat-to-flat height; cell (0,0) at origin; +row steps a full height; odd
+        // columns shift down by half. Mirror of the pointy-top case with axes swapped.
+        assert_eq!(tm.cell_center_world(0, 0), Vec2::new(0.0, 0.0));
+        assert_eq!(tm.cell_center_world(1, 0), Vec2::new(0.0, 32.0));
+        // col 1 (odd) is shifted down by 16 and right by 32 * √3/2 ≈ 27.7128.
+        let c01 = tm.cell_center_world(0, 1);
+        assert!(
+            (c01.y - 16.0).abs() < 1e-3,
+            "odd col y offset, got {}",
+            c01.y
+        );
+        assert!((c01.x - 27.712_8).abs() < 1e-2, "col pitch, got {}", c01.x);
+        // even col 2 is back to no y offset.
+        assert!((tm.cell_center_world(0, 2).y - 0.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn flat_top_center_and_at_world_round_trip() {
+        let tm = Tilemap::new(
+            make_atlas(),
+            vec![vec![1; 5]; 5],
+            40.0,
+            Vec2::new(70.0, 30.0),
+        )
+        .with_projection(TilemapProjection::HexagonalFlat);
+        for row in 0..5 {
+            for col in 0..5 {
+                let center = tm.cell_center_world(row, col);
+                assert_eq!(
+                    tm.cell_at_world(center),
+                    Some((row, col)),
+                    "flat-top hex round-trip failed for ({row}, {col})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn flat_top_picks_nearest_hex_off_center() {
+        let tm = Tilemap::new(make_atlas(), vec![vec![1; 4]; 4], 48.0, Vec2::ZERO)
+            .with_projection(TilemapProjection::HexagonalFlat);
+        let near = tm.cell_center_world(2, 2) + Vec2::new(-3.0, 4.0);
+        assert_eq!(tm.cell_at_world(near), Some((2, 2)));
+    }
+
+    #[test]
+    fn flat_top_render_size_wider_than_tall_and_z_fixed() {
+        let tm =
+            make_tilemap(vec![vec![1; 3]; 3]).with_projection(TilemapProjection::HexagonalFlat);
+        let rs = tm.cell_render_size();
+        assert!(
+            rs.x > rs.y,
+            "flat-top hex sprite is wider than tall, got {rs:?}"
+        );
+        assert!((rs.y - 32.0).abs() < 1e-3);
+        assert!((rs.x - 32.0 * 2.0 / SQRT_3).abs() < 1e-3);
+        assert_eq!(tm.cell_z(0, 0), -1.0);
     }
 
     // ── Generation guard / set_tile bumps generation ──────────────────────────
