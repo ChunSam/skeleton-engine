@@ -41,6 +41,17 @@ pub fn run_web_audio() {
     wasm_bindgen_futures::spawn_local(run_checks());
 }
 
+/// WASM entry point for the **paced listening demo** — `index.html` calls this on the "Play paced
+/// demo" click. Unlike [`run_web_audio`] (the fast self-check), this plays each audible feature
+/// (center / hard-left / hard-right / pan sweep / positional flythrough / music crossfade / smooth
+/// bus duck) as a distinct stage with gaps between them, so the stereo + ramp behaviour is clearly
+/// distinguishable by ear.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn run_audio_demo() {
+    wasm_bindgen_futures::spawn_local(audio_demo());
+}
+
 /// Drives every `WebAudio` method and records a pass/fail line per step.
 #[cfg(target_arch = "wasm32")]
 async fn run_checks() {
@@ -291,6 +302,109 @@ async fn run_checks() {
     finish(passed, total, first_fail);
     // Hold the resource alive for the page's lifetime so music keeps looping.
     keep_alive(audio);
+}
+
+/// The paced listening demo: plays each audible `WebAudio` feature as its own stage, with a gap
+/// (and an on-screen "now playing" line) between stages, so stereo pan and the smooth ramps are
+/// clearly distinguishable by ear — unlike the fire-everything-at-once self-check.
+#[cfg(target_arch = "wasm32")]
+async fn audio_demo() {
+    use engine::WebAudio;
+
+    let Some(audio) = WebAudio::new() else {
+        set_status("❌ no AudioContext — your browser refused Web Audio");
+        return;
+    };
+    audio.set_volume(0.7);
+    audio.resume();
+    wait_until(|| audio.is_running(), 60).await;
+    let here = engine::Vec2::ZERO;
+
+    // 1 — center reference, so the ear has a baseline before the L/R stages.
+    set_status("1/7 ▸ CENTER reference tone (pan 0)");
+    let s = audio.play_sfx(&sine_wav(440.0, 1.2));
+    s.set_pan(0.0);
+    sleep_ms(1300).await;
+    s.stop();
+    sleep_ms(600).await;
+
+    // 2 — hard left.
+    set_status("2/7 ◀◀ LEFT  (pan −1.0) — should come only from the left");
+    let s = audio.play_sfx(&sine_wav(440.0, 1.4));
+    s.set_pan(-1.0);
+    sleep_ms(1500).await;
+    s.stop();
+    sleep_ms(600).await;
+
+    // 3 — hard right.
+    set_status("3/7 RIGHT ▶▶  (pan +1.0) — should come only from the right");
+    let s = audio.play_sfx(&sine_wav(440.0, 1.4));
+    s.set_pan(1.0);
+    sleep_ms(1500).await;
+    s.stop();
+    sleep_ms(800).await;
+
+    // 4 — continuous pan sweep left → right on one sustained tone.
+    set_status("4/7 ↔ pan SWEEP  left → right (one tone, panner animated)");
+    let s = audio.play_sfx(&sine_wav(440.0, 2.8));
+    for i in 0..=24 {
+        s.set_pan(-1.0 + (i as f32 / 24.0) * 2.0);
+        sleep_ms(95).await;
+    }
+    s.stop();
+    sleep_ms(800).await;
+
+    // 5 — positional flythrough: source crosses left→right at a fixed distance, so it pans AND
+    //     swells loudest as it passes the listener (linear distance falloff).
+    set_status("5/7 ✈ POSITIONAL flythrough  (play_at: pans L→R, loudest at center)");
+    let s = audio.play_at(
+        &sine_wav(523.0, 3.4),
+        engine::Vec2::new(-100.0, 0.0),
+        here,
+        100.0,
+    );
+    for i in 0..=32 {
+        let x = -100.0 + (i as f32 / 32.0) * 200.0;
+        s.update_position(engine::Vec2::new(x, 0.0), here, 100.0);
+        sleep_ms(95).await;
+    }
+    s.stop();
+    sleep_ms(800).await;
+
+    // 6 — music crossfade with a long (2s) blend so the two tones audibly overlap.
+    set_status("6/7 ⤬ music CROSSFADE  440 Hz → 330 Hz over 2.0s (tones overlap mid-fade)");
+    audio.play_music(&sine_wav(440.0, 1.0));
+    sleep_ms(1700).await;
+    audio.crossfade_music(&sine_wav(330.0, 1.0), 2.0);
+    sleep_ms(2700).await;
+    audio.stop_music();
+    sleep_ms(700).await;
+
+    // 7 — smooth bus duck (dur > 0, the ramp the headless self-check can't show): a steady bed on a
+    //     bus dips under a "voice" beep over 0.4s, then rises back over 0.4s.
+    set_status("7/7 ⤵ DUCKING  steady bed dips under a beep (0.4s ramp down, 0.4s back up)");
+    let bed = audio.play_sfx_on_bus(&sine_wav(220.0, 6.0), "bed");
+    sleep_ms(800).await;
+    audio.duck_bus("bed", 0.15, 0.4); // smooth ramp DOWN
+    sleep_ms(250).await;
+    let _voice = audio.play_sfx(&sine_wav(880.0, 0.7)); // the cue the bed ducks for
+    sleep_ms(1200).await;
+    audio.release_bus("bed", 0.4); // smooth ramp UP
+    sleep_ms(1300).await;
+    bed.stop();
+
+    set_status("✅ Paced demo complete. Refresh the page, then click again to replay.");
+}
+
+/// Sets the page's `#status` line to a single "now playing" message for the paced demo.
+#[cfg(target_arch = "wasm32")]
+fn set_status(msg: &str) {
+    if let Some(el) = web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.get_element_by_id("status"))
+    {
+        el.set_inner_html(msg);
+    }
 }
 
 /// Writes the running list of step lines into the page's `#status` element.

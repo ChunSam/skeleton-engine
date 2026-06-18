@@ -18,29 +18,34 @@
       gap: 14px;
     }
     h1 { font-size: 18px; color: #b0d0ff; font-weight: 600; }
-    #start {
+    #start, #demo {
       font: inherit; padding: 8px 16px; cursor: pointer;
       background: #1a3a5a; color: #cfe6ff; border: 1px solid #2c5a8a; border-radius: 6px;
     }
-    #start:hover { background: #224a72; }
+    #start:hover, #demo:hover { background: #224a72; }
+    #demo { background: #1a4a2a; border-color: #2c8a5a; color: #cfffe0; }
+    #demo:hover { background: #226a3a; }
     #status { font-size: 14px; line-height: 1.7; text-align: left; min-height: 1.7em; }
     #result { font-size: 16px; font-weight: 700; }
   </style>
 </head>
 <body>
   <h1>skeleton-engine — WebAudio self-check</h1>
-  <button id="start">▶ Start audio (then listen for a 440&nbsp;Hz tone)</button>
+  <button id="start">▶ Start audio — fast self-check (440&nbsp;Hz tone)</button>
+  <button id="demo">🎧 Play paced demo — clear LEFT / RIGHT, one stage at a time</button>
   <p id="status">Loading WASM…</p>
   <p id="result"></p>
   <script type="module">
-    import init, { run_web_audio } from "./pkg/web_audio.js";
+    import init, { run_web_audio, run_audio_demo } from "./pkg/web_audio.js";
     try {
       await init();
-      document.getElementById("status").textContent = "Ready. Click “Start audio” to run the check.";
-      // Auto-run for headless harnesses (which relax the autoplay gate). When a human opens
-      // this normally the AudioContext stays suspended until the click below provides a gesture.
+      document.getElementById("status").textContent =
+        "Ready. “Start audio” = fast self-check · “Play paced demo” = slow, stage-by-stage listen.";
+      // Auto-run the self-check for headless harnesses (which relax the autoplay gate). When a human
+      // opens this normally the AudioContext stays suspended until a button click provides a gesture.
       run_web_audio();
       document.getElementById("start").addEventListener("click", () => run_web_audio());
+      document.getElementById("demo").addEventListener("click", () => run_audio_demo());
     } catch (e) {
       document.getElementById("status").textContent = "Error: " + e;
       console.error(e);
