@@ -33,6 +33,10 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps  # CI fails docs on broken intra-
 
 Or run all of them in order via `./scripts/verify.sh`.
 
+- **Read the gate's exit code, don't pipe it:** `./scripts/verify.sh | tail` (or any
+  trailing pipe) reports `tail`'s `0` and **hides** a real `fmt --check`/`clippy` failure
+  (bit twice). Capture it: `./scripts/verify.sh > /tmp/verify.log 2>&1; echo $?` (or
+  `VERIFY_EXIT=$?`) is the authoritative verdict.
 - **WASM gotcha:** do *not* gate on `--target wasm32 --all-targets` — it fails on the
   native-only examples (`platformer_game`/`mp_server`/`gpu_particles`, which pull in
   `rapier2d`/`tungstenite`/`GpuParticleEmitter`). The lib+bins build above (or `--lib`)
