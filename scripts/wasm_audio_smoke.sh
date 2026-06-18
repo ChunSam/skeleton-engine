@@ -8,6 +8,7 @@
 #   - AudioContext is created and resume()s to "running"
 #   - master volume set/clamp is applied (read back through the gain node)
 #   - play_music() decodes real bytes and starts a looping source
+#   - crossfade_music() fades the music channel from one track to another
 #   - play_sfx() controllable SFX: pan/volume/stop
 #   - named mixer buses: set_bus_volume/clamp, bus_volume, bus_names, play_sfx_on_bus/play_on_bus
 #   - suspend()/resume() toggle the context state
