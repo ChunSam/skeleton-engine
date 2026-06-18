@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>wasm save check — skeleton-engine (wasm)</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0d0d0d;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: system-ui, sans-serif;
+      color: #ccc;
+      gap: 14px;
+    }
+    h1 { font-size: 18px; color: #b0d0ff; font-weight: 600; }
+    #status { font-size: 14px; line-height: 1.7; text-align: left; min-height: 1.7em; }
+    #result { font-size: 16px; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <h1>skeleton-engine — wasm AEAD save/load self-check (localStorage)</h1>
+  <p id="status">Loading WASM…</p>
+  <p id="result"></p>
+  <script type="module">
+    import init, { run_save_check } from "./pkg/wasm_save.js";
+    try {
+      await init();
+      run_save_check();
+    } catch (e) {
+      document.getElementById("status").textContent = "Error: " + e;
+      console.error(e);
+    }
+  </script>
+</body>
+</html>

@@ -4,6 +4,22 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.27.0
+
+**wasm AEAD save/load browser verification.** v0.22.0 made the `save`/`load`/`save_versioned`/
+`load_migrated` family cross-platform (hex-encoded ChaCha20-Poly1305 blob in `localStorage` on
+wasm), but that path was only compile-gated + native-playtested — never *run* in a browser. This
+closes that verification debt with an autonomous headless check. **No engine code change — example
++ tooling only.**
+
+### Added
+- Example `wasm_save` (wasm-only, `examples/wasm_save/`) — exercises the localStorage save backend
+  end-to-end: `save` → `exists` → `load` round-trip, asserts the stored value is hex ciphertext
+  (not plaintext), verifies **AEAD tamper detection** (a corrupted blob makes `load` fail), and a
+  `save_versioned`/`load_migrated` round-trip + `delete`.
+- `scripts/wasm_save_smoke.sh` — optional local (non-CI) headless check that runs the example and
+  asserts the round-trip via the verdict read live over Chrome's DevTools endpoint. Result: **7/7**.
+
 ## 0.26.0
 
 **WebAudio: controllable per-source SFX with stereo pan (wasm).** A step toward native↔wasm audio

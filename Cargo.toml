@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name        = "skeleton-engine"
-version     = "0.26.0"
+version     = "0.27.0"
 edition     = "2021"
 description = "Lightweight 2D game engine — wgpu rendering, custom ECS, rapier2d physics"
 repository  = "https://github.com/ChunSam/skeleton-engine"
@@ -39,6 +39,10 @@ crate-type = ["cdylib", "rlib"]
 [[example]]
 name = "web_audio"
 path = "examples/web_audio/web_audio.rs"
+
+[[example]]
+name = "wasm_save"
+path = "examples/wasm_save/wasm_save.rs"
 
 [[example]]
 name = "platformer_game"
