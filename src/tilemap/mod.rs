@@ -24,6 +24,10 @@ use glam::Vec2;
 
 use crate::renderer::uv::UvRect;
 
+/// √3, used by the pointy-top hexagonal projection (hex height = width · 2/√3, row pitch =
+/// width · √3/2).
+const SQRT_3: f32 = 1.732_050_8;
+
 // ─── Data types ───────────────────────────────────────────────────────────────
 
 /// Texture atlas configuration for a tilemap.
@@ -72,6 +76,11 @@ impl TilemapAtlas {
 /// increasing `col` goes right-and-down, increasing `row` goes left-and-down. Isometric tiles
 /// overlap, so [`TilemapSystem`] depth-sorts them (a cell's render `z` = `row + col`); place
 /// entities you want drawn above the floor at a higher `z`.
+///
+/// [`Hexagonal`](Self::Hexagonal) is a pointy-top hex grid in **odd-r offset** coordinates
+/// (odd rows are shifted right by half a tile), so the rectangular `tiles[row][col]` array maps
+/// straight onto it. `tile_size` is the hex's flat-to-flat width; cell `(0, 0)`'s center sits at
+/// `origin`. Hexes tessellate without overlap, so they share a fixed render `z` like orthographic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TilemapProjection {
     /// Square grid: cell `(row, col)` center = `origin + (col + 0.5, row + 0.5) * tile_size`.
@@ -79,6 +88,8 @@ pub enum TilemapProjection {
     Orthographic,
     /// 2:1 diamond grid (see the type docs).
     Isometric,
+    /// Pointy-top hex grid, odd-r offset coordinates (see the type docs).
+    Hexagonal,
 }
 
 /// Tilemap component.
@@ -192,6 +203,19 @@ impl Tilemap {
                     self.origin.y + (col as f32 + row as f32) * hh,
                 )
             }
+            TilemapProjection::Hexagonal => {
+                // Pointy-top, odd-r offset: odd rows shifted right by half a width; rows are
+                // packed at 3/4 of the hex height (= width * sqrt(3)/2 here, since width = √3·size).
+                let x_off = if row % 2 == 1 {
+                    self.tile_size * 0.5
+                } else {
+                    0.0
+                };
+                Vec2::new(
+                    self.origin.x + col as f32 * self.tile_size + x_off,
+                    self.origin.y + row as f32 * self.tile_size * (SQRT_3 * 0.5),
+                )
+            }
         }
     }
 
@@ -203,8 +227,26 @@ impl Tilemap {
     /// entities meant to stand on the floor a `z` above the cells they occupy.)
     pub fn cell_z(&self, row: usize, col: usize) -> f32 {
         match self.projection {
-            TilemapProjection::Orthographic => -1.0,
+            // Orthographic and hexagonal tiles tessellate without overlap, so a fixed z is fine.
+            TilemapProjection::Orthographic | TilemapProjection::Hexagonal => -1.0,
             TilemapProjection::Isometric => (row + col) as f32,
+        }
+    }
+
+    /// Returns the sprite size [`TilemapSystem`] draws a tile at.
+    ///
+    /// Square (`tile_size × tile_size`) for orthographic and isometric (both use square art — a
+    /// diamond drawn inside a square for isometric). Pointy-top **hexagons are taller than wide**
+    /// (`tile_size × tile_size · 2/√3`), so hex tiles get that taller sprite; the transparent
+    /// corners overlap neighbors harmlessly.
+    pub fn cell_render_size(&self) -> Vec2 {
+        match self.projection {
+            TilemapProjection::Orthographic | TilemapProjection::Isometric => {
+                Vec2::splat(self.tile_size)
+            }
+            TilemapProjection::Hexagonal => {
+                Vec2::new(self.tile_size, self.tile_size * 2.0 / SQRT_3)
+            }
         }
     }
 
@@ -243,12 +285,47 @@ impl Tilemap {
                 }
                 (row as usize, col as usize)
             }
+            TilemapProjection::Hexagonal => {
+                // Pixel → fractional axial (pointy-top, size = width/√3) → cube-round → odd-r
+                // offset. Cube-rounding picks the correct hex (independent rounding of axial is
+                // not exact near hex borders).
+                let size = self.tile_size / SQRT_3;
+                let px = world_pos.x - self.origin.x;
+                let py = world_pos.y - self.origin.y;
+                let q = (SQRT_3 / 3.0 * px - py / 3.0) / size;
+                let r = (2.0 / 3.0 * py) / size;
+                let (rq, rr) = axial_round(q, r);
+                // odd-r offset from axial: col = q + (r - (r & 1)) / 2, row = r.
+                let row = rr;
+                let col = rq + (rr - (rr & 1)) / 2;
+                if row < 0 || col < 0 {
+                    return None;
+                }
+                (row as usize, col as usize)
+            }
         };
         if row >= rows || col >= cols {
             return None;
         }
         Some((row, col))
     }
+}
+
+/// Rounds fractional axial hex coordinates `(q, r)` to the nearest hex, via cube rounding.
+fn axial_round(q: f32, r: f32) -> (i32, i32) {
+    // axial → cube (x = q, z = r, y = -x - z); round each; then restore x + y + z == 0 by
+    // recomputing whichever component had the largest rounding error. We only return (q, r) =
+    // (x, z), so when y has the largest error there is nothing to fix.
+    let (x, z) = (q, r);
+    let y = -x - z;
+    let (mut rx, ry, mut rz) = (x.round(), y.round(), z.round());
+    let (dx, dy, dz) = ((rx - x).abs(), (ry - y).abs(), (rz - z).abs());
+    if dx > dy && dx > dz {
+        rx = -ry - rz;
+    } else if dz >= dy {
+        rz = -rx - ry;
+    }
+    (rx as i32, rz as i32) // (q, r)
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -436,6 +513,63 @@ mod tests {
         let tm = make_tilemap(vec![vec![1, 2], vec![3, 4]]);
         assert_eq!(tm.cell_z(0, 0), -1.0);
         assert_eq!(tm.cell_z(5, 9), -1.0);
+    }
+
+    // ── Hexagonal projection (pointy-top, odd-r offset) ──────────────────────────
+
+    #[test]
+    fn hexagonal_cell_centers_offset_odd_rows() {
+        let tm = make_tilemap(vec![vec![1; 3]; 3]).with_projection(TilemapProjection::Hexagonal);
+        // tile_size 32: cell (0,0) at origin; +col steps a full width; odd rows shift right by half.
+        assert_eq!(tm.cell_center_world(0, 0), Vec2::new(0.0, 0.0));
+        assert_eq!(tm.cell_center_world(0, 1), Vec2::new(32.0, 0.0));
+        // row 1 (odd) is shifted right by 16 and down by 32 * √3/2 ≈ 27.7128.
+        let c10 = tm.cell_center_world(1, 0);
+        assert!(
+            (c10.x - 16.0).abs() < 1e-3,
+            "odd row x offset, got {}",
+            c10.x
+        );
+        assert!((c10.y - 27.712_8).abs() < 1e-2, "row pitch, got {}", c10.y);
+        // even row 2 is back to no x offset.
+        assert!((tm.cell_center_world(2, 0).x - 0.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn hexagonal_center_and_at_world_round_trip() {
+        let tm = Tilemap::new(
+            make_atlas(),
+            vec![vec![1; 5]; 5],
+            40.0,
+            Vec2::new(70.0, 30.0),
+        )
+        .with_projection(TilemapProjection::Hexagonal);
+        for row in 0..5 {
+            for col in 0..5 {
+                let center = tm.cell_center_world(row, col);
+                assert_eq!(
+                    tm.cell_at_world(center),
+                    Some((row, col)),
+                    "hex round-trip failed for ({row}, {col})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn hexagonal_picks_nearest_hex_off_center() {
+        let tm = Tilemap::new(make_atlas(), vec![vec![1; 4]; 4], 48.0, Vec2::ZERO)
+            .with_projection(TilemapProjection::Hexagonal);
+        // A small nudge from a cell center must still resolve to that cell.
+        let near = tm.cell_center_world(2, 2) + Vec2::new(4.0, -3.0);
+        assert_eq!(tm.cell_at_world(near), Some((2, 2)));
+    }
+
+    #[test]
+    fn hexagonal_z_is_fixed_no_overlap() {
+        let tm = make_tilemap(vec![vec![1; 3]; 3]).with_projection(TilemapProjection::Hexagonal);
+        assert_eq!(tm.cell_z(0, 0), -1.0);
+        assert_eq!(tm.cell_z(2, 2), -1.0);
     }
 
     // ── Generation guard / set_tile bumps generation ──────────────────────────

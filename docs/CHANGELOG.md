@@ -4,6 +4,27 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.29.0
+
+**Hexagonal tilemaps.** Completes the projection set (C2 after C1's isometric): `TilemapProjection`
+gains `Hexagonal` — a pointy-top hex grid in odd-r offset coordinates (odd rows shifted right by
+half a tile), so the rectangular `tiles[row][col]` array maps straight onto it. `cell_center_world`
+lays out the hex grid; `cell_at_world` picks via pixel → axial → cube-round (exact at hex borders);
+hexes tessellate without overlap so they keep a fixed `z`. **Additive** — the new enum variant is
+the only change to existing types.
+
+### Added
+- `TilemapProjection::Hexagonal` (pointy-top, odd-r offset).
+- `Tilemap::cell_render_size()` — the sprite size `TilemapSystem` draws a tile at: square for
+  orthographic/isometric, taller (`tile_size × tile_size · 2/√3`) for hexagons.
+- `cell_center_world` / `cell_at_world` / `cell_z` now handle the hexagonal projection.
+- Example `hex_tilemap` — a pointy-top hex grid with keyboard cell selection (reactive `set_tile`)
+  and mouse hover-picking (`cell_at_world`); includes a generated `hex_tiles.png` atlas.
+
+### Changed
+- `TilemapSystem` sizes tiles via `cell_render_size()` (was a hardcoded square `tile_size`) so hex
+  tiles get their taller sprite. No change for orthographic/isometric maps.
+
 ## 0.28.0
 
 **Isometric tilemaps.** `Tilemap` could only lay out a square grid; now it has a
