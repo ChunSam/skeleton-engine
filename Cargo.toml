@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name        = "skeleton-engine"
-version     = "0.23.0"
+version     = "0.24.0"
 edition     = "2021"
 description = "Lightweight 2D game engine — wgpu rendering, custom ECS, rapier2d physics"
 repository  = "https://github.com/ChunSam/skeleton-engine"
@@ -35,6 +35,10 @@ include     = [
 [lib]
 name = "engine"
 crate-type = ["cdylib", "rlib"]
+
+[[example]]
+name = "web_audio"
+path = "examples/web_audio/web_audio.rs"
 
 [[example]]
 name = "platformer_game"
@@ -183,8 +187,8 @@ web-sys               = { version = "0.3", features = [
     "Window", "Performance", "HtmlCanvasElement", "Document", "Element",
     "WebSocket", "MessageEvent", "CloseEvent", "ErrorEvent", "BinaryType",
     "Response", "Headers", "Storage",
-    "AudioContext", "BaseAudioContext", "AudioBuffer", "AudioBufferSourceNode",
-    "AudioNode", "AudioDestinationNode", "GainNode", "AudioParam",
+    "AudioContext", "AudioContextState", "BaseAudioContext", "AudioBuffer",
+    "AudioBufferSourceNode", "AudioNode", "AudioDestinationNode", "GainNode", "AudioParam",
 ] }
 console_error_panic_hook = "0.1"
 getrandom             = { version = "0.2", features = ["js"] }
