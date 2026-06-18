@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use crate::asset::{Handle, ImageAsset};
 use crate::ecs::{Entity, Events, System, World};
 use crate::locale::LocaleResource;
-use crate::renderer::{DrawText, TextQueue};
+use crate::renderer::{DrawImage, DrawText, TextQueue, UiImageQueue};
 use crate::resources::ViewportSize;
 
 mod tree;
@@ -445,11 +445,25 @@ pub fn choose(world: &mut World, entity: Entity, visible_index: usize) {
     }
 }
 
+/// What [`DialogueSystem`] gathers per active box before drawing — pulled out of the query borrow
+/// so the text + image queues can be written afterward.
+struct DrawItem {
+    speaker: String,
+    body: String,
+    full: bool,
+    choices: Vec<String>,
+    portrait: Option<Handle<ImageAsset>>,
+}
+
 /// Ticks every [`DialogueBox`]'s typewriter and renders the active box (speaker + revealed text +
-/// an advance hint) as screen-space text near the bottom of the viewport.
+/// an advance hint) as screen-space text near the bottom of the viewport. When a box sets a
+/// [`portrait`](DialogueBox::portrait) (e.g. via [`with_portrait`](DialogueBox::with_portrait)),
+/// the speaker's image is drawn to the left through the UI image queue and the text shifts right
+/// to clear it.
 ///
 /// Input-agnostic: the game advances a box by calling [`DialogueBox::advance`]. Rendering is
-/// text-only (no background panel) so it composes with whatever box art the game draws.
+/// text + optional portrait (no background panel) so it composes with whatever box art the game
+/// draws.
 pub struct DialogueSystem;
 
 impl System for DialogueSystem {
@@ -480,22 +494,20 @@ impl System for DialogueSystem {
             .resource::<DialogueVars>()
             .cloned()
             .unwrap_or_default();
-        let items: Vec<(String, String, bool, Vec<String>)> = world
+        let items: Vec<DrawItem> = world
             .query::<DialogueBox>()
             .filter(|(_, d)| !d.is_finished())
-            .map(|(_, d)| {
+            .map(|(_, d)| DrawItem {
+                speaker: d.speaker.clone(),
+                body: d.visible_text().to_string(),
+                full: d.line_fully_revealed(),
                 // Visible (cond-passing) choice labels, already resolved into `text` by step 0.
-                let choices: Vec<String> = d
+                choices: d
                     .visible_choices(&vars)
                     .iter()
                     .map(|c| c.text.clone())
-                    .collect();
-                (
-                    d.speaker.clone(),
-                    d.visible_text().to_string(),
-                    d.line_fully_revealed(),
-                    choices,
-                )
+                    .collect(),
+                portrait: d.portrait.clone(),
             })
             .collect();
         if items.is_empty() {
@@ -503,9 +515,48 @@ impl System for DialogueSystem {
         }
 
         // 3. Render near the bottom of the screen.
+        //
+        // Layout constants: a box with a `portrait` draws a square image on the left and shifts
+        // its text right to clear it; a box without one keeps the original left margin (so
+        // portrait-less dialogue is byte-identical to before).
+        const PORTRAIT_SIZE: f32 = 96.0;
+        const PORTRAIT_X: f32 = 48.0;
+        let text_x = |has_portrait: bool| {
+            if has_portrait {
+                PORTRAIT_X + PORTRAIT_SIZE + 18.0
+            } else {
+                60.0
+            }
+        };
+
+        // 3a. Portraits — screen-space images to the left of the text, drawn through the same UI
+        //     image queue the renderer presents over the scene. Borrow `&items` here; the text
+        //     loop below consumes `items`.
+        if let Some(iq) = world.resource_mut::<UiImageQueue>() {
+            for item in &items {
+                if let Some(handle) = &item.portrait {
+                    iq.push(DrawImage::with_handle(
+                        PORTRAIT_X,
+                        vh - 162.0,
+                        PORTRAIT_SIZE,
+                        PORTRAIT_SIZE,
+                        handle.clone(),
+                    ));
+                }
+            }
+        }
+
+        // 3b. Speaker + body + choices/hint text.
         if let Some(tq) = world.resource_mut::<TextQueue>() {
-            let x0 = 60.0;
-            for (speaker, body, full, choices) in items {
+            for item in items {
+                let DrawItem {
+                    speaker,
+                    body,
+                    full,
+                    choices,
+                    portrait,
+                } = item;
+                let x0 = text_x(portrait.is_some());
                 if !speaker.is_empty() {
                     tq.push(DrawText::new(
                         speaker,
