@@ -4,6 +4,25 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.39.0
+
+**Autotiling across isometric and hexagonal projections.** Autotile bitmasks are computed from the
+`tiles[row][col]` grid topology, so they already worked on **isometric** maps unchanged (iso is the
+same square grid as orthographic, just rendered as diamonds) — now confirmed + tested. For **hex**
+maps, two new neighborhoods compute the correct 6 parity-aware neighbors: `Neighborhood::Hex6`
+(pointy-top, odd-r) and `Hex6Flat` (flat-top, odd-q). **Additive** — `Edge4`/`Blob8` unchanged.
+
+### Added
+- `Neighborhood::Hex6` (bits E=1, W=2, NE=4, NW=8, SE=16, SW=32) and `Neighborhood::Hex6Flat`
+  (N=1, S=2, NE=4, SE=8, NW=16, SW=32) — 6-neighbor hex masks (`0..64`); the four diagonal offsets
+  shift with row parity (odd-r) / column parity (odd-q) to match the staggered hex layout.
+- `TilemapAutotile::hex_6(base)` / `hex_6_flat(base)` — 64-tile single-terrain hex autotile layouts
+  (`mask → base + mask`), the hex analogue of `edge_16`/`blob_47`.
+- Example `hex_autotile` — a pointy-top hex map with an interior-vs-edge `Hex6` rule (grass interior /
+  sand open-edge) over the existing 2-tile hex atlas; dig holes and the rim re-tiles reactively.
+- Unit tests: Hex6 / Hex6Flat interior + parity-dependent offsets, the hex constructors, and an
+  isometric-autotile test confirming the square neighborhoods carry over.
+
 ## 0.38.0
 
 **Flat-top hexagonal tilemap projection.** `TilemapProjection::Hexagonal` (v0.29.0) was pointy-top
