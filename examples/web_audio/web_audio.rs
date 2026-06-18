@@ -3,7 +3,7 @@
 //! [`WebAudio`](engine::WebAudio) is the wasm counterpart to the native rodio
 //! [`AudioManager`](engine::AudioManager): a small `AudioContext` wrapper with one-shot SFX, a
 //! single looping **music** channel (with track-to-track **crossfade**), a **master volume**,
-//! **named mixer buses**, and **suspend/resume**. It only exists
+//! **named mixer buses** (with **ducking**), and **suspend/resume**. It only exists
 //! on `wasm32`, so this example is wasm-only — running it natively just prints how to build it.
 //!
 //! As well as being the demo, this drives the whole `WebAudio` surface in sequence and writes a
@@ -162,6 +162,40 @@ async fn run_checks() {
     check!(
         audio.bus_names() == vec!["sfx".to_string(), "ui".to_string()],
         "play_on_bus() registers a new bus (names stay sorted)"
+    );
+
+    // ── bus ducking ────────────────────────────────────────────────────────────
+    // NOTE: a *ramped* duck's live value (AudioParam automation) is computed on the audio render
+    // thread, which doesn't advance under headless SwiftShader — so the smoke uses an instant duck
+    // (attack/release = 0.0s, written via the directly-readable `value=` setter). A real (dur > 0)
+    // duck still ramps smoothly; that ramp, like acoustic output, is verified by ear in a browser.
+    check!(
+        (audio.bus_duck("sfx") - 1.0).abs() < 1e-3,
+        "bus_duck() defaults to 1.0 (no duck)"
+    );
+    audio.duck_bus("sfx", 0.2, 0.0);
+    check!(
+        (audio.bus_duck("sfx") - 0.2).abs() < 1e-3,
+        "duck_bus(0.2) sets the duck multiplier (independent of bus volume)"
+    );
+    check!(
+        (audio.bus_volume("sfx") - 0.6).abs() < 1e-3,
+        "ducking did not touch the bus volume (still 0.6)"
+    );
+    audio.release_bus("sfx", 0.0);
+    check!(
+        (audio.bus_duck("sfx") - 1.0).abs() < 1e-3,
+        "release_bus() returns the duck to 1.0"
+    );
+    audio.duck_bus("sfx", -1.0, 0.0);
+    check!(
+        audio.bus_duck("sfx").abs() < 1e-3,
+        "duck_bus(-1.0) clamps the duck to 0.0"
+    );
+    audio.duck_bus("sfx", 2.0, 0.0);
+    check!(
+        (audio.bus_duck("sfx") - 1.0).abs() < 1e-3,
+        "duck_bus(2.0) clamps the duck to 1.0"
     );
 
     // ── music crossfade (track-to-track) ──────────────────────────────────────
