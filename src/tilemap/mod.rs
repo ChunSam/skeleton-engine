@@ -64,6 +64,23 @@ impl TilemapAtlas {
     }
 }
 
+/// How a [`Tilemap`]'s `(row, col)` grid maps to world positions.
+///
+/// [`Orthographic`](Self::Orthographic) is the classic top-down/side square grid (the default,
+/// unchanged behavior). [`Isometric`](Self::Isometric) is a 2:1 diamond projection: a tile is a
+/// diamond `tile_size` wide and `tile_size / 2` tall, cell `(0, 0)`'s center sits at `origin`,
+/// increasing `col` goes right-and-down, increasing `row` goes left-and-down. Isometric tiles
+/// overlap, so [`TilemapSystem`] depth-sorts them (a cell's render `z` = `row + col`); place
+/// entities you want drawn above the floor at a higher `z`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TilemapProjection {
+    /// Square grid: cell `(row, col)` center = `origin + (col + 0.5, row + 0.5) * tile_size`.
+    #[default]
+    Orthographic,
+    /// 2:1 diamond grid (see the type docs).
+    Isometric,
+}
+
 /// Tilemap component.
 ///
 /// Attach to an entity and `TilemapSystem` will automatically spawn tile entities.
@@ -79,8 +96,11 @@ pub struct Tilemap {
     pub tiles: Vec<Vec<u32>>,
     /// Side length of one tile (pixels).
     pub tile_size: f32,
-    /// Top-left origin of the tilemap (world coordinates).
+    /// Top-left origin of the tilemap (world coordinates). For [`TilemapProjection::Isometric`]
+    /// this is the world position of cell `(0, 0)`'s center.
     pub origin: Vec2,
+    /// How the grid maps to world positions. Defaults to [`TilemapProjection::Orthographic`].
+    pub projection: TilemapProjection,
     /// Monotonically increasing counter, bumped on every tile mutation.
     /// [`TilemapSystem`] uses this to skip the diff pass when the map is unchanged.
     pub(crate) generation: u64,
@@ -93,8 +113,17 @@ impl Tilemap {
             tiles,
             tile_size,
             origin,
+            projection: TilemapProjection::Orthographic,
             generation: 0,
         }
+    }
+
+    /// Sets the [`projection`](Self::projection) (builder). Default is
+    /// [`TilemapProjection::Orthographic`]; pass [`TilemapProjection::Isometric`] for a 2:1 diamond
+    /// grid.
+    pub fn with_projection(mut self, projection: TilemapProjection) -> Self {
+        self.projection = projection;
+        self
     }
 
     /// Sets the tile value at `(row, col)`.
@@ -145,33 +174,76 @@ impl Tilemap {
         (rows, cols)
     }
 
-    /// Returns the world-space center of cell `(row, col)`.
+    /// Returns the world-space center of cell `(row, col)`, honoring [`projection`](Self::projection).
     ///
-    /// Matches the sprite placement formula used by [`TilemapSystem`]:
-    /// `origin + (col * tile_size + tile_size * 0.5, row * tile_size + tile_size * 0.5)`.
+    /// Matches the sprite placement [`TilemapSystem`] uses. Orthographic:
+    /// `origin + ((col + 0.5) * tile_size, (row + 0.5) * tile_size)`. Isometric (2:1 diamond,
+    /// `w = tile_size`, `h = tile_size / 2`): `origin + ((col - row) * w/2, (col + row) * h/2)`.
     pub fn cell_center_world(&self, row: usize, col: usize) -> Vec2 {
-        Vec2::new(
-            self.origin.x + col as f32 * self.tile_size + self.tile_size * 0.5,
-            self.origin.y + row as f32 * self.tile_size + self.tile_size * 0.5,
-        )
+        match self.projection {
+            TilemapProjection::Orthographic => Vec2::new(
+                self.origin.x + col as f32 * self.tile_size + self.tile_size * 0.5,
+                self.origin.y + row as f32 * self.tile_size + self.tile_size * 0.5,
+            ),
+            TilemapProjection::Isometric => {
+                let (hw, hh) = (self.tile_size * 0.5, self.tile_size * 0.25);
+                Vec2::new(
+                    self.origin.x + (col as f32 - row as f32) * hw,
+                    self.origin.y + (col as f32 + row as f32) * hh,
+                )
+            }
+        }
+    }
+
+    /// Returns the render `z` [`TilemapSystem`] assigns to cell `(row, col)`.
+    ///
+    /// Orthographic tiles don't overlap, so they share a fixed `z` (`-1.0`, behind gameplay
+    /// sprites). Isometric tiles overlap, so each cell gets a painter's-order depth (`row + col`):
+    /// tiles further back draw first. (Higher `z` draws on top — so for an isometric scene, give
+    /// entities meant to stand on the floor a `z` above the cells they occupy.)
+    pub fn cell_z(&self, row: usize, col: usize) -> f32 {
+        match self.projection {
+            TilemapProjection::Orthographic => -1.0,
+            TilemapProjection::Isometric => (row + col) as f32,
+        }
     }
 
     /// Returns the `(row, col)` cell that contains `world_pos`, or `None` if outside
     /// the grid bounds.
     ///
-    /// Inverse of [`cell_center_world`](Self::cell_center_world).
+    /// Inverse of [`cell_center_world`](Self::cell_center_world); honors [`projection`](Self::projection).
     pub fn cell_at_world(&self, world_pos: Vec2) -> Option<(usize, usize)> {
         if self.tile_size <= 0.0 {
             return None;
         }
-        let rel_x = world_pos.x - self.origin.x;
-        let rel_y = world_pos.y - self.origin.y;
-        if rel_x < 0.0 || rel_y < 0.0 {
-            return None;
-        }
-        let col = (rel_x / self.tile_size) as usize;
-        let row = (rel_y / self.tile_size) as usize;
         let (rows, cols) = self.dims();
+        let (row, col) = match self.projection {
+            TilemapProjection::Orthographic => {
+                let rel_x = world_pos.x - self.origin.x;
+                let rel_y = world_pos.y - self.origin.y;
+                if rel_x < 0.0 || rel_y < 0.0 {
+                    return None;
+                }
+                (
+                    (rel_y / self.tile_size) as usize,
+                    (rel_x / self.tile_size) as usize,
+                )
+            }
+            TilemapProjection::Isometric => {
+                // Invert the diamond transform, then round to the nearest cell (the diamond cells
+                // tessellate, so independent rounding of the continuous (col, row) is exact).
+                let (hw, hh) = (self.tile_size * 0.5, self.tile_size * 0.25);
+                let a = (world_pos.x - self.origin.x) / hw; // = col - row
+                let b = (world_pos.y - self.origin.y) / hh; // = col + row
+                let colf = (a + b) * 0.5;
+                let rowf = (b - a) * 0.5;
+                let (row, col) = (rowf.round(), colf.round());
+                if row < 0.0 || col < 0.0 {
+                    return None;
+                }
+                (row as usize, col as usize)
+            }
+        };
         if row >= rows || col >= cols {
             return None;
         }
@@ -303,6 +375,67 @@ mod tests {
         assert_eq!(tm.cell_at_world(Vec2::new(-1.0, 0.0)), None);
         // Beyond grid (2 rows × 2 cols × 32 pixels = 64×64)
         assert_eq!(tm.cell_at_world(Vec2::new(100.0, 100.0)), None);
+    }
+
+    // ── Isometric projection ───────────────────────────────────────────────────
+
+    #[test]
+    fn isometric_cell_centers_form_a_diamond() {
+        let tm = make_tilemap(vec![vec![1, 2], vec![3, 4]])
+            .with_projection(TilemapProjection::Isometric);
+        // tile_size 32 → half-width 16, quarter-height 8. Cell (0,0) sits at origin.
+        assert_eq!(tm.cell_center_world(0, 0), Vec2::new(0.0, 0.0));
+        // +col → right & down; +row → left & down.
+        assert_eq!(tm.cell_center_world(0, 1), Vec2::new(16.0, 8.0));
+        assert_eq!(tm.cell_center_world(1, 0), Vec2::new(-16.0, 8.0));
+        assert_eq!(tm.cell_center_world(1, 1), Vec2::new(0.0, 16.0));
+    }
+
+    #[test]
+    fn isometric_center_and_at_world_round_trip() {
+        let tm = Tilemap::new(
+            make_atlas(),
+            vec![vec![1; 4]; 4],
+            48.0,
+            Vec2::new(100.0, 50.0),
+        )
+        .with_projection(TilemapProjection::Isometric);
+        for row in 0..4 {
+            for col in 0..4 {
+                let center = tm.cell_center_world(row, col);
+                assert_eq!(
+                    tm.cell_at_world(center),
+                    Some((row, col)),
+                    "iso round-trip failed for ({row}, {col})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn isometric_picks_nearest_diamond_off_center() {
+        let tm = Tilemap::new(make_atlas(), vec![vec![1; 3]; 3], 32.0, Vec2::ZERO)
+            .with_projection(TilemapProjection::Isometric);
+        // A point a few px from cell (1,1)'s center must still resolve to (1,1).
+        let near = tm.cell_center_world(1, 1) + Vec2::new(3.0, -2.0);
+        assert_eq!(tm.cell_at_world(near), Some((1, 1)));
+    }
+
+    #[test]
+    fn isometric_depth_z_orders_back_to_front() {
+        let tm = make_tilemap(vec![vec![1, 1], vec![1, 1]])
+            .with_projection(TilemapProjection::Isometric);
+        // Back cell (0,0) draws behind front cell (1,1).
+        assert!(tm.cell_z(0, 0) < tm.cell_z(1, 1));
+        assert_eq!(tm.cell_z(0, 0), 0.0);
+        assert_eq!(tm.cell_z(1, 1), 2.0);
+    }
+
+    #[test]
+    fn orthographic_z_is_fixed_behind_sprites() {
+        let tm = make_tilemap(vec![vec![1, 2], vec![3, 4]]);
+        assert_eq!(tm.cell_z(0, 0), -1.0);
+        assert_eq!(tm.cell_z(5, 9), -1.0);
     }
 
     // ── Generation guard / set_tile bumps generation ──────────────────────────

@@ -73,16 +73,17 @@ fn spawn_tile_entity(
     uv: UvRect,
     anim_cell: Option<AnimatedTileCell>,
 ) -> Entity {
-    let x = tm.origin.x + col as f32 * tm.tile_size + tm.tile_size * 0.5;
-    let y = tm.origin.y + row as f32 * tm.tile_size + tm.tile_size * 0.5;
+    // Position + depth come from the tilemap's projection (orthographic square or isometric
+    // diamond), so this one call site handles both.
+    let position = tm.cell_center_world(row, col);
     let tile_entity = world.spawn();
     world.add_component(
         tile_entity,
         Transform {
-            position: Vec2::new(x, y),
+            position,
             scale: Vec2::splat(tm.tile_size),
             rotation: 0.0,
-            z: -1.0,
+            z: tm.cell_z(row, col),
         },
     );
     world.add_component(tile_entity, Sprite::textured(tm.atlas.texture.as_str()));

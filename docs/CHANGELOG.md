@@ -4,6 +4,27 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.28.0
+
+**Isometric tilemaps.** `Tilemap` could only lay out a square grid; now it has a
+`TilemapProjection` — `Orthographic` (default, unchanged) or `Isometric` (a 2:1 diamond grid).
+`cell_center_world`/`cell_at_world` branch on the projection (isometric picking inverts the diamond
+transform and rounds to the nearest cell), and `TilemapSystem` depth-sorts isometric cells
+back-to-front. **Additive — existing tilemaps are byte-identical** (projection defaults to
+`Orthographic`). Hex grids are the next step (C2).
+
+### Added
+- `TilemapProjection` enum (`Orthographic` default / `Isometric`) + `Tilemap::with_projection`.
+- `Tilemap::cell_z(row, col)` — the render `z` `TilemapSystem` assigns a cell (`-1.0` orthographic;
+  `row + col` painter's-order depth for isometric).
+- `cell_center_world` / `cell_at_world` now honor the projection (isometric diamond math).
+- Example `iso_tilemap` — a diamond grid with keyboard cell selection (reactive `set_tile`) and
+  mouse hover-picking (`cell_at_world`); includes a generated `iso_tiles.png` diamond atlas.
+
+### Changed
+- `TilemapSystem` places tiles via `cell_center_world` + `cell_z` (one call site handles both
+  projections) instead of an inlined orthographic formula. No change for orthographic maps.
+
 ## 0.27.0
 
 **wasm AEAD save/load browser verification.** v0.22.0 made the `save`/`load`/`save_versioned`/
