@@ -235,6 +235,22 @@ async fn run_checks() {
         "update_position() to the left -> negative pan"
     );
     right.stop();
+    // Positional routed through a bus: the per-source volume/pan still carry the spatial result,
+    // independent of the bus volume (downstream).
+    let bus_pos = audio.play_at_on_bus(&beep, engine::Vec2::new(50.0, 0.0), here, 100.0, "sfx");
+    check!(
+        wait_until(|| bus_pos.is_playing(), 60).await,
+        "play_at_on_bus() decoded and started the SFX"
+    );
+    check!(
+        bus_pos.pan() > 0.4,
+        "play_at_on_bus() to the right -> positive pan (spatial through a bus)"
+    );
+    check!(
+        (bus_pos.volume() - 0.5).abs() < 0.05,
+        "play_at_on_bus() per-source volume is the spatial value (independent of bus volume)"
+    );
+    bus_pos.stop();
 
     // ── music crossfade (track-to-track) ──────────────────────────────────────
     // Music (440 Hz) is still looping from play_music above; cross-fade to a lower tone. The new

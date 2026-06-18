@@ -4,6 +4,19 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.36.0
+
+**Positional audio on a mixer bus for the wasm `WebAudio` path.** `play_at` (0.35.0) routed straight
+to master; now `play_at_on_bus` routes a positional one-shot through a named bus, so the bus's
+`set_bus_volume`/`duck_bus` scale the whole group on top of the sound's distance-based volume/pan.
+A tiny additive composition of the existing positional + bus paths.
+
+### Added
+- `WebAudio::play_at_on_bus(bytes, source, listener, max_dist, bus) -> Sfx` — positional playback
+  (distance falloff + x-offset pan) routed through a named mixer bus. The returned `Sfx`'s per-source
+  volume/pan carry the spatial result, independent of the (downstream) bus level.
+- `web_audio` example + `scripts/wasm_audio_smoke.sh` extended (headless lifecycle check now 38/38).
+
 ## 0.35.0
 
 **2D positional audio for the wasm `WebAudio` path.** SFX could be panned/volumed by hand, but
