@@ -1,7 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-use glam::Vec2;
-
 use crate::components::{Sprite, Transform};
 use crate::ecs::{Entity, System, World};
 use crate::renderer::uv::UvRect;
@@ -81,7 +79,7 @@ fn spawn_tile_entity(
         tile_entity,
         Transform {
             position,
-            scale: Vec2::splat(tm.tile_size),
+            scale: tm.cell_render_size(),
             rotation: 0.0,
             z: tm.cell_z(row, col),
         },
@@ -407,6 +405,7 @@ mod tests {
     use super::*;
     use crate::ecs::World;
     use crate::tilemap::{Tilemap, TilemapAtlas};
+    use glam::Vec2;
 
     fn make_atlas() -> TilemapAtlas {
         TilemapAtlas::new("tiles.png", 4, 4) // 16 tiles in a 4×4 grid
