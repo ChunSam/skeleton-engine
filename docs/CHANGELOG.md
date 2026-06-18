@@ -4,6 +4,24 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.32.0
+
+**Named mixer buses for the wasm `WebAudio` path.** The browser audio wrapper had a master volume
+but no way to group sounds — bus mixing was native-only (`AudioManager`). `WebAudio` now has named
+mixer buses: route sounds to a bus by name and control them together. A bus is just a named
+`GainNode` wired `bus → master` (Web Audio is a node graph, so this needs no per-frame `update()`
+tick, unlike the native fade infra). **Additive** — existing `WebAudio` calls route straight to
+master exactly as before; this only adds the bus methods + `_on_bus` play variants.
+
+### Added
+- `WebAudio::set_bus_volume`/`bus_volume`/`bus_names` — per-bus volume (clamped `0.0..=1.0`) and the
+  sorted list of known buses (native `AudioManager` mixer parity). Buses are created lazily on first
+  reference; a volume-only bus (set without playing) persists in `bus_names`.
+- `WebAudio::play_on_bus` / `play_sfx_on_bus` — fire-and-forget and controllable (`-> Sfx`) playback
+  routed through a named bus (`source → [panner → per-source gain →] bus gain → master`).
+- `web_audio` example + `scripts/wasm_audio_smoke.sh` extended to drive + self-check the bus surface
+  (headless lifecycle check now 19/19).
+
 ## 0.31.0
 
 **UI keyboard focus navigation.** UI widgets could only be operated with the mouse (and a clicked
