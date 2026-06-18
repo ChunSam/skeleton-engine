@@ -68,6 +68,21 @@ impl WebAudio {
         self.master.gain().value()
     }
 
+    /// Whether the audio context is currently running (i.e. audio is unlocked and not
+    /// suspended). Browsers start the context **suspended** until a user gesture, and
+    /// [`suspend`](Self::suspend) puts it back to suspended — use this to drive a "tap to
+    /// enable sound" prompt or a paused-audio indicator.
+    pub fn is_running(&self) -> bool {
+        self.ctx.state() == web_sys::AudioContextState::Running
+    }
+
+    /// Whether the music channel is currently occupied — `true` after
+    /// [`play_music`](Self::play_music) finishes decoding and starts, `false` until then and
+    /// after [`stop_music`](Self::stop_music). Useful for a music on/off UI toggle.
+    pub fn is_music_playing(&self) -> bool {
+        self.music.borrow().is_some()
+    }
+
     /// Decodes `bytes` (an encoded audio clip — whatever the browser decodes: WAV/MP3/OGG) and
     /// plays it once through the master gain (fire-and-forget). Browsers gate audio behind a user
     /// gesture, so the first call should originate from an input handler (or call

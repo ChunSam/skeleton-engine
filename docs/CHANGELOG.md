@@ -4,6 +4,29 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.24.0
+
+**WebAudio runtime verification + first example.** Closes the v0.23.0 verification debt: the
+wasm `WebAudio` mixer shipped compile-checked but had never *run* in a browser and had no
+example. This adds a playable `web_audio` example that drives the whole surface and a headless
+smoke harness that asserts the audio-graph lifecycle at runtime (all 9 lifecycle checks pass in
+headless Chrome). Acoustic output stays a human step — there is no audio capture in the flow.
+**Additive — no breaking change.**
+
+### Added
+- `WebAudio::is_running` — whether the `AudioContext` is unlocked and not suspended (for a "tap
+  to enable sound" prompt or paused-audio indicator).
+- `WebAudio::is_music_playing` — whether the music channel is occupied (for a music on/off UI),
+  which also makes the async `play_music` decode observable.
+- Example `web_audio` (wasm-only, `examples/web_audio/`) — generates an in-memory sine WAV and
+  exercises `new` / volume set+clamp / `resume` / `play_music` (looping) / `suspend` / `resume`,
+  reporting a pass/fail line per step plus a verdict in the page title.
+- `scripts/wasm_audio_smoke.sh` — optional local (non-CI) headless check that runs the example
+  and asserts the lifecycle via the verdict read live over Chrome's DevTools endpoint. Runs in
+  real time (not `--virtual-time-budget`: the audio thread's suspend/resume transitions race a
+  virtual clock).
+- web-sys feature `AudioContextState`.
+
 ## 0.23.0
 
 **WebAudio depth (wasm).** The browser audio player grows from fire-and-forget SFX into a
