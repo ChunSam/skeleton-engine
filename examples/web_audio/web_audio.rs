@@ -2,8 +2,8 @@
 //!
 //! [`WebAudio`](engine::WebAudio) is the wasm counterpart to the native rodio
 //! [`AudioManager`](engine::AudioManager): a small `AudioContext` wrapper with one-shot SFX, a
-//! single looping **music** channel, a **master volume**, **named mixer buses**, and
-//! **suspend/resume**. It only exists
+//! single looping **music** channel (with track-to-track **crossfade**), a **master volume**,
+//! **named mixer buses**, and **suspend/resume**. It only exists
 //! on `wasm32`, so this example is wasm-only — running it natively just prints how to build it.
 //!
 //! As well as being the demo, this drives the whole `WebAudio` surface in sequence and writes a
@@ -162,6 +162,28 @@ async fn run_checks() {
     check!(
         audio.bus_names() == vec!["sfx".to_string(), "ui".to_string()],
         "play_on_bus() registers a new bus (names stay sorted)"
+    );
+
+    // ── music crossfade (track-to-track) ──────────────────────────────────────
+    // Music (440 Hz) is still looping from play_music above; cross-fade to a lower tone. The new
+    // track fades in on its own gain while the old fades out + stops — observably, the music
+    // channel ends up running the new source.
+    let wav2 = sine_wav(330.0, 0.6);
+    audio.crossfade_music(&wav2, 0.2);
+    check!(
+        wait_until(|| audio.is_music_playing(), 60).await,
+        "crossfade_music() faded in the new track (music channel running)"
+    );
+    // Crossfade with nothing playing is just a fade-in.
+    audio.stop_music();
+    check!(
+        !audio.is_music_playing(),
+        "stop_music() cleared the channel"
+    );
+    audio.crossfade_music(&wav, 0.2);
+    check!(
+        wait_until(|| audio.is_music_playing(), 60).await,
+        "crossfade_music() with no current track fades in"
     );
 
     // ── suspend / resume toggles the context ─────────────────────────────────

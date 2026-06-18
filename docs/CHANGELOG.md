@@ -4,6 +4,28 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.33.0
+
+**Track-to-track music crossfade for the wasm `WebAudio` path.** The music channel could be started
+and stopped, but switching tracks meant a hard cut — crossfade was native-only (`AudioManager`).
+`WebAudio::crossfade_music` now fades the current track out (then stops it) while the new track fades
+in, so they overlap. Music now routes through a dedicated per-track `GainNode`, and the fades are
+scheduled on the Web Audio clock (`AudioParam::linear_ramp_to_value_at_time`) — so, unlike the native
+`Fade`/`update` infra, there is **no per-frame `update()` tick** and no temporary channel to tear
+down. **Additive** — `play_music`/`stop_music` behave exactly as before (music just gains an internal
+gain node); calling `crossfade_music` with nothing playing is simply a fade-in.
+
+### Added
+- `WebAudio::crossfade_music(bytes, dur)` — fade the music channel from the current track to a new
+  one over `dur` seconds (no-current-track = fade-in).
+- `web_audio` example + `scripts/wasm_audio_smoke.sh` extended to drive + self-check crossfade
+  (headless lifecycle check now 22/22).
+
+### Changed (internal)
+- The music channel now stores a `MusicChannel { source, gain }` (was a bare source) so its volume
+  can be ramped independently; `play_music`/`stop_music` updated accordingly. No public API change to
+  those methods.
+
 ## 0.32.0
 
 **Named mixer buses for the wasm `WebAudio` path.** The browser audio wrapper had a master volume
