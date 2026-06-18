@@ -4,6 +4,24 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.31.0
+
+**UI keyboard focus navigation.** UI widgets could only be operated with the mouse (and a clicked
+`TextInput` typed). Now `UiSystem` has a focus pass: **Tab / Shift+Tab** cycle keyboard focus across
+focusable widgets (`Button`, `TextInput`, `Slider`, `CheckBox`), a focus ring is drawn around the
+focused widget, **Enter / Space** activate it (button click / checkbox toggle), **Left / Right**
+nudge a focused `Slider`, and clicking a widget focuses it. **Additive** (one new resource +
+auto-registered; existing UI behavior unchanged).
+
+### Added
+- `UiFocus` resource (`Option<Entity>`, auto-inserted) — the currently keyboard-focused widget;
+  read it to style/inspect focus.
+- `UiSystem` focus pass: Tab/Shift+Tab cycling (by entity index, skipping hidden/disabled widgets),
+  focus ring, Enter/Space activation, Left/Right slider nudge, click-to-focus, and `TextInput`
+  focus sync (a Tab-focused field receives typed characters).
+- Example `ui_focus`.
+- `UiEvent` now derives `PartialEq`.
+
 ## 0.30.0
 
 **Autotile API unification + dead-code removal.** The two separate autotile component types are now

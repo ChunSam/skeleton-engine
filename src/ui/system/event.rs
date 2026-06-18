@@ -3,7 +3,7 @@ use crate::ecs::Entity;
 /// Events emitted by the UI system.
 ///
 /// After calling `app.register_event::<UiEvent>()`, read them via `world.resource::<Events<UiEvent>>()`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum UiEvent {
     ButtonClicked(Entity),
     TextChanged(Entity, String),

@@ -1,5 +1,6 @@
 pub mod button;
 pub mod checkbox;
+pub mod focus;
 pub mod joystick;
 pub mod label;
 pub mod localized;
@@ -12,6 +13,7 @@ pub mod text_input;
 
 pub use button::{Button, ButtonState};
 pub use checkbox::CheckBox;
+pub use focus::UiFocus;
 pub use joystick::VirtualJoystick;
 pub use label::Label;
 pub use localized::{LocalizationSystem, LocalizedText};

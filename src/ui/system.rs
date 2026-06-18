@@ -3,6 +3,7 @@ use crate::ecs::{Entity, System, World};
 mod button_pass;
 mod checkbox_pass;
 mod event;
+mod focus_pass;
 mod label_pass;
 mod scroll_view_pass;
 mod slider_pass;
@@ -28,6 +29,7 @@ use state::{submit_output, viewport_from_world, InputSnapshot, UiOutput};
 pub struct UiSystem {
     button_scratch: Vec<Entity>,
     checkbox_scratch: Vec<Entity>,
+    focus_scratch: Vec<Entity>,
     label_scratch: Vec<Entity>,
     scroll_view_scratch: Vec<Entity>,
     slider_scratch: Vec<Entity>,
@@ -57,6 +59,14 @@ impl System for UiSystem {
         };
 
         let mut output = UiOutput::default();
+        // Keyboard focus first, so a Tab-focused TextInput receives this frame's typed characters.
+        focus_pass::run(
+            world,
+            &viewport,
+            &input,
+            &mut output,
+            &mut self.focus_scratch,
+        );
         button_pass::run(
             world,
             &viewport,
