@@ -86,6 +86,7 @@ impl TilemapAtlas {
 /// coordinates (odd columns shifted down by half a tile) — the 90°-rotated counterpart of
 /// [`Hexagonal`](Self::Hexagonal). `tile_size` is the hex's flat-to-flat **height**; a flat-top hex
 /// is wider than it is tall (`cell_render_size` returns `tile_size·2/√3 × tile_size`).
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TilemapProjection {
     /// Square grid: cell `(row, col)` center = `origin + (col + 0.5, row + 0.5) * tile_size`.

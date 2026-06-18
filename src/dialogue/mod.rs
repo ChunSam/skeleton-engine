@@ -100,6 +100,13 @@ impl DialogueChoice {
     fn is_available(&self, vars: &DialogueVars) -> bool {
         self.cond.as_ref().is_none_or(|c| c.eval(vars))
     }
+
+    /// Whether this choice has no condition (`cond` is `None`) and is therefore always
+    /// shown — independent of any [`DialogueVars`]. Used by the plain (vars-unaware) API
+    /// to avoid deadlocking on lines whose choices are entirely condition-gated.
+    pub fn is_unconditional(&self) -> bool {
+        self.cond.is_none()
+    }
 }
 
 /// A dialogue / textbox: a sequence of lines, each revealed with a typewriter effect and advanced
@@ -257,7 +264,7 @@ impl DialogueBox {
             Some(l) => l,
             None => return "",
         };
-        if self.full || self.chars_per_sec <= 0.0 {
+        if self.full || !self.chars_per_sec.is_finite() || self.chars_per_sec <= 0.0 {
             return line;
         }
         let n = (self.elapsed * self.chars_per_sec) as usize;
@@ -273,6 +280,7 @@ impl DialogueBox {
             None => true,
             Some(line) => {
                 self.full
+                    || !self.chars_per_sec.is_finite()
                     || self.chars_per_sec <= 0.0
                     || (self.elapsed * self.chars_per_sec) as usize >= line.chars().count()
             }
@@ -301,11 +309,10 @@ impl DialogueBox {
         }
     }
 
-    /// The choices to present right now, or `None` when none apply. `Some` only when the current
-    /// line is fully revealed *and* has a non-empty choice list — i.e. the moment the player must
-    /// pick a branch. While the line is still typing out, this is `None` (so [`advance`](Self::advance)
-    /// completes the reveal first).
-    pub fn pending_choices(&self) -> Option<&[DialogueChoice]> {
+    /// All choices registered for the current line (regardless of conditions), or `None` when the
+    /// line is not yet fully revealed, there are no choices, or the conversation is finished.
+    /// Used internally by the vars-aware API which re-filters by `is_available`.
+    fn pending_choices_raw(&self) -> Option<&[DialogueChoice]> {
         if self.is_finished() || !self.line_fully_revealed() {
             return None;
         }
@@ -315,11 +322,33 @@ impl DialogueBox {
             .map(|(_, cs)| cs.as_slice())
     }
 
-    /// Selects pending choice `i`, jumping the conversation to that choice's `goto` line. A no-op
-    /// when no choices are pending or `i` is out of range. An out-of-range `goto` is clamped to the
-    /// end (finishing the conversation) rather than panicking.
+    /// The unconditional choices to present right now via the plain (vars-unaware) API, or `None`
+    /// when none apply. `Some` only when the current line is fully revealed *and* has at least one
+    /// choice with no [`cond`](DialogueChoice::cond) — i.e. the moment the player must pick an
+    /// unconditional branch. Conditional-only choices are invisible to this method (so
+    /// [`advance`](Self::advance) is not deadlocked by a line whose every choice is gated).
+    ///
+    /// Use [`visible_choices`](Self::visible_choices) / [`advance_with`](Self::advance_with) /
+    /// [`dialogue::advance`](crate::dialogue::advance) when you need condition-aware filtering.
+    pub fn pending_choices(&self) -> Option<Vec<&DialogueChoice>> {
+        let cs = self.pending_choices_raw()?;
+        let unconditional: Vec<&DialogueChoice> =
+            cs.iter().filter(|c| c.is_unconditional()).collect();
+        if unconditional.is_empty() {
+            None
+        } else {
+            Some(unconditional)
+        }
+    }
+
+    /// Selects unconditional pending choice `i`, jumping the conversation to that choice's `goto`
+    /// line. A no-op when no unconditional choices are pending or `i` is out of range. An
+    /// out-of-range `goto` is clamped to the end (finishing the conversation) rather than panicking.
+    ///
+    /// For condition-gated choices use [`choose_visible`](Self::choose_visible) /
+    /// [`dialogue::choose`](crate::dialogue::choose).
     pub fn choose(&mut self, i: usize) {
-        let goto = match self.pending_choices().and_then(|cs| cs.get(i)) {
+        let goto = match self.pending_choices().and_then(|cs| cs.into_iter().nth(i)) {
             Some(choice) => choice.goto,
             None => return,
         };
@@ -328,12 +357,12 @@ impl DialogueBox {
         self.full = false;
     }
 
-    /// The choices visible right now given `vars`: the [`pending_choices`](Self::pending_choices)
+    /// The choices visible right now given `vars`: all choices for the current line
     /// whose [`cond`](DialogueChoice::cond) passes (or have none). Empty when no decision is
     /// pending. The index into this slice is what [`choose_visible`](Self::choose_visible) /
     /// [`dialogue::choose`](crate::dialogue::choose) expect.
     pub fn visible_choices(&self, vars: &DialogueVars) -> Vec<&DialogueChoice> {
-        match self.pending_choices() {
+        match self.pending_choices_raw() {
             Some(cs) => cs.iter().filter(|c| c.is_available(vars)).collect(),
             None => Vec::new(),
         }
@@ -762,7 +791,7 @@ mod tests {
                 ],
             );
         // Line 0 is instantly revealed and has choices → a decision is pending.
-        assert_eq!(d.pending_choices().map(<[_]>::len), Some(2));
+        assert_eq!(d.pending_choices().map(|v| v.len()), Some(2));
 
         // A plain advance must NOT skip the decision.
         d.advance();
@@ -1022,5 +1051,112 @@ mod tests {
         );
         super::advance(&mut world, e); // a decision is pending → no-op
         assert_eq!(world.get::<DialogueBox>(e).unwrap().current, 0);
+    }
+
+    // --- Bug fixes: plain API + NaN chars_per_sec ------------------------------------------
+
+    /// A line whose ONLY choices are conditional must not deadlock the plain `advance()`.
+    /// With no unconditional choices, `pending_choices()` returns `None` and `advance()` moves
+    /// past the line normally.
+    #[test]
+    fn advance_not_deadlocked_when_all_choices_are_conditional() {
+        let mut d = DialogueBox::new("NPC", ["gate", "after"])
+            .with_chars_per_sec(0.0)
+            .with_choices(
+                0,
+                [DialogueChoice::new("locked", 1).when(DialogueCond::new(
+                    "key",
+                    DialogueOp::Eq,
+                    DialogueValue::Bool(true),
+                ))],
+            );
+        // All choices conditional → plain pending_choices() is None → advance() is not blocked.
+        assert!(d.pending_choices().is_none());
+        d.advance();
+        assert_eq!(
+            d.current, 1,
+            "advance must move past a conditional-only choice line"
+        );
+    }
+
+    /// A line with a mix of conditional and unconditional choices: the plain API exposes only
+    /// the unconditional subset, while `visible_choices` (with vars) exposes both when the cond
+    /// passes.
+    #[test]
+    fn pending_choices_exposes_only_unconditional_subset() {
+        let mut d = DialogueBox::new("NPC", ["pick", "secret", "normal"])
+            .with_chars_per_sec(0.0)
+            .with_choices(
+                0,
+                [
+                    DialogueChoice::new("secret", 1).when(DialogueCond::new(
+                        "vip",
+                        DialogueOp::Eq,
+                        DialogueValue::Bool(true),
+                    )),
+                    DialogueChoice::new("normal", 2),
+                ],
+            );
+        // Plain API: only the unconditional "normal" choice is exposed.
+        let plain = d.pending_choices().expect("unconditional choice present");
+        assert_eq!(plain.len(), 1);
+        assert_eq!(plain[0].text, "normal");
+
+        // choose(0) picks the first unconditional choice ("normal" → goto 2).
+        d.choose(0);
+        assert_eq!(d.current, 2);
+
+        // Vars-aware API with vip=true sees both choices.
+        let d2 = DialogueBox::new("NPC", ["pick", "secret", "normal"])
+            .with_chars_per_sec(0.0)
+            .with_choices(
+                0,
+                [
+                    DialogueChoice::new("secret", 1).when(DialogueCond::new(
+                        "vip",
+                        DialogueOp::Eq,
+                        DialogueValue::Bool(true),
+                    )),
+                    DialogueChoice::new("normal", 2),
+                ],
+            );
+        let mut vars = DialogueVars::new();
+        vars.set_bool("vip", true);
+        assert_eq!(d2.visible_choices(&vars).len(), 2);
+    }
+
+    /// Existing behavior: all-unconditional choices are fully counted and unchanged.
+    #[test]
+    fn plain_api_all_unconditional_unchanged() {
+        let mut d = DialogueBox::new("NPC", ["Q", "A", "B"])
+            .with_chars_per_sec(0.0)
+            .with_choices(
+                0,
+                [DialogueChoice::new("a", 1), DialogueChoice::new("b", 2)],
+            );
+        // Both choices unconditional → plain pending_choices() returns both.
+        assert_eq!(d.pending_choices().map(|v| v.len()), Some(2));
+        // advance is blocked while unconditional choices are pending.
+        d.advance();
+        assert_eq!(d.current, 0);
+        // choose(1) selects "b" → goto 2.
+        d.choose(1);
+        assert_eq!(d.current, 2);
+    }
+
+    /// NaN `chars_per_sec` must reveal the full line instantly (not render blank).
+    #[test]
+    fn nan_chars_per_sec_reveals_instantly() {
+        let d = DialogueBox::new("", ["hello world"]).with_chars_per_sec(f32::NAN);
+        assert_eq!(d.visible_text(), "hello world");
+        assert!(d.line_fully_revealed());
+    }
+
+    /// `+Inf` `chars_per_sec` also reveals instantly (complementary non-finite guard).
+    #[test]
+    fn infinite_chars_per_sec_reveals_instantly() {
+        let d = DialogueBox::new("", ["hello"]).with_chars_per_sec(f32::INFINITY);
+        assert_eq!(d.visible_text(), "hello");
+        assert!(d.line_fully_revealed());
     }
 }

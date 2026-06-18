@@ -49,7 +49,7 @@
 //! }
 //! ```
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -78,6 +78,11 @@ pub struct WebAudio {
     /// duck multiplier rides on top of the bus volume, matching the native mixer. Created lazily on
     /// first reference and kept (so a volume-only bus persists in `bus_names`).
     buses: Rc<RefCell<HashMap<String, Bus>>>,
+    /// Monotonically-increasing generation counter for the music channel. Bumped every time a new
+    /// `start_music` is initiated or `stop_music` is called. Each pending async decode closure
+    /// captures its own generation at spawn time; if the counter has moved on by the time the
+    /// closure resolves, the track is superseded — it stops itself instead of orphaning.
+    music_gen: Rc<Cell<u64>>,
 }
 
 /// The currently-playing looping music: its buffer source and the per-music gain node it routes
@@ -112,6 +117,7 @@ impl WebAudio {
             master,
             music: Rc::new(RefCell::new(None)),
             buses: Rc::new(RefCell::new(HashMap::new())),
+            music_gen: Rc::new(Cell::new(0)),
         })
     }
 
@@ -281,6 +287,9 @@ impl WebAudio {
     // equivalent is exposed for stopping a source); the call is correct, so allow it locally.
     #[allow(deprecated)]
     pub fn stop_music(&self) {
+        // Bump the generation so any in-flight start_music async closure sees it is superseded
+        // and does not install or start its track.
+        self.music_gen.set(self.music_gen.get() + 1);
         if let Some(ch) = self.music.borrow_mut().take() {
             let _ = ch.source.stop();
         }
@@ -368,6 +377,7 @@ impl WebAudio {
             gain,
             panner,
             source: Rc::new(RefCell::new(None)),
+            stopped: Rc::new(Cell::new(false)),
         };
 
         let array = js_sys::Uint8Array::from(bytes);
@@ -376,6 +386,7 @@ impl WebAudio {
         let dest = dest.clone();
         let panner = sfx.panner.clone();
         let slot = sfx.source.clone();
+        let stopped = sfx.stopped.clone();
         let promise = match ctx.decode_audio_data(&buffer) {
             Ok(p) => p,
             Err(_) => return sfx,
@@ -397,6 +408,10 @@ impl WebAudio {
                 None => src.connect_with_audio_node(&dest).is_ok(),
             };
             if connected {
+                // If stop() was called before decode finished, don't start the sound.
+                if stopped.get() {
+                    return;
+                }
                 let _ = src.start();
                 *slot.borrow_mut() = Some(src);
             }
@@ -436,16 +451,25 @@ impl WebAudio {
     /// `Some(dur)`, the gain ramps `0 → 1` over `dur` seconds starting at the source's real start
     /// time (so the ramp can't race the async decode). Used by both
     /// [`play_music`](Self::play_music) (no fade) and [`crossfade_music`](Self::crossfade_music).
+    ///
+    /// **Fix 2 (gain leak):** The per-music gain node is created and wired *inside* the async
+    /// closure, after decoding succeeds, so a decode failure never leaves a connected gain node
+    /// dangling in the audio graph.
+    ///
+    /// **Fix 3 (orphaned track):** A generation counter is bumped each call (and in `stop_music`).
+    /// The closure checks its captured generation before installing; a superseded decode stops its
+    /// source instead of orphaning it.
+    #[allow(deprecated)] // web-sys deprecates AudioBufferSourceNode::stop* — no non-deprecated alt
     fn start_music(&self, bytes: &[u8], fade_in: Option<f64>) {
-        let Ok(gain) = self.ctx.create_gain() else {
-            return;
-        };
-        if gain.connect_with_audio_node(&self.master).is_err() {
-            return;
-        }
+        // Bump generation; capture the new value for this specific decode task.
+        let my_gen = self.music_gen.get() + 1;
+        self.music_gen.set(my_gen);
+        let music_gen = self.music_gen.clone();
+
         let array = js_sys::Uint8Array::from(bytes);
         let buffer = array.buffer();
         let ctx = self.ctx.clone();
+        let master = self.master.clone();
         let music = self.music.clone();
         let promise = match ctx.decode_audio_data(&buffer) {
             Ok(p) => p,
@@ -458,6 +482,19 @@ impl WebAudio {
             let Ok(audio_buffer) = decoded.dyn_into::<web_sys::AudioBuffer>() else {
                 return;
             };
+            // Fix 3: if a newer start_music or stop_music has run while we were decoding,
+            // this track is superseded — don't start it.
+            if music_gen.get() != my_gen {
+                return;
+            }
+            // Fix 2: create and wire the gain node only after a successful decode. This ensures
+            // a decode failure never leaves an orphaned connected node in the audio graph.
+            let Ok(gain) = ctx.create_gain() else {
+                return;
+            };
+            if gain.connect_with_audio_node(&master).is_err() {
+                return;
+            }
             let Ok(src) = ctx.create_buffer_source() else {
                 return;
             };
@@ -470,6 +507,12 @@ impl WebAudio {
                     let now = ctx.current_time();
                     let _ = gain.gain().set_value_at_time(0.0, now);
                     let _ = gain.gain().linear_ramp_to_value_at_time(1.0, now + dur);
+                }
+                // Final generation check immediately before installing + starting: another
+                // crossfade/stop may have raced in after the first check above.
+                if music_gen.get() != my_gen {
+                    let _ = src.stop();
+                    return;
                 }
                 let _ = src.start();
                 *music.borrow_mut() = Some(MusicChannel { source: src, gain });
@@ -521,6 +564,9 @@ pub struct Sfx {
     panner: Option<web_sys::StereoPannerNode>,
     /// The buffer source, stored once decoding finishes and playback starts.
     source: Rc<RefCell<Option<web_sys::AudioBufferSourceNode>>>,
+    /// Set to `true` by [`stop`](Self::stop). The async decode closure checks this flag before
+    /// calling `src.start()` so that a stop-before-decode truly silences the sound.
+    stopped: Rc<Cell<bool>>,
 }
 
 impl Sfx {
@@ -554,7 +600,7 @@ impl Sfx {
     /// [`set_volume`](Self::set_volume)/[`set_pan`](Self::set_pan). Call every frame to track a
     /// moving source. See [`WebAudio::play_at`].
     pub fn update_position(&self, source: Vec2, listener: Vec2, max_dist: f32) {
-        let (vol, pan) = spatial_params(source, listener, max_dist);
+        let (vol, pan) = crate::audio_spatial::spatial_params(source, listener, max_dist);
         self.set_volume(vol);
         self.set_pan(pan);
     }
@@ -567,24 +613,17 @@ impl Sfx {
     }
 
     /// Stops this sound if it is still playing.
+    ///
+    /// Also sets the `stopped` flag so that if the async decode hasn't finished yet, the sound
+    /// will not start when it eventually does (fix for stop-before-decode no-op).
     // web-sys deprecates `AudioBufferSourceNode::stop*` (no non-deprecated stop binding is exposed);
     // the call is correct, so allow it locally — same as `WebAudio::stop_music`.
     #[allow(deprecated)]
     pub fn stop(&self) {
+        // Mark stopped first so the async decode closure won't start the sound.
+        self.stopped.set(true);
         if let Some(src) = self.source.borrow_mut().take() {
             let _ = src.stop();
         }
     }
-}
-
-/// Computes `(volume, pan)` for a positional sound: volume falls off linearly to `0.0` at
-/// `max_dist`, pan follows the x-offset (`-1.0` left … `1.0` right). Mirrors the native
-/// `AudioManager::spatial_params`.
-fn spatial_params(source: Vec2, listener: Vec2, max_dist: f32) -> (f32, f32) {
-    let delta = source - listener;
-    let dist = delta.length();
-    let max = max_dist.max(0.001);
-    let volume = (1.0 - (dist / max).min(1.0)).max(0.0);
-    let pan = (delta.x / max).clamp(-1.0, 1.0);
-    (volume, pan)
 }

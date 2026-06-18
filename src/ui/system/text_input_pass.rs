@@ -3,10 +3,11 @@ use glam::Vec2;
 use crate::ecs::{Entity, World};
 use crate::renderer::{DrawRect, DrawText};
 use crate::resources::ViewportSize;
+use crate::ui::focus::UiFocus;
 use crate::ui::node::UiNode;
 use crate::ui::text_input::TextInput;
 
-use super::state::{in_bounds, node_layout, InputSnapshot, UiOutput};
+use super::state::{node_layout, InputSnapshot, UiOutput};
 use super::UiEvent;
 
 pub(super) fn run(
@@ -20,65 +21,14 @@ pub(super) fn run(
     scratch.clear();
     scratch.extend(world.query2::<UiNode, TextInput>().map(|(e, _, _)| e));
 
-    // Determine which TextInput (if any) should receive focus on this press.
-    // Collect all in-bounds candidates with their z values, then pick the
-    // topmost (greatest z) — mirroring the button_pass z-order pattern.
-    // Invisible widgets are excluded so they cannot steal focus.
-    let mut newly_focused: Option<Entity> = None;
-    if input.just_pressed {
-        let mut best: Option<(Entity, f32)> = None;
-        for &entity in scratch.iter() {
-            let (pos, size, z, visible) = match node_layout(world, entity, viewport) {
-                Some(layout) => layout,
-                None => continue,
-            };
-            if !visible {
-                continue;
-            }
-            if in_bounds(input.press_cursor, pos, size) {
-                let is_better = match best {
-                    None => true,
-                    Some((_, best_z)) => z > best_z,
-                };
-                if is_better {
-                    best = Some((entity, z));
-                }
-            }
-        }
-        newly_focused = best.map(|(e, _)| e);
-    }
-
     for &entity in scratch.iter() {
         let (pos, size, z, visible) = match node_layout(world, entity, viewport) {
             Some(layout) => layout,
             None => continue,
         };
 
-        // Always clear focus on invisible widgets so they cannot hold or receive focus.
         if !visible {
-            if let Some(ti) = world.get_mut::<TextInput>(entity) {
-                if ti.focused {
-                    ti.focused = false;
-                    output.events.push(UiEvent::TextBlurred(entity));
-                }
-            }
             continue;
-        }
-
-        if input.just_pressed {
-            let ti = match world.get_mut::<TextInput>(entity) {
-                Some(t) => t,
-                None => continue,
-            };
-            let was_focused = ti.focused;
-            ti.focused = newly_focused == Some(entity);
-            if !was_focused && ti.focused {
-                output.events.push(UiEvent::TextFocused(entity));
-                ti.cursor_blink = 0.0;
-                ti.cursor_visible = true;
-            } else if was_focused && !ti.focused {
-                output.events.push(UiEvent::TextBlurred(entity));
-            }
         }
 
         {
@@ -113,6 +63,7 @@ pub(super) fn run(
                 // Hoist get_mut outside the per-character loop; collect emitted events
                 // in a temporary vec so we can push them to `output` after the borrow ends.
                 let mut char_events: Vec<UiEvent> = Vec::new();
+                let mut submitted = false;
                 if let Some(ti) = world.get_mut::<TextInput>(entity) {
                     for &c in &input.chars {
                         match c {
@@ -124,6 +75,7 @@ pub(super) fn run(
                             '\n' => {
                                 let text = ti.text.clone();
                                 ti.focused = false;
+                                submitted = true;
                                 char_events.push(UiEvent::TextSubmitted(entity, text));
                                 char_events.push(UiEvent::TextBlurred(entity));
                             }
@@ -136,6 +88,15 @@ pub(super) fn run(
                     }
                 }
                 output.events.extend(char_events);
+                // Enter both submits and blurs: clear the shared `UiFocus` so the focus pass
+                // (the single owner of `ti.focused`) doesn't re-focus this field next frame.
+                if submitted {
+                    if let Some(focus) = world.resource_mut::<UiFocus>() {
+                        if focus.entity == Some(entity) {
+                            focus.entity = None;
+                        }
+                    }
+                }
                 if let Some(ti) = world.get_mut::<TextInput>(entity) {
                     ti.preedit = if ti.remaining_capacity() >= input.ime_preedit.len() {
                         input.ime_preedit.clone()
@@ -194,38 +155,22 @@ mod tests {
     use super::super::state::{InputSnapshot, UiOutput};
     use super::super::UiEvent;
 
-    /// Builds a minimal `InputSnapshot` representing a left-mouse press at `press_pos`.
-    fn press_at(press_pos: Vec2) -> InputSnapshot {
-        InputSnapshot {
-            cursor: press_pos,
-            just_pressed: true,
-            just_released: false,
-            is_held: true,
-            scroll_delta: 0.0,
-            chars: vec![],
-            ime_preedit: String::new(),
-            press_cursor: press_pos,
-            release_cursor: Vec2::ZERO,
-            nav_left: false,
-            nav_right: false,
-            nav_home: false,
-            nav_end: false,
-            nav_delete: false,
-            tab: false,
-            shift: false,
-            activate: false,
+    fn viewport() -> ViewportSize {
+        ViewportSize {
+            width: 800.0,
+            height: 600.0,
         }
     }
 
-    /// Builds a minimal `InputSnapshot` with no press events.
-    fn no_press() -> InputSnapshot {
+    /// Builds a minimal `InputSnapshot` with no press events but with typed characters.
+    fn chars_input(chars: Vec<char>) -> InputSnapshot {
         InputSnapshot {
             cursor: Vec2::ZERO,
             just_pressed: false,
             just_released: false,
             is_held: false,
             scroll_delta: 0.0,
-            chars: vec![],
+            chars,
             ime_preedit: String::new(),
             press_cursor: Vec2::ZERO,
             release_cursor: Vec2::ZERO,
@@ -240,15 +185,28 @@ mod tests {
         }
     }
 
-    fn viewport() -> ViewportSize {
-        ViewportSize {
-            width: 800.0,
-            height: 600.0,
+    fn nav_input(left: bool, right: bool) -> InputSnapshot {
+        InputSnapshot {
+            cursor: Vec2::ZERO,
+            just_pressed: false,
+            just_released: false,
+            is_held: false,
+            scroll_delta: 0.0,
+            chars: vec![],
+            ime_preedit: String::new(),
+            press_cursor: Vec2::ZERO,
+            release_cursor: Vec2::ZERO,
+            nav_left: left,
+            nav_right: right,
+            nav_home: false,
+            nav_end: false,
+            nav_delete: false,
+            tab: false,
+            shift: false,
+            activate: false,
         }
     }
 
-    /// Spawns a TextInput at the given screen position/size and z level.
-    /// The UiNode uses TopLeft anchor so `offset` == screen position directly.
     fn spawn_text_input(
         world: &mut World,
         x: f32,
@@ -265,55 +223,46 @@ mod tests {
         e
     }
 
-    /// Two overlapping TextInputs: the one with higher z should receive focus.
+    /// A pre-focused TextInput receives typed characters and emits TextChanged.
     #[test]
-    fn topmost_z_receives_focus_on_click() {
+    fn focused_text_input_receives_chars() {
         let mut world = World::new();
-        // Both widgets occupy the same area (0,0)→(100,30).
-        let low_z = spawn_text_input(&mut world, 0.0, 0.0, 100.0, 30.0, 0.5);
-        let high_z = spawn_text_input(&mut world, 0.0, 0.0, 100.0, 30.0, 0.9);
+        let e = spawn_text_input(&mut world, 0.0, 0.0, 200.0, 30.0, 0.5);
+        world.get_mut::<TextInput>(e).unwrap().focused = true;
 
         let vp = viewport();
-        let input = press_at(Vec2::new(50.0, 15.0)); // inside both widgets
+        let input = chars_input(vec!['h', 'i']);
         let mut output = UiOutput::default();
         let mut scratch = Vec::new();
 
         super::run(&mut world, &vp, &input, 0.016, &mut output, &mut scratch);
 
-        assert!(
-            world.get::<TextInput>(high_z).unwrap().focused,
-            "higher-z widget should be focused"
+        assert_eq!(
+            world.get::<TextInput>(e).unwrap().text,
+            "hi",
+            "typed chars should be inserted into the focused TextInput"
         );
-        assert!(
-            !world.get::<TextInput>(low_z).unwrap().focused,
-            "lower-z widget should not be focused"
-        );
-
-        // TextFocused event should be emitted for the winner only.
-        let focused_events: Vec<_> = output
+        let changed: Vec<_> = output
             .events
             .iter()
-            .filter_map(|e| {
-                if let UiEvent::TextFocused(entity) = e {
-                    Some(*entity)
-                } else {
-                    None
-                }
-            })
+            .filter(|ev| matches!(ev, UiEvent::TextChanged(_, _)))
             .collect();
-        assert_eq!(focused_events, vec![high_z]);
+        assert_eq!(changed.len(), 2, "one TextChanged per char");
     }
 
-    /// Clicking the position of a `visible=false` TextInput must not focus it.
+    /// Enter on a focused TextInput emits TextSubmitted + TextBlurred and clears focus.
     #[test]
-    fn invisible_text_input_does_not_receive_focus() {
+    fn enter_submits_and_blurs_focused_text_input() {
         let mut world = World::new();
-        let e = spawn_text_input(&mut world, 0.0, 0.0, 100.0, 30.0, 0.9);
-        // Hide the widget.
-        world.get_mut::<UiNode>(e).unwrap().visible = false;
+        let e = spawn_text_input(&mut world, 0.0, 0.0, 200.0, 30.0, 0.5);
+        {
+            let ti = world.get_mut::<TextInput>(e).unwrap();
+            ti.focused = true;
+            ti.insert_str("hello");
+        }
 
         let vp = viewport();
-        let input = press_at(Vec2::new(50.0, 15.0)); // inside widget bounds
+        let input = chars_input(vec!['\n']);
         let mut output = UiOutput::default();
         let mut scratch = Vec::new();
 
@@ -321,28 +270,63 @@ mod tests {
 
         assert!(
             !world.get::<TextInput>(e).unwrap().focused,
-            "invisible widget must not receive focus"
+            "focus should be cleared after Enter"
         );
-        // No TextFocused event should be emitted.
-        let focused_any = output
-            .events
-            .iter()
-            .any(|e| matches!(e, UiEvent::TextFocused(_)));
         assert!(
-            !focused_any,
-            "no TextFocused event expected for invisible widget"
+            output
+                .events
+                .iter()
+                .any(|ev| matches!(ev, UiEvent::TextSubmitted(_, _))),
+            "TextSubmitted should be emitted"
+        );
+        assert!(
+            output
+                .events
+                .iter()
+                .any(|ev| matches!(ev, UiEvent::TextBlurred(_))),
+            "TextBlurred should be emitted after Enter"
         );
     }
 
-    /// A focused TextInput that becomes invisible should have focus cleared.
+    /// Cursor blink advances each frame while focused.
     #[test]
-    fn focus_cleared_when_widget_becomes_invisible() {
+    fn cursor_blink_advances_while_focused() {
         let mut world = World::new();
-        let e = spawn_text_input(&mut world, 0.0, 0.0, 100.0, 30.0, 0.9);
-        // Manually give it focus.
+        let e = spawn_text_input(&mut world, 0.0, 0.0, 200.0, 30.0, 0.5);
         world.get_mut::<TextInput>(e).unwrap().focused = true;
-        // Now hide it.
-        world.get_mut::<UiNode>(e).unwrap().visible = false;
+
+        let vp = viewport();
+        let input = chars_input(vec![]);
+        let mut output = UiOutput::default();
+        let mut scratch = Vec::new();
+
+        // dt=0.3 — blink not yet toggled (< 0.5)
+        super::run(&mut world, &vp, &input, 0.3, &mut output, &mut scratch);
+        let blink_after_first = world.get::<TextInput>(e).unwrap().cursor_blink;
+        assert!(
+            (blink_after_first - 0.3).abs() < 1e-5,
+            "cursor_blink should be ~0.3 after first frame"
+        );
+
+        // dt=0.3 — blink passes 0.5, wraps around
+        super::run(&mut world, &vp, &input, 0.3, &mut output, &mut scratch);
+        let blink_after_second = world.get::<TextInput>(e).unwrap().cursor_blink;
+        assert!(
+            blink_after_second < 0.5,
+            "cursor_blink should have wrapped after 0.6s total, got {blink_after_second}"
+        );
+    }
+
+    /// Nav keys move the cursor within a focused TextInput.
+    #[test]
+    fn nav_keys_move_cursor_when_focused() {
+        let mut world = World::new();
+        let e = spawn_text_input(&mut world, 0.0, 0.0, 200.0, 30.0, 0.5);
+        {
+            let ti = world.get_mut::<TextInput>(e).unwrap();
+            ti.focused = true;
+            ti.insert_str("abc"); // cursor at 3
+        }
 
         let vp = viewport();
         let mut output = UiOutput::default();
@@ -351,24 +335,35 @@ mod tests {
         super::run(
             &mut world,
             &vp,
-            &no_press(),
+            &nav_input(true, false),
             0.016,
             &mut output,
             &mut scratch,
         );
+        assert_eq!(
+            world.get::<TextInput>(e).unwrap().cursor,
+            2,
+            "ArrowLeft should move cursor left"
+        );
+    }
+
+    /// An unfocused TextInput (focused=false) does not receive typed characters.
+    #[test]
+    fn unfocused_text_input_ignores_chars() {
+        let mut world = World::new();
+        let e = spawn_text_input(&mut world, 0.0, 0.0, 200.0, 30.0, 0.5);
+        // focused = false (default)
+
+        let vp = viewport();
+        let input = chars_input(vec!['a', 'b', 'c']);
+        let mut output = UiOutput::default();
+        let mut scratch = Vec::new();
+
+        super::run(&mut world, &vp, &input, 0.016, &mut output, &mut scratch);
 
         assert!(
-            !world.get::<TextInput>(e).unwrap().focused,
-            "focus must be cleared when the widget becomes invisible"
-        );
-        // TextBlurred should be emitted.
-        let blurred = output
-            .events
-            .iter()
-            .any(|e| matches!(e, UiEvent::TextBlurred(_)));
-        assert!(
-            blurred,
-            "TextBlurred event expected when focus is cleared by visibility change"
+            world.get::<TextInput>(e).unwrap().text.is_empty(),
+            "unfocused TextInput must not receive chars"
         );
     }
 }

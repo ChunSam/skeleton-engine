@@ -82,11 +82,7 @@ impl AudioManager {
 
     /// Computes (volume, pan) from the sound source position and listener position.
     pub(super) fn spatial_params(source_pos: Vec2, listener: Vec2, max_dist: f32) -> (f32, f32) {
-        let delta = source_pos - listener;
-        let dist = delta.length();
-        let volume = (1.0 - (dist / max_dist.max(0.001)).min(1.0)).max(0.0);
-        let pan = (delta.x / max_dist.max(0.001)).clamp(-1.0, 1.0);
-        (volume, pan)
+        crate::audio_spatial::spatial_params(source_pos, listener, max_dist)
     }
 }
 
