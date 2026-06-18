@@ -4,6 +4,26 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.25.0
+
+**Dialogue portrait rendering.** `DialogueBox::portrait` has existed (set via `with_portrait`) but
+`DialogueSystem` only ever drew text, so the portrait was stored and never shown — this completes
+the half-built feature. The system now draws the speaker's portrait to the left through the UI
+image queue and shifts the text right to clear it; a box with no portrait renders exactly as before
+(original left margin). **Additive — no breaking change, no new public API** (the `portrait` field
+and `with_portrait` builder already existed).
+
+### Added
+- `DialogueSystem` renders `DialogueBox::portrait` (96×96 screen-space image, left of the text;
+  text auto-shifts right when a portrait is present).
+- Example `dialogue_portrait` — a multi-speaker conversation whose portrait switches per speaker,
+  with a final portrait-less line showing the text-only fallback. Includes two generated portrait
+  assets (`examples/assets/portrait_{sage,knight}.png`).
+
+### Changed
+- Internal: `DialogueSystem`'s per-frame gather uses a small `DrawItem` struct instead of a tuple
+  (keeps `clippy::type_complexity` happy with the added portrait field). No behavior change.
+
 ## 0.24.0
 
 **WebAudio runtime verification + first example.** Closes the v0.23.0 verification debt: the
