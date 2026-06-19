@@ -4,6 +4,16 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.43.1
+
+**Behavior-preserving test extraction (P3 of an engine-hardening refactor sweep).** Five oversized modules each had their bottom-of-file `#[cfg(test)] mod tests { … }` block moved verbatim into a sibling `tests.rs` child module, shrinking the operational files without touching runtime code. **No public API change, no behavior change** — the 883 lib tests are unchanged (same `use super::*` visibility, the test module is still a child of its parent), and the full verify gate is green.
+
+### Changed (internal)
+- **Test modules split out** to their own files (declared `#[cfg(test)] mod tests;`):
+  `src/animation/state_machine.rs` → `state_machine/tests.rs`, `src/tilemap/autotile.rs` →
+  `autotile/tests.rs`, `src/dialogue/mod.rs` → `dialogue/tests.rs`, `src/prefab.rs` →
+  `prefab/tests.rs`, `src/save.rs` → `save/tests.rs`. Operational code and public API untouched.
+
 ## 0.43.0
 
 **Hexagonal autotiling now ships a real 64-tile "blob" atlas — the hex analogue of the square `blob_47`.** The `hex_6`/`hex_6_flat` constructors have existed since 0.39.0, but no 64-tile atlas backed them (the `hex_autotile` examples used a 2-tile interior/edge rule). This release adds the missing assets and full-blob examples so every open hex edge is outlined correctly, not just "interior vs edge". **No public API change** — assets + examples only.
