@@ -4,6 +4,13 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.43.2
+
+**Behavior-preserving split of `src/network.rs` (P4 of the engine-hardening refactor sweep).** The 1372-line network module is broken into a `src/network/` directory — `event.rs` (`NetworkEvent`/`NetworkConfig` + the queue-size consts), `native.rs` / `wasm_impl.rs` (the cfg-gated `NetworkClient` WebSocket bodies), `system.rs` (`NetworkSystem`), `remote_entities.rs` (`RemoteEntities`), `snapshot.rs` (`SnapshotBuffer`), and `tests.rs` — with `network.rs` reduced to the module root (declarations, re-exports, the shared `push_event_bounded` helper). **No public API change, no behavior change**: `engine::{NetworkClient, NetworkConfig, NetworkEvent, NetworkSystem, RemoteEntities, SnapshotBuffer}` and the `engine::network::*` consts are re-exported unchanged; all `#[cfg(target_arch = "wasm32")]` gating is preserved (the wasm build is green); 883 lib tests unchanged.
+
+### Changed (internal)
+- **`src/network.rs` → `src/network/` submodules** (`event`/`native`/`wasm_impl`/`system`/`remote_entities`/`snapshot`/`tests`). Three previously module-private fields became `pub(super)` to keep the moved sibling `tests` module's existing access; two intra-doc links were qualified to `crate::…`. Operational code and public API untouched.
+
 ## 0.43.1
 
 **Behavior-preserving test extraction (P3 of an engine-hardening refactor sweep).** Five oversized modules each had their bottom-of-file `#[cfg(test)] mod tests { … }` block moved verbatim into a sibling `tests.rs` child module, shrinking the operational files without touching runtime code. **No public API change, no behavior change** — the 883 lib tests are unchanged (same `use super::*` visibility, the test module is still a child of its parent), and the full verify gate is green.
