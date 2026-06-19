@@ -4,6 +4,14 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.43.0
+
+**Hexagonal autotiling now ships a real 64-tile "blob" atlas — the hex analogue of the square `blob_47`.** The `hex_6`/`hex_6_flat` constructors have existed since 0.39.0, but no 64-tile atlas backed them (the `hex_autotile` examples used a 2-tile interior/edge rule). This release adds the missing assets and full-blob examples so every open hex edge is outlined correctly, not just "interior vs edge". **No public API change** — assets + examples only.
+
+### Added
+- **`gen_hex_autotile_sheet`** (`examples/gen_hex_autotile_sheet.rs`): a deterministic, manual asset generator (the hex sibling of `gen_autotile_sheet`) that procedurally draws `examples/assets/hex_autotile.png` (pointy-top, 8×8 of 64×74 cells) and `examples/assets/hex_autotile_flat.png` (flat-top, 8×8 of 74×64 cells). Each cell renders a regular hexagon (vertices fill the cell, matching `Tilemap::cell_render_size`); an edge whose neighbor bit is CLEAR is outlined, a connected side blends to the boundary so filled hexes tessellate. **Tile index == the 6-bit `Hex6`/`Hex6Flat` neighbor mask**, lining up with `TilemapAutotile::hex_6(base)` / `hex_6_flat(base)`'s identity mask→tile map.
+- **`hex_blob_autotile`** + **`hex_blob_autotile_flat`** examples: full-blob dig/fill demos (`TilemapProjection::Hexagonal` + `hex_6`, and `HexagonalFlat` + `hex_6_flat`) over the new atlases. A solid field with carved holes auto-outlines its rim and every hole, recomputed reactively by `TilemapSystem`. The VISION acceptance test for the 64-tile hex blob; both orientations verified on-screen.
+
 ## 0.42.0
 
 **The UI focus ring is now restyleable via the `FocusRingStyle` resource.** The focus pass's
