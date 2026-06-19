@@ -11,7 +11,7 @@ mod state;
 mod text_input_pass;
 
 pub use event::UiEvent;
-use state::{submit_output, viewport_from_world, InputSnapshot, UiOutput};
+use state::{submit_output, viewport_from_world, InputSnapshot, StickNav, UiOutput};
 
 /// System that processes `UiNode` + `Button` / `Label` / `TextInput` / `ScrollView` / `Slider` / `CheckBox` entities.
 ///
@@ -34,6 +34,9 @@ pub struct UiSystem {
     scroll_view_scratch: Vec<Entity>,
     slider_scratch: Vec<Entity>,
     text_input_scratch: Vec<Entity>,
+    /// Edge-detection state for the left analog stick → discrete focus nav (persists across frames,
+    /// like the scratch buffers). See [`StickNav`].
+    stick_nav: StickNav,
 }
 
 impl UiSystem {
@@ -49,7 +52,7 @@ impl UiSystem {
 
 impl System for UiSystem {
     fn run(&mut self, world: &mut World, dt: f32) {
-        let input = match InputSnapshot::from_world(world) {
+        let input = match InputSnapshot::from_world(world, &mut self.stick_nav) {
             Some(input) => input,
             None => return,
         };

@@ -3,12 +3,67 @@ use winit::event::MouseButton;
 use winit::keyboard::KeyCode;
 
 use crate::ecs::{Entity, Events, World};
-use crate::input::{GamepadButton, GamepadState, InputState};
+use crate::input::{GamepadAxis, GamepadButton, GamepadState, InputState};
 use crate::renderer::{DrawRect, DrawText, TextQueue, UiQueue};
 use crate::resources::ViewportSize;
 use crate::ui::node::UiNode;
 
 use super::UiEvent;
+
+/// Activation / release thresholds for treating an analog stick as a discrete D-pad.
+///
+/// A stick push past `STICK_ACTIVATE` latches a direction (one focus step); the stick must fall back
+/// below `STICK_RELEASE` (the neutral band) before it can fire again. The gap between the two is the
+/// hysteresis that prevents a held / jittering stick from auto-repeating.
+const STICK_ACTIVATE: f32 = 0.6;
+const STICK_RELEASE: f32 = 0.35;
+
+/// Per-axis edge detector that turns a continuous analog stick into discrete D-pad-style steps.
+///
+/// Held in [`UiSystem`](crate::ui::UiSystem) across frames (alongside the scratch buffers) and fed
+/// the left stick each frame by [`InputSnapshot::from_world`]. Unlike a digital button — whose
+/// edge is detected for free by [`GamepadState::just_pressed`] — an analog axis needs its own
+/// previous-zone memory so pushing the stick fires exactly **once**, not every frame it is held.
+#[derive(Default)]
+pub(super) struct StickNav {
+    /// Last latched zone for the left stick X axis (`-1` left, `0` neutral, `1` right).
+    x: i8,
+    /// Last latched zone for the left stick Y axis (`-1` down, `0` neutral, `1` up).
+    y: i8,
+}
+
+impl StickNav {
+    /// Updates the latched zones from this frame's left-stick `(x, y)` and returns the discrete step
+    /// fired **this frame** for each axis (`-1`, `0`, or `1`). A non-zero result means the stick just
+    /// crossed into that direction; holding it past the threshold yields `0` until it returns to
+    /// neutral. Must be called once per frame for the edge detection to stay correct.
+    pub(super) fn update(&mut self, x: f32, y: f32) -> (i8, i8) {
+        (step_axis(&mut self.x, x), step_axis(&mut self.y, y))
+    }
+}
+
+/// Advances one axis's latched zone and reports whether it fired a step this frame. `value` past
+/// `±STICK_ACTIVATE` latches that direction; within `±STICK_RELEASE` it resets to neutral; the band
+/// in between holds the previous zone (hysteresis). A step fires only on a transition *into* a
+/// non-neutral zone, so a held stick fires once.
+fn step_axis(latched: &mut i8, value: f32) -> i8 {
+    let zone = if value >= STICK_ACTIVATE {
+        1
+    } else if value <= -STICK_ACTIVATE {
+        -1
+    } else if value.abs() <= STICK_RELEASE {
+        0
+    } else {
+        *latched
+    };
+    let fired = if zone != 0 && zone != *latched {
+        zone
+    } else {
+        0
+    };
+    *latched = zone;
+    fired
+}
 
 pub(super) struct InputSnapshot {
     pub(super) cursor: Vec2,
@@ -34,7 +89,7 @@ pub(super) struct InputSnapshot {
 }
 
 impl InputSnapshot {
-    pub(super) fn from_world(world: &World) -> Option<Self> {
+    pub(super) fn from_world(world: &World, stick: &mut StickNav) -> Option<Self> {
         let input = world.resource::<InputState>()?;
         let cursor = input.cursor();
 
@@ -61,18 +116,25 @@ impl InputSnapshot {
         };
 
         // Fold in gamepad focus navigation from the first connected pad, mirroring the keyboard:
-        // D-pad Down/Up cycle focus (Up = reverse, like Shift+Tab), D-pad Left/Right nudge a focused
-        // slider, A (South) activates. Optional resource — no pad / no GamepadState = no-op.
+        // D-pad **or left analog stick** Down/Up cycle focus (Up = reverse, like Shift+Tab),
+        // Left/Right nudge a focused slider, A (South) activates. The analog stick is edge-detected
+        // via `stick` (one step per push, no auto-repeat). Axis signs follow the engine's existing
+        // convention (see the `survivor` example's `AxisBinding`s): up = -Y, down = +Y, right = +X.
+        // Optional resource — no pad / no GamepadState = no-op.
         if let Some(gp) = world.resource::<GamepadState>() {
             if let Some(p) = gp.primary() {
-                let down = gp.just_pressed(p, GamepadButton::DPadDown);
-                let up = gp.just_pressed(p, GamepadButton::DPadUp);
+                let (sx, sy) = stick.update(
+                    gp.axis(p, GamepadAxis::LeftStickX),
+                    gp.axis(p, GamepadAxis::LeftStickY),
+                );
+                let up = gp.just_pressed(p, GamepadButton::DPadUp) || sy < 0;
+                let down = gp.just_pressed(p, GamepadButton::DPadDown) || sy > 0;
                 if down || up {
                     snap.tab = true;
                     snap.shift |= up;
                 }
-                snap.nav_left |= gp.just_pressed(p, GamepadButton::DPadLeft);
-                snap.nav_right |= gp.just_pressed(p, GamepadButton::DPadRight);
+                snap.nav_left |= gp.just_pressed(p, GamepadButton::DPadLeft) || sx < 0;
+                snap.nav_right |= gp.just_pressed(p, GamepadButton::DPadRight) || sx > 0;
                 snap.activate |= gp.just_pressed(p, GamepadButton::South);
             }
         }
@@ -131,4 +193,68 @@ pub(super) fn node_layout(
 ) -> Option<(Vec2, Vec2, f32, bool)> {
     let node = world.get::<UiNode>(entity)?;
     Some((node.screen_pos(viewport), node.size, node.z, node.visible))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A push past the activation threshold fires once; holding it (even relaxed into the
+    /// hysteresis band) does not repeat; only after returning to neutral does it fire again.
+    #[test]
+    fn stick_fires_once_per_push_then_requires_neutral() {
+        let mut s = StickNav::default();
+        assert_eq!(s.update(0.0, -0.8), (0, -1), "first push fires");
+        assert_eq!(
+            s.update(0.0, -0.8),
+            (0, 0),
+            "held past threshold does not repeat"
+        );
+        assert_eq!(
+            s.update(0.0, -0.5),
+            (0, 0),
+            "relaxed into the hysteresis band (RELEASE..ACTIVATE) still does not fire"
+        );
+        assert_eq!(
+            s.update(0.0, 0.0),
+            (0, 0),
+            "returning to neutral does not fire, just resets"
+        );
+        assert_eq!(
+            s.update(0.0, -0.8),
+            (0, -1),
+            "pushing again after neutral fires"
+        );
+    }
+
+    /// Slamming the stick straight to the opposite direction (without passing through neutral)
+    /// fires the new direction.
+    #[test]
+    fn stick_slam_to_opposite_direction_fires() {
+        let mut s = StickNav::default();
+        assert_eq!(s.update(0.9, 0.0), (1, 0), "push right fires +1");
+        assert_eq!(
+            s.update(-0.9, 0.0),
+            (-1, 0),
+            "slam left fires -1 without a neutral frame"
+        );
+    }
+
+    /// Small resting drift below the release threshold must never latch or fire.
+    #[test]
+    fn stick_below_release_never_fires() {
+        let mut s = StickNav::default();
+        assert_eq!(s.update(0.3, 0.2), (0, 0));
+        assert_eq!(s.update(-0.3, -0.2), (0, 0));
+    }
+
+    /// A latched zone carries the sign of the stick value (positive → `1`, negative → `-1`); the
+    /// semantic up/down/left/right mapping is applied by the caller, not here.
+    #[test]
+    fn stick_zone_carries_value_sign() {
+        let mut s = StickNav::default();
+        assert_eq!(s.update(0.8, 0.8), (1, 1));
+        let mut s2 = StickNav::default();
+        assert_eq!(s2.update(-0.8, -0.8), (-1, -1));
+    }
 }

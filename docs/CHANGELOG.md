@@ -4,6 +4,36 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.41.0
+
+**Left analog stick now drives UI focus navigation, alongside the existing D-pad.** The
+`UiSystem` focus pass folds the first connected pad's left stick into its per-frame input snapshot:
+push **Up/Down** to cycle focus across widgets, **Left/Right** to nudge a focused `Slider`. The
+stick is edge-detected (one push = one focus step, no auto-repeat) so it behaves like the D-pad
+rather than spraying steps while held. Additive — keyboard and D-pad navigation are unchanged, and
+**no public API change** (the new `StickNav` edge detector is `pub(super)`).
+
+> **Hardware verification deferred.** The stick logic is covered by 8 new tests (4 `StickNav` unit +
+> 4 focus-pass integration) and its axis signs match the engine's existing `AxisBinding` convention
+> (see the `survivor` example: up = −Y, down = +Y, right = +X). Real-pad confirmation is pending: on
+> macOS, gilrs (IOKit HID) enumerates a Bluetooth/GameController-claimed Xbox controller — so it
+> connects — but the OS routes its input through Apple's GameController framework, so gilrs receives
+> no button/axis events. This is an environment limitation, not a defect (the existing `survivor`
+> gamepad support hits the same wall there); it will be revisited during per-OS input optimization.
+
+### Added
+- **Left analog stick → UI focus nav** (`src/ui/system/state.rs`): new `StickNav` per-axis edge
+  detector with hysteresis (0.6 activate / 0.35 release) converts the continuous left stick into
+  discrete D-pad-style steps. `InputSnapshot::from_world` now takes `&mut StickNav` and folds the
+  stick in next to the D-pad; `UiSystem` holds the `StickNav` across frames alongside its scratch
+  buffers. Left-stick Up/Down cycle focus (Up = reverse, like Shift+Tab), Left/Right nudge a focused
+  `Slider`.
+- **`GamepadState::test_axis`** (`src/input/gamepad.rs`, `#[cfg(test)]`): mirrors `test_press` for
+  analog input, letting non-`gilrs` tests drive the stick.
+- 8 tests (`StickNav` hysteresis unit tests + focus-pass integration tests for advance/reverse/wrap,
+  held-no-repeat, and slider nudge); lib tests 870 → 878. Example `ui_focus` updated to advertise the
+  left stick.
+
 ## 0.40.2
 
 **Behavior-preserving dedup of the two hex autotile bitmask functions.** Internal refactor only —
