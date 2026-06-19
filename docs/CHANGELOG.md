@@ -4,6 +4,22 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.40.1
+
+**Behavior-preserving cleanup of two deferred code-review items (audio / UI focus).** Internal
+refactors only — **no public API change** and no behavior change; the verify gate (870 lib tests) and
+the wasm audio smoke (38/38) confirm parity.
+
+### Changed (internal)
+- **wasm `WebAudio` positional dedup** (`src/audio_wasm.rs`): `play_at` and `play_at_on_bus` shared an
+  identical `update_position`-then-return tail over differently-routed SFX. Both now delegate to a
+  shared private `play_at_to(dest)` helper (master vs. bus gain is the only difference), mirroring the
+  existing `play_sfx`/`play_sfx_on_bus` → `play_sfx_to` structure.
+- **`focus_pass` membership cost** (`src/ui/system/focus_pass.rs`): the per-frame focus sync tested
+  membership against the index-sorted focusables list with two linear `contains` scans and cloned the
+  scratch vector each frame. Both `contains` calls now use an `is_focusable()` binary search (`O(log n)`)
+  and the redundant `focusables_snapshot` clone is gone.
+
 ## 0.40.0
 
 **Code-review hardening of the 2026-06-18 feature arc (audio / dialogue / UI focus / save) +

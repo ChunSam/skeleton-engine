@@ -52,7 +52,7 @@ pub(super) fn run(
     let mut focus = world
         .resource::<UiFocus>()
         .and_then(|f| f.entity)
-        .filter(|e| focusables.contains(e));
+        .filter(|&e| is_focusable(focusables, e));
 
     // A click moves focus to the clicked widget, so Tab resumes from there.
     if input.just_released {
@@ -96,10 +96,9 @@ pub(super) fn run(
 
     // Also sync TextInputs that are NOT in the focusables list (e.g. invisible / despawned):
     // they may still hold `focused = true` from a previous frame and need to be cleared.
-    let focusables_snapshot = scratch.clone();
     let mut all_text_inputs: Vec<_> = world.query::<TextInput>().map(|(e, _)| e).collect();
     for e in all_text_inputs.drain(..) {
-        if focusables_snapshot.contains(&e) {
+        if is_focusable(focusables, e) {
             continue; // already handled above
         }
         let was_focused = world.get::<TextInput>(e).is_some_and(|ti| ti.focused);
@@ -169,6 +168,14 @@ fn collect_focusables(world: &World, viewport: &ViewportSize, out: &mut Vec<Enti
             .unwrap_or(true);
         visible && button_ok
     });
+}
+
+/// Membership test against the index-sorted `focusables` slice (built by [`collect_focusables`],
+/// which sorts by [`Entity::index`]). `O(log n)` instead of a linear `contains` scan.
+fn is_focusable(focusables: &[Entity], e: Entity) -> bool {
+    focusables
+        .binary_search_by_key(&e.index(), |x| x.index())
+        .is_ok()
 }
 
 /// The next focusable after `current` (wrapping), or the first/last when nothing is focused yet.

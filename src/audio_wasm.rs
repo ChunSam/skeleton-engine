@@ -333,9 +333,7 @@ impl WebAudio {
     /// [`Sfx::update_position`] each frame to track a moving source. Routes to the master gain (use
     /// the returned [`Sfx`] for per-source control).
     pub fn play_at(&self, bytes: &[u8], source: Vec2, listener: Vec2, max_dist: f32) -> Sfx {
-        let sfx = self.play_sfx(bytes);
-        sfx.update_position(source, listener, max_dist);
-        sfx
+        self.play_at_to(bytes, source, listener, max_dist, &self.master)
     }
 
     /// Like [`play_at`](Self::play_at), but routes the positional SFX through the named mixer `bus`
@@ -351,7 +349,23 @@ impl WebAudio {
         max_dist: f32,
         bus: &str,
     ) -> Sfx {
-        let sfx = self.play_sfx_on_bus(bytes, bus);
+        let dest = self.bus_input(bus).unwrap_or_else(|| self.master.clone());
+        self.play_at_to(bytes, source, listener, max_dist, &dest)
+    }
+
+    /// Shared positional path for [`play_at`](Self::play_at) /
+    /// [`play_at_on_bus`](Self::play_at_on_bus): plays a controllable SFX routed to `dest` (the
+    /// master gain or a bus gain), then applies the distance-based volume/pan via
+    /// [`Sfx::update_position`]. Mirrors [`play_sfx_to`](Self::play_sfx_to).
+    fn play_at_to(
+        &self,
+        bytes: &[u8],
+        source: Vec2,
+        listener: Vec2,
+        max_dist: f32,
+        dest: &web_sys::GainNode,
+    ) -> Sfx {
+        let sfx = self.play_sfx_to(bytes, dest);
         sfx.update_position(source, listener, max_dist);
         sfx
     }
