@@ -241,6 +241,18 @@ impl GamepadState {
         slot.pressed.insert(button);
         slot.just_pressed.insert(button);
     }
+
+    /// Test-only: connect `pad` (if needed) and set `axis` to `value`, as if an `AxisChanged` event
+    /// had arrived. Lets non-`gilrs` tests drive analog input (e.g. analog-stick UI navigation).
+    pub(crate) fn test_axis(&mut self, pad: usize, axis: GamepadAxis, value: f32) {
+        let slot = self.slots[pad].get_or_insert_with(|| Slot {
+            pressed: HashSet::new(),
+            just_pressed: HashSet::new(),
+            just_released: HashSet::new(),
+            axes: HashMap::new(),
+        });
+        slot.axes.insert(axis, value);
+    }
 }
 
 #[cfg(test)]

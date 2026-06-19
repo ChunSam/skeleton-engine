@@ -218,9 +218,9 @@ mod tests {
     use winit::keyboard::KeyCode;
 
     use crate::ecs::{Events, System, World};
-    use crate::input::{GamepadButton, GamepadState, InputState};
+    use crate::input::{GamepadAxis, GamepadButton, GamepadState, InputState};
     use crate::resources::ViewportSize;
-    use crate::ui::{Button, ButtonState, CheckBox, UiEvent, UiFocus, UiNode, UiSystem};
+    use crate::ui::{Button, ButtonState, CheckBox, Slider, UiEvent, UiFocus, UiNode, UiSystem};
 
     /// World with three focusable widgets (button, checkbox, button) stacked vertically.
     fn world_with_widgets() -> (World, [crate::ecs::Entity; 3]) {
@@ -260,6 +260,20 @@ mod tests {
         w.insert_resource(gp);
     }
 
+    /// Sets the left-stick `axis` to `value` on slot 0 (connecting it if needed) and clears the
+    /// keyboard, so the next `UiSystem::run` sees only that analog input. Reuses any existing
+    /// `GamepadState` so axis values persist across frames — mirroring the real input flush, which
+    /// clears just-pressed buttons but keeps axis values.
+    fn set_stick(w: &mut World, axis: GamepadAxis, value: f32) {
+        w.insert_resource(InputState::default());
+        if w.resource::<GamepadState>().is_none() {
+            w.insert_resource(GamepadState::default());
+        }
+        w.resource_mut::<GamepadState>()
+            .unwrap()
+            .test_axis(0, axis, value);
+    }
+
     #[test]
     fn gamepad_dpad_down_advances_focus_and_wraps() {
         let (mut w, e) = world_with_widgets();
@@ -290,6 +304,90 @@ mod tests {
         assert!(
             events.contains(&UiEvent::ButtonClicked(e[0])),
             "A (South) on a focused button should emit ButtonClicked, got {events:?}"
+        );
+    }
+
+    #[test]
+    fn left_stick_down_advances_focus_and_wraps() {
+        // Pushing the left stick down advances focus like Tab / D-pad Down, but the stick must
+        // return to neutral between pushes (it does not auto-repeat). Engine convention: down = +Y.
+        let (mut w, e) = world_with_widgets();
+        let mut sys = UiSystem::new();
+        for expected in [e[0], e[1], e[2], e[0]] {
+            set_stick(&mut w, GamepadAxis::LeftStickY, 0.8); // push down (+Y)
+            sys.run(&mut w, 0.0);
+            assert_eq!(focus(&w), Some(expected));
+            set_stick(&mut w, GamepadAxis::LeftStickY, 0.0); // back to neutral so the next push fires
+            sys.run(&mut w, 0.0);
+        }
+    }
+
+    #[test]
+    fn left_stick_up_reverses_focus() {
+        // First stick-up from no focus lands on the last widget (like Shift+Tab / D-pad Up). Engine
+        // convention: up = -Y.
+        let (mut w, e) = world_with_widgets();
+        let mut sys = UiSystem::new();
+        set_stick(&mut w, GamepadAxis::LeftStickY, -0.8); // push up (-Y)
+        sys.run(&mut w, 0.0);
+        assert_eq!(focus(&w), Some(e[2]));
+    }
+
+    #[test]
+    fn held_left_stick_does_not_auto_repeat_focus() {
+        let (mut w, e) = world_with_widgets();
+        let mut sys = UiSystem::new();
+        // First push (down = +Y) advances to e[0].
+        set_stick(&mut w, GamepadAxis::LeftStickY, 0.8);
+        sys.run(&mut w, 0.0);
+        assert_eq!(focus(&w), Some(e[0]));
+        // Holding the stick down (same value) must NOT advance again.
+        sys.run(&mut w, 0.0);
+        assert_eq!(
+            focus(&w),
+            Some(e[0]),
+            "a held stick must not auto-repeat focus"
+        );
+        // Relaxing into the hysteresis band (still past the release threshold) must not fire.
+        set_stick(&mut w, GamepadAxis::LeftStickY, 0.5);
+        sys.run(&mut w, 0.0);
+        assert_eq!(
+            focus(&w),
+            Some(e[0]),
+            "stick in the hysteresis band must not fire"
+        );
+        // Return to neutral, then push again → advances.
+        set_stick(&mut w, GamepadAxis::LeftStickY, 0.0);
+        sys.run(&mut w, 0.0);
+        set_stick(&mut w, GamepadAxis::LeftStickY, 0.8);
+        sys.run(&mut w, 0.0);
+        assert_eq!(
+            focus(&w),
+            Some(e[1]),
+            "pushing again after returning to neutral advances focus"
+        );
+    }
+
+    #[test]
+    fn left_stick_right_nudges_focused_slider() {
+        // A focused Slider is nudged by the left stick X axis like D-pad Left/Right: +X is right.
+        let mut w = World::new();
+        w.insert_resource(ViewportSize::new(400, 300));
+        w.insert_resource(InputState::default());
+        w.insert_resource(UiFocus::default());
+        w.insert_resource(Events::<UiEvent>::default());
+        let e = w.spawn();
+        w.add_component(e, UiNode::new(10.0, 10.0, 200.0, 30.0));
+        w.add_component(e, Slider::new(0.0, 100.0, 50.0));
+        w.resource_mut::<UiFocus>().unwrap().entity = Some(e);
+
+        let mut sys = UiSystem::new();
+        set_stick(&mut w, GamepadAxis::LeftStickX, 0.8); // push right
+        sys.run(&mut w, 0.0);
+        let v = w.get::<Slider>(e).unwrap().value;
+        assert!(
+            v > 50.0,
+            "stick-right should nudge the focused slider up, got {v}"
         );
     }
 
