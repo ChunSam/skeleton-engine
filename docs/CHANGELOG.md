@@ -4,6 +4,14 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.43.5
+
+**Behavior-preserving split of `src/renderer/text.rs` and `src/renderer/sprite.rs` (P5 — the final step of the engine-hardening refactor sweep).** The 1102-line text module is broken into `src/renderer/text/` (`queue`/`cache`/`rich_text`/`renderer`/`tests`), and `sprite.rs`'s ~540-line `render()` is decomposed into its collect / batch / draw phases under `src/renderer/sprite/`. **No public API change, no behavior change**: `engine::{DrawText, TextAlign, TextAnchor, TextQueue, TextRenderer}` and `engine::renderer::{SpriteRenderer, FrameContext}` re-export unchanged; 883 lib tests unchanged; wasm build green.
+
+### Changed (internal)
+- **`src/renderer/text.rs` → `src/renderer/text/`**: `queue.rs` (`DrawText`/`TextAnchor`/`TextAlign`/`TextQueue`), `cache.rs` (shaped-buffer cache types), `rich_text.rs` (markup parser), `renderer.rs` (`TextRenderer` + font/layout helpers), `tests.rs`. `text.rs` is now a 17-line module root.
+- **`src/renderer/sprite.rs`**: `render()`'s phases extracted to `sprite/collect.rs` (`collect_draw_entries`), `sprite/batch.rs` (`batch_and_upload`), `sprite/draw.rs` (`record_draw_pass`) as `pub(super)` helpers; `render()` is now three sequential calls and `sprite.rs` shrank 825 → 355 lines. Logic moved verbatim. Cross-submodule helpers are `pub(super)`; public types/re-exports untouched.
+
 ## 0.43.4
 
 **Behavior-preserving split of `src/app/editor.rs` (P2 of the engine-hardening refactor sweep — the highest-risk file).** The 1509-line editor module — which mixed native-only editor internals with cross-platform public registration/loading API — is broken into focused files under `src/app/editor/`, leaving `editor.rs` a 43-line module root (declarations + re-exports). **No public API change, no behavior change**: 883 lib tests unchanged, and every `#[cfg(target_arch = "wasm32")]` boundary is preserved — the cross-platform `App::register_editable_component`/`register_serde_component`/`load_data_table`/`load_animation_clips`/`load_particle_configs`/`load_dialogue` stay compiled on wasm while the native-only editor internals stay gated (the `cargo build --target wasm32-unknown-unknown` gate is green).
