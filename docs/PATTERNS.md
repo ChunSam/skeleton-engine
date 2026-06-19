@@ -160,6 +160,45 @@ remove_body()
 2. Register with `app.world.insert_resource(MyResource { ... })`
 3. Add a re-export in `src/lib.rs` if needed
 
+### Make a hardcoded constant configurable (default-preserving resource)
+
+To let a game or fork override hardcoded constants (a color, a threshold, a layout
+dimension) **without changing the default behavior for anyone who doesn't opt in**, extract
+them into a small `Copy` World resource whose `Default` reproduces the old constants
+byte-for-byte (pattern from `FocusRingStyle`, `src/ui/focus.rs`, v0.42.0):
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FocusRingStyle {
+    pub color: Color,
+    pub thickness: f32,
+    pub enabled: bool,
+}
+
+impl Default for FocusRingStyle {
+    fn default() -> Self {
+        // Reproduce the OLD hardcoded constants EXACTLY.
+        Self { color: Color::rgba(1.0, 0.85, 0.3, 1.0), thickness: 3.0, enabled: true }
+    }
+}
+```
+
+1. **Auto-insert** the default in `insert_core_resources` (`src/app/core_resources.rs`),
+   next to the related resource, so games override it via `world.resource_mut::<T>()`.
+2. **Read it with `unwrap_or_default()`** at the (per-frame) call site, so a `World` that
+   never inserts it — including hand-built unit-test worlds — stays byte-identical to the
+   old constant:
+   ```rust
+   let style = world.resource::<FocusRingStyle>().copied().unwrap_or_default();
+   ```
+   `Copy` + `.copied()` also sidesteps holding a `&World` borrow across the call that uses it.
+3. **Re-export** the type from its module and `src/lib.rs` (it is public API now).
+4. **Demonstrate the override in the example** (the VISION acceptance test) and add a unit
+   test asserting `Default` matches the historical value, so a future edit can't silently
+   change the out-of-the-box behavior.
+
+Additive — no public API removed; ship as a MINOR under the 0.x cadence.
+
 ### Add a new event
 
 ```rust
