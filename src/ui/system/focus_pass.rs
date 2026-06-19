@@ -1,19 +1,15 @@
-use crate::color::Color;
 use crate::ecs::{Entity, World};
 use crate::renderer::DrawRect;
 use crate::resources::ViewportSize;
 use crate::ui::button::{Button, ButtonState};
 use crate::ui::checkbox::CheckBox;
-use crate::ui::focus::UiFocus;
+use crate::ui::focus::{FocusRingStyle, UiFocus};
 use crate::ui::slider::Slider;
 use crate::ui::text_input::TextInput;
 
 use super::state::{in_bounds, node_layout, InputSnapshot, UiOutput};
 use super::UiEvent;
 
-/// Focus-ring appearance.
-const RING_COLOR: Color = Color::rgba(1.0, 0.85, 0.3, 1.0);
-const RING_THICKNESS: f32 = 3.0;
 /// Fraction of a slider's range that one Left/Right press nudges the value.
 const SLIDER_STEP_FRAC: f32 = 0.05;
 
@@ -138,7 +134,11 @@ pub(super) fn run(
         }
         if let Some((pos, size, z, visible)) = node_layout(world, e, viewport) {
             if visible {
-                push_ring(output, pos, size, z);
+                let style = world
+                    .resource::<FocusRingStyle>()
+                    .copied()
+                    .unwrap_or_default();
+                push_ring(output, pos, size, z, &style);
             }
         }
     }
@@ -195,32 +195,49 @@ fn advance(focusables: &[Entity], current: Option<Entity>, reverse: bool) -> Ent
     }
 }
 
-/// Pushes the four border rects of a focus ring around `(pos, size)`, just above the widget's `z`.
-fn push_ring(output: &mut UiOutput, pos: glam::Vec2, size: glam::Vec2, z: f32) {
+/// Pushes the four border rects of a focus ring around `(pos, size)`, just above the widget's `z`,
+/// styled by `style`. Draws nothing when the style is not visible (disabled / non-positive thickness).
+fn push_ring(
+    output: &mut UiOutput,
+    pos: glam::Vec2,
+    size: glam::Vec2,
+    z: f32,
+    style: &FocusRingStyle,
+) {
+    if !style.is_visible() {
+        return;
+    }
     let zr = z + 0.5;
-    let t = RING_THICKNESS;
+    let t = style.thickness;
+    let color = style.color;
     output
         .rects
-        .push(DrawRect::new(pos.x, pos.y, size.x, t, RING_COLOR).with_z(zr));
+        .push(DrawRect::new(pos.x, pos.y, size.x, t, color).with_z(zr));
     output
         .rects
-        .push(DrawRect::new(pos.x, pos.y + size.y - t, size.x, t, RING_COLOR).with_z(zr));
+        .push(DrawRect::new(pos.x, pos.y + size.y - t, size.x, t, color).with_z(zr));
     output
         .rects
-        .push(DrawRect::new(pos.x, pos.y, t, size.y, RING_COLOR).with_z(zr));
+        .push(DrawRect::new(pos.x, pos.y, t, size.y, color).with_z(zr));
     output
         .rects
-        .push(DrawRect::new(pos.x + size.x - t, pos.y, t, size.y, RING_COLOR).with_z(zr));
+        .push(DrawRect::new(pos.x + size.x - t, pos.y, t, size.y, color).with_z(zr));
 }
 
 #[cfg(test)]
 mod tests {
     use winit::keyboard::KeyCode;
 
+    use crate::color::Color;
     use crate::ecs::{Events, System, World};
     use crate::input::{GamepadAxis, GamepadButton, GamepadState, InputState};
+    use crate::renderer::UiQueue;
     use crate::resources::ViewportSize;
-    use crate::ui::{Button, ButtonState, CheckBox, Slider, UiEvent, UiFocus, UiNode, UiSystem};
+    use crate::ui::{
+        Button, ButtonState, CheckBox, FocusRingStyle, Slider, UiEvent, UiFocus, UiNode, UiSystem,
+    };
+
+    use super::{push_ring, UiOutput};
 
     /// World with three focusable widgets (button, checkbox, button) stacked vertically.
     fn world_with_widgets() -> (World, [crate::ecs::Entity; 3]) {
@@ -388,6 +405,118 @@ mod tests {
         assert!(
             v > 50.0,
             "stick-right should nudge the focused slider up, got {v}"
+        );
+    }
+
+    // ── Focus-ring styling tests ─────────────────────────────────────────────
+
+    /// `push_ring` emits four border rects in the style's color, sized by its thickness.
+    #[test]
+    fn push_ring_uses_custom_color_and_thickness() {
+        let style = FocusRingStyle {
+            color: Color::rgb(0.3, 0.9, 1.0),
+            thickness: 6.0,
+            enabled: true,
+        };
+        let mut out = UiOutput::default();
+        push_ring(
+            &mut out,
+            glam::Vec2::new(10.0, 20.0),
+            glam::Vec2::new(100.0, 40.0),
+            0.0,
+            &style,
+        );
+        assert_eq!(out.rects.len(), 4, "a ring is four border rects");
+        assert!(
+            out.rects.iter().all(|r| r.color == style.color),
+            "every ring rect uses the style color"
+        );
+        // Top/bottom borders are `thickness` tall; left/right are `thickness` wide.
+        assert!(out.rects.iter().any(|r| r.h == 6.0 && r.w == 100.0));
+        assert!(out.rects.iter().any(|r| r.w == 6.0 && r.h == 40.0));
+    }
+
+    /// A disabled style — or a non-positive thickness — draws no ring at all.
+    #[test]
+    fn push_ring_disabled_or_zero_thickness_draws_nothing() {
+        let pos = glam::Vec2::new(10.0, 20.0);
+        let size = glam::Vec2::new(100.0, 40.0);
+        for style in [
+            FocusRingStyle {
+                enabled: false,
+                ..Default::default()
+            },
+            FocusRingStyle {
+                thickness: 0.0,
+                ..Default::default()
+            },
+        ] {
+            let mut out = UiOutput::default();
+            push_ring(&mut out, pos, size, 0.0, &style);
+            assert!(out.rects.is_empty(), "no ring rects for {style:?}");
+        }
+    }
+
+    /// The default style (no resource inserted) reproduces the historical amber 3px ring exactly.
+    #[test]
+    fn default_focus_ring_matches_historical_appearance() {
+        let style = FocusRingStyle::default();
+        assert_eq!(style.color, Color::rgba(1.0, 0.85, 0.3, 1.0));
+        assert_eq!(style.thickness, 3.0);
+        assert!(style.is_visible());
+    }
+
+    /// End-to-end: `UiSystem` reads the `FocusRingStyle` resource and the focused widget's ring
+    /// reaches the `UiQueue` in the configured color.
+    #[test]
+    fn ui_system_consumes_focus_ring_style_resource() {
+        let (mut w, e) = world_with_widgets();
+        w.insert_resource(UiQueue::default());
+        let ring = Color::rgb(0.3, 0.9, 1.0);
+        w.insert_resource(FocusRingStyle {
+            color: ring,
+            thickness: 5.0,
+            enabled: true,
+        });
+        w.resource_mut::<UiFocus>().unwrap().entity = Some(e[0]);
+
+        UiSystem::new().run(&mut w, 0.0);
+
+        let ring_rects = w
+            .resource::<UiQueue>()
+            .unwrap()
+            .items
+            .iter()
+            .filter(|r| r.color == ring)
+            .count();
+        assert_eq!(
+            ring_rects, 4,
+            "the focused widget's ring should reach the UiQueue in the configured color"
+        );
+    }
+
+    /// End-to-end: a disabled ring style suppresses the ring — no rects in the focused widget's
+    /// ring color reach the queue (a plain Button draws no other rects).
+    #[test]
+    fn ui_system_disabled_ring_style_draws_no_ring() {
+        let (mut w, e) = world_with_widgets();
+        w.insert_resource(UiQueue::default());
+        w.insert_resource(FocusRingStyle {
+            enabled: false,
+            ..Default::default()
+        });
+        w.resource_mut::<UiFocus>().unwrap().entity = Some(e[0]);
+
+        UiSystem::new().run(&mut w, 0.0);
+
+        let amber = FocusRingStyle::default().color;
+        assert!(
+            !w.resource::<UiQueue>()
+                .unwrap()
+                .items
+                .iter()
+                .any(|r| r.color == amber),
+            "a disabled ring style should draw no focus ring"
         );
     }
 
