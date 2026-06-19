@@ -12,12 +12,17 @@
 //! keyboard — the left stick is edge-detected, so one push = one step); this example only spawns
 //! widgets and prints what happened.
 //!
+//! The focus ring is restyled here via the `FocusRingStyle` resource (a thicker cyan ring instead of
+//! the default amber 3px one) — insert your own to match your game, or set `enabled = false` to
+//! suppress the engine ring and draw your own focus indicator.
+//!
 //! Run from the repo root:  `cargo run --example ui_focus`
 //! Tab/Shift+Tab, D-pad or left stick = move focus · Enter/Space or A = activate · arrows, D-pad or stick = slider · ESC = quit.
 
 use engine::{
-    App, Button, CheckBox, Color, DrawText, Events, InputState, KeyCode, ShouldQuit, Slider,
-    System, TextInput, TextQueue, UiEvent, UiFocus, UiNode, UiSystem, Vec2, WindowConfig, World,
+    App, Button, CheckBox, Color, DrawText, Events, FocusRingStyle, InputState, KeyCode,
+    ShouldQuit, Slider, System, TextInput, TextQueue, UiEvent, UiFocus, UiNode, UiSystem, Vec2,
+    WindowConfig, World,
 };
 
 /// Spawns the widgets and reports focus + the latest UI event as on-screen text.
@@ -92,6 +97,14 @@ fn main() {
         clear_color: [0.07, 0.08, 0.11, 1.0],
     });
     app.register_event::<UiEvent>();
+
+    // Restyle the focus ring: a thicker cyan ring instead of the default amber 3px one.
+    // (Auto-inserted with the default; overwrite it to taste, or set `enabled = false` to suppress.)
+    app.world.insert_resource(FocusRingStyle {
+        color: Color::rgb(0.3, 0.9, 1.0),
+        thickness: 4.0,
+        ..Default::default()
+    });
 
     // A column of focusable widgets (Tab order = spawn/entity order).
     spawn_widget(&mut app, 80.0, 220.0, 48.0, Button::new("Play"));

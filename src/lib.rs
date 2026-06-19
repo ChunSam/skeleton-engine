@@ -156,9 +156,9 @@ pub use timeline::{CameraTarget, Keyframe, Timeline, TimelineSystem, Track};
 pub use timer::Timer;
 pub use tween::{Easing, Lerp, Tween, TweenSequence};
 pub use ui::{
-    Anchor, Button, ButtonState, CheckBox, Label, LayoutDir, LayoutSystem, LocalizationSystem,
-    LocalizedText, Panel, ScrollView, Slider, TextInput, UiEvent, UiFocus, UiNode, UiSystem,
-    VirtualJoystick,
+    Anchor, Button, ButtonState, CheckBox, FocusRingStyle, Label, LayoutDir, LayoutSystem,
+    LocalizationSystem, LocalizedText, Panel, ScrollView, Slider, TextInput, UiEvent, UiFocus,
+    UiNode, UiSystem, VirtualJoystick,
 };
 
 // ── WASM panic hook ───────────────────────────────────────────────────────────

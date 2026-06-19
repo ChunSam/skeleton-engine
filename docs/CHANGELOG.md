@@ -4,6 +4,29 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.42.0
+
+**The UI focus ring is now restyleable via the `FocusRingStyle` resource.** The focus pass's
+previously hardcoded `RING_COLOR`/`RING_THICKNESS` constants move to a `FocusRingStyle` World
+resource (`color` / `thickness` / `enabled`), auto-inserted with the default amber 3px ring so
+existing behavior is byte-identical. Insert your own to recolor/resize it, or set `enabled = false`
+(or `thickness <= 0.0`) to suppress the engine ring entirely and draw your own focus indicator.
+Additive — default behavior is unchanged.
+
+### Added
+- **`FocusRingStyle`** (`src/ui/focus.rs`): a `Copy` World resource for the focus-ring appearance
+  (`color: Color`, `thickness: f32`, `enabled: bool`) plus `is_visible()`. `Default` reproduces the
+  historical hardcoded ring exactly (amber `rgba(1.0, 0.85, 0.3, 1.0)`, 3px). Auto-inserted in
+  `insert_core_resources` next to `UiFocus`; re-exported at the crate root.
+- **`focus_pass` reads the resource** (`src/ui/system/focus_pass.rs`): `push_ring` is styled by the
+  resolved `FocusRingStyle` (falling back to the default when the resource is absent) and draws
+  nothing when the style is not visible. The hardcoded `RING_COLOR`/`RING_THICKNESS` constants are
+  removed.
+- 5 tests (3 `push_ring` unit tests for custom color/thickness, disabled/zero-thickness, and the
+  default-appearance contract; 2 `UiSystem` integration tests confirming the resource is consumed
+  end-to-end into the `UiQueue` and that a disabled style draws no ring); lib tests 878 → 883.
+  Example `ui_focus` restyles the ring to a thicker cyan one to demonstrate.
+
 ## 0.41.0
 
 **Left analog stick now drives UI focus navigation, alongside the existing D-pad.** The
