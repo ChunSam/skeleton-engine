@@ -4,6 +4,13 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.43.4
+
+**Behavior-preserving split of `src/app/editor.rs` (P2 of the engine-hardening refactor sweep — the highest-risk file).** The 1509-line editor module — which mixed native-only editor internals with cross-platform public registration/loading API — is broken into focused files under `src/app/editor/`, leaving `editor.rs` a 43-line module root (declarations + re-exports). **No public API change, no behavior change**: 883 lib tests unchanged, and every `#[cfg(target_arch = "wasm32")]` boundary is preserved — the cross-platform `App::register_editable_component`/`register_serde_component`/`load_data_table`/`load_animation_clips`/`load_particle_configs`/`load_dialogue` stay compiled on wasm while the native-only editor internals stay gated (the `cargo build --target wasm32-unknown-unknown` gate is green).
+
+### Changed (internal)
+- **`src/app/editor.rs` → `src/app/editor/` submodules**: `history.rs` (`EditorCmd`/`EditorHistory`), `settings.rs` (`EditorSettings` + persistence), `prefab.rs` (`entity_to_def` + copy/paste/prefab), `overlays.rs` (debug-bounds / pathfinding overlays + inspector resets), `component_registry.rs` (component registration — native-only and cross-platform `impl App` blocks), `loading.rs` (data-table / clip / particle / dialogue loaders), `util.rs` (small helpers), `tests.rs`. The `component_registry` and `loading` module declarations are intentionally un-gated (their native-only contents keep inner `#[cfg(not(target_arch = "wasm32"))]`); cross-module `pub(super)` items were raised to `pub(in crate::app)` to preserve reachability. Operational code and public API untouched.
+
 ## 0.43.3
 
 **Behavior-preserving split of `src/app/render.rs` (P1 of the engine-hardening refactor sweep).** The 1200-line frame-render orchestration is broken into a `src/app/render/` directory by concern — `debug_draw.rs` (`DebugShape` → `DrawRect`), `offscreen.rs` (offscreen `RenderTarget` rendering), `docked.rs` (native-only docked-editor RT), `post_lighting.rs` (post-process + lighting setup), and `frame.rs` (`render` + `step_frame`/`step_frame_once` orchestration) — with `render/mod.rs` as the module root. **No public API change, no behavior change**: 883 lib tests unchanged, every `#[cfg(target_arch = "wasm32")]` boundary preserved (`RenderState` stays in `render_state.rs`; the `docked` submodule is gated native-only).
