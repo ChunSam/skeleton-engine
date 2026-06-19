@@ -275,11 +275,12 @@
         <a href="#에디터-서브시스템-패널-v811v827">에디터 서브시스템 패널</a>
         <a href="#변경-이력-v91v93">변경 이력 (v9.1–v9.3)</a>
         <a href="#변경-이력-v94v107">변경 이력 (v9.4–v10.7)</a>
+        <a href="#변경-이력-v011v0435">변경 이력 (v0.11–v0.43.5)</a>
       </details>
     </nav>
     <main class="doc">
 <h1 id="skeleton-engine-레퍼런스">skeleton-engine 레퍼런스</h1>
-<blockquote>버전 v0.11.0 기준. 패키지명 <code>skeleton-engine</code>, 라이브러리 크레이트명 <code>engine</code>. wgpu 29 기반 2D 게임 엔진. MSRV 1.95, Cargo 워크스페이스 (<code>.</code> + <code>engine_reflect_derive</code>). WASM 지원: <code>cargo build --target wasm32-unknown-unknown</code>.</blockquote>
+<blockquote>버전 v0.43.5 기준 (2026-06-20). 패키지명 <code>skeleton-engine</code>, 라이브러리 크레이트명 <code>engine</code>. wgpu 29 기반 2D 게임 엔진. MSRV 1.95, Cargo 워크스페이스 (<code>.</code> + <code>engine_reflect_derive</code>). WASM 지원: <code>cargo build --target wasm32-unknown-unknown</code>. <strong>이 문서의 서브시스템 본문은 v9.3/v10.7 시점 기준으로 작성되었고, 공개 API는 그 이후 대부분 추가형(additive)이다. 0.x 라인(0.11.0→0.43.5)의 변경 요약은 아래 <a href="#변경-이력-v011v0435">변경 이력 (v0.11–v0.43.5)</a>, 릴리스별 상세는 저장소의 <code>docs/CHANGELOG.md</code>를 참조.</strong></blockquote>
 <hr>
 <h2 id="목차">목차</h2>
 <div class="toc-grid">
@@ -2950,6 +2951,16 @@ world.add_component(panel, Sprite::with_handle(handle));
 world.add_component(panel, Transform::new(Vec2::ZERO, Vec2::new(300., 120.), 0.0)); // scale = 패널 전체 크기
 // 16px 모서리, 소스 텍스처 변이 64px 중 16px = 0.25
 world.add_component(panel, NineSlice::uniform(16.0, 16.0 / 64.0));</code></pre>
+<hr>
+<h2 id="변경-이력-v011v0435">변경 이력 (v0.11–v0.43.5, 0.x 리셋 이후)</h2>
+<p>v10.7.0에서 <strong>pre-1.0 0.x 라인으로 버전 리셋</strong>(2026-06-17, 크레이트 미발행 상태에서 "API 안정성 미약속" 신호)된 이후의 변경 요약이다. 0.x cadence: MINOR = 모든 릴리스(브레이킹 포함), PATCH = 버그픽스/리팩터; 1.0.0은 추후. 릴리스별 상세 항목은 저장소의 <code>docs/CHANGELOG.md</code>에 있다(이 표는 외부 공유용 압축 요약).</p>
+<ul>
+  <li><strong>v0.11–v0.17</strong> — UX 로드맵 7종: fork-first <code>README</code>/<code>FORKING.md</code>; <code>TimeScale</code>/<code>RealDt</code> + 제네릭 <code>Tween&lt;T&gt;</code> + Bounce/Elastic 이징; <code>World::query2_mut</code>/<code>query3_mut</code> + <code>App::push_scene</code>/<code>pop_scene</code>; <code>DialogueBox</code> + 타이프라이터 <code>DialogueSystem</code>; wasm <code>localStorage</code> 영속(<code>write_ron</code>/<code>read_ron</code>); <code>ParticleEmitter</code> <code>gravity</code>/<code>emit_shape</code>; wasm <code>WebAudio</code> SFX.</li>
+  <li><strong>v0.18–v0.23</strong> — GPU/RON 파티클 <code>gravity</code>/<code>emit_shape</code>; DialogueBox 로컬라이즈+분기; <strong>데이터 주도 다이얼로그</strong>(<code>DialogueTree</code>/<code>App::load_dialogue</code> + 조건부 선택지 <code>DialogueVars</code>/<code>DialogueCond</code> + 이벤트/이펙트 훅); <strong>파티클 RON→GPU</strong>(<code>ParticleConfigSet::gpu_emitter</code>); <strong>wasm 패리티</strong>(AEAD save/load localStorage, WebAudio 볼륨/루핑/suspend).</li>
+  <li><strong>v0.24–v0.31</strong> — WebAudio 런타임 검증 + 제어형 per-source SFX + 스테레오 팬; 다이얼로그 per-line 포트레이트; <strong>아이소메트릭/헥사고날 타일맵</strong>(<code>TilemapProjection</code>); 오토타일 통합(<code>TilemapAutotile</code> Single/Multi 모드); <strong>UI 키보드 포커스 내비</strong>(<code>UiFocus</code> + Tab/방향키).</li>
+  <li><strong>v0.32–v0.39</strong> — wasm 오디오 패리티(네임드 버스 / 크로스페이드 / 더킹 / 2D 위치 / <code>play_at_on_bus</code>); 게임패드 UI 포커스; flat-top 헥사(<code>HexagonalFlat</code>); <strong>iso+hex 오토타일</strong>(<code>Hex6</code>/<code>Hex6Flat</code> 이웃).</li>
+  <li><strong>v0.40–v0.43.5</strong> — 저위험 dedup 정리; 게임패드 좌측 아날로그 스틱 → UI 포커스; <strong>설정 가능 포커스 링</strong>(<code>FocusRingStyle</code> 리소스); <strong>64-tile 헥사 blob 오토타일 아틀라스</strong>(<code>gen_hex_autotile_sheet</code> 생성기 + <code>hex_blob_autotile</code>/<code>_flat</code> 예제); <strong>엔진 하드닝 리팩터 스윕</strong> — <code>network.rs</code>·<code>app/render.rs</code>·<code>app/editor.rs</code>·<code>renderer/text.rs</code>를 서브모듈로 분할(동작 보존, 공개 API·<code>cfg</code> 경계 무변경, 883 테스트 유지).</li>
+</ul>
     </main>
   </div>
 </body>

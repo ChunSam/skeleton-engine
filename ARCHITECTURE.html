@@ -304,6 +304,7 @@
         <span class="pill">custom ECS</span>
         <span class="pill">winit + wgpu</span>
         <span class="pill">native + WASM</span>
+        <span class="pill">v0.43.5 기준 (2026-06-20)</span>
       </div>
       <p>
         전체 구조의 중심은 <code>App</code>과 <code>World</code>다.
@@ -506,8 +507,8 @@ for entity in entities {
           <tbody>
             <tr>
               <td>App/runtime</td>
-              <td><code>src/app.rs</code>, <code>src/app/</code></td>
-              <td>winit 이벤트 루프, GPU 초기화, update/render orchestration, scene stack, debug editor</td>
+              <td><code>src/app.rs</code>, <code>src/app/</code> (<code>render/</code>, <code>render_state.rs</code>, <code>editor/</code>)</td>
+              <td>winit 이벤트 루프, GPU 초기화, update/render orchestration(<code>app/render/</code> = frame/offscreen/docked/post_lighting), scene stack, docked debug editor(<code>app/editor/</code>)</td>
               <td><code>App::new</code>, <code>App::run</code>, <code>add_system</code>, <code>set_scene</code></td>
             </tr>
             <tr>
@@ -518,8 +519,8 @@ for entity in entities {
             </tr>
             <tr>
               <td>Rendering</td>
-              <td><code>src/renderer/</code>, <code>src/renderer/sprite/</code>, <code>src/components.rs</code></td>
-              <td>wgpu context, sprite/text/UI rendering, render targets, post process, lighting, GPU particles</td>
+              <td><code>src/renderer/</code>, <code>src/renderer/sprite/</code>, <code>src/renderer/text/</code>, <code>src/components.rs</code></td>
+              <td>wgpu context, sprite(<code>sprite/</code> = collect/batch/draw)/text(<code>text/</code> = queue/cache/rich_text/renderer)/UI rendering, render targets, post process, lighting, GPU particles</td>
               <td><code>Sprite</code>, <code>Camera</code>, <code>UiQueue</code>, <code>TextQueue</code>, <code>PostProcessConfig</code></td>
             </tr>
             <tr>
@@ -536,9 +537,15 @@ for entity in entities {
             </tr>
             <tr>
               <td>Gameplay helpers</td>
-              <td><code>src/animation/</code>, <code>src/tilemap.rs</code>, <code>src/particle.rs</code>, <code>src/steering.rs</code></td>
-              <td>animation state, tilemaps, CPU particles, steering behaviors, timelines, tweens, timers</td>
+              <td><code>src/animation/</code>, <code>src/tilemap/</code>, <code>src/particle/</code>, <code>src/steering.rs</code>, <code>src/timeline.rs</code>, <code>src/tween.rs</code>, <code>src/coroutine.rs</code></td>
+              <td>animation state, tilemaps(ortho/iso/hex projection + autotile), CPU particles, steering behaviors, timelines, tweens, coroutines, timers</td>
               <td>각 시스템을 <code>App</code>이나 <code>Scene::on_enter</code>에서 명시 등록</td>
+            </tr>
+            <tr>
+              <td>Audio / net / narrative</td>
+              <td><code>src/audio.rs</code>, <code>src/audio/</code>, <code>src/audio_wasm.rs</code>, <code>src/network.rs</code>, <code>src/network/</code>, <code>src/dialogue/</code></td>
+              <td>믹서/버스/페이드 오디오(네이티브 rodio, wasm WebAudio), WebSocket 네트워킹 + 스냅샷 보간(<code>network/</code> = native/wasm_impl/system/snapshot), 다이얼로그 박스/트리/조건부 분기</td>
+              <td><code>AudioManager</code>, <code>WebAudio</code>, <code>NetworkSystem</code>, <code>SnapshotBuffer</code>, <code>DialogueSystem</code></td>
             </tr>
             <tr>
               <td>Assets/data</td>
