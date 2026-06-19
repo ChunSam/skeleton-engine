@@ -45,14 +45,8 @@ use crate::{
     input::{GamepadState, InputState, TouchState},
     prefab::Tag,
     reflect::ReflectValue,
-    renderer::{
-        DrawRect, FrameContext, GpuContext, PostProcessConfig, PostProcessRenderer, SpriteRenderer,
-        TextRenderer, UiImageQueue, UiQueue,
-    },
-    resources::{
-        DebugDraw, DisplayScaleFactor, FontData, LoadProgress, PendingResize, ShouldQuit,
-        ViewportSize, WindowConfig,
-    },
+    renderer::{GpuContext, SpriteRenderer, TextRenderer},
+    resources::{DisplayScaleFactor, FontData, LoadProgress, ViewportSize, WindowConfig},
     scene::{Scene, SceneChange, SceneCmd},
 };
 

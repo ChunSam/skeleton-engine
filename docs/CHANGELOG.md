@@ -4,6 +4,13 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.43.3
+
+**Behavior-preserving split of `src/app/render.rs` (P1 of the engine-hardening refactor sweep).** The 1200-line frame-render orchestration is broken into a `src/app/render/` directory by concern — `debug_draw.rs` (`DebugShape` → `DrawRect`), `offscreen.rs` (offscreen `RenderTarget` rendering), `docked.rs` (native-only docked-editor RT), `post_lighting.rs` (post-process + lighting setup), and `frame.rs` (`render` + `step_frame`/`step_frame_once` orchestration) — with `render/mod.rs` as the module root. **No public API change, no behavior change**: 883 lib tests unchanged, every `#[cfg(target_arch = "wasm32")]` boundary preserved (`RenderState` stays in `render_state.rs`; the `docked` submodule is gated native-only).
+
+### Changed (internal)
+- **`src/app/render.rs` → `src/app/render/` submodules** (`debug_draw`/`offscreen`/`docked`/`post_lighting`/`frame` + `mod.rs`). Cross-submodule `App` methods were raised from `pub(super)`/private to `pub(in crate::app)` to preserve their existing reachability after the move (no new public surface); a handful of now-unused `use` imports were dropped from `src/app.rs`. Operational code and public API untouched.
+
 ## 0.43.2
 
 **Behavior-preserving split of `src/network.rs` (P4 of the engine-hardening refactor sweep).** The 1372-line network module is broken into a `src/network/` directory — `event.rs` (`NetworkEvent`/`NetworkConfig` + the queue-size consts), `native.rs` / `wasm_impl.rs` (the cfg-gated `NetworkClient` WebSocket bodies), `system.rs` (`NetworkSystem`), `remote_entities.rs` (`RemoteEntities`), `snapshot.rs` (`SnapshotBuffer`), and `tests.rs` — with `network.rs` reduced to the module root (declarations, re-exports, the shared `push_event_bounded` helper). **No public API change, no behavior change**: `engine::{NetworkClient, NetworkConfig, NetworkEvent, NetworkSystem, RemoteEntities, SnapshotBuffer}` and the `engine::network::*` consts are re-exported unchanged; all `#[cfg(target_arch = "wasm32")]` gating is preserved (the wasm build is green); 883 lib tests unchanged.
