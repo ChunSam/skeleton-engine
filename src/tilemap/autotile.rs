@@ -275,66 +275,47 @@ fn compute_mask_raw(
     mask
 }
 
+/// Computes a 6-bit hex neighbor mask from a table of neighbor offsets. `offsets[i]` is the
+/// `(drow, dcol)` of the neighbor whose presence sets bit `1 << i`, so the table is ordered by
+/// ascending bit value (bits 1, 2, 4, 8, 16, 32). The two hex layouts differ only in their offset
+/// tables; this shared accumulator keeps the bit-setting loop in one place.
+fn hex_mask_from_offsets(
+    r: i32,
+    c: i32,
+    offsets: [(i32, i32); 6],
+    filled: impl Fn(i32, i32) -> bool,
+) -> u8 {
+    let mut mask = 0u8;
+    for (i, &(dr, dc)) in offsets.iter().enumerate() {
+        if filled(r + dr, c + dc) {
+            mask |= 1 << i;
+        }
+    }
+    mask
+}
+
 /// Pointy-top, odd-r hex bitmask: E=1, W=2, NE=4, NW=8, SE=16, SW=32. The NE/NW/SE/SW offsets
 /// depend on `odd_row` (odd rows are shifted right half a tile).
 fn hex6_mask(r: i32, c: i32, odd_row: bool, filled: impl Fn(i32, i32) -> bool) -> u8 {
-    // (drow, dcol) for NE, NW, SE, SW (E/W are parity-independent).
-    let (ne, nw, se, sw) = if odd_row {
-        ((-1, 1), (-1, 0), (1, 1), (1, 0))
+    // (drow, dcol) in bit order [E, W, NE, NW, SE, SW]; E/W are parity-independent.
+    let offsets = if odd_row {
+        [(0, 1), (0, -1), (-1, 1), (-1, 0), (1, 1), (1, 0)]
     } else {
-        ((-1, 0), (-1, -1), (1, 0), (1, -1))
+        [(0, 1), (0, -1), (-1, 0), (-1, -1), (1, 0), (1, -1)]
     };
-    let mut mask = 0u8;
-    if filled(r, c + 1) {
-        mask |= 1; // E
-    }
-    if filled(r, c - 1) {
-        mask |= 2; // W
-    }
-    if filled(r + ne.0, c + ne.1) {
-        mask |= 4; // NE
-    }
-    if filled(r + nw.0, c + nw.1) {
-        mask |= 8; // NW
-    }
-    if filled(r + se.0, c + se.1) {
-        mask |= 16; // SE
-    }
-    if filled(r + sw.0, c + sw.1) {
-        mask |= 32; // SW
-    }
-    mask
+    hex_mask_from_offsets(r, c, offsets, filled)
 }
 
 /// Flat-top, odd-q hex bitmask: N=1, S=2, NE=4, SE=8, NW=16, SW=32. The NE/SE/NW/SW offsets depend
 /// on `odd_col` (odd columns are shifted down half a tile).
 fn hex6_flat_mask(r: i32, c: i32, odd_col: bool, filled: impl Fn(i32, i32) -> bool) -> u8 {
-    // (drow, dcol) for NE, SE, NW, SW (N/S are parity-independent).
-    let (ne, se, nw, sw) = if odd_col {
-        ((0, 1), (1, 1), (0, -1), (1, -1))
+    // (drow, dcol) in bit order [N, S, NE, SE, NW, SW]; N/S are parity-independent.
+    let offsets = if odd_col {
+        [(-1, 0), (1, 0), (0, 1), (1, 1), (0, -1), (1, -1)]
     } else {
-        ((-1, 1), (0, 1), (-1, -1), (0, -1))
+        [(-1, 0), (1, 0), (-1, 1), (0, 1), (-1, -1), (0, -1)]
     };
-    let mut mask = 0u8;
-    if filled(r - 1, c) {
-        mask |= 1; // N
-    }
-    if filled(r + 1, c) {
-        mask |= 2; // S
-    }
-    if filled(r + ne.0, c + ne.1) {
-        mask |= 4; // NE
-    }
-    if filled(r + se.0, c + se.1) {
-        mask |= 8; // SE
-    }
-    if filled(r + nw.0, c + nw.1) {
-        mask |= 16; // NW
-    }
-    if filled(r + sw.0, c + sw.1) {
-        mask |= 32; // SW
-    }
-    mask
+    hex_mask_from_offsets(r, c, offsets, filled)
 }
 
 /// Builds the `filled(r, c)` bounds-checking closure shared by [`compute_tile_mask`] and

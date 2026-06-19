@@ -4,6 +4,19 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.40.2
+
+**Behavior-preserving dedup of the two hex autotile bitmask functions.** Internal refactor only —
+**no public API change** and no behavior change; the 31 autotile tests (incl. the parity-dependent
+hex offset and all-six-neighbor cases) and the full verify gate confirm parity.
+
+### Changed (internal)
+- **Hex autotile mask dedup** (`src/tilemap/autotile.rs`): `hex6_mask` (pointy-top, odd-r) and
+  `hex6_flat_mask` (flat-top, odd-q) each open-coded the same six `if filled(..) { mask |= bit }`
+  accumulation. Both now build a `[(drow, dcol); 6]` offset table (in ascending bit order) and
+  delegate to a shared `hex_mask_from_offsets()` accumulator; each layout's distinct bit order and
+  parity-dependent offsets stay explicit in its table.
+
 ## 0.40.1
 
 **Behavior-preserving cleanup of two deferred code-review items (audio / UI focus).** Internal
