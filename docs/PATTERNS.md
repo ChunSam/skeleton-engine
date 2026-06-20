@@ -51,6 +51,24 @@ allocate them fresh every call. Two sanctioned patterns:
 One-shot or editor-only paths may allocate freely — this convention is for code that
 runs every frame.
 
+### Time-driven System animation (no global clock)
+
+The engine has **no global elapsed-time resource** — a `System` receives only per-frame
+`dt`. When one needs a continuous time signal (a caret blink, a "breathing" pulse, any
+periodic animation), accumulate the clock locally rather than reaching for a shared one:
+
+1. **Accumulate in a System struct field** — `self.elapsed += dt` each frame.
+2. **Wrap it to bound `f32` precision** — `self.elapsed = (self.elapsed + dt).rem_euclid(period)`
+   (or `-= period` once past it), so the accumulator never grows large enough to degrade the
+   `sin`/`fract` math downstream.
+3. **Thread the elapsed time into a *pure* sub-pass helper** that maps `time → output`, so the
+   timing is unit-testable without a live frame loop, and keep the no-effect default a flat
+   passthrough so a disabled animation stays byte-identical.
+
+Instances: `TextInput::cursor_blink` (caret blink, `src/ui/system/text_input_pass.rs`) and
+`UiSystem::ring_elapsed` → `FocusRingStyle::pulse_alpha(t)` (focus-ring pulse,
+`src/ui/system/focus_pass.rs`). Both return the unmodulated value when the effect is off.
+
 ### Render layer separation
 
 - `AnimationSystem` → syncs the `UvRect` component → the renderer reads only `UvRect`  
