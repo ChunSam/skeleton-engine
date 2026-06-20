@@ -143,3 +143,9 @@ cargo test --lib renderer::text::tests::ew001   # the headless acceptance tests 
 **Goal met** — EW-001 visual-confirmation example shipped (`examples/centered_text.rs`, PR #162 merged
 green, no version bump), windowed-playtested. `main` @ `c25494a`, tree clean. Board still empty (next ID
 EW-002). Handed off to next session (seq 49).
+
+## Session Closed
+**Closed at:** 2026-06-20 (KST)
+**Commits:** #162 (`c25494a`, centered_text example) → handoff #163 (`6c1d51a`) → this close marker.
+**Session status:** Goal met — EW-001 visual example shipped + playtested, no version bump (example-only).
+Board empty (next free ID EW-002). Handed off to next session (seq 49).
