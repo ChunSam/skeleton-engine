@@ -7,6 +7,7 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 
+use crate::app::editor::tr;
 use crate::app::App;
 
 /// Returns all `Easing` variants in display order. Kept in sync with `src/tween.rs`.
@@ -33,6 +34,7 @@ fn easing_variants() -> [crate::tween::Easing; 10] {
 /// and returns `true` when the value changed.
 fn timeline_track_ui<T: Clone + crate::tween::Lerp>(
     ui: &mut egui::Ui,
+    id_key: &'static str,
     label: &str,
     track: &mut crate::timeline::Track<T>,
     at_time: f32,
@@ -40,17 +42,20 @@ fn timeline_track_ui<T: Clone + crate::tween::Lerp>(
     value_edit: impl Fn(&mut egui::Ui, &mut T) -> bool,
 ) {
     let header_text = if track.is_empty() {
-        format!("{label} (empty)")
+        format!("{label} ({})", tr("empty", "비어있음"))
     } else {
-        format!("{label} ({} kf)", track.len())
+        format!("{label} ({} {})", track.len(), tr("kf", "키프레임"))
     };
     egui::CollapsingHeader::new(header_text)
-        .id_salt(label)
+        .id_salt(id_key)
         .show(ui, |ui| {
             // "+kf" button (available whether or not the track has keyframes)
             if ui
-                .small_button("+kf")
-                .on_hover_text("add keyframe at current time")
+                .small_button(tr("+kf", "+키프레임"))
+                .on_hover_text(tr(
+                    "add keyframe at current time",
+                    "현재 시간에 키프레임 추가",
+                ))
                 .clicked()
             {
                 track.add(at_time, make_default(), crate::tween::Easing::Linear);
@@ -99,7 +104,7 @@ fn timeline_track_ui<T: Clone + crate::tween::Lerp>(
 
                     // Easing ComboBox — editable for all track types via the Easing enum.
                     let easing_label = format!("{e_snap:?}");
-                    let combo_id = egui::Id::new(label).with(i).with("ease");
+                    let combo_id = egui::Id::new(id_key).with(i).with("ease");
                     egui::ComboBox::from_id_salt(combo_id)
                         .selected_text(&easing_label)
                         .width(100.0)
@@ -117,7 +122,7 @@ fn timeline_track_ui<T: Clone + crate::tween::Lerp>(
 
                     if ui
                         .small_button("✕")
-                        .on_hover_text("remove keyframe")
+                        .on_hover_text(tr("remove keyframe", "키프레임 제거"))
                         .clicked()
                     {
                         remove = Some(i);
@@ -149,25 +154,29 @@ pub(in crate::app) fn timeline_panel(ui: &mut egui::Ui, app: &mut App, sel: crat
         return;
     };
     ui.horizontal(|ui| {
-        ui.label("duration");
+        ui.label(tr("duration", "지속시간"));
         ui.add(
             egui::DragValue::new(&mut tl.duration)
                 .speed(0.05)
                 .range(0.0..=3600.0)
                 .suffix("s"),
         );
-        ui.checkbox(&mut tl.looping, "loop");
+        ui.checkbox(&mut tl.looping, tr("loop", "반복"));
     });
     let dur = tl.duration.max(0.0);
     ui.horizontal(|ui| {
-        let label = if tl.playing { "⏸ Pause" } else { "▶ Play" };
+        let label = if tl.playing {
+            tr("⏸ Pause", "⏸ 일시정지")
+        } else {
+            tr("▶ Play", "▶ 재생")
+        };
         if ui.button(label).clicked() {
             tl.playing = !tl.playing;
         }
-        if ui.button("⏮ Restart").clicked() {
+        if ui.button(tr("⏮ Restart", "⏮ 재시작")).clicked() {
             tl.restart();
         }
-        ui.label("time");
+        ui.label(tr("time", "시간"));
         ui.add(
             egui::DragValue::new(&mut tl.time)
                 .speed(0.02)
@@ -179,6 +188,7 @@ pub(in crate::app) fn timeline_panel(ui: &mut egui::Ui, app: &mut App, sel: crat
     timeline_track_ui(
         ui,
         "position",
+        tr("position", "위치"),
         &mut tl.position,
         cur_time,
         || glam::Vec2::ZERO,
@@ -196,6 +206,7 @@ pub(in crate::app) fn timeline_panel(ui: &mut egui::Ui, app: &mut App, sel: crat
     timeline_track_ui(
         ui,
         "rotation",
+        tr("rotation", "회전"),
         &mut tl.rotation,
         cur_time,
         || 0.0f32,
@@ -207,6 +218,7 @@ pub(in crate::app) fn timeline_panel(ui: &mut egui::Ui, app: &mut App, sel: crat
     timeline_track_ui(
         ui,
         "scale",
+        tr("scale", "스케일"),
         &mut tl.scale,
         cur_time,
         || glam::Vec2::ZERO,
@@ -224,6 +236,7 @@ pub(in crate::app) fn timeline_panel(ui: &mut egui::Ui, app: &mut App, sel: crat
     timeline_track_ui(
         ui,
         "color",
+        tr("color", "색상"),
         &mut tl.color,
         cur_time,
         || crate::color::Color::WHITE,
@@ -267,6 +280,7 @@ pub(in crate::app) fn timeline_panel(ui: &mut egui::Ui, app: &mut App, sel: crat
     timeline_track_ui(
         ui,
         "alpha",
+        tr("alpha", "알파"),
         &mut tl.alpha,
         cur_time,
         || 1.0f32,
@@ -278,6 +292,7 @@ pub(in crate::app) fn timeline_panel(ui: &mut egui::Ui, app: &mut App, sel: crat
     timeline_track_ui(
         ui,
         "zoom",
+        tr("zoom", "줌"),
         &mut tl.zoom,
         cur_time,
         || 1.0f32,

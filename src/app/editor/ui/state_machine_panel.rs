@@ -8,6 +8,7 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 
+use crate::app::editor::tr;
 use crate::app::App;
 
 /// One-line summary of a transition condition for the State Machine panel.
@@ -83,7 +84,7 @@ pub(in crate::app) fn state_machine_panel(
                     .iter()
                     .map(|t| {
                         let cond_summary = if t.conditions.is_empty() {
-                            "always".to_string()
+                            tr("always", "항상").to_string()
                         } else {
                             t.conditions
                                 .iter()
@@ -147,7 +148,7 @@ pub(in crate::app) fn state_machine_panel(
     }
     let mut edits: Vec<Edit> = Vec::new();
 
-    ui.label(format!("current: {current}"));
+    ui.label(format!("{}: {current}", tr("current", "현재 상태")));
     let state_count = states.len();
     for st in &states {
         let is_current = st.name == current;
@@ -155,7 +156,7 @@ pub(in crate::app) fn state_machine_panel(
         ui.horizontal(|ui| {
             let text = egui::RichText::new(st.name.clone());
             ui.label(if is_current { text.strong() } else { text });
-            ui.label("clip");
+            ui.label(tr("clip", "클립"));
             let mut clip = st.clip as i32;
             if ui
                 .add(egui::DragValue::new(&mut clip).range(0..=4096))
@@ -163,12 +164,20 @@ pub(in crate::app) fn state_machine_panel(
             {
                 edits.push(Edit::SetClip(st.name.clone(), clip.max(0) as usize));
             }
-            if !is_current && ui.small_button("▶").on_hover_text("set current").clicked() {
+            if !is_current
+                && ui
+                    .small_button("▶")
+                    .on_hover_text(tr("set current", "현재 상태로 설정"))
+                    .clicked()
+            {
                 edits.push(Edit::SetCurrent(st.name.clone()));
             }
             if !is_current
                 && state_count > 1
-                && ui.small_button("✕").on_hover_text("remove state").clicked()
+                && ui
+                    .small_button("✕")
+                    .on_hover_text(tr("remove state", "상태 제거"))
+                    .clicked()
             {
                 edits.push(Edit::RemoveState(st.name.clone()));
             }
@@ -181,7 +190,7 @@ pub(in crate::app) fn state_machine_panel(
                 .show(ui, |ui| {
                     // Crossfade edit
                     ui.horizontal(|ui| {
-                        ui.label("xf");
+                        ui.label(tr("xf", "크로스페이드"));
                         let mut xf = tv.crossfade;
                         if ui
                             .add(
@@ -200,7 +209,7 @@ pub(in crate::app) fn state_machine_panel(
                         }
                         if ui
                             .small_button("✕")
-                            .on_hover_text("remove transition")
+                            .on_hover_text(tr("remove transition", "전이 제거"))
                             .clicked()
                         {
                             edits.push(Edit::RemoveTransition(st.name.clone(), i));
@@ -212,7 +221,11 @@ pub(in crate::app) fn state_machine_panel(
                     for (ci, cond) in tv.conditions.iter().enumerate() {
                         ui.horizontal(|ui| {
                             ui.label(cond_summary(cond));
-                            if ui.small_button("✕").on_hover_text("remove cond").clicked() {
+                            if ui
+                                .small_button("✕")
+                                .on_hover_text(tr("remove cond", "조건 제거"))
+                                .clicked()
+                            {
                                 let mut c = tv.conditions.clone();
                                 c.remove(ci);
                                 new_conds = Some(c);
@@ -254,7 +267,7 @@ pub(in crate::app) fn state_machine_panel(
                         if cond_variant < 4 {
                             ui.add(
                                 egui::TextEdit::singleline(&mut cond_param)
-                                    .hint_text("param")
+                                    .hint_text(tr("param", "파라미터"))
                                     .desired_width(60.0),
                             );
                         }
@@ -272,7 +285,7 @@ pub(in crate::app) fn state_machine_panel(
                         }
                         if ui
                             .small_button("+")
-                            .on_hover_text("add condition")
+                            .on_hover_text(tr("add condition", "조건 추가"))
                             .clicked()
                         {
                             let new_cond = match cond_variant {
@@ -331,7 +344,7 @@ pub(in crate::app) fn state_machine_panel(
                 let mut selected_xf = xf;
                 let mut do_add = false;
                 ui.horizontal(|ui| {
-                    ui.label("+trans→");
+                    ui.label(tr("+trans→", "+전이→"));
                     let combo_id = egui::Id::new(&st.name).with("add_trans_combo");
                     egui::ComboBox::from_id_salt(combo_id)
                         .selected_text(&selected_target)
@@ -349,7 +362,7 @@ pub(in crate::app) fn state_machine_panel(
                     );
                     if ui
                         .small_button("+")
-                        .on_hover_text("add transition")
+                        .on_hover_text(tr("add transition", "전이 추가"))
                         .clicked()
                     {
                         do_add = true;
@@ -376,7 +389,7 @@ pub(in crate::app) fn state_machine_panel(
     // Add-state row
     ui.separator();
     ui.horizontal(|ui| {
-        ui.label("add state:");
+        ui.label(tr("add state:", "상태 추가:"));
         ui.add(egui::TextEdit::singleline(&mut app.editor.sm_add_state_name).desired_width(100.0));
         if ui.button("+").clicked() {
             let name = app.editor.sm_add_state_name.trim().to_string();
@@ -389,7 +402,7 @@ pub(in crate::app) fn state_machine_panel(
     // Parameters (now editable)
     if !param_views.is_empty() {
         ui.separator();
-        ui.label(egui::RichText::new("parameters").weak());
+        ui.label(egui::RichText::new(tr("parameters", "파라미터")).weak());
         for pv in &param_views {
             ui.horizontal(|ui| {
                 ui.label(&pv.name);
@@ -407,7 +420,7 @@ pub(in crate::app) fn state_machine_panel(
                         }
                     }
                     AnimParam::Trigger(_) => {
-                        if ui.small_button("fire").clicked() {
+                        if ui.small_button(tr("fire", "발동")).clicked() {
                             edits.push(Edit::FireTrigger(pv.name.clone()));
                         }
                         ui.label(param_display(Some(&pv.value)));

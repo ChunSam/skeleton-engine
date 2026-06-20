@@ -17,6 +17,36 @@
 ///     }
 /// }
 /// ```
+/// Bundled Korean font (Noto Sans KR, Regular). Installed as an egui fallback so the editor /
+/// debug overlay can render Hangul — the default egui fonts cover only Latin + Cyrillic, so CJK
+/// text would otherwise show as `□` (tofu) boxes.
+const KOREAN_FONT: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/assets/fonts/NotoSansKR-Regular.ttf"
+));
+
+/// Installs the bundled Korean font as the **lowest-priority** fallback for both the proportional
+/// and monospace families. Latin/Cyrillic text keeps egui's default font (so existing metrics and
+/// look are unchanged); Noto Sans KR is consulted only for glyphs the default font lacks (Hangul,
+/// other CJK). Idempotent — egui skips the insert if a font with this name is already present.
+fn install_korean_fallback(ctx: &egui::Context) {
+    use egui::epaint::text::{FontPriority, InsertFontFamily};
+    ctx.add_font(egui::epaint::text::FontInsert::new(
+        "noto_sans_kr",
+        egui::FontData::from_static(KOREAN_FONT),
+        vec![
+            InsertFontFamily {
+                family: egui::FontFamily::Proportional,
+                priority: FontPriority::Lowest,
+            },
+            InsertFontFamily {
+                family: egui::FontFamily::Monospace,
+                priority: FontPriority::Lowest,
+            },
+        ],
+    ));
+}
+
 pub struct DebugUi {
     ctx: egui::Context,
     enabled: bool,
@@ -24,6 +54,7 @@ pub struct DebugUi {
 
 impl DebugUi {
     pub(crate) fn new_with_ctx(ctx: egui::Context) -> Self {
+        install_korean_fallback(&ctx);
         Self {
             ctx,
             enabled: false,

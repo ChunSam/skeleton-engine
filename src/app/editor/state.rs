@@ -299,6 +299,9 @@ pub(in crate::app) struct EditorState {
     /// Whether the pathfinding-grid overlay is drawn (per-`Tilemap` walkable/blocked cells).
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) show_pathgrid: bool,
+    /// Editor UI language (English / Korean). Persisted in `editor_settings.ron`.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) locale: super::EditorLocale,
 
     // ── Rotation gizmo (native only) ──────────────────────────────────────────
     /// Whether a rotation-handle drag is in progress.
@@ -392,6 +395,7 @@ impl EditorState {
             show_grid: false,
             show_bounds: false,
             show_pathgrid: false,
+            locale: super::EditorLocale::default(),
             rotate_active: false,
             rotate_start_rotation: 0.0,
             rotate_start_angle: 0.0,

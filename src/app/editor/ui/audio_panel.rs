@@ -11,6 +11,7 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 
+use crate::app::editor::tr;
 use crate::app::App;
 use crate::audio::AudioManager;
 
@@ -29,17 +30,23 @@ pub(in crate::app) fn audio_mixer_panel_body(ui: &mut egui::Ui, app: &mut App) {
             })
             .collect(),
         None => {
-            ui.label("No AudioManager — the game has not initialized audio.");
+            ui.label(tr(
+                "No AudioManager — the game has not initialized audio.",
+                "AudioManager 없음 — 게임이 오디오를 초기화하지 않았습니다.",
+            ));
             return;
         }
     };
 
     if buses.is_empty() {
-        ui.label("No audio buses. Assign one with AudioManager::assign_bus(channel, bus).");
+        ui.label(tr(
+            "No audio buses. Assign one with AudioManager::assign_bus(channel, bus).",
+            "오디오 버스 없음. AudioManager::assign_bus(channel, bus)로 할당하세요.",
+        ));
         return;
     }
 
-    ui.strong("Bus volumes");
+    ui.strong(tr("Bus volumes", "버스 볼륨"));
     ui.separator();
 
     // Render sliders against local copies; collect any changed values.

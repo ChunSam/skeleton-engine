@@ -1,3 +1,5 @@
+#[cfg(not(target_arch = "wasm32"))]
+use crate::app::editor::tr;
 use crate::app::App;
 use crate::ecs::{Entity, World};
 
@@ -91,49 +93,62 @@ impl App {
         // Registered via the same API available to forkers; order here determines
         // the render order in the docked inspector.
         self.register_inspector_panel::<crate::particle::ParticleEmitter>(
-            "Particle Tuner",
+            tr("Particle Tuner", "파티클 튜너"),
             |ui_panel, app, e| {
                 ui::particle_tuner_grid(ui_panel, app, e);
                 if ui_panel
-                    .button("↺ Reset to Default")
-                    .on_hover_text("reset all fields (keeps the texture)")
+                    .button(tr("↺ Reset to Default", "↺ 기본값으로 초기화"))
+                    .on_hover_text(tr(
+                        "reset all fields (keeps the texture)",
+                        "모든 필드 초기화 (텍스처 유지)",
+                    ))
                     .clicked()
                 {
                     app.reset_particle_emitter(e);
                 }
                 ui_panel.label(
-                    egui::RichText::new("edits apply live while the sim runs (unpause)").weak(),
+                    egui::RichText::new(tr(
+                        "edits apply live while the sim runs (unpause)",
+                        "시뮬레이션 실행 중 실시간 적용 (일시정지 해제)",
+                    ))
+                    .weak(),
                 );
             },
         );
 
         self.register_inspector_panel::<crate::components::PointLight>(
-            "Point Light",
+            tr("Point Light", "포인트 라이트"),
             |ui_panel, app, e| {
                 ui::point_light_grid(ui_panel, app, e);
                 if ui_panel
-                    .button("↺ Reset to Default")
-                    .on_hover_text("reset color / radius / intensity / height")
+                    .button(tr("↺ Reset to Default", "↺ 기본값으로 초기화"))
+                    .on_hover_text(tr(
+                        "reset color / radius / intensity / height",
+                        "색상 / 반경 / 강도 / 높이 초기화",
+                    ))
                     .clicked()
                 {
                     app.reset_point_light(e);
                 }
                 ui_panel.label(
-                    egui::RichText::new("the entity's Transform position is the light position")
-                        .weak(),
+                    egui::RichText::new(tr(
+                        "the entity's Transform position is the light position",
+                        "엔티티의 트랜스폼 위치가 빛의 위치입니다",
+                    ))
+                    .weak(),
                 );
             },
         );
 
         self.register_inspector_panel::<crate::animation::AnimationStateMachine>(
-            "State Machine",
+            tr("State Machine", "상태 머신"),
             |ui_panel, app, e| {
                 ui::state_machine_panel(ui_panel, app, e);
             },
         );
 
         self.register_inspector_panel::<crate::timeline::Timeline>(
-            "Timeline",
+            tr("Timeline", "타임라인"),
             |ui_panel, app, e| {
                 ui::timeline_panel(ui_panel, app, e);
             },
