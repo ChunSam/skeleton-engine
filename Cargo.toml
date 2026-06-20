@@ -17,6 +17,7 @@ categories  = ["game-engines", "rendering", "wasm"]
 rust-version = "1.95"
 include     = [
     ".cargo/config.toml",
+    "assets/fonts/**",
     "docs/CHANGELOG.md",
     "LICENSE",
     "README.md",
