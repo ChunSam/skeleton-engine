@@ -3,6 +3,11 @@ use super::*;
 mod state;
 mod ui;
 
+// Editor localization. Cross-platform: `tr` is called from both the native docked editor and the
+// shared wasm overlay path, so the module is NOT wasm-gated. The active locale is a thread-local
+// set each frame from `EditorSettings` (native); wasm has no locale toggle and stays at the default.
+mod i18n;
+
 #[cfg(not(target_arch = "wasm32"))]
 mod history;
 #[cfg(not(target_arch = "wasm32"))]
@@ -26,6 +31,12 @@ mod tests;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) mod docked_rt;
+
+// `tr` is used on both native + the wasm overlay path; `set_locale` / `EditorLocale` are only used
+// by the native editor (toolbar toggle + persisted setting), so re-export them native-only.
+pub(in crate::app) use i18n::tr;
+#[cfg(not(target_arch = "wasm32"))]
+pub(in crate::app) use i18n::{set_locale, EditorLocale};
 
 pub(super) use state::EditorState;
 #[cfg(not(target_arch = "wasm32"))]

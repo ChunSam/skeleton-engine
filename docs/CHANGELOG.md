@@ -4,6 +4,21 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.46.0
+
+**Korean (CJK) support + a Korean-by-default localization for the in-game editor.** The egui editor / debug overlay previously rendered CJK text as `□` (tofu) because egui's default fonts cover only Latin + Cyrillic. Two parts fix this:
+
+1. **Bundled Korean font.** Noto Sans KR (Regular) ships in `assets/fonts/` and is installed as the **lowest-priority egui fallback** in `DebugUi::new_with_ctx` — Latin/Cyrillic keep the default font (unchanged look/metrics); the Noto fallback is consulted only for glyphs the default lacks (Hangul, other CJK). This also makes Korean *data* (e.g. RON data-table values, entity tags) render correctly in the editor.
+2. **Editor localization layer.** A lightweight `tr(en, ko)` helper (`src/app/editor/i18n.rs`) translates editor UI strings at the call site; **English is the source of truth**, Korean is inline. The active `EditorLocale` is a thread-local set each frame from the persisted editor settings and **defaults to Korean**. A toolbar button toggles English ⇄ 한국어 (persisted to `editor_settings.ron`), so a forker can switch the editor back to English. ~130 user-facing editor strings across the docked + overlay UI are now localized; component registration keys, ids, file paths, and data-derived labels are deliberately left untranslated.
+
+### Added
+- **`assets/fonts/NotoSansKR-Regular.ttf`** + `DebugUi`'s `install_korean_fallback` (egui `add_font`, `FontPriority::Lowest`).
+- **`src/app/editor/i18n.rs`**: `EditorLocale {English, Korean}` (default Korean), thread-local active locale, `set_locale`/`locale`/`tr(en, ko)`.
+- **`EditorSettings::locale`** (`#[serde(default)]`, RON-persisted) + `EditorState::locale`; an EN/한국어 toggle button in the docked toolbar.
+
+### Changed
+- Editor UI files under `src/app/editor/` wrap user-facing strings in `tr(..)`; `update_editor_ui` publishes the active locale each frame.
+
 ## 0.45.0
 
 **Rounded corners for UI rects and the keyboard-focus ring.** `DrawRect` gains two optional, default-off knobs — `corner_radius` (round the corners) and `border` (draw only an inset outline ring of that width instead of a fill) — rendered by a new dedicated UI pipeline + SDF shader. `FocusRingStyle::corner_radius` rides the same machinery so the engine's focus ring can be rounded. **Additive and byte-identical by default**: `corner_radius == 0.0 && border == 0.0` takes a shader fast path that renders exactly like the old plain quad, so every existing `DrawRect`/`DrawImage` and the sharp four-bar focus ring are unchanged. The sprite pipeline (`InstanceRaw` / `sprite.wgsl`) is untouched — the UI primitive pass now uses its own `UiInstanceRaw` + pipeline.

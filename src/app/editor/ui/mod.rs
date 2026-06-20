@@ -99,7 +99,7 @@ fn tag_name_editor(
     let current_name = tag_map.get(&sel).cloned().unwrap_or_default();
     let has_tag = world.get::<Tag>(sel).is_some();
     ui.horizontal(|ui| {
-        ui.label("Name:");
+        ui.label(tr("Name:", "이름:"));
         if has_tag {
             let mut name_buf = current_name;
             if ui.text_edit_singleline(&mut name_buf).changed() {
@@ -107,7 +107,7 @@ fn tag_name_editor(
             }
         } else {
             ui.label(format!("Entity {}:{}", sel.index(), sel.generation()));
-            if ui.button("Add Name").clicked() {
+            if ui.button(tr("Add Name", "이름 추가")).clicked() {
                 world.add_component(
                     sel,
                     Tag(format!("Entity {}:{}", sel.index(), sel.generation())),
@@ -191,6 +191,10 @@ impl App {
 
         // Built-in EngineStats panel + Inspector
         if let Some(ctx) = egui_ctx {
+            // Publish the active editor locale for this frame so every `tr(..)` agrees.
+            #[cfg(not(target_arch = "wasm32"))]
+            crate::app::editor::set_locale(self.editor.locale);
+
             // ── Undo (Ctrl+Z) / Redo (Ctrl+Shift+Z) / Copy (Ctrl+C) / Paste (Ctrl+V) ─
             #[cfg(not(target_arch = "wasm32"))]
             self.handle_editor_shortcuts(ctx);
@@ -305,25 +309,25 @@ impl App {
                     .resource::<AssetServer>()
                     .map(|a| a.image_count())
                     .unwrap_or(0);
-                egui::Window::new("Engine Stats")
+                egui::Window::new(tr("Engine Stats", "엔진 통계"))
                     .default_pos([10.0, 10.0])
                     .resizable(true)
                     .show(ctx, |ui| {
                         ui.label(format!("FPS   {:>6.1}", 1.0_f32 / dt.max(0.001)));
                         ui.label(format!("ms    {:>6.2}", dt * 1000.0));
-                        ui.label(format!("Ent   {entity_count}"));
-                        ui.label(format!("Asset {asset_count}"));
+                        ui.label(format!("{} {entity_count}", tr("Ent", "엔티티")));
+                        ui.label(format!("{} {asset_count}", tr("Asset", "에셋")));
                         ui.separator();
                         if let Some(prof) = self.world.resource::<crate::resources::ProfilerData>()
                         {
-                            ui.collapsing("Systems", |ui| {
+                            ui.collapsing(tr("Systems", "시스템"), |ui| {
                                 egui::Grid::new("sys_prof")
                                     .num_columns(2)
                                     .striped(true)
                                     .show(ui, |ui| {
                                         for sys in &prof.systems {
-                                            let label = if sys.name.is_empty() {
-                                                "anonymous"
+                                            let label: &str = if sys.name.is_empty() {
+                                                tr("anonymous", "익명")
                                             } else {
                                                 &sys.name
                                             };
@@ -334,36 +338,54 @@ impl App {
                                     });
                             });
                             let r = prof.render;
-                            ui.collapsing("Render", |ui| {
-                                ui.label(format!("draw calls  {}", r.draw_calls));
-                                ui.label(format!("rendered    {}", r.sprites_rendered));
-                                ui.label(format!("culled      {}", r.sprites_culled));
+                            ui.collapsing(tr("Render", "렌더"), |ui| {
+                                ui.label(format!(
+                                    "{} {}",
+                                    tr("draw calls", "드로우 콜"),
+                                    r.draw_calls
+                                ));
+                                ui.label(format!(
+                                    "{} {}",
+                                    tr("rendered", "렌더링됨"),
+                                    r.sprites_rendered
+                                ));
+                                ui.label(format!(
+                                    "{} {}",
+                                    tr("culled", "컬링됨"),
+                                    r.sprites_culled
+                                ));
                             });
                         }
                     });
 
                 // Inspector panel: entity list + component field editor + asset browser
-                egui::Window::new("Inspector")
+                egui::Window::new(tr("Inspector", "인스펙터"))
                     .default_pos([10.0, 130.0])
                     .default_size([440.0, 380.0])
                     .show(ctx, |ui| {
                         // ── Tab selection ────────────────────────────────────────
                         ui.horizontal(|ui| {
                             if ui
-                                .selectable_label(self.editor.inspector_tab == 0, "Entities")
+                                .selectable_label(
+                                    self.editor.inspector_tab == 0,
+                                    tr("Entities", "엔티티"),
+                                )
                                 .clicked()
                             {
                                 self.editor.inspector_tab = 0;
                             }
                             if ui
-                                .selectable_label(self.editor.inspector_tab == 1, "Assets")
+                                .selectable_label(
+                                    self.editor.inspector_tab == 1,
+                                    tr("Assets", "에셋"),
+                                )
                                 .clicked()
                             {
                                 self.editor.inspector_tab = 1;
                             }
                             #[cfg(not(target_arch = "wasm32"))]
                             if ui
-                                .selectable_label(self.editor.inspector_tab == 2, "Scene")
+                                .selectable_label(self.editor.inspector_tab == 2, tr("Scene", "씬"))
                                 .clicked()
                             {
                                 self.editor.inspector_tab = 2;
@@ -375,7 +397,7 @@ impl App {
                         #[cfg(not(target_arch = "wasm32"))]
                         if self.editor.inspector_tab == 0 {
                             ui.horizontal(|ui| {
-                                ui.checkbox(&mut self.editor.snap_enabled, "Snap");
+                                ui.checkbox(&mut self.editor.snap_enabled, tr("Snap", "스냅"));
                                 if self.editor.snap_enabled {
                                     ui.add(
                                         egui::DragValue::new(&mut self.editor.snap_size)
@@ -412,7 +434,7 @@ impl App {
                                     .map(|a| a.image_list())
                                     .unwrap_or_default();
                                 if entries.is_empty() {
-                                    ui.label("(No images loaded)");
+                                    ui.label(tr("(No images loaded)", "(불러온 이미지 없음)"));
                                 } else {
                                     egui::ScrollArea::vertical()
                                         .id_salt("asset_browser")
@@ -469,7 +491,8 @@ impl App {
                             #[cfg(target_arch = "wasm32")]
                             {
                                 ui.horizontal(|ui| {
-                                    if ui.button("＋ New Entity").clicked() {
+                                    if ui.button(tr("＋ New Entity", "＋ 새 엔티티")).clicked()
+                                    {
                                         let e = self.world.spawn();
                                         self.world.add_component(
                                             e,
@@ -483,14 +506,20 @@ impl App {
                                     }
                                     if let Some(sel) = self.editor.inspector_selected {
                                         if ui
-                                            .add_enabled(true, egui::Button::new("🗑 Delete"))
+                                            .add_enabled(
+                                                true,
+                                                egui::Button::new(tr("🗑 Delete", "🗑 삭제")),
+                                            )
                                             .clicked()
                                         {
                                             self.world.despawn(sel);
                                             self.editor.inspector_selected = None;
                                         }
                                         if ui
-                                            .add_enabled(true, egui::Button::new("⎘ Duplicate"))
+                                            .add_enabled(
+                                                true,
+                                                egui::Button::new(tr("⎘ Duplicate", "⎘ 복제")),
+                                            )
                                             .clicked()
                                         {
                                             if let Some(new_entity) = self.world.clone_entity(sel) {
@@ -511,7 +540,7 @@ impl App {
                                     // Left: entity list
                                     ui.vertical(|ui| {
                                         ui.set_min_width(130.0);
-                                        ui.strong("Entities");
+                                        ui.strong(tr("Entities", "엔티티"));
                                         egui::ScrollArea::vertical()
                                             .id_salt("inspector_ent")
                                             .max_height(250.0)
@@ -530,7 +559,7 @@ impl App {
                                     ui.separator();
                                     // Right: component field editor
                                     ui.vertical(|ui| {
-                                        ui.strong("Components");
+                                        ui.strong(tr("Components", "컴포넌트"));
                                         egui::ScrollArea::vertical()
                                             .id_salt("inspector_comp")
                                             .max_height(250.0)

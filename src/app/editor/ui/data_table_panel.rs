@@ -16,6 +16,7 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 
+use crate::app::editor::tr;
 use crate::app::App;
 use crate::data_table::{DataTableRegistry, ReloadOutcome};
 
@@ -31,7 +32,7 @@ pub(in crate::app) fn data_table_panel_body(ui: &mut egui::Ui, app: &mut App) {
         .unwrap_or_default();
 
     ui.horizontal(|ui| {
-        ui.strong("Tables:");
+        ui.strong(tr("Tables:", "테이블:"));
         egui::ScrollArea::horizontal()
             .id_salt("dt_selector_scroll")
             .show(ui, |ui| {
@@ -47,15 +48,15 @@ pub(in crate::app) fn data_table_panel_body(ui: &mut egui::Ui, app: &mut App) {
 
     // ── Open-new-table row ────────────────────────────────────────────────────
     ui.horizontal(|ui| {
-        ui.label("Name:");
+        ui.label(tr("Name:", "이름:"));
         ui.add(
             egui::TextEdit::singleline(&mut app.editor.data_table_open_name).desired_width(80.0),
         );
-        ui.label("Path:");
+        ui.label(tr("Path:", "경로:"));
         ui.add(
             egui::TextEdit::singleline(&mut app.editor.data_table_open_path).desired_width(160.0),
         );
-        if ui.button("Open").clicked() {
+        if ui.button(tr("Open", "열기")).clicked() {
             let name = app.editor.data_table_open_name.trim().to_string();
             let path = app.editor.data_table_open_path.trim().to_string();
             if !name.is_empty() && !path.is_empty() {
@@ -77,7 +78,7 @@ pub(in crate::app) fn data_table_panel_body(ui: &mut egui::Ui, app: &mut App) {
 
     // ── Table editor grid ─────────────────────────────────────────────────────
     let Some(sel_name) = app.editor.selected_data_table.clone() else {
-        ui.label("(no table selected)");
+        ui.label(tr("(no table selected)", "(테이블 미선택)"));
         return;
     };
 
@@ -86,14 +87,18 @@ pub(in crate::app) fn data_table_panel_body(ui: &mut egui::Ui, app: &mut App) {
         let reg = match app.world.resource::<DataTableRegistry>() {
             Some(r) => r,
             None => {
-                ui.label("(no DataTableRegistry)");
+                ui.label(tr("(no DataTableRegistry)", "(DataTableRegistry 없음)"));
                 return;
             }
         };
         let table = match reg.get(&sel_name) {
             Some(t) => t,
             None => {
-                ui.label(format!("(table '{sel_name}' not found)"));
+                ui.label(format!(
+                    "{pre}'{sel_name}'{suf}",
+                    pre = tr("(table ", "(테이블 "),
+                    suf = tr(" not found)", " 찾을 수 없음)")
+                ));
                 return;
             }
         };
@@ -136,13 +141,13 @@ pub(in crate::app) fn data_table_panel_body(ui: &mut egui::Ui, app: &mut App) {
 
     // ── Button row ────────────────────────────────────────────────────────────
     ui.horizontal(|ui| {
-        if ui.button("+ Add Row").clicked() {
+        if ui.button(tr("+ Add Row", "+ 행 추가")).clicked() {
             add_row_requested = true;
         }
-        if ui.button("💾 Save").clicked() {
+        if ui.button(tr("💾 Save", "💾 저장")).clicked() {
             save_requested = true;
         }
-        if ui.button("↺ Reload").clicked() {
+        if ui.button(tr("↺ Reload", "↺ 새로고침")).clicked() {
             reload_requested = true;
         }
     });
@@ -157,11 +162,11 @@ pub(in crate::app) fn data_table_panel_body(ui: &mut egui::Ui, app: &mut App) {
                 .striped(true)
                 .show(ui, |ui| {
                     // Header row
-                    ui.label("#");
+                    ui.label("#"); // symbol-only — not translated
                     for col in &columns {
-                        ui.strong(col);
+                        ui.strong(col); // data-derived column name — not translated
                     }
-                    ui.label(""); // delete column header
+                    ui.label(""); // delete column header — empty, not translated
                     ui.end_row();
 
                     // Data rows
@@ -229,14 +234,18 @@ pub(in crate::app) fn data_table_panel_body(ui: &mut egui::Ui, app: &mut App) {
         let status = if let Some(reg) = app.world.resource_mut::<DataTableRegistry>() {
             if let Some(table) = reg.get_mut(&sel_name) {
                 match table.save() {
-                    Ok(()) => format!("✓ saved to {}", table.path),
+                    Ok(()) => format!("✓ {} {}", tr("saved to", "저장 완료:"), table.path),
                     Err(e) => format!("✗ {e}"),
                 }
             } else {
-                format!("✗ table '{sel_name}' not found")
+                format!(
+                    "✗ {} '{sel_name}' {}",
+                    tr("table", "테이블"),
+                    tr("not found", "찾을 수 없음")
+                )
             }
         } else {
-            "✗ no registry".to_string()
+            tr("✗ no registry", "✗ 레지스트리 없음").to_string()
         };
         app.editor.data_table_status = Some(status);
     }
@@ -256,12 +265,26 @@ pub(in crate::app) fn data_table_panel_body(ui: &mut egui::Ui, app: &mut App) {
                 ReloadOutcome::NotFound
             };
             app.editor.data_table_status = Some(match outcome {
-                ReloadOutcome::Reloaded => format!("↺ reloaded from {path}"),
-                ReloadOutcome::SkippedDirty => {
-                    format!("skipped reload — unsaved edits in '{sel_name}'")
+                ReloadOutcome::Reloaded => {
+                    format!("↺ {} {path}", tr("reloaded from", "새로고침 완료:"))
                 }
-                ReloadOutcome::NotFound => format!("↺ path '{path}' not registered"),
-                ReloadOutcome::Err => format!("↺ reload failed for '{path}'"),
+                ReloadOutcome::SkippedDirty => {
+                    format!(
+                        "{} '{sel_name}'",
+                        tr(
+                            "skipped reload — unsaved edits in",
+                            "새로고침 건너뜀 — 미저장 편집 내용:"
+                        )
+                    )
+                }
+                ReloadOutcome::NotFound => format!(
+                    "↺ {} '{path}' {}",
+                    tr("path", "경로"),
+                    tr("not registered", "등록되지 않음")
+                ),
+                ReloadOutcome::Err => {
+                    format!("↺ {} '{path}'", tr("reload failed for", "새로고침 실패:"))
+                }
             });
         }
     }
@@ -319,7 +342,7 @@ fn cell_editor(
         _ => {
             // Complex or unit values: display only, no edit
             let _ = (row, col);
-            ui.label("(complex)");
+            ui.label(tr("(complex)", "(복합값)"));
             None
         }
     }

@@ -16,6 +16,9 @@ pub(in crate::app) struct EditorSettings {
     pub show_pathgrid: bool,
     pub paint_brush: u32,
     pub paint_tool: PaintTool,
+    /// Editor UI language (English / Korean). Defaults to Korean for old settings files.
+    #[serde(default)]
+    pub locale: super::EditorLocale,
 }
 
 impl EditorSettings {
@@ -28,6 +31,7 @@ impl EditorSettings {
             show_pathgrid: s.show_pathgrid,
             paint_brush: s.paint_brush,
             paint_tool: s.paint_tool,
+            locale: s.locale,
         }
     }
 
@@ -39,6 +43,7 @@ impl EditorSettings {
         s.show_pathgrid = self.show_pathgrid;
         s.paint_brush = self.paint_brush;
         s.paint_tool = self.paint_tool;
+        s.locale = self.locale;
     }
 }
 
