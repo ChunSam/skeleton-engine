@@ -72,23 +72,27 @@ impl System for LoadingUpdateSystem {
 
         if let Some(ui) = world.resource_mut::<UiQueue>() {
             // Background bar
-            ui.items.push(DrawRect {
-                x: bar_x - 2.0,
-                y: bar_y - 2.0,
-                w: bar_w + 4.0,
-                h: bar_h + 4.0,
-                color: Color::rgba(0.15, 0.15, 0.15, 1.0),
-                z: 0.5,
-            });
+            ui.items.push(
+                DrawRect::new(
+                    bar_x - 2.0,
+                    bar_y - 2.0,
+                    bar_w + 4.0,
+                    bar_h + 4.0,
+                    Color::rgba(0.15, 0.15, 0.15, 1.0),
+                )
+                .with_z(0.5),
+            );
             // Progress bar
-            ui.items.push(DrawRect {
-                x: bar_x,
-                y: bar_y,
-                w: (bar_w * progress).max(0.0),
-                h: bar_h,
-                color: Color::rgba(0.3, 0.8, 0.3, 1.0),
-                z: 0.6,
-            });
+            ui.items.push(
+                DrawRect::new(
+                    bar_x,
+                    bar_y,
+                    (bar_w * progress).max(0.0),
+                    bar_h,
+                    Color::rgba(0.3, 0.8, 0.3, 1.0),
+                )
+                .with_z(0.6),
+            );
         }
 
         // Percentage text

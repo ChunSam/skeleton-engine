@@ -4,6 +4,23 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.45.0
+
+**Rounded corners for UI rects and the keyboard-focus ring.** `DrawRect` gains two optional, default-off knobs — `corner_radius` (round the corners) and `border` (draw only an inset outline ring of that width instead of a fill) — rendered by a new dedicated UI pipeline + SDF shader. `FocusRingStyle::corner_radius` rides the same machinery so the engine's focus ring can be rounded. **Additive and byte-identical by default**: `corner_radius == 0.0 && border == 0.0` takes a shader fast path that renders exactly like the old plain quad, so every existing `DrawRect`/`DrawImage` and the sharp four-bar focus ring are unchanged. The sprite pipeline (`InstanceRaw` / `sprite.wgsl`) is untouched — the UI primitive pass now uses its own `UiInstanceRaw` + pipeline.
+
+### Added
+- **`src/renderer/shaders/ui.wgsl`** (new): UI primitive shader with a rounded-rect SDF — filled when `border == 0`, an inset outline ring otherwise; a `corner == (0, 0)` fast path identical to the prior plain quad.
+- **`src/renderer/sprite/geometry.rs`**: `UiInstanceRaw` (model / color / uv + `px_size` + `corner = [radius, border]`) and its vertex buffer layout.
+- **`src/renderer/sprite.rs`**: a dedicated `ui_pipeline` (own shader, reusing the camera + texture bind-group layouts).
+- **`src/renderer/ui.rs`**: `DrawRect::{corner_radius, border}` fields + `with_corner_radius` / `with_border` builders, with unit tests.
+- **`src/ui/focus.rs`**: `FocusRingStyle::corner_radius` (default `0.0` → the historical sharp ring).
+- **`examples/ui_rounded.rs`** (new): the acceptance example — a rounded card panel, the three fill modes (sharp fill / rounded fill / rounded outline), and a rounded focus ring you can Tab around.
+
+### Changed
+- **`src/renderer/sprite/ui_primitives.rs`**: the UI primitive pass builds `UiInstanceRaw` (threading each rect's `corner`; images pass `[0, 0]`) and draws through `ui_pipeline`.
+- **`src/ui/system/focus_pass.rs`**: `push_ring` emits a single rounded outline `DrawRect` when `corner_radius > 0`, otherwise the historical four border bars.
+- **`examples/diagonal_pathing.rs`, `examples/loading_bar.rs`**: converted their direct `DrawRect { … }` struct literals to the `DrawRect::new(...)` builder (future-proof against added fields).
+
 ## 0.44.0
 
 **Optional "breathing" pulse for the keyboard-focus ring.** `FocusRingStyle` gains two fields — `pulse_hz` (cycles/sec) and `pulse_min_alpha` (alpha at the trough, a fraction of the ring color's alpha) — that fade the focus ring's alpha on a raised sine to draw the eye to the focused widget. **Additive and off by default** (`pulse_hz = 0.0` → a steady ring, byte-identical to before), so existing call sites and the historical amber 3px default are unchanged. The pulse clock is accumulated inside `UiSystem` (wrapped so `+= dt` never loses precision) and threaded into the focus pass, mirroring the existing cursor-blink timing.

@@ -138,14 +138,16 @@ impl System for DemoSystem {
         // ── Draw grid ────────────────────────────────────────────────────────
         if let Some(ui) = world.resource_mut::<UiQueue>() {
             // Grid border / background
-            ui.items.push(DrawRect {
-                x: GRID_OX - 1.0,
-                y: GRID_OY - 1.0,
-                w: COLS as f32 * CELL + 2.0,
-                h: ROWS as f32 * CELL + 2.0,
-                color: Color::rgba(0.08, 0.08, 0.10, 1.0),
-                z: 0.0,
-            });
+            ui.items.push(
+                DrawRect::new(
+                    GRID_OX - 1.0,
+                    GRID_OY - 1.0,
+                    COLS as f32 * CELL + 2.0,
+                    ROWS as f32 * CELL + 2.0,
+                    Color::rgba(0.08, 0.08, 0.10, 1.0),
+                )
+                .with_z(0.0),
+            );
 
             // Individual cells
             for row in 0..ROWS {
@@ -154,14 +156,10 @@ impl System for DemoSystem {
                     let is_wall = self.walls.contains(&cell);
                     let color = if is_wall { COLOR_WALL } else { COLOR_FLOOR };
                     let (cx, cy) = cell_xy(cell);
-                    ui.items.push(DrawRect {
-                        x: cx + 1.0,
-                        y: cy + 1.0,
-                        w: CELL - 2.0,
-                        h: CELL - 2.0,
-                        color,
-                        z: 0.1,
-                    });
+                    ui.items.push(
+                        DrawRect::new(cx + 1.0, cy + 1.0, CELL - 2.0, CELL - 2.0, color)
+                            .with_z(0.1),
+                    );
                 }
             }
 
@@ -177,38 +175,24 @@ impl System for DemoSystem {
                         continue;
                     }
                     let (px, py) = cell_xy(p);
-                    ui.items.push(DrawRect {
-                        x: px + 2.0,
-                        y: py + 2.0,
-                        w: CELL - 4.0,
-                        h: CELL - 4.0,
-                        color: path_color,
-                        z: 0.2,
-                    });
+                    ui.items.push(
+                        DrawRect::new(px + 2.0, py + 2.0, CELL - 4.0, CELL - 4.0, path_color)
+                            .with_z(0.2),
+                    );
                 }
             }
 
             // Start marker
             let (sx, sy) = cell_xy(START);
-            ui.items.push(DrawRect {
-                x: sx + 2.0,
-                y: sy + 2.0,
-                w: CELL - 4.0,
-                h: CELL - 4.0,
-                color: COLOR_START,
-                z: 0.3,
-            });
+            ui.items.push(
+                DrawRect::new(sx + 2.0, sy + 2.0, CELL - 4.0, CELL - 4.0, COLOR_START).with_z(0.3),
+            );
 
             // Goal marker
             let (gx, gy) = cell_xy(GOAL);
-            ui.items.push(DrawRect {
-                x: gx + 2.0,
-                y: gy + 2.0,
-                w: CELL - 4.0,
-                h: CELL - 4.0,
-                color: COLOR_GOAL,
-                z: 0.3,
-            });
+            ui.items.push(
+                DrawRect::new(gx + 2.0, gy + 2.0, CELL - 4.0, CELL - 4.0, COLOR_GOAL).with_z(0.3),
+            );
         }
 
         // ── HUD text ─────────────────────────────────────────────────────────

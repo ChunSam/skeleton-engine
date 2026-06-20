@@ -10,6 +10,13 @@ pub struct DrawRect {
     pub h: f32,
     pub color: Color,
     pub z: f32,
+    /// Corner radius in screen pixels. `0.0` (the default) is a sharp rectangle, rendered
+    /// byte-identically to before; a positive value rounds all four corners (clamped to half
+    /// the smaller side).
+    pub corner_radius: f32,
+    /// Border width in screen pixels. `0.0` (the default) fills the rect; a positive value
+    /// draws only an outline ring of that width, inset from the edge (used by the focus ring).
+    pub border: f32,
 }
 
 impl DrawRect {
@@ -21,11 +28,26 @@ impl DrawRect {
             h,
             color: color.into(),
             z: 0.0,
+            corner_radius: 0.0,
+            border: 0.0,
         }
     }
 
     pub fn with_z(mut self, z: f32) -> Self {
         self.z = z;
+        self
+    }
+
+    /// Rounds the rect's corners to `radius` screen pixels (clamped to half the smaller side).
+    pub fn with_corner_radius(mut self, radius: f32) -> Self {
+        self.corner_radius = radius;
+        self
+    }
+
+    /// Draws only an outline ring of `width` screen pixels (inset from the edge) instead of a
+    /// filled rect. Combine with [`with_corner_radius`](Self::with_corner_radius) for a rounded ring.
+    pub fn with_border(mut self, width: f32) -> Self {
+        self.border = width;
         self
     }
 }
@@ -192,6 +214,23 @@ mod tests {
         let r = DrawRect::new(10.0, 20.0, 80.0, 40.0, [1.0; 4]).with_z(0.5);
         assert_eq!(r.x, 10.0);
         assert_eq!(r.z, 0.5);
+    }
+
+    #[test]
+    fn draw_rect_defaults_are_sharp_filled() {
+        // A plain rect rounds nothing and is filled — the shader's fast path.
+        let r = DrawRect::new(0.0, 0.0, 10.0, 10.0, [1.0; 4]);
+        assert_eq!(r.corner_radius, 0.0);
+        assert_eq!(r.border, 0.0);
+    }
+
+    #[test]
+    fn draw_rect_rounded_outline_builders() {
+        let r = DrawRect::new(0.0, 0.0, 10.0, 10.0, [1.0; 4])
+            .with_corner_radius(4.0)
+            .with_border(2.0);
+        assert_eq!(r.corner_radius, 4.0);
+        assert_eq!(r.border, 2.0);
     }
 
     #[test]
