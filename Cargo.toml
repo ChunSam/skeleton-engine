@@ -37,6 +37,10 @@ name = "engine"
 crate-type = ["cdylib", "rlib"]
 
 [[example]]
+name = "centered_text"
+path = "examples/centered_text/centered_text.rs"
+
+[[example]]
 name = "web_audio"
 path = "examples/web_audio/web_audio.rs"
 
