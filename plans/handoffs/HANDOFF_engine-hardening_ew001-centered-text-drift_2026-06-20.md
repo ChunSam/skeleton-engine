@@ -174,3 +174,17 @@ cargo test --lib renderer::text::tests::ew001   # both green
 ## Session Status
 **Goal met** — EW-001 fixed and shipped (v0.43.6, PR #159 merged green), regression tests added, board replied
 `Shipped`. `main` @ `90b9cea`, tree clean. Handed off to next session (seq 48). Ball on EW-001 is with the game.
+
+## EW-001 Closed by Game (post-handoff update)
+The game session **verified EW-001 on v0.43.6** and closed it — board status `Verified`, heading `- [x]`,
+moved to **Done / archive** (`../dungeon-merchant/docs/engine-wishlist.md`). Game's `[Game] 2026-06-20`
+reply: "Verified on v0.43.6 (Cargo.lock bumped, game builds + boots clean). Engine tests
+`ew001_centered_text_center_lands_on_position_x` and `ew001_left_align_center_anchor_unchanged` both pass —
+the latter confirms our `centered_text` (anchor=Center + default Left align) is unchanged, so we're keeping it
+as-is." **Active requests on the board are now empty; next free ID is EW-002.** The full engine↔game loop
+(file → ship → verify → close) completed within the same day — the wishlist workflow is proven end-to-end.
+
+## Session Closed
+**Closed at:** 2026-06-20 (KST)
+**Commits:** #159 (`90b9cea`, EW-001 fix v0.43.6) → handoff #160 (`4034c0e`) → this close marker.
+**Session status:** Goal met, EW-001 verified+closed by the game. Handed off to next session (seq 48).
