@@ -79,9 +79,23 @@ echo ">>> [1/4] building web_audio -> wasm (release)..."
 bash "$WEB_DIR/build.sh" >/dev/null
 
 echo ">>> [2/4] serving $WEB_DIR on :$PORT..."
-( cd "$WEB_DIR" && python3 -m http.server "$PORT" ) >/dev/null 2>&1 &
+# Refuse a stale server on $PORT (an orphaned http.server from a prior run would
+# serve a different page → no AUDIO_CHECK verdict, a confusing FAIL). Guard it like
+# centered_text_smoke.sh so a leaked python can't silently take over the port.
+if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "FAIL: port $PORT is already in use — stop it (or set SMOKE_PORT) so we serve OUR page" >&2
+  exit 2
+fi
+# `--directory` (not a `( cd && python3 )` subshell) so $! IS python, not a subshell
+# whose python *child* survives `kill $HTTPD_PID` and orphans itself onto $PORT.
+python3 -m http.server "$PORT" --directory "$WEB_DIR" >/dev/null 2>&1 &
 HTTPD_PID=$!
 sleep 1
+# Confirm OUR server actually came up (a silent bind failure must not mislead).
+if ! kill -0 "$HTTPD_PID" 2>/dev/null; then
+  echo "FAIL: http.server failed to start on :$PORT" >&2
+  exit 2
+fi
 
 echo ">>> [3/4] running the lifecycle check headless..."
 # Run Chrome headless in REAL time (NOT --virtual-time-budget): the AudioContext suspend/resume

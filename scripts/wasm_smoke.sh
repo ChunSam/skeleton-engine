@@ -100,9 +100,24 @@ for _ in $(seq 1 40); do
 done
 
 echo ">>> [3/5] serving $WEB_DIR on :$PORT..."
-( cd "$WEB_DIR" && python3 -m http.server "$PORT" ) >/dev/null 2>&1 &
+# Guard the static $PORT too (not just SERVER_PORT above): a stale http.server
+# orphaned by a prior run serves a different page, and the byte-size check below
+# would FALSE-PASS off it. centered_text_smoke.sh guards its port the same way.
+if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "FAIL: port $PORT is already in use — stop it (or set SMOKE_PORT) so we serve OUR page" >&2
+  exit 2
+fi
+# `--directory` (not a `( cd && python3 )` subshell) so $! IS the python process,
+# not a subshell whose python *child* survives `kill $HTTPD_PID` and orphans itself
+# onto $PORT — the exact leak that makes a later run false-pass off a stale server.
+python3 -m http.server "$PORT" --directory "$WEB_DIR" >/dev/null 2>&1 &
 HTTPD_PID=$!
 sleep 1
+# Confirm OUR server actually came up (a silent bind failure must not FALSE-PASS).
+if ! kill -0 "$HTTPD_PID" 2>/dev/null; then
+  echo "FAIL: http.server failed to start on :$PORT" >&2
+  exit 2
+fi
 
 echo ">>> [4/5] rendering one frame headless (DPR=2)..."
 rm -f "$SHOT"
