@@ -42,6 +42,7 @@ impl UiFocus {
 /// let style = FocusRingStyle {
 ///     color: Color::rgb(0.3, 0.9, 1.0),
 ///     thickness: 5.0,
+///     corner_radius: 8.0,   // round the ring's corners (0.0 = sharp, the default)
 ///     pulse_hz: 1.5,        // gently "breathe" the ring 1.5×/sec
 ///     pulse_min_alpha: 0.4, // fading to 40% of `color`'s alpha at the trough
 ///     ..Default::default()
@@ -60,6 +61,10 @@ pub struct FocusRingStyle {
     pub color: Color,
     /// Border thickness in screen pixels. `<= 0.0` draws no ring.
     pub thickness: f32,
+    /// Corner radius in screen pixels. `0.0` (the default) draws the historical sharp ring as four
+    /// axis-aligned bars; a positive value draws a single rounded outline quad (SDF-rendered),
+    /// clamped to half the widget's smaller side.
+    pub corner_radius: f32,
     /// Whether to draw the ring at all. `false` draws no ring (the focus logic still runs).
     pub enabled: bool,
     /// Pulse ("breathing") frequency in cycles/second. `0.0` (the default) disables the pulse: the
@@ -77,6 +82,7 @@ impl Default for FocusRingStyle {
         Self {
             color: Color::rgba(1.0, 0.85, 0.3, 1.0),
             thickness: 3.0,
+            corner_radius: 0.0,
             enabled: true,
             pulse_hz: 0.0,
             pulse_min_alpha: 1.0,

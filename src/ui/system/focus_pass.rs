@@ -196,9 +196,13 @@ fn advance(focusables: &[Entity], current: Option<Entity>, reverse: bool) -> Ent
     }
 }
 
-/// Pushes the four border rects of a focus ring around `(pos, size)`, just above the widget's `z`,
-/// styled by `style`. Draws nothing when the style is not visible (disabled / non-positive thickness).
+/// Pushes a focus ring around `(pos, size)`, just above the widget's `z`, styled by `style`.
+/// Draws nothing when the style is not visible (disabled / non-positive thickness).
 /// `elapsed` (seconds) drives the optional alpha pulse; it has no effect on a non-pulsing style.
+///
+/// When `style.corner_radius > 0.0` the ring is a single rounded outline quad (SDF-rendered by
+/// the UI pipeline). Otherwise it is the historical four axis-aligned border bars — byte-identical
+/// to before.
 fn push_ring(
     output: &mut UiOutput,
     pos: glam::Vec2,
@@ -214,6 +218,18 @@ fn push_ring(
     let t = style.thickness;
     let mut color = style.color;
     color.a *= style.pulse_alpha(elapsed);
+
+    if style.corner_radius > 0.0 {
+        // One rounded outline quad covering the widget bounds; the shader insets the `t`-wide ring.
+        output.rects.push(
+            DrawRect::new(pos.x, pos.y, size.x, size.y, color)
+                .with_z(zr)
+                .with_corner_radius(style.corner_radius)
+                .with_border(t),
+        );
+        return;
+    }
+
     output
         .rects
         .push(DrawRect::new(pos.x, pos.y, size.x, t, color).with_z(zr));
@@ -440,6 +456,34 @@ mod tests {
         // Top/bottom borders are `thickness` tall; left/right are `thickness` wide.
         assert!(out.rects.iter().any(|r| r.h == 6.0 && r.w == 100.0));
         assert!(out.rects.iter().any(|r| r.w == 6.0 && r.h == 40.0));
+    }
+
+    /// A `corner_radius > 0.0` style draws a single rounded *outline* quad covering the widget
+    /// bounds (radius + border carried on the rect) instead of the four sharp bars.
+    #[test]
+    fn push_ring_rounded_emits_single_outline_rect() {
+        let style = FocusRingStyle {
+            color: Color::rgb(0.3, 0.9, 1.0),
+            thickness: 5.0,
+            corner_radius: 12.0,
+            enabled: true,
+            ..Default::default()
+        };
+        let pos = glam::Vec2::new(10.0, 20.0);
+        let size = glam::Vec2::new(100.0, 40.0);
+        let mut out = UiOutput::default();
+        push_ring(&mut out, pos, size, 0.0, 0.0, &style);
+
+        assert_eq!(
+            out.rects.len(),
+            1,
+            "a rounded ring is a single outline rect"
+        );
+        let r = &out.rects[0];
+        // Covers the full widget bounds, carrying the radius + border for the SDF shader.
+        assert_eq!((r.x, r.y, r.w, r.h), (10.0, 20.0, 100.0, 40.0));
+        assert_eq!(r.corner_radius, 12.0);
+        assert_eq!(r.border, 5.0, "border width == ring thickness");
     }
 
     /// A disabled style — or a non-positive thickness — draws no ring at all.

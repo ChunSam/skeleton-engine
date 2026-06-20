@@ -20,9 +20,12 @@ pub(super) struct UiPrimitive {
     pub(super) kind: UiPrimitiveKind,
     pub(super) order: usize,
     pub(super) texture_key: Option<String>,
-    pub(super) instance: InstanceRaw,
+    pub(super) instance: UiInstanceRaw,
 }
 
+/// Builds a UI quad instance. `corner = [radius, border]` (screen px) drives the
+/// rounded-rect SDF in `ui.wgsl`; `[0.0, 0.0]` (every image, an unrounded rect) is the
+/// fast path that renders identically to the original plain quad.
 pub(super) fn ui_quad_instance(
     x: f32,
     y: f32,
@@ -30,7 +33,8 @@ pub(super) fn ui_quad_instance(
     h: f32,
     color: [f32; 4],
     uv: UvRect,
-) -> InstanceRaw {
+    corner: [f32; 2],
+) -> UiInstanceRaw {
     let cx = x + w * 0.5;
     let cy = y + h * 0.5;
     let model = Mat4::from_scale_rotation_translation(
@@ -38,7 +42,14 @@ pub(super) fn ui_quad_instance(
         Quat::IDENTITY,
         Vec3::new(cx, cy, 0.0),
     );
-    InstanceRaw::single(model.to_cols_array_2d(), color, uv)
+    UiInstanceRaw {
+        model: model.to_cols_array_2d(),
+        color,
+        uv_offset: [uv.u_offset, uv.v_offset],
+        uv_size: [uv.u_size, uv.v_size],
+        px_size: [w, h],
+        corner,
+    }
 }
 
 pub(super) fn sorted_ui_primitives(rects: &[DrawRect], images: &[DrawImage]) -> Vec<UiPrimitive> {
@@ -56,6 +67,7 @@ pub(super) fn sorted_ui_primitives(rects: &[DrawRect], images: &[DrawImage]) -> 
             image.h,
             image.color.to_array(),
             image.uv,
+            [0.0, 0.0],
         ),
     }));
 
@@ -71,6 +83,7 @@ pub(super) fn sorted_ui_primitives(rects: &[DrawRect], images: &[DrawImage]) -> 
             rect.h,
             rect.color.to_array(),
             UvRect::FULL,
+            [rect.corner_radius, rect.border],
         ),
     }));
 
@@ -108,24 +121,24 @@ impl SpriteRenderer {
         };
         queue.write_buffer(&self.ui_camera_buf, 0, bytemuck::bytes_of(&cam));
 
-        let entries: Vec<(Option<String>, InstanceRaw)> = sorted_ui_primitives(rects, images)
+        let entries: Vec<(Option<String>, UiInstanceRaw)> = sorted_ui_primitives(rects, images)
             .into_iter()
             .map(|primitive| (primitive.texture_key, primitive.instance))
             .collect();
-        let instances: Vec<InstanceRaw> = entries.iter().map(|(_, instance)| *instance).collect();
+        let instances: Vec<UiInstanceRaw> = entries.iter().map(|(_, instance)| *instance).collect();
 
         if instances.len() > self.ui_instance_capacity {
             self.ui_instance_capacity = instances.len().next_power_of_two();
             self.ui_instance_buf = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("ui instance buffer"),
-                size: (self.ui_instance_capacity * std::mem::size_of::<InstanceRaw>()) as u64,
+                size: (self.ui_instance_capacity * std::mem::size_of::<UiInstanceRaw>()) as u64,
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
         }
         queue.write_buffer(&self.ui_instance_buf, 0, bytemuck::cast_slice(&instances));
 
-        let instance_size = std::mem::size_of::<InstanceRaw>() as u64;
+        let instance_size = std::mem::size_of::<UiInstanceRaw>() as u64;
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("ui primitive pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -143,7 +156,7 @@ impl SpriteRenderer {
             multiview_mask: None,
         });
 
-        pass.set_pipeline(&self.pipeline);
+        pass.set_pipeline(&self.ui_pipeline);
         pass.set_bind_group(0, &self.ui_camera_bind_group, &[]);
         pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
         pass.set_index_buffer(self.index_buf.slice(..), wgpu::IndexFormat::Uint16);

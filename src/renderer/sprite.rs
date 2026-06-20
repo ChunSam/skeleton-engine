@@ -29,7 +29,7 @@ mod tests;
 mod textures;
 mod ui_primitives;
 
-use geometry::{CameraUniform, InstanceRaw, Vertex, INDICES, VERTICES};
+use geometry::{CameraUniform, InstanceRaw, UiInstanceRaw, Vertex, INDICES, VERTICES};
 use material::MaterialRenderer;
 use sort::{
     assign_instance_offsets, layer_matches_mask, sort_render_entries, SpriteRenderEntry,
@@ -65,6 +65,7 @@ pub struct SpriteRenderer {
     camera_buf: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     // For UI screen-space rendering
+    ui_pipeline: wgpu::RenderPipeline,
     ui_camera_buf: wgpu::Buffer,
     ui_camera_bind_group: wgpu::BindGroup,
     ui_instance_buf: wgpu::Buffer,
@@ -179,7 +180,7 @@ impl SpriteRenderer {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[vertex_layout, InstanceRaw::layout()],
+                buffers: &[vertex_layout.clone(), InstanceRaw::layout()],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -203,6 +204,44 @@ impl SpriteRenderer {
             multisample: wgpu::MultisampleState::default(),
             multiview_mask: None,
             // Pipeline cache field added in wgpu 22 — None disables caching
+            cache: None,
+        });
+
+        // ── UI pipeline (own shader: rounded-rect SDF; reuses the sprite bind-group
+        //    layouts so it can share the white-texture / image bind groups) ──────────
+        let ui_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("ui shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/ui.wgsl").into()),
+        });
+        let ui_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("ui pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &ui_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[vertex_layout, UiInstanceRaw::layout()],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &ui_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
             cache: None,
         });
 
@@ -247,7 +286,7 @@ impl SpriteRenderer {
         let ui_capacity = 64;
         let ui_instance_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("ui instance buffer"),
-            size: (ui_capacity * std::mem::size_of::<InstanceRaw>()) as u64,
+            size: (ui_capacity * std::mem::size_of::<UiInstanceRaw>()) as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -263,6 +302,7 @@ impl SpriteRenderer {
             instance_capacity: capacity,
             camera_buf,
             camera_bind_group,
+            ui_pipeline,
             ui_camera_buf,
             ui_camera_bind_group,
             ui_instance_buf,
