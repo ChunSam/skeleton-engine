@@ -44,23 +44,10 @@ Or run all of them in order via `./scripts/verify.sh`.
 - **Why this exists:** a prior refactor shipped declaring "done" on only `fmt --check` +
   `test --lib`, which misses the wasm-build + clippy regressions that the commands above
   catch. Don't narrow the bar.
-- **Optional wasm render check:** `./scripts/wasm_smoke.sh` builds the `coin_race` example
-  to wasm, runs it headless on a simulated Retina (DPR=2) display, and asserts the app
-  **connects + renders a non-blank frame**, saving the screenshot to eyeball for subtle
-  geometry/text bugs. *Not* a CI gate (CI has no Chrome/GPU); needs Chrome + a
-  `wasm-bindgen-cli` matching the `wasm-bindgen` crate. Run it after wasm-affecting changes.
-- **Optional wasm save check:** `./scripts/wasm_save_smoke.sh` builds the `wasm_save` example to
-  wasm, runs it headless, and asserts the **AEAD save/load `localStorage` round-trip** — encrypt→
-  store→`load` round-trip, stored value is hex ciphertext (not plaintext), AEAD tamper detection,
-  `save_versioned`/`load_migrated` round-trip (verdict read from the page title; **7/7**). Same
-  prereqs/non-CI status as the other smokes; run after touching the wasm path in `src/save.rs`.
-- **Optional wasm audio check:** `./scripts/wasm_audio_smoke.sh` builds the `web_audio`
-  example to wasm, runs it headless, and asserts the `WebAudio` **lifecycle** at runtime —
-  `AudioContext` create + `resume`→running, master-volume set/clamp, looping-music decode+start,
-  `suspend`/`resume` toggle (reads the verdict from the page title over the DevTools endpoint;
-  real-time, *not* virtual-time — audio state transitions race a virtual clock). Acoustic output
-  is **not** auto-checked (no audio capture) — open the page to actually hear it. Same
-  prereqs/non-CI status as the render check; run after touching `src/audio_wasm.rs`.
+- **Optional wasm smoke checks** (non-CI; need Chrome + a matching `wasm-bindgen-cli`):
+  `./scripts/wasm_smoke.sh` (coin_race render), `wasm_save_smoke.sh` (AEAD localStorage),
+  `wasm_audio_smoke.sh` (`WebAudio` lifecycle), `centered_text_smoke.sh` (EW-001 centered-text
+  render). Each builds its example to wasm + runs it headless. See **`docs/WASM_SMOKES.md`**.
 
 ---
 
@@ -139,7 +126,7 @@ Where to read to find a given thing:
 | **RenderPlugin** trait + `App::add_render_plugin` (fork-friendly custom render-pass hook — `record(ctx: &mut FrameContext, world, viewport)` runs per-frame after the sprite/UI/particle passes, before post/lighting; `FrameContext.format` lets a plugin build its own pipeline; additive — no-op when none registered; native+wasm; example `render_plugin`) | `src/renderer/render_plugin.rs`, `src/app/render.rs` (dispatch) |
 | **ShaderMaterial** (per-entity custom fragment shader component — attach to an entity to replace the built-in sprite frag shader; bindings `@group(1)` texture/sampler + `@group(2)` `params: vec4<f32>`; renderer compiles + caches one pipeline per source hash via `MaterialRenderer`; example `shader_material`) | `src/material.rs`, `src/renderer/sprite/material.rs` |
 | **NineSlice** (9-patch scalable sprite component — `border: [f32;4]` world-px + `uv_border: [f32;4]` UV-fraction, both `[left,right,top,bottom]`; the sprite pass emits 9 sub-quads (corners fixed-size, edges/center stretched) instead of 1 when a `NineSlice` is present, additive — ordinary sprites unchanged; rotates rigidly; not for `AtlasSprite`/`ShaderMaterial`; example `nine_slice`) | `src/nine_slice.rs`, `src/renderer/sprite.rs` (9-quad branch) |
-| DrawText, TextQueue, TextAlign (Left/Center/Right/**End**/**Auto** — Auto right-aligns RTL automatically), TextAnchor (screen-space text, top-left origin; `DrawText::centered` anchors at text center; place at a world position via `Camera::world_to_screen`); **bidi/RTL shaping is built in** (`Shaping::Advanced`); `ExtraFonts` resource (multi-script font fallback alongside `FontData`); examples `rtl_text` (Hebrew + multi-font), `centered_text` (`DrawText::centered` off-center-x visual check — guide lines through each `position.x`, EW-001 demo) | `src/renderer/text.rs` |
+| DrawText, TextQueue, TextAlign (Left/Center/Right/**End**/**Auto** — Auto right-aligns RTL automatically), TextAnchor (screen-space text, top-left origin; `DrawText::centered` anchors at text center; place at a world position via `Camera::world_to_screen`); **bidi/RTL shaping is built in** (`Shaping::Advanced`); `ExtraFonts` resource (multi-script font fallback alongside `FontData`); examples `rtl_text` (Hebrew + multi-font), `centered_text` (`DrawText::centered` off-center-x visual check — guide lines through each `position.x`, EW-001 demo; **also ships to the web** — `examples/centered_text/web/` + headless render smoke `scripts/centered_text_smoke.sh`) | `src/renderer/text.rs` |
 | wgpu render pipeline (rarely edited directly) | `src/renderer/` |
 
 ---

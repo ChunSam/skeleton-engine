@@ -14,12 +14,22 @@
 //! * For contrast, the **amber** [`DrawText::new`] label (default top-left anchor) starts *at* the
 //!   guide, not centered on it — the visible difference between anchoring and not.
 //!
-//! Run: `cargo run --example centered_text` (Esc quits).
+//! Run natively: `cargo run --example centered_text` (Esc quits).
+//!
+//! Run in the browser (eyeball the EW-001 fix on the web):
+//! ```text
+//! examples/centered_text/web/build.sh
+//! python3 -m http.server 8080 --directory examples/centered_text/web
+//! open http://localhost:8080        # click "Start"
+//! ```
 
 use engine::{
     App, DebugDraw, DrawText, FontData, InputState, KeyCode, ShouldQuit, System, TextQueue, Vec2,
     ViewportSize, WindowConfig, World,
 };
+
+#[cfg(target_arch = "wasm32")]
+use engine::wasm_bindgen;
 
 /// Bundled deterministic Latin font (same as the headless EW-001 regression test) so the demo's
 /// metrics match across platforms instead of depending on the host's system fonts.
@@ -117,7 +127,7 @@ impl System for CenteredTextDemo {
     }
 }
 
-fn main() {
+fn run() {
     let mut app = App::new();
     app.world.insert_resource(WindowConfig {
         title: "skeleton-engine — centered text (EW-001)".to_string(),
@@ -130,3 +140,20 @@ fn main() {
     app.add_system(CenteredTextDemo);
     app.run();
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+fn main() {
+    run();
+}
+
+/// WASM entry point — `examples/centered_text/web/index.html` calls this after `init()` (and on the
+/// "Start" click; winit wants a user gesture before grabbing the canvas). Renders the same
+/// `DrawText::centered` guide-line demo as native, so the EW-001 fix is eyeball-checkable in a browser.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn run_centered_text() {
+    run();
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {}
