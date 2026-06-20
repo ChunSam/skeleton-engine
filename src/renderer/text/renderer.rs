@@ -290,19 +290,23 @@ impl TextRenderer {
                     }
                     None => 0.0,
                 };
-                // Anchor: when centered, shift the effective top-left by half the
-                // shaped text size so `position` is the text's center. Measured
-                // from the shaped buffer (line_height = 1.2 × size, see Metrics).
+                // Anchor: when centered, shift the effective top-left so `position`
+                // lands on the text's true center. The horizontal center is MEASURED
+                // from the shaped glyph extents (see `shaped_center_x`), not assumed
+                // to be `max_w / 2`: the layout buffer is the full viewport width (so
+                // centered titles don't wrap early), and `align = Center` then
+                // distributes glyphs around the buffer's center rather than its left
+                // edge. Offsetting by `max_w / 2` double-counted that and drifted the
+                // text right by ~half the viewport (EW-001). Measuring the real glyph
+                // span is correct for every `align` (Left/Center/Right/Auto): for
+                // left-aligned text it reduces to `max_w / 2`, for centered text it is
+                // the buffer center. Vertical center stays a line-count estimate
+                // (line_height = 1.2 × size, see Metrics).
                 let anchor_offset = match d.anchor {
                     TextAnchor::TopLeft => Vec2::ZERO,
                     TextAnchor::Center => {
-                        let mut max_w = 0.0_f32;
-                        let mut lines = 0.0_f32;
-                        for run in buf.layout_runs() {
-                            max_w = max_w.max(run.line_w);
-                            lines += 1.0;
-                        }
-                        Vec2::new(max_w * 0.5, lines * size * 1.2 * 0.5)
+                        let lines = buf.layout_runs().count() as f32;
+                        Vec2::new(shaped_center_x(&buf), lines * size * 1.2 * 0.5)
                     }
                 };
                 let mut scaled = d;
@@ -401,6 +405,34 @@ impl TextRenderer {
 
         // Trim unused glyphs from the atlas for the next frame
         self.atlas.trim();
+    }
+}
+
+/// Horizontal center of shaped text within its layout buffer, in buffer-local pixels.
+///
+/// Measured from the actual glyph extents (`min(glyph.x) .. max(glyph.x + glyph.w)`), so it
+/// is correct for ANY alignment: left-aligned text centers at half its own span, while
+/// `Align::Center`/`Right`/`End` text — which glyphon distributes around or against the
+/// *buffer* edges, not glyph 0 — reports the center of where the glyphs actually landed.
+///
+/// Subtracting this from a [`TextAnchor::Center`] draw's `position.x` makes the rendered
+/// text's horizontal center land exactly on `position.x`, independent of `align` or the
+/// (full-viewport) buffer width. This is the EW-001 fix: the old `max_w / 2` assumption was
+/// only valid for left-aligned text, so `DrawText::centered` (which sets `align = Center`)
+/// drifted right by ~half the viewport. Returns `0.0` for empty text (no glyphs).
+pub(super) fn shaped_center_x(buf: &Buffer) -> f32 {
+    let mut min_x = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    for run in buf.layout_runs() {
+        for g in run.glyphs.iter() {
+            min_x = min_x.min(g.x);
+            max_x = max_x.max(g.x + g.w);
+        }
+    }
+    if min_x.is_finite() {
+        (min_x + max_x) * 0.5
+    } else {
+        0.0
     }
 }
 

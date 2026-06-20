@@ -1,11 +1,13 @@
 // ─── Unit tests (only the parts that can run without a GPU) ──────────────────────────────────
 
 use glam::Vec2;
-use glyphon::{cosmic_text::Align, Attrs, Family};
+use glyphon::{cosmic_text::Align, Attrs, Buffer, Family, Metrics, Shaping, Wrap};
 
 use super::cache::PlainTextCacheKey;
 use super::queue::{DrawText, TextAlign, TextAnchor, TextQueue};
-use super::renderer::{build_font_system, layout_buffer_height, layout_buffer_width};
+use super::renderer::{
+    build_font_system, layout_buffer_height, layout_buffer_width, shaped_center_x,
+};
 use super::rich_text::parse_rich_text;
 use crate::color::Color as EngineColor;
 
@@ -202,6 +204,131 @@ fn centered_no_bounds_does_not_use_half_viewport() {
     assert_eq!(
         h, vh,
         "Center anchor must produce full viewport height {vh}"
+    );
+}
+
+// ─── EW-001 regression: centered text center lands on `position.x` ───
+//
+// Background: the buffer-width "Fix 2" above made a centered `DrawText`'s layout
+// buffer the FULL viewport width (so titles don't wrap early). But with
+// `align = Center` glyphon then centers each line around the *buffer* center, while
+// the anchor offset still subtracted `max_w/2` (a left-aligned assumption) — so the
+// text drifted right by ~half the viewport whenever `position.x` was off-center.
+// The fix measures the real glyph center (`shaped_center_x`) instead. These tests
+// shape real text headlessly (cosmic-text shaping is CPU-only; the bundled DejaVu
+// Sans makes glyph metrics deterministic) and check where the glyphs actually land.
+
+/// Shape `text` exactly as `TextRenderer::render` does for a no-bounds `DrawText`
+/// (full-viewport layout buffer, given `align`/`anchor`), returning the shaped buffer
+/// so a test can measure glyph positions. No GPU needed.
+#[allow(clippy::too_many_arguments)]
+fn shape_no_bounds(
+    text: &str,
+    align: TextAlign,
+    anchor: TextAnchor,
+    size: f32,
+    vw: f32,
+    vh: f32,
+    px: f32,
+    py: f32,
+) -> Buffer {
+    let font = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/assets/fonts/DejaVuSans.ttf"
+    ))
+    .to_vec();
+    let mut fs = build_font_system(&font, &[]);
+    let mut buf = Buffer::new(&mut fs, Metrics::new(size, size * 1.2));
+    buf.set_size(
+        &mut fs,
+        Some(layout_buffer_width(anchor, None, vw, px)),
+        Some(layout_buffer_height(anchor, None, vh, py)),
+    );
+    buf.set_wrap(&mut fs, Wrap::WordOrGlyph);
+    let attrs = Attrs::new().family(Family::SansSerif);
+    buf.set_text(&mut fs, text, &attrs, Shaping::Advanced, None);
+    for line in &mut buf.lines {
+        line.set_align(align.to_glyphon());
+    }
+    buf.shape_until_scroll(&mut fs, false);
+    buf
+}
+
+/// Widest layout-run width (the old anchor offset was `max_w / 2`).
+fn max_line_w(buf: &Buffer) -> f32 {
+    buf.layout_runs().map(|r| r.line_w).fold(0.0_f32, f32::max)
+}
+
+/// The reported bug: `DrawText::centered` (anchor=Center + align=Center) at an
+/// OFF-CENTER `position.x` must render with its horizontal center on `position.x`.
+#[test]
+fn ew001_centered_text_center_lands_on_position_x() {
+    let (vw, vh, size) = (800.0_f32, 600.0_f32, 32.0_f32);
+    let (px, py) = (150.0_f32, 300.0_f32); // off-center x — the broken case
+
+    let buf = shape_no_bounds(
+        "Hello",
+        TextAlign::Center,
+        TextAnchor::Center,
+        size,
+        vw,
+        vh,
+        px,
+        py,
+    );
+    let center = shaped_center_x(&buf);
+    let max_w = max_line_w(&buf);
+
+    // For `align = Center` over a full-viewport buffer, glyphs sit around the buffer
+    // center, so the measured center is the viewport center — not `max_w / 2`.
+    assert!(
+        (center - vw / 2.0).abs() < 2.0,
+        "centered align: glyph center should be ~viewport center {}, got {center}",
+        vw / 2.0
+    );
+
+    // FIXED: anchor offset = measured center → rendered center lands on position.x.
+    let new_rendered_center = (px - center) + center;
+    assert!(
+        (new_rendered_center - px).abs() < 0.5,
+        "fixed: centered text center must land on position.x ({px}), got {new_rendered_center}"
+    );
+
+    // REGRESSION GUARD: the old `max_w / 2` offset drifts the center right by ~vw/2.
+    let old_rendered_center = (px - max_w / 2.0) + center;
+    assert!(
+        old_rendered_center - px > vw / 4.0,
+        "the old max_w/2 offset must drift right (got drift {})",
+        old_rendered_center - px
+    );
+}
+
+/// The game's current workaround (anchor=Center + default Left align) must be
+/// unchanged by the fix: left-aligned glyphs start at buffer x≈0, so the measured
+/// center reduces to `max_w / 2` (the pre-fix value) and the text still lands on
+/// `position.x`.
+#[test]
+fn ew001_left_align_center_anchor_unchanged() {
+    let (vw, vh, size) = (800.0_f32, 600.0_f32, 32.0_f32);
+    let (px, py) = (150.0_f32, 300.0_f32);
+
+    let buf = shape_no_bounds(
+        "Hello",
+        TextAlign::Left,
+        TextAnchor::Center,
+        size,
+        vw,
+        vh,
+        px,
+        py,
+    );
+    let center = shaped_center_x(&buf);
+    let max_w = max_line_w(&buf);
+
+    assert!(
+        (center - max_w / 2.0).abs() < 1.0,
+        "left-align center anchor: measured center {center} should equal max_w/2 {} (no regression)",
+        max_w / 2.0
     );
 }
 

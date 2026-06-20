@@ -4,6 +4,14 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.43.6
+
+**Fix `DrawText::centered` horizontal drift (downstream wishlist EW-001).** A no-bounds centered text (`anchor = Center` + `align = Center`) rendered its horizontal center ~half the viewport to the *right* of `position` whenever `position.x` was off-center: the layout buffer is the full viewport width (so centered titles don't wrap early), `align = Center` distributes glyphs around the *buffer* center, but the anchor offset still subtracted `max_w / 2` — a left-aligned assumption. The offset is now measured from the actual shaped glyph extents, so the rendered center lands exactly on `position.x` for any alignment. **No public API change**; the anchor=Center + default-Left-align combination (the game's workaround) is byte-identical, since for left-aligned text the measured center reduces to `max_w / 2`.
+
+### Fixed
+- **`src/renderer/text/renderer.rs`**: new `shaped_center_x(&Buffer)` helper measures the rendered horizontal center from glyph extents (`min(glyph.x) .. max(glyph.x + glyph.w)`); the `TextAnchor::Center` anchor offset now uses it instead of `max_w / 2`. Correct for `Left`/`Center`/`Right`/`End`/`Auto`.
+- **`src/renderer/text/tests.rs`**: headless-shaping regression tests `ew001_centered_text_center_lands_on_position_x` (centered text at an off-center x lands on `position.x`, and the old `max_w/2` offset is shown to drift) and `ew001_left_align_center_anchor_unchanged` (the Left-align workaround is unaffected). Uses the bundled DejaVu Sans for deterministic glyph metrics; no GPU needed.
+
 ## 0.43.5
 
 **Behavior-preserving split of `src/renderer/text.rs` and `src/renderer/sprite.rs` (P5 — the final step of the engine-hardening refactor sweep).** The 1102-line text module is broken into `src/renderer/text/` (`queue`/`cache`/`rich_text`/`renderer`/`tests`), and `sprite.rs`'s ~540-line `render()` is decomposed into its collect / batch / draw phases under `src/renderer/sprite/`. **No public API change, no behavior change**: `engine::{DrawText, TextAlign, TextAnchor, TextQueue, TextRenderer}` and `engine::renderer::{SpriteRenderer, FrameContext}` re-export unchanged; 883 lib tests unchanged; wasm build green.
