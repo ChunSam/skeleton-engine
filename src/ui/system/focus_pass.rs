@@ -21,6 +21,7 @@ pub(super) fn run(
     world: &mut World,
     viewport: &ViewportSize,
     input: &InputSnapshot,
+    elapsed: f32,
     output: &mut UiOutput,
     scratch: &mut Vec<Entity>,
 ) {
@@ -138,7 +139,7 @@ pub(super) fn run(
                     .resource::<FocusRingStyle>()
                     .copied()
                     .unwrap_or_default();
-                push_ring(output, pos, size, z, &style);
+                push_ring(output, pos, size, z, elapsed, &style);
             }
         }
     }
@@ -197,11 +198,13 @@ fn advance(focusables: &[Entity], current: Option<Entity>, reverse: bool) -> Ent
 
 /// Pushes the four border rects of a focus ring around `(pos, size)`, just above the widget's `z`,
 /// styled by `style`. Draws nothing when the style is not visible (disabled / non-positive thickness).
+/// `elapsed` (seconds) drives the optional alpha pulse; it has no effect on a non-pulsing style.
 fn push_ring(
     output: &mut UiOutput,
     pos: glam::Vec2,
     size: glam::Vec2,
     z: f32,
+    elapsed: f32,
     style: &FocusRingStyle,
 ) {
     if !style.is_visible() {
@@ -209,7 +212,8 @@ fn push_ring(
     }
     let zr = z + 0.5;
     let t = style.thickness;
-    let color = style.color;
+    let mut color = style.color;
+    color.a *= style.pulse_alpha(elapsed);
     output
         .rects
         .push(DrawRect::new(pos.x, pos.y, size.x, t, color).with_z(zr));
@@ -417,12 +421,14 @@ mod tests {
             color: Color::rgb(0.3, 0.9, 1.0),
             thickness: 6.0,
             enabled: true,
+            ..Default::default()
         };
         let mut out = UiOutput::default();
         push_ring(
             &mut out,
             glam::Vec2::new(10.0, 20.0),
             glam::Vec2::new(100.0, 40.0),
+            0.0,
             0.0,
             &style,
         );
@@ -452,9 +458,38 @@ mod tests {
             },
         ] {
             let mut out = UiOutput::default();
-            push_ring(&mut out, pos, size, 0.0, &style);
+            push_ring(&mut out, pos, size, 0.0, 0.0, &style);
             assert!(out.rects.is_empty(), "no ring rects for {style:?}");
         }
+    }
+
+    /// A pulsing style modulates the ring's alpha through `push_ring`: full alpha at the pulse
+    /// peak (quarter period), `pulse_min_alpha` at the trough (three-quarter period).
+    #[test]
+    fn push_ring_applies_pulse_alpha() {
+        let style = FocusRingStyle {
+            color: Color::rgba(0.3, 0.9, 1.0, 1.0),
+            thickness: 4.0,
+            pulse_hz: 1.0,
+            pulse_min_alpha: 0.25,
+            ..Default::default()
+        };
+        let pos = glam::Vec2::new(10.0, 20.0);
+        let size = glam::Vec2::new(100.0, 40.0);
+
+        let mut trough = UiOutput::default();
+        push_ring(&mut trough, pos, size, 0.0, 0.75, &style); // trough → min alpha
+        assert!(
+            trough.rects.iter().all(|r| (r.color.a - 0.25).abs() < 1e-5),
+            "ring alpha at the pulse trough should be pulse_min_alpha"
+        );
+
+        let mut peak = UiOutput::default();
+        push_ring(&mut peak, pos, size, 0.0, 0.25, &style); // peak → full alpha
+        assert!(
+            peak.rects.iter().all(|r| (r.color.a - 1.0).abs() < 1e-5),
+            "ring alpha at the pulse peak should be the full color alpha"
+        );
     }
 
     /// The default style (no resource inserted) reproduces the historical amber 3px ring exactly.
@@ -477,6 +512,7 @@ mod tests {
             color: ring,
             thickness: 5.0,
             enabled: true,
+            ..Default::default()
         });
         w.resource_mut::<UiFocus>().unwrap().entity = Some(e[0]);
 

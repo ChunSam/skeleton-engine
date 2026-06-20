@@ -12,9 +12,10 @@
 //! keyboard — the left stick is edge-detected, so one push = one step); this example only spawns
 //! widgets and prints what happened.
 //!
-//! The focus ring is restyled here via the `FocusRingStyle` resource (a thicker cyan ring instead of
-//! the default amber 3px one) — insert your own to match your game, or set `enabled = false` to
-//! suppress the engine ring and draw your own focus indicator.
+//! The focus ring is restyled here via the `FocusRingStyle` resource (a thicker cyan ring that
+//! gently *pulses* via `pulse_hz`/`pulse_min_alpha`, instead of the default steady amber 3px one) —
+//! insert your own to match your game, set `pulse_hz = 0.0` for a steady ring, or `enabled = false`
+//! to suppress the engine ring and draw your own focus indicator.
 //!
 //! Run from the repo root:  `cargo run --example ui_focus`
 //! Tab/Shift+Tab, D-pad or left stick = move focus · Enter/Space or A = activate · arrows, D-pad or stick = slider · ESC = quit.
@@ -98,11 +99,15 @@ fn main() {
     });
     app.register_event::<UiEvent>();
 
-    // Restyle the focus ring: a thicker cyan ring instead of the default amber 3px one.
-    // (Auto-inserted with the default; overwrite it to taste, or set `enabled = false` to suppress.)
+    // Restyle the focus ring: a thicker cyan ring instead of the default amber 3px one, gently
+    // pulsing (fading to 35% alpha ~1.2×/sec) to draw the eye to the focused widget. Auto-inserted
+    // with the default; overwrite it to taste, set `pulse_hz = 0.0` for a steady ring, or
+    // `enabled = false` to suppress the engine ring and draw your own.
     app.world.insert_resource(FocusRingStyle {
         color: Color::rgb(0.3, 0.9, 1.0),
         thickness: 4.0,
+        pulse_hz: 1.2,
+        pulse_min_alpha: 0.35,
         ..Default::default()
     });
 

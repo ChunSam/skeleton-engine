@@ -42,13 +42,16 @@ impl UiFocus {
 /// let style = FocusRingStyle {
 ///     color: Color::rgb(0.3, 0.9, 1.0),
 ///     thickness: 5.0,
+///     pulse_hz: 1.5,        // gently "breathe" the ring 1.5×/sec
+///     pulse_min_alpha: 0.4, // fading to 40% of `color`'s alpha at the trough
 ///     ..Default::default()
 /// };
 /// assert!(style.is_visible());
 /// ```
 ///
 /// Set `enabled = false` (or `thickness <= 0.0`) to suppress the engine ring entirely — useful when
-/// a game draws its own focus indicator. The default matches the historical hardcoded ring exactly.
+/// a game draws its own focus indicator. The default matches the historical hardcoded ring exactly
+/// (`pulse_hz = 0.0` → no pulse).
 ///
 /// [`UiSystem`]: crate::ui::UiSystem
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -59,6 +62,14 @@ pub struct FocusRingStyle {
     pub thickness: f32,
     /// Whether to draw the ring at all. `false` draws no ring (the focus logic still runs).
     pub enabled: bool,
+    /// Pulse ("breathing") frequency in cycles/second. `0.0` (the default) disables the pulse: the
+    /// ring draws at a constant alpha, byte-identical to a non-pulsing ring. A small value such as
+    /// `1.0`–`2.0` gives a gentle fade that draws the eye to the focused widget.
+    pub pulse_hz: f32,
+    /// Ring alpha at the pulse's dimmest point, as a fraction of `color`'s own alpha (`1.0` = no
+    /// dimming, `0.0` = fully transparent at the trough). Clamped to `[0, 1]`. Only has an effect
+    /// when `pulse_hz > 0.0`.
+    pub pulse_min_alpha: f32,
 }
 
 impl Default for FocusRingStyle {
@@ -67,6 +78,8 @@ impl Default for FocusRingStyle {
             color: Color::rgba(1.0, 0.85, 0.3, 1.0),
             thickness: 3.0,
             enabled: true,
+            pulse_hz: 0.0,
+            pulse_min_alpha: 1.0,
         }
     }
 }
@@ -75,5 +88,75 @@ impl FocusRingStyle {
     /// Whether a ring should actually be drawn (enabled, with a positive thickness).
     pub fn is_visible(&self) -> bool {
         self.enabled && self.thickness > 0.0
+    }
+
+    /// Alpha multiplier (in `[pulse_min_alpha, 1.0]`) for the ring at elapsed time `t` seconds.
+    ///
+    /// Returns `1.0` when no pulse is configured (`pulse_hz <= 0.0` or `pulse_min_alpha >= 1.0`), so
+    /// a default style is left completely unmodulated. Otherwise it oscillates smoothly — a raised
+    /// sine, peaking at `1.0` and dipping to `pulse_min_alpha` — at `pulse_hz` cycles per second.
+    pub fn pulse_alpha(&self, t: f32) -> f32 {
+        if self.pulse_hz <= 0.0 || self.pulse_min_alpha >= 1.0 {
+            return 1.0;
+        }
+        let min = self.pulse_min_alpha.clamp(0.0, 1.0);
+        let phase = 0.5 + 0.5 * (std::f32::consts::TAU * self.pulse_hz * t).sin();
+        min + (1.0 - min) * phase
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FocusRingStyle;
+
+    /// The default (and any `pulse_min_alpha >= 1.0`) style is never modulated — `pulse_alpha`
+    /// is a flat `1.0` for all `t`, so a non-pulsing ring is byte-identical to before.
+    #[test]
+    fn pulse_alpha_unity_when_disabled() {
+        let def = FocusRingStyle::default();
+        for &t in &[0.0, 0.25, 1.0, 12.34] {
+            assert_eq!(def.pulse_alpha(t), 1.0);
+        }
+        // pulse_hz set but min_alpha == 1.0 → still no visible pulse.
+        let no_dim = FocusRingStyle {
+            pulse_hz: 2.0,
+            pulse_min_alpha: 1.0,
+            ..Default::default()
+        };
+        assert_eq!(no_dim.pulse_alpha(0.3), 1.0);
+    }
+
+    /// A configured pulse is a raised sine: midpoint at `t=0`, peak at a quarter period, trough at
+    /// three-quarters, and always within `[pulse_min_alpha, 1.0]`.
+    #[test]
+    fn pulse_alpha_oscillates_in_range() {
+        let s = FocusRingStyle {
+            pulse_hz: 1.0,
+            pulse_min_alpha: 0.2,
+            ..Default::default()
+        };
+        // t=0     → sin 0   = 0  → phase 0.5 → 0.2 + 0.8*0.5 = 0.6
+        assert!((s.pulse_alpha(0.0) - 0.6).abs() < 1e-5);
+        // t=0.25  → sin π/2 = 1  → phase 1.0 → 1.0 (peak)
+        assert!((s.pulse_alpha(0.25) - 1.0).abs() < 1e-5);
+        // t=0.75  → sin 3π/2=-1  → phase 0.0 → 0.2 (trough = min)
+        assert!((s.pulse_alpha(0.75) - 0.2).abs() < 1e-5);
+        for i in 0..200 {
+            let a = s.pulse_alpha(i as f32 * 0.013);
+            assert!((0.2..=1.0).contains(&a), "pulse_alpha out of range: {a}");
+        }
+    }
+
+    /// A negative `pulse_min_alpha` is clamped to `0.0` rather than driving alpha negative.
+    #[test]
+    fn pulse_alpha_clamps_negative_min() {
+        let s = FocusRingStyle {
+            pulse_hz: 1.0,
+            pulse_min_alpha: -0.5,
+            ..Default::default()
+        };
+        // trough clamps to 0.0, not -0.5
+        assert!((s.pulse_alpha(0.75) - 0.0).abs() < 1e-5);
+        assert!(s.pulse_alpha(0.5) >= 0.0);
     }
 }
