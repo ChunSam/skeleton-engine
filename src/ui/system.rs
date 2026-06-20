@@ -37,7 +37,18 @@ pub struct UiSystem {
     /// Edge-detection state for the left analog stick → discrete focus nav (persists across frames,
     /// like the scratch buffers). See [`StickNav`].
     stick_nav: StickNav,
+    /// Accumulated wall-clock seconds driving the focus ring's optional pulse (see
+    /// [`FocusRingStyle::pulse_hz`]). Advanced by `dt` each frame and wrapped (so it never grows
+    /// large enough for `+= dt` to lose precision), exactly like the cursor-blink clock.
+    ///
+    /// [`FocusRingStyle::pulse_hz`]: crate::ui::FocusRingStyle::pulse_hz
+    ring_elapsed: f32,
 }
+
+/// Wrap point for [`UiSystem::ring_elapsed`]. One hour keeps the accumulator tiny relative to `f32`
+/// precision (so `+= dt` never stalls), while any integer-Hz pulse stays phase-continuous across the
+/// wrap; a non-integer-Hz pulse hitches by a sub-frame once an hour, which is imperceptible.
+const RING_PULSE_WRAP: f32 = 3600.0;
 
 impl UiSystem {
     /// Schedule label. Recommended order: **after** `LayoutSystem::LABEL`
@@ -62,11 +73,14 @@ impl System for UiSystem {
         };
 
         let mut output = UiOutput::default();
+        // Advance the focus-ring pulse clock (wrapped so `+= dt` never loses precision).
+        self.ring_elapsed = (self.ring_elapsed + dt).rem_euclid(RING_PULSE_WRAP);
         // Keyboard focus first, so a Tab-focused TextInput receives this frame's typed characters.
         focus_pass::run(
             world,
             &viewport,
             &input,
+            self.ring_elapsed,
             &mut output,
             &mut self.focus_scratch,
         );

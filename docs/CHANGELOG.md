@@ -4,6 +4,18 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.44.0
+
+**Optional "breathing" pulse for the keyboard-focus ring.** `FocusRingStyle` gains two fields — `pulse_hz` (cycles/sec) and `pulse_min_alpha` (alpha at the trough, a fraction of the ring color's alpha) — that fade the focus ring's alpha on a raised sine to draw the eye to the focused widget. **Additive and off by default** (`pulse_hz = 0.0` → a steady ring, byte-identical to before), so existing call sites and the historical amber 3px default are unchanged. The pulse clock is accumulated inside `UiSystem` (wrapped so `+= dt` never loses precision) and threaded into the focus pass, mirroring the existing cursor-blink timing.
+
+### Added
+- **`src/ui/focus.rs`**: `FocusRingStyle::pulse_hz` + `pulse_min_alpha` fields (both default to the no-pulse case) and a `pulse_alpha(t) -> f32` helper returning the `[pulse_min_alpha, 1.0]` multiplier (a flat `1.0` when no pulse is configured). Unit tests cover the disabled/unity case, the oscillation range + peak/trough, and negative-min clamping.
+- **`examples/ui_focus.rs`**: the demo's cyan ring now pulses (`pulse_hz: 1.2`, `pulse_min_alpha: 0.35`) — the acceptance example for the feature.
+
+### Changed
+- **`src/ui/system.rs`**: `UiSystem` accumulates a wrapped `ring_elapsed` clock and passes it to the focus pass.
+- **`src/ui/system/focus_pass.rs`**: `push_ring` takes the elapsed time and multiplies the ring color's alpha by `style.pulse_alpha(elapsed)`; a non-pulsing style is unaffected.
+
 ## 0.43.6
 
 **Fix `DrawText::centered` horizontal drift (downstream wishlist EW-001).** A no-bounds centered text (`anchor = Center` + `align = Center`) rendered its horizontal center ~half the viewport to the *right* of `position` whenever `position.x` was off-center: the layout buffer is the full viewport width (so centered titles don't wrap early), `align = Center` distributes glyphs around the *buffer* center, but the anchor offset still subtracted `max_w / 2` — a left-aligned assumption. The offset is now measured from the actual shaped glyph extents, so the rendered center lands exactly on `position.x` for any alignment. **No public API change**; the anchor=Center + default-Left-align combination (the game's workaround) is byte-identical, since for left-aligned text the measured center reduces to `max_w / 2`.
