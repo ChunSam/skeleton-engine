@@ -175,8 +175,13 @@ impl App {
     }
 
     pub fn new() -> Self {
-        #[cfg(not(target_arch = "wasm32"))]
+        // gilrs (IOKit-HID) can't read modern Xbox/PS5 pads on macOS — Apple's GameController
+        // framework claims them. macOS uses the GameController backend (`input::gamepad_macos`,
+        // polled in `about_to_wait`) instead, so gilrs is left uninitialized there.
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "macos")))]
         let gilrs = gilrs::Gilrs::new().ok();
+        #[cfg(all(not(target_arch = "wasm32"), target_os = "macos"))]
+        let gilrs: Option<gilrs::Gilrs> = None;
         let mut world = World::new();
         Self::insert_core_resources(&mut world);
         Self::register_core_component_metadata(&mut world);

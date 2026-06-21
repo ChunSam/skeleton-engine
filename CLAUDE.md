@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.6.107 | package `skeleton-engine` v0.46.4, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
+> Version v1.6.108 | package `skeleton-engine` v0.47.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example game ships to
 > the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`  
@@ -91,7 +91,7 @@ Where to read to find a given thing:
 | Camera (coordinate transforms, zoom; `screen_to_world`/`world_to_screen`; `bounds` + `clamp_to_bounds` world-bounds clamp, auto-applied by App after follow) | `src/camera.rs` |
 | ParallaxLayer (`factor: Vec2` depth scroll: 1=world-locked, 0=screen-locked, >1=foreground; lazy base capture), ParallaxSystem (user-added: `pos = base + (cam - cam_ref) * (1 - factor)`; reads `Camera`, add after camera-mover systems; example `parallax_scroll`) | `src/parallax.rs` |
 | InputState, InputMap (keyboard + gamepad bindings: `bind_gamepad_button`/`bind_gamepad_axis` + `AxisBinding`, `*_with_gamepad` resolution) | `src/input/` |
-| GamepadState, GamepadButton, GamepadAxis | `src/input/gamepad.rs` |
+| GamepadState, GamepadButton, GamepadAxis (gilrs-fed on Windows/Linux; **macOS uses a GameController-framework backend** — `src/input/gamepad_macos.rs`, polled from `about_to_wait`, since gilrs/IOKit-HID can't read modern Xbox/PS5 pads there; gilrs left uninit on macOS; diagnostic: example `gamepad_probe`) | `src/input/gamepad.rs`, `src/input/gamepad_macos.rs` |
 | PhysicsWorld, PhysicsBody, PhysicsSystem (syncs body position **and rotation** → Transform), CollisionEvent, BodyHandle/ColliderHandle (opaque newtypes; `.raw()` = rapier escape hatch) | `src/physics/` |
 | CharacterController (+ `request_drop`/`is_dropping` for one-way), RaycastHit, cast_ray, cast_ray_with_normal, move_character | `src/physics/character.rs`, `src/physics/world.rs` |
 | add_kinematic_box, add_kinematic_circle, add_static_from_tilemap (one-shot), sync_static_from_tilemap + TileColliderIndex (incremental — diff add/remove for runtime-mutated tilemaps), **TilemapColliders** component + SolidTiles + `sync_tilemap_entity_colliders`/`App::sync_tilemap_colliders` (opt-in: keep tile colliders synced when the editor's Tile Paint or a game's `set_tile` mutates the map; example `dig_quest`), TileCollider, set_one_way/is_one_way | `src/physics/world.rs` |
