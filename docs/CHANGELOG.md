@@ -4,6 +4,14 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.46.3
+
+**Add a `gamepad_probe` diagnostic example — the first step of the per-OS gamepad input pass.** On macOS the engine's gilrs (IOKit-HID) backend enumerates modern Xbox/PS5 pads but receives no input reports, because Apple's GameController framework claims them. This example renders, side by side every frame, what gilrs/HID sees (the engine's `GamepadState`) versus what the GameController framework sees, so running it on a Mac with a pad empirically confirms the input path and whether a GameController-framework backend is the fix. No library / public API change.
+
+### Added
+- **`examples/gamepad_probe.rs`** — side-by-side gilrs(HID) vs macOS GameController live view (left stick / face buttons / triggers) with a self-explaining verdict line. The GameController column is macOS-only (`#[cfg(target_os = "macos")]`); on Windows/Linux the gilrs/HID path is the live one.
+- A **macOS-only dev-dependency** `objc2-game-controller` (pinned to 0.2 to reuse the `objc2` 0.5 already pulled by winit/wgpu — no new objc2 version). The GameController FFI lives entirely in the example for now; promoting it to a real `GamepadState` backend is the follow-up, gated on hardware confirmation that the framework delivers input where HID does not.
+
 ## 0.46.2
 
 **Subset the bundled Korean editor font so the crate fits the crates.io 10 MB package limit.** The full Noto Sans KR Regular added in 0.46.0 was ~5.9 MB, which pushed the packaged crate to ~11.7 MB compressed — over the 10 MB publish ceiling (CI's `cargo package` dry-run does not enforce it, so this only blocked an actual publish). The bundled font is now a ~2.3 MB Hangul-only subset; the package is **9.7 MB compressed**. No public API change; the editor still renders all modern Korean. Also fixes a latent licensing gap (the OFL text for the font was never bundled).
