@@ -498,6 +498,12 @@ impl ApplicationHandler for App {
         #[cfg(not(target_arch = "wasm32"))]
         self.poll_gilrs();
 
+        // macOS: gilrs is blind to GameController-claimed pads, so poll that framework instead.
+        #[cfg(target_os = "macos")]
+        if let Some(state) = self.world.resource_mut::<GamepadState>() {
+            crate::input::gamepad_macos::poll(state);
+        }
+
         // WASM: detect completion of the async GPU initialization started by spawn_local.
         #[cfg(target_arch = "wasm32")]
         if self.gpu.is_none() {

@@ -4,6 +4,17 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.47.0
+
+**macOS gamepad support — a GameController-framework backend for `GamepadState`.** On macOS the engine's gilrs (IOKit-HID) backend can't read modern Bluetooth/USB Xbox & PS5 pads — Apple's GameController driver claims them, so gilrs enumerates the pad but receives no input (confirmed via `gamepad_probe`: gilrs all-zero, GameController full input). The engine now polls the GameController framework on macOS and feeds the same `GamepadState`, so gamepads work there with **no public API or game-code change** — `GamepadState` / `InputMap` behave identically across platforms.
+
+### Added
+- **`src/input/gamepad_macos.rs`** — macOS GameController backend: polls `GCController` each frame (from `about_to_wait`) and writes the full button/axis set into `GamepadState` (`apply_macos_snapshot`, which diffs held buttons against the previous frame to derive `just_pressed`/`just_released`). Stick / D-pad Y is negated to match the engine's `AxisBinding` convention (up = −Y), so games written against the gilrs path behave identically.
+- **`objc2-game-controller`** (+ `objc2`, `objc2-foundation`) as a macOS-only dependency, pinned to the objc2 0.5 already in the tree (winit/wgpu). macOS-only — no effect on the wasm/Linux/Windows builds or those platforms' published crate.
+
+### Changed
+- **gilrs is no longer initialized on macOS** (`App::new`); it stays the backend on Windows/Linux. The `gamepad_probe` example is reframed from a bug demo into a backend cross-check (engine `GamepadState` vs a direct GameController read).
+
 ## 0.46.4
 
 **`gamepad_probe`: add a throttled stdout log of the gilrs-vs-GameController verdict.** The 0.46.3 probe only rendered its comparison on-screen, so a terminal run showed nothing. It now also prints a compact line (~0.3 s apart, while a pad is active) tagging which backend receives input (`GC-only` / `HID-only` / `both`) with the raw stick/button/trigger values — capturable in the terminal and headless-friendly. Confirmed on macOS with a Bluetooth Xbox pad: gilrs/HID reads all-zero while GameController reads full input, empirically validating that a GameController-framework backend is the fix. Example-only; no library / public API change.

@@ -185,6 +185,40 @@ impl GamepadState {
         let idx = *self.id_map.get(&gid)?;
         self.slots[idx].as_mut()
     }
+
+    /// Apply a poll-based snapshot of one pad (the macOS GameController backend; see
+    /// `input::gamepad_macos`). Unlike the event-driven gilrs path, this gets the full held-button
+    /// set + axis values each frame, so `just_pressed`/`just_released` are derived by diffing the
+    /// new held set against the previous one (`pressed` persists across [`flush`], which only clears
+    /// the `just_*` edges). Connects the slot on first sight.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn apply_macos_snapshot(
+        &mut self,
+        pad: usize,
+        buttons: HashSet<GamepadButton>,
+        axes: HashMap<GamepadAxis, f32>,
+    ) {
+        if pad >= 4 {
+            return;
+        }
+        let slot = self.slots[pad].get_or_insert_with(Slot::new);
+        let just_pressed: HashSet<GamepadButton> =
+            buttons.difference(&slot.pressed).copied().collect();
+        let just_released: HashSet<GamepadButton> =
+            slot.pressed.difference(&buttons).copied().collect();
+        slot.just_pressed = just_pressed;
+        slot.just_released = just_released;
+        slot.pressed = buttons;
+        slot.axes = axes;
+    }
+
+    /// Drop the macOS gamepad in `pad` (the GameController framework no longer lists it).
+    #[cfg(target_os = "macos")]
+    pub(crate) fn disconnect_macos(&mut self, pad: usize) {
+        if pad < 4 {
+            self.slots[pad] = None;
+        }
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]

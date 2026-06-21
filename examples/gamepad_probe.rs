@@ -1,22 +1,18 @@
-//! gamepad_probe — a side-by-side diagnostic of the two macOS gamepad input paths.
+//! gamepad_probe — view the engine's gamepad input, and on macOS cross-check it against the
+//! GameController framework.
 //!
-//! The engine reads gamepads through **gilrs** (an IOKit-HID client). On macOS, modern
-//! Bluetooth/USB Xbox & PS5 controllers are claimed by Apple's **GameController framework**
-//! (their HID device shows `IOUserServerName = com.apple.gamecontroller.driver.*`), so the
-//! IOKit-HID client *enumerates* the pad but receives **zero input reports** — sticks and buttons
-//! read as 0 even while you're moving them. (See `docs/HANDOFF.md` / the engine memory note.)
+//! The engine's `GamepadState` is fed by **gilrs** (IOKit-HID) on Windows/Linux, and by the
+//! **GameController framework** on macOS — where gilrs can't read modern Bluetooth/USB Xbox & PS5
+//! pads, because Apple's GameController driver claims them (their HID device shows
+//! `IOUserServerName = com.apple.gamecontroller.driver.*`). See `src/input/gamepad_macos.rs`.
 //!
-//! This probe shows, every frame and next to each other:
-//!   - **gilrs (HID)** — exactly what the engine's `GamepadState` resource sees.
-//!   - **GameController** — what Apple's framework sees for the same pad (macOS only).
+//! This probe shows the engine's `GamepadState` live, and on macOS *also* reads the GameController
+//! framework **directly** as an independent cross-check. With the macOS backend working the two
+//! columns agree — except stick Y, whose sign is mirrored because the engine negates it to its
+//! `AxisBinding` convention (up = −Y) while the raw GameController read reports up = +Y.
 //!
-//! Run it on a Mac with a pad connected and move the left stick / press A·B·X·Y. If the
-//! **GameController** column moves but the **gilrs (HID)** column stays at 0, that empirically
-//! confirms the input path and shows that a GameController-framework backend is the real fix.
-//! On Windows/Linux the GameController column is absent (the gilrs/HID path is the live one there).
-//!
-//! Note on stick signs: the engine's `AxisBinding` convention is up = −Y, down = +Y; the
-//! GameController framework reports up = +Y. The raw values are shown unmodified on each side.
+//! Move the left stick / press A·B·X·Y. On Windows/Linux the GameController column is absent (the
+//! gilrs path feeds `GamepadState` there).
 //!
 //! Run from the repo root:  `cargo run --example gamepad_probe`   (ESC quits)
 
@@ -25,9 +21,9 @@ use engine::{
     ShouldQuit, System, TextQueue, Vec2, WindowConfig, World,
 };
 
-/// What the engine's gilrs (IOKit-HID) backend reports for pad 0.
+/// What the engine's unified `GamepadState` reports for pad 0 (GC-backed on macOS, gilrs elsewhere).
 #[derive(Default)]
-struct HidView {
+struct EngineView {
     connected: bool,
     primary: Option<usize>,
     lx: f32,
@@ -42,7 +38,7 @@ struct HidView {
     rt: f32,
 }
 
-impl HidView {
+impl EngineView {
     fn read(gs: &GamepadState) -> Self {
         Self {
             connected: gs.any_connected(),
@@ -158,9 +154,9 @@ impl System for GamepadProbe {
             }
         }
 
-        let hid = world
+        let eng = world
             .resource::<GamepadState>()
-            .map(HidView::read)
+            .map(EngineView::read)
             .unwrap_or_default();
 
         // Read the GameController view once (macOS) — reused by both the stdout log and the overlay.
@@ -174,31 +170,36 @@ impl System for GamepadProbe {
         if self.log_accum >= 0.3 {
             self.log_accum = 0.0;
             #[cfg(target_os = "macos")]
-            if hid.active() || g.active() {
-                let tag = match (hid.active(), g.active()) {
-                    (false, true) => "GC-only (HID blind — GameController backend is the fix)",
-                    (true, true) => "both",
-                    (true, false) => "HID-only",
+            if eng.active() || g.active() {
+                // engine `GamepadState` is GC-backed on macOS, so it should agree with the raw read.
+                let tag = match (eng.active(), g.active()) {
+                    (true, true) => {
+                        "OK — engine GamepadState matches GameController (backend active)"
+                    }
+                    (false, true) => {
+                        "MISMATCH — GameController sees input but engine GamepadState is blind"
+                    }
+                    (true, false) => "engine-only (raw GameController read empty?)",
                     (false, false) => unreachable!(),
                 };
                 println!(
-                    "[gamepad_probe] {tag}\n    gilrs/HID    L({:+.2},{:+.2}) A{}B{}X{}Y{} LT{:.2} RT{:.2}\n    GameController L({:+.2},{:+.2}) A{}B{}X{}Y{} LT{:.2} RT{:.2}",
-                    hid.lx, hid.ly, hid.a as u8, hid.b as u8, hid.x as u8, hid.y as u8, hid.lt, hid.rt,
+                    "[gamepad_probe] {tag}\n    engine GamepadState  L({:+.2},{:+.2}) A{}B{}X{}Y{} LT{:.2} RT{:.2}\n    GameController (raw) L({:+.2},{:+.2}) A{}B{}X{}Y{} LT{:.2} RT{:.2}",
+                    eng.lx, eng.ly, eng.a as u8, eng.b as u8, eng.x as u8, eng.y as u8, eng.lt, eng.rt,
                     g.lx, g.ly, g.a as u8, g.b as u8, g.x as u8, g.y as u8, g.lt, g.rt,
                 );
             }
             #[cfg(not(target_os = "macos"))]
-            if hid.active() {
+            if eng.active() {
                 println!(
-                    "[gamepad_probe] gilrs/HID L({:+.2},{:+.2}) A{}B{}X{}Y{} LT{:.2} RT{:.2}",
-                    hid.lx,
-                    hid.ly,
-                    hid.a as u8,
-                    hid.b as u8,
-                    hid.x as u8,
-                    hid.y as u8,
-                    hid.lt,
-                    hid.rt,
+                    "[gamepad_probe] engine GamepadState L({:+.2},{:+.2}) A{}B{}X{}Y{} LT{:.2} RT{:.2}",
+                    eng.lx,
+                    eng.ly,
+                    eng.a as u8,
+                    eng.b as u8,
+                    eng.x as u8,
+                    eng.y as u8,
+                    eng.lt,
+                    eng.rt,
                 );
             }
         }
@@ -214,7 +215,7 @@ impl System for GamepadProbe {
         let line = |s: bool| if s { "■" } else { "□" };
 
         tq.push(DrawText::new(
-            "gamepad_probe — gilrs (IOKit-HID) vs macOS GameController, side by side",
+            "gamepad_probe — engine GamepadState vs raw GameController (macOS)",
             Vec2::new(30.0, 22.0),
             18.0,
             title,
@@ -226,34 +227,34 @@ impl System for GamepadProbe {
             dim,
         ));
 
-        // ── Left column: gilrs (HID), as the engine's GamepadState sees it. ──
+        // ── Left column: the engine's unified GamepadState (GC-backed on macOS, gilrs elsewhere). ──
         let lx0 = 40.0;
         tq.push(DrawText::new(
-            "gilrs (IOKit-HID)",
+            "engine GamepadState",
             Vec2::new(lx0, 96.0),
             16.0,
             head,
         ));
-        let hid_lines = [
+        let eng_lines = [
             format!(
                 "connected: {}    primary slot: {}",
-                hid.connected,
-                hid.primary
+                eng.connected,
+                eng.primary
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| "-".into())
             ),
-            format!("L-stick   x {:+.2}   y {:+.2}", hid.lx, hid.ly),
-            format!("R-stick   x {:+.2}   y {:+.2}", hid.rx, hid.ry),
+            format!("L-stick   x {:+.2}   y {:+.2}", eng.lx, eng.ly),
+            format!("R-stick   x {:+.2}   y {:+.2}", eng.rx, eng.ry),
             format!(
                 "buttons   A {}  B {}  X {}  Y {}",
-                line(hid.a),
-                line(hid.b),
-                line(hid.x),
-                line(hid.y)
+                line(eng.a),
+                line(eng.b),
+                line(eng.x),
+                line(eng.y)
             ),
-            format!("triggers  L {:.2}   R {:.2}", hid.lt, hid.rt),
+            format!("triggers  L {:.2}   R {:.2}", eng.lt, eng.rt),
         ];
-        for (i, s) in hid_lines.iter().enumerate() {
+        for (i, s) in eng_lines.iter().enumerate() {
             tq.push(DrawText::new(
                 s,
                 Vec2::new(lx0, 126.0 + i as f32 * 24.0),
@@ -262,10 +263,10 @@ impl System for GamepadProbe {
             ));
         }
 
-        // ── Right column: GameController framework (macOS only). ──
+        // ── Right column: raw GameController read, an independent cross-check (macOS only). ──
         let rx0 = 400.0;
         tq.push(DrawText::new(
-            "GameController (Apple)",
+            "GameController (raw)",
             Vec2::new(rx0, 96.0),
             16.0,
             head,
@@ -298,17 +299,18 @@ impl System for GamepadProbe {
                 ));
             }
 
-            // Self-explaining verdict.
-            let (verdict, vc) = if g.active() && !hid.active() {
+            // Self-explaining verdict: with the macOS backend working the engine's GamepadState
+            // mirrors the raw GameController read (stick Y sign flipped by the engine convention).
+            let (verdict, vc) = if eng.active() {
                 (
-                    "→ GameController receives input but gilrs/HID does not: the macOS \
-                     GameController backend is the fix (matches the known issue).",
-                    Color::rgb(1.0, 0.78, 0.4),
-                )
-            } else if hid.active() {
-                (
-                    "→ gilrs/HID receives input on this setup — no backend change needed here.",
+                    "→ engine GamepadState is receiving input — the macOS GameController backend is active. \
+                     (Stick Y sign is mirrored vs the raw column by design: engine up = −Y.)",
                     Color::rgb(0.6, 0.95, 0.6),
+                )
+            } else if g.active() {
+                (
+                    "→ GameController sees input but the engine's GamepadState does not — backend not feeding it?",
+                    Color::rgb(1.0, 0.55, 0.45),
                 )
             } else {
                 (
@@ -321,7 +323,7 @@ impl System for GamepadProbe {
         #[cfg(not(target_os = "macos"))]
         {
             tq.push(DrawText::new(
-                "macOS only — on this OS the gilrs/HID path on the left is the live one.",
+                "macOS only — on this OS the engine's GamepadState (left) is fed by gilrs.",
                 Vec2::new(rx0, 126.0),
                 14.0,
                 dim,
