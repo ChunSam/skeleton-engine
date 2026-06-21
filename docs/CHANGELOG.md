@@ -4,6 +4,14 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.46.1
+
+**Editor localization coverage fix — translate the last few user-facing strings the 0.46.0 pass missed.** A coverage audit of the in-game editor found two spots whose text was built with `format!` (not an inline egui call) and so escaped the 0.46.0 `tr(en, ko)` sweep. No public API change; behavior is identical apart from the now-localized text.
+
+### Fixed
+- **`src/app/editor/prefab.rs`**: the prefab save/load status messages (`Saved prefab`, `Save failed`, `No entity to save`, `Spawned prefab from`, `Load failed`), shown in the docked editor, are now wrapped with `tr(en, ko)`.
+- **`src/app/editor/ui/mod.rs`**: the inspector's `Entity {index}:{generation}` fallback label (shown for an untagged entity) and the matching default name written by "Add Name" are now localized, keeping the displayed label and the pre-filled name in sync with the active locale.
+
 ## 0.46.0
 
 **Korean (CJK) support + a Korean-by-default localization for the in-game editor.** The egui editor / debug overlay previously rendered CJK text as `□` (tofu) because egui's default fonts cover only Latin + Cyrillic. Two parts fix this:

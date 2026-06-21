@@ -1,3 +1,4 @@
+use super::tr;
 use crate::app::App;
 use crate::ecs::{Entity, World};
 
@@ -62,11 +63,11 @@ impl App {
             Some(def) => {
                 let prefab = crate::prefab::Prefab { def };
                 match prefab.save(std::path::Path::new(path)) {
-                    Ok(()) => format!("Saved prefab → {path}"),
-                    Err(e) => format!("Save failed: {e}"),
+                    Ok(()) => format!("{} → {path}", tr("Saved prefab", "프리팹 저장됨")),
+                    Err(e) => format!("{}: {e}", tr("Save failed", "저장 실패")),
                 }
             }
-            None => "No entity to save".to_string(),
+            None => tr("No entity to save", "저장할 엔티티 없음").to_string(),
         };
         self.editor.prefab_status = Some(status);
     }
@@ -79,9 +80,9 @@ impl App {
                 let e = prefab.spawn_with_tracking(&mut self.world, path.to_string());
                 self.editor.inspector_selected = Some(e);
                 self.editor.selected_entities = vec![e];
-                format!("Spawned prefab from {path}")
+                format!("{} {path}", tr("Spawned prefab from", "프리팹 생성:"))
             }
-            Err(e) => format!("Load failed: {e}"),
+            Err(e) => format!("{}: {e}", tr("Load failed", "불러오기 실패")),
         };
         self.editor.prefab_status = Some(status);
     }
