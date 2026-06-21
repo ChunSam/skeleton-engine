@@ -141,10 +141,14 @@ mod gc {
     }
 }
 
-struct GamepadProbe;
+#[derive(Default)]
+struct GamepadProbe {
+    /// Seconds since the last stdout log line (throttles the per-frame log to ~0.3 s).
+    log_accum: f32,
+}
 
 impl System for GamepadProbe {
-    fn run(&mut self, world: &mut World, _dt: f32) {
+    fn run(&mut self, world: &mut World, dt: f32) {
         if world
             .resource::<InputState>()
             .is_some_and(|i| i.just_pressed(KeyCode::Escape))
@@ -158,6 +162,46 @@ impl System for GamepadProbe {
             .resource::<GamepadState>()
             .map(HidView::read)
             .unwrap_or_default();
+
+        // Read the GameController view once (macOS) — reused by both the stdout log and the overlay.
+        #[cfg(target_os = "macos")]
+        let g = gc::read();
+
+        // Throttled stdout log so the result is *capturable in the terminal* (the on-screen overlay
+        // is for live viewing; this prints which backend actually receives input, ~0.3 s apart and
+        // only while a pad is being moved/pressed — so an idle run stays quiet).
+        self.log_accum += dt;
+        if self.log_accum >= 0.3 {
+            self.log_accum = 0.0;
+            #[cfg(target_os = "macos")]
+            if hid.active() || g.active() {
+                let tag = match (hid.active(), g.active()) {
+                    (false, true) => "GC-only (HID blind — GameController backend is the fix)",
+                    (true, true) => "both",
+                    (true, false) => "HID-only",
+                    (false, false) => unreachable!(),
+                };
+                println!(
+                    "[gamepad_probe] {tag}\n    gilrs/HID    L({:+.2},{:+.2}) A{}B{}X{}Y{} LT{:.2} RT{:.2}\n    GameController L({:+.2},{:+.2}) A{}B{}X{}Y{} LT{:.2} RT{:.2}",
+                    hid.lx, hid.ly, hid.a as u8, hid.b as u8, hid.x as u8, hid.y as u8, hid.lt, hid.rt,
+                    g.lx, g.ly, g.a as u8, g.b as u8, g.x as u8, g.y as u8, g.lt, g.rt,
+                );
+            }
+            #[cfg(not(target_os = "macos"))]
+            if hid.active() {
+                println!(
+                    "[gamepad_probe] gilrs/HID L({:+.2},{:+.2}) A{}B{}X{}Y{} LT{:.2} RT{:.2}",
+                    hid.lx,
+                    hid.ly,
+                    hid.a as u8,
+                    hid.b as u8,
+                    hid.x as u8,
+                    hid.y as u8,
+                    hid.lt,
+                    hid.rt,
+                );
+            }
+        }
 
         let Some(tq) = world.resource_mut::<TextQueue>() else {
             return;
@@ -229,7 +273,6 @@ impl System for GamepadProbe {
 
         #[cfg(target_os = "macos")]
         {
-            let g = gc::read();
             let gc_lines = [
                 format!("controller present: {}", g.present),
                 format!(
@@ -283,7 +326,6 @@ impl System for GamepadProbe {
                 14.0,
                 dim,
             ));
-            let _ = hid.active(); // (verdict is macOS-only)
         }
     }
 
@@ -293,6 +335,10 @@ impl System for GamepadProbe {
 }
 
 fn main() {
+    println!(
+        "gamepad_probe: move the LEFT STICK / press A·B·X·Y. While a pad is active this logs \
+         gilrs(HID) vs GameController each ~0.3s (and shows both live on-screen). ESC quits."
+    );
     let mut app = App::new();
     app.world.insert_resource(WindowConfig {
         title: "gamepad_probe — gilrs vs GameController".to_string(),
@@ -300,6 +346,6 @@ fn main() {
         height: 360,
         clear_color: [0.06, 0.07, 0.10, 1.0],
     });
-    app.add_system(GamepadProbe);
+    app.add_system(GamepadProbe::default());
     app.run();
 }

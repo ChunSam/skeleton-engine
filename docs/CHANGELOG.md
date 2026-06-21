@@ -4,6 +4,13 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.46.4
+
+**`gamepad_probe`: add a throttled stdout log of the gilrs-vs-GameController verdict.** The 0.46.3 probe only rendered its comparison on-screen, so a terminal run showed nothing. It now also prints a compact line (~0.3 s apart, while a pad is active) tagging which backend receives input (`GC-only` / `HID-only` / `both`) with the raw stick/button/trigger values — capturable in the terminal and headless-friendly. Confirmed on macOS with a Bluetooth Xbox pad: gilrs/HID reads all-zero while GameController reads full input, empirically validating that a GameController-framework backend is the fix. Example-only; no library / public API change.
+
+### Changed
+- **`examples/gamepad_probe.rs`** — throttled stdout log of the per-backend snapshot + verdict; the GameController view is now read once per frame and reused by both the log and the overlay.
+
 ## 0.46.3
 
 **Add a `gamepad_probe` diagnostic example — the first step of the per-OS gamepad input pass.** On macOS the engine's gilrs (IOKit-HID) backend enumerates modern Xbox/PS5 pads but receives no input reports, because Apple's GameController framework claims them. This example renders, side by side every frame, what gilrs/HID sees (the engine's `GamepadState`) versus what the GameController framework sees, so running it on a Mac with a pad empirically confirms the input path and whether a GameController-framework backend is the fix. No library / public API change.
