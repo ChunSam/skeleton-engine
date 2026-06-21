@@ -144,7 +144,11 @@ impl System for TilemapSystem {
             // Clone out the data we need before any mutation. The optional `TilemapAutotile`
             // (single- or multi-terrain via its `mode`) drives display-UV selection.
             let (tm_clone, autotile) = {
-                let tm = world.get::<Tilemap>(map_entity).unwrap();
+                // The entity was alive when collected, but a script/coroutine could despawn it
+                // mid-frame; skip instead of panicking (release builds abort on panic).
+                let Some(tm) = world.get::<Tilemap>(map_entity) else {
+                    continue;
+                };
                 let at = world.get::<TilemapAutotile>(map_entity).cloned();
                 (tm.clone(), at)
             };

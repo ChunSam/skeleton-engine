@@ -349,6 +349,13 @@ impl Default for DisplayScaleFactor {
     }
 }
 
+/// HTML element id the wasm backend binds the winit window / wgpu surface to.
+///
+/// The single source of truth shared by the window setup and the GPU context (forks that
+/// embed the canvas under a different id only change it here). Mirror the value in the page's
+/// `<canvas id="...">`.
+pub const DEFAULT_CANVAS_ID: &str = "game-canvas";
+
 /// Initial window configuration. Insert before `App::run()` to open the window with these settings.
 #[derive(Debug, Clone)]
 pub struct WindowConfig {

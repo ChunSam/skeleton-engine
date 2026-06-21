@@ -4,6 +4,32 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.48.0
+
+**Engine-wide audit pass — logic-bug fixes, Rust↔WGSL drift guards, and fork-friendly knobs.** A 7-subsystem code audit produced this batch of correctness fixes (each with a regression test), internal hardening, and additive public API to un-hardcode values a fork would want to tune. Scope is `src/` only (29 files, +378/−39) — all API changes are additive, no example/game code changed, and the full CI gate is green.
+
+### Added
+- **`ScriptingLimits`** re-exported from the crate root — Rhai op/memory/depth limits were previously unreachable from `engine::` (`ScriptingSystem::with_limits` already consumed them).
+- **`DEFAULT_CANVAS_ID`** const — single source for the wasm `<canvas>` element id (was the literal `"game-canvas"` in 4 places across `app/window.rs` + `renderer/context.rs`).
+- **`GpuParticleConfig`** optional resource (`capacity`, default 4096; native-only) — sizes the GPU particle ring-buffer without forking (was a hardcoded `4096` in `app/render/frame.rs`).
+- **`physics::DEFAULT_FRICTION` / `physics::DEFAULT_RESTITUTION`** consts, and **`PhysicsWorld::set_collider_friction` / `set_collider_restitution`** convenience setters (the bodies' `0.3`/`0.0` were baked into the `add_*` factories).
+- **`PhysicsWorld::add_spring_joint(.., stiffness, damping)`** — tunable spring; `add_distance_joint` now delegates to it with named `DISTANCE_JOINT_STIFFNESS`/`DAMPING` defaults.
+- **`CharacterController::drop_duration`** field + **`with_drop_duration`** builder; `CharacterController::DROP_DURATION` is now `pub`.
+
+### Fixed
+- **`TweenSequence::tick`** no longer infinite-loops when a *looping* sequence is built entirely from zero-duration segments (added a zero-crossing guard).
+- **`AnimationStateMachine`** transitions with empty conditions no longer auto-fire every frame (`[].all() == true`); they stay inert until a condition is attached (the editor adds condition-less placeholders).
+- **`SkeletalAnimator::play`** ignores out-of-bounds clip indices with a warning instead of silently freezing the animator (mirrors `AnimationPlayer::play`).
+- **`pathfinding::find_path`** (cardinal) uses `saturating_add` for cost parity with `find_path_diagonal`.
+- **`Wander`** steering carries leftover `dt` instead of zeroing the timer (no extra interval gap on slow frames).
+- **`hierarchy::attach`** rejects attaching an entity to itself (was a corrupt `Parent(self)`/`Children([self])` cycle).
+- **`DialogueRegistry::reload_path`** reloads from the stored registered path rather than the caller's path string (fixes hot-reload when the two canonicalize-equal but differ as strings).
+- Guarded several collect-then-mutate `unwrap()`s against mid-frame despawn (`tilemap/system.rs`, `audio/ducking.rs`, `audio/playback.rs`) and the material draw-pass `HashMap` indexing (`renderer/sprite/draw.rs`).
+
+### Changed (internal)
+- **Rust↔WGSL drift guards:** size-assertion tests for `GpuParticle` (80 B), `InstanceRaw` (116 B), `UiInstanceRaw` (112 B) — only `LightingUniforms` had one before. `COMPUTE_WORKGROUP_SIZE` and `MAX_LIGHTS` are now single-sourced from Rust into the WGSL at shader-load (token substitution) instead of duplicated literals.
+- **`input/gamepad_macos.rs`** carries a self-contained `#![cfg(target_os = "macos")]` gate (CI is ubuntu-only and never compiles it).
+
 ## 0.47.1
 
 **F2 editor data-table UX — readable string cells + a freely-resizable bottom panel.** The Data Tables panel's string cells were stuck at ~40px (long sentences unreadable) and the bottom panel couldn't be dragged past ~300px. Root cause for the cells: inside an `egui::Grid`, a cell's `available_width()` is only the default `min_col_width` (~40px), and `TextEdit::desired_width` is clamped by `at_most(available_width)` — so setting `desired_width` alone has no effect. Editor-only, native-only; **no public API change**, no effect on games or the wasm build.

@@ -381,6 +381,31 @@ impl PhysicsWorld {
             .get(handle.0)
             .map(|collider| CollisionGroups::from_rapier(collider.collision_groups()))
     }
+
+    /// Sets a collider's friction coefficient. Returns `false` if the handle is not found.
+    ///
+    /// Bodies are created with [`DEFAULT_FRICTION`](crate::physics::DEFAULT_FRICTION); call this
+    /// (with the [`ColliderHandle`] the factory returns) for ice, rubber, or other materials
+    /// without dropping to the raw rapier `get_collider_mut` escape hatch.
+    pub fn set_collider_friction(&mut self, handle: ColliderHandle, friction: f32) -> bool {
+        let Some(collider) = self.collider_set.get_mut(handle.0) else {
+            return false;
+        };
+        collider.set_friction(friction);
+        true
+    }
+
+    /// Sets a collider's restitution (bounciness). Returns `false` if the handle is not found.
+    ///
+    /// Bodies are created with [`DEFAULT_RESTITUTION`](crate::physics::DEFAULT_RESTITUTION);
+    /// raise it for bouncy platforms / balls.
+    pub fn set_collider_restitution(&mut self, handle: ColliderHandle, restitution: f32) -> bool {
+        let Some(collider) = self.collider_set.get_mut(handle.0) else {
+            return false;
+        };
+        collider.set_restitution(restitution);
+        true
+    }
 }
 
 #[cfg(test)]

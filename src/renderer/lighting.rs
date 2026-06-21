@@ -35,7 +35,7 @@ pub(crate) struct LightingUniforms {
     pub(crate) light_count: u32,
     pub(crate) aspect_ratio: f32,
     pub(crate) _pad: [f32; 2],
-    pub(crate) lights: [GpuLightData; 16],
+    pub(crate) lights: [GpuLightData; MAX_LIGHTS],
 }
 
 // ─── WGSL shader ──────────────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ struct LightingUniforms {
     light_count:       u32,
     aspect_ratio:      f32,
     _pad:              vec2<f32>,
-    lights:            array<GpuLight, 16>,
+    lights:            array<GpuLight, MAX_LIGHTS>,
 }
 
 @group(0) @binding(0) var scene_tex:     texture_2d<f32>;
@@ -187,9 +187,13 @@ impl LightingRenderer {
         height: u32,
         surface_format: wgpu::TextureFormat,
     ) -> Self {
+        // `LIGHTING_SHADER` carries the `MAX_LIGHTS` token (invalid WGSL on its own) so the
+        // GPU array length stays bound to the Rust `MAX_LIGHTS` const — the single source of
+        // truth shared with the `LightingUniforms` array and the nearest-light cull.
+        let shader_src = LIGHTING_SHADER.replace("MAX_LIGHTS", &MAX_LIGHTS.to_string());
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("lighting shader"),
-            source: wgpu::ShaderSource::Wgsl(LIGHTING_SHADER.into()),
+            source: wgpu::ShaderSource::Wgsl(shader_src.into()),
         });
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -466,8 +470,11 @@ impl LightingRenderer {
             self.cached_scene_view_ptr = scene_ptr;
         }
 
-        // SAFETY: we always set cached_bind_group in the branch above when it was None.
-        let bind_group = self.cached_bind_group.as_ref().unwrap();
+        // The branch above always sets cached_bind_group when it was None.
+        let bind_group = self
+            .cached_bind_group
+            .as_ref()
+            .expect("cached_bind_group is set in the branch above");
 
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("lighting pass"),

@@ -9,6 +9,11 @@
 //! The bug and this backend's premise were confirmed empirically with `examples/gamepad_probe`
 //! (gilrs/HID reads all-zero while GameController reads full stick/button/trigger input).
 
+// Self-contained OS gate: the `mod` declaration in `input/mod.rs` is already cfg-gated, but
+// pinning it here too means the file can never be compiled on Linux/CI (where the objc2
+// GameController bindings don't exist) even if an extra include path is added later.
+#![cfg(target_os = "macos")]
+
 use crate::input::{GamepadAxis, GamepadButton, GamepadState};
 use objc2_game_controller::{GCController, GCExtendedGamepad};
 use std::collections::{HashMap, HashSet};

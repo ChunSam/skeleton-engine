@@ -259,7 +259,7 @@ impl DialogueRegistry {
     /// warning in that case).
     #[cfg(not(target_arch = "wasm32"))]
     pub fn reload_path(&mut self, path: &str) {
-        let name = self
+        let target = self
             .paths
             .iter()
             .find(|(_, p)| {
@@ -271,18 +271,21 @@ impl DialogueRegistry {
                     .unwrap_or_else(|_| std::path::PathBuf::from(path));
                 a == b
             })
-            .map(|(n, _)| n.clone());
+            .map(|(n, p)| (n.clone(), p.clone()));
 
-        let Some(name) = name else {
+        let Some((name, stored_path)) = target else {
             return;
         };
 
-        match DialogueTree::load(path) {
+        // Load from the registered path, not the caller's `path`: the two canonicalize to the
+        // same file but may differ as strings (trailing slash, relative vs absolute), and the
+        // caller's form could fail to open.
+        match DialogueTree::load(&stored_path) {
             Ok(tree) => {
                 self.trees.insert(name, tree);
             }
             Err(e) => {
-                log::warn!("dialogue: hot-reload failed for {path}: {e}");
+                log::warn!("dialogue: hot-reload failed for {stored_path}: {e}");
             }
         }
     }

@@ -346,3 +346,37 @@ fn cast_ray_no_hit_after_remove_body_before_step() {
         "ray must not hit the removed body (ghost collider bug); without the fix this would be Some"
     );
 }
+
+#[test]
+fn set_collider_friction_and_restitution_update_collider() {
+    let mut pw = PhysicsWorld::new(Vec2::ZERO);
+    let (_, col) = pw.add_dynamic_box(Vec2::ZERO, 0.5, 0.5, false);
+    // Defaults come from the named physics constants.
+    assert!(
+        (pw.get_collider(col).unwrap().friction() - crate::physics::DEFAULT_FRICTION).abs() < 1e-6
+    );
+
+    assert!(pw.set_collider_friction(col, 0.0));
+    assert!(pw.set_collider_restitution(col, 0.9));
+    let c = pw.get_collider(col).unwrap();
+    assert!((c.friction() - 0.0).abs() < 1e-6);
+    assert!((c.restitution() - 0.9).abs() < 1e-6);
+}
+
+#[test]
+fn character_controller_drop_duration_is_configurable() {
+    let mut ctrl = CharacterController::new().with_drop_duration(0.5);
+    assert!((ctrl.drop_duration - 0.5).abs() < 1e-6);
+    ctrl.request_drop();
+    assert!(ctrl.is_dropping());
+    assert!((ctrl.drop_timer - 0.5).abs() < 1e-6);
+}
+
+#[test]
+fn add_spring_joint_creates_with_custom_constants() {
+    let mut pw = make_world();
+    let (b1, _) = pw.add_dynamic_box(Vec2::new(-1.0, 0.0), 0.4, 0.4, false);
+    let (b2, _) = pw.add_dynamic_box(Vec2::new(1.0, 0.0), 0.4, 0.4, false);
+    let h = pw.add_spring_joint(b1, b2, Vec2::ZERO, Vec2::ZERO, 2.0, 50.0, 5.0);
+    assert!(pw.impulse_joint_set.get(h.0).is_some());
+}

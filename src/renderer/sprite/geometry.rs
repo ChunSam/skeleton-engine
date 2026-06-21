@@ -233,3 +233,21 @@ impl UiInstanceRaw {
 
 // CameraUniform is defined in `crate::renderer` (shared with gpu_particle).
 pub(super) use crate::renderer::CameraUniform;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Drift guards: the WGSL vertex layouts (`@location` offsets in sprite.wgsl / ui.wgsl)
+    // are hand-aligned to these struct layouts. A field add/reorder that changes the size
+    // would silently corrupt rendering; these asserts turn that into a build failure.
+    #[test]
+    fn instance_raw_size_is_stable() {
+        assert_eq!(std::mem::size_of::<InstanceRaw>(), 116);
+    }
+
+    #[test]
+    fn ui_instance_raw_size_is_stable() {
+        assert_eq!(std::mem::size_of::<UiInstanceRaw>(), 112);
+    }
+}

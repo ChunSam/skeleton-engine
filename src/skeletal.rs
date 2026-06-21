@@ -141,7 +141,18 @@ impl SkeletalAnimator {
     }
 
     /// Switches to the given clip index and resets time to 0. No-op if already playing that clip.
+    ///
+    /// Out-of-bounds indices are ignored with a warning (mirrors `AnimationPlayer::play`);
+    /// otherwise the animator would silently freeze when the system later finds no clip.
     pub fn play(&mut self, clip_index: usize) {
+        if clip_index >= self.clips.len() {
+            log::warn!(
+                "SkeletalAnimator::play: clip index {clip_index} is out of bounds \
+                 (animator has {} clip(s))",
+                self.clips.len()
+            );
+            return;
+        }
         if self.current != clip_index {
             self.current = clip_index;
             self.time = 0.0;
@@ -439,6 +450,22 @@ mod tests {
         assert!(
             world.get::<SkeletalAnimator>(root).unwrap().is_finished(),
             "non-looping clip must be finished after time >= duration"
+        );
+    }
+
+    #[test]
+    fn play_out_of_bounds_is_ignored() {
+        let clip = SkeletalClip {
+            name: "a".into(),
+            duration: 1.0,
+            looping: false,
+            tracks: vec![],
+        };
+        let mut anim = SkeletalAnimator::new(vec![clip], HashMap::new());
+        anim.play(99);
+        assert_eq!(
+            anim.current, 0,
+            "out-of-bounds play must not change current clip"
         );
     }
 

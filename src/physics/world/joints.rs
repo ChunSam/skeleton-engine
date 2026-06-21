@@ -3,10 +3,16 @@ use rapier2d::prelude::*;
 
 use super::{BodyHandle, JointHandle, PhysicsWorld};
 
+/// Default spring constants for `add_distance_joint` — stiff enough to behave like a near-rigid
+/// rod. Use `add_spring_joint` for a softer, tunable spring.
+const DISTANCE_JOINT_STIFFNESS: f32 = 1000.0;
+const DISTANCE_JOINT_DAMPING: f32 = 10.0;
+
 impl PhysicsWorld {
     /// Creates a DistanceJoint between two bodies.
     /// `anchor1/2` — attachment point in each body's local space (world units).
-    /// Internally uses `SpringJointBuilder` (stiffness=1000, damping=10) to maintain a fixed distance.
+    /// A near-rigid spring (stiffness=1000, damping=10) maintains a fixed distance; use
+    /// [`add_spring_joint`](PhysicsWorld::add_spring_joint) to pick your own stiffness/damping.
     pub fn add_distance_joint(
         &mut self,
         body1: BodyHandle,
@@ -15,7 +21,33 @@ impl PhysicsWorld {
         anchor2: Vec2,
         rest_length: f32,
     ) -> JointHandle {
-        let data = SpringJointBuilder::new(rest_length, 1000.0, 10.0)
+        self.add_spring_joint(
+            body1,
+            body2,
+            anchor1,
+            anchor2,
+            rest_length,
+            DISTANCE_JOINT_STIFFNESS,
+            DISTANCE_JOINT_DAMPING,
+        )
+    }
+
+    /// Creates a spring joint between two bodies with explicit `stiffness` and `damping`.
+    ///
+    /// A soft spring (low stiffness) bounces and stretches; a high stiffness approximates a
+    /// rigid rod. `damping` bleeds off oscillation. `anchor1/2` are in each body's local space.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_spring_joint(
+        &mut self,
+        body1: BodyHandle,
+        body2: BodyHandle,
+        anchor1: Vec2,
+        anchor2: Vec2,
+        rest_length: f32,
+        stiffness: f32,
+        damping: f32,
+    ) -> JointHandle {
+        let data = SpringJointBuilder::new(rest_length, stiffness, damping)
             .local_anchor1(point![anchor1.x, anchor1.y])
             .local_anchor2(point![anchor2.x, anchor2.y])
             .build();

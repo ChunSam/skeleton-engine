@@ -230,7 +230,7 @@ pub fn find_path(grid: &PathGrid, start: IVec2, goal: IVec2) -> Option<Vec<IVec2
                 if !grid.is_walkable(next.x, next.y) {
                     continue;
                 }
-                let g_next = g_current + 1;
+                let g_next = g_current.saturating_add(1);
                 if g_next < *s.g_score.get(&next).unwrap_or(&i32::MAX) {
                     s.g_score.insert(next, g_next);
                     s.came_from.insert(next, current);
