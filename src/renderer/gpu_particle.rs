@@ -5,6 +5,12 @@ use crate::camera::Camera;
 use crate::ecs::World;
 use crate::renderer::CameraUniform;
 
+/// Compute-shader workgroup size. Single source of truth: it drives the dispatch
+/// `div_ceil` below AND is substituted into the WGSL `@workgroup_size(...)` at shader-load
+/// time, so the two can never silently drift (an over-dispatch wastes threads, an
+/// under-dispatch skips particles).
+const COMPUTE_WORKGROUP_SIZE: u32 = 64;
+
 // ─── GPU Particle Data (80 bytes, 16 B aligned) ───────────────────────────────
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable, Debug)]
@@ -56,11 +62,13 @@ impl GpuParticleRenderer {
     /// Creates a renderer capable of processing `capacity` particles simultaneously.
     pub fn new(device: &wgpu::Device, surface_format: wgpu::TextureFormat, capacity: u32) -> Self {
         // ── Compute shader ───────────────────────────────────────────────
+        let compute_src = include_str!("shaders/gpu_particle_compute.wgsl").replace(
+            "@workgroup_size(64)",
+            &format!("@workgroup_size({COMPUTE_WORKGROUP_SIZE})"),
+        );
         let compute_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("gpu particle compute"),
-            source: wgpu::ShaderSource::Wgsl(
-                include_str!("shaders/gpu_particle_compute.wgsl").into(),
-            ),
+            source: wgpu::ShaderSource::Wgsl(compute_src.into()),
         });
 
         // ── Particle buffer ───────────────────────────────────────────────
@@ -282,7 +290,7 @@ impl GpuParticleRenderer {
             0,
             bytemuck::bytes_of(&ComputeUniforms { dt, _pad: [0.0; 3] }),
         );
-        let workgroups = self.particle_capacity.div_ceil(64);
+        let workgroups = self.particle_capacity.div_ceil(COMPUTE_WORKGROUP_SIZE);
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("gpu particle compute pass"),
             timestamp_writes: None,
@@ -338,5 +346,18 @@ impl GpuParticleRenderer {
 
     pub fn capacity(&self) -> u32 {
         self.particle_capacity
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The compute + render shaders index a tightly-packed `GpuParticle` buffer by a stride
+    // baked into the WGSL. If a field change moves the size off 80 bytes, that stride drifts
+    // and rendering corrupts silently — this assert makes it a build failure instead.
+    #[test]
+    fn gpu_particle_size_is_stable() {
+        assert_eq!(std::mem::size_of::<GpuParticle>(), 80);
     }
 }

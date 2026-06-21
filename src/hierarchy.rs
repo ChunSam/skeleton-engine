@@ -52,6 +52,10 @@ impl GlobalTransform {
 ///
 /// Manages the `Parent` component and the `Children` list simultaneously.
 pub fn attach(world: &mut World, child: Entity, parent: Entity) {
+    if child == parent {
+        log::warn!("hierarchy::attach: cannot attach an entity to itself ({child:?}); ignoring");
+        return;
+    }
     world.add_component(child, Parent(parent));
     let mut children = world
         .get::<Children>(parent)
@@ -275,5 +279,21 @@ mod tests {
         let gt = world.get::<GlobalTransform>(e).unwrap();
         assert_eq!(gt.position, Vec2::new(5.0, 7.0));
         assert_eq!(gt.z, 2.0);
+    }
+
+    #[test]
+    fn self_attach_is_ignored() {
+        // Attaching an entity to itself would create a Parent(self)+Children([self]) cycle.
+        let mut world = World::new();
+        let e = world.spawn();
+        attach(&mut world, e, e);
+        assert!(
+            world.get::<Parent>(e).is_none(),
+            "self-attach must not add a Parent"
+        );
+        assert!(
+            world.get::<Children>(e).is_none(),
+            "self-attach must not add Children"
+        );
     }
 }

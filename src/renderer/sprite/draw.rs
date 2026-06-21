@@ -87,14 +87,27 @@ impl SpriteRenderer {
                         instance_offset,
                         ..
                     } => {
+                        i += 1;
+                        // The custom pipeline + params buffer are populated by `batch_and_upload`,
+                        // which must run before this draw pass. If that invariant is ever broken,
+                        // skip the entry instead of panicking mid-frame (release builds abort on
+                        // panic, taking the whole game down).
+                        let (Some(pipeline), Some((_, params_bg))) = (
+                            self.material.custom_pipelines.get(hash),
+                            self.material.params_buffers.get(entity),
+                        ) else {
+                            debug_assert!(
+                                false,
+                                "material pipeline/params missing — batch_and_upload must run before record_draw_pass"
+                            );
+                            continue;
+                        };
                         let byte_start = *instance_offset as u64 * instance_size;
                         let byte_end = byte_start + instance_size;
-                        let pipeline = &self.material.custom_pipelines[hash];
                         let tex_bg = texture_key
                             .as_deref()
                             .map(|k| self.texture_cache.bind_group_for_texture_key(Some(k)))
                             .unwrap_or(&self.texture_cache.white_texture.bind_group);
-                        let (_, params_bg) = &self.material.params_buffers[entity];
 
                         pass.set_pipeline(pipeline);
                         pass.set_bind_group(0, &self.camera_bind_group, &[]);
@@ -108,7 +121,6 @@ impl SpriteRenderer {
                         pass.set_index_buffer(self.index_buf.slice(..), wgpu::IndexFormat::Uint16);
                         pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
                         stats.draw_calls += 1;
-                        i += 1;
                     }
                 }
             }

@@ -38,8 +38,8 @@ impl PhysicsWorld {
         }
         let handle = self.rigid_body_set.insert(builder.build());
         let collider = ColliderBuilder::cuboid(half_w, half_h)
-            .friction(0.3)
-            .restitution(0.0)
+            .friction(crate::physics::DEFAULT_FRICTION)
+            .restitution(crate::physics::DEFAULT_RESTITUTION)
             .collision_groups(groups.to_rapier())
             .build();
         let col_handle =
@@ -109,8 +109,8 @@ impl PhysicsWorld {
         }
         let handle = self.rigid_body_set.insert(builder.build());
         let collider = ColliderBuilder::ball(radius)
-            .friction(0.3)
-            .restitution(0.0)
+            .friction(crate::physics::DEFAULT_FRICTION)
+            .restitution(crate::physics::DEFAULT_RESTITUTION)
             .collision_groups(groups.to_rapier())
             .build();
         let col_handle =

@@ -23,6 +23,8 @@ struct ComputeUniforms {
 @group(0) @binding(0) var<storage, read_write> particles: array<Particle>;
 @group(0) @binding(1) var<uniform>             uniforms:  ComputeUniforms;
 
+// NOTE: `64` is overwritten at shader-load time from the Rust `COMPUTE_WORKGROUP_SIZE`
+// const (see renderer/gpu_particle.rs); keep this literal as the default fallback.
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let i = id.x;

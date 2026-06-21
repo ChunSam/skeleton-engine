@@ -32,6 +32,11 @@ pub struct CharacterController {
     /// Remaining time (seconds) to drop through a one-way platform.
     /// Set by `request_drop`; decremented every frame by `move_character`.
     pub(crate) drop_timer: f32,
+    /// How long (seconds) a `request_drop` keeps the one-way pass-through window open.
+    /// Defaults to [`CharacterController::DROP_DURATION`]; tune via
+    /// [`with_drop_duration`](CharacterController::with_drop_duration) or direct assignment
+    /// (heavier characters may need a longer window to clear a thick platform).
+    pub drop_duration: f32,
 }
 
 impl Default for CharacterController {
@@ -56,6 +61,7 @@ impl Default for CharacterController {
             grounded: false,
             inner,
             drop_timer: 0.0,
+            drop_duration: Self::DROP_DURATION,
         }
     }
 }
@@ -81,6 +87,12 @@ impl CharacterController {
             min_width: CharacterLength::Absolute(min_width),
             include_dynamic_bodies: false,
         });
+        self
+    }
+
+    /// Sets how long (seconds) a one-way drop-through stays active after `request_drop`.
+    pub fn with_drop_duration(mut self, seconds: f32) -> Self {
+        self.drop_duration = seconds;
         self
     }
 
@@ -116,7 +128,7 @@ impl CharacterController {
     /// For a short time afterward, `move_character` ignores collisions with one-way colliders
     /// so the character falls through the platform underfoot. Solid colliders are unaffected.
     pub fn request_drop(&mut self) {
-        self.drop_timer = Self::DROP_DURATION;
+        self.drop_timer = self.drop_duration;
     }
 
     /// Returns whether a drop request is active (one-way pass-through window is still open).
@@ -126,8 +138,10 @@ impl CharacterController {
 }
 
 impl CharacterController {
-    /// Length of the drop-through window (seconds). Long enough for the character to clear the platform thickness.
-    pub(crate) const DROP_DURATION: f32 = 0.2;
+    /// Default length of the one-way drop-through window (seconds), long enough for the
+    /// character to clear a typical platform thickness. The per-instance value lives in
+    /// [`drop_duration`](CharacterController::drop_duration).
+    pub const DROP_DURATION: f32 = 0.2;
 }
 
 #[cfg(test)]

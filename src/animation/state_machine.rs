@@ -399,6 +399,13 @@ impl AnimationStateMachine {
     fn evaluate(&self, anim_finished: bool) -> Option<(String, usize, f32)> {
         let state = self.states.get(&self.current)?;
         for transition in &state.transitions {
+            // A transition with no conditions never auto-fires: `[].all() == true` would
+            // otherwise make it trigger on the very first evaluated frame. The editor adds
+            // condition-less transitions as placeholders (see state_machine_panel), so they
+            // must stay inert until the author attaches at least one condition.
+            if transition.conditions.is_empty() {
+                continue;
+            }
             if transition
                 .conditions
                 .iter()

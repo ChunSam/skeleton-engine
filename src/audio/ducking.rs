@@ -211,7 +211,11 @@ impl AudioManager {
 
         for bus in buses_to_update {
             let changed = {
-                let duck = self.bus_ducks.get_mut(&bus).unwrap();
+                // `bus` came from `bus_ducks` above and nothing removes entries here, but guard
+                // anyway so a future refactor can't turn this into a mid-frame panic.
+                let Some(duck) = self.bus_ducks.get_mut(&bus) else {
+                    continue;
+                };
                 let prev = duck.current;
                 let step = duck.rate * dt;
                 if duck.target < duck.current {

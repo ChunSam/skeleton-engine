@@ -96,7 +96,7 @@ pub use dialogue::{
 pub use ecs::schedule::{ScheduleError, SystemConfig, SystemLabel};
 pub use ecs::{Commands, Entity, Events, System, World};
 #[cfg(not(target_arch = "wasm32"))]
-pub use gpu_particle::GpuParticleEmitter;
+pub use gpu_particle::{GpuParticleConfig, GpuParticleEmitter};
 pub use hierarchy::{
     attach, detach, topological_sort_entities, Children, GlobalTransform, HierarchySystem, Parent,
 };
@@ -142,10 +142,10 @@ pub use resources::{
     AmbientLight, CullConfig, DebugDraw, DebugShape, DisplayScaleFactor, ExtraFonts,
     FadeTransition, FontData, GameState, ImeConfig, LoadProgress, PanickedSystems, PendingResize,
     ProfilerData, RealDt, RenderStats, SelectedEntity, ShouldQuit, SystemProfile, TimeScale,
-    ViewportSize, WindowConfig,
+    ViewportSize, WindowConfig, DEFAULT_CANVAS_ID,
 };
 pub use scene::{Scene, SceneChange, SceneCmd, SystemRegistrar};
-pub use scripting::{ScriptAsset, ScriptRegistry, ScriptRunner, ScriptingSystem};
+pub use scripting::{ScriptAsset, ScriptRegistry, ScriptRunner, ScriptingLimits, ScriptingSystem};
 pub use steering::{Arrive, Flee, Seek, SteeringSystem, SteeringVelocity, Wander};
 pub use tilemap::{
     compute_tile_mask, compute_tile_mask_typed, AnimatedTileCell, AnimatedTileSystem, AutotileMode,

@@ -304,6 +304,12 @@ impl TweenSequence {
         }
 
         // Drive the current segment, carrying leftover dt into subsequent segments.
+        //
+        // `zero_crossings` guards against an infinite loop: a *looping* sequence whose
+        // segments are all zero-duration consumes no `dt` per boundary, so the `dt <= 0.0`
+        // exit below would never trigger. Any positive-duration segment resets the counter,
+        // so legitimate multi-loop fast-forward on a large `dt` still works.
+        let mut zero_crossings = 0usize;
         loop {
             let seg = &mut self.segments[self.current];
 
@@ -318,6 +324,11 @@ impl TweenSequence {
             // Consume enough dt to finish the current segment exactly.
             seg.timer.tick(remaining);
             dt -= remaining;
+            if remaining > 0.0 {
+                zero_crossings = 0;
+            } else {
+                zero_crossings += 1;
+            }
 
             // Advance to the next segment.
             let next = self.current + 1;
@@ -337,6 +348,10 @@ impl TweenSequence {
             }
 
             if dt <= 0.0 {
+                break;
+            }
+            // A full ring of zero-duration segments would otherwise spin forever.
+            if zero_crossings > self.segments.len() {
                 break;
             }
         }
@@ -583,6 +598,19 @@ mod tests {
             assert!(e.apply(0.0).abs() < 1e-4, "{e:?} at 0 should be ~0");
             assert!((e.apply(1.0) - 1.0).abs() < 1e-4, "{e:?} at 1 should be ~1");
         }
+    }
+
+    #[test]
+    fn looping_zero_duration_does_not_hang() {
+        // A looping sequence whose segments are all zero-duration consumes no dt per
+        // boundary; before the zero-crossing guard this `tick` spun forever.
+        let mut seq = TweenSequence::new()
+            .then(0.0, 10.0, 0.0, Easing::Linear)
+            .then(10.0, 20.0, 0.0, Easing::Linear)
+            .looping(true);
+        let v = seq.tick(1.0);
+        assert!(!seq.finished(), "looping sequence never finishes");
+        assert!(v.is_finite(), "value should stay finite, got {v}");
     }
 
     #[test]

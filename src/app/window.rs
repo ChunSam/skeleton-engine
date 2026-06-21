@@ -27,7 +27,7 @@ impl ApplicationHandler for App {
             use winit::platform::web::WindowAttributesExtWebSys;
             if let Some(canvas) = web_sys::window()
                 .and_then(|w| w.document())
-                .and_then(|d| d.get_element_by_id("game-canvas"))
+                .and_then(|d| d.get_element_by_id(crate::DEFAULT_CANVAS_ID))
                 .and_then(|el| el.dyn_into::<web_sys::HtmlCanvasElement>().ok())
             {
                 attrs.with_canvas(Some(canvas))
@@ -110,7 +110,7 @@ impl ApplicationHandler for App {
                             let buf_h = ((logical_h as f64 * scale).round() as u32).clamp(1, 2048);
                             if let Some(c) = web_sys::window()
                                 .and_then(|w| w.document())
-                                .and_then(|d| d.get_element_by_id("game-canvas"))
+                                .and_then(|d| d.get_element_by_id(crate::DEFAULT_CANVAS_ID))
                                 .and_then(|el| el.dyn_into::<web_sys::HtmlCanvasElement>().ok())
                             {
                                 c.set_width(buf_w);
@@ -600,7 +600,7 @@ impl App {
                 .max(1.0);
             if let Some(canvas) = web_sys::window()
                 .and_then(|w| w.document())
-                .and_then(|d| d.get_element_by_id("game-canvas"))
+                .and_then(|d| d.get_element_by_id(crate::DEFAULT_CANVAS_ID))
                 .and_then(|el| el.dyn_into::<web_sys::HtmlCanvasElement>().ok())
             {
                 let logical_w = canvas.width().max(1);

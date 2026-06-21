@@ -201,7 +201,11 @@ impl AudioManager {
         let mut to_stop: Vec<String> = Vec::new(); // only populated when a fade completes
         for ch in iter_stack.chain(iter_overflow) {
             let done = {
-                let fade = self.fades.get_mut(ch).unwrap();
+                // `ch` was collected from `self.fades` just above; guard anyway so a future
+                // change that removes a fade mid-loop can't turn this into a panic.
+                let Some(fade) = self.fades.get_mut(ch) else {
+                    continue;
+                };
                 fade.elapsed += dt;
                 let vol = fade.current_vol();
                 if let Some(sink) = self.sinks.get(ch) {

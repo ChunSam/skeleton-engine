@@ -292,7 +292,14 @@ impl System for SteeringSystem {
                     };
                     wander.timer += dt;
                     if wander.timer >= wander.change_interval {
-                        wander.timer = 0.0;
+                        // Carry leftover time instead of zeroing, so a slow frame (dt larger
+                        // than the interval) doesn't insert an extra full-interval gap before
+                        // the next direction change. Guard against a zero interval looping.
+                        if wander.change_interval > 0.0 {
+                            wander.timer -= wander.change_interval;
+                        } else {
+                            wander.timer = 0.0;
+                        }
                         wander.current_dir = match wander.direction_fn {
                             // Caller-supplied picker (e.g. real RNG) — no need to fork the system.
                             Some(pick) => pick(entity.index(), wander.current_dir),

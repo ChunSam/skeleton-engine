@@ -47,7 +47,7 @@ impl GpuContext {
             use wasm_bindgen::JsCast;
             web_sys::window()
                 .and_then(|w| w.document())
-                .and_then(|d| d.get_element_by_id("game-canvas"))
+                .and_then(|d| d.get_element_by_id(crate::DEFAULT_CANVAS_ID))
                 .and_then(|el| el.dyn_into::<web_sys::HtmlCanvasElement>().ok())
                 .map(|c| winit::dpi::PhysicalSize::new(c.width().max(1), c.height().max(1)))
                 .unwrap_or_else(|| window.inner_size())

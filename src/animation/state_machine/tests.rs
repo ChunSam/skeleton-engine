@@ -723,3 +723,29 @@ fn set_transition_crossfade_out_of_range() {
     let mut sm = editor_sm();
     assert!(!sm.set_transition_crossfade("idle", 99, 0.5));
 }
+
+/// A transition with no conditions must never auto-fire. Regression: `[].iter().all()`
+/// returns `true`, so a condition-less transition (the editor's placeholder) used to jump
+/// on the first evaluated frame.
+#[test]
+fn empty_conditions_never_fire() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.add_component(e, AnimationPlayer::new(vec![loop_clip(), loop_clip()]));
+
+    let mut sm = AnimationStateMachine::new("idle", 0);
+    sm.add_state("run", 1);
+    sm.add_transition("idle", "run", vec![]); // condition-less placeholder
+    world.add_component(e, sm);
+
+    let mut anim = AnimationSystem::new();
+    let mut stm = StateMachineSystem::new();
+    anim.run(&mut world, 0.05);
+    stm.run(&mut world, 0.05);
+
+    let player = world.get::<AnimationPlayer>(e).unwrap();
+    assert_eq!(
+        player.current_clip, 0,
+        "empty-condition transition must not fire"
+    );
+}

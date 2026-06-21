@@ -455,11 +455,18 @@ impl App {
                 .next()
                 .is_some();
             if has_emitters && self.render.gpu_particle_renderer.is_none() {
+                // Capacity is tunable via an optional GpuParticleConfig resource (default 4096).
+                let capacity = self
+                    .world
+                    .resource::<crate::gpu_particle::GpuParticleConfig>()
+                    .copied()
+                    .unwrap_or_default()
+                    .capacity;
                 self.render.gpu_particle_renderer =
                     Some(crate::renderer::gpu_particle::GpuParticleRenderer::new(
                         &gpu.device,
                         gpu.config.format,
-                        4096,
+                        capacity,
                     ));
             }
             if let Some(gpr) = &self.render.gpu_particle_renderer {

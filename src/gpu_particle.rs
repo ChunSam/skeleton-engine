@@ -7,6 +7,23 @@ use crate::ecs::{Entity, World};
 use crate::particle::EmitShape;
 use crate::renderer::gpu_particle::GpuParticle;
 
+/// Optional resource overriding the GPU-particle ring-buffer capacity.
+///
+/// Insert before the first frame to size the GPU particle buffer for your game. When absent,
+/// the engine falls back to [`GpuParticleConfig::default`] (4096). Native only — the buffer is
+/// allocated once when the first [`GpuParticleEmitter`] appears, so set this during setup.
+#[derive(Debug, Clone, Copy)]
+pub struct GpuParticleConfig {
+    /// Maximum number of GPU particles alive simultaneously.
+    pub capacity: u32,
+}
+
+impl Default for GpuParticleConfig {
+    fn default() -> Self {
+        Self { capacity: 4096 }
+    }
+}
+
 /// Particle emitter component updated via a GPU compute shader.
 ///
 /// Native only (use CPU `ParticleEmitter` for WASM).
