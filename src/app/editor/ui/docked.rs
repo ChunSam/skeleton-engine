@@ -44,10 +44,13 @@ pub(in crate::app) fn update_docked_ui(
         });
 
     // ── 2. Bottom panel: Assets | Data Tables | Audio ───────────────────────
+    // High upper bound so the data-table grid can be dragged tall enough to read
+    // many rows at once; egui still clamps the drag to the real available height,
+    // so this is effectively "free" without letting the panel cover the toolbar.
     #[allow(deprecated)]
     egui::Panel::bottom("docked_assets")
-        .default_size(150.0)
-        .size_range(60.0..=300.0)
+        .default_size(200.0)
+        .size_range(60.0..=2000.0)
         .resizable(true)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {

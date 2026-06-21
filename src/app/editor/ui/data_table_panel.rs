@@ -292,6 +292,11 @@ pub(in crate::app) fn data_table_panel_body(ui: &mut egui::Ui, app: &mut App) {
 
 // ── Per-cell editor widget ────────────────────────────────────────────────────
 
+/// Fixed width (logical px) of a string cell's text field, so longer sentences are
+/// readable. Wide on purpose — the grid is in a horizontal ScrollArea, so over-wide
+/// rows just scroll rather than squashing other columns.
+const STRING_CELL_WIDTH: f32 = 260.0;
+
 /// Render one editable cell for `val`.  Returns `Some(new_val)` when the user
 /// made a change, `None` otherwise.
 fn cell_editor(
@@ -323,7 +328,15 @@ fn cell_editor(
         }
         ron::Value::String(s) => {
             let mut buf = s.clone();
-            let resp = ui.text_edit_singleline(&mut buf);
+            // Wide field so longer sentences are readable without scrolling inside the
+            // box. NOTE: inside an `egui::Grid`, a cell's `available_width()` is just the
+            // default `min_col_width` (~40px), and `TextEdit::desired_width` is clamped by
+            // `at_most(available_width)` — so `.desired_width(..)` alone has no effect here.
+            // `add_sized` allocates a fixed-width region first, which both sizes the box and
+            // grows the grid column; the grid lives in a both-direction ScrollArea, so the
+            // extra width just adds horizontal scroll when several columns are wide.
+            let h = ui.spacing().interact_size.y;
+            let resp = ui.add_sized([STRING_CELL_WIDTH, h], egui::TextEdit::singleline(&mut buf));
             if resp.changed() {
                 Some(ron::Value::String(buf))
             } else {

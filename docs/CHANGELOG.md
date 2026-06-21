@@ -4,6 +4,16 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.47.1
+
+**F2 editor data-table UX — readable string cells + a freely-resizable bottom panel.** The Data Tables panel's string cells were stuck at ~40px (long sentences unreadable) and the bottom panel couldn't be dragged past ~300px. Root cause for the cells: inside an `egui::Grid`, a cell's `available_width()` is only the default `min_col_width` (~40px), and `TextEdit::desired_width` is clamped by `at_most(available_width)` — so setting `desired_width` alone has no effect. Editor-only, native-only; **no public API change**, no effect on games or the wasm build.
+
+### Fixed
+- **`src/app/editor/ui/data_table_panel.rs`** — string cells now use `ui.add_sized([STRING_CELL_WIDTH, h], TextEdit::singleline(..))` (260px) instead of `.desired_width(..)`; `add_sized` allocates a fixed-width region first, which both sizes the box and grows the grid column. The grid stays in a `ScrollArea::both`, so over-wide rows add horizontal scroll rather than squashing other columns.
+
+### Changed
+- **`src/app/editor/ui/docked.rs`** — bottom editor panel `size_range` cap raised `300.0 → 2000.0` (egui still clamps the drag to the real available height, so it can't cover the toolbar) and `default_size` `150.0 → 200.0` for more out-of-box room. The 300px cap was the actual limit on growing the panel.
+
 ## 0.47.0
 
 **macOS gamepad support — a GameController-framework backend for `GamepadState`.** On macOS the engine's gilrs (IOKit-HID) backend can't read modern Bluetooth/USB Xbox & PS5 pads — Apple's GameController driver claims them, so gilrs enumerates the pad but receives no input (confirmed via `gamepad_probe`: gilrs all-zero, GameController full input). The engine now polls the GameController framework on macOS and feeds the same `GamepadState`, so gamepads work there with **no public API or game-code change** — `GamepadState` / `InputMap` behave identically across platforms.
