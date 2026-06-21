@@ -106,11 +106,21 @@ fn tag_name_editor(
                 world.add_component(sel, Tag(name_buf));
             }
         } else {
-            ui.label(format!("Entity {}:{}", sel.index(), sel.generation()));
+            ui.label(format!(
+                "{} {}:{}",
+                tr("Entity", "엔티티"),
+                sel.index(),
+                sel.generation()
+            ));
             if ui.button(tr("Add Name", "이름 추가")).clicked() {
                 world.add_component(
                     sel,
-                    Tag(format!("Entity {}:{}", sel.index(), sel.generation())),
+                    Tag(format!(
+                        "{} {}:{}",
+                        tr("Entity", "엔티티"),
+                        sel.index(),
+                        sel.generation()
+                    )),
                 );
             }
         }
