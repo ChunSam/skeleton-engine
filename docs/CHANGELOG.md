@@ -4,6 +4,18 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.46.2
+
+**Subset the bundled Korean editor font so the crate fits the crates.io 10 MB package limit.** The full Noto Sans KR Regular added in 0.46.0 was ~5.9 MB, which pushed the packaged crate to ~11.7 MB compressed — over the 10 MB publish ceiling (CI's `cargo package` dry-run does not enforce it, so this only blocked an actual publish). The bundled font is now a ~2.3 MB Hangul-only subset; the package is **9.7 MB compressed**. No public API change; the editor still renders all modern Korean. Also fixes a latent licensing gap (the OFL text for the font was never bundled).
+
+### Changed
+- **`assets/fonts/NotoSansKR-Regular.ttf` → `assets/fonts/NotoSansKR-Regular-subset.ttf`** — subset (via `pyftsubset`) to Basic Latin/Latin-1, the full modern Hangul Syllables block (U+AC00–U+D7A3, all 11172), Hangul Jamo, CJK + general punctuation, fullwidth forms, and ₩; the Hanja (CJK ideographs) and the OpenType layout / hinting tables (unused by egui's `ab_glyph` rasterizer) were dropped. Archaic Hangul and Hanja are no longer covered. `src/debug_ui.rs` embeds the new file.
+
+### Added
+- **`assets/fonts/NotoSansKR-OFL.txt`** — the SIL OFL 1.1 license for Noto Sans KR (previously missing), noting the bundled file is a subset ("Modified Version"); the primary font name stays "Noto Sans KR" and does not use the Reserved Font Name.
+- **`scripts/subset_korean_font.sh`** — reproducible regeneration of the subset (documents the source, the kept Unicode ranges, and the exact `pyftsubset` invocation).
+- A regression test (`src/debug_ui.rs`) that loads the bundled subset with `ab_glyph` (egui's rasterizer, added as a dev-dependency) and asserts it parses and carries the Hangul glyphs the editor relies on — so a future bad re-subset fails loudly instead of shipping `□` tofu.
+
 ## 0.46.1
 
 **Editor localization coverage fix — translate the last few user-facing strings the 0.46.0 pass missed.** A coverage audit of the in-game editor found two spots whose text was built with `format!` (not an inline egui call) and so escaped the 0.46.0 `tr(en, ko)` sweep. No public API change; behavior is identical apart from the now-localized text.

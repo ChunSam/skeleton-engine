@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name        = "skeleton-engine"
-version     = "0.46.1"
+version     = "0.46.2"
 edition     = "2021"
 description = "Lightweight 2D game engine — wgpu rendering, custom ECS, rapier2d physics"
 repository  = "https://github.com/ChunSam/skeleton-engine"
@@ -172,6 +172,7 @@ rhai        = { version = "1", features = ["sync"] }
 [dev-dependencies]
 engine_reflect_derive = { path = "engine_reflect_derive" }
 serde_json = "1"
+ab_glyph = "0.2" # egui's rasterizer — used to assert the bundled Korean subset font carries Hangul
 
 # ── 네이티브 전용 (OS API 의존) ──────────────────────────────────────────────
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

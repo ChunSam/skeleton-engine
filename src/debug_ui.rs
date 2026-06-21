@@ -17,12 +17,18 @@
 ///     }
 /// }
 /// ```
-/// Bundled Korean font (Noto Sans KR, Regular). Installed as an egui fallback so the editor /
-/// debug overlay can render Hangul — the default egui fonts cover only Latin + Cyrillic, so CJK
-/// text would otherwise show as `□` (tofu) boxes.
+/// Bundled Korean font (Noto Sans KR, Regular — **Hangul-only subset**). Installed as an egui
+/// fallback so the editor / debug overlay can render Hangul — the default egui fonts cover only
+/// Latin + Cyrillic, so CJK text would otherwise show as `□` (tofu) boxes.
+///
+/// This is a subset (~2.3 MB vs the ~5.9 MB original) carrying the full modern Hangul syllables
+/// block + Latin + common punctuation, with the Hanja (CJK ideographs) and unused OpenType layout
+/// tables dropped so the crate stays under the crates.io 10 MB package limit. Archaic Hangul and
+/// Hanja are not covered. See `scripts/subset_korean_font.sh` to regenerate, and
+/// `assets/fonts/NotoSansKR-OFL.txt` for the (SIL OFL 1.1) license.
 const KOREAN_FONT: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/assets/fonts/NotoSansKR-Regular.ttf"
+    "/assets/fonts/NotoSansKR-Regular-subset.ttf"
 ));
 
 /// Installs the bundled Korean font as the **lowest-priority** fallback for both the proportional
@@ -79,5 +85,31 @@ impl DebugUi {
 
     pub fn set_enabled(&mut self, v: bool) {
         self.enabled = v;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::KOREAN_FONT;
+    use ab_glyph::{Font, FontRef};
+
+    /// The bundled `NotoSansKR-Regular-subset.ttf` is a subset; guard that it still parses with
+    /// egui's rasterizer (ab_glyph) and actually carries the glyphs the editor relies on, so a
+    /// future bad regeneration (e.g. dropping the Hangul block) fails loudly instead of shipping
+    /// `□` tofu. Covers the whole modern Hangul range via its endpoints + chars seen in the UI.
+    #[test]
+    fn korean_subset_font_parses_and_has_hangul() {
+        let font = FontRef::try_from_slice(KOREAN_FONT).expect("subset font must parse");
+        // Modern Hangul syllables block endpoints (U+AC00 가 .. U+D7A3 힣) + UI/data samples.
+        for ch in ['가', '힣', '한', '국', '어', '엔', '티', '저', '장'] {
+            assert_ne!(
+                font.glyph_id(ch).0,
+                0,
+                "subset font is missing a glyph for {ch:?} (U+{:04X})",
+                ch as u32
+            );
+        }
+        // Latin is kept too (the fallback can cover it even though egui's default also does).
+        assert_ne!(font.glyph_id('A').0, 0, "subset font dropped Basic Latin");
     }
 }
