@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.6.108 | package `skeleton-engine` v0.47.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
+> Version v1.6.109 | package `skeleton-engine` v0.47.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example game ships to
 > the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`  
@@ -41,6 +41,12 @@ Or run all of them in order via `./scripts/verify.sh`.
   native-only examples (`platformer_game`/`mp_server`/`gpu_particles`, which pull in
   `rapier2d`/`tungstenite`/`GpuParticleEmitter`). The lib+bins build above (or `--lib`)
   is the real wasm gate.
+- **CI is ubuntu only — `#[cfg(target_os = "macos")]`/`"windows"` code (and OS-only deps like
+  `objc2-game-controller`) is never compiled/run on CI.** Green CI does **not** verify an
+  OS-gated path; only the local build on that OS does, and OS-specific *runtime* behavior
+  needs manual/hardware checking — so **don't merge an OS-gated change on green CI alone**
+  (the macOS gamepad backend was merged on green CI **+** a hardware pad check). Build **both**
+  cfg branches locally (`-D warnings`, esp. `dead_code`); one OS misses the other's lints.
 - **Why this exists:** a prior refactor shipped declaring "done" on only `fmt --check` +
   `test --lib`, which misses the wasm-build + clippy regressions that the commands above
   catch. Don't narrow the bar.
@@ -194,6 +200,7 @@ A subagent starts without knowing the current conversation context. Always inclu
 |------|------|
 | `CLAUDE.md` (this file) | Agent quick reference — module map, task checklists |
 | `docs/PATTERNS.md` | Core architecture patterns + task recipes (extracted from this file) |
+| `docs/MACOS_FFI.md` | How to add an objc2 Apple-framework binding (version-pin, discover the API from registry source, feature flags) — e.g. the macOS GameController gamepad backend |
 | `REFERENCE.html` | Full public API + code examples (detailed) |
 | `docs/HANDOFF.md` | Per-phase dev history, background on architecture decisions |
 
