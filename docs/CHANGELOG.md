@@ -4,6 +4,25 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.52.0
+
+**Synthesized tones on the cross-platform `Audio` facade — and the first games adopt it.** The facade gains `play_tone` / `play_tone_on_bus` (a pure sine tone, no clip bytes), so a dual-target game can make retro blips/beeps without bundling audio files. The web backend grows real tone synthesis (`OscillatorNode`), which `play_tone` had been excluded from before. With tones covered, the `shooter` and `survivor` example games drop their hand-written native-vs-wasm audio split and call the facade directly — and now play their sfx on the web too. Additive — existing facade/`AudioManager`/`WebAudio` call sites are unchanged.
+
+### Added
+- **`Audio::play_tone(freq, dur, vol)` / `Audio::play_tone_on_bus(freq, dur, vol, bus)`** (`src/audio_facade.rs`) — fire-and-forget synthesized sine tone, no clip bytes. On native it rides the same round-robin 16-voice ring as `play_sfx` (master bus, or a named bus); on web it routes `OscillatorNode → gain → master`/bus.
+- **`WebAudio::play_tone` / `WebAudio::play_tone_on_bus`** (`src/audio_wasm.rs`) — the wasm tone synthesizer: an `OscillatorNode` with a short attack/release gain envelope (avoids click artifacts), the web analogue of native `AudioManager::play_tone`.
+- web-sys `OscillatorNode` + `OscillatorType` features (`Cargo.toml`) — required for the wasm tone path.
+- `audio_facade` example: a `T` key plays a synthesized tone (demonstrates `play_tone`; audible on the web via the existing web harness).
+
+### Changed
+- **`examples/games/shooter`** now uses the `Audio` facade for its fire/explosion tones — **all 5** `#[cfg(target_arch = "wasm32")]` audio guards removed; sfx now play on the web build.
+- **`examples/games/survivor`** likewise adopts the facade for its tones — the audio cfg-guards are gone (the 4 remaining guards are all `GpuParticleEmitter`, genuinely native-only); sfx now play on the web build.
+- The facade no longer **excludes** tone synthesis — only positional `play_at` and per-channel effects stay native-only.
+
+### Notes
+- **Native tone behavior change:** a game's `play_tone` calls now route through the shared round-robin voice ring (like `play_sfx`) instead of a fixed per-effect channel, so consecutive tones **overlap** rather than cutting each other off. For short one-shot sfx this is an improvement (fuller rapid fire); a game wanting a hard single-voice tone should manage that itself.
+- **Native master-volume nuance still applies:** a tone sent to a *named* bus via `play_tone_on_bus` is not scaled by `set_master_volume` on native (native buses don't nest); use `set_bus_volume`. On web it nests under master.
+
 ## 0.51.0
 
 **Cross-platform audio facade — write one audio path for native AND web.** New `Audio` type wraps the native `AudioManager` (rodio) and the wasm `WebAudio` (Web Audio) behind one bytes-keyed API, so a dual-target game writes its audio logic with **zero `cfg` guards** instead of a native arm + a wasm stub for every call. Additive — existing `AudioManager` / `WebAudio` code is unchanged, and the refactor that backs it is behavior-preserving.

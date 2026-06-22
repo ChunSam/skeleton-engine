@@ -15,14 +15,12 @@
 //! Esc quit.
 
 use engine::{
-    App, Camera, Collider, CollisionGridSystem, CollisionLayer, Color, DrawText, Entity,
-    InputState, KeyCode, ParticleBurst, ParticleEmitter, ParticleSystem, Pool, ShouldQuit,
-    SpatialGrid, Sprite, System, TextQueue, Timer, Transform, WindowConfig, World,
+    App, Audio, AudioFacadeSystem, Camera, Collider, CollisionGridSystem, CollisionLayer, Color,
+    DrawText, Entity, InputState, KeyCode, ParticleBurst, ParticleEmitter, ParticleSystem, Pool,
+    ShouldQuit, SpatialGrid, Sprite, System, TextQueue, Timer, Transform, WindowConfig, World,
 };
-// The engine's `AudioManager` is native-only (`cfg(not(wasm32))`), so all audio
-// wiring is target-gated to keep the wasm example build green.
-#[cfg(not(target_arch = "wasm32"))]
-use engine::AudioManager;
+// Audio uses the cross-platform `Audio` facade — one API for native + web, no `cfg` guards (sfx
+// now play on web too), so no target-gated audio import is needed.
 use glam::Vec2;
 use rand::Rng;
 
@@ -102,15 +100,14 @@ fn main() {
     // Bullet object pool — the whole point of surfacing the pooling path.
     app.world.insert_resource(Pool::new(BULLET_POOL_CAP));
 
-    // Audio is best-effort: no device (headless) → silent, never panics.
-    // Native-only — the engine's AudioManager is not compiled for wasm.
-    #[cfg(not(target_arch = "wasm32"))]
-    if let Some(mut audio) = AudioManager::new() {
-        audio.assign_bus("fire", "sfx");
-        audio.assign_bus("boom", "sfx");
+    // Audio is best-effort: no device (headless / web before a gesture) → silent, never panics.
+    // The `Audio` facade is cross-platform, so this wiring carries no `cfg` guards — sfx now play
+    // on web too. Tones route through the "sfx" bus (see `play_tone`); set its group volume here.
+    if let Some(mut audio) = Audio::new() {
         audio.set_bus_volume("sfx", 0.6);
         app.world.insert_resource(audio);
     }
+    app.add_system(AudioFacadeSystem); // ticks native fades/ducks; no-op on web
 
     // Player ship.
     let player = app.world.spawn();
@@ -282,7 +279,7 @@ impl System for PlayerSystem {
                 let mut pool = world.remove_resource::<Pool>().unwrap();
                 fire_bullet(&mut pool, world, muzzle);
                 world.insert_resource(pool);
-                play_tone(world, "fire", 900.0, 0.05, 0.18);
+                play_tone(world, 900.0, 0.05, 0.18);
             }
         }
     }
@@ -493,7 +490,7 @@ impl System for CollisionSystem {
             if let Some(s) = world.resource_mut::<Shooter>() {
                 s.score += score_gain;
             }
-            play_tone(world, "boom", 150.0, 0.16, 0.3);
+            play_tone(world, 150.0, 0.16, 0.3);
         }
 
         // Apply enemy→player contact: explode enemy, lose a life, grant brief
@@ -513,7 +510,7 @@ impl System for CollisionSystem {
                     s.status = Status::GameOver;
                 }
             }
-            play_tone(world, "boom", 110.0, 0.25, 0.35);
+            play_tone(world, 110.0, 0.25, 0.35);
         }
     }
 
@@ -625,13 +622,10 @@ fn restart_game(world: &mut World) {
 
 // ─── Audio (best-effort) ───────────────────────────────────────────────────────
 
-#[cfg(not(target_arch = "wasm32"))]
-fn play_tone(world: &mut World, channel: &str, freq: f32, dur: f32, vol: f32) {
-    if let Some(audio) = world.resource_mut::<AudioManager>() {
-        audio.play_tone(channel, freq, dur, vol);
+/// Best-effort sfx via the cross-platform [`Audio`] facade — one path for native + web, no `cfg`
+/// split. Silent if no audio device / no resource. Tones ride the "sfx" mixer bus.
+fn play_tone(world: &mut World, freq: f32, dur: f32, vol: f32) {
+    if let Some(audio) = world.resource_mut::<Audio>() {
+        audio.play_tone_on_bus(freq, dur, vol, "sfx");
     }
 }
-
-/// wasm has no `AudioManager`; sfx are a no-op there.
-#[cfg(target_arch = "wasm32")]
-fn play_tone(_world: &mut World, _channel: &str, _freq: f32, _dur: f32, _vol: f32) {}
