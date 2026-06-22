@@ -4,6 +4,16 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.55.0
+
+**`RonRegistry<V>` + `RonLoadable` are now public — a fork-friendly custom-asset registry.** The generic `name → value` RON registry that backs the engine's particle / dialogue / animation-clip config registries (with native canonical-path hot-reload) is now re-exported at the crate root. A game can register its **own** RON-loaded config type without forking the engine: implement `RonLoadable` for it (e.g. via `read_ron`) and use `RonRegistry::load` / `get` / `names`. Purely additive — no behavior change.
+
+### Added
+- **`RonRegistry<V>`** re-exported at the crate root (`engine::RonRegistry`) — a generic `name → value` registry; `insert`/`get`/`names` are cross-platform, `load`/`reload_path` (canonical-path hot-reload) are native-only.
+- **`RonLoadable`** re-exported (`engine::RonLoadable`, native-only) — implement it for a config type to load it from a RON file via `RonRegistry::load`.
+- `ron_registry` example — a game's own `CreatureStats` config loaded from `examples/assets/creatures/*.ron` into a `RonRegistry<CreatureStats>`, rendered as colour bars sized by HP, with `R` to hot-reload from disk.
+- A doc example on `RonRegistry` and fork-facing module docs.
+
 ## 0.54.0
 
 **Tracked 2D positional sound on the cross-platform `Audio` facade.** The facade gains a positional sound addressed by a stable **channel name**: `play_at_on_channel` starts a *looping* positional sound (distance-based volume + stereo pan), `update_position` repositions it each frame to follow a moving source, and `stop_channel` stops it. On native this maps to a new byte-based `AudioManager::play_bytes_at` + the existing positional channel; on web to a looping `Sfx` (a new `set_loop` path) with a stereo panner, tracked by name. A new `positional_audio` example drives it — an orbiting sound source with an arrow-key-movable listener — on native **and** web from the same code. Additive — existing facade/`AudioManager`/`WebAudio` call sites are unchanged.
