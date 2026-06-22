@@ -16,6 +16,10 @@
 //! - one-shot SFX: [`play_sfx`](Audio::play_sfx) / [`play_sfx_on_bus`](Audio::play_sfx_on_bus)
 //! - synthesized tones (no clip bytes): [`play_tone`](Audio::play_tone) /
 //!   [`play_tone_on_bus`](Audio::play_tone_on_bus)
+//! - named, trackable tone channels: [`play_tone_on_channel`](Audio::play_tone_on_channel) +
+//!   [`is_channel_playing`](Audio::is_channel_playing) + a low-pass filter
+//!   ([`set_low_pass`](Audio::set_low_pass) / [`clear_low_pass`](Audio::clear_low_pass)) — for a
+//!   sustained/re-triggered tone the game tracks (e.g. a procedural BGM it re-arms when it drains)
 //! - looping music: [`play_music`](Audio::play_music) / [`crossfade_music`](Audio::crossfade_music) /
 //!   [`stop_music`](Audio::stop_music)
 //! - master volume: [`set_master_volume`](Audio::set_master_volume)
@@ -26,9 +30,9 @@
 //! - [`update`](Audio::update) (drives native fades/ducks; no-op on web) — call it from a system, or
 //!   add the provided [`AudioFacadeSystem`].
 //!
-//! Native-only extras (positional `AudioManager::play_at`, per-channel effects like the low-pass
-//! filter, automatic sidechains) are intentionally **not** on the facade — reach for the platform
-//! backend directly when a game needs them.
+//! Native-only extras (positional `AudioManager::play_at`, per-channel effects beyond the low-pass —
+//! pitch shift, attack/release envelopes — and automatic sidechains) are intentionally **not** on the
+//! facade — reach for the platform backend directly when a game needs them.
 //!
 //! ## Master-volume nuance (native)
 //!
@@ -56,7 +60,7 @@
 //! ```
 
 #[cfg(not(target_arch = "wasm32"))]
-use crate::audio::AudioManager;
+use crate::audio::{AudioEffect, AudioManager};
 #[cfg(target_arch = "wasm32")]
 use crate::audio_wasm::WebAudio;
 
@@ -188,6 +192,82 @@ impl Audio {
         #[cfg(target_arch = "wasm32")]
         {
             self.inner.play_tone_on_bus(freq, dur, vol, bus);
+        }
+    }
+
+    /// Plays a synthesized tone on a caller-named **channel** routed through the named mixer `bus`.
+    /// Unlike the fire-and-forget [`play_tone`](Self::play_tone) (which round-robins anonymous
+    /// voices), a named channel is stable: query it with [`is_channel_playing`](Self::is_channel_playing),
+    /// filter it with [`set_low_pass`](Self::set_low_pass) / [`clear_low_pass`](Self::clear_low_pass),
+    /// and a replay on the same channel **replaces** (cuts) the previous tone. Use it for a sustained
+    /// or re-triggered tone the game tracks — e.g. a procedural BGM the game re-arms when it drains.
+    pub fn play_tone_on_channel(
+        &mut self,
+        channel: &str,
+        freq: f32,
+        dur: f32,
+        vol: f32,
+        bus: &str,
+    ) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.inner.assign_bus(channel, bus);
+            self.inner.play_tone(channel, freq, dur, vol);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.inner
+                .play_tone_on_channel(channel, freq, dur, vol, bus);
+        }
+    }
+
+    /// Whether the named tone `channel` still has audio playing — re-arm a sustained
+    /// [`play_tone_on_channel`](Self::play_tone_on_channel) when this turns `false`. Mirrors the
+    /// native [`AudioManager::is_playing`](crate::audio::AudioManager::is_playing) / a tracked Web
+    /// Audio oscillator. Returns `false` for an unknown channel.
+    pub fn is_channel_playing(&self, channel: &str) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.inner.is_playing(channel)
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.inner.is_channel_playing(channel)
+        }
+    }
+
+    /// Sets a low-pass filter (cutoff Hz) on the named tone `channel`, applied to the **next**
+    /// [`play_tone_on_channel`](Self::play_tone_on_channel) on that channel (toggle, then replay to
+    /// hear it). Native: an [`AudioEffect`] with `low_pass_hz`; web: a
+    /// `BiquadFilterNode` — same "applied on next play" semantics on both. Affects only named tone
+    /// channels (not the fire-and-forget [`play_sfx`](Self::play_sfx)/[`play_tone`](Self::play_tone)).
+    pub fn set_low_pass(&mut self, channel: &str, cutoff_hz: u32) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.inner.set_effect(
+                channel,
+                AudioEffect {
+                    low_pass_hz: Some(cutoff_hz),
+                    ..Default::default()
+                },
+            );
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.inner.set_low_pass(channel, cutoff_hz);
+        }
+    }
+
+    /// Removes the low-pass filter from the named tone `channel` (applied on the next play). Inverse
+    /// of [`set_low_pass`](Self::set_low_pass).
+    pub fn clear_low_pass(&mut self, channel: &str) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.inner.clear_effect(channel);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.inner.clear_low_pass(channel);
         }
     }
 

@@ -83,6 +83,27 @@ pub struct WebAudio {
     /// captures its own generation at spawn time; if the counter has moved on by the time the
     /// closure resolves, the track is superseded — it stops itself instead of orphaning.
     music_gen: Rc<Cell<u64>>,
+    /// Named, caller-addressable synthesized-tone channels (see [`play_tone_on_channel`]). Unlike the
+    /// fire-and-forget [`play_tone`], a named channel is tracked so [`is_channel_playing`] can report
+    /// liveness and a replay can cut the previous tone. Keyed by the caller's channel name.
+    ///
+    /// [`play_tone_on_channel`]: WebAudio::play_tone_on_channel
+    /// [`play_tone`]: WebAudio::play_tone
+    /// [`is_channel_playing`]: WebAudio::is_channel_playing
+    tone_channels: Rc<RefCell<HashMap<String, ToneVoice>>>,
+    /// Per-channel low-pass cutoff (Hz) pending for the named tone channels, applied to the next
+    /// [`play_tone_on_channel`](WebAudio::play_tone_on_channel) on that channel (mirrors the native
+    /// `AudioEffect` "applied on next play" semantics). A `BiquadFilterNode` is inserted into the
+    /// channel's graph when an entry is present.
+    tone_lowpass: Rc<RefCell<HashMap<String, f32>>>,
+}
+
+/// One synthesized tone playing (or scheduled) on a named channel: the oscillator (kept so a replay
+/// can cut it early, mirroring the native `stop_immediate` reuse) and its scheduled audio-clock stop
+/// time (so [`WebAudio::is_channel_playing`] reports liveness without a callback).
+struct ToneVoice {
+    osc: web_sys::OscillatorNode,
+    stop_time: f64,
 }
 
 /// The currently-playing looping music: its buffer source and the per-music gain node it routes
@@ -118,6 +139,8 @@ impl WebAudio {
             music: Rc::new(RefCell::new(None)),
             buses: Rc::new(RefCell::new(HashMap::new())),
             music_gen: Rc::new(Cell::new(0)),
+            tone_channels: Rc::new(RefCell::new(HashMap::new())),
+            tone_lowpass: Rc::new(RefCell::new(HashMap::new())),
         })
     }
 
@@ -303,6 +326,104 @@ impl WebAudio {
         let _ = g.linear_ramp_to_value_at_time(0.0, now + dur);
         let _ = osc.start();
         let _ = osc.stop_with_when(now + dur);
+    }
+
+    /// Plays a synthesized sine tone on a caller-named **channel** routed through the named mixer
+    /// `bus`. Unlike the fire-and-forget [`play_tone`](Self::play_tone) (anonymous, can't be queried),
+    /// a named channel is stable: [`is_channel_playing`](Self::is_channel_playing) reports whether it
+    /// is still sounding (re-arm a sustained tone when it drains), and a replay on the same channel
+    /// **cuts** the previous tone first (mirroring the native `play_tone` channel reuse). Any low-pass
+    /// set via [`set_low_pass`](Self::set_low_pass) for this channel is inserted into the graph.
+    pub fn play_tone_on_channel(&self, channel: &str, freq: f32, dur: f32, vol: f32, bus: &str) {
+        let dest = self.bus_input(bus).unwrap_or_else(|| self.master.clone());
+        self.play_tone_channel_to(channel, freq, dur, vol, &dest);
+    }
+
+    /// Shared named-tone-channel path: cuts any tone already on `channel`, then wires
+    /// `oscillator → [low-pass biquad] → gain → dest` and schedules the same click-free envelope as
+    /// [`play_tone_to`](Self::play_tone_to), recording the oscillator + stop time so
+    /// [`is_channel_playing`](Self::is_channel_playing) can report liveness. Does nothing if node
+    /// creation/wiring fails.
+    #[allow(deprecated)] // OscillatorNode::start/stop* bindings are deprecated — same as play_tone_to
+    fn play_tone_channel_to(
+        &self,
+        channel: &str,
+        freq: f32,
+        dur: f32,
+        vol: f32,
+        dest: &web_sys::GainNode,
+    ) {
+        let dur = dur.max(0.0) as f64;
+        let vol = vol.clamp(0.0, 1.0);
+        // Replay cuts the previous tone on this channel (mirrors native stop_immediate reuse).
+        if let Some(prev) = self.tone_channels.borrow_mut().remove(channel) {
+            let _ = prev.osc.stop();
+        }
+        let (Ok(osc), Ok(gain)) = (self.ctx.create_oscillator(), self.ctx.create_gain()) else {
+            return;
+        };
+        osc.set_type(web_sys::OscillatorType::Sine);
+        osc.frequency().set_value(freq);
+        // Optional low-pass: osc → biquad → gain, else osc → gain. Fall back to no filter if the
+        // biquad can't be created so a tone still plays.
+        let cutoff = self.tone_lowpass.borrow().get(channel).copied();
+        let osc_out: web_sys::AudioNode = match cutoff.and_then(|hz| {
+            let biquad = self.ctx.create_biquad_filter().ok()?;
+            biquad.set_type(web_sys::BiquadFilterType::Lowpass);
+            biquad.frequency().set_value(hz);
+            osc.connect_with_audio_node(&biquad).ok()?;
+            Some(biquad)
+        }) {
+            Some(biquad) => biquad.into(),
+            None => osc.clone().into(),
+        };
+        if osc_out.connect_with_audio_node(&gain).is_err()
+            || gain.connect_with_audio_node(dest).is_err()
+        {
+            return;
+        }
+        let now = self.ctx.current_time();
+        let edge = (dur * 0.25).min(0.008);
+        let g = gain.gain();
+        let _ = g.set_value_at_time(0.0, now);
+        let _ = g.linear_ramp_to_value_at_time(vol, now + edge);
+        let _ = g.set_value_at_time(vol, (now + dur - edge).max(now + edge));
+        let _ = g.linear_ramp_to_value_at_time(0.0, now + dur);
+        let _ = osc.start();
+        let _ = osc.stop_with_when(now + dur);
+        self.tone_channels.borrow_mut().insert(
+            channel.to_string(),
+            ToneVoice {
+                osc,
+                stop_time: now + dur,
+            },
+        );
+    }
+
+    /// Whether the named tone `channel` still has a tone sounding — `true` until the tone's scheduled
+    /// stop time passes, `false` for an unknown channel. Use it to re-arm a sustained
+    /// [`play_tone_on_channel`](Self::play_tone_on_channel) when it drains (the web analogue of the
+    /// native [`AudioManager::is_playing`](crate::audio::AudioManager::is_playing) for tones).
+    pub fn is_channel_playing(&self, channel: &str) -> bool {
+        match self.tone_channels.borrow().get(channel) {
+            Some(v) => self.ctx.current_time() < v.stop_time,
+            None => false,
+        }
+    }
+
+    /// Sets a low-pass filter cutoff (Hz) on the named tone `channel`, applied to the **next**
+    /// [`play_tone_on_channel`](Self::play_tone_on_channel) on that channel (toggle, then replay to
+    /// hear it) — the web `BiquadFilterNode` analogue of the native `AudioEffect.low_pass_hz`
+    /// "applied on next play" semantics.
+    pub fn set_low_pass(&self, channel: &str, cutoff_hz: u32) {
+        self.tone_lowpass
+            .borrow_mut()
+            .insert(channel.to_string(), cutoff_hz as f32);
+    }
+
+    /// Removes the low-pass filter from the named tone `channel` (applied on the next play).
+    pub fn clear_low_pass(&self, channel: &str) {
+        self.tone_lowpass.borrow_mut().remove(channel);
     }
 
     /// Plays `bytes` as looping music on the single music channel: stops any current music, then
