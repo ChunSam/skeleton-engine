@@ -4,6 +4,22 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.53.0
+
+**Named tone channels + a low-pass filter on the cross-platform `Audio` facade — and `settings_menu` adopts it.** The facade gains caller-named, *trackable* tone channels: `play_tone_on_channel` plays a sustained/re-triggered tone you address by name, `is_channel_playing` reports whether it is still sounding (re-arm it when it drains), and `set_low_pass` / `clear_low_pass` toggle a low-pass filter on it (applied on the next play). On native this maps to `AudioManager` channels + `AudioEffect.low_pass_hz`; on web it tracks per-channel `OscillatorNode`s with an optional `BiquadFilterNode`. With these covered, the `settings_menu` example game drops its hand-written native-vs-wasm audio split (its sustained two-tone BGM + the muffle low-pass demo) and calls the facade directly — so it now runs, with audio, on the web too. Additive — existing facade/`AudioManager`/`WebAudio` call sites are unchanged.
+
+### Added
+- **`Audio::play_tone_on_channel(channel, freq, dur, vol, bus)`** (`src/audio_facade.rs`) — a synthesized tone on a caller-named channel routed through a named bus. Unlike fire-and-forget `play_tone`, a named channel is stable: a replay on the same channel cuts the previous tone, and it can be queried/filtered.
+- **`Audio::is_channel_playing(channel)`** — whether a named tone channel is still sounding (to re-arm a sustained tone when it drains).
+- **`Audio::set_low_pass(channel, cutoff_hz)` / `Audio::clear_low_pass(channel)`** — toggle a low-pass filter on a named tone channel, applied on the next play. Native: an `AudioEffect` with `low_pass_hz`; web: a `BiquadFilterNode`.
+- **`WebAudio::play_tone_on_channel` / `is_channel_playing` / `set_low_pass` / `clear_low_pass`** (`src/audio_wasm.rs`) — the web backing: tracked per-channel `OscillatorNode`s (with scheduled stop times for liveness) and an optional `BiquadFilterNode` low-pass inserted into the channel's graph.
+- web-sys `BiquadFilterNode` + `BiquadFilterType` features (`Cargo.toml`) — required for the wasm low-pass path.
+- `audio_facade` example: a `G` key toggles a sustained two-tone BGM on named channels (kept alive via `is_channel_playing`) and `L` toggles a low-pass muffle on it (demonstrates the new API, audible on the web via the existing web harness).
+
+### Changed
+- **`examples/games/settings_menu`** now uses the `Audio` facade for all its audio (sustained BGM tones, UI blips, bus volumes, and the muffle low-pass) — its audio `#[cfg(target_arch = "wasm32")]` guards are gone (the one remaining native-only guard is `env_logger`, unrelated to audio); the example now builds and plays audio on the web.
+- The facade's tone coverage no longer **excludes** the low-pass filter — only positional `play_at`, per-channel effects beyond the low-pass (pitch, attack/release envelopes), and automatic sidechains stay native-only.
+
 ## 0.52.0
 
 **Synthesized tones on the cross-platform `Audio` facade — and the first games adopt it.** The facade gains `play_tone` / `play_tone_on_bus` (a pure sine tone, no clip bytes), so a dual-target game can make retro blips/beeps without bundling audio files. The web backend grows real tone synthesis (`OscillatorNode`), which `play_tone` had been excluded from before. With tones covered, the `shooter` and `survivor` example games drop their hand-written native-vs-wasm audio split and call the facade directly — and now play their sfx on the web too. Additive — existing facade/`AudioManager`/`WebAudio` call sites are unchanged.

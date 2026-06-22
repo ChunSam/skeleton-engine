@@ -19,6 +19,10 @@
 //! * `[` `]` — "bed" bus volume ([`set_bus_volume`](engine::Audio::set_bus_volume))
 //! * `D` — duck the "bed" bus · `F` — release it ([`duck_bus`](engine::Audio::duck_bus) /
 //!   [`release_bus`](engine::Audio::release_bus))
+//! * `G` — toggle a sustained two-tone BGM on **named tone channels**
+//!   ([`play_tone_on_channel`](engine::Audio::play_tone_on_channel), kept alive via
+//!   [`is_channel_playing`](engine::Audio::is_channel_playing)) · `L` — toggle a low-pass muffle on
+//!   it ([`set_low_pass`](engine::Audio::set_low_pass) / [`clear_low_pass`](engine::Audio::clear_low_pass))
 //! * `Esc` — quit (native)
 //!
 //! Run natively: `cargo run --example audio_facade`
@@ -48,6 +52,13 @@ const TITLE: [u8; 4] = [235, 235, 245, 255];
 const LEGEND: [u8; 4] = [180, 200, 220, 255];
 const HEAD: [u8; 4] = [200, 200, 120, 255];
 const VALUE: [u8; 4] = [160, 255, 170, 255];
+
+// Named-channel BGM = a low tone + a high tone (a chord) on the "music" bus. The muffle low-pass
+// cutoff sits between them, so toggling it removes the bright high tone and keeps the low one — an
+// audible low-pass (not a mute), same demo as settings_menu but here also hearable on the web.
+const BGM_LOW: f32 = 196.0;
+const BGM_HIGH: f32 = 1568.0;
+const MUFFLE_HZ: u32 = 400;
 
 /// Builds a 16-bit mono PCM WAV of a `freq`-Hz sine wave `secs` long, in memory — so the example
 /// needs no audio asset and both rodio (native) and `decode_audio_data` (web) have real bytes to
@@ -82,6 +93,23 @@ fn sine_wav(freq: f32, secs: f32) -> Vec<u8> {
     v
 }
 
+/// Plays the two-tone named-channel BGM (a low + high tone chord on the "music" bus) that the demo
+/// keeps alive. Named channels (vs fire-and-forget `play_tone`) so they can be queried
+/// ([`Audio::is_channel_playing`](engine::Audio::is_channel_playing)) and filtered
+/// ([`Audio::set_low_pass`](engine::Audio::set_low_pass)).
+fn play_bgm(audio: &mut Audio) {
+    audio.play_tone_on_channel("af_bgm_low", BGM_LOW, 1.2, 0.4, "music");
+    audio.play_tone_on_channel("af_bgm_high", BGM_HIGH, 1.2, 0.25, "music");
+}
+
+fn on_off(on: bool) -> &'static str {
+    if on {
+        "on"
+    } else {
+        "off"
+    }
+}
+
 /// Demo system: maps key presses to facade calls and draws a live legend + readouts. Holds the
 /// generated clips (built once) and the UI source-of-truth volumes.
 struct AudioDemo {
@@ -92,6 +120,10 @@ struct AudioDemo {
     master_vol: f32,
     bed_vol: f32,
     bed_duck: f32,
+    /// Whether the named-channel BGM is armed (kept alive by re-arming the tones as they drain).
+    bgm_on: bool,
+    /// Whether the low-pass muffle is engaged on the BGM channels.
+    muffled: bool,
     status: String,
 }
 
@@ -110,6 +142,8 @@ impl Default for AudioDemo {
             master_vol: 1.0,
             bed_vol: 1.0,
             bed_duck: 1.0,
+            bgm_on: false,
+            muffled: false,
             status: "press a key…".into(),
         }
     }
@@ -133,6 +167,8 @@ impl System for AudioDemo {
             bus_up,
             duck,
             rel,
+            bgm,
+            muffle,
             quit,
         ) = {
             let Some(input) = world.resource::<InputState>() else {
@@ -153,6 +189,8 @@ impl System for AudioDemo {
                 input.just_pressed(KeyCode::BracketRight),
                 input.just_pressed(KeyCode::KeyD),
                 input.just_pressed(KeyCode::KeyF),
+                input.just_pressed(KeyCode::KeyG),
+                input.just_pressed(KeyCode::KeyL),
                 input.just_pressed(KeyCode::Escape),
             )
         };
@@ -169,7 +207,9 @@ impl System for AudioDemo {
             || bus_dn
             || bus_up
             || duck
-            || rel;
+            || rel
+            || bgm
+            || muffle;
 
         // ── Drive the facade (one mutable borrow) ─────────────────────────────
         if let Some(audio) = world.resource_mut::<Audio>() {
@@ -229,6 +269,33 @@ impl System for AudioDemo {
                 audio.release_bus("bed", 0.4);
                 self.status = "release_bus(\"bed\")".into();
             }
+            if bgm {
+                // Toggle the named-channel BGM. "Off" stops re-arming, so the tones drain naturally.
+                self.bgm_on = !self.bgm_on;
+                if self.bgm_on {
+                    play_bgm(audio);
+                }
+                self.status = format!("BGM {} (named tone channels)", on_off(self.bgm_on));
+            }
+            if muffle {
+                // set_low_pass applies on the NEXT play, so re-arm both channels to hear it.
+                self.muffled = !self.muffled;
+                for ch in ["af_bgm_low", "af_bgm_high"] {
+                    if self.muffled {
+                        audio.set_low_pass(ch, MUFFLE_HZ);
+                    } else {
+                        audio.clear_low_pass(ch);
+                    }
+                }
+                if self.bgm_on {
+                    play_bgm(audio);
+                }
+                self.status = format!("low-pass {} (set_low_pass)", on_off(self.muffled));
+            }
+            // Keep the sustained BGM alive: re-arm the tones whenever they drain (is_channel_playing).
+            if self.bgm_on && !audio.is_channel_playing("af_bgm_low") {
+                play_bgm(audio);
+            }
             // Live readouts (note: bus_volume/bus_duck reflect the backend, not just our copy).
             self.bed_vol = audio.bus_volume("bed");
             self.bed_duck = audio.bus_duck("bed");
@@ -276,17 +343,33 @@ impl System for AudioDemo {
                 LEGEND,
             ));
             tq.push(DrawText::new(
+                "[ named tone channels ]",
+                Vec2::new(x, 218.0),
+                15.0,
+                HEAD,
+            ));
+            tq.push(DrawText::new(
+                "G : toggle BGM (sustained chord)    L : toggle low-pass muffle",
+                Vec2::new(x, 238.0),
+                14.0,
+                LEGEND,
+            ));
+            tq.push(DrawText::new(
                 format!(
-                    "master vol: {:.1}    bed bus vol: {:.1}    bed duck: {:.2}",
-                    self.master_vol, self.bed_vol, self.bed_duck
+                    "master vol: {:.1}    bed bus vol: {:.1}    bed duck: {:.2}    BGM: {}    low-pass: {}",
+                    self.master_vol,
+                    self.bed_vol,
+                    self.bed_duck,
+                    on_off(self.bgm_on),
+                    on_off(self.muffled),
                 ),
-                Vec2::new(x, 224.0),
+                Vec2::new(x, 274.0),
                 15.0,
                 VALUE,
             ));
             tq.push(DrawText::new(
                 format!("last: {}", self.status),
-                Vec2::new(x, 248.0),
+                Vec2::new(x, 298.0),
                 14.0,
                 VALUE,
             ));
@@ -303,7 +386,7 @@ fn run() {
     app.world.insert_resource(WindowConfig {
         title: "skeleton-engine — audio facade".to_string(),
         width: 820,
-        height: 300,
+        height: 340,
         clear_color: [0.05, 0.05, 0.08, 1.0],
     });
     app.world.insert_resource(FontData(FONT.to_vec()));

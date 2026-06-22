@@ -1,30 +1,25 @@
 //! settings_menu_game — UI depth + localization + audio-bus dogfooding example.
 //!
 //! Every game needs a settings screen and a dialogue box, yet none of `TextInput`,
-//! `Slider`, `CheckBox`, `ScrollView`, `Panel`/`LayoutSystem`, `LocaleResource`, or
-//! `AudioEffect` had playable-game coverage. This 3-scene slice (Title → Settings →
-//! Dialogue) drives all of them in real play.
+//! `Slider`, `CheckBox`, `ScrollView`, `Panel`/`LayoutSystem`, `LocaleResource`, or the
+//! cross-platform `Audio` facade's low-pass filter had playable-game coverage. This 3-scene
+//! slice (Title → Settings → Dialogue) drives all of them in real play — on native **and** web
+//! (all audio goes through the `Audio` facade, so the example carries no audio `cfg` guards).
 //!
 //! It also exercises the engine fix this example surfaced: `LocalizedText` +
 //! `LocalizationSystem`. Each static label/button/checkbox carries a translation
 //! key; clicking a language button calls `LocaleResource::set_locale` and the whole
 //! UI retranslates next frame with no manual rebuild.
 //!
-//! Cross-scene state (`Settings`, the locale, and the native `AudioManager`) is kept
+//! Cross-scene state (`Settings`, the locale, and the cross-platform `Audio`) is kept
 //! across the `SceneCmd::Replace` world reset via `App::register_persistent`.
 
 use engine::{
-    Anchor, App, Button, CheckBox, Color, Entity, Events, GameState, ImeConfig, InputState,
+    Anchor, App, Audio, Button, CheckBox, Color, Entity, Events, GameState, ImeConfig, InputState,
     KeyCode, Label, LayoutDir, LayoutSystem, LocaleResource, LocalizationSystem, LocalizedText,
     Panel, Scene, SceneChange, SceneCmd, ScrollView, ShouldQuit, Slider, System, SystemConfig,
     SystemRegistrar, TextAlign, TextInput, UiEvent, UiNode, UiSystem, WindowConfig, World,
 };
-
-// The engine's `AudioManager` / `AudioEffect` are native-only (`cfg(not(wasm32))`),
-// like in the shooter/survivor examples. All audio wiring is target-gated so the
-// wasm lib/example still builds; the widgets just stay silent there.
-#[cfg(not(target_arch = "wasm32"))]
-use engine::{AudioEffect, AudioManager};
 
 const WINDOW_W: u32 = 960;
 const WINDOW_H: u32 = 600;
@@ -32,12 +27,8 @@ const WINDOW_H: u32 = 600;
 // Background music = a low tone + a high tone played together. The muffle low-pass
 // cutoff sits between them, so toggling it clearly removes the bright high tone while
 // the low tone stays — a faithful, audible low-pass demo (not a mute).
-// Native-only: audio (and these constants) are compiled out on wasm.
-#[cfg(not(target_arch = "wasm32"))]
 const BGM_LOW: f32 = 196.0;
-#[cfg(not(target_arch = "wasm32"))]
 const BGM_HIGH: f32 = 1568.0;
-#[cfg(not(target_arch = "wasm32"))]
 const MUFFLE_HZ: u32 = 400;
 
 const LOCALES_RON: &str = r#"
@@ -282,76 +273,59 @@ fn about_items(world: &World) -> Vec<String> {
     .collect()
 }
 
-// ── audio (native-only) ────────────────────────────────────────────────────
+// ── audio (cross-platform via the Audio facade — native + web, no cfg guards) ──
 
-#[cfg(not(target_arch = "wasm32"))]
 fn set_bus(world: &mut World, bus: &str, vol: f32) {
-    if let Some(audio) = world.resource_mut::<AudioManager>() {
+    if let Some(audio) = world.resource_mut::<Audio>() {
         audio.set_bus_volume(bus, vol);
     }
 }
-#[cfg(target_arch = "wasm32")]
-fn set_bus(_world: &mut World, _bus: &str, _vol: f32) {}
 
-#[cfg(not(target_arch = "wasm32"))]
 fn blip(world: &mut World, freq: f32) {
-    if let Some(audio) = world.resource_mut::<AudioManager>() {
-        audio.play_tone("ui", freq, 0.05, 0.4);
+    if let Some(audio) = world.resource_mut::<Audio>() {
+        // A fire-and-forget UI tone on the "sfx" bus (round-robins an anonymous voice).
+        audio.play_tone_on_bus(freq, 0.05, 0.4, "sfx");
     }
 }
-#[cfg(target_arch = "wasm32")]
-fn blip(_world: &mut World, _freq: f32) {}
 
-#[cfg(not(target_arch = "wasm32"))]
 fn play_bgm(world: &mut World) {
-    if let Some(audio) = world.resource_mut::<AudioManager>() {
-        audio.play_tone("bgm_low", BGM_LOW, 1.2, 0.4);
-        audio.play_tone("bgm_high", BGM_HIGH, 1.2, 0.25);
+    if let Some(audio) = world.resource_mut::<Audio>() {
+        // Sustained, *named* tone channels — so they can be queried (keep_bgm) and filtered
+        // (set_muffle). Both ride the "music" bus, so the Music slider scales them live.
+        audio.play_tone_on_channel("bgm_low", BGM_LOW, 1.2, 0.4, "music");
+        audio.play_tone_on_channel("bgm_high", BGM_HIGH, 1.2, 0.25, "music");
     }
 }
-#[cfg(target_arch = "wasm32")]
-fn play_bgm(_world: &mut World) {}
 
 /// Keep the sustained two-tone music alive so the Music slider stays audible: replay
 /// both tones whenever they drain. Dragging the slider changes the music bus volume,
 /// which changes the loudness of these sustained tones in real time.
-#[cfg(not(target_arch = "wasm32"))]
 fn keep_bgm(world: &mut World) {
     let playing = world
-        .resource::<AudioManager>()
-        .map(|a| a.is_playing("bgm_low"))
+        .resource::<Audio>()
+        .map(|a| a.is_channel_playing("bgm_low"))
         .unwrap_or(true);
     if !playing {
         play_bgm(world);
     }
 }
-#[cfg(target_arch = "wasm32")]
-fn keep_bgm(_world: &mut World) {}
 
-/// Toggle a low-pass `AudioEffect` on both music channels, then replay so it applies.
-/// The cutoff sits between the low and high tones, so muffling removes the bright high
-/// tone and keeps the low one — an audible low-pass (not a mute). Validates `set_effect`.
-#[cfg(not(target_arch = "wasm32"))]
+/// Toggle a low-pass filter on both music channels, then replay so it applies. The cutoff
+/// sits between the low and high tones, so muffling removes the bright high tone and keeps
+/// the low one — an audible low-pass (not a mute). Validates the facade's `set_low_pass`
+/// (native `AudioEffect.low_pass_hz` / web `BiquadFilterNode`).
 fn set_muffle(world: &mut World, on: bool) {
-    if let Some(audio) = world.resource_mut::<AudioManager>() {
+    if let Some(audio) = world.resource_mut::<Audio>() {
         for ch in ["bgm_low", "bgm_high"] {
             if on {
-                audio.set_effect(
-                    ch,
-                    AudioEffect {
-                        low_pass_hz: Some(MUFFLE_HZ),
-                        ..Default::default()
-                    },
-                );
+                audio.set_low_pass(ch, MUFFLE_HZ);
             } else {
-                audio.clear_effect(ch);
+                audio.clear_low_pass(ch);
             }
         }
     }
     play_bgm(world);
 }
-#[cfg(target_arch = "wasm32")]
-fn set_muffle(_world: &mut World, _on: bool) {}
 
 // ── Animated indicator (window-drag freeze probe) ─────────────────────────────
 //
@@ -1008,16 +982,14 @@ fn main() {
     app.register_persistent::<Settings>();
     app.register_persistent::<LocaleResource>();
 
-    // Native audio: two buses (music / sfx) preserved across scene resets.
-    #[cfg(not(target_arch = "wasm32"))]
-    if let Some(mut audio) = AudioManager::new() {
-        audio.assign_bus("bgm_low", "music");
-        audio.assign_bus("bgm_high", "music");
-        audio.assign_bus("ui", "sfx");
+    // Cross-platform audio via the Audio facade: two buses (music / sfx) preserved across scene
+    // resets. The facade assigns each tone to its bus per call (play_tone_on_channel / _on_bus),
+    // so only the bus volumes are set here. Works the same on native and web — no cfg guards.
+    if let Some(mut audio) = Audio::new() {
         audio.set_bus_volume("music", 0.6);
         audio.set_bus_volume("sfx", 0.6);
         app.world.insert_resource(audio);
-        app.register_persistent::<AudioManager>();
+        app.register_persistent::<Audio>();
     }
 
     app.set_scene(Box::new(TitleScene::new()));
