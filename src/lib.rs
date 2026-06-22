@@ -4,6 +4,8 @@ pub mod asset;
 pub mod atlas;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod audio;
+/// Cross-platform audio facade (`Audio`) over the native `AudioManager` / wasm `WebAudio` backends.
+pub mod audio_facade;
 pub(crate) mod audio_spatial;
 #[cfg(target_arch = "wasm32")]
 pub mod audio_wasm;
@@ -76,6 +78,7 @@ pub use asset::{
 pub use atlas::{AtlasSprite, TextureAtlas};
 #[cfg(not(target_arch = "wasm32"))]
 pub use audio::{AudioChannelState, AudioEffect, AudioManager, AudioSystem, BusDuck, Sidechain};
+pub use audio_facade::{Audio, AudioFacadeSystem};
 #[cfg(target_arch = "wasm32")]
 pub use audio_wasm::{Sfx, WebAudio};
 pub use behavior::{

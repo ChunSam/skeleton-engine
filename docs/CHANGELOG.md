@@ -4,6 +4,23 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.51.0
+
+**Cross-platform audio facade — write one audio path for native AND web.** New `Audio` type wraps the native `AudioManager` (rodio) and the wasm `WebAudio` (Web Audio) behind one bytes-keyed API, so a dual-target game writes its audio logic with **zero `cfg` guards** instead of a native arm + a wasm stub for every call. Additive — existing `AudioManager` / `WebAudio` code is unchanged, and the refactor that backs it is behavior-preserving.
+
+### Added
+- **`Audio`** (`src/audio_facade.rs`, re-exported un-gated at the crate root) — cross-platform facade: `play_sfx` / `play_sfx_on_bus`, `play_music` / `crossfade_music` / `stop_music`, `set_master_volume`, `set_bus_volume` / `bus_volume`, `duck_bus` / `release_bus` / `bus_duck`, `resume` (unlocks the web `AudioContext` after a user gesture; no-op on native), and `update` (ticks native fades/ducks; no-op on web). Clips are passed as encoded `bytes` (`include_bytes!`) — the only cross-platform clip source, since wasm has no filesystem.
+- **`AudioFacadeSystem`** — built-in system that ticks the `Audio` resource's `update` each frame (the cross-platform analogue of the native-only `AudioSystem`).
+- **`AudioManager::play_bytes`** and **`AudioManager::crossfade_bytes`** — byte-slice playback (the analogues of `play` / `crossfade`) for `include_bytes!` audio; these back the facade on native and are useful standalone for embedded audio.
+- **example `audio_facade`** (`examples/audio_facade/`, native + web via `examples/audio_facade/web/`) — the same `Audio` code drives key-triggered SFX, looping music + crossfade, a "bed" mixer bus with volume + ducking, on both targets with no `cfg` guards.
+
+### Notes
+- **Native master-volume nuance:** on web, named buses nest under the master gain, so `set_master_volume` scales bus-routed sounds too; native buses do **not** nest, so a sound sent to a named bus via `play_sfx_on_bus` is **not** affected by `set_master_volume` on native (control it with `set_bus_volume`). Documented on the facade.
+- **Out of scope:** tone synthesis (`AudioManager::play_tone`) and positional `play_at` are native-only and intentionally **not** on the facade — reach for the platform backend directly when a game needs them.
+
+### Changed (internal)
+- **`src/audio/playback.rs`** — `play_internal` and `crossfade` were refactored to share helpers (`append_decoded`, `begin_crossfade`) so the new `play_bytes` / `crossfade_bytes` reuse the existing decode → effects → pan/fade/repeat path. **Behavior-preserving:** the old sink is still torn down before the byte read (a failed read leaves the channel silent, as before), and the audio test suite stays green and untouched.
+
 ## 0.50.1
 
 **ECS `World` unwrap hardening — every structural invariant in `world.rs` now names itself.** Behavior-preserving diagnostics pass: all 51 raw `.unwrap()` in `src/ecs/world.rs` became `.expect("<invariant>")` documenting why each is infallible. Under `[profile.release] panic = "abort"` an unwrap that ever fires aborts the whole process with no unwind, so a generic `unwrap() on None` at a line number is replaced by a message naming the broken invariant — far better triage if a future refactor breaks one. **No public API change, no behavior change** (`expect` and `unwrap` are codegen-identical on the happy path; the string only materializes on the cold panic path). The existing ECS test suite stays green and untouched. Closes engine-audit deferred **item 7** — the last open item of the 0.48.0 (seq-1) audit deferred list (items 1–8: 1–4 + 6 + 8 done, 5 rejected, 7 done now).
