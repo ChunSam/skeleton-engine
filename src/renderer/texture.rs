@@ -32,10 +32,30 @@ impl Texture {
         layout: &wgpu::BindGroupLayout,
         path: &str,
     ) -> Self {
-        Self::try_from_path(device, queue, layout, path).unwrap_or_else(|e| {
+        Self::from_path_with_format(
+            device,
+            queue,
+            layout,
+            path,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+        )
+    }
+
+    /// Reads a PNG file and creates a GPU texture with a caller-chosen pixel format.
+    ///
+    /// Falls back to a magenta 1×1 texture + warn log on failure. See
+    /// [`Texture::from_rgba_with_format`] for when a non-sRGB (linear) format is wanted.
+    pub(crate) fn from_path_with_format(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layout: &wgpu::BindGroupLayout,
+        path: &str,
+        format: wgpu::TextureFormat,
+    ) -> Self {
+        Self::try_from_path_with_format(device, queue, layout, path, format).unwrap_or_else(|e| {
             log::warn!("texture load failed ({path}): {e}, using magenta fallback");
             // magenta 1×1: makes missing textures visually identifiable at a glance
-            Self::from_rgba(
+            Self::from_rgba_with_format(
                 device,
                 queue,
                 layout,
@@ -43,6 +63,7 @@ impl Texture {
                 1,
                 1,
                 Some("fallback"),
+                format,
             )
         })
     }
@@ -54,11 +75,29 @@ impl Texture {
         layout: &wgpu::BindGroupLayout,
         path: &str,
     ) -> Result<Self, TextureError> {
+        Self::try_from_path_with_format(
+            device,
+            queue,
+            layout,
+            path,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+        )
+    }
+
+    /// Reads a PNG file and creates a GPU texture with a caller-chosen pixel format.
+    /// Returns `TextureError` on failure.
+    pub(crate) fn try_from_path_with_format(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layout: &wgpu::BindGroupLayout,
+        path: &str,
+        format: wgpu::TextureFormat,
+    ) -> Result<Self, TextureError> {
         let bytes = std::fs::read(path).map_err(TextureError::Io)?;
         let img = image::load_from_memory(&bytes).map_err(TextureError::Decode)?;
         let rgba = img.to_rgba8();
         let (w, h) = rgba.dimensions();
-        Ok(Self::from_rgba(
+        Ok(Self::from_rgba_with_format(
             device,
             queue,
             layout,
@@ -66,6 +105,7 @@ impl Texture {
             w,
             h,
             Some(path),
+            format,
         ))
     }
 
@@ -114,6 +154,40 @@ impl Texture {
         height: u32,
         label: Option<&str>,
     ) -> Self {
+        // sRGB is the right default for color art: the sampler decodes to linear so
+        // shading is correct, and the surface re-encodes on write.
+        Self::from_rgba_with_format(
+            device,
+            queue,
+            layout,
+            data,
+            width,
+            height,
+            label,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+        )
+    }
+
+    /// Uploads tightly-packed RGBA8 bytes as a GPU texture with a caller-chosen pixel format.
+    ///
+    /// The default [`Texture::from_rgba`] hardcodes `Rgba8UnormSrgb` (correct for color art).
+    /// Use this with `Rgba8Unorm` (linear) for **data textures** — normal maps, masks, height
+    /// or lookup tables — whose bytes are *not* sRGB-encoded color and must be sampled verbatim
+    /// without the sRGB→linear decode. The resulting texture stays sampleable by the sprite
+    /// pipeline: both formats satisfy the `Float { filterable }` bind-group layout.
+    // Mirrors the wgpu texture-descriptor argument set (the default `from_rgba` is already
+    // at the 7-arg boundary); bundling these into a struct would only obscure an internal helper.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn from_rgba_with_format(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layout: &wgpu::BindGroupLayout,
+        data: &[u8],
+        width: u32,
+        height: u32,
+        label: Option<&str>,
+        format: wgpu::TextureFormat,
+    ) -> Self {
         let size = wgpu::Extent3d {
             width,
             height,
@@ -127,7 +201,7 @@ impl Texture {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                format,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             },

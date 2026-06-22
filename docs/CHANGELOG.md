@@ -4,6 +4,18 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.50.0
+
+**Texture upload pixel-format parameterization — load linear data textures, not just sRGB color art.** The CPU→GPU texture upload path hardcoded `Rgba8UnormSrgb`, so every loaded image was interpreted as sRGB-encoded color. This adds an additive way to choose the format, so a **data texture** (normal map, mask, height or lookup table) can be uploaded as `Rgba8Unorm` (linear) and sampled verbatim — without the sRGB→linear decode that would corrupt non-color bytes. The default path is unchanged. Closes engine-audit deferred **item 6** (0.48.0 audit). A truly differently-formatted *render target* (HDR `Rgba16Float`) was deliberately left out of scope: the sprite pipeline binds a single color-target format at construction, so an HDR target needs a format-matched pipeline — a separate, larger feature.
+
+### Added
+- **`App::load_image_with_format(path, format)`** — like `load_image` but uploads the texture with a caller-chosen `wgpu::TextureFormat`. Records the per-path format override (`App.pending_texture_formats`) and applies it when the pending texture is loaded at GPU init (call before `run()`, like `load_image`).
+- **`SpriteRenderer::load_texture_with_format(device, queue, path, format)`** — public format-aware sibling of `load_texture` for forks with raw GPU access.
+- **`Texture::from_rgba_with_format` / `from_path_with_format` / `try_from_path_with_format`** (`pub(crate)`) — carry the real bodies; the existing `from_rgba` / `from_path` / `try_from_path` are now thin wrappers passing `Rgba8UnormSrgb`, so all existing call sites are byte-identical.
+- **Example `texture_format`** — loads one grayscale-ramp PNG twice with byte-identical pixels but two formats (sRGB vs `Rgba8Unorm` linear) and draws them side by side; the linear ramp's midtones render visibly brighter, demonstrating the format controls the sRGB decode. The example is the acceptance test (VISION loop).
+
+**Additive only — no breaking change.** `Rgba8Unorm` textures stay sampleable by the ordinary sprite pipeline (both formats satisfy the `Float { filterable }` bind-group layout, so no new pipeline is needed). Default `load_image` behavior is unchanged.
+
 ## 0.49.4
 
 **Tier-5 cleanups — pathfinding path-reconstruction dedup + a spatial-grid query fast path.** Two small behavior-preserving improvements from the 0.48.0 engine-audit deferred list (item 8):

@@ -620,9 +620,17 @@ impl App {
             }
         }
         let mut sprite_renderer = SpriteRenderer::new(&gpu.device, &gpu.queue, gpu.config.format);
-        for path in self.pending_textures.drain(..) {
-            sprite_renderer.load_texture(&gpu.device, &gpu.queue, &path);
+        // Drain into a local first so the per-path format lookup below borrows a separate field.
+        let pending_textures: Vec<String> = self.pending_textures.drain(..).collect();
+        for path in pending_textures {
+            let format = self
+                .pending_texture_formats
+                .get(&path)
+                .copied()
+                .unwrap_or(wgpu::TextureFormat::Rgba8UnormSrgb);
+            sprite_renderer.load_texture_with_format(&gpu.device, &gpu.queue, &path, format);
         }
+        self.pending_texture_formats.clear();
         if let Some(assets) = self.world.resource::<AssetServer>() {
             for (path, asset) in assets.image_assets_for_gpu() {
                 if !sprite_renderer.has_texture_key(&path) {

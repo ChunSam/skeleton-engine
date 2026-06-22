@@ -42,6 +42,16 @@ impl TextureCache {
     }
 
     pub(crate) fn load_texture(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, path: &str) {
+        self.load_texture_with_format(device, queue, path, wgpu::TextureFormat::Rgba8UnormSrgb);
+    }
+
+    pub(crate) fn load_texture_with_format(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        path: &str,
+        format: wgpu::TextureFormat,
+    ) {
         let aliases = file_texture_aliases(path);
         if let Some(existing) = aliases
             .iter()
@@ -55,11 +65,12 @@ impl TextureCache {
             return;
         }
 
-        let tex = Arc::new(Texture::from_path(
+        let tex = Arc::new(Texture::from_path_with_format(
             device,
             queue,
             &self.texture_layout,
             path,
+            format,
         ));
         for alias in aliases {
             self.texture_cache.insert(alias, Arc::clone(&tex));
@@ -128,6 +139,20 @@ impl SpriteRenderer {
 
     pub fn load_texture(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, path: &str) {
         self.texture_cache.load_texture(device, queue, path);
+    }
+
+    /// Loads a file texture with a caller-chosen pixel format (e.g. `Rgba8Unorm` for a
+    /// linear data texture that must be sampled without the sRGB decode). The default
+    /// [`SpriteRenderer::load_texture`] uses `Rgba8UnormSrgb` (correct for color art).
+    pub fn load_texture_with_format(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        path: &str,
+        format: wgpu::TextureFormat,
+    ) {
+        self.texture_cache
+            .load_texture_with_format(device, queue, path, format);
     }
 
     pub(crate) fn load_texture_from_image(
