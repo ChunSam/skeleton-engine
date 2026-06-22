@@ -305,10 +305,7 @@ impl ParticleConfigSet {
 /// ```
 #[derive(Default)]
 pub struct ParticleConfigRegistry {
-    sets: HashMap<String, ParticleConfigSet>,
-    /// Source paths for each registered set (native only, for reload lookup).
-    #[cfg(not(target_arch = "wasm32"))]
-    paths: HashMap<String, String>, // name -> path
+    inner: crate::ron_registry::RonRegistry<ParticleConfigSet>,
 }
 
 impl ParticleConfigRegistry {
@@ -317,20 +314,17 @@ impl ParticleConfigRegistry {
     /// Native-only. Excluded from wasm builds.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn load(&mut self, name: impl Into<String>, path: &str) -> Result<(), ParticleConfigError> {
-        let text = std::fs::read_to_string(path)?;
-        let set = ParticleConfigSet::from_ron_str(&text)?;
-        let name = name.into();
-        // Store the canonicalized key so `reload_path` matches the path that
-        // `AssetServer::poll_reloads` reports (it returns `asset_key`, which canonicalizes).
-        self.paths
-            .insert(name.clone(), crate::asset::asset_key(path).to_string());
-        self.sets.insert(name, set);
-        Ok(())
+        self.inner.load(name, path)
+    }
+
+    /// Insert a config set directly (useful for tests or in-memory sets).
+    pub fn insert(&mut self, name: impl Into<String>, set: ParticleConfigSet) {
+        self.inner.insert(name, set);
     }
 
     /// Look up a [`ParticleConfigSet`] by name.
     pub fn get(&self, name: &str) -> Option<&ParticleConfigSet> {
-        self.sets.get(name)
+        self.inner.get(name)
     }
 
     /// Re-read the file whose registered path matches `path` (native only).
@@ -339,36 +333,25 @@ impl ParticleConfigRegistry {
     /// set is registered for this path the call is a no-op.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn reload_path(&mut self, path: &str) {
-        // Find the name for this path.
-        let name = self
-            .paths
-            .iter()
-            .find(|(_, p)| p.as_str() == path)
-            .map(|(n, _)| n.clone());
-        let Some(name) = name else { return };
-
-        match std::fs::read_to_string(path).and_then(|text| {
-            ParticleConfigSet::from_ron_str(&text)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))
-        }) {
-            Ok(set) => {
-                self.sets.insert(name, set);
-            }
-            Err(e) => {
-                log::warn!("particle_config: hot-reload failed for {path}: {e}");
-            }
-        }
+        self.inner.reload_path(path, "particle_config");
     }
 
     /// Sorted list of registered config-set names.
     pub fn names(&self) -> Vec<String> {
-        let mut v: Vec<String> = self.sets.keys().cloned().collect();
-        v.sort();
-        v
+        self.inner.names()
     }
 }
 
-// ── HotReloadable impl ────────────────────────────────────────────────────────
+// ── RonLoadable + HotReloadable impls ─────────────────────────────────────────
+
+#[cfg(not(target_arch = "wasm32"))]
+impl crate::ron_registry::RonLoadable for ParticleConfigSet {
+    type Err = ParticleConfigError;
+    fn load_ron(path: &str) -> Result<Self, Self::Err> {
+        let text = std::fs::read_to_string(path)?;
+        Self::from_ron_str(&text)
+    }
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 impl crate::asset::HotReloadable for ParticleConfigRegistry {
@@ -526,11 +509,8 @@ mod tests {
     fn registry_insert_and_get_round_trip() {
         let set = ParticleConfigSet::from_ron_str(FIRE_SMOKE).expect("parse");
         let mut reg = ParticleConfigRegistry::default();
-        // Manually insert (mimics what `load` does on native without touching disk).
-        reg.sets.insert("vfx".to_string(), set);
-        #[cfg(not(target_arch = "wasm32"))]
-        reg.paths
-            .insert("vfx".to_string(), "/fake/particles.ron".to_string());
+        // In-memory insert (no disk), exercising the public API.
+        reg.insert("vfx", set);
 
         let got = reg.get("vfx").expect("get vfx");
         assert!(got.emitter("fire").is_some());
