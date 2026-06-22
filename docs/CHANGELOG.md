@@ -4,6 +4,14 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.49.2
+
+**Editor god-file split, part 2 — `gizmo.rs` shed its pure geometry math (1183 → 707 lines).** Behavior-preserving refactor: the side-effect-free anchor/resize/rotation math and the gizmo size/snap constants — `anchor_base`, `ui_drag_new_offset`, `handle_centers`, `hit_test_handles`, `ui_resize_new_layout`, `rotation_handle_pos`, `cursor_angle`, `snap_angle`, `applied_rotation`, and the `MIN_*`/`HANDLE_*`/`ROT_*` constants — moved into a new `gizmo_math.rs`, leaving `gizmo.rs` to hold only the `impl App` input-handling + rendering interaction logic. The 10 pure-math unit tests moved with them; the one App-level test (`rotation_gizmo_drag_rotates_and_undoes`, which drives `update_transform_gizmo_native`) stays in `gizmo.rs`. Pure code movement — only visibility (private items the interaction logic still calls became `pub(super)`), imports, and paths changed. **No public API change** (all moved items are `pub(crate)`/`pub(super)` crate-internal). Completes the 0.48.0 engine-audit deferred-item list (item 3, editor god-file split — `docked.rs` was 0.49.1).
+
+### Changed (internal)
+- **`src/app/editor/ui/gizmo_math.rs`** (new) — the pure gizmo geometry helpers + constants + their 10 unit tests, individually `#[cfg(not(target_arch = "wasm32"))]`-gated to mirror `gizmo.rs`.
+- **`src/app/editor/ui/gizmo.rs`** — imports the math it needs from `gizmo_math`; keeps the `impl App` gizmo interaction logic and the one App-level rotation test.
+
 ## 0.49.1
 
 **Editor god-file split — `docked.rs` shed three self-contained panels/overlays (1233 → 958 lines).** Behavior-preserving refactor following the existing `audio_panel.rs` / `data_table_panel.rs` pattern: the particle live-tuner, the lighting controls, and the world-aligned grid overlay each moved out of the docked-UI god-file into their own native-only modules. Pure code movement — only visibility, imports, and paths changed; the moved functions and their tests are otherwise verbatim. **No public API change** (all moved functions are `pub(in crate::app)` crate-internal). Continues the 0.48.0 engine-audit deferred-item list (item 3, editor god-file split).

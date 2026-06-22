@@ -6,6 +6,7 @@ mod audio_panel;
 mod data_table_panel;
 mod docked;
 mod gizmo;
+mod gizmo_math;
 #[cfg(not(target_arch = "wasm32"))]
 mod grid_overlay;
 #[cfg(not(target_arch = "wasm32"))]
