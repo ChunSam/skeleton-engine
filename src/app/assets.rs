@@ -27,6 +27,28 @@ impl App {
             .load_image(&path)
     }
 
+    /// Loads an image as a GPU texture with a caller-chosen pixel `format`, instead of the
+    /// default `Rgba8UnormSrgb`.
+    ///
+    /// Pass `wgpu::TextureFormat::Rgba8Unorm` (linear) for a **data texture** — a normal map,
+    /// mask, height or lookup table — whose bytes are not sRGB-encoded color and must be
+    /// sampled verbatim (no sRGB→linear decode). The texture stays sampleable by ordinary
+    /// sprites. Like [`App::load_image`], call this before the texture is first uploaded
+    /// (i.e. before `run()`); the format applies when the pending texture is loaded at GPU init.
+    pub fn load_image_with_format(
+        &mut self,
+        path: impl Into<String>,
+        format: wgpu::TextureFormat,
+    ) -> Handle<ImageAsset> {
+        let path = path.into();
+        self.pending_textures.push(path.clone());
+        self.pending_texture_formats.insert(path.clone(), format);
+        self.world
+            .resource_mut::<AssetServer>()
+            .expect("AssetServer resource missing")
+            .load_image(&path)
+    }
+
     pub fn load_image_async(&mut self, path: impl Into<String>) -> Handle<ImageAsset> {
         let path = path.into();
         let handle = self

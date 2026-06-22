@@ -134,6 +134,9 @@ pub struct App {
     frame_interval: Duration,
     /// Texture paths registered before GPU init. Actually loaded in `resumed()`.
     pending_textures: Vec<String>,
+    /// Non-sRGB pixel-format overrides for `pending_textures`, keyed by the registered
+    /// path. Absent = the default `Rgba8UnormSrgb`. Set via `load_image_with_format`.
+    pending_texture_formats: std::collections::HashMap<String, wgpu::TextureFormat>,
     /// Render target info registered before GPU init. Actually created in `finish_init()`.
     pending_render_targets: Vec<(String, u32, u32)>,
     /// Closures that drain event queues at the end of each frame.
@@ -221,6 +224,7 @@ impl App {
             #[cfg(not(target_arch = "wasm32"))]
             frame_interval: Duration::from_secs_f64(1.0 / 60.0),
             pending_textures: Vec::new(),
+            pending_texture_formats: std::collections::HashMap::new(),
             pending_render_targets: Vec::new(),
             event_flushers: Vec::new(),
             event_initializers: Vec::new(),
