@@ -19,6 +19,10 @@ mod settings;
 #[cfg(not(target_arch = "wasm32"))]
 mod util;
 
+// Cross-platform: `GIZMO_SELECT_COLOR` is used by `update_ui_node_gizmo`, which compiles (dead)
+// on wasm; the rest of the editor theme constants are native-only and gated inside the module.
+mod theme;
+
 // Cross-platform: both `component_registry` and `loading` carry methods that MUST compile on
 // wasm too (`register_editable_component`/`register_serde_component`/`load_*`). The module files
 // are un-gated; their native-only contents (the `register_component`/`register_default_components`

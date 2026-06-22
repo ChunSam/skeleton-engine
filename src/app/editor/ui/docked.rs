@@ -4,6 +4,7 @@
 use super::grid_overlay::draw_editor_grid;
 use super::lighting_panel::ambient_light_control;
 use super::*;
+use crate::app::editor::theme;
 use crate::app::editor::tr;
 use crate::app::editor::EditorMode;
 
@@ -51,8 +52,8 @@ pub(in crate::app) fn update_docked_ui(
     // so this is effectively "free" without letting the panel cover the toolbar.
     #[allow(deprecated)]
     egui::Panel::bottom("docked_assets")
-        .default_size(200.0)
-        .size_range(60.0..=2000.0)
+        .default_size(theme::BOTTOM_PANEL_DEFAULT_H)
+        .size_range(theme::BOTTOM_PANEL_MIN_H..=theme::BOTTOM_PANEL_MAX_H)
         .resizable(true)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -89,8 +90,8 @@ pub(in crate::app) fn update_docked_ui(
     // ── 3. Left entities / scene panel ───────────────────────────────────────
     #[allow(deprecated)]
     egui::Panel::left("docked_left")
-        .default_size(260.0)
-        .size_range(120.0..=500.0)
+        .default_size(theme::LEFT_PANEL_DEFAULT_W)
+        .size_range(theme::LEFT_PANEL_MIN_W..=theme::LEFT_PANEL_MAX_W)
         .resizable(true)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -125,8 +126,8 @@ pub(in crate::app) fn update_docked_ui(
     // ── 4. Right inspector panel ─────────────────────────────────────────────
     #[allow(deprecated)]
     egui::Panel::right("docked_inspector")
-        .default_size(300.0)
-        .size_range(120.0..=600.0)
+        .default_size(theme::RIGHT_PANEL_DEFAULT_W)
+        .size_range(theme::RIGHT_PANEL_MIN_W..=theme::RIGHT_PANEL_MAX_W)
         .resizable(true)
         .show(ctx, |ui| {
             ui.strong(tr("Inspector", "인스펙터"));
@@ -147,7 +148,7 @@ pub(in crate::app) fn update_docked_ui(
     // `editor.central_rect` so that the RT/ViewportSize logic tracks real panel bounds.
     #[allow(deprecated)]
     let central_response = egui::CentralPanel::default()
-        .frame(egui::Frame::NONE.fill(egui::Color32::from_rgb(20, 20, 25)))
+        .frame(egui::Frame::NONE.fill(theme::VIEWPORT_FRAME_FILL))
         .show(ctx, |ui| {
             if let Some(tex) = app.editor.docked_texture_id {
                 let avail = ui.available_size();

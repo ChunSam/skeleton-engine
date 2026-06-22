@@ -7,6 +7,7 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 
+use crate::app::editor::theme;
 use crate::app::editor::tr;
 use crate::app::App;
 
@@ -42,7 +43,10 @@ pub(in crate::app) fn draw_editor_grid(ui: &egui::Ui, app: &App, rect: egui::Rec
         .unwrap_or(&cam_default);
     let spacing = app.editor.snap_size.max(1.0);
     let painter = ui.painter_at(rect);
-    let stroke = egui::Stroke::new(1.0, egui::Color32::from_white_alpha(26));
+    let stroke = egui::Stroke::new(
+        theme::GRID_LINE_WIDTH,
+        egui::Color32::from_white_alpha(theme::GRID_LINE_ALPHA),
+    );
 
     // Visible world range (top-left → bottom-right of the image rect).
     let tl = cam.screen_to_world(glam::Vec2::ZERO);
@@ -82,8 +86,8 @@ pub(in crate::app) fn draw_editor_grid(ui: &egui::Ui, app: &App, rect: egui::Rec
                 rect.left_top() + egui::vec2(6.0, 6.0),
                 egui::Align2::LEFT_TOP,
                 text,
-                egui::FontId::monospace(12.0),
-                egui::Color32::from_white_alpha(190),
+                egui::FontId::monospace(theme::CURSOR_READOUT_FONT_SIZE),
+                egui::Color32::from_white_alpha(theme::CURSOR_READOUT_ALPHA),
             );
         }
     }

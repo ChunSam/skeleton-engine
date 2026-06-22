@@ -1,4 +1,5 @@
 use super::*;
+use crate::app::editor::theme;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::app::editor::ResizeHandle;
 #[cfg(not(target_arch = "wasm32"))]
@@ -105,7 +106,7 @@ impl App {
                     screen_pos.y - MARGIN,
                     node.size.x + MARGIN * 2.0,
                     node.size.y + MARGIN * 2.0,
-                    crate::color::Color::rgba(0.2, 0.85, 1.0, 0.65),
+                    theme::GIZMO_SELECT_COLOR,
                 )
                 .with_z(node.z + 0.01),
             );
@@ -121,7 +122,7 @@ impl App {
                             c.y - HANDLE_SIZE * 0.5,
                             HANDLE_SIZE,
                             HANDLE_SIZE,
-                            crate::color::Color::rgba(1.0, 1.0, 1.0, 0.9),
+                            theme::GIZMO_HANDLE_COLOR,
                         )
                         .with_z(node.z + 0.02),
                     );
@@ -333,8 +334,8 @@ impl App {
             dbg.rect_filled_z(
                 tr.position - half - margin,
                 tr.position + half + margin,
-                crate::color::Color::rgba(0.2, 0.85, 1.0, 0.65),
-                tr.z + 999.0,
+                theme::GIZMO_SELECT_COLOR,
+                tr.z + theme::GIZMO_SELECT_Z_BIAS,
             );
 
             // ── 8 world-space resize handles ──────────────────────────────────
@@ -347,8 +348,8 @@ impl App {
                     dbg.rect_filled_z(
                         glam::Vec2::new(c.x - hs, c.y - hs),
                         glam::Vec2::new(c.x + hs, c.y + hs),
-                        crate::color::Color::rgba(1.0, 1.0, 1.0, 0.9),
-                        tr.z + 1000.0,
+                        theme::GIZMO_HANDLE_COLOR,
+                        tr.z + theme::GIZMO_HANDLE_Z_BIAS,
                     );
                 }
 
@@ -358,8 +359,8 @@ impl App {
                 dbg.rect_filled_z(
                     glam::Vec2::new(rh.x - hs, rh.y - hs),
                     glam::Vec2::new(rh.x + hs, rh.y + hs),
-                    crate::color::Color::rgba(0.3, 1.0, 0.4, 0.95),
-                    tr.z + 1000.0,
+                    theme::GIZMO_ROTATE_COLOR,
+                    tr.z + theme::GIZMO_HANDLE_Z_BIAS,
                 );
             }
         }
