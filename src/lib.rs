@@ -36,6 +36,8 @@ pub mod prefab;
 pub mod reflect;
 pub mod renderer;
 pub mod resources;
+/// Internal: generic RON-file registry backing the particle/dialogue/animation-clip registries.
+mod ron_registry;
 pub mod save;
 pub mod serde_registry;
 pub use save::{

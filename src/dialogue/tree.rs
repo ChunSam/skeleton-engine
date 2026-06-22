@@ -220,37 +220,30 @@ impl DialogueTree {
 /// runtime with [`box_of`](Self::box_of) (or [`get`](Self::get) + [`DialogueTree::to_box`]).
 #[derive(Default)]
 pub struct DialogueRegistry {
-    trees: HashMap<String, DialogueTree>,
-    /// Source path for each registered tree name (native only — used by reload).
-    #[cfg(not(target_arch = "wasm32"))]
-    paths: HashMap<String, String>,
+    inner: crate::ron_registry::RonRegistry<DialogueTree>,
 }
 
 impl DialogueRegistry {
     /// Load a dialogue tree from `path` and register it under `name` (native only).
     #[cfg(not(target_arch = "wasm32"))]
     pub fn load(&mut self, name: impl Into<String>, path: &str) -> Result<(), DialogueTreeError> {
-        let name = name.into();
-        let tree = DialogueTree::load(path)?;
-        self.trees.insert(name.clone(), tree);
-        self.paths.insert(name, path.to_string());
-        Ok(())
+        self.inner.load(name, path)
     }
 
     /// Insert a tree directly (useful for tests or in-memory trees).
     pub fn insert(&mut self, name: impl Into<String>, tree: DialogueTree) {
-        self.trees.insert(name.into(), tree);
+        self.inner.insert(name, tree);
     }
 
     /// Look up a registered tree by name.
     pub fn get(&self, name: &str) -> Option<&DialogueTree> {
-        self.trees.get(name)
+        self.inner.get(name)
     }
 
     /// Build a fresh [`DialogueBox`](super::DialogueBox) from the named tree, or `None` if no
     /// such tree is registered.
     pub fn box_of(&self, name: &str) -> Option<DialogueBox> {
-        self.trees.get(name).map(DialogueTree::to_box)
+        self.inner.get(name).map(DialogueTree::to_box)
     }
 
     /// Re-load the tree whose source path matches `path` from disk.
@@ -259,46 +252,24 @@ impl DialogueRegistry {
     /// warning in that case).
     #[cfg(not(target_arch = "wasm32"))]
     pub fn reload_path(&mut self, path: &str) {
-        let target = self
-            .paths
-            .iter()
-            .find(|(_, p)| {
-                let a = std::path::Path::new(p.as_str())
-                    .canonicalize()
-                    .unwrap_or_else(|_| std::path::PathBuf::from(p.as_str()));
-                let b = std::path::Path::new(path)
-                    .canonicalize()
-                    .unwrap_or_else(|_| std::path::PathBuf::from(path));
-                a == b
-            })
-            .map(|(n, p)| (n.clone(), p.clone()));
-
-        let Some((name, stored_path)) = target else {
-            return;
-        };
-
-        // Load from the registered path, not the caller's `path`: the two canonicalize to the
-        // same file but may differ as strings (trailing slash, relative vs absolute), and the
-        // caller's form could fail to open.
-        match DialogueTree::load(&stored_path) {
-            Ok(tree) => {
-                self.trees.insert(name, tree);
-            }
-            Err(e) => {
-                log::warn!("dialogue: hot-reload failed for {stored_path}: {e}");
-            }
-        }
+        self.inner.reload_path(path, "dialogue");
     }
 
     /// Sorted list of registered tree names.
     pub fn names(&self) -> Vec<String> {
-        let mut v: Vec<String> = self.trees.keys().cloned().collect();
-        v.sort();
-        v
+        self.inner.names()
     }
 }
 
-// ── HotReloadable impl ────────────────────────────────────────────────────────
+// ── RonLoadable + HotReloadable impls ─────────────────────────────────────────
+
+#[cfg(not(target_arch = "wasm32"))]
+impl crate::ron_registry::RonLoadable for DialogueTree {
+    type Err = DialogueTreeError;
+    fn load_ron(path: &str) -> Result<Self, Self::Err> {
+        DialogueTree::load(path)
+    }
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 impl crate::asset::HotReloadable for DialogueRegistry {

@@ -4,6 +4,17 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.49.0
+
+**Generic `RonRegistry<V>` deduplicates the data-driven config registries.** Behavior-preserving refactor: `ParticleConfigRegistry`, `DialogueRegistry`, and `AnimationClipRegistry` each re-implemented the same `name → value` + `name → path` maps, `load`, canonical-path `reload_path`, and `HotReloadable` glue — the very triplication that produced the 0.48.0 dialogue `reload_path` divergence bug. They now wrap a shared internal `RonRegistry<V>` and keep their exact public types and signatures. The data-table registry stays bespoke (it tracks `dirty` and returns a richer `ReloadOutcome`). All existing tests are unchanged and green.
+
+### Added
+- **`ParticleConfigRegistry::insert`** — direct in-memory insert, matching the long-standing `DialogueRegistry`/`AnimationClipRegistry` method (the one small additive API in this refactor).
+
+### Changed (internal)
+- **`src/ron_registry.rs`** (new, crate-internal) — `RonRegistry<V>` + the `RonLoadable` trait factor the canonical-key hot-reload out once; covered by its own unit tests.
+- **`src/particle/config_set.rs`**, **`src/dialogue/tree.rs`**, **`src/animation/clip_set.rs`** — the three registries are now thin wrappers over `RonRegistry<V>`; ~130 lines of triplicated reload/path logic removed.
+
 ## 0.48.1
 
 **Scheduler topological sort — O((V+E)·log V) instead of O(V·E).** Behavior-preserving refactor of `compute_order` (`src/ecs/schedule.rs`): the Kahn ready-set was a `Vec` scanned with `iter().min()` + `retain` (O(V) per pop) and the relaxation rescanned the *entire* edge set on every pop (O(V·E)). It now builds an adjacency list once and uses a `BinaryHeap<Reverse<usize>>` min-heap, relaxing each out-edge exactly once while preserving the deterministic lowest-index tie-break. **No public API or behavior change** — identical execution order; the scheduler tests are unchanged and green.

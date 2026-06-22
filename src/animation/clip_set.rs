@@ -172,32 +172,24 @@ impl AnimationClipSet {
 /// Load sets via [`App::load_animation_clips`](crate::App::load_animation_clips); retrieve them at runtime with [`get`](Self::get).
 #[derive(Default)]
 pub struct AnimationClipRegistry {
-    sets: HashMap<String, AnimationClipSet>,
-    /// Source path for each registered set name (native only — used by reload).
-    #[cfg(not(target_arch = "wasm32"))]
-    paths: HashMap<String, String>,
+    inner: crate::ron_registry::RonRegistry<AnimationClipSet>,
 }
 
 impl AnimationClipRegistry {
     /// Load a clip set from `path` and register it under `name` (native only).
     #[cfg(not(target_arch = "wasm32"))]
     pub fn load(&mut self, name: impl Into<String>, path: &str) -> Result<(), ClipSetError> {
-        let name = name.into();
-        let set = AnimationClipSet::load(path)?;
-        self.sets.insert(name.clone(), set);
-        self.paths.insert(name, path.to_string());
-        Ok(())
+        self.inner.load(name, path)
     }
 
     /// Insert a clip set directly (useful for tests or in-memory sets).
     pub fn insert(&mut self, name: impl Into<String>, set: AnimationClipSet) {
-        let name = name.into();
-        self.sets.insert(name, set);
+        self.inner.insert(name, set);
     }
 
     /// Look up a clip set by name.
     pub fn get(&self, name: &str) -> Option<&AnimationClipSet> {
-        self.sets.get(name)
+        self.inner.get(name)
     }
 
     /// Re-load the clip set whose source path matches `path` from disk.
@@ -206,45 +198,24 @@ impl AnimationClipRegistry {
     /// (logs a warning in that case).
     #[cfg(not(target_arch = "wasm32"))]
     pub fn reload_path(&mut self, path: &str) {
-        // Find the name whose registered path matches.
-        let name = self
-            .paths
-            .iter()
-            .find(|(_, p)| {
-                // Compare canonicalized paths when possible.
-                let a = std::path::Path::new(p.as_str())
-                    .canonicalize()
-                    .unwrap_or_else(|_| std::path::PathBuf::from(p.as_str()));
-                let b = std::path::Path::new(path)
-                    .canonicalize()
-                    .unwrap_or_else(|_| std::path::PathBuf::from(path));
-                a == b
-            })
-            .map(|(n, _)| n.clone());
-
-        let Some(name) = name else {
-            return;
-        };
-
-        match AnimationClipSet::load(path) {
-            Ok(set) => {
-                self.sets.insert(name, set);
-            }
-            Err(e) => {
-                log::warn!("animation_clip: hot-reload failed for {path}: {e}");
-            }
-        }
+        self.inner.reload_path(path, "animation_clip");
     }
 
     /// Sorted list of registered set names.
     pub fn names(&self) -> Vec<String> {
-        let mut v: Vec<String> = self.sets.keys().cloned().collect();
-        v.sort();
-        v
+        self.inner.names()
     }
 }
 
-// ── HotReloadable impl ────────────────────────────────────────────────────────
+// ── RonLoadable + HotReloadable impls ─────────────────────────────────────────
+
+#[cfg(not(target_arch = "wasm32"))]
+impl crate::ron_registry::RonLoadable for AnimationClipSet {
+    type Err = ClipSetError;
+    fn load_ron(path: &str) -> Result<Self, Self::Err> {
+        AnimationClipSet::load(path)
+    }
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 impl crate::asset::HotReloadable for AnimationClipRegistry {
