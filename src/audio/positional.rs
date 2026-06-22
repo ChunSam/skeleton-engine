@@ -24,6 +24,28 @@ impl AudioManager {
         self.play(channel, path, repeat);
     }
 
+    /// Plays already-in-memory encoded audio `bytes` at `source_pos` in 2D space — the byte-slice
+    /// analogue of [`play_at`](Self::play_at) (which reads a file path). Use this for audio embedded
+    /// with `include_bytes!`, the cross-platform clip source. Distance/pan are computed exactly like
+    /// `play_at`, and an already-playing channel is repositioned with
+    /// [`update_position`](Self::update_position).
+    ///
+    /// Backs the cross-platform [`Audio`](crate::Audio) facade's positional playback.
+    pub fn play_bytes_at(
+        &mut self,
+        channel: &str,
+        bytes: &[u8],
+        repeat: bool,
+        source_pos: Vec2,
+        listener: Vec2,
+        max_dist: f32,
+    ) {
+        let (vol, pan) = Self::spatial_params(source_pos, listener, max_dist);
+        self.volume_overrides.insert(channel.to_string(), vol);
+        self.pans.insert(channel.to_string(), pan);
+        self.play_bytes(channel, bytes, repeat);
+    }
+
     /// Updates the spatial position of an already-playing channel in real time.
     ///
     /// Call every frame from an ECS system to track a moving sound source.
