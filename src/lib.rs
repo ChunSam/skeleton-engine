@@ -38,7 +38,8 @@ pub mod prefab;
 pub mod reflect;
 pub mod renderer;
 pub mod resources;
-/// Internal: generic RON-file registry backing the particle/dialogue/animation-clip registries.
+/// Generic RON-file registry backing the particle/dialogue/animation-clip registries — also a
+/// fork-friendly extension point for a game's own RON-loaded config type (see [`RonRegistry`]).
 mod ron_registry;
 pub mod save;
 pub mod serde_registry;
@@ -149,6 +150,10 @@ pub use resources::{
     ProfilerData, RealDt, RenderStats, SelectedEntity, ShouldQuit, SystemProfile, TimeScale,
     ViewportSize, WindowConfig, DEFAULT_CANVAS_ID,
 };
+/// Native-only: the RON-load trait (hot-reload does not run on wasm).
+#[cfg(not(target_arch = "wasm32"))]
+pub use ron_registry::RonLoadable;
+pub use ron_registry::RonRegistry;
 pub use scene::{Scene, SceneChange, SceneCmd, SystemRegistrar};
 pub use scripting::{ScriptAsset, ScriptRegistry, ScriptRunner, ScriptingLimits, ScriptingSystem};
 pub use steering::{Arrive, Flee, Seek, SteeringSystem, SteeringVelocity, Wander};

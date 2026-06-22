@@ -6,6 +6,11 @@
 //! path matches the one `AssetServer::poll_reloads` reports. This module factors that out so the
 //! three public registries become thin wrappers that keep their own value and error types.
 //!
+//! It is also a **fork-friendly extension point**: a game can register its **own** RON-loaded
+//! config type — implement [`RonLoadable`] for it and store instances in a [`RonRegistry`] keyed by
+//! name, getting the same load-by-path + canonical-path hot-reload the built-in registries use,
+//! with no engine fork. See the `ron_registry` example.
+//!
 //! The data-table registry is intentionally **not** built on this — it stores the path on each
 //! value and adds dirty-tracking plus a richer reload outcome, so it stays bespoke.
 
@@ -23,6 +28,19 @@ pub trait RonLoadable: Sized {
 }
 
 /// Generic `name → value` registry. Hot-reload (native) keys off the canonical source path.
+///
+/// Use it for a game's own RON-loaded config type: implement [`RonLoadable`] and call
+/// [`load`](RonRegistry::load) / [`get`](RonRegistry::get) / [`names`](RonRegistry::names).
+/// In-memory values need no `RonLoadable` (use [`insert`](RonRegistry::insert)):
+///
+/// ```
+/// use engine::RonRegistry;
+/// let mut reg: RonRegistry<i32> = RonRegistry::default();
+/// reg.insert("easy", 1);
+/// reg.insert("hard", 3);
+/// assert_eq!(reg.get("hard"), Some(&3));
+/// assert_eq!(reg.names(), vec!["easy".to_string(), "hard".to_string()]);
+/// ```
 pub struct RonRegistry<V> {
     items: HashMap<String, V>,
     /// `name → canonical source key` (native only). Stored as the `asset_key` so it matches the
