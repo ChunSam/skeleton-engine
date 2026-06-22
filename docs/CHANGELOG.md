@@ -4,6 +4,16 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.49.4
+
+**Tier-5 cleanups — pathfinding path-reconstruction dedup + a spatial-grid query fast path.** Two small behavior-preserving improvements from the 0.48.0 engine-audit deferred list (item 8):
+
+### Changed (internal)
+- **`src/pathfinding.rs`** — the identical "walk `came_from` back and reverse" tail of `find_path` and `find_path_diagonal` is now a shared `reconstruct_path` helper (was duplicated verbatim in both). All 16 pathfinding tests unchanged and green.
+- **`src/collision/grid.rs`** — `SpatialGrid::candidates_in_aabb` gains a single-cell fast path: when the query AABB fits inside one grid cell (the common case for small colliders) it returns that bucket directly and skips the per-query dedup `HashSet` allocation, since an entity appears at most once in any one bucket. Multi-cell queries are unchanged (still deduped). New regression test `candidates_dedup_across_cells_and_single_cell_fast_path` covers both the dedup and the fast path. The scratch-buffer approach the audit suggested was rejected — it would need `&mut self` / interior mutability (the query API is `&self`), and the fast path captures most of the benefit without the API churn.
+
+**No public API change.** The other audit item-8 candidates were left alone: the editor asset-browser `[ ]` thumbnail placeholder is a missing-feature stub (not a behavior-preserving cleanup), and the editor's named-magic-numbers were already centralized in 0.49.3 (`theme.rs`).
+
 ## 0.49.3
 
 **Central editor theming constants — `src/app/editor/theme.rs`.** Behavior-preserving refactor that pulls the editor chrome's inline visual magic numbers — gizmo overlay colors + z-biases (999/1000), grid-overlay line width/alpha + cursor-readout alpha/font size, the central viewport frame fill, and the three docked-panel default/min/max sizes — into one named-constant module, so the editor look is tweakable in one place instead of scattered across `ui/gizmo.rs`, `ui/grid_overlay.rs`, and `ui/docked.rs`. Every constant equals the literal it replaced. The game-facing `SliderStyle` / `CheckBoxStyle` widget defaults in `src/ui/` were deliberately **left alone** — they are reusable widget styling (already named `Default` fields), not editor chrome, and pulling them into an editor module would invert the dependency. **No public API change** (constants are `pub(in crate::app::editor)`). Completes the 0.48.0 engine-audit deferred-item list (item 4, editor theming constants).

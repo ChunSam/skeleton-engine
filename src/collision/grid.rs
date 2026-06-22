@@ -141,6 +141,17 @@ impl SpatialGrid {
         let (col_min, row_min) = self.cell_key(min.x, min.y);
         let (col_max, row_max) = self.cell_key(max.x, max.y);
 
+        // Single-cell fast path: an entity appears at most once in any one bucket, so no
+        // cross-cell deduplication is needed — skip the per-query `HashSet` allocation. This is
+        // the common case for small colliders whose AABB fits inside one grid cell.
+        if col_min == col_max && row_min == row_max {
+            return self
+                .buckets
+                .get(&(col_min, row_min))
+                .cloned()
+                .unwrap_or_default();
+        }
+
         let mut seen = std::collections::HashSet::new();
         let mut result = Vec::new();
 
@@ -345,6 +356,40 @@ mod tests {
         assert!(
             result.is_empty(),
             "despawned entity should not appear in results"
+        );
+    }
+
+    /// Regression for `candidates_in_aabb`: a collider larger than a cell is registered in
+    /// several buckets, so a multi-cell query must dedup it to a single result, while a
+    /// single-cell query (the fast path that skips the dedup `HashSet`) still finds it.
+    #[test]
+    fn candidates_dedup_across_cells_and_single_cell_fast_path() {
+        // Circle r=200 at (100,100) with cell=128 → AABB spans multiple cells (in each bucket).
+        let (world, e) = make_world_with_circle(Vec2::new(100.0, 100.0), 200.0);
+        let mut grid = SpatialGrid::new(128.0);
+        grid.rebuild(&world);
+
+        // Multi-cell query: the dedup path must return the spanning collider exactly once.
+        let multi = grid.query_aabb(
+            Vec2::new(-200.0, -200.0),
+            Vec2::new(400.0, 400.0),
+            CollisionLayer::ALL,
+        );
+        assert_eq!(
+            multi.iter().filter(|&&x| x == e).count(),
+            1,
+            "collider spanning multiple cells must be deduped to a single result"
+        );
+
+        // Single-cell query (fast path, no dedup set): still returns the in-cell candidate.
+        let single = grid.query_aabb(
+            Vec2::new(100.0, 100.0),
+            Vec2::new(101.0, 101.0),
+            CollisionLayer::ALL,
+        );
+        assert!(
+            single.contains(&e),
+            "single-cell fast path must return the in-cell candidate"
         );
     }
 }
