@@ -6,6 +6,12 @@ mod audio_panel;
 mod data_table_panel;
 mod docked;
 mod gizmo;
+#[cfg(not(target_arch = "wasm32"))]
+mod grid_overlay;
+#[cfg(not(target_arch = "wasm32"))]
+mod lighting_panel;
+#[cfg(not(target_arch = "wasm32"))]
+mod particle_panel;
 mod shortcuts;
 #[cfg(not(target_arch = "wasm32"))]
 mod state_machine_panel;
@@ -21,9 +27,13 @@ pub(in crate::app) use audio_panel::audio_mixer_panel_body;
 pub(in crate::app) use data_table_panel::data_table_panel_body;
 #[cfg(not(target_arch = "wasm32"))]
 pub(in crate::app) use docked::{
-    assets_tab_body, entities_tab_body, inspector_tab_body, particle_tuner_grid, point_light_grid,
-    save_load_controls, scene_tab_body, update_docked_ui,
+    assets_tab_body, entities_tab_body, inspector_tab_body, save_load_controls, scene_tab_body,
+    update_docked_ui,
 };
+#[cfg(not(target_arch = "wasm32"))]
+pub(in crate::app) use lighting_panel::point_light_grid;
+#[cfg(not(target_arch = "wasm32"))]
+pub(in crate::app) use particle_panel::particle_tuner_grid;
 #[cfg(not(target_arch = "wasm32"))]
 pub(in crate::app) use state_machine_panel::state_machine_panel;
 #[cfg(not(target_arch = "wasm32"))]

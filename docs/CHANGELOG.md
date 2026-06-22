@@ -4,6 +4,16 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.49.1
+
+**Editor god-file split — `docked.rs` shed three self-contained panels/overlays (1233 → 958 lines).** Behavior-preserving refactor following the existing `audio_panel.rs` / `data_table_panel.rs` pattern: the particle live-tuner, the lighting controls, and the world-aligned grid overlay each moved out of the docked-UI god-file into their own native-only modules. Pure code movement — only visibility, imports, and paths changed; the moved functions and their tests are otherwise verbatim. **No public API change** (all moved functions are `pub(in crate::app)` crate-internal). Continues the 0.48.0 engine-audit deferred-item list (item 3, editor god-file split).
+
+### Changed (internal)
+- **`src/app/editor/ui/particle_panel.rs`** (new) — `particle_tuner_grid` + its private `color_rgba_drags` helper.
+- **`src/app/editor/ui/lighting_panel.rs`** (new) — `point_light_grid` + `ambient_light_control` + their private `color_rgb_drags` helper.
+- **`src/app/editor/ui/grid_overlay.rs`** (new) — `draw_editor_grid` + `grid_lines_in_range` + the grid-lines unit test.
+- **`src/app/editor/ui/docked.rs`** — drops those concerns; `point_light_grid`/`particle_tuner_grid` are now re-exported from their new homes via `ui/mod.rs`. `uv_rect_to_egui` and the Tile Paint swatch palette stay put.
+
 ## 0.49.0
 
 **Generic `RonRegistry<V>` deduplicates the data-driven config registries.** Behavior-preserving refactor: `ParticleConfigRegistry`, `DialogueRegistry`, and `AnimationClipRegistry` each re-implemented the same `name → value` + `name → path` maps, `load`, canonical-path `reload_path`, and `HotReloadable` glue — the very triplication that produced the 0.48.0 dialogue `reload_path` divergence bug. They now wrap a shared internal `RonRegistry<V>` and keep their exact public types and signatures. The data-table registry stays bespoke (it tracks `dirty` and returns a richer `ReloadOutcome`). All existing tests are unchanged and green.
