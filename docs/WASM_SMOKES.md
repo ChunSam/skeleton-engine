@@ -35,3 +35,13 @@ cargo install wasm-bindgen-cli --version <ver>   # MUST match the wasm-bindgen c
   centering (each `DrawText::centered` label's center on its guide line — the centering itself is
   *not* auto-checked, same subtle-class limit as `wasm_smoke.sh`). Run after touching the text
   renderer or the example.
+
+## Web examples without a dedicated smoke
+
+- **`audio_facade`** ships to the web (`examples/audio_facade/web/build.sh` → click **Start**, then
+  the keys) to demonstrate the cross-platform [`Audio`](../src/audio_facade.rs) facade running the
+  **same code** on the web as native — but has **no headless smoke** on purpose: its web audio path
+  is thin pass-throughs to `WebAudio`, whose runtime lifecycle is already covered by
+  `wasm_audio_smoke.sh` above, and the facade demo is interactive (audio needs a user gesture and is
+  not headless-capturable). Open the page to hear it; run `wasm_audio_smoke.sh` after touching
+  `src/audio_wasm.rs`.

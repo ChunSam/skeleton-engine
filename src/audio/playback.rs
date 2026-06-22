@@ -274,19 +274,67 @@ impl AudioManager {
         let eff_vol = self.effective_volume(channel);
         sink.set_volume(eff_vol);
 
-        let pan = self.pans.get(channel).copied().unwrap_or(0.0);
-
         // Reuse cached file bytes so replaying the same SFX doesn't re-read the
         // file from disk each shot. Decoding still happens per play (rodio decodes
-        // the in-memory bytes), but the disk I/O is paid once per path.
+        // the in-memory bytes), but the disk I/O is paid once per path. The old sink
+        // is torn down above before this read, so a failed read leaves the channel
+        // silent (the prior behavior — preserved by reading before `append_decoded`).
         let bytes = match read_cached_bytes(&mut self.file_cache, path) {
             Some(b) => b,
             None => return,
         };
+        self.append_decoded(channel, sink, bytes, repeat, fade_in_secs);
+    }
+
+    /// Plays already-in-memory encoded audio `bytes` on a channel — the byte-slice analogue of
+    /// [`play`](Self::play). Use this for audio embedded with `include_bytes!`, which is the
+    /// cross-platform clip source (wasm has no filesystem, so there is no path to read). Stops
+    /// any existing playback on the channel first, exactly like [`play`](Self::play).
+    ///
+    /// Backs the cross-platform [`Audio`](crate::Audio) facade's `play_sfx`/`play_music`.
+    pub fn play_bytes(&mut self, channel: &str, bytes: &[u8], repeat: bool) {
+        self.play_bytes_internal(channel, Arc::from(bytes), repeat, None);
+    }
+
+    /// Shared byte-playback entry: tears down the old sink, creates + volume-sets a new one, then
+    /// decodes and appends `bytes`. The byte counterpart of [`play_internal`]'s tail; used by
+    /// `play_bytes` and `crossfade_bytes`.
+    pub(super) fn play_bytes_internal(
+        &mut self,
+        channel: &str,
+        bytes: Arc<[u8]>,
+        repeat: bool,
+        fade_in_secs: Option<f32>,
+    ) {
+        self.stop_immediate(channel);
+        let sink = match Sink::try_new(&self.stream_handle) {
+            Ok(s) => s,
+            Err(e) => {
+                log::warn!("Failed to create audio sink: {e}");
+                return;
+            }
+        };
+        sink.set_volume(self.effective_volume(channel));
+        self.append_decoded(channel, sink, bytes, repeat, fade_in_secs);
+    }
+
+    /// Shared decode → effects → pan/fade/repeat → insert tail of `play_internal` and
+    /// `play_bytes_internal`. The caller has already torn down the old sink, created the new one,
+    /// and set its base×bus volume; this reads the channel pan, decodes `bytes`, and appends the
+    /// (effected) source.
+    fn append_decoded(
+        &mut self,
+        channel: &str,
+        sink: Sink,
+        bytes: Arc<[u8]>,
+        repeat: bool,
+        fade_in_secs: Option<f32>,
+    ) {
+        let pan = self.pans.get(channel).copied().unwrap_or(0.0);
         let source = match Decoder::new(Cursor::new(bytes)) {
             Ok(s) => s,
             Err(e) => {
-                log::warn!("Audio decoding failed for '{path}': {e}");
+                log::warn!("Audio decoding failed for channel '{channel}': {e}");
                 return;
             }
         };
@@ -395,6 +443,24 @@ impl AudioManager {
     /// am.crossfade("bgm", "assets/track_b.ogg", true, 2.0);
     /// ```
     pub fn crossfade(&mut self, channel: &str, new_path: &str, repeat: bool, dur: f32) {
+        self.begin_crossfade(channel, dur);
+        // Start the new track on `channel` with a fade-in.
+        self.play_fade_in(channel, new_path, repeat, dur);
+    }
+
+    /// Byte-slice analogue of [`crossfade`](Self::crossfade) for `include_bytes!` audio (the
+    /// cross-platform clip source). Relocates the current track to a temp channel that fades out
+    /// while the new `bytes` fade in over `dur` seconds. If nothing is playing, this is just a
+    /// fade-in. Backs the cross-platform [`Audio`](crate::Audio) facade's `crossfade_music`.
+    pub fn crossfade_bytes(&mut self, channel: &str, bytes: &[u8], repeat: bool, dur: f32) {
+        self.begin_crossfade(channel, dur);
+        self.play_bytes_internal(channel, Arc::from(bytes), repeat, Some(dur));
+    }
+
+    /// Relocates the track currently on `channel` (if any) to a temp channel scheduled to fade out
+    /// over `dur` seconds, so a freshly-started track on `channel` can fade in for a true overlap.
+    /// Shared by [`crossfade`](Self::crossfade) and [`crossfade_bytes`](Self::crossfade_bytes).
+    fn begin_crossfade(&mut self, channel: &str, dur: f32) {
         let temp = format!("{channel}__xfade");
 
         // If something is currently on `channel`, relocate it to the temp channel
@@ -415,9 +481,6 @@ impl AudioManager {
             let start_vol = self.fade_start_vol(&temp);
             self.fades.insert(temp, Fade::stop_fade(start_vol, dur));
         }
-
-        // Start the new track on `channel` with a fade-in.
-        self.play_fade_in(channel, new_path, repeat, dur);
     }
 
     /// Clears the in-memory file-bytes cache.
