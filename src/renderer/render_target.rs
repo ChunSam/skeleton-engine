@@ -8,6 +8,10 @@ pub struct RenderTarget {
     pub(crate) bind_group: Arc<wgpu::BindGroup>,
     pub width: u32,
     pub height: u32,
+    /// The texture's pixel format — the offscreen pass renders into it with a sprite pipeline built
+    /// for this format (a non-surface format, e.g. `Rgba16Float` for an HDR target, gets its own
+    /// pipeline variant). See [`format`](RenderTarget::format).
+    pub(crate) format: wgpu::TextureFormat,
     /// Optional per-target clear color `[r, g, b, a]` (sRGB, `f64`).
     ///
     /// When `Some`, the offscreen pass clears with this color instead of
@@ -79,8 +83,14 @@ impl RenderTarget {
             bind_group,
             width,
             height,
+            format,
             clear_color: None,
         }
+    }
+
+    /// The pixel format the target was created with (what the offscreen sprite pass must target).
+    pub fn format(&self) -> wgpu::TextureFormat {
+        self.format
     }
 
     /// Sets a per-target clear color, overriding `WindowConfig::clear_color` for this RT.

@@ -60,8 +60,9 @@ type OffscreenRenderInfo = (
     u32, // rt_h
     wgpu::TextureView,
     Arc<wgpu::BindGroup>,
-    u32,              // layer_mask
-    Option<[f64; 4]>, // clear_color
+    u32,                 // layer_mask
+    Option<[f64; 4]>,    // clear_color
+    wgpu::TextureFormat, // rt format (HDR/linear render targets render with a matching pipeline)
 );
 
 // WASM: the logical (CSS) canvas size, captured from the authored `<canvas>` width/height
@@ -138,7 +139,9 @@ pub struct App {
     /// path. Absent = the default `Rgba8UnormSrgb`. Set via `load_image_with_format`.
     pending_texture_formats: std::collections::HashMap<String, wgpu::TextureFormat>,
     /// Render target info registered before GPU init. Actually created in `finish_init()`.
-    pending_render_targets: Vec<(String, u32, u32)>,
+    /// The optional format is the caller's chosen pixel format; `None` = inherit the surface format
+    /// (not known until GPU init).
+    pending_render_targets: Vec<(String, u32, u32, Option<wgpu::TextureFormat>)>,
     /// Closures that drain event queues at the end of each frame.
     event_flushers: Vec<EventHook>,
     /// Closures that re-insert event resources on `reload_scene`.
