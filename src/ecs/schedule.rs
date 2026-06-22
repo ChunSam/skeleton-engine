@@ -55,7 +55,8 @@ pub enum ScheduleError {
 /// - Tie-breaker for equal rank is insertion order (ascending index), making the result deterministic.
 /// - Success: `Ok(execution index order)`. Cycle: `Err(Cycle(remaining indices))`.
 pub fn compute_order(metas: &[SystemConfig]) -> Result<Vec<usize>, ScheduleError> {
-    use std::collections::HashMap;
+    use std::cmp::Reverse;
+    use std::collections::{BinaryHeap, HashMap};
 
     let n = metas.len();
 
@@ -93,31 +94,36 @@ pub fn compute_order(metas: &[SystemConfig]) -> Result<Vec<usize>, ScheduleError
         }
     }
 
-    // In-degree
+    // Adjacency list + in-degrees, built once from the edge set.
+    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
     let mut indeg = vec![0usize; n];
-    for &(_, to) in &edges {
+    for &(from, to) in &edges {
+        adj[from].push(to);
         indeg[to] += 1;
     }
 
-    // Kahn's algorithm — deterministic: always pick the lowest index among those with in-degree 0
+    // Kahn's algorithm — deterministic: always pick the lowest index among those with
+    // in-degree 0. A min-heap (`Reverse`) keeps that tie-break at O(log n) per pop, and the
+    // adjacency list relaxes each node's out-edges exactly once — O((V + E) log V) overall,
+    // versus the previous full-edge rescan per pop (O(V·E)) plus the O(V) `min()`/`retain`.
+    let mut ready: BinaryHeap<Reverse<usize>> =
+        (0..n).filter(|&i| indeg[i] == 0).map(Reverse).collect();
     let mut order = Vec::with_capacity(n);
-    let mut available: Vec<usize> = (0..n).filter(|&i| indeg[i] == 0).collect();
 
-    while let Some(&next) = available.iter().min() {
-        available.retain(|&x| x != next);
+    while let Some(Reverse(next)) = ready.pop() {
         order.push(next);
-        for &(from, to) in &edges {
-            if from == next {
-                indeg[to] -= 1;
-                if indeg[to] == 0 {
-                    available.push(to);
-                }
+        for &to in &adj[next] {
+            indeg[to] -= 1;
+            if indeg[to] == 0 {
+                ready.push(Reverse(to));
             }
         }
     }
 
     if order.len() != n {
-        let remaining: Vec<usize> = (0..n).filter(|i| !order.contains(i)).collect();
+        // A node never reaching in-degree 0 is in (or downstream of) a cycle. Equivalent to the
+        // old `!order.contains(i)` test, since popped ⟺ in-degree hit 0.
+        let remaining: Vec<usize> = (0..n).filter(|&i| indeg[i] > 0).collect();
         return Err(ScheduleError::Cycle(remaining));
     }
 
