@@ -173,6 +173,20 @@ thread_local! {
     static ASTAR_SCRATCH: RefCell<AStarScratch> = RefCell::new(AStarScratch::default());
 }
 
+/// Walks the `came_from` chain back from `goal` and reverses it into a `start → goal` path
+/// (excludes the start node, includes the goal). Shared tail of [`find_path`] and
+/// [`find_path_diagonal`].
+fn reconstruct_path(came_from: &HashMap<IVec2, IVec2>, goal: IVec2) -> Vec<IVec2> {
+    let mut path = Vec::new();
+    let mut cur = goal;
+    while let Some(&prev) = came_from.get(&cur) {
+        path.push(cur);
+        cur = prev;
+    }
+    path.reverse();
+    path
+}
+
 /// A* pathfinding.
 /// Returns the path excluding the start and including the goal, or `None` if no path exists.
 ///
@@ -203,15 +217,7 @@ pub fn find_path(grid: &PathGrid, start: IVec2, goal: IVec2) -> Option<Vec<IVec2
 
         while let Some(Node { pos: current, .. }) = s.open.pop() {
             if current == goal {
-                // reconstruct path
-                let mut path = Vec::new();
-                let mut cur = current;
-                while let Some(&prev) = s.came_from.get(&cur) {
-                    path.push(cur);
-                    cur = prev;
-                }
-                path.reverse();
-                return Some(path);
+                return Some(reconstruct_path(&s.came_from, current));
             }
 
             // already closed — stale duplicate entry, skip re-expansion
@@ -311,15 +317,7 @@ pub fn find_path_diagonal(grid: &PathGrid, start: IVec2, goal: IVec2) -> Option<
 
         while let Some(Node { pos: current, .. }) = s.open.pop() {
             if current == goal {
-                // reconstruct path (excludes start, includes goal — same as find_path)
-                let mut path = Vec::new();
-                let mut cur = current;
-                while let Some(&prev) = s.came_from.get(&cur) {
-                    path.push(cur);
-                    cur = prev;
-                }
-                path.reverse();
-                return Some(path);
+                return Some(reconstruct_path(&s.came_from, current));
             }
 
             // stale duplicate entry — already expanded with optimal cost
