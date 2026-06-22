@@ -175,7 +175,7 @@ impl World {
             self.archetypes[arch_id]
                 .columns
                 .get_mut(&tid)
-                .unwrap()
+                .expect("despawn: column exists for every type in the archetype's type_set")
                 .swap_remove(row);
         }
         self.archetypes[arch_id].entities.swap_remove(row);
@@ -280,7 +280,11 @@ impl World {
 
         if self.archetypes[arch_id].contains(tid) {
             let (a, row) = self.entity_location[&entity];
-            self.archetypes[a].columns.get_mut(&tid).unwrap()[row] = Box::new(component);
+            self.archetypes[a]
+                .columns
+                .get_mut(&tid)
+                .expect("add_component: archetype contains this column (checked above)")[row] =
+                Box::new(component);
             self.changed_this_tick
                 .entry(entity)
                 .or_default()
@@ -303,7 +307,7 @@ impl World {
         self.archetypes[na]
             .columns
             .get_mut(&tid)
-            .unwrap()
+            .expect("add_component: target archetype contains the newly added column")
             .push(Box::new(component));
         self.added_this_tick.entry(entity).or_default().insert(tid);
     }
@@ -339,11 +343,14 @@ impl World {
             .iter()
             .filter(move |arch| arch.contains(tid))
             .flat_map(move |arch| {
-                let col = arch.columns.get(&tid).unwrap();
+                let col = arch
+                    .columns
+                    .get(&tid)
+                    .expect("query: archetype was filtered to contain this column");
                 arch.entities
                     .iter()
                     .zip(col.iter())
-                    .map(|(&e, c)| (e, c.downcast_ref::<T>().unwrap()))
+                    .map(|(&e, c)| (e, c.downcast_ref::<T>().expect("column holds type T")))
             })
     }
 
@@ -366,11 +373,13 @@ impl World {
                 let Archetype {
                     entities, columns, ..
                 } = arch;
-                let col = columns.get_mut(&tid).unwrap();
+                let col = columns
+                    .get_mut(&tid)
+                    .expect("query_mut: archetype was filtered to contain this column");
                 entities
                     .iter()
                     .zip(col.iter_mut())
-                    .map(|(&e, c)| (e, c.downcast_mut::<T>().unwrap()))
+                    .map(|(&e, c)| (e, c.downcast_mut::<T>().expect("column holds type T")))
             })
     }
 
@@ -409,8 +418,8 @@ impl World {
                     .map(|((&e, a), b)| {
                         (
                             e,
-                            a.downcast_mut::<A>().unwrap(),
-                            b.downcast_mut::<B>().unwrap(),
+                            a.downcast_mut::<A>().expect("column holds type A"),
+                            b.downcast_mut::<B>().expect("column holds type B"),
                         )
                     })
             })
@@ -443,9 +452,9 @@ impl World {
                     .map(|(((&e, a), b), c)| {
                         (
                             e,
-                            a.downcast_mut::<A>().unwrap(),
-                            b.downcast_mut::<B>().unwrap(),
-                            c.downcast_mut::<C>().unwrap(),
+                            a.downcast_mut::<A>().expect("column holds type A"),
+                            b.downcast_mut::<B>().expect("column holds type B"),
+                            c.downcast_mut::<C>().expect("column holds type C"),
                         )
                     })
             })
@@ -459,13 +468,19 @@ impl World {
             .iter()
             .filter(move |arch| arch.contains(ta) && arch.contains(tb))
             .flat_map(move |arch| {
-                let ca = arch.columns.get(&ta).unwrap();
-                let cb = arch.columns.get(&tb).unwrap();
+                let ca = arch
+                    .columns
+                    .get(&ta)
+                    .expect("query2: archetype was filtered to contain column A");
+                let cb = arch
+                    .columns
+                    .get(&tb)
+                    .expect("query2: archetype was filtered to contain column B");
                 arch.entities.iter().enumerate().map(move |(i, &e)| {
                     (
                         e,
-                        ca[i].downcast_ref::<A>().unwrap(),
-                        cb[i].downcast_ref::<B>().unwrap(),
+                        ca[i].downcast_ref::<A>().expect("column holds type A"),
+                        cb[i].downcast_ref::<B>().expect("column holds type B"),
                     )
                 })
             })
@@ -482,15 +497,24 @@ impl World {
             .iter()
             .filter(move |arch| arch.contains(ta) && arch.contains(tb) && arch.contains(tc))
             .flat_map(move |arch| {
-                let ca = arch.columns.get(&ta).unwrap();
-                let cb = arch.columns.get(&tb).unwrap();
-                let cc = arch.columns.get(&tc).unwrap();
+                let ca = arch
+                    .columns
+                    .get(&ta)
+                    .expect("query3: archetype was filtered to contain column A");
+                let cb = arch
+                    .columns
+                    .get(&tb)
+                    .expect("query3: archetype was filtered to contain column B");
+                let cc = arch
+                    .columns
+                    .get(&tc)
+                    .expect("query3: archetype was filtered to contain column C");
                 arch.entities.iter().enumerate().map(move |(i, &e)| {
                     (
                         e,
-                        ca[i].downcast_ref::<A>().unwrap(),
-                        cb[i].downcast_ref::<B>().unwrap(),
-                        cc[i].downcast_ref::<C>().unwrap(),
+                        ca[i].downcast_ref::<A>().expect("column holds type A"),
+                        cb[i].downcast_ref::<B>().expect("column holds type B"),
+                        cc[i].downcast_ref::<C>().expect("column holds type C"),
                     )
                 })
             })
@@ -510,17 +534,29 @@ impl World {
                 arch.contains(ta) && arch.contains(tb) && arch.contains(tc) && arch.contains(td)
             })
             .flat_map(move |arch| {
-                let ca = arch.columns.get(&ta).unwrap();
-                let cb = arch.columns.get(&tb).unwrap();
-                let cc = arch.columns.get(&tc).unwrap();
-                let cd = arch.columns.get(&td).unwrap();
+                let ca = arch
+                    .columns
+                    .get(&ta)
+                    .expect("query4: archetype was filtered to contain column A");
+                let cb = arch
+                    .columns
+                    .get(&tb)
+                    .expect("query4: archetype was filtered to contain column B");
+                let cc = arch
+                    .columns
+                    .get(&tc)
+                    .expect("query4: archetype was filtered to contain column C");
+                let cd = arch
+                    .columns
+                    .get(&td)
+                    .expect("query4: archetype was filtered to contain column D");
                 arch.entities.iter().enumerate().map(move |(i, &e)| {
                     (
                         e,
-                        ca[i].downcast_ref::<A>().unwrap(),
-                        cb[i].downcast_ref::<B>().unwrap(),
-                        cc[i].downcast_ref::<C>().unwrap(),
-                        cd[i].downcast_ref::<D>().unwrap(),
+                        ca[i].downcast_ref::<A>().expect("column holds type A"),
+                        cb[i].downcast_ref::<B>().expect("column holds type B"),
+                        cc[i].downcast_ref::<C>().expect("column holds type C"),
+                        cd[i].downcast_ref::<D>().expect("column holds type D"),
                     )
                 })
             })
@@ -534,11 +570,14 @@ impl World {
             .iter()
             .filter(move |arch| arch.contains(ta) && arch.contains(tb))
             .flat_map(move |arch| {
-                let col = arch.columns.get(&ta).unwrap();
+                let col = arch
+                    .columns
+                    .get(&ta)
+                    .expect("query_with: archetype was filtered to contain column A");
                 arch.entities
                     .iter()
                     .zip(col.iter())
-                    .map(|(&e, c)| (e, c.downcast_ref::<A>().unwrap()))
+                    .map(|(&e, c)| (e, c.downcast_ref::<A>().expect("column holds type A")))
             })
     }
 
@@ -550,11 +589,14 @@ impl World {
             .iter()
             .filter(move |arch| arch.contains(ta) && !arch.contains(tb))
             .flat_map(move |arch| {
-                let col = arch.columns.get(&ta).unwrap();
+                let col = arch
+                    .columns
+                    .get(&ta)
+                    .expect("query_without: archetype was filtered to contain column A");
                 arch.entities
                     .iter()
                     .zip(col.iter())
-                    .map(|(&e, c)| (e, c.downcast_ref::<A>().unwrap()))
+                    .map(|(&e, c)| (e, c.downcast_ref::<A>().expect("column holds type A")))
             })
     }
 
@@ -568,11 +610,14 @@ impl World {
             .iter()
             .filter(move |arch| arch.contains(ta))
             .flat_map(move |arch| {
-                let ca = arch.columns.get(&ta).unwrap();
+                let ca = arch
+                    .columns
+                    .get(&ta)
+                    .expect("query_opt2: archetype was filtered to contain column A");
                 let cb = arch.columns.get(&tb);
                 arch.entities.iter().enumerate().map(move |(i, &e)| {
-                    let a = ca[i].downcast_ref::<A>().unwrap();
-                    let b = cb.map(|col| col[i].downcast_ref::<B>().unwrap());
+                    let a = ca[i].downcast_ref::<A>().expect("column holds type A");
+                    let b = cb.map(|col| col[i].downcast_ref::<B>().expect("column holds type B"));
                     (e, a, b)
                 })
             })
@@ -935,7 +980,7 @@ impl World {
             let comp = self.archetypes[src_arch_id]
                 .columns
                 .get_mut(&tid)
-                .unwrap()
+                .expect("move_entity: source column exists for every type in its type_set")
                 .swap_remove(src_row);
             extracted.insert(tid, comp);
         }
@@ -959,7 +1004,7 @@ impl World {
                 self.archetypes[target_arch_id]
                     .columns
                     .get_mut(&tid)
-                    .unwrap()
+                    .expect("move_entity: target column exists for every type in its type_set")
                     .push(comp);
             }
         }
@@ -994,11 +1039,14 @@ impl World {
             .par_iter()
             .filter(|arch| arch.contains(tid))
             .for_each(|arch| {
-                let col = arch.columns.get(&tid).unwrap();
+                let col = arch
+                    .columns
+                    .get(&tid)
+                    .expect("par_query_for_each: archetype was filtered to contain this column");
                 arch.entities
                     .par_iter()
                     .zip(col.par_iter())
-                    .for_each(|(&e, c)| f(e, c.downcast_ref::<T>().unwrap()));
+                    .for_each(|(&e, c)| f(e, c.downcast_ref::<T>().expect("column holds type T")));
             });
     }
 
@@ -1020,11 +1068,14 @@ impl World {
             .par_iter()
             .filter(|arch| arch.contains(tid))
             .flat_map(|arch| {
-                let col = arch.columns.get(&tid).unwrap();
+                let col = arch
+                    .columns
+                    .get(&tid)
+                    .expect("par_query_map: archetype was filtered to contain this column");
                 arch.entities
                     .par_iter()
                     .zip(col.par_iter())
-                    .map(|(&e, c)| f(e, c.downcast_ref::<T>().unwrap()))
+                    .map(|(&e, c)| f(e, c.downcast_ref::<T>().expect("column holds type T")))
             })
             .collect()
     }
@@ -1043,8 +1094,14 @@ impl World {
             .par_iter()
             .filter(move |arch| arch.contains(ta) && arch.contains(tb))
             .for_each(|arch| {
-                let ca = arch.columns.get(&ta).unwrap();
-                let cb = arch.columns.get(&tb).unwrap();
+                let ca = arch
+                    .columns
+                    .get(&ta)
+                    .expect("par_query2_for_each: archetype was filtered to contain column A");
+                let cb = arch
+                    .columns
+                    .get(&tb)
+                    .expect("par_query2_for_each: archetype was filtered to contain column B");
                 arch.entities
                     .par_iter()
                     .zip(ca.par_iter())
@@ -1052,8 +1109,8 @@ impl World {
                     .for_each(|((&e, a), b)| {
                         f(
                             e,
-                            a.downcast_ref::<A>().unwrap(),
-                            b.downcast_ref::<B>().unwrap(),
+                            a.downcast_ref::<A>().expect("column holds type A"),
+                            b.downcast_ref::<B>().expect("column holds type B"),
                         );
                     });
             });
@@ -1074,8 +1131,14 @@ impl World {
             .par_iter()
             .filter(move |arch| arch.contains(ta) && arch.contains(tb))
             .flat_map(|arch| {
-                let ca = arch.columns.get(&ta).unwrap();
-                let cb = arch.columns.get(&tb).unwrap();
+                let ca = arch
+                    .columns
+                    .get(&ta)
+                    .expect("par_query2_map: archetype was filtered to contain column A");
+                let cb = arch
+                    .columns
+                    .get(&tb)
+                    .expect("par_query2_map: archetype was filtered to contain column B");
                 arch.entities
                     .par_iter()
                     .zip(ca.par_iter())
@@ -1083,8 +1146,8 @@ impl World {
                     .map(|((&e, a), b)| {
                         f(
                             e,
-                            a.downcast_ref::<A>().unwrap(),
-                            b.downcast_ref::<B>().unwrap(),
+                            a.downcast_ref::<A>().expect("column holds type A"),
+                            b.downcast_ref::<B>().expect("column holds type B"),
                         )
                     })
             })
