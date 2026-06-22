@@ -4,6 +4,13 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.48.1
+
+**Scheduler topological sort — O((V+E)·log V) instead of O(V·E).** Behavior-preserving refactor of `compute_order` (`src/ecs/schedule.rs`): the Kahn ready-set was a `Vec` scanned with `iter().min()` + `retain` (O(V) per pop) and the relaxation rescanned the *entire* edge set on every pop (O(V·E)). It now builds an adjacency list once and uses a `BinaryHeap<Reverse<usize>>` min-heap, relaxing each out-edge exactly once while preserving the deterministic lowest-index tie-break. **No public API or behavior change** — identical execution order; the scheduler tests are unchanged and green.
+
+### Changed (internal)
+- **`src/ecs/schedule.rs`** — `compute_order` uses an adjacency list + min-heap (`Reverse`) ready-set; the cycle-detection `remaining` set is now derived from leftover in-degree (equivalent to the old `!order.contains(i)`, since a node is popped iff its in-degree reached 0).
+
 ## 0.48.0
 
 **Engine-wide audit pass — logic-bug fixes, Rust↔WGSL drift guards, and fork-friendly knobs.** A 7-subsystem code audit produced this batch of correctness fixes (each with a regression test), internal hardening, and additive public API to un-hardcode values a fork would want to tune. Scope is `src/` only (29 files, +378/−39) — all API changes are additive, no example/game code changed, and the full CI gate is green.
