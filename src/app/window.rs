@@ -639,12 +639,12 @@ impl App {
             }
         }
         // pending_render_targets: create RTs registered before GPU initialization
-        for (name, w, h) in self.pending_render_targets.drain(..) {
+        for (name, w, h, fmt) in self.pending_render_targets.drain(..) {
             let rt = crate::renderer::render_target::RenderTarget::new(
                 &gpu.device,
                 w,
                 h,
-                gpu.config.format,
+                fmt.unwrap_or(gpu.config.format),
             );
             self.render.render_targets.insert(name, rt);
         }

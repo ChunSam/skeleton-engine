@@ -11,6 +11,7 @@ impl SpriteRenderer {
         &self,
         encoder: &mut wgpu::CommandEncoder,
         view: &wgpu::TextureView,
+        sprite_pipeline: &wgpu::RenderPipeline,
         stats: &mut crate::resources::RenderStats,
     ) {
         let instance_size = std::mem::size_of::<InstanceRaw>() as u64;
@@ -71,7 +72,7 @@ impl SpriteRenderer {
                         let byte_end = byte_start + run_len as u64 * instance_size;
                         let bind_group = self.bind_group_for_texture_key(Some(run_key));
 
-                        pass.set_pipeline(&self.pipeline);
+                        pass.set_pipeline(sprite_pipeline);
                         pass.set_bind_group(0, &self.camera_bind_group, &[]);
                         pass.set_bind_group(1, bind_group, &[]);
                         pass.set_vertex_buffer(0, self.vertex_buf.slice(..));

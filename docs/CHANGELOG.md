@@ -4,6 +4,19 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.56.0
+
+**HDR / linear render targets — a caller-chosen pixel format + a format-matched sprite pipeline.** Render targets were locked to the surface format; now `App::create_render_target_with_format(name, w, h, format)` creates one with any `wgpu::TextureFormat` (e.g. `Rgba16Float` for an HDR offscreen buffer, or a linear `Rgba8Unorm`). The offscreen pass threads the target's real format into the sprite renderer, which lazily builds and caches a sprite pipeline matching it — so an `OffscreenCamera` renders correctly into a non-surface-format target (previously a wgpu format mismatch). The single-surface-format fast path is untouched (no per-frame cost when no extra format is used). Tone-mapping an HDR target for final display is the game's responsibility. Additive — existing render targets and call sites are unchanged.
+
+### Added
+- **`App::create_render_target_with_format(name, w, h, format)`** (`src/app/assets.rs`) — a render target with a caller-chosen pixel format; `create_render_target` now delegates to it with the surface format.
+- **`RenderTarget::format()`** (`src/renderer/render_target.rs`) — the target's pixel format (now stored on the target).
+- **Format-matched sprite pipeline** (`src/renderer/sprite.rs`) — `SpriteRenderer` keeps a lazily-built cache of sprite pipelines keyed by target format (`extra_sprite_pipelines`); the offscreen pass (`src/app/render/offscreen.rs`) renders each target with the pipeline matching its format. UI and material pipelines remain surface-format (the offscreen pass is sprite-only).
+- `hdr_render_target` example — an over-bright off-screen scene (sprite colours > 1.0) rendered into both an `Rgba16Float` HDR target and the default 8-bit one, shown side by side with an adjustable exposure. Lowering the exposure shows the HDR target keeping the bright core distinct from the mid square while the 8-bit target collapses them (it clamped both to 1.0 at store time).
+
+### Changed
+- Render targets are no longer fixed to the surface format; an `OffscreenCamera` targeting a non-surface-format render target renders with a matching pipeline instead of failing.
+
 ## 0.55.0
 
 **`RonRegistry<V>` + `RonLoadable` are now public — a fork-friendly custom-asset registry.** The generic `name → value` RON registry that backs the engine's particle / dialogue / animation-clip config registries (with native canonical-path hot-reload) is now re-exported at the crate root. A game can register its **own** RON-loaded config type without forking the engine: implement `RonLoadable` for it (e.g. via `read_ron`) and use `RonRegistry::load` / `get` / `names`. Purely additive — no behavior change.

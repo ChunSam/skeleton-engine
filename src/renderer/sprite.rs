@@ -58,6 +58,15 @@ pub struct FrameContext<'a> {
 // ─── Sprite renderer ─────────────────────────────────────────────────────────
 pub struct SpriteRenderer {
     pipeline: wgpu::RenderPipeline,
+    /// The surface (default) color format `pipeline` targets. An offscreen render target with a
+    /// different format gets a matching sprite pipeline from `extra_sprite_pipelines`.
+    base_format: wgpu::TextureFormat,
+    /// Pipeline layout shared by the sprite + UI pipelines; kept so a format-matched sprite pipeline
+    /// can be built lazily for a non-surface render target.
+    sprite_pipeline_layout: wgpu::PipelineLayout,
+    /// Lazily-built sprite pipelines for non-surface target formats (e.g. an HDR `Rgba16Float` RT),
+    /// keyed by format. Empty in the common single-format case (no per-frame cost there).
+    extra_sprite_pipelines: std::collections::HashMap<wgpu::TextureFormat, wgpu::RenderPipeline>,
     vertex_buf: wgpu::Buffer,
     index_buf: wgpu::Buffer,
     instance_buf: wgpu::Buffer,
@@ -123,6 +132,55 @@ fn push_sprite_if_visible(
     true
 }
 
+/// Builds a sprite render pipeline targeting `format`. Used for the base (surface) format in
+/// [`SpriteRenderer::new`] and lazily for non-surface render-target formats in
+/// [`SpriteRenderer::ensure_sprite_pipeline`] — keeping the pipeline descriptor (alpha blend,
+/// triangle list, no cull) defined in exactly one place.
+fn build_sprite_pipeline(
+    device: &wgpu::Device,
+    shader: &wgpu::ShaderModule,
+    layout: &wgpu::PipelineLayout,
+    format: wgpu::TextureFormat,
+) -> wgpu::RenderPipeline {
+    let vertex_layout = wgpu::VertexBufferLayout {
+        array_stride: std::mem::size_of::<Vertex>() as u64,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2],
+    };
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("sprite pipeline"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: shader,
+            entry_point: Some("vs_main"),
+            buffers: &[vertex_layout, InstanceRaw::layout()],
+            compilation_options: Default::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: shader,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: Default::default(),
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            strip_index_format: None,
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode: None,
+            ..Default::default()
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview_mask: None,
+        // Pipeline cache field added in wgpu 22 — None disables caching
+        cache: None,
+    })
+}
+
 impl SpriteRenderer {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
         // ── Load shader (compile-time embed) ───────────────────────────────────
@@ -174,38 +232,9 @@ impl SpriteRenderer {
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2],
         };
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("sprite pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[vertex_layout.clone(), InstanceRaw::layout()],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            // Pipeline cache field added in wgpu 22 — None disables caching
-            cache: None,
-        });
+        // Base sprite pipeline (surface format). Non-surface render-target formats get a matching
+        // pipeline lazily via `ensure_sprite_pipeline`, both built by `build_sprite_pipeline`.
+        let pipeline = build_sprite_pipeline(device, &shader, &pipeline_layout, format);
 
         // ── UI pipeline (own shader: rounded-rect SDF; reuses the sprite bind-group
         //    layouts so it can share the white-texture / image bind groups) ──────────
@@ -296,6 +325,9 @@ impl SpriteRenderer {
 
         Self {
             pipeline,
+            base_format: format,
+            sprite_pipeline_layout: pipeline_layout,
+            extra_sprite_pipelines: std::collections::HashMap::new(),
             vertex_buf,
             index_buf,
             instance_buf,
@@ -324,6 +356,35 @@ impl SpriteRenderer {
         self.texture_cache.texture_cache.get(path).map(|t| &t.view)
     }
 
+    /// Ensures a sprite pipeline matching `format` exists — builds + caches one for a non-surface
+    /// render-target format on first use; a no-op for the base (surface) format and on cache hits.
+    /// Recompiles the sprite shader for the new pipeline, paid once per distinct format (never per
+    /// frame).
+    fn ensure_sprite_pipeline(&mut self, device: &wgpu::Device, format: wgpu::TextureFormat) {
+        if format == self.base_format || self.extra_sprite_pipelines.contains_key(&format) {
+            return;
+        }
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("sprite shader (rt format)"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/sprite.wgsl").into()),
+        });
+        let pipeline = build_sprite_pipeline(device, &shader, &self.sprite_pipeline_layout, format);
+        self.extra_sprite_pipelines.insert(format, pipeline);
+    }
+
+    /// The sprite pipeline matching `format`: the base pipeline for the surface format, else the
+    /// cached extra ([`ensure_sprite_pipeline`](Self::ensure_sprite_pipeline) must have built it;
+    /// falls back to the base pipeline if somehow missing, to never panic mid-frame).
+    fn sprite_pipeline_for(&self, format: wgpu::TextureFormat) -> &wgpu::RenderPipeline {
+        if format == self.base_format {
+            &self.pipeline
+        } else {
+            self.extra_sprite_pipelines
+                .get(&format)
+                .unwrap_or(&self.pipeline)
+        }
+    }
+
     pub fn render(
         &mut self,
         ctx: &mut FrameContext,
@@ -335,6 +396,9 @@ impl SpriteRenderer {
         let device = ctx.device;
         let queue = ctx.queue;
         let view = ctx.view;
+        // The color format of the target view (surface or a render target). A non-surface format
+        // (e.g. an HDR `Rgba16Float` RT) gets a matching sprite pipeline.
+        let target_format = ctx.format;
         let encoder = &mut *ctx.encoder;
         let mut stats = crate::resources::RenderStats::default();
         // ── Camera: read from the ECS resource and compute view_proj ───
@@ -380,7 +444,11 @@ impl SpriteRenderer {
         // sequenced here and behave exactly as the prior inline body.
         self.collect_draw_entries(world, layer_mask, &is_visible, &is_above_lod, &mut stats);
         self.batch_and_upload(device, queue, &mut stats);
-        self.record_draw_pass(encoder, view, &mut stats);
+        // Pick (and lazily build) the sprite pipeline matching the target's format, so an HDR /
+        // linear offscreen render target renders with a pipeline whose color-target format matches.
+        self.ensure_sprite_pipeline(device, target_format);
+        let sprite_pipeline = self.sprite_pipeline_for(target_format);
+        self.record_draw_pass(encoder, view, sprite_pipeline, &mut stats);
 
         // Prevent GPU params buffer leaks for ShaderMaterial entities: remove
         // buffers/bind-groups for entities that are no longer alive (despawned or

@@ -44,12 +44,15 @@ impl App {
                         std::sync::Arc::clone(&rt.bind_group),
                         layer_mask,
                         rt.clear_color,
+                        rt.format,
                     )
                 })
             })
             .collect();
 
-        for (target_name, cam, rt_w, rt_h, rt_view, bg, layer_mask, rt_clear_color) in rt_info {
+        for (target_name, cam, rt_w, rt_h, rt_view, bg, layer_mask, rt_clear_color, rt_format) in
+            rt_info
+        {
             // ① Swap camera — if no prior camera existed remove it after render, otherwise restore
             let saved_cam = world.resource::<crate::camera::Camera>().copied();
             world.insert_resource(cam);
@@ -101,14 +104,15 @@ impl App {
                 });
             }
 
-            // ④ Render sprites → RT (layer_mask prevents self-capture)
+            // ④ Render sprites → RT (layer_mask prevents self-capture). Use the RT's own format so
+            // the sprite pass picks a pipeline whose color-target format matches (HDR / linear RTs).
             if let Some(sr) = &mut render.sprite_renderer {
                 sr.render(
                     &mut FrameContext {
                         device: &gpu.device,
                         queue: &gpu.queue,
                         view: rt_view,
-                        format: gpu.config.format,
+                        format: rt_format,
                         encoder: &mut oenc,
                     },
                     world,

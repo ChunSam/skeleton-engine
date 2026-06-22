@@ -1,20 +1,49 @@
 use super::*;
 
 impl App {
+    /// Creates a render target sampleable by the sprite pipeline, using the **surface** pixel
+    /// format. For an HDR (`Rgba16Float`) or other caller-chosen format, use
+    /// [`create_render_target_with_format`](Self::create_render_target_with_format).
     pub fn create_render_target(&mut self, name: impl Into<String>, width: u32, height: u32) {
-        let name = name.into();
+        self.create_render_target_impl(name.into(), width, height, None);
+    }
+
+    /// Creates a render target with a caller-chosen pixel `format` (e.g. `wgpu::TextureFormat::Rgba16Float`
+    /// for an HDR offscreen buffer, or a linear `Rgba8Unorm`). The offscreen pass renders into it with a
+    /// sprite pipeline built to match `format` (built lazily, cached per format), so an `OffscreenCamera`
+    /// targeting this RT renders correctly even when `format` differs from the surface format. The RT is
+    /// still sampleable by ordinary sprite draws (e.g. to display the result). Tone-mapping an HDR target
+    /// for final display is the game's responsibility (e.g. a `ShaderMaterial` on the display sprite).
+    pub fn create_render_target_with_format(
+        &mut self,
+        name: impl Into<String>,
+        width: u32,
+        height: u32,
+        format: wgpu::TextureFormat,
+    ) {
+        self.create_render_target_impl(name.into(), width, height, Some(format));
+    }
+
+    fn create_render_target_impl(
+        &mut self,
+        name: String,
+        width: u32,
+        height: u32,
+        format: Option<wgpu::TextureFormat>,
+    ) {
         if let Some(gpu) = &self.gpu {
-            // GPU already initialized — create immediately
+            // GPU already initialized — create immediately (None inherits the surface format).
             let rt = crate::renderer::render_target::RenderTarget::new(
                 &gpu.device,
                 width,
                 height,
-                gpu.config.format,
+                format.unwrap_or(gpu.config.format),
             );
             self.render.render_targets.insert(name, rt);
         } else {
-            // GPU not yet initialized — defer to pending
-            self.pending_render_targets.push((name, width, height));
+            // GPU not yet initialized — defer to pending (the format resolves at creation).
+            self.pending_render_targets
+                .push((name, width, height, format));
         }
     }
 
