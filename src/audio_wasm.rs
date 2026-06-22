@@ -96,6 +96,14 @@ pub struct WebAudio {
     /// `AudioEffect` "applied on next play" semantics). A `BiquadFilterNode` is inserted into the
     /// channel's graph when an entry is present.
     tone_lowpass: Rc<RefCell<HashMap<String, f32>>>,
+    /// Named, caller-addressable **positional** sounds (see [`play_at_on_channel`]). Each is a
+    /// looping [`Sfx`] whose distance-based volume/pan is updated each frame via
+    /// [`update_position`]; keyed by the caller's channel name so the facade can reposition or stop
+    /// it by name (the web analogue of the native `AudioManager` positional channel).
+    ///
+    /// [`play_at_on_channel`]: WebAudio::play_at_on_channel
+    /// [`update_position`]: WebAudio::update_position
+    spatial_channels: Rc<RefCell<HashMap<String, Sfx>>>,
 }
 
 /// One synthesized tone playing (or scheduled) on a named channel: the oscillator (kept so a replay
@@ -141,6 +149,7 @@ impl WebAudio {
             music_gen: Rc::new(Cell::new(0)),
             tone_channels: Rc::new(RefCell::new(HashMap::new())),
             tone_lowpass: Rc::new(RefCell::new(HashMap::new())),
+            spatial_channels: Rc::new(RefCell::new(HashMap::new())),
         })
     }
 
@@ -547,6 +556,13 @@ impl WebAudio {
     /// before the clip decodes; if node creation/wiring fails, the bare source routes straight to
     /// `dest` (no per-source control) so playback still happens.
     fn play_sfx_to(&self, bytes: &[u8], dest: &web_sys::GainNode) -> Sfx {
+        self.play_sfx_to_opts(bytes, dest, false)
+    }
+
+    /// [`play_sfx_to`](Self::play_sfx_to) with a `repeat` flag — when `true`, the buffer source
+    /// loops (`set_loop(true)`), used by the tracked positional channels
+    /// ([`play_at_on_channel`](Self::play_at_on_channel)) which sustain while their position updates.
+    fn play_sfx_to_opts(&self, bytes: &[u8], dest: &web_sys::GainNode, repeat: bool) -> Sfx {
         let (gain, panner) = match (self.ctx.create_gain(), self.ctx.create_stereo_panner()) {
             (Ok(g), Ok(p)) => {
                 let wired = p.connect_with_audio_node(&g).is_ok()
@@ -588,6 +604,7 @@ impl WebAudio {
                 return;
             };
             src.set_buffer(Some(&audio_buffer));
+            src.set_loop(repeat);
             // Into the per-source panner when we have one, else straight to dest.
             let connected = match &panner {
                 Some(p) => src.connect_with_audio_node(p).is_ok(),
@@ -603,6 +620,56 @@ impl WebAudio {
             }
         });
         sfx
+    }
+
+    /// Plays `bytes` as a **looping positional** sound on a caller-named **channel**, routed through
+    /// the named mixer `bus`, and tracks it so [`update_position`](Self::update_position) /
+    /// [`stop_channel`](Self::stop_channel) can address it by name. Distance-based volume + stereo pan
+    /// are applied immediately from `source`/`listener`/`max_dist`; call `update_position` each frame
+    /// to follow a moving source. Replacing a channel stops its previous sound first. The web analogue
+    /// of the native `AudioManager::play_bytes_at` + positional channel.
+    pub fn play_at_on_channel(
+        &self,
+        channel: &str,
+        bytes: &[u8],
+        source: Vec2,
+        listener: Vec2,
+        max_dist: f32,
+        bus: &str,
+    ) {
+        // Stop any sound already on this channel (replay semantics, like the native channel reuse).
+        if let Some(prev) = self.spatial_channels.borrow_mut().remove(channel) {
+            prev.stop();
+        }
+        let dest = self.bus_input(bus).unwrap_or_else(|| self.master.clone());
+        let sfx = self.play_sfx_to_opts(bytes, &dest, true);
+        sfx.update_position(source, listener, max_dist);
+        self.spatial_channels
+            .borrow_mut()
+            .insert(channel.to_string(), sfx);
+    }
+
+    /// Repositions the named positional `channel` — recomputes its distance-based volume + pan from
+    /// `source`/`listener`/`max_dist` (call each frame to track a moving source). No-op for an
+    /// unknown channel. Mirrors the native `AudioManager::update_position`.
+    pub fn update_position(&self, channel: &str, source: Vec2, listener: Vec2, max_dist: f32) {
+        if let Some(sfx) = self.spatial_channels.borrow().get(channel) {
+            sfx.update_position(source, listener, max_dist);
+        }
+    }
+
+    /// Stops and forgets whatever is playing on the named `channel` — a positional sound
+    /// ([`play_at_on_channel`](Self::play_at_on_channel)) and/or a named tone
+    /// ([`play_tone_on_channel`](Self::play_tone_on_channel)). No-op for an unknown channel. The web
+    /// analogue of the native `AudioManager::stop`.
+    #[allow(deprecated)] // ToneVoice::osc.stop() — same deprecated AudioScheduledSourceNode binding
+    pub fn stop_channel(&self, channel: &str) {
+        if let Some(sfx) = self.spatial_channels.borrow_mut().remove(channel) {
+            sfx.stop();
+        }
+        if let Some(voice) = self.tone_channels.borrow_mut().remove(channel) {
+            let _ = voice.osc.stop();
+        }
     }
 
     /// Shared decode→connect→start path for one-shot SFX. `dest` is the master gain or a bus gain.

@@ -20,6 +20,9 @@
 //!   [`is_channel_playing`](Audio::is_channel_playing) + a low-pass filter
 //!   ([`set_low_pass`](Audio::set_low_pass) / [`clear_low_pass`](Audio::clear_low_pass)) — for a
 //!   sustained/re-triggered tone the game tracks (e.g. a procedural BGM it re-arms when it drains)
+//! - 2D positional sound on a named channel: [`play_at_on_channel`](Audio::play_at_on_channel) +
+//!   [`update_position`](Audio::update_position) + [`stop_channel`](Audio::stop_channel) — a looping
+//!   sound whose distance-based volume + stereo pan track a moving source each frame
 //! - looping music: [`play_music`](Audio::play_music) / [`crossfade_music`](Audio::crossfade_music) /
 //!   [`stop_music`](Audio::stop_music)
 //! - master volume: [`set_master_volume`](Audio::set_master_volume)
@@ -30,9 +33,10 @@
 //! - [`update`](Audio::update) (drives native fades/ducks; no-op on web) — call it from a system, or
 //!   add the provided [`AudioFacadeSystem`].
 //!
-//! Native-only extras (positional `AudioManager::play_at`, per-channel effects beyond the low-pass —
-//! pitch shift, attack/release envelopes — and automatic sidechains) are intentionally **not** on the
-//! facade — reach for the platform backend directly when a game needs them.
+//! Native-only extras (an *untracked* positional one-shot — `AudioManager::play_at` / `WebAudio::play_at`
+//! — per-channel effects beyond the low-pass — pitch shift, attack/release envelopes — and automatic
+//! sidechains) are intentionally **not** on the facade — reach for the platform backend directly when a
+//! game needs them. (Tracked positional sound *is* covered, via [`play_at_on_channel`](Audio::play_at_on_channel).)
 //!
 //! ## Master-volume nuance (native)
 //!
@@ -58,6 +62,8 @@
 //! // later, from a system — no cfg guards:
 //! // if let Some(a) = world.resource_mut::<Audio>() { a.play_sfx(JUMP); }
 //! ```
+
+use glam::Vec2;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::audio::{AudioEffect, AudioManager};
@@ -268,6 +274,57 @@ impl Audio {
         #[cfg(target_arch = "wasm32")]
         {
             self.inner.clear_low_pass(channel);
+        }
+    }
+
+    /// Plays `bytes` as a **looping positional** sound on a caller-named `channel` routed through the
+    /// named mixer `bus`, tracked so [`update_position`](Self::update_position) /
+    /// [`stop_channel`](Self::stop_channel) can address it by name. The distance-based volume (silent
+    /// at `max_dist`) and stereo pan are applied immediately from `source`/`listener`; call
+    /// [`update_position`](Self::update_position) every frame to follow a moving source. Replacing a
+    /// channel stops its previous sound first. (Positional one-shots you don't track aren't covered —
+    /// reach for the platform backend's `play_at` directly.)
+    pub fn play_at_on_channel(
+        &mut self,
+        channel: &str,
+        bytes: &[u8],
+        source: Vec2,
+        listener: Vec2,
+        max_dist: f32,
+        bus: &str,
+    ) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.inner.assign_bus(channel, bus);
+            self.inner
+                .play_bytes_at(channel, bytes, true, source, listener, max_dist);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.inner
+                .play_at_on_channel(channel, bytes, source, listener, max_dist, bus);
+        }
+    }
+
+    /// Repositions a named positional `channel` — recomputes its distance-based volume + stereo pan
+    /// from `source`/`listener`/`max_dist`. Call every frame to track a moving source. No-op for an
+    /// unknown channel. Both backends expose `update_position`, so this needs no `cfg` split.
+    pub fn update_position(&mut self, channel: &str, source: Vec2, listener: Vec2, max_dist: f32) {
+        self.inner
+            .update_position(channel, source, listener, max_dist);
+    }
+
+    /// Stops and forgets whatever is playing on the named `channel` — a positional sound
+    /// ([`play_at_on_channel`](Self::play_at_on_channel)) and/or a named tone
+    /// ([`play_tone_on_channel`](Self::play_tone_on_channel)). No-op for an unknown channel.
+    pub fn stop_channel(&mut self, channel: &str) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.inner.stop(channel);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.inner.stop_channel(channel);
         }
     }
 

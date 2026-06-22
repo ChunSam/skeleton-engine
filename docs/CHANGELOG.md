@@ -4,6 +4,21 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.54.0
+
+**Tracked 2D positional sound on the cross-platform `Audio` facade.** The facade gains a positional sound addressed by a stable **channel name**: `play_at_on_channel` starts a *looping* positional sound (distance-based volume + stereo pan), `update_position` repositions it each frame to follow a moving source, and `stop_channel` stops it. On native this maps to a new byte-based `AudioManager::play_bytes_at` + the existing positional channel; on web to a looping `Sfx` (a new `set_loop` path) with a stereo panner, tracked by name. A new `positional_audio` example drives it — an orbiting sound source with an arrow-key-movable listener — on native **and** web from the same code. Additive — existing facade/`AudioManager`/`WebAudio` call sites are unchanged.
+
+### Added
+- **`Audio::play_at_on_channel(channel, bytes, source, listener, max_dist, bus)`** (`src/audio_facade.rs`) — a looping 2D positional sound on a caller-named channel routed through a named bus; distance falloff (silent at `max_dist`) + stereo pan applied immediately, then tracked via `update_position`.
+- **`Audio::update_position(channel, source, listener, max_dist)`** — repositions a named positional channel each frame (both backends expose `update_position`, so the facade needs no `cfg` split here).
+- **`Audio::stop_channel(channel)`** — stops and forgets whatever plays on a named channel (a positional sound and/or a named tone).
+- **`AudioManager::play_bytes_at(channel, bytes, repeat, source, listener, max_dist)`** (`src/audio/positional.rs`) — the byte-based analogue of `play_at` (which reads a file path), backing the facade's positional playback from `include_bytes!` clips.
+- **`WebAudio::play_at_on_channel` / `update_position` / `stop_channel`** (`src/audio_wasm.rs`) — a looping `Sfx` (via a new `set_loop` path in the shared SFX builder) with a stereo panner, tracked by channel name in a `spatial_channels` map.
+- `positional_audio` example — a cross-platform positional-audio demo (orbiting source, arrow-key listener movement, live volume/pan readout), native + web entry points.
+
+### Changed
+- The facade no longer **excludes** all positional audio — only *untracked* positional one-shots (`play_at`) stay native-only; tracked positional sound is now covered.
+
 ## 0.53.0
 
 **Named tone channels + a low-pass filter on the cross-platform `Audio` facade — and `settings_menu` adopts it.** The facade gains caller-named, *trackable* tone channels: `play_tone_on_channel` plays a sustained/re-triggered tone you address by name, `is_channel_playing` reports whether it is still sounding (re-arm it when it drains), and `set_low_pass` / `clear_low_pass` toggle a low-pass filter on it (applied on the next play). On native this maps to `AudioManager` channels + `AudioEffect.low_pass_hz`; on web it tracks per-channel `OscillatorNode`s with an optional `BiquadFilterNode`. With these covered, the `settings_menu` example game drops its hand-written native-vs-wasm audio split (its sustained two-tone BGM + the muffle low-pass demo) and calls the facade directly — so it now runs, with audio, on the web too. Additive — existing facade/`AudioManager`/`WebAudio` call sites are unchanged.
