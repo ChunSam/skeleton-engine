@@ -14,6 +14,8 @@
 //! `include_bytes!` works everywhere; wasm has no filesystem):
 //!
 //! - one-shot SFX: [`play_sfx`](Audio::play_sfx) / [`play_sfx_on_bus`](Audio::play_sfx_on_bus)
+//! - synthesized tones (no clip bytes): [`play_tone`](Audio::play_tone) /
+//!   [`play_tone_on_bus`](Audio::play_tone_on_bus)
 //! - looping music: [`play_music`](Audio::play_music) / [`crossfade_music`](Audio::crossfade_music) /
 //!   [`stop_music`](Audio::stop_music)
 //! - master volume: [`set_master_volume`](Audio::set_master_volume)
@@ -24,10 +26,9 @@
 //! - [`update`](Audio::update) (drives native fades/ducks; no-op on web) — call it from a system, or
 //!   add the provided [`AudioFacadeSystem`].
 //!
-//! Native-only extras (tone synthesis `AudioManager::play_tone`, positional `AudioManager::play_at`,
-//! per-channel effects, automatic sidechains) are intentionally **not** on the facade — reach for the
-//! platform backend directly when
-//! a game needs them.
+//! Native-only extras (positional `AudioManager::play_at`, per-channel effects like the low-pass
+//! filter, automatic sidechains) are intentionally **not** on the facade — reach for the platform
+//! backend directly when a game needs them.
 //!
 //! ## Master-volume nuance (native)
 //!
@@ -148,6 +149,45 @@ impl Audio {
         #[cfg(target_arch = "wasm32")]
         {
             self.inner.play_sfx_on_bus(bytes, bus);
+        }
+    }
+
+    /// Plays a synthesized sine-wave tone — `freq` Hz for `dur` seconds at amplitude `vol` — as a
+    /// fire-and-forget one-shot, no clip bytes needed. Handy for retro blips/beeps without bundling
+    /// audio files. Rides the master bus on native / the master gain on web (so
+    /// [`set_master_volume`](Self::set_master_volume) scales it); route it through a named bus with
+    /// [`play_tone_on_bus`](Self::play_tone_on_bus) instead. Browsers gate audio behind a user
+    /// gesture — see [`resume`](Self::resume).
+    ///
+    /// On native this shares the same round-robin voice ring as [`play_sfx`](Self::play_sfx), so
+    /// consecutive tones overlap (rather than cutting each other off) until the ring wraps.
+    pub fn play_tone(&mut self, freq: f32, dur: f32, vol: f32) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let channel = self.next_sfx_channel();
+            self.inner.assign_bus(&channel, MASTER_BUS);
+            self.inner.play_tone(&channel, freq, dur, vol);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.inner.play_tone(freq, dur, vol);
+        }
+    }
+
+    /// Like [`play_tone`](Self::play_tone), but routes the tone through the named mixer `bus` so
+    /// [`set_bus_volume`](Self::set_bus_volume) / [`duck_bus`](Self::duck_bus) scale it as a group.
+    /// On native a bus-routed tone is **not** affected by [`set_master_volume`](Self::set_master_volume)
+    /// (see the [module docs](crate::audio_facade) — native buses don't nest); on web it is.
+    pub fn play_tone_on_bus(&mut self, freq: f32, dur: f32, vol: f32, bus: &str) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let channel = self.next_sfx_channel();
+            self.inner.assign_bus(&channel, bus);
+            self.inner.play_tone(&channel, freq, dur, vol);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.inner.play_tone_on_bus(freq, dur, vol, bus);
         }
     }
 

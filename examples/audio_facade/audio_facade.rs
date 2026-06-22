@@ -12,6 +12,7 @@
 //! Keys (every press also calls [`Audio::resume`], which unlocks audio on web after the first
 //! gesture and is a no-op on native):
 //! * `1` `2` `3` — one-shot SFX at three pitches ([`play_sfx`](engine::Audio::play_sfx))
+//! * `T` — synthesized tone, no clip bytes ([`play_tone`](engine::Audio::play_tone))
 //! * `M` — start looping music · `C` — crossfade to another loop · `X` — stop music
 //! * `↑` `↓` — master volume ([`set_master_volume`](engine::Audio::set_master_volume))
 //! * `B` — play a 4 s sustained pad on the **"bed"** bus ([`play_sfx_on_bus`](engine::Audio::play_sfx_on_bus))
@@ -117,7 +118,23 @@ impl Default for AudioDemo {
 impl System for AudioDemo {
     fn run(&mut self, world: &mut World, _dt: f32) {
         // ── Read all key edges in one immutable input borrow ──────────────────
-        let (s1, s2, s3, music, xfade, stop, vol_up, vol_dn, bed, bus_dn, bus_up, duck, rel, quit) = {
+        let (
+            s1,
+            s2,
+            s3,
+            tone,
+            music,
+            xfade,
+            stop,
+            vol_up,
+            vol_dn,
+            bed,
+            bus_dn,
+            bus_up,
+            duck,
+            rel,
+            quit,
+        ) = {
             let Some(input) = world.resource::<InputState>() else {
                 return;
             };
@@ -125,6 +142,7 @@ impl System for AudioDemo {
                 input.just_pressed(KeyCode::Digit1),
                 input.just_pressed(KeyCode::Digit2),
                 input.just_pressed(KeyCode::Digit3),
+                input.just_pressed(KeyCode::KeyT),
                 input.just_pressed(KeyCode::KeyM),
                 input.just_pressed(KeyCode::KeyC),
                 input.just_pressed(KeyCode::KeyX),
@@ -141,6 +159,7 @@ impl System for AudioDemo {
         let any = s1
             || s2
             || s3
+            || tone
             || music
             || xfade
             || stop
@@ -169,6 +188,11 @@ impl System for AudioDemo {
             if s3 {
                 audio.play_sfx(&self.sfx[2]);
                 self.status = "play_sfx (784 Hz)".into();
+            }
+            if tone {
+                // Synthesized on the fly — no clip bytes, unlike the SFX above.
+                audio.play_tone(330.0, 0.15, 0.3);
+                self.status = "play_tone (330 Hz, synthesized)".into();
             }
             if music {
                 audio.play_music(&self.music_a);
@@ -232,7 +256,7 @@ impl System for AudioDemo {
                 HEAD,
             ));
             tq.push(DrawText::new(
-                "1 / 2 / 3 : play_sfx (440 / 587 / 784 Hz)",
+                "1 / 2 / 3 : play_sfx (440 / 587 / 784 Hz)    T : play_tone (synth, no clip)",
                 Vec2::new(x, 84.0),
                 14.0,
                 LEGEND,

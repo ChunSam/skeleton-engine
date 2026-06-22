@@ -254,6 +254,57 @@ impl WebAudio {
         self.decode_then_play_to(bytes, &dest);
     }
 
+    /// Synthesizes a pure sine-wave tone of `freq` Hz for `dur` seconds at amplitude `vol`
+    /// (clamped `0.0..=1.0`), played fire-and-forget through the master gain — the web analogue of
+    /// native tone synthesis ([`AudioManager::play_tone`](crate::audio::AudioManager::play_tone)),
+    /// needing no clip bytes. A short attack/release envelope avoids click artifacts. Browsers gate
+    /// audio behind a user gesture, so the first call should follow one (or call [`resume`](Self::resume)).
+    pub fn play_tone(&self, freq: f32, dur: f32, vol: f32) {
+        self.play_tone_to(freq, dur, vol, &self.master);
+    }
+
+    /// Like [`play_tone`](Self::play_tone), but routes the tone through the named mixer `bus` (created
+    /// on first use) so [`set_bus_volume`](Self::set_bus_volume) / [`duck_bus`](Self::duck_bus) scale
+    /// it as a group.
+    pub fn play_tone_on_bus(&self, freq: f32, dur: f32, vol: f32, bus: &str) {
+        let dest = self.bus_input(bus).unwrap_or_else(|| self.master.clone());
+        self.play_tone_to(freq, dur, vol, &dest);
+    }
+
+    /// Shared tone path for [`play_tone`](Self::play_tone) / [`play_tone_on_bus`](Self::play_tone_on_bus):
+    /// wires `oscillator → gain → dest` (where `dest` is the master gain or a bus gain) and schedules
+    /// a 0→`vol`→0 attack/release envelope on the gain over `dur` seconds, stopping the oscillator at
+    /// the end. The browser keeps the connected nodes alive until the scheduled stop, so the tone is
+    /// fully fire-and-forget. Does nothing if node creation/wiring fails.
+    // web-sys deprecates the `OscillatorNode::start`/`stop*` (AudioScheduledSourceNode) bindings; the
+    // calls are correct (same situation as `stop_at` / `stop_music`), so allow it locally.
+    #[allow(deprecated)]
+    fn play_tone_to(&self, freq: f32, dur: f32, vol: f32, dest: &web_sys::GainNode) {
+        let dur = dur.max(0.0) as f64;
+        let vol = vol.clamp(0.0, 1.0);
+        let (Ok(osc), Ok(gain)) = (self.ctx.create_oscillator(), self.ctx.create_gain()) else {
+            return;
+        };
+        osc.set_type(web_sys::OscillatorType::Sine);
+        osc.frequency().set_value(freq);
+        if osc.connect_with_audio_node(&gain).is_err()
+            || gain.connect_with_audio_node(dest).is_err()
+        {
+            return;
+        }
+        // Attack/release envelope (≤8ms, or a quarter of very short tones) — ramps prevent the
+        // click a hard 0→vol step would make. Held flat between the two edges.
+        let now = self.ctx.current_time();
+        let edge = (dur * 0.25).min(0.008);
+        let g = gain.gain();
+        let _ = g.set_value_at_time(0.0, now);
+        let _ = g.linear_ramp_to_value_at_time(vol, now + edge);
+        let _ = g.set_value_at_time(vol, (now + dur - edge).max(now + edge));
+        let _ = g.linear_ramp_to_value_at_time(0.0, now + dur);
+        let _ = osc.start();
+        let _ = osc.stop_with_when(now + dur);
+    }
+
     /// Plays `bytes` as looping music on the single music channel: stops any current music, then
     /// starts the new clip looping (through the master gain). Stop it with
     /// [`stop_music`](Self::stop_music). For a smooth track-to-track transition use
