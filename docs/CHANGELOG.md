@@ -4,6 +4,17 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.62.1
+
+**Fixed: a UI widget covered by another widget kind could still fire.** Each widget pass (button / checkbox / slider / scroll / focus) used to hit-test only its own kind, so e.g. a button behind an opaque `Panel` (or any higher-z widget) still emitted `ButtonClicked` on a click that visually landed on the panel. A new shared per-frame pointer-occlusion map now decides which single widget owns each point across *all* widget kinds, and every pointer interaction (click, toggle, slider press, wheel scroll, click-to-focus) is granted only to the topmost pointer-opaque surface under the cursor. No public API change.
+
+### Fixed
+- Cross-widget pointer capture: a button / checkbox / slider / scroll view / focusable covered by a higher-z widget (e.g. a `Panel`) no longer receives the pointer interaction — the topmost surface absorbs it (`src/ui/system/capture.rs`, new internal `PointerCapture`; `UiSystem` rebuilds it once per frame and the focus/button/checkbox/slider/scroll passes query it).
+
+### Changed
+- Click-to-focus now follows draw order (z): when focusable widgets overlap, a click focuses the one drawn on top (greater z), consistent with the other widget passes and with what the player sees. Previously focus ignored z and picked the highest entity index; a z tie is still broken by entity index. (Behavior correction; no API change.)
+- `Panel` registers in the capture set at `z - 0.01` (where its background actually draws), so a panel occludes lower-z widgets behind it but never its own children. `Label` is excluded from capture (text is not pointer-opaque).
+
 ## 0.62.0
 
 **Fixed design (virtual) resolution + letterbox scaling — a new opt-in `DesignResolution` resource (EW-003).** A game can author its whole UI at one logical canvas size (e.g. 1280×720) and ship at any window size: the engine reports the design size as `ViewportSize`, renders all content in design space, then scales it to the real window with a **uniform, centered scale + letterbox bars**. Cursor input and `Camera::screen_to_world` are mapped back into design space so hit-testing still lines up. Absent (the default), `ViewportSize` equals the window size and nothing is scaled — existing games are unaffected, and the OFF path is byte-identical (the letterbox is a `(1,1)` clip scale = a no-op). Implemented as a coordinate transform (no offscreen render target / extra blit), so content renders crisply at native window resolution. Companion to EW-002.

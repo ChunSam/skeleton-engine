@@ -6,6 +6,7 @@ use crate::resources::ViewportSize;
 use crate::ui::node::UiNode;
 use crate::ui::slider::Slider;
 
+use super::capture::PointerCapture;
 use super::state::{in_bounds, node_layout, InputSnapshot, UiOutput};
 use super::UiEvent;
 
@@ -13,11 +14,18 @@ pub(super) fn run(
     world: &mut World,
     viewport: &ViewportSize,
     input: &InputSnapshot,
+    capture: &PointerCapture,
     output: &mut UiOutput,
     scratch: &mut Vec<Entity>,
 ) {
     scratch.clear();
     scratch.extend(world.query2::<UiNode, Slider>().map(|(e, _, _)| e));
+
+    // A press starts a drag only when the slider owns the pointer (shared capture → a slider covered
+    // by another widget kind doesn't grab the press through it). An in-progress drag keeps following
+    // the cursor even off the track, as before.
+    let pressed_owner = capture.topmost_at(input.press_cursor);
+    let hover_owner = capture.topmost_at(input.cursor);
 
     for entity in scratch.iter().copied() {
         let (pos, size, z, visible) = match node_layout(world, entity, viewport) {
@@ -31,7 +39,7 @@ pub(super) fn run(
         let thumb_w = world.get::<Slider>(entity).map_or(14.0, |s| s.thumb_width);
         let track_len = (size.x - thumb_w).max(0.0);
 
-        let just_pressed_hit = input.just_pressed && in_bounds(input.press_cursor, pos, size);
+        let just_pressed_hit = input.just_pressed && pressed_owner == Some(entity);
 
         if just_pressed_hit {
             if let Some(slider) = world.get_mut::<Slider>(entity) {
@@ -81,11 +89,12 @@ pub(super) fn run(
         };
 
         let thumb_x = pos.x + norm * track_len;
-        let thumb_hovered = in_bounds(
-            input.cursor,
-            Vec2::new(thumb_x, pos.y),
-            Vec2::new(thumb_w, size.y),
-        );
+        let thumb_hovered = hover_owner == Some(entity)
+            && in_bounds(
+                input.cursor,
+                Vec2::new(thumb_x, pos.y),
+                Vec2::new(thumb_w, size.y),
+            );
 
         output
             .rects
