@@ -76,6 +76,53 @@ Instances: `TextInput::cursor_blink` (caret blink, `src/ui/system/text_input_pas
 - `DebugDraw` = pure data (`DebugShape` / filled rects) → converted to `DrawRect` in the `App` render stage
 - Render order: Systems → Events flush → Input flush → Scene command handling → Render (sprites → UI → text)
 
+### Render-target-format-aware pipeline cache
+
+A render pipeline bakes in its color-target `TextureFormat`, so a pipeline compiled for the
+surface format **fails wgpu validation if used against a different target** — an offscreen
+`RenderTarget` or the `Rgba16Float` HDR post-process intermediate. **Rule: a new render pass
+must key its pipeline by the *target* format, not `gpu.config.format`.** Skipping this makes
+the feature silently vanish under HDR post / offscreen RTs (exactly the #213 + #220
+regressions — UI primitives, `ShaderMaterial`, and GPU particles each disappeared until their
+pipeline was made format-aware).
+
+Keep the surface-format fast path and lazily build + cache a matching pipeline per non-surface
+format, paid once per distinct format (never per frame):
+
+```rust
+// 1. Store the surface pipeline + its format; an empty per-format cache.
+base_format: wgpu::TextureFormat,
+extra_pipelines: HashMap<wgpu::TextureFormat, wgpu::RenderPipeline>,
+
+// 2. ensure_*: no-op for base format or a cache hit; else compile + insert.
+fn ensure_pipeline(&mut self, device: &wgpu::Device, format: wgpu::TextureFormat) {
+    if format == self.base_format || self.extra_pipelines.contains_key(&format) { return; }
+    self.extra_pipelines.insert(format, build_pipeline(device, /* … */, format));
+}
+
+// 3. *_for: base pipeline for the surface format, else the cached extra
+//    (fall back to base if somehow missing — never panic mid-frame).
+fn pipeline_for(&self, format: wgpu::TextureFormat) -> &wgpu::RenderPipeline {
+    if format == self.base_format { &self.pipeline }
+    else { self.extra_pipelines.get(&format).unwrap_or(&self.pipeline) }
+}
+```
+
+The renderer carries the target format in `FrameContext.format`; the offscreen pass threads the
+`RenderTarget`'s `format()`. Four instances, all this shape (later ones say "Mirrors the sprite
+cache"):
+
+| Renderer | Cache field | Build / select | File |
+|---|---|---|---|
+| Sprite | `extra_sprite_pipelines` | `ensure_sprite_pipeline` / `sprite_pipeline_for` | `src/renderer/sprite.rs` |
+| UI primitive | `extra_ui_pipelines` | (same module) | `src/renderer/sprite.rs` |
+| `ShaderMaterial` | `custom_pipelines` keyed by `(hash, format)` | `MaterialRenderer::compile_pipeline` | `src/renderer/sprite/material.rs` |
+| GPU particle | `extra_render_pipelines` | `ensure_render_pipeline` / `render_pipeline_for` | `src/renderer/gpu_particle.rs` |
+
+The keys differ slightly (`ShaderMaterial` keys by `(source-hash, format)` since the frag shader
+also varies), so the shape is **duplicated deliberately rather than abstracted** — revisit a
+shared helper only if a fifth pipeline needs it.
+
 ### UI system registration order
 
 When using `Panel`, register `LayoutSystem` **before** `UiSystem`:
