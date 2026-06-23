@@ -48,19 +48,23 @@ impl App {
 
     /// Lazily create / resize the post-process renderer for the current surface.
     /// Extracted from `render()` (pre-frame setup; no encoder/submit involved).
+    /// `out_fmt` is the final display/swapchain format; `inter_fmt` is the scene intermediate format
+    /// (== `out_fmt` normally, `Rgba16Float` when `PostProcessConfig::hdr` is on).
     pub(in crate::app) fn setup_post_renderer(
         render: &mut RenderState,
         device: &wgpu::Device,
         w: u32,
         h: u32,
-        fmt: wgpu::TextureFormat,
+        out_fmt: wgpu::TextureFormat,
+        inter_fmt: wgpu::TextureFormat,
     ) {
         match &mut render.post_renderer {
             None => {
-                render.post_renderer = Some(PostProcessRenderer::new(device, w, h, fmt));
+                render.post_renderer =
+                    Some(PostProcessRenderer::new(device, w, h, out_fmt, inter_fmt));
             }
-            Some(pr) if pr.format() != fmt => {
-                pr.reconfigure(device, w, h, fmt);
+            Some(pr) if pr.output_format() != out_fmt || pr.intermediate_format() != inter_fmt => {
+                pr.reconfigure(device, w, h, out_fmt, inter_fmt);
             }
             Some(pr) if pr.width != w || pr.height != h => {
                 pr.resize(device, w, h);

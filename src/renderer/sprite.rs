@@ -448,7 +448,16 @@ impl SpriteRenderer {
         // linear offscreen render target renders with a pipeline whose color-target format matches.
         self.ensure_sprite_pipeline(device, target_format);
         let sprite_pipeline = self.sprite_pipeline_for(target_format);
-        self.record_draw_pass(encoder, view, sprite_pipeline, &mut stats);
+        // Material pipelines are compiled for the base format only; they are skipped when drawing
+        // into a different attachment (e.g. an HDR post-process intermediate).
+        let materials_supported = target_format == self.base_format;
+        self.record_draw_pass(
+            encoder,
+            view,
+            sprite_pipeline,
+            materials_supported,
+            &mut stats,
+        );
 
         // Prevent GPU params buffer leaks for ShaderMaterial entities: remove
         // buffers/bind-groups for entities that are no longer alive (despawned or

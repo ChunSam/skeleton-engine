@@ -682,6 +682,7 @@ fn main() {
         brightness: 0.0,
         contrast: 1.05,
         saturation: 1.1,
+        ..Default::default()
     });
 
     // Clamp the camera to the level rectangle so it never scrolls past the edges.

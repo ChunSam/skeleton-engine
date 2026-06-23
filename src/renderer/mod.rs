@@ -28,7 +28,7 @@ pub(crate) struct CameraUniform {
 }
 
 pub use context::{GpuContext, GpuContextError};
-pub use post_process::{PostProcessConfig, PostProcessRenderer};
+pub use post_process::{PostProcessConfig, PostProcessRenderer, Tonemap};
 pub use render_plugin::RenderPlugin;
 pub use render_target::RenderTarget;
 pub use sprite::{FrameContext, SpriteRenderer};

@@ -1,6 +1,33 @@
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
+/// Tone-mapping operator applied by the post-process pass: maps an (optionally over-bright,
+/// HDR) scene into the displayable `[0, 1]` range. Only meaningful when [`PostProcessConfig::hdr`]
+/// is on (otherwise the scene was already clamped at 8-bit store time). `#[non_exhaustive]` so
+/// more operators can be added without a breaking change.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Tonemap {
+    /// No tone-mapping (the raw colour is clamped). Default — byte-identical to the pre-tonemap pass.
+    #[default]
+    None,
+    /// Reinhard `c / (1 + c)` — cheap, desaturates highlights.
+    Reinhard,
+    /// ACES filmic approximation (Narkowicz) — filmic highlight roll-off, the usual default for HDR.
+    AcesFilmic,
+}
+
+impl Tonemap {
+    /// Stable `u32` encoding sent to the shader uniform.
+    fn as_u32(self) -> u32 {
+        match self {
+            Tonemap::None => 0,
+            Tonemap::Reinhard => 1,
+            Tonemap::AcesFilmic => 2,
+        }
+    }
+}
+
 /// Post-processing configuration. Insert as a World resource to activate.
 ///
 /// ```rust,no_run
@@ -12,6 +39,13 @@ use wgpu::util::DeviceExt;
 ///     ..Default::default()
 /// });
 /// ```
+///
+/// **HDR tone-mapping:** set `hdr: true` to render the scene into an `Rgba16Float` intermediate
+/// (preserving colour values `> 1.0` instead of clamping them at store time), then pick a
+/// [`tonemap`](Self::tonemap) operator and an [`exposure`](Self::exposure) to map it back to the
+/// display. The HDR intermediate is currently fed by the **sprite, UI-primitive, and render-plugin**
+/// passes (GPU particles and shader-materials in an HDR post scene are not yet supported). When
+/// `hdr` is false the pass behaves exactly as before.
 #[derive(Clone, Copy, Debug)]
 pub struct PostProcessConfig {
     /// When false the post-process pass is skipped entirely.
@@ -32,6 +66,13 @@ pub struct PostProcessConfig {
     pub contrast: f32,
     /// Saturation multiplier (0.0~3.0; 1.0 = original, 0.0 = grayscale).
     pub saturation: f32,
+    /// Render the scene into an `Rgba16Float` HDR intermediate so `> 1.0` colours survive to be
+    /// tone-mapped. `false` (default) keeps the surface-format intermediate = original behaviour.
+    pub hdr: bool,
+    /// Exposure multiplier applied to the scene colour before tone-mapping (`1.0` = none).
+    pub exposure: f32,
+    /// Tone-mapping operator (see [`Tonemap`]). Only meaningful with `hdr: true`.
+    pub tonemap: Tonemap,
 }
 
 impl Default for PostProcessConfig {
@@ -46,12 +87,15 @@ impl Default for PostProcessConfig {
             brightness: 0.0,
             contrast: 1.0,
             saturation: 1.0,
+            hdr: false,
+            exposure: 1.0,
+            tonemap: Tonemap::None,
         }
     }
 }
 
 // Uniform struct sent to the GPU.
-// Layout (std140-compatible, 10 × f32 = 40 bytes padded to 48 for 16B alignment):
+// Layout (std140-compatible, 12 × 4 bytes = 48 bytes, already a 16B multiple):
 //   [0]  vignette_strength
 //   [4]  vignette_radius
 //   [8]  chroma_offset
@@ -62,8 +106,11 @@ impl Default for PostProcessConfig {
 //   [28] saturation
 //   [32] texel_size.x  (1.0 / target_width)
 //   [36] texel_size.y  (1.0 / target_height)
-//   [40] _pad0         (padding to reach 48 bytes / 16B boundary)
-//   [44] _pad1
+//   [40] exposure      (scene colour multiply before tone-mapping; was _pad0.x)
+//   [44] tonemap       (u32 operator id; was _pad0.y)
+//
+// The trailing 8 bytes were padding (`pad0: vec2`); they now carry `exposure` + `tonemap`, so the
+// struct size is unchanged (48 B) — no buffer/layout change.
 //
 // `texel_size` is pre-computed here so the shader avoids per-fragment
 // `textureDimensions` calls (which emit a driver query on some backends).
@@ -80,7 +127,10 @@ struct PostProcessUniforms {
     saturation: f32,
     /// Pre-computed texel size: (1/width, 1/height). Populated by `update_uniforms`.
     texel_size: [f32; 2],
-    pad0: [f32; 2],
+    /// Exposure multiplier applied before tone-mapping (1.0 = none).
+    exposure: f32,
+    /// Tone-map operator id (`Tonemap::as_u32`).
+    tonemap: u32,
 }
 
 /// Populates `PostProcessUniforms` from a config + the current render-target dimensions.
@@ -104,7 +154,8 @@ fn make_uniforms(c: &PostProcessConfig, width: u32, height: u32) -> PostProcessU
         contrast: c.contrast,
         saturation: c.saturation,
         texel_size: [tw, th],
-        pad0: [0.0; 2],
+        exposure: c.exposure,
+        tonemap: c.tonemap.as_u32(),
     }
 }
 
@@ -117,7 +168,12 @@ pub struct PostProcessRenderer {
     /// Current resolution of the intermediate texture.
     pub(crate) width: u32,
     pub(crate) height: u32,
-    format: wgpu::TextureFormat,
+    /// Pixel format of the **final output** (the swapchain / display target the pass writes to).
+    output_format: wgpu::TextureFormat,
+    /// Pixel format of the **intermediate** scene texture the scene is drawn into (== `output_format`
+    /// unless HDR is on, in which case `Rgba16Float`). The scene passes must render with a pipeline
+    /// matching this.
+    intermediate_format: wgpu::TextureFormat,
     pipeline: wgpu::RenderPipeline,
     sampler: wgpu::Sampler,
     bind_group_layout: wgpu::BindGroupLayout,
@@ -126,11 +182,15 @@ pub struct PostProcessRenderer {
 }
 
 impl PostProcessRenderer {
+    /// Creates the post-process renderer. `output_format` is the final display/swapchain format the
+    /// pass writes to; `intermediate_format` is the scene texture the scene is drawn into (pass
+    /// `Rgba16Float` for an HDR intermediate, else the same as `output_format`).
     pub fn new(
         device: &wgpu::Device,
         width: u32,
         height: u32,
-        surface_format: wgpu::TextureFormat,
+        output_format: wgpu::TextureFormat,
+        intermediate_format: wgpu::TextureFormat,
     ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("post_process shader"),
@@ -206,7 +266,7 @@ impl PostProcessRenderer {
                 module: &shader,
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: surface_format,
+                    format: output_format,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -220,7 +280,7 @@ impl PostProcessRenderer {
         });
 
         let (target_texture, target_view) =
-            Self::create_target(device, width, height, surface_format);
+            Self::create_target(device, width, height, intermediate_format);
 
         let bind_group = Self::create_bind_group(
             device,
@@ -235,7 +295,8 @@ impl PostProcessRenderer {
             target_view,
             width,
             height,
-            format: surface_format,
+            output_format,
+            intermediate_format,
             pipeline,
             sampler,
             bind_group_layout,
@@ -244,8 +305,15 @@ impl PostProcessRenderer {
         }
     }
 
-    pub(crate) fn format(&self) -> wgpu::TextureFormat {
-        self.format
+    /// The final output (display/swapchain) format the pass writes to.
+    pub(crate) fn output_format(&self) -> wgpu::TextureFormat {
+        self.output_format
+    }
+
+    /// The intermediate scene-texture format (the format the scene passes must render with). Equals
+    /// `output_format` unless HDR is enabled (`Rgba16Float`).
+    pub(crate) fn intermediate_format(&self) -> wgpu::TextureFormat {
+        self.intermediate_format
     }
 
     pub(crate) fn reconfigure(
@@ -253,14 +321,15 @@ impl PostProcessRenderer {
         device: &wgpu::Device,
         width: u32,
         height: u32,
-        surface_format: wgpu::TextureFormat,
+        output_format: wgpu::TextureFormat,
+        intermediate_format: wgpu::TextureFormat,
     ) {
-        *self = Self::new(device, width, height, surface_format);
+        *self = Self::new(device, width, height, output_format, intermediate_format);
     }
 
     /// Recreates the intermediate texture when the window is resized.
     pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {
-        let (tex, view) = Self::create_target(device, width, height, self.format);
+        let (tex, view) = Self::create_target(device, width, height, self.intermediate_format);
         self.target_texture = tex;
         self.target_view = view;
         self.width = width;
