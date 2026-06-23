@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.6.129 | package `skeleton-engine` v0.60.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
+> Version v1.6.130 | package `skeleton-engine` v0.61.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example game ships to
 > the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`  
@@ -94,7 +94,7 @@ Where to read to find a given thing:
 | `System` trait | `src/ecs/system.rs` |
 | Scene transitions (Scene, SceneCmd, SceneChange; `App::set_scene` = Replace, **`App::push_scene`/`pop_scene`** = stack overlays e.g. pause menu), SystemRegistrar (labeled system registration from `on_enter`) | `src/scene.rs` |
 | Transform, Sprite | `src/components.rs` |
-| WindowConfig, GameState, ShouldQuit, DebugDraw (filled rects via `rect_filled_z`; `DebugShape` is `#[non_exhaustive]`); **TimeScale** (global `dt` multiplier for scene systems → hit-stop/slow-mo, `App::set_time_scale`) + **RealDt** (real unscaled per-frame dt, for systems that must opt out of time-scaling) | `src/resources.rs` |
+| WindowConfig, GameState, ShouldQuit, DebugDraw (filled rects via `rect_filled_z`; `DebugShape` is `#[non_exhaustive]`); **WindowOptions** (opt-in resource, `ImeConfig`-style — absent = default resizable window, so NO `WindowConfig` field added/breaking: `resizable` / `mode: WindowMode` (Windowed/**BorderlessFullscreen**) / `lock_aspect: Option<f32>` (live resize corrected back to ratio, native-only — `window.rs` `Resized` re-derives height from width, converges in one step); example `window_mode`); **TimeScale** (global `dt` multiplier for scene systems → hit-stop/slow-mo, `App::set_time_scale`) + **RealDt** (real unscaled per-frame dt, for systems that must opt out of time-scaling) | `src/resources.rs` |
 | Camera (coordinate transforms, zoom; `screen_to_world`/`world_to_screen`; `bounds` + `clamp_to_bounds` world-bounds clamp, auto-applied by App after follow) | `src/camera.rs` |
 | ParallaxLayer (`factor: Vec2` depth scroll: 1=world-locked, 0=screen-locked, >1=foreground; lazy base capture), ParallaxSystem (user-added: `pos = base + (cam - cam_ref) * (1 - factor)`; reads `Camera`, add after camera-mover systems; example `parallax_scroll`) | `src/parallax.rs` |
 | InputState, InputMap (keyboard + gamepad bindings: `bind_gamepad_button`/`bind_gamepad_axis` + `AxisBinding`, `*_with_gamepad` resolution) | `src/input/` |

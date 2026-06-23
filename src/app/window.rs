@@ -16,9 +16,24 @@ impl ApplicationHandler for App {
             .resource::<WindowConfig>()
             .map(|c| (c.width, c.height, c.title.clone()))
             .unwrap_or((1280, 720, "Game".to_string()));
+        // Optional window behavior (resizable / fullscreen / aspect-lock). Absent = the
+        // default resizable windowed window, so games that never insert it are unaffected.
+        let opts = self
+            .world
+            .resource::<WindowOptions>()
+            .cloned()
+            .unwrap_or_default();
         let attrs = Window::default_attributes()
             .with_title(&title)
-            .with_inner_size(winit::dpi::LogicalSize::new(init_w, init_h));
+            .with_inner_size(winit::dpi::LogicalSize::new(init_w, init_h))
+            .with_resizable(opts.resizable);
+        let attrs = match opts.mode {
+            WindowMode::Windowed => attrs,
+            // `Borderless(None)` = borderless fullscreen on the current monitor (no mode switch).
+            WindowMode::BorderlessFullscreen => {
+                attrs.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
+            }
+        };
 
         // WASM: attach the <canvas id="game-canvas"> element in the HTML page to the winit window.
         #[cfg(target_arch = "wasm32")]
@@ -122,6 +137,27 @@ impl ApplicationHandler for App {
                         }
                     };
                     gpu.resize(size);
+                }
+                // Aspect-ratio lock (native): when WindowOptions requests a locked ratio,
+                // correct the inner size back to it (height re-derived from the new width).
+                // request_inner_size triggers another Resized whose height already matches the
+                // ratio, so this converges in a single step — no feedback loop.
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let lock = self
+                        .world
+                        .resource::<WindowOptions>()
+                        .and_then(|o| o.resizable.then_some(o.lock_aspect).flatten());
+                    if let (Some(ratio), Some(window)) = (lock, &self.window) {
+                        if ratio > 0.0 && size.width > 0 {
+                            let want_h = ((size.width as f32 / ratio).round() as u32).max(1);
+                            if want_h.abs_diff(size.height) > 1 {
+                                let _ = window.request_inner_size(winit::dpi::PhysicalSize::new(
+                                    size.width, want_h,
+                                ));
+                            }
+                        }
+                    }
                 }
                 // Render one frame during a live resize drag to reduce visual stutter.
                 // (On macOS, Resized fires during the modal resize loop even when RedrawRequested stalls.)

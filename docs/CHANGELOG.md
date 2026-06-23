@@ -4,6 +4,16 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.61.0
+
+**Window mode control — a new opt-in `WindowOptions` resource for resizability, fullscreen, and a 16:9-style aspect lock (EW-002).** A fixed-aspect game can now stop a freeform OS resize from distorting its UI without forking the engine. Delivered as a *separate* resource (the `ImeConfig` pattern) rather than new `WindowConfig` fields, so **no public API breaks** — absent, the engine behaves exactly as before (a normal resizable windowed window). The aspect-lock resize correction is native-only (the wasm canvas size is owned by the HTML page).
+
+### Added
+- `WindowOptions` resource (`src/resources.rs`) — `resizable: bool` (default `true`), `mode: WindowMode`, `lock_aspect: Option<f32>`. Insert before `App::run()`; absent = default behavior. Re-exported from `engine`.
+- `WindowMode` enum — `Windowed` (default) / `BorderlessFullscreen` (borderless fullscreen on the current monitor).
+- `src/app/window.rs` applies `WindowOptions`: `with_resizable` + `with_fullscreen(Borderless(None))` at window creation, and a native `WindowEvent::Resized` handler that re-derives height from width to hold `lock_aspect` (converges in one step — the corrected size's next `Resized` already matches, no feedback loop).
+- `examples/window_mode.rs` — 16:9 aspect-lock demo: a live-`ViewportSize` border ring + centered box that stay 16:9 as the window is dragged.
+
 ## 0.60.0
 
 **`hdr_render_target` example shipped to the web — and `Rgba16Float` render targets confirmed on WebGL2.** The HDR-vs-LDR render-target demo now has a `web/` harness, so it runs in a browser with the same code as native. This also answers a portability question the HDR-render-target feature left open: an `Rgba16Float` color **render target** works on `wgpu`'s WebGL2 backend (it needs the `EXT_color_buffer_float` extension) — verified headless under SwiftShader, the lowest-common-denominator WebGL2 backend, so modern browsers work too. Render targets were already cross-platform (not native-only as the example previously claimed); only the example's wasm entry point + harness were missing. No library change.

@@ -377,6 +377,61 @@ impl Default for WindowConfig {
     }
 }
 
+/// How the OS window is displayed. Default [`WindowMode::Windowed`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WindowMode {
+    /// A normal windowed window at the [`WindowConfig`] size.
+    #[default]
+    Windowed,
+    /// Borderless fullscreen on the current monitor (covers the screen at its native
+    /// resolution, no mode switch). The [`WindowConfig`] width/height still set the initial
+    /// inner size used before fullscreen is applied.
+    BorderlessFullscreen,
+}
+
+/// Optional window behavior — resizability, fullscreen mode, and aspect-ratio lock.
+///
+/// Like [`ImeConfig`], this is a separate opt-in resource: **insert it before `App::run()`**
+/// to override the defaults. When absent, the engine uses the same defaults as
+/// [`WindowOptions::default`] — a normal resizable windowed window — so existing games are
+/// unaffected (no [`WindowConfig`] field was added, so no call site breaks).
+///
+/// ```no_run
+/// # use engine::{App, WindowOptions};
+/// let mut app = App::new();
+/// // A fixed-aspect game: a non-resizable window can't be dragged to a new aspect.
+/// app.world.insert_resource(WindowOptions { resizable: false, ..Default::default() });
+/// ```
+#[derive(Debug, Clone)]
+pub struct WindowOptions {
+    /// Whether the OS window can be resized by dragging its edges. Default `true`
+    /// (winit's default). Set `false` for a fixed-size window whose aspect can never be
+    /// distorted by a resize — the simplest, most reliable way to keep a fixed-aspect UI
+    /// aligned.
+    pub resizable: bool,
+    /// Windowed vs. borderless-fullscreen. Default [`WindowMode::Windowed`].
+    pub mode: WindowMode,
+    /// Optional aspect-ratio lock as `width / height` (e.g. `16.0 / 9.0`). When `Some`, a
+    /// live resize is corrected back to this ratio (height re-derived from the new width) so
+    /// the window can grow and shrink but never changes aspect. `None` (default) = no lock.
+    /// Ignored when `resizable == false` (a fixed window already can't change aspect) and on
+    /// wasm (the canvas size is owned by the HTML page).
+    pub lock_aspect: Option<f32>,
+}
+
+impl Default for WindowOptions {
+    fn default() -> Self {
+        // Mirrors the engine's no-resource behavior: a normal resizable windowed window with
+        // no aspect lock. `#[derive(Default)]` would give `resizable: false`, the opposite of
+        // winit's default — so spell it out.
+        Self {
+            resizable: true,
+            mode: WindowMode::Windowed,
+            lock_aspect: None,
+        }
+    }
+}
+
 /// Whether text input (IME) is allowed. Default is **off**.
 ///
 /// Most games do not need text input. When IME is enabled, on macOS and similar

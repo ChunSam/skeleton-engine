@@ -46,7 +46,10 @@ use crate::{
     prefab::Tag,
     reflect::ReflectValue,
     renderer::{GpuContext, SpriteRenderer, TextRenderer},
-    resources::{DisplayScaleFactor, FontData, LoadProgress, ViewportSize, WindowConfig},
+    resources::{
+        DisplayScaleFactor, FontData, LoadProgress, ViewportSize, WindowConfig, WindowMode,
+        WindowOptions,
+    },
     scene::{Scene, SceneChange, SceneCmd},
 };
 
