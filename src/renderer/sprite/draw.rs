@@ -28,22 +28,12 @@ impl SpriteRenderer {
         // `begin_render_pass`, forcing a full attachment load+store per run.
         // (Skip opening a pass entirely when there is nothing to draw.)
         if !self.draw_entries.is_empty() {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("sprite pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
-                    resolve_target: None,
-                    depth_slice: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-                multiview_mask: None,
-            });
+            let mut pass = crate::renderer::common::begin_color_pass(
+                encoder,
+                "sprite pass",
+                view,
+                wgpu::LoadOp::Load,
+            );
 
             let mut i = 0usize;
             while i < self.draw_entries.len() {

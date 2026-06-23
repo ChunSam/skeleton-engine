@@ -111,22 +111,7 @@ fn egui_render_pass(
     screen_desc: &egui_wgpu::ScreenDescriptor,
     view: &wgpu::TextureView,
 ) {
-    let rpass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: Some("egui"),
-        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-            view,
-            resolve_target: None,
-            depth_slice: None,
-            ops: wgpu::Operations {
-                load: wgpu::LoadOp::Load,
-                store: wgpu::StoreOp::Store,
-            },
-        })],
-        depth_stencil_attachment: None,
-        occlusion_query_set: None,
-        timestamp_writes: None,
-        multiview_mask: None,
-    });
+    let rpass = crate::renderer::common::begin_color_pass(enc, "egui", view, wgpu::LoadOp::Load);
     // wgpu 29 provides `RenderPass::forget_lifetime()` for exactly this use case:
     // `egui_wgpu::Renderer::render` requires `RenderPass<'static>`, and
     // `forget_lifetime` safely opts out of the borrow-of-encoder lifetime check.

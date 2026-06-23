@@ -149,22 +149,12 @@ impl SpriteRenderer {
 
         let instance_size = std::mem::size_of::<UiInstanceRaw>() as u64;
         let ui_pipeline = self.ui_pipeline_for(fmt);
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("ui primitive pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view,
-                resolve_target: None,
-                depth_slice: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-            multiview_mask: None,
-        });
+        let mut pass = crate::renderer::common::begin_color_pass(
+            encoder,
+            "ui primitive pass",
+            view,
+            wgpu::LoadOp::Load,
+        );
 
         pass.set_pipeline(ui_pipeline);
         pass.set_bind_group(0, &self.ui_camera_bind_group, &[]);
