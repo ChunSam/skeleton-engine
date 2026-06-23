@@ -14,14 +14,22 @@
 //! the **same** brightness — the headroom the 8-bit target threw away. Tone-mapping for final display
 //! is the game's job; this demo uses the simplest possible one (a constant exposure scale).
 //!
-//! Keys: `↑`/`↓` exposure · `Esc` quit. Native-only (render targets are native).
+//! Keys: `↑`/`↓` exposure · `Esc` quit.
 //!
-//! Run: `cargo run --example hdr_render_target`
+//! Run natively: `cargo run --example hdr_render_target`
+//! Run on the web: `examples/hdr_render_target/web/build.sh` then serve the dir (see that script).
+//! On the web the `Rgba16Float` color attachment requires WebGL2's `EXT_color_buffer_float`, which
+//! is present in modern browsers — verified headless under SwiftShader (`scripts/hdr_web_smoke.sh`),
+//! the lowest-common-denominator WebGL2 backend, so the HDR target renders. (A backend without it
+//! would fail to create the float target; a graceful fallback would be an engine-level feature.)
 
 use engine::{
     App, Camera, Color, DrawText, Entity, InputState, KeyCode, OffscreenCamera, RenderLayer,
     ShouldQuit, Sprite, System, TextQueue, Transform, Vec2, WindowConfig, World,
 };
+
+#[cfg(target_arch = "wasm32")]
+use engine::wasm_bindgen;
 
 const WIN_W: u32 = 820;
 const WIN_H: u32 = 460;
@@ -150,7 +158,7 @@ impl System for HdrDemo {
     }
 }
 
-fn main() {
+fn run() {
     let mut app = App::new();
     app.world.insert_resource(WindowConfig {
         title: "skeleton-engine — HDR render target".to_string(),
@@ -227,4 +235,21 @@ fn main() {
         exposure: 0.5,
     });
     app.run();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn main() {
+    run();
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {}
+
+/// WASM entry — the `web/` harness calls this after `init()` + a Start click. Runs the identical
+/// HDR-render-target demo. The `Rgba16Float` target needs `EXT_color_buffer_float` on WebGL2
+/// (present in modern browsers; verified headless under SwiftShader).
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn run_hdr_render_target() {
+    run();
 }
