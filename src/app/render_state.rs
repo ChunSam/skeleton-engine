@@ -6,6 +6,9 @@ pub(crate) struct RenderState {
     pub(crate) sprite_renderer: Option<SpriteRenderer>,
     pub(crate) text_renderer: Option<TextRenderer>,
     pub(crate) post_renderer: Option<PostProcessRenderer>,
+    /// Real multi-pass bloom renderer (lazy init; only when `PostProcessConfig::bloom` is on, which
+    /// requires post-process enabled). Runs on both native and wasm.
+    pub(crate) bloom_renderer: Option<crate::renderer::bloom::BloomRenderer>,
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) lighting_renderer: Option<crate::renderer::lighting::LightingRenderer>,
     /// Fade renderer executed as the final pass when `FadeTransition` has `alpha > 0`.

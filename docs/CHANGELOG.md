@@ -4,6 +4,19 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.64.0
+
+**Real multi-pass bloom in the post-process pass.** Opt-in via `PostProcessConfig.bloom` (default `false`, so the OFF path is byte-identical to before — the cheap inline 4-tap bloom). When enabled (requires `enabled: true`), a new `BloomRenderer` extracts scene highlights, blurs them with a separable Gaussian ping-ponged at half resolution `bloom_iterations` times (0..=8, default 4), and additively composites the soft glow back onto the scene intermediate *before* the post-process composite; the post shader then skips its inline 4-tap. The bloom pipelines are built for the scene intermediate format, so it works under HDR (`Rgba16Float`). Like the post-process and lighting renderers (and unlike the sprite/material/UI/GPU-particle per-target-format pipeline *cache*), there is one target per frame, so a format change just rebuilds the renderer.
+
+### Added
+- `PostProcessConfig::bloom` (`bool`, default `false`) and `PostProcessConfig::bloom_iterations` (`u32`, default `4`, clamped to `0..=8`).
+- `src/renderer/bloom.rs` (`BloomRenderer`, `pub(crate)`) + `src/renderer/shaders/bloom.wgsl` (`fs_prefilter` / `fs_blur` / `fs_composite`).
+- `App::setup_bloom_renderer` wiring in `src/app/render/post_lighting.rs`; bloom pass (Step 3.5) in `src/app/render/frame.rs`; `bloom_renderer` field on `RenderState`.
+- Example `bloom` (`cargo run --example bloom`): over-bright emitters glow, dim ones don't; `B` toggles real vs inline bloom.
+
+### Changed
+- `post_process.wgsl` / `PostProcessUniforms` gained a `bloom_enabled` flag (uniform grows to 64 B) so the inline 4-tap is skipped when the real bloom pass ran (avoids double bloom).
+
 ## 0.63.3
 
 **Internal: extracted shared wgpu render boilerplate into `renderer::common`.** Code-quality scan P3 (2026-06-23): the sprite / lighting / post-process / texture / UI-primitive / egui passes each built byte-identical bind-group-layout entries, clamp samplers, and single-color render passes inline, so a wgpu upgrade meant editing the copies in lockstep. New `pub(crate)` helpers centralize the shared shapes; the values produced are identical to the previous inline literals. **No public API change, no behavior change** (verified by a native render smoke of `lit_dungeon` lighting + `tonemap` post-process).

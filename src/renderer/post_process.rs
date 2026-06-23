@@ -57,9 +57,19 @@ pub struct PostProcessConfig {
     /// Chromatic aberration strength (0.0 = none; ~0.005 is a subtle amount).
     pub chroma_offset: f32,
     /// Luminance threshold above which bloom is applied (0.0~1.0; 0.7~0.9 recommended).
+    /// Used by both the cheap inline bloom and the real multi-pass bloom ([`bloom`](Self::bloom)).
     pub bloom_threshold: f32,
-    /// Bloom brightness multiplier.
+    /// Bloom brightness multiplier (used by both the inline and the real bloom).
     pub bloom_intensity: f32,
+    /// Enable the **real multi-pass bloom** (bright-pass → separable Gaussian blur → additive
+    /// composite), instead of the cheap inline 4-tap. Requires `enabled: true`; pairs naturally
+    /// with `hdr: true` so over-bright highlights glow. `false` (default) keeps the inline bloom,
+    /// so the OFF path is byte-identical to before. Example: `cargo run --example bloom`.
+    pub bloom: bool,
+    /// Number of separable blur iterations for the real bloom pass (each = one horizontal + one
+    /// vertical pass). Higher = wider, softer glow. Clamped to `0..=8`; ignored when
+    /// [`bloom`](Self::bloom) is `false`. Default `4`.
+    pub bloom_iterations: u32,
     /// Brightness offset (-1.0~1.0; 0.0 = original).
     pub brightness: f32,
     /// Contrast multiplier (0.0~3.0; 1.0 = original).
@@ -84,6 +94,8 @@ impl Default for PostProcessConfig {
             chroma_offset: 0.003,
             bloom_threshold: 0.75,
             bloom_intensity: 0.4,
+            bloom: false,
+            bloom_iterations: 4,
             brightness: 0.0,
             contrast: 1.0,
             saturation: 1.0,
@@ -95,7 +107,7 @@ impl Default for PostProcessConfig {
 }
 
 // Uniform struct sent to the GPU.
-// Layout (std140-compatible, 12 × 4 bytes = 48 bytes, already a 16B multiple):
+// Layout (std140-compatible, 64 bytes, a 16B multiple):
 //   [0]  vignette_strength
 //   [4]  vignette_radius
 //   [8]  chroma_offset
@@ -106,11 +118,10 @@ impl Default for PostProcessConfig {
 //   [28] saturation
 //   [32] texel_size.x  (1.0 / target_width)
 //   [36] texel_size.y  (1.0 / target_height)
-//   [40] exposure      (scene colour multiply before tone-mapping; was _pad0.x)
-//   [44] tonemap       (u32 operator id; was _pad0.y)
-//
-// The trailing 8 bytes were padding (`pad0: vec2`); they now carry `exposure` + `tonemap`, so the
-// struct size is unchanged (48 B) — no buffer/layout change.
+//   [40] exposure      (scene colour multiply before tone-mapping)
+//   [44] tonemap       (u32 operator id)
+//   [48] bloom_enabled (u32; 1 = real multi-pass bloom ran → skip the inline 4-tap)
+//   [52] _pad1         (3 × u32 padding to the 64B/16B boundary)
 //
 // `texel_size` is pre-computed here so the shader avoids per-fragment
 // `textureDimensions` calls (which emit a driver query on some backends).
@@ -131,6 +142,10 @@ struct PostProcessUniforms {
     exposure: f32,
     /// Tone-map operator id (`Tonemap::as_u32`).
     tonemap: u32,
+    /// `1` when the real multi-pass bloom pass ran this frame, so the post shader skips its cheap
+    /// inline 4-tap bloom (avoids double bloom). `0` keeps the inline bloom = original behaviour.
+    bloom_enabled: u32,
+    _pad1: [u32; 3],
 }
 
 /// Populates `PostProcessUniforms` from a config + the current render-target dimensions.
@@ -156,6 +171,8 @@ fn make_uniforms(c: &PostProcessConfig, width: u32, height: u32) -> PostProcessU
         texel_size: [tw, th],
         exposure: c.exposure,
         tonemap: c.tonemap.as_u32(),
+        bloom_enabled: u32::from(c.bloom),
+        _pad1: [0; 3],
     }
 }
 
@@ -389,5 +406,39 @@ impl PostProcessRenderer {
                 },
             ],
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_has_bloom_off() {
+        let c = PostProcessConfig::default();
+        assert!(!c.bloom, "real bloom must be opt-in (off by default)");
+        assert_eq!(c.bloom_iterations, 4);
+    }
+
+    #[test]
+    fn make_uniforms_sets_bloom_flag() {
+        // bloom off → inline 4-tap runs (flag 0); bloom on → inline skipped (flag 1).
+        let off = PostProcessConfig {
+            bloom: false,
+            ..Default::default()
+        };
+        assert_eq!(make_uniforms(&off, 320, 240).bloom_enabled, 0);
+
+        let on = PostProcessConfig {
+            bloom: true,
+            ..Default::default()
+        };
+        assert_eq!(make_uniforms(&on, 320, 240).bloom_enabled, 1);
+    }
+
+    #[test]
+    fn uniforms_are_64_bytes() {
+        // The shader's `Uniforms` rounds up to a 16B boundary (64 B); the Rust struct must match.
+        assert_eq!(std::mem::size_of::<PostProcessUniforms>(), 64);
     }
 }

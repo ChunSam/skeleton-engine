@@ -15,6 +15,12 @@ struct Uniforms {
     texel_size:        vec2<f32>,
     exposure:          f32,       // scene colour multiply applied before tone-mapping (1=none)
     tonemap:           u32,       // operator: 0=None, 1=Reinhard, 2=ACES filmic
+    bloom_enabled:     u32,       // 1 = real multi-pass bloom ran → skip the inline 4-tap below
+    // Three separate u32 (NOT vec3<u32>, which has 16-byte alignment and would inflate the struct
+    // to 80B) so this matches the Rust `_pad1: [u32; 3]` 64-byte layout exactly.
+    _pad1:             u32,
+    _pad2:             u32,
+    _pad3:             u32,
 }
 
 @group(0) @binding(0) var scene_tex:     texture_2d<f32>;
@@ -95,28 +101,32 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     // Applied before bloom/tone-mapping. 1.0 (default) is an exact no-op.
     color = vec4<f32>(color.rgb * u.exposure, color.a);
 
-    // ── Approximate bloom (4-tap threshold blur) ───────────────────────────
+    // ── Approximate inline bloom (4-tap threshold blur) ────────────────────
     // Sample neighbouring pixels and accumulate only luminance above the threshold.
     // texel_size is pre-computed by the CPU (1/width, 1/height) to avoid
     // per-fragment textureDimensions() queries.
-    let texel = u.texel_size;
-    let spread = 4.0;
-    var bloom = vec3<f32>(0.0);
-    // `var` (not `let`): a dynamically-indexed array needs an address space.
-    // naga rejects dynamic indexing of a `let` array ("may only be indexed by a constant").
-    var tap_offsets = array<vec2<f32>, 4>(
-        vec2<f32>( texel.x,  0.0) * spread,
-        vec2<f32>(-texel.x,  0.0) * spread,
-        vec2<f32>( 0.0,  texel.y) * spread,
-        vec2<f32>( 0.0, -texel.y) * spread,
-    );
-    for (var i = 0; i < 4; i++) {
-        let s = textureSample(scene_tex, scene_sampler, uv + tap_offsets[i]).rgb * u.exposure;
-        let lum = luminance(s);
-        let w   = max(0.0, lum - u.bloom_threshold) / max(0.001, 1.0 - u.bloom_threshold);
-        bloom  += s * w;
+    // Skipped when the real multi-pass bloom pass already composited the glow onto the scene
+    // (bloom_enabled == 1) — otherwise both would apply and the glow would double up.
+    if u.bloom_enabled == 0u {
+        let texel = u.texel_size;
+        let spread = 4.0;
+        var bloom = vec3<f32>(0.0);
+        // `var` (not `let`): a dynamically-indexed array needs an address space.
+        // naga rejects dynamic indexing of a `let` array ("may only be indexed by a constant").
+        var tap_offsets = array<vec2<f32>, 4>(
+            vec2<f32>( texel.x,  0.0) * spread,
+            vec2<f32>(-texel.x,  0.0) * spread,
+            vec2<f32>( 0.0,  texel.y) * spread,
+            vec2<f32>( 0.0, -texel.y) * spread,
+        );
+        for (var i = 0; i < 4; i++) {
+            let s = textureSample(scene_tex, scene_sampler, uv + tap_offsets[i]).rgb * u.exposure;
+            let lum = luminance(s);
+            let w   = max(0.0, lum - u.bloom_threshold) / max(0.001, 1.0 - u.bloom_threshold);
+            bloom  += s * w;
+        }
+        color = vec4<f32>(color.rgb + bloom * u.bloom_intensity * 0.25, color.a);
     }
-    color = vec4<f32>(color.rgb + bloom * u.bloom_intensity * 0.25, color.a);
 
     // ── Vignette ───────────────────────────────────────────────────────────
     let vig_dist = length(center) / max(u.vignette_radius, 0.001);
