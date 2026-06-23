@@ -474,6 +474,95 @@ pub fn choose(world: &mut World, entity: Entity, visible_index: usize) {
     }
 }
 
+/// Visual style for [`DialogueSystem`]: the layout positions, font sizes, and colors of the
+/// speaker, body, choice list, advance hint, and portrait. Insert a customized one as a resource to
+/// restyle dialogue **without forking the engine** — absent, the system uses
+/// [`DialogueStyle::default`], which reproduces the previous hardcoded look exactly, so existing
+/// games are unchanged.
+///
+/// Vertical positions are **offsets up from the viewport bottom** (a taller window keeps the box
+/// anchored to the bottom), matching the original `vh - N` layout. The advance-hint x is an offset
+/// **left** from the viewport right edge.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DialogueStyle {
+    /// Fallback viewport `(width, height)` when no [`ViewportSize`] resource is present.
+    pub fallback_viewport: crate::Vec2,
+    /// Square speaker-portrait edge length (px).
+    pub portrait_size: f32,
+    /// Portrait left x (px).
+    pub portrait_x: f32,
+    /// Portrait top y, as an offset up from the viewport bottom (px).
+    pub portrait_bottom_offset: f32,
+    /// Gap between the portrait's right edge and the text column, when a portrait is shown (px).
+    pub portrait_text_gap: f32,
+    /// Left text margin when there is no portrait (px).
+    pub text_margin: f32,
+    /// Speaker label bottom offset (px up from bottom).
+    pub speaker_bottom_offset: f32,
+    /// Speaker label font size.
+    pub speaker_font_size: f32,
+    /// Speaker label color.
+    pub speaker_color: crate::Color,
+    /// Body-text bottom offset (px up from bottom).
+    pub body_bottom_offset: f32,
+    /// Body-text font size.
+    pub body_font_size: f32,
+    /// Body-text color.
+    pub body_color: crate::Color,
+    /// Body-text wrap-bounds height (px).
+    pub body_height: f32,
+    /// Choice-list first-row bottom offset (px up from bottom).
+    pub choice_bottom_offset: f32,
+    /// Choice-row x indent from the text column (px).
+    pub choice_indent: f32,
+    /// Choice-row font size.
+    pub choice_font_size: f32,
+    /// Choice-row color.
+    pub choice_color: crate::Color,
+    /// Per-choice-row vertical step (px).
+    pub choice_line_step: f32,
+    /// Advance-hint x as an offset left from the viewport right edge (px).
+    pub hint_right_offset: f32,
+    /// Advance-hint bottom offset (px up from bottom).
+    pub hint_bottom_offset: f32,
+    /// Advance-hint font size.
+    pub hint_font_size: f32,
+    /// Advance-hint color.
+    pub hint_color: crate::Color,
+    /// Advance-hint label (shown once a line is fully revealed and no choice is pending).
+    pub hint_label: String,
+}
+
+impl Default for DialogueStyle {
+    fn default() -> Self {
+        Self {
+            fallback_viewport: crate::Vec2::new(1280.0, 720.0),
+            portrait_size: 96.0,
+            portrait_x: 48.0,
+            portrait_bottom_offset: 162.0,
+            portrait_text_gap: 18.0,
+            text_margin: 60.0,
+            speaker_bottom_offset: 150.0,
+            speaker_font_size: 22.0,
+            speaker_color: crate::Color::rgb(1.0, 0.85, 0.35),
+            body_bottom_offset: 118.0,
+            body_font_size: 20.0,
+            body_color: crate::Color::WHITE,
+            body_height: 90.0,
+            choice_bottom_offset: 86.0,
+            choice_indent: 16.0,
+            choice_font_size: 18.0,
+            choice_color: crate::Color::rgb(0.85, 0.92, 1.0),
+            choice_line_step: 26.0,
+            hint_right_offset: 150.0,
+            hint_bottom_offset: 42.0,
+            hint_font_size: 16.0,
+            hint_color: crate::Color::rgb(0.6, 0.7, 0.85),
+            hint_label: "▼ space".to_string(),
+        }
+    }
+}
+
 /// What [`DialogueSystem`] gathers per active box before drawing — pulled out of the query borrow
 /// so the text + image queues can be written afterward.
 struct DrawItem {
@@ -513,10 +602,16 @@ impl System for DialogueSystem {
         }
 
         // 2. Gather what to draw for active boxes (releases the query borrow).
+        // Style is a game-overridable resource; absent, `default()` reproduces the original look.
+        // Cloned once (it owns the hint label) to release the resource borrow before the queries.
+        let style = world
+            .resource::<DialogueStyle>()
+            .cloned()
+            .unwrap_or_default();
         let (vw, vh) = world
             .resource::<ViewportSize>()
             .map(|v| (v.width, v.height))
-            .unwrap_or((1280.0, 720.0));
+            .unwrap_or((style.fallback_viewport.x, style.fallback_viewport.y));
         // Clone DialogueVars (or empty) to filter conditional choices without holding a
         // resource borrow across the query below.
         let vars = world
@@ -543,18 +638,15 @@ impl System for DialogueSystem {
             return;
         }
 
-        // 3. Render near the bottom of the screen.
+        // 3. Render near the bottom of the screen, driven by `style`.
         //
-        // Layout constants: a box with a `portrait` draws a square image on the left and shifts
-        // its text right to clear it; a box without one keeps the original left margin (so
-        // portrait-less dialogue is byte-identical to before).
-        const PORTRAIT_SIZE: f32 = 96.0;
-        const PORTRAIT_X: f32 = 48.0;
+        // A box with a `portrait` draws a square image on the left and shifts its text right to
+        // clear it; a box without one keeps the no-portrait left margin.
         let text_x = |has_portrait: bool| {
             if has_portrait {
-                PORTRAIT_X + PORTRAIT_SIZE + 18.0
+                style.portrait_x + style.portrait_size + style.portrait_text_gap
             } else {
-                60.0
+                style.text_margin
             }
         };
 
@@ -565,10 +657,10 @@ impl System for DialogueSystem {
             for item in &items {
                 if let Some(handle) = &item.portrait {
                     iq.push(DrawImage::with_handle(
-                        PORTRAIT_X,
-                        vh - 162.0,
-                        PORTRAIT_SIZE,
-                        PORTRAIT_SIZE,
+                        style.portrait_x,
+                        vh - style.portrait_bottom_offset,
+                        style.portrait_size,
+                        style.portrait_size,
                         handle.clone(),
                     ));
                 }
@@ -589,38 +681,41 @@ impl System for DialogueSystem {
                 if !speaker.is_empty() {
                     tq.push(DrawText::new(
                         speaker,
-                        crate::Vec2::new(x0, vh - 150.0),
-                        22.0,
-                        crate::Color::rgb(1.0, 0.85, 0.35),
+                        crate::Vec2::new(x0, vh - style.speaker_bottom_offset),
+                        style.speaker_font_size,
+                        style.speaker_color,
                     ));
                 }
                 tq.push(
                     DrawText::new(
                         body,
-                        crate::Vec2::new(x0, vh - 118.0),
-                        20.0,
-                        crate::Color::WHITE,
+                        crate::Vec2::new(x0, vh - style.body_bottom_offset),
+                        style.body_font_size,
+                        style.body_color,
                     )
-                    .with_bounds(crate::Vec2::new(vw - 2.0 * x0, 90.0)),
+                    .with_bounds(crate::Vec2::new(vw - 2.0 * x0, style.body_height)),
                 );
                 if !choices.is_empty() {
-                    // A decision is pending → numbered choice list (replaces the ▼ hint).
-                    let mut y = vh - 86.0;
+                    // A decision is pending → numbered choice list (replaces the advance hint).
+                    let mut y = vh - style.choice_bottom_offset;
                     for (i, label) in choices.iter().enumerate() {
                         tq.push(DrawText::new(
                             format!("{}. {}", i + 1, label),
-                            crate::Vec2::new(x0 + 16.0, y),
-                            18.0,
-                            crate::Color::rgb(0.85, 0.92, 1.0),
+                            crate::Vec2::new(x0 + style.choice_indent, y),
+                            style.choice_font_size,
+                            style.choice_color,
                         ));
-                        y += 26.0;
+                        y += style.choice_line_step;
                     }
                 } else if full {
                     tq.push(DrawText::new(
-                        "▼ space",
-                        crate::Vec2::new(vw - 150.0, vh - 42.0),
-                        16.0,
-                        crate::Color::rgb(0.6, 0.7, 0.85),
+                        style.hint_label.clone(),
+                        crate::Vec2::new(
+                            vw - style.hint_right_offset,
+                            vh - style.hint_bottom_offset,
+                        ),
+                        style.hint_font_size,
+                        style.hint_color,
                     ));
                 }
             }

@@ -523,3 +523,66 @@ fn infinite_chars_per_sec_reveals_instantly() {
     assert_eq!(d.visible_text(), "hello");
     assert!(d.line_fully_revealed());
 }
+
+/// With no `DialogueStyle` resource, `DialogueSystem` draws the speaker + body at the original
+/// hardcoded positions / sizes / colors — locks in "default matches the previous look".
+#[test]
+fn dialogue_system_default_style_matches_original_literals() {
+    use crate::ecs::{System, World};
+    use crate::renderer::TextQueue;
+    use crate::resources::ViewportSize;
+
+    let mut world = World::new();
+    world.insert_resource(ViewportSize::new(900, 600));
+    world.insert_resource(TextQueue::default());
+    let e = world.spawn();
+    world.add_component(
+        e,
+        DialogueBox::new("NPC", ["hello"]).with_chars_per_sec(0.0),
+    );
+
+    DialogueSystem.run(&mut world, 0.016);
+
+    let tq = world.resource::<TextQueue>().unwrap();
+    // Speaker: x = text_margin 60, y = vh(600) − speaker_bottom_offset 150 = 450, size 22, gold.
+    let speaker = tq.iter().find(|t| t.text == "NPC").expect("speaker drawn");
+    assert_eq!(speaker.position, crate::Vec2::new(60.0, 450.0));
+    assert!((speaker.size - 22.0).abs() < f32::EPSILON);
+    assert_eq!(speaker.color, crate::Color::rgb(1.0, 0.85, 0.35));
+    // Body: x = 60, y = 600 − 118 = 482, size 20, white.
+    let body = tq.iter().find(|t| t.text == "hello").expect("body drawn");
+    assert_eq!(body.position, crate::Vec2::new(60.0, 482.0));
+    assert!((body.size - 20.0).abs() < f32::EPSILON);
+    assert_eq!(body.color, crate::Color::WHITE);
+}
+
+/// A custom `DialogueStyle` resource overrides the layout — confirms the resource is wired through.
+#[test]
+fn dialogue_system_custom_style_overrides() {
+    use crate::ecs::{System, World};
+    use crate::renderer::TextQueue;
+    use crate::resources::ViewportSize;
+
+    let mut world = World::new();
+    world.insert_resource(ViewportSize::new(900, 600));
+    world.insert_resource(TextQueue::default());
+    world.insert_resource(DialogueStyle {
+        text_margin: 110.0,
+        speaker_font_size: 28.0,
+        speaker_color: crate::Color::rgb(0.0, 1.0, 1.0),
+        ..Default::default()
+    });
+    let e = world.spawn();
+    world.add_component(
+        e,
+        DialogueBox::new("NPC", ["hello"]).with_chars_per_sec(0.0),
+    );
+
+    DialogueSystem.run(&mut world, 0.016);
+
+    let tq = world.resource::<TextQueue>().unwrap();
+    let speaker = tq.iter().find(|t| t.text == "NPC").expect("speaker drawn");
+    assert!((speaker.position.x - 110.0).abs() < f32::EPSILON); // text_margin override
+    assert!((speaker.size - 28.0).abs() < f32::EPSILON);
+    assert_eq!(speaker.color, crate::Color::rgb(0.0, 1.0, 1.0));
+}
