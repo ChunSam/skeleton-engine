@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.6.137 | package `skeleton-engine` v0.63.3, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
+> Version v1.6.138 | package `skeleton-engine` v0.63.3, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example game ships to
 > the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`  
@@ -144,9 +144,11 @@ Detailed in **`docs/PATTERNS.md`**:
 
 - **Architecture patterns** — ECS query API (`query2`/`query_opt2`), borrow-checker
   workaround (collect entities then `get_mut`), render-layer separation
-  (`AnimationSystem` → `UvRect` → renderer), UI system order (`LayoutSystem` before
-  `UiSystem`), animation state-machine order (`StateMachineSystem` after
-  `AnimationSystem`), `PhysicsWorld` encapsulation accessors.
+  (`AnimationSystem` → `UvRect` → renderer), **render-target-format-aware pipeline cache**
+  (a new render pass keys its pipeline by *target* format, not `gpu.config.format`, so it
+  survives an offscreen/HDR RT — else it silently vanishes; sprite/UI/material/GPU-particle),
+  UI system order (`LayoutSystem` before `UiSystem`), animation state-machine order
+  (`StateMachineSystem` after `AnimationSystem`), `PhysicsWorld` encapsulation accessors.
 - **Task recipes** — adding a component / system / resource / event, and scene transitions.
 
 ---
