@@ -4,6 +4,17 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.60.0
+
+**`hdr_render_target` example shipped to the web — and `Rgba16Float` render targets confirmed on WebGL2.** The HDR-vs-LDR render-target demo now has a `web/` harness, so it runs in a browser with the same code as native. This also answers a portability question the HDR-render-target feature left open: an `Rgba16Float` color **render target** works on `wgpu`'s WebGL2 backend (it needs the `EXT_color_buffer_float` extension) — verified headless under SwiftShader, the lowest-common-denominator WebGL2 backend, so modern browsers work too. Render targets were already cross-platform (not native-only as the example previously claimed); only the example's wasm entry point + harness were missing. No library change.
+
+### Added
+- `hdr_render_target` web harness (`examples/hdr_render_target/web/build.sh` + `index.html`) over a new `#[wasm_bindgen] run_hdr_render_target` entry; the example's `main` body moved into a shared `run()`. `pkg/` is gitignored.
+- `scripts/hdr_web_smoke.sh` — headless-Chrome render smoke that asserts the wasm example renders a non-blank frame (i.e. the `Rgba16Float` render target was created) under SwiftShader; documented in `docs/WASM_SMOKES.md`.
+
+### Changed
+- `hdr_render_target` example docs corrected: render targets are **not** native-only; the HDR target needs `EXT_color_buffer_float` on WebGL2 (present in modern browsers).
+
 ## 0.59.0
 
 **Format-matched material + UI pipelines — they render into non-surface targets now.** Completes the render-format story: `ShaderMaterial` and UI-primitive (`DrawRect`/`DrawImage`) pipelines were compiled for the surface format only, so they were skipped when drawing into a non-surface target (an HDR/linear offscreen render target, or the v0.58 HDR post-process intermediate). Both now keep a per-target-format pipeline cache (like sprites), built lazily on first use, so a material in an offscreen `Rgba16Float` render target renders correctly, and UI primitives render through the HDR post-process intermediate. The surface-format fast path is untouched (the extra caches stay empty when only one format is used). This **lifts the v0.58 skips** for materials and UI; only GPU particles remain skipped under HDR post. Additive.

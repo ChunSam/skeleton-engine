@@ -36,6 +36,14 @@ cargo install wasm-bindgen-cli --version <ver>   # MUST match the wasm-bindgen c
   *not* auto-checked, same subtle-class limit as `wasm_smoke.sh`). Run after touching the text
   renderer or the example.
 
+- **HDR render-target check — `./scripts/hdr_web_smoke.sh`** builds the `hdr_render_target` example
+  to wasm, serves it (`?autostart=1`), renders one headless frame under **SwiftShader**, and asserts
+  a **non-blank frame** — which confirms an `Rgba16Float` color **render target** can be created on
+  the WebGL2 backend (it needs `EXT_color_buffer_float`; SwiftShader has it, so modern browsers do
+  too). Eyeball the saved shot (`SMOKE_KEEP=1`): the HDR (left) monitor keeps the bright core vs the
+  mid square distinct while the LDR (right) monitor collapses them. Run after touching render targets,
+  the offscreen pass, or the example.
+
 ## Web examples without a dedicated smoke
 
 - **`audio_facade`** ships to the web (`examples/audio_facade/web/build.sh` → click **Start**, then
