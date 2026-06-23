@@ -298,6 +298,15 @@ impl ApplicationHandler for App {
                     .map(|w| w.scale_factor() as f32)
                     .unwrap_or(1.0);
                 let logical = Vec2::new(position.x as f32 / scale, position.y as f32 / scale);
+                // Map the window-logical cursor into design space when a DesignResolution is
+                // active (identity otherwise), so cursor hit-testing lines up with the
+                // letterboxed UI. The docked-editor path keeps the untranslated cursor (it has
+                // its own viewport_to_game mapping and design resolution does not apply there).
+                let design_cursor = self
+                    .world
+                    .resource::<Letterbox>()
+                    .map(|lb| lb.window_to_design(logical))
+                    .unwrap_or(logical);
 
                 #[cfg(not(target_arch = "wasm32"))]
                 {
@@ -323,13 +332,13 @@ impl ApplicationHandler for App {
                         }
                     } else {
                         if let Some(input) = self.world.resource_mut::<InputState>() {
-                            input.set_cursor(logical);
+                            input.set_cursor(design_cursor);
                         }
                     }
                 }
                 #[cfg(target_arch = "wasm32")]
                 if let Some(input) = self.world.resource_mut::<InputState>() {
-                    input.set_cursor(logical);
+                    input.set_cursor(design_cursor);
                 }
             }
 

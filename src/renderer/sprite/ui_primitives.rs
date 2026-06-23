@@ -105,6 +105,7 @@ impl SpriteRenderer {
         images: &[DrawImage],
         width: u32,
         height: u32,
+        clip_scale: Vec2,
     ) {
         if rects.is_empty() && images.is_empty() {
             return;
@@ -120,7 +121,10 @@ impl SpriteRenderer {
         let view = ctx.view;
         let encoder = &mut *ctx.encoder;
 
-        let screen_proj = Mat4::orthographic_rh(0.0, width as f32, height as f32, 0.0, -1.0, 1.0);
+        let screen_proj = crate::camera::apply_letterbox(
+            clip_scale,
+            Mat4::orthographic_rh(0.0, width as f32, height as f32, 0.0, -1.0, 1.0),
+        );
         let cam = CameraUniform {
             view_proj: screen_proj.to_cols_array_2d(),
         };

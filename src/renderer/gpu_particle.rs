@@ -301,6 +301,9 @@ impl GpuParticleRenderer {
     }
 
     /// Renders particles to the screen.
+    // Args mirror the wgpu pass inputs (queue/view/encoder/world/viewport) plus the letterbox
+    // clip scale; bundling them into a struct would obscure an internal renderer call.
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &self,
         queue: &wgpu::Queue,
@@ -309,10 +312,14 @@ impl GpuParticleRenderer {
         world: &World,
         width: u32,
         height: u32,
+        clip_scale: glam::Vec2,
     ) {
         let fallback = Camera::default();
         let camera = world.resource::<Camera>().unwrap_or(&fallback);
-        let view_proj = camera.view_proj(width as f32, height as f32);
+        let view_proj = crate::camera::apply_letterbox(
+            clip_scale,
+            camera.view_proj(width as f32, height as f32),
+        );
         queue.write_buffer(
             &self.camera_buf,
             0,

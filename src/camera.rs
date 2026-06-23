@@ -1,6 +1,20 @@
 use crate::ecs::Entity;
 use glam::{Mat4, Vec2};
 
+/// Post-multiplies a centered clip-space letterbox scale onto a projection matrix.
+///
+/// When `clip_scale == (1.0, 1.0)` (no design resolution active) the projection is returned
+/// **unchanged** (byte-identical to the non-letterboxed path). Otherwise the design-space NDC
+/// `[-1, 1]` is scaled into the centered letterbox sub-rectangle of the window's NDC. The scale
+/// is pure (no translation) because the letterbox is centered.
+pub fn apply_letterbox(clip_scale: Vec2, proj: Mat4) -> Mat4 {
+    if clip_scale == Vec2::ONE {
+        proj
+    } else {
+        Mat4::from_scale(glam::Vec3::new(clip_scale.x, clip_scale.y, 1.0)) * proj
+    }
+}
+
 /// 2D camera resource.
 ///
 /// # Coordinate convention (top-left anchored)
@@ -602,6 +616,38 @@ mod tests {
             "y={}",
             cam.position.y
         );
+    }
+
+    #[test]
+    fn apply_letterbox_identity_is_unchanged() {
+        // A (1,1) clip scale must return the projection byte-identically (the no-design path).
+        let proj = Camera::default().view_proj(W, H);
+        let out = apply_letterbox(Vec2::ONE, proj);
+        assert_eq!(out, proj);
+    }
+
+    #[test]
+    fn apply_letterbox_scales_clip_space() {
+        // A non-identity clip scale shrinks the projected NDC by (kx, ky) — a centered letterbox.
+        let proj = Camera::default().view_proj(W, H);
+        let out = apply_letterbox(Vec2::new(1.0, 0.5), proj);
+        // A point at the bottom edge (design NDC y = -1 after ortho) is pulled to y = -0.5.
+        let design_bottom = proj.project_point3(glam::Vec3::new(0.0, H, 0.0));
+        let boxed_bottom = out.project_point3(glam::Vec3::new(0.0, H, 0.0));
+        assert!(
+            (design_bottom.y - -1.0).abs() < 1e-4,
+            "design y={}",
+            design_bottom.y
+        );
+        assert!(
+            (boxed_bottom.y - -0.5).abs() < 1e-4,
+            "boxed y={}",
+            boxed_bottom.y
+        );
+        // X is unchanged (kx = 1).
+        let design_right = proj.project_point3(glam::Vec3::new(W, 0.0, 0.0));
+        let boxed_right = out.project_point3(glam::Vec3::new(W, 0.0, 0.0));
+        assert!((design_right.x - boxed_right.x).abs() < 1e-4);
     }
 
     #[test]

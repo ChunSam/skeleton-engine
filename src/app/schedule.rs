@@ -222,20 +222,49 @@ impl App {
         //
         // The scale factor always tracks the real window DPR — only the logical
         // size reported to the game changes.
+        let win_logical_w = gpu.config.width as f32 / scale_factor;
+        let win_logical_h = gpu.config.height as f32 / scale_factor;
+
+        // Optional fixed design (virtual) resolution: when set, the game authors at this size and
+        // the engine reports it as ViewportSize + letterboxes the content into the real window.
+        // `.copied()` drops the immutable World borrow before the inserts below.
+        let design = self
+            .world
+            .resource::<DesignResolution>()
+            .copied()
+            .filter(|d| d.width > 0.0 && d.height > 0.0);
+
+        // Maps the raw window-logical size to (ViewportSize, Letterbox), applying the design
+        // resolution when present. Used by the non-editor render paths (native + wasm).
+        let apply_design = |win_w: f32, win_h: f32| match design {
+            Some(d) => (
+                ViewportSize {
+                    width: d.width,
+                    height: d.height,
+                },
+                Letterbox::compute(d.width, d.height, win_w, win_h),
+            ),
+            None => (
+                ViewportSize {
+                    width: win_w,
+                    height: win_h,
+                },
+                Letterbox::IDENTITY,
+            ),
+        };
+
         #[cfg(not(target_arch = "wasm32"))]
-        let viewport_size = {
+        let (viewport_size, letterbox) = {
             use crate::app::editor::docked_rt::compute_central_rect;
             use crate::app::editor::EditorMode;
             if self.editor.mode == EditorMode::Docked {
-                let win_logical_w = gpu.config.width as f32 / scale_factor;
-                let win_logical_h = gpu.config.height as f32 / scale_factor;
-                // Use the cached central_rect when package 2 writes it; otherwise
-                // recompute from the placeholder margins every frame.
+                // The docked editor owns the viewport (the central panel rect); the design
+                // resolution does not apply there.
                 let rect = self
                     .editor
                     .central_rect
                     .or_else(|| compute_central_rect(win_logical_w, win_logical_h));
-                match rect {
+                let vp = match rect {
                     Some(r) => ViewportSize {
                         width: r.width(),
                         height: r.height(),
@@ -250,21 +279,17 @@ impl App {
                             - crate::app::editor::docked_rt::MARGIN_BOTTOM)
                             .max(1.0),
                     },
-                }
+                };
+                (vp, Letterbox::IDENTITY)
             } else {
-                ViewportSize {
-                    width: gpu.config.width as f32 / scale_factor,
-                    height: gpu.config.height as f32 / scale_factor,
-                }
+                apply_design(win_logical_w, win_logical_h)
             }
         };
         #[cfg(target_arch = "wasm32")]
-        let viewport_size = ViewportSize {
-            width: gpu.config.width as f32 / scale_factor,
-            height: gpu.config.height as f32 / scale_factor,
-        };
+        let (viewport_size, letterbox) = apply_design(win_logical_w, win_logical_h);
 
         self.world.insert_resource(viewport_size);
+        self.world.insert_resource(letterbox);
         self.world.insert_resource(DisplayScaleFactor(scale_factor));
     }
 

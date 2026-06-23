@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
-use glam::{Mat4, Quat, Vec3};
+use glam::{Mat4, Quat, Vec2, Vec3};
 use wgpu::util::DeviceExt;
 
 use crate::asset::AssetServer;
@@ -436,6 +436,7 @@ impl SpriteRenderer {
         width: u32,
         height: u32,
         layer_mask: u32,
+        clip_scale: Vec2,
     ) -> crate::resources::RenderStats {
         let device = ctx.device;
         let queue = ctx.queue;
@@ -448,7 +449,11 @@ impl SpriteRenderer {
         // ── Camera: read from the ECS resource and compute view_proj ───
         let fallback = Camera::default();
         let camera = world.resource::<Camera>().unwrap_or(&fallback);
-        let view_proj = camera.view_proj(width as f32, height as f32);
+        // `clip_scale` letterboxes the design-space projection into the window (identity = no-op).
+        let view_proj = crate::camera::apply_letterbox(
+            clip_scale,
+            camera.view_proj(width as f32, height as f32),
+        );
         let cam = CameraUniform {
             view_proj: view_proj.to_cols_array_2d(),
         };

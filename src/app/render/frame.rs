@@ -4,7 +4,9 @@ use crate::app::render_state::RenderState;
 use crate::renderer::{
     DrawRect, FrameContext, GpuContext, PostProcessConfig, UiImageQueue, UiQueue,
 };
-use crate::resources::{DebugDraw, PendingResize, ShouldQuit, ViewportSize, WindowConfig};
+use crate::resources::{
+    DebugDraw, Letterbox, PendingResize, ShouldQuit, ViewportSize, WindowConfig,
+};
 use winit::event_loop::ActiveEventLoop;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -388,6 +390,14 @@ impl App {
             .unwrap_or_else(|| ViewportSize::new(gpu.config.width, gpu.config.height));
         let logical_w = viewport.width.round().max(1.0) as u32;
         let logical_h = viewport.height.round().max(1.0) as u32;
+        // The design-resolution letterbox clip-scale (identity when no DesignResolution is set, so
+        // the projections are byte-identical to the non-letterboxed path). Applies to the main
+        // surface pass only — offscreen render targets always pass identity.
+        let clip_scale = self
+            .world
+            .resource::<Letterbox>()
+            .map(|lb| lb.clip_scale)
+            .unwrap_or(glam::Vec2::ONE);
 
         // Step 2: Draw sprites (main pass — no layer filter)
         if let Some(sr) = &mut self.render.sprite_renderer {
@@ -403,6 +413,7 @@ impl App {
                 logical_w,
                 logical_h,
                 0, // layer_mask = 0: render all layers
+                clip_scale,
             );
             if let Some(prof) = self.world.resource_mut::<crate::resources::ProfilerData>() {
                 prof.render = render_stats;
@@ -466,6 +477,7 @@ impl App {
                     &ui_images,
                     logical_w,
                     logical_h,
+                    clip_scale,
                 );
             }
         }
@@ -524,6 +536,7 @@ impl App {
                     &self.world,
                     logical_w,
                     logical_h,
+                    clip_scale,
                 );
             }
         }
@@ -584,7 +597,7 @@ impl App {
                 // Light positions must use the same logical viewport the sprite pass
                 // uses (render.rs), not the physical surface size — otherwise on a
                 // HiDPI display (scale > 1) lights drift from their sprites and shrink.
-                lr.update(&gpu.queue, &self.world, logical_w, logical_h);
+                lr.update(&gpu.queue, &self.world, logical_w, logical_h, clip_scale);
 
                 // Initialize the normal buffer to a flat normal (0.5, 0.5, 1.0).
                 lr.clear_normal_buffer(&mut enc);

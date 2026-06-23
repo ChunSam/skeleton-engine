@@ -9,7 +9,7 @@ use wgpu::{
 };
 
 use crate::ecs::World;
-use crate::resources::DisplayScaleFactor;
+use crate::resources::{DisplayScaleFactor, Letterbox};
 
 use super::cache::{CachedBuffer, PlainTextCacheKey};
 use super::queue::{DrawText, TextAnchor, TextQueue};
@@ -142,6 +142,10 @@ impl TextRenderer {
             .map(|s| s.0)
             .unwrap_or(1.0)
             .max(1.0);
+        // Design-resolution letterbox: map design-space text into the centered window sub-rect
+        // (identity when no DesignResolution is set). `px_scale`/`px_offset` are in logical pixels;
+        // `scale_factor` then takes logical → physical for crisp device-resolution glyphs.
+        let lb = world.resource::<Letterbox>().copied().unwrap_or_default();
 
         // Update Viewport (writes the resolution to the GPU uniform each frame)
         self.viewport.update(
@@ -176,9 +180,9 @@ impl TextRenderer {
         let buffers: Vec<(Buffer, DrawText, f32, Option<PlainTextCacheKey>)> = items
             .into_iter()
             .map(|d| {
-                let size = d.size * scale_factor;
-                let position = d.position * scale_factor;
-                let bounds = d.bounds.map(|b| b * scale_factor);
+                let size = d.size * lb.px_scale * scale_factor;
+                let position = (d.position * lb.px_scale + lb.px_offset) * scale_factor;
+                let bounds = d.bounds.map(|b| b * lb.px_scale * scale_factor);
                 let single_line = d.single_line_caret;
 
                 // ── Cache lookup (plain text only) ────────────────────────────
