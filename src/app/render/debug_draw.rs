@@ -1,23 +1,37 @@
 use super::super::App;
 use crate::renderer::{DrawRect, UiQueue};
 
+// Debug-draw visual policy. These were inline literals; promoted to named constants so the
+// intent is documented in one place and a future `DebugDrawConfig` resource (if a fork needs
+// runtime control) can lift them without hunting through the match arms. Behavior-preserving.
+/// Z depth debug shapes draw at — above gameplay/UI so overlays stay visible.
+const DEBUG_Z: f32 = 999.0;
+/// Default stroke width (world px) for rect outlines, circles, and crosses.
+const LINE_THICKNESS: f32 = 1.5;
+/// Number of line segments approximating a debug circle.
+const CIRCLE_SEGMENTS: u32 = 24;
+/// Lower bound on the per-dot step size when filling a line (avoids div-by-tiny → huge step counts).
+const MIN_STEP_THICKNESS: f32 = 0.5;
+/// Segments shorter than this are skipped (degenerate, nothing visible to draw).
+const MIN_SEGMENT_LEN: f32 = 0.001;
+
 impl App {
     pub(in crate::app) fn debug_shape_to_draw_rects(
         shape: crate::resources::DebugShape,
         q: &mut UiQueue,
     ) {
         use crate::resources::DebugShape;
-        const Z: f32 = 999.0;
+        const Z: f32 = DEBUG_Z;
 
         // Line-segment approximation helper: fills the segment between two points with thickness×thickness dots.
         let mut push_line =
             |start: glam::Vec2, end: glam::Vec2, color: crate::color::Color, thickness: f32| {
                 let delta = end - start;
                 let len = delta.length();
-                if len < 0.001 {
+                if len < MIN_SEGMENT_LEN {
                     return;
                 }
-                let steps = (len / thickness.max(0.5)).ceil() as usize;
+                let steps = (len / thickness.max(MIN_STEP_THICKNESS)).ceil() as usize;
                 let half = thickness / 2.0;
                 for i in 0..=steps {
                     let t = i as f32 / steps.max(1) as f32;
@@ -31,7 +45,7 @@ impl App {
 
         match shape {
             DebugShape::Rect { min, max, color } => {
-                let t = 1.5_f32;
+                let t = LINE_THICKNESS;
                 let w = max.x - min.x;
                 let h = max.y - min.y;
                 // top
@@ -56,13 +70,13 @@ impl App {
                 radius,
                 color,
             } => {
-                let n = 24u32;
+                let n = CIRCLE_SEGMENTS;
                 for i in 0..n {
                     let a0 = (i as f32 / n as f32) * std::f32::consts::TAU;
                     let a1 = ((i + 1) as f32 / n as f32) * std::f32::consts::TAU;
                     let p0 = center + glam::Vec2::new(a0.cos(), a0.sin()) * radius;
                     let p1 = center + glam::Vec2::new(a1.cos(), a1.sin()) * radius;
-                    push_line(p0, p1, color, 1.5);
+                    push_line(p0, p1, color, LINE_THICKNESS);
                 }
             }
             DebugShape::Cross { pos, size, color } => {
@@ -71,13 +85,13 @@ impl App {
                     pos - glam::Vec2::X * half,
                     pos + glam::Vec2::X * half,
                     color,
-                    1.5,
+                    LINE_THICKNESS,
                 );
                 push_line(
                     pos - glam::Vec2::Y * half,
                     pos + glam::Vec2::Y * half,
                     color,
-                    1.5,
+                    LINE_THICKNESS,
                 );
             }
         }

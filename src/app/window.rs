@@ -8,6 +8,23 @@ use winit::{
     window::{Window, WindowId},
 };
 
+// Native frame-pacing policy. The redraw `WaitUntil` cadence is derived from the monitor refresh
+// rate; these bounds keep a bogus/adaptive reading from pacing the loop too slowly (or absurdly
+// fast). `AutoVsync` still does the final presentation pacing — this only bounds the wake cadence.
+// Promoted from inline literals; a future `FramePacingConfig` (low-power idle / 30 fps cap for
+// editor forks) can lift these without changing behavior. Native-only (wasm uses rAF).
+#[cfg(not(target_arch = "wasm32"))]
+mod frame_pacing {
+    /// Used when the monitor reports no usable refresh rate.
+    pub(super) const FALLBACK_REFRESH_HZ: f64 = 60.0;
+    /// A reported rate below this is treated as bogus and ignored (→ fallback).
+    pub(super) const MIN_VALID_REFRESH_HZ: f64 = 1.0;
+    /// Lower clamp: never pace the redraw cadence below 60 fps, even on a reduced-rate panel.
+    pub(super) const MIN_REFRESH_HZ: f64 = 60.0;
+    /// Upper clamp: cap the wake cadence so an extreme reading can't busy-spin the loop.
+    pub(super) const MAX_REFRESH_HZ: f64 = 240.0;
+}
+
 impl ApplicationHandler for App {
     /// Called when the app becomes active (macOS: Resumed; other platforms: once at startup).
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -774,9 +791,9 @@ impl App {
                 .and_then(|w| w.current_monitor())
                 .and_then(|m| m.refresh_rate_millihertz())
                 .map(|mhz| mhz as f64 / 1000.0)
-                .filter(|hz| *hz >= 1.0)
-                .unwrap_or(60.0)
-                .clamp(60.0, 240.0);
+                .filter(|hz| *hz >= frame_pacing::MIN_VALID_REFRESH_HZ)
+                .unwrap_or(frame_pacing::FALLBACK_REFRESH_HZ)
+                .clamp(frame_pacing::MIN_REFRESH_HZ, frame_pacing::MAX_REFRESH_HZ);
             self.frame_interval = Duration::from_secs_f64(1.0 / refresh_hz);
             self.next_frame = Some(Instant::now());
         }
