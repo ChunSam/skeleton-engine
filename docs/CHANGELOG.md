@@ -4,6 +4,14 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.63.2
+
+**Internal: promoted DebugDraw and native frame-pacing hardcoded literals to named constants.** Two low-risk code-quality findings from the 2026-06-23 scan (P3): the debug-overlay shape renderer embedded magic numbers (stroke `1.5`, circle `24` segments, step floor `0.5`, min length `0.001`, z `999.0`) inline, and the native redraw-cadence policy embedded `60.0` fallback / `[60.0, 240.0]` clamp / `1.0` min-valid in one expression. Both are now named constants with intent docs, ready for a future `DebugDrawConfig` / `FramePacingConfig` to lift without hunting through code. **No public API change, no behavior change.**
+
+### Changed (internal)
+- `src/app/render/debug_draw.rs` — `DEBUG_Z` / `LINE_THICKNESS` / `CIRCLE_SEGMENTS` / `MIN_STEP_THICKNESS` / `MIN_SEGMENT_LEN` replace inline literals.
+- `src/app/window.rs` — private `frame_pacing` module (`FALLBACK_REFRESH_HZ` / `MIN_VALID_REFRESH_HZ` / `MIN_REFRESH_HZ` / `MAX_REFRESH_HZ`, native-only) replaces the inline refresh-rate fallback + clamp.
+
 ## 0.63.1
 
 **Internal: egui overlay submission consolidated into one helper.** The egui renderer lifecycle (update texture deltas → update buffers → record the render pass → submit → free textures → restore the renderer) was duplicated near-identically in the final surface overlay (`frame.rs`) and the docked-editor placeholder (`docked.rs`), differing only in callback handling. Both now call a single `submit_egui(render, gpu, view, guard_callbacks)` in `egui_pass.rs`, so future egui changes are made once and the two paths can't drift. **No public API change, no behavior change.**
