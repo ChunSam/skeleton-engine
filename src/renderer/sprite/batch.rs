@@ -11,6 +11,7 @@ impl SpriteRenderer {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        target_format: wgpu::TextureFormat,
         stats: &mut crate::resources::RenderStats,
     ) {
         sort_render_entries(&mut self.draw_entries);
@@ -75,7 +76,10 @@ impl SpriteRenderer {
                     } = &e.kind
                     {
                         if !frag_source.is_empty()
-                            && !self.material.custom_pipelines.contains_key(hash)
+                            && !self
+                                .material
+                                .custom_pipelines
+                                .contains_key(&(*hash, target_format))
                         {
                             return Some((*hash, frag_source.clone()));
                         }
@@ -84,7 +88,7 @@ impl SpriteRenderer {
                 })
                 .collect();
             for (hash, frag_source) in to_compile {
-                self.compile_material_pipeline(device, hash, &frag_source);
+                self.compile_material_pipeline(device, hash, &frag_source, target_format);
             }
 
             // Write material params uniforms.

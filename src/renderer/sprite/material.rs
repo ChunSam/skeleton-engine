@@ -5,11 +5,14 @@ use super::*;
 pub(crate) struct MaterialRenderer {
     pub(crate) sprite_shader: wgpu::ShaderModule,
     pub(crate) camera_layout: wgpu::BindGroupLayout,
-    pub(crate) surface_format: wgpu::TextureFormat,
     pub(crate) params_layout: wgpu::BindGroupLayout,
     pub(crate) mat_instance_buf: wgpu::Buffer,
     pub(crate) mat_instance_capacity: usize,
-    pub(crate) custom_pipelines: HashMap<u64, wgpu::RenderPipeline>,
+    /// Custom material pipelines keyed by `(frag-source hash, target color format)`. The format is
+    /// part of the key so a material renders correctly into a non-surface target (an HDR / linear
+    /// offscreen render target, or the HDR post-process intermediate) — each distinct target format
+    /// gets its own pipeline, built lazily on first use.
+    pub(crate) custom_pipelines: HashMap<(u64, wgpu::TextureFormat), wgpu::RenderPipeline>,
     pub(crate) params_buffers: HashMap<crate::ecs::Entity, (wgpu::Buffer, wgpu::BindGroup)>,
     pub(crate) material_instances_scratch: Vec<InstanceRaw>,
     pub(crate) live_material_entities_scratch: std::collections::HashSet<crate::ecs::Entity>,
@@ -21,7 +24,6 @@ impl MaterialRenderer {
         device: &wgpu::Device,
         sprite_shader: wgpu::ShaderModule,
         camera_layout: wgpu::BindGroupLayout,
-        surface_format: wgpu::TextureFormat,
     ) -> Self {
         let params_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("material params layout"),
@@ -48,7 +50,6 @@ impl MaterialRenderer {
         Self {
             sprite_shader,
             camera_layout,
-            surface_format,
             params_layout,
             mat_instance_buf,
             mat_instance_capacity: mat_capacity,
@@ -66,6 +67,7 @@ impl MaterialRenderer {
         texture_layout: &wgpu::BindGroupLayout,
         hash: u64,
         frag_source: &str,
+        target_format: wgpu::TextureFormat,
     ) {
         let frag_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("custom material frag"),
@@ -98,7 +100,7 @@ impl MaterialRenderer {
                 module: &frag_module,
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: self.surface_format,
+                    format: target_format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -114,7 +116,8 @@ impl MaterialRenderer {
             multiview_mask: None,
             cache: None,
         });
-        self.custom_pipelines.insert(hash, pipeline);
+        self.custom_pipelines
+            .insert((hash, target_format), pipeline);
     }
 }
 
@@ -124,12 +127,19 @@ impl SpriteRenderer {
         device: &wgpu::Device,
         hash: u64,
         frag_source: &str,
+        target_format: wgpu::TextureFormat,
     ) {
         let SpriteRenderer {
             material,
             texture_cache,
             ..
         } = self;
-        material.compile_pipeline(device, &texture_cache.texture_layout, hash, frag_source);
+        material.compile_pipeline(
+            device,
+            &texture_cache.texture_layout,
+            hash,
+            frag_source,
+            target_format,
+        );
     }
 }

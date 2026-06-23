@@ -20,8 +20,8 @@
 //! Run: `cargo run --example tonemap`
 
 use engine::{
-    App, Camera, Color, DrawText, InputState, KeyCode, PostProcessConfig, ShouldQuit, Sprite,
-    System, TextQueue, Tonemap, Transform, Vec2, WindowConfig, World,
+    App, Camera, Color, DrawRect, DrawText, InputState, KeyCode, PostProcessConfig, ShouldQuit,
+    Sprite, System, TextQueue, Tonemap, Transform, UiQueue, Vec2, WindowConfig, World,
 };
 
 const WIN_W: u32 = 860;
@@ -111,6 +111,16 @@ impl System for TonemapDemo {
             }
             (pp.tonemap, pp.exposure, pp.hdr)
         };
+
+        // A UI primitive (DrawRect) — drawn into the scene/HDR-post intermediate via the
+        // format-matched UI pipeline. Under `hdr: true` this renders through the Rgba16Float
+        // intermediate (a rounded accent bar under the title); it would previously have been
+        // skipped under HDR post.
+        if let Some(ui) = world.resource_mut::<UiQueue>() {
+            ui.push(
+                DrawRect::new(20.0, 40.0, 360.0, 6.0, [90, 150, 230, 230]).with_corner_radius(3.0),
+            );
+        }
 
         if let Some(tq) = world.resource_mut::<TextQueue>() {
             tq.push(DrawText::new(

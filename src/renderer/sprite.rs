@@ -75,6 +75,9 @@ pub struct SpriteRenderer {
     camera_bind_group: wgpu::BindGroup,
     // For UI screen-space rendering
     ui_pipeline: wgpu::RenderPipeline,
+    /// Lazily-built UI pipelines for non-surface target formats (e.g. the HDR `Rgba16Float`
+    /// post-process intermediate), keyed by format. Empty in the common single-format case.
+    extra_ui_pipelines: std::collections::HashMap<wgpu::TextureFormat, wgpu::RenderPipeline>,
     ui_camera_buf: wgpu::Buffer,
     ui_camera_bind_group: wgpu::BindGroup,
     ui_instance_buf: wgpu::Buffer,
@@ -181,6 +184,53 @@ fn build_sprite_pipeline(
     })
 }
 
+/// Builds the UI-primitive render pipeline (`ui.wgsl`, alpha-blended, screen-space) targeting
+/// `format`. Used for the base (surface) format in [`SpriteRenderer::new`] and lazily for
+/// non-surface formats in [`SpriteRenderer::ensure_ui_pipeline`] (e.g. the HDR post intermediate).
+fn build_ui_pipeline(
+    device: &wgpu::Device,
+    shader: &wgpu::ShaderModule,
+    layout: &wgpu::PipelineLayout,
+    format: wgpu::TextureFormat,
+) -> wgpu::RenderPipeline {
+    let vertex_layout = wgpu::VertexBufferLayout {
+        array_stride: std::mem::size_of::<Vertex>() as u64,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2],
+    };
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("ui pipeline"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: shader,
+            entry_point: Some("vs_main"),
+            buffers: &[vertex_layout, UiInstanceRaw::layout()],
+            compilation_options: Default::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: shader,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: Default::default(),
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            strip_index_format: None,
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode: None,
+            ..Default::default()
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview_mask: None,
+        cache: None,
+    })
+}
+
 impl SpriteRenderer {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
         // ── Load shader (compile-time embed) ───────────────────────────────────
@@ -227,11 +277,6 @@ impl SpriteRenderer {
             bind_group_layouts: &[Some(&camera_layout), Some(&texture_cache.texture_layout)],
             immediate_size: 0,
         });
-        let vertex_layout = wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as u64,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2],
-        };
         // Base sprite pipeline (surface format). Non-surface render-target formats get a matching
         // pipeline lazily via `ensure_sprite_pipeline`, both built by `build_sprite_pipeline`.
         let pipeline = build_sprite_pipeline(device, &shader, &pipeline_layout, format);
@@ -242,37 +287,7 @@ impl SpriteRenderer {
             label: Some("ui shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/ui.wgsl").into()),
         });
-        let ui_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("ui pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &ui_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[vertex_layout, UiInstanceRaw::layout()],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &ui_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
+        let ui_pipeline = build_ui_pipeline(device, &ui_shader, &pipeline_layout, format);
 
         // ── Static vertex and index buffers ────────────────────────────────────────
         let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -321,7 +336,7 @@ impl SpriteRenderer {
         });
 
         // ── MaterialRenderer (takes ownership of camera_layout + shader) ───
-        let material = MaterialRenderer::new(device, shader, camera_layout, format);
+        let material = MaterialRenderer::new(device, shader, camera_layout);
 
         Self {
             pipeline,
@@ -335,6 +350,7 @@ impl SpriteRenderer {
             camera_buf,
             camera_bind_group,
             ui_pipeline,
+            extra_ui_pipelines: std::collections::HashMap::new(),
             ui_camera_buf,
             ui_camera_bind_group,
             ui_instance_buf,
@@ -382,6 +398,34 @@ impl SpriteRenderer {
             self.extra_sprite_pipelines
                 .get(&format)
                 .unwrap_or(&self.pipeline)
+        }
+    }
+
+    /// Ensures a UI-primitive pipeline matching `format` exists — builds + caches one for a
+    /// non-surface format on first use (recompiling `ui.wgsl` once per format); a no-op for the base
+    /// format and on cache hits. Mirrors [`ensure_sprite_pipeline`](Self::ensure_sprite_pipeline).
+    fn ensure_ui_pipeline(&mut self, device: &wgpu::Device, format: wgpu::TextureFormat) {
+        if format == self.base_format || self.extra_ui_pipelines.contains_key(&format) {
+            return;
+        }
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("ui shader (rt format)"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/ui.wgsl").into()),
+        });
+        let pipeline = build_ui_pipeline(device, &shader, &self.sprite_pipeline_layout, format);
+        self.extra_ui_pipelines.insert(format, pipeline);
+    }
+
+    /// The UI pipeline matching `format`: the base pipeline for the surface format, else the cached
+    /// extra (built by [`ensure_ui_pipeline`](Self::ensure_ui_pipeline); falls back to the base
+    /// pipeline if somehow missing, to never panic mid-frame).
+    fn ui_pipeline_for(&self, format: wgpu::TextureFormat) -> &wgpu::RenderPipeline {
+        if format == self.base_format {
+            &self.ui_pipeline
+        } else {
+            self.extra_ui_pipelines
+                .get(&format)
+                .unwrap_or(&self.ui_pipeline)
         }
     }
 
@@ -442,22 +486,22 @@ impl SpriteRenderer {
         // ── Collect → batch → draw (each phase extracted to its own submodule) ──
         // The phases share `draw_entries` / `stats` and the cull closures; they are
         // sequenced here and behave exactly as the prior inline body.
-        self.collect_draw_entries(world, layer_mask, &is_visible, &is_above_lod, &mut stats);
-        self.batch_and_upload(device, queue, &mut stats);
+        self.collect_draw_entries(
+            world,
+            layer_mask,
+            &is_visible,
+            &is_above_lod,
+            target_format,
+            &mut stats,
+        );
+        self.batch_and_upload(device, queue, target_format, &mut stats);
         // Pick (and lazily build) the sprite pipeline matching the target's format, so an HDR /
         // linear offscreen render target renders with a pipeline whose color-target format matches.
         self.ensure_sprite_pipeline(device, target_format);
         let sprite_pipeline = self.sprite_pipeline_for(target_format);
-        // Material pipelines are compiled for the base format only; they are skipped when drawing
-        // into a different attachment (e.g. an HDR post-process intermediate).
-        let materials_supported = target_format == self.base_format;
-        self.record_draw_pass(
-            encoder,
-            view,
-            sprite_pipeline,
-            materials_supported,
-            &mut stats,
-        );
+        // Materials are format-matched too (their pipelines are keyed by (hash, target_format)), so
+        // the material draw selects the pipeline matching this target's format.
+        self.record_draw_pass(encoder, view, sprite_pipeline, target_format, &mut stats);
 
         // Prevent GPU params buffer leaks for ShaderMaterial entities: remove
         // buffers/bind-groups for entities that are no longer alive (despawned or
