@@ -4,6 +4,17 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.63.0
+
+**`DialogueStyle` — restyle `DialogueSystem` without forking the engine.** Dialogue layout (positions, font sizes, colors for the speaker / body / choice list / advance hint / portrait, plus the no-`ViewportSize` fallback) was hardcoded in `DialogueSystem`, so a game had to edit engine source to change normal dialogue style. It's now a new opt-in `DialogueStyle` resource: insert a customized one to restyle, or leave it absent and the system uses `DialogueStyle::default()`, which reproduces the previous look **exactly** — existing games are unchanged. Vertical positions are offsets up from the viewport bottom (so the box stays anchored on a taller window).
+
+### Added
+- `DialogueStyle` resource (`src/dialogue/mod.rs`), re-exported from `engine`. Fields cover the portrait (size/x/bottom-offset/text-gap), text margin, and per-element (speaker/body/choice/hint) bottom-offsets, font sizes, colors, the body wrap height, the choice indent/line-step, and the advance-hint label + right-offset. `Default` matches the original literals.
+- `dialogue_style` example — the same `DialogueBox` drawn with a custom style vs. the default; `T` toggles the `DialogueStyle` resource on/off live.
+
+### Changed
+- `DialogueSystem::run` reads `DialogueStyle` (cloned once, falling back to `default()`) and draws from it instead of inline constants. No behavior change when the resource is absent.
+
 ## 0.62.2
 
 **GPU particles now render under HDR post-process.** HDR post (`PostProcessConfig::hdr`) renders the scene into an `Rgba16Float` intermediate; the GPU-particle render pipeline was built only for the surface format, so particles were skipped (with a warn-once) under HDR — the last render pass not yet format-matched. The renderer now lazily builds and caches a render pipeline per non-surface target format, mirroring the sprite/material/UI pipeline caches (v0.56.0/v0.59.0). With this, **every scene pass is format-matched under HDR.** The surface-format path is unchanged (the common case is a cache no-op).

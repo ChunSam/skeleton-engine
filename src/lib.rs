@@ -107,7 +107,7 @@ pub use data_table::{DataTable, DataTableRegistry};
 pub use debug_ui::DebugUi;
 pub use dialogue::{
     DialogueBox, DialogueChoice, DialogueCond, DialogueEffect, DialogueEvent, DialogueOp,
-    DialogueRegistry, DialogueSystem, DialogueTree, DialogueValue, DialogueVars,
+    DialogueRegistry, DialogueStyle, DialogueSystem, DialogueTree, DialogueValue, DialogueVars,
 };
 pub use ecs::schedule::{ScheduleError, SystemConfig, SystemLabel};
 pub use ecs::{Commands, Entity, Events, System, World};
