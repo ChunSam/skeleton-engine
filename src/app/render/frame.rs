@@ -505,19 +505,15 @@ impl App {
                         capacity,
                     ));
             }
-            // GPU particles render with a pipeline built for the surface format; skip under HDR
-            // post-process (Rgba16Float intermediate) to avoid a format mismatch.
-            let hdr_skip_particles = scene_format != gpu.config.format;
-            if hdr_skip_particles && has_emitters {
-                static WARN: std::sync::Once = std::sync::Once::new();
-                WARN.call_once(|| {
-                    log::warn!(
-                        "GPU particles are skipped under HDR post-process (PostProcessConfig::hdr); \
-                         they are not yet format-matched"
-                    );
-                });
+            // GPU particles are format-matched: lazily build (and cache) a render pipeline for the
+            // scene's target format, so they render correctly into the `Rgba16Float` HDR
+            // post-process intermediate too (a no-op for the surface format = the common case).
+            if has_emitters {
+                if let Some(gpr) = self.render.gpu_particle_renderer.as_mut() {
+                    gpr.ensure_render_pipeline(&gpu.device, scene_format);
+                }
             }
-            if let (false, Some(gpr)) = (hdr_skip_particles, &self.render.gpu_particle_renderer) {
+            if let Some(gpr) = &self.render.gpu_particle_renderer {
                 let mut frame_cursor = 0u32;
                 let new_particles = crate::gpu_particle::collect_new_particles(
                     &mut self.world,
@@ -536,6 +532,7 @@ impl App {
                     &self.world,
                     logical_w,
                     logical_h,
+                    scene_format,
                     clip_scale,
                 );
             }
