@@ -2,6 +2,7 @@ use super::super::App;
 use crate::app::render_state::RenderState;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::ecs::World;
+use crate::renderer::bloom::BloomRenderer;
 use crate::renderer::PostProcessRenderer;
 
 impl App {
@@ -69,6 +70,29 @@ impl App {
             Some(pr) if pr.width != w || pr.height != h => {
                 pr.resize(device, w, h);
             }
+            _ => {}
+        }
+    }
+
+    /// Lazily create / resize / reconfigure the bloom renderer for the scene intermediate.
+    /// Called only when post-process is enabled and `PostProcessConfig::bloom` is on. `inter_fmt`
+    /// is the scene intermediate format (== the post intermediate: `Rgba16Float` under HDR, else
+    /// the surface format) so the bloom pipelines match. Mirrors `setup_post_renderer` /
+    /// `setup_lighting`: one target per frame, so a format change rebuilds the renderer (there is
+    /// no per-target-format pipeline cache, unlike the sprite/material/UI/GPU-particle passes).
+    pub(in crate::app) fn setup_bloom_renderer(
+        render: &mut RenderState,
+        device: &wgpu::Device,
+        w: u32,
+        h: u32,
+        inter_fmt: wgpu::TextureFormat,
+    ) {
+        match &mut render.bloom_renderer {
+            None => {
+                render.bloom_renderer = Some(BloomRenderer::new(device, w, h, inter_fmt));
+            }
+            Some(br) if br.format() != inter_fmt => br.reconfigure(device, w, h, inter_fmt),
+            Some(br) if br.width() != w || br.height() != h => br.resize(device, w, h),
             _ => {}
         }
     }

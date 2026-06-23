@@ -1,3 +1,4 @@
+pub(crate) mod bloom;
 pub(crate) mod common;
 pub mod context;
 #[cfg(not(target_arch = "wasm32"))]

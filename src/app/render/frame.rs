@@ -203,6 +203,17 @@ impl App {
                 gpu.config.format,
                 inter_fmt,
             );
+            // The real multi-pass bloom pass runs on the scene intermediate (same format), before
+            // the post-process composite. Set it up only when requested.
+            if pp_config.map(|c| c.bloom).unwrap_or(false) {
+                Self::setup_bloom_renderer(
+                    &mut self.render,
+                    &gpu.device,
+                    gpu.config.width,
+                    gpu.config.height,
+                    inter_fmt,
+                );
+            }
         }
 
         // Initialize / resize / disable the lighting renderer
@@ -517,6 +528,20 @@ impl App {
             };
             for plugin in &mut self.render.render_plugins {
                 plugin.record(&mut plugin_ctx, &self.world, (logical_w, logical_h));
+            }
+        }
+
+        // Step 3.5: Bloom pass — extract bright highlights, blur, and additively composite the glow
+        // back onto the scene intermediate, before the post-process composite. Only when post is on
+        // and bloom is requested; the post shader then skips its cheap inline bloom (bloom_enabled).
+        if use_post {
+            if let Some(cfg) = pp_config.as_ref() {
+                if cfg.bloom {
+                    if let Some(br) = self.render.bloom_renderer.as_ref() {
+                        br.update(&gpu.queue, cfg);
+                        br.run(&gpu.device, &mut enc, render_view, cfg.bloom_iterations);
+                    }
+                }
             }
         }
 
