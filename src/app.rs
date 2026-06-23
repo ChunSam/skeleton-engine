@@ -47,8 +47,8 @@ use crate::{
     reflect::ReflectValue,
     renderer::{GpuContext, SpriteRenderer, TextRenderer},
     resources::{
-        DisplayScaleFactor, FontData, LoadProgress, ViewportSize, WindowConfig, WindowMode,
-        WindowOptions,
+        DesignResolution, DisplayScaleFactor, FontData, Letterbox, LoadProgress, ViewportSize,
+        WindowConfig, WindowMode, WindowOptions,
     },
     scene::{Scene, SceneChange, SceneCmd},
 };

@@ -119,6 +119,9 @@ impl App {
                     rt_w,
                     rt_h,
                     layer_mask,
+                    // Offscreen render targets are never letterboxed — they render at their own
+                    // resolution with their own camera.
+                    glam::Vec2::ONE,
                 );
             }
 

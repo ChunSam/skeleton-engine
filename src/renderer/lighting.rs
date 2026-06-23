@@ -371,7 +371,14 @@ impl LightingRenderer {
     ///
     /// When more than `MAX_LIGHTS` (16) lights are present, only the 16 closest to the camera
     /// are sent (distant lights are not dropped arbitrarily).
-    pub fn update(&self, queue: &wgpu::Queue, world: &World, vp_w: u32, vp_h: u32) {
+    pub fn update(
+        &self,
+        queue: &wgpu::Queue,
+        world: &World,
+        vp_w: u32,
+        vp_h: u32,
+        clip_scale: glam::Vec2,
+    ) {
         let ambient = world
             .resource::<AmbientLight>()
             .copied()
@@ -406,8 +413,13 @@ impl LightingRenderer {
         let mut light_count = 0u32;
         for &i in &selected {
             let (pos, light) = collected[i];
-            let (position_ndc, radius_ndc) =
+            let (mut position_ndc, mut radius_ndc) =
                 light_position_ndc(pos, light.radius, camera, vp_w, vp_h);
+            // Letterbox: scale the design-space NDC into the centered window sub-rect, and the
+            // width-fraction radius by the horizontal scale (identity = no-op).
+            position_ndc[0] *= clip_scale.x;
+            position_ndc[1] *= clip_scale.y;
+            radius_ndc *= clip_scale.x;
             lights_gpu[light_count as usize] = GpuLightData {
                 position_ndc,
                 radius_ndc,

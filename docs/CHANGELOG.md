@@ -4,6 +4,20 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.62.0
+
+**Fixed design (virtual) resolution + letterbox scaling — a new opt-in `DesignResolution` resource (EW-003).** A game can author its whole UI at one logical canvas size (e.g. 1280×720) and ship at any window size: the engine reports the design size as `ViewportSize`, renders all content in design space, then scales it to the real window with a **uniform, centered scale + letterbox bars**. Cursor input and `Camera::screen_to_world` are mapped back into design space so hit-testing still lines up. Absent (the default), `ViewportSize` equals the window size and nothing is scaled — existing games are unaffected, and the OFF path is byte-identical (the letterbox is a `(1,1)` clip scale = a no-op). Implemented as a coordinate transform (no offscreen render target / extra blit), so content renders crisply at native window resolution. Companion to EW-002.
+
+### Added
+- `DesignResolution { width, height }` resource (`src/resources.rs`), re-exported from `engine`. Insert before `App::run()`.
+- `Letterbox` resource — the computed transform, inserted every frame (identity when no `DesignResolution`): `clip_scale` (a centered clip-space scale post-multiplied onto each scene projection), and `px_scale`/`px_offset` (logical-pixel scale + offset for text and cursor mapping). `Letterbox::compute`/`window_to_design` + unit tests.
+- `camera::apply_letterbox(clip_scale, proj)` — post-multiplies the letterbox clip scale onto a projection (returns the projection unchanged for the identity case).
+
+### Changed
+- `compute_viewport` (`src/app/schedule.rs`) applies `DesignResolution` → `ViewportSize` = design size and inserts the computed `Letterbox` (identity in the docked editor / when unset).
+- The scene render passes thread the letterbox clip scale: `SpriteRenderer::render`, `render_ui_primitives_from_slices`, `GpuParticleRenderer::render`, and `LightingRenderer::update` apply it to their projections / light NDC; the text renderer (`src/renderer/text/renderer.rs`) maps design-space positions/sizes into the window via `px_scale`/`px_offset`. Offscreen render targets always pass identity. The cursor handler (`src/app/window.rs`) maps the window cursor back into design space.
+- New example `design_resolution` (a 1280×720 UI letterboxed to any window).
+
 ## 0.61.0
 
 **Window mode control — a new opt-in `WindowOptions` resource for resizability, fullscreen, and a 16:9-style aspect lock (EW-002).** A fixed-aspect game can now stop a freeform OS resize from distorting its UI without forking the engine. Delivered as a *separate* resource (the `ImeConfig` pattern) rather than new `WindowConfig` fields, so **no public API breaks** — absent, the engine behaves exactly as before (a normal resizable windowed window). The aspect-lock resize correction is native-only (the wasm canvas size is owned by the HTML page).
