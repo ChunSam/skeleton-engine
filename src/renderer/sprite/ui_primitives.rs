@@ -110,6 +110,11 @@ impl SpriteRenderer {
             return;
         }
 
+        let fmt = ctx.format;
+        // Build/select a UI pipeline matching the target format (the surface, or e.g. the HDR
+        // post-process intermediate / an offscreen RT).
+        self.ensure_ui_pipeline(ctx.device, fmt);
+
         let device = ctx.device;
         let queue = ctx.queue;
         let view = ctx.view;
@@ -139,6 +144,7 @@ impl SpriteRenderer {
         queue.write_buffer(&self.ui_instance_buf, 0, bytemuck::cast_slice(&instances));
 
         let instance_size = std::mem::size_of::<UiInstanceRaw>() as u64;
+        let ui_pipeline = self.ui_pipeline_for(fmt);
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("ui primitive pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -156,7 +162,7 @@ impl SpriteRenderer {
             multiview_mask: None,
         });
 
-        pass.set_pipeline(&self.ui_pipeline);
+        pass.set_pipeline(ui_pipeline);
         pass.set_bind_group(0, &self.ui_camera_bind_group, &[]);
         pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
         pass.set_index_buffer(self.index_buf.slice(..), wgpu::IndexFormat::Uint16);

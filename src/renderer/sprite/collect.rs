@@ -14,6 +14,7 @@ impl SpriteRenderer {
         layer_mask: u32,
         is_visible: &dyn Fn(glam::Vec2, glam::Vec2, f32) -> bool,
         is_above_lod: &dyn Fn(glam::Vec2) -> bool,
+        target_format: wgpu::TextureFormat,
         stats: &mut crate::resources::RenderStats,
     ) {
         // ── Collect all sprites into (layer, z) globally-sorted entries ──────
@@ -257,9 +258,12 @@ impl SpriteRenderer {
                 continue;
             };
 
-            // Clone the WGSL source only for the first surviving entity of a
-            // not-yet-compiled hash; every other entry carries an empty string.
-            let frag_source = if !self.material.custom_pipelines.contains_key(&hash)
+            // Clone the WGSL source only for the first surviving entity of a hash not yet
+            // compiled *for this target format*; every other entry carries an empty string.
+            let frag_source = if !self
+                .material
+                .custom_pipelines
+                .contains_key(&(hash, target_format))
                 && self.material.seen_new_hashes_scratch.insert(hash)
             {
                 world

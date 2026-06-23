@@ -4,6 +4,18 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.59.0
+
+**Format-matched material + UI pipelines — they render into non-surface targets now.** Completes the render-format story: `ShaderMaterial` and UI-primitive (`DrawRect`/`DrawImage`) pipelines were compiled for the surface format only, so they were skipped when drawing into a non-surface target (an HDR/linear offscreen render target, or the v0.58 HDR post-process intermediate). Both now keep a per-target-format pipeline cache (like sprites), built lazily on first use, so a material in an offscreen `Rgba16Float` render target renders correctly, and UI primitives render through the HDR post-process intermediate. The surface-format fast path is untouched (the extra caches stay empty when only one format is used). This **lifts the v0.58 skips** for materials and UI; only GPU particles remain skipped under HDR post. Additive.
+
+### Added
+- `offscreen_material` example — an animated-plasma `ShaderMaterial` quad captured by two `OffscreenCamera`s into an `Rgba16Float` (HDR) and a surface render target side by side; both monitors render the material (the HDR one was previously blank).
+- A UI `DrawRect` accent bar in the `tonemap` example — exercises UI primitives rendering through the HDR post-process intermediate.
+
+### Changed
+- **`MaterialRenderer::custom_pipelines`** is now keyed by `(frag-source hash, target format)`; `compile_pipeline` / `compile_material_pipeline` / `batch_and_upload` / `collect_draw_entries` / `record_draw_pass` thread the target format through, and the material draw selects the pipeline matching the pass's attachment format (`src/renderer/sprite/{material,batch,collect,draw}.rs`). The `materials_supported` skip from v0.58 is removed (materials are format-matched).
+- **`SpriteRenderer`** gains `extra_ui_pipelines` (a per-format UI-pipeline cache) + `ensure_ui_pipeline` / `ui_pipeline_for` (mirroring the sprite cache); `render_ui_primitives_from_slices` selects the UI pipeline matching `ctx.format` (`src/renderer/sprite.rs`, `ui_primitives.rs`). The v0.58 UI-skip guard in `frame.rs` is removed.
+
 ## 0.58.0
 
 **HDR tone-mapping in the post-process pass.** `PostProcessConfig` gains `hdr` / `tonemap` / `exposure`. With `hdr: true` the scene is rendered into an `Rgba16Float` intermediate (so colour values `> 1.0` survive instead of clamping at 8-bit store time), then the post-process pass applies the chosen `tonemap` operator (`Tonemap::{None, Reinhard, AcesFilmic}`) and `exposure` to map it back to the display. This is the engine-side tone-map the previous HDR-render-target feature left to the game. Default (`hdr: false`, `exposure: 1.0`, `tonemap: None`) is byte-identical to the previous pass — exposure `× 1.0` and `None` are exact no-ops, and the uniform's old `pad0: vec2` was repurposed for `exposure` + `tonemap` so the buffer layout is unchanged. The HDR intermediate is fed by the **sprite + render-plugin** passes; UI primitives, GPU particles, and shader-materials are **skipped** while HDR post is active (a one-time warning is logged) because their pipelines are compiled for the surface format — format-matching them is future work. Additive.

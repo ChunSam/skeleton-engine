@@ -451,19 +451,9 @@ impl App {
             .map(|q| std::mem::take(&mut q.items))
             .unwrap_or_default();
         if !ui_rects.is_empty() || !ui_images.is_empty() {
-            // The UI-primitive pipeline is built for the surface format only; under HDR post-process
-            // `render_view` is an Rgba16Float intermediate, so skip the UI pass to avoid a format
-            // mismatch (text is drawn later onto the surface and is unaffected). Format-matched UI
-            // in an HDR scene is future work.
-            if scene_format != gpu.config.format {
-                static WARN: std::sync::Once = std::sync::Once::new();
-                WARN.call_once(|| {
-                    log::warn!(
-                        "UI primitives (DrawRect/DrawImage) are skipped under HDR post-process \
-                         (PostProcessConfig::hdr); they are not yet format-matched"
-                    );
-                });
-            } else if let Some(sr) = &mut self.render.sprite_renderer {
+            if let Some(sr) = &mut self.render.sprite_renderer {
+                // The UI-primitive pass picks a pipeline matching `scene_format`, so it renders
+                // correctly into the HDR post-process intermediate as well as the surface.
                 sr.render_ui_primitives_from_slices(
                     &mut FrameContext {
                         device: &gpu.device,
