@@ -59,6 +59,16 @@ pub mod ui;
 
 // ── Convenience re-exports ─────────────────────────────────────────────────────
 
+/// The `wgpu` crate, re-exported so a game can name GPU types (e.g.
+/// [`wgpu::TextureFormat`]) without declaring its own `wgpu` dependency.
+///
+/// These types already appear in the engine's public API — e.g.
+/// [`App::create_render_target_with_format`] and [`App::load_image_with_format`] both take a
+/// `wgpu::TextureFormat` — so a game must already match the engine's `wgpu` version. This
+/// re-export just removes the need for a redundant direct dependency. (Because `wgpu` is part
+/// of the public surface, a `wgpu` major version bump is a breaking change for such games.)
+pub use wgpu;
+
 pub use glam::{IVec2, Mat4, Vec2, Vec3};
 pub use winit::event::MouseButton;
 pub use winit::keyboard::KeyCode;
