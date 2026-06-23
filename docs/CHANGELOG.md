@@ -4,6 +4,19 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.58.0
+
+**HDR tone-mapping in the post-process pass.** `PostProcessConfig` gains `hdr` / `tonemap` / `exposure`. With `hdr: true` the scene is rendered into an `Rgba16Float` intermediate (so colour values `> 1.0` survive instead of clamping at 8-bit store time), then the post-process pass applies the chosen `tonemap` operator (`Tonemap::{None, Reinhard, AcesFilmic}`) and `exposure` to map it back to the display. This is the engine-side tone-map the previous HDR-render-target feature left to the game. Default (`hdr: false`, `exposure: 1.0`, `tonemap: None`) is byte-identical to the previous pass — exposure `× 1.0` and `None` are exact no-ops, and the uniform's old `pad0: vec2` was repurposed for `exposure` + `tonemap` so the buffer layout is unchanged. The HDR intermediate is fed by the **sprite + render-plugin** passes; UI primitives, GPU particles, and shader-materials are **skipped** while HDR post is active (a one-time warning is logged) because their pipelines are compiled for the surface format — format-matching them is future work. Additive.
+
+### Added
+- **`Tonemap`** enum (`None` / `Reinhard` / `AcesFilmic`, `#[non_exhaustive]`, re-exported at the crate root) and **`PostProcessConfig::{hdr, exposure, tonemap}`** fields (`src/renderer/post_process.rs`).
+- ACES-filmic + Reinhard tone-map operators + an exposure multiply in `src/renderer/shaders/post_process.wgsl`.
+- `tonemap` example — a row of same-hue, increasing-brightness swatches; toggle the operator / exposure / HDR to see over-bright values clamp to flat white (None) vs roll off and stay distinct (ACES).
+
+### Changed
+- `PostProcessRenderer` now distinguishes its **intermediate** texture format (HDR `Rgba16Float` when enabled) from its **output** (display) format; `setup_post_renderer` reconfigures when either changes (`src/app/render/post_lighting.rs`, `frame.rs`).
+- The sprite pass renders into the HDR intermediate via the existing per-format sprite pipeline cache; `record_draw_pass` gained a `materials_supported` flag and skips `ShaderMaterial` entries when drawing into a non-surface format (`src/renderer/sprite/draw.rs`).
+
 ## 0.57.0
 
 **`wgpu` re-exported at the crate root + the `positional_audio` example shipped to the web.** Two additive conveniences. `pub use wgpu;` lets a game name GPU types (e.g. `wgpu::TextureFormat`) without its own `wgpu` dependency — these types already appear in the public API (`App::create_render_target_with_format` / `App::load_image_with_format` both take a `wgpu::TextureFormat`), so a game already had to match the engine's `wgpu` version; the re-export just removes a redundant direct dependency. (Because `wgpu` is part of the public surface, a `wgpu` major bump remains a breaking change for such games — this only makes the existing coupling explicit.) Separately, the cross-platform `positional_audio` example (the P1+P2 `Audio`-facade arc) now has a `web/` harness so the stereo-panner positional audio can be heard in a browser, same code as native. No behavior change.

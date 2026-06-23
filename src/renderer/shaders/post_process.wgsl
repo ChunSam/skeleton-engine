@@ -13,8 +13,8 @@ struct Uniforms {
     // Avoids per-fragment textureDimensions() calls which emit a driver query on some
     // backends. Populated as (1/width, 1/height).
     texel_size:        vec2<f32>,
-    // Explicit padding to match the Rust PostProcessUniforms layout (10 f32s → 48 B).
-    pad0:              vec2<f32>,
+    exposure:          f32,       // scene colour multiply applied before tone-mapping (1=none)
+    tonemap:           u32,       // operator: 0=None, 1=Reinhard, 2=ACES filmic
 }
 
 @group(0) @binding(0) var scene_tex:     texture_2d<f32>;
@@ -50,6 +50,31 @@ fn luminance(c: vec3<f32>) -> f32 {
     return dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
 }
 
+// Reinhard tone-map: c / (1 + c), per channel.
+fn tonemap_reinhard(c: vec3<f32>) -> vec3<f32> {
+    return c / (1.0 + c);
+}
+
+// ACES filmic approximation (Narkowicz 2015) — filmic highlight roll-off.
+fn tonemap_aces(x: vec3<f32>) -> vec3<f32> {
+    let a = 2.51;
+    let b = 0.03;
+    let c = 2.43;
+    let d = 0.59;
+    let e = 0.14;
+    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+// Dispatch on the operator id. None (0) and any unknown value pass the colour through unchanged.
+fn apply_tonemap(c: vec3<f32>, op: u32) -> vec3<f32> {
+    if op == 1u {
+        return tonemap_reinhard(c);
+    } else if op == 2u {
+        return tonemap_aces(c);
+    }
+    return c;
+}
+
 @fragment
 fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let uv = in.uv;
@@ -65,6 +90,10 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let g_samp = textureSample(scene_tex, scene_sampler, uv);
     let b_samp = textureSample(scene_tex, scene_sampler, uv - shift);
     var color  = vec4<f32>(r_samp.r, g_samp.g, b_samp.b, g_samp.a);
+
+    // ── Exposure ───────────────────────────────────────────────────────────
+    // Applied before bloom/tone-mapping. 1.0 (default) is an exact no-op.
+    color = vec4<f32>(color.rgb * u.exposure, color.a);
 
     // ── Approximate bloom (4-tap threshold blur) ───────────────────────────
     // Sample neighbouring pixels and accumulate only luminance above the threshold.
@@ -82,7 +111,7 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
         vec2<f32>( 0.0, -texel.y) * spread,
     );
     for (var i = 0; i < 4; i++) {
-        let s = textureSample(scene_tex, scene_sampler, uv + tap_offsets[i]).rgb;
+        let s = textureSample(scene_tex, scene_sampler, uv + tap_offsets[i]).rgb * u.exposure;
         let lum = luminance(s);
         let w   = max(0.0, lum - u.bloom_threshold) / max(0.001, 1.0 - u.bloom_threshold);
         bloom  += s * w;
@@ -93,6 +122,11 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let vig_dist = length(center) / max(u.vignette_radius, 0.001);
     let vignette = 1.0 - smoothstep(1.0 - u.vignette_strength, 1.0, vig_dist);
     color = vec4<f32>(color.rgb * vignette, color.a);
+
+    // ── Tone-mapping (HDR → display range) ──────────────────────────────────
+    // Maps the (possibly > 1.0) scene colour into [0, 1]. None (0) is a no-op, so the
+    // non-HDR path is unchanged.
+    color = vec4<f32>(apply_tonemap(color.rgb, u.tonemap), color.a);
 
     // ── Color Grading ──────────────────────────────────────────────────────
     var graded = color.rgb;

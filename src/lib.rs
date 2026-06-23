@@ -152,7 +152,8 @@ pub use reflect::{Reflect, ReflectValue};
 pub use renderer::texture::TextureError;
 pub use renderer::{
     BlendUv, DrawImage, DrawRect, DrawText, FrameContext, PostProcessConfig, RenderPlugin,
-    RenderTarget, TextAlign, TextAnchor, TextQueue, TextRenderer, UiImageQueue, UiQueue, UvRect,
+    RenderTarget, TextAlign, TextAnchor, TextQueue, TextRenderer, Tonemap, UiImageQueue, UiQueue,
+    UvRect,
 };
 pub use resources::{
     AmbientLight, CullConfig, DebugDraw, DebugShape, DisplayScaleFactor, ExtraFonts,

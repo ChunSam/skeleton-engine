@@ -218,14 +218,22 @@ impl App {
             self.world.resource::<PostProcessConfig>().copied();
         let use_post = pp_config.map(|c| c.enabled).unwrap_or(false);
 
-        // Initialize / resize the post-process renderer
+        // Initialize / resize the post-process renderer. When HDR is requested the scene
+        // intermediate is Rgba16Float (so > 1.0 colours survive to be tone-mapped); the pass still
+        // outputs the surface format.
         if use_post {
+            let inter_fmt = if pp_config.map(|c| c.hdr).unwrap_or(false) {
+                wgpu::TextureFormat::Rgba16Float
+            } else {
+                gpu.config.format
+            };
             Self::setup_post_renderer(
                 &mut self.render,
                 &gpu.device,
                 gpu.config.width,
                 gpu.config.height,
                 gpu.config.format,
+                inter_fmt,
             );
         }
 
@@ -329,6 +337,20 @@ impl App {
             &final_view
         };
 
+        // Format of `render_view` — the scene passes must build pipelines matching it. It differs
+        // from the surface format only in the HDR post-process case, where `render_view` is the
+        // post-process renderer's `Rgba16Float` intermediate. (Docked / lighting-without-post route
+        // through surface-format textures, so they stay `gpu.config.format`.)
+        let scene_format: wgpu::TextureFormat = if docked_render_view.is_none() && use_post {
+            self.render
+                .post_renderer
+                .as_ref()
+                .map(|pr| pr.intermediate_format())
+                .unwrap_or(gpu.config.format)
+        } else {
+            gpu.config.format
+        };
+
         // Step 1: Clear background
         let [cr, cg, cb, ca] = self
             .world
@@ -374,7 +396,7 @@ impl App {
                     device: &gpu.device,
                     queue: &gpu.queue,
                     view: render_view,
-                    format: gpu.config.format,
+                    format: scene_format,
                     encoder: &mut enc,
                 },
                 &self.world,
@@ -429,13 +451,25 @@ impl App {
             .map(|q| std::mem::take(&mut q.items))
             .unwrap_or_default();
         if !ui_rects.is_empty() || !ui_images.is_empty() {
-            if let Some(sr) = &mut self.render.sprite_renderer {
+            // The UI-primitive pipeline is built for the surface format only; under HDR post-process
+            // `render_view` is an Rgba16Float intermediate, so skip the UI pass to avoid a format
+            // mismatch (text is drawn later onto the surface and is unaffected). Format-matched UI
+            // in an HDR scene is future work.
+            if scene_format != gpu.config.format {
+                static WARN: std::sync::Once = std::sync::Once::new();
+                WARN.call_once(|| {
+                    log::warn!(
+                        "UI primitives (DrawRect/DrawImage) are skipped under HDR post-process \
+                         (PostProcessConfig::hdr); they are not yet format-matched"
+                    );
+                });
+            } else if let Some(sr) = &mut self.render.sprite_renderer {
                 sr.render_ui_primitives_from_slices(
                     &mut FrameContext {
                         device: &gpu.device,
                         queue: &gpu.queue,
                         view: render_view,
-                        format: gpu.config.format,
+                        format: scene_format,
                         encoder: &mut enc,
                     },
                     &ui_rects,
@@ -469,7 +503,19 @@ impl App {
                         capacity,
                     ));
             }
-            if let Some(gpr) = &self.render.gpu_particle_renderer {
+            // GPU particles render with a pipeline built for the surface format; skip under HDR
+            // post-process (Rgba16Float intermediate) to avoid a format mismatch.
+            let hdr_skip_particles = scene_format != gpu.config.format;
+            if hdr_skip_particles && has_emitters {
+                static WARN: std::sync::Once = std::sync::Once::new();
+                WARN.call_once(|| {
+                    log::warn!(
+                        "GPU particles are skipped under HDR post-process (PostProcessConfig::hdr); \
+                         they are not yet format-matched"
+                    );
+                });
+            }
+            if let (false, Some(gpr)) = (hdr_skip_particles, &self.render.gpu_particle_renderer) {
                 let mut frame_cursor = 0u32;
                 let new_particles = crate::gpu_particle::collect_new_particles(
                     &mut self.world,
@@ -500,7 +546,7 @@ impl App {
                 device: &gpu.device,
                 queue: &gpu.queue,
                 view: render_view,
-                format: gpu.config.format,
+                format: scene_format,
                 encoder: &mut enc,
             };
             for plugin in &mut self.render.render_plugins {

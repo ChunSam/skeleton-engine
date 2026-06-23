@@ -7,11 +7,17 @@ impl SpriteRenderer {
     /// `stats.draw_calls`.
     ///
     /// Extracted verbatim from `render()`'s draw phase; behavior is unchanged.
+    /// `materials_supported` is false when drawing into a non-base color format (e.g. the HDR
+    /// `Rgba16Float` post-process intermediate): the per-material `custom_pipelines` are compiled
+    /// for the base/surface format, so issuing them into a different attachment would be a wgpu
+    /// format mismatch. In that case material entries are skipped (sprites still draw). Format-
+    /// matched material pipelines are future work.
     pub(super) fn record_draw_pass(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         view: &wgpu::TextureView,
         sprite_pipeline: &wgpu::RenderPipeline,
+        materials_supported: bool,
         stats: &mut crate::resources::RenderStats,
     ) {
         let instance_size = std::mem::size_of::<InstanceRaw>() as u64;
@@ -89,6 +95,19 @@ impl SpriteRenderer {
                         ..
                     } => {
                         i += 1;
+                        // Material pipelines are compiled for the base/surface format; skip them
+                        // when rendering into a different attachment format (e.g. HDR post).
+                        if !materials_supported {
+                            static WARN_ONCE: std::sync::Once = std::sync::Once::new();
+                            WARN_ONCE.call_once(|| {
+                                log::warn!(
+                                    "ShaderMaterial entities are skipped when rendering into a \
+                                     non-surface format (e.g. an HDR post-process intermediate); \
+                                     format-matched material pipelines are not yet supported"
+                                );
+                            });
+                            continue;
+                        }
                         // The custom pipeline + params buffer are populated by `batch_and_upload`,
                         // which must run before this draw pass. If that invariant is ever broken,
                         // skip the entry instead of panicking mid-frame (release builds abort on
