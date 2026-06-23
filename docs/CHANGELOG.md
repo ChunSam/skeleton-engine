@@ -4,6 +4,14 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.57.0
+
+**`wgpu` re-exported at the crate root + the `positional_audio` example shipped to the web.** Two additive conveniences. `pub use wgpu;` lets a game name GPU types (e.g. `wgpu::TextureFormat`) without its own `wgpu` dependency — these types already appear in the public API (`App::create_render_target_with_format` / `App::load_image_with_format` both take a `wgpu::TextureFormat`), so a game already had to match the engine's `wgpu` version; the re-export just removes a redundant direct dependency. (Because `wgpu` is part of the public surface, a `wgpu` major bump remains a breaking change for such games — this only makes the existing coupling explicit.) Separately, the cross-platform `positional_audio` example (the P1+P2 `Audio`-facade arc) now has a `web/` harness so the stereo-panner positional audio can be heard in a browser, same code as native. No behavior change.
+
+### Added
+- **`pub use wgpu;`** at the crate root (`src/lib.rs`) — re-exports the `wgpu` crate so games can reference `wgpu::TextureFormat` (and other GPU types in the public API) without a direct `wgpu` dependency.
+- `positional_audio` web harness (`examples/positional_audio/web/build.sh` + `index.html`) — `cargo build --example` + `wasm-bindgen` bundle over the example's existing `#[wasm_bindgen] run_positional_audio` entry point; a Start button unlocks the browser `AudioContext` and focuses the canvas, `?autostart=1` boots headless for a render smoke. `pkg/` is gitignored.
+
 ## 0.56.0
 
 **HDR / linear render targets — a caller-chosen pixel format + a format-matched sprite pipeline.** Render targets were locked to the surface format; now `App::create_render_target_with_format(name, w, h, format)` creates one with any `wgpu::TextureFormat` (e.g. `Rgba16Float` for an HDR offscreen buffer, or a linear `Rgba8Unorm`). The offscreen pass threads the target's real format into the sprite renderer, which lazily builds and caches a sprite pipeline matching it — so an `OffscreenCamera` renders correctly into a non-surface-format target (previously a wgpu format mismatch). The single-surface-format fast path is untouched (no per-frame cost when no extra format is used). Tone-mapping an HDR target for final display is the game's responsibility. Additive — existing render targets and call sites are unchanged.
