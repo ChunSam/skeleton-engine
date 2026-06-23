@@ -1,3 +1,6 @@
+use crate::app::render_state::RenderState;
+use crate::renderer::GpuContext;
+
 /// Begin an egui frame.
 ///
 /// Takes the pending raw input from `egui_winit::State`, calls `ctx.begin_pass`, and
@@ -42,13 +45,66 @@ pub(super) fn end_egui_frame(
     *egui_output = Some((paint_jobs, textures_delta, ppp));
 }
 
+/// Submits the pending egui output (`render.egui_output`) onto `view` using `render.egui_renderer`:
+/// updates the texture deltas, updates the vertex/index buffers, records the overlay render pass,
+/// submits its own command encoder, frees the freed textures, then restores the renderer. A no-op
+/// when either the renderer or the pending output is absent (pre-GPU-init / nothing to draw).
+///
+/// `guard_callbacks` selects the two call sites' only difference: the **final surface overlay**
+/// passes `true` — paint callbacks are unsupported there and skipped with a warn (for render-pass
+/// lifetime safety); the **docked placeholder** passes `false` and records directly (it never
+/// produces callbacks). Behavior is byte-identical to the two inlined blocks this replaces.
+pub(super) fn submit_egui(
+    render: &mut RenderState,
+    gpu: &GpuContext,
+    view: &wgpu::TextureView,
+    guard_callbacks: bool,
+) {
+    let (Some(mut er), Some((paint_jobs, textures_delta, ppp))) =
+        (render.egui_renderer.take(), render.egui_output.take())
+    else {
+        return;
+    };
+    let screen_desc = egui_wgpu::ScreenDescriptor {
+        size_in_pixels: [gpu.config.width, gpu.config.height],
+        pixels_per_point: ppp,
+    };
+    for (id, delta) in &textures_delta.set {
+        er.update_texture(&gpu.device, &gpu.queue, *id, delta);
+    }
+    let mut egui_enc = gpu
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("egui encoder"),
+        });
+    er.update_buffers(
+        &gpu.device,
+        &gpu.queue,
+        &mut egui_enc,
+        &paint_jobs,
+        &screen_desc,
+    );
+    if guard_callbacks && paint_jobs_contain_callbacks(&paint_jobs) {
+        log::warn!(
+            "egui paint callbacks are unsupported and were skipped to preserve render-pass lifetime safety"
+        );
+    } else {
+        egui_render_pass(&er, &mut egui_enc, &paint_jobs, &screen_desc, view);
+    }
+    gpu.queue.submit(std::iter::once(egui_enc.finish()));
+    for id in &textures_delta.free {
+        er.free_texture(id);
+    }
+    render.egui_renderer = Some(er);
+}
+
 pub(super) fn paint_jobs_contain_callbacks(paint_jobs: &[egui::ClippedPrimitive]) -> bool {
     paint_jobs
         .iter()
         .any(|job| matches!(job.primitive, egui::epaint::Primitive::Callback(_)))
 }
 
-pub(super) fn egui_render_pass(
+fn egui_render_pass(
     er: &egui_wgpu::Renderer,
     enc: &mut wgpu::CommandEncoder,
     paint_jobs: &[egui::ClippedPrimitive],
