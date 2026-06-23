@@ -4,6 +4,13 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.63.1
+
+**Internal: egui overlay submission consolidated into one helper.** The egui renderer lifecycle (update texture deltas → update buffers → record the render pass → submit → free textures → restore the renderer) was duplicated near-identically in the final surface overlay (`frame.rs`) and the docked-editor placeholder (`docked.rs`), differing only in callback handling. Both now call a single `submit_egui(render, gpu, view, guard_callbacks)` in `egui_pass.rs`, so future egui changes are made once and the two paths can't drift. **No public API change, no behavior change.**
+
+### Changed (internal)
+- `egui_pass::submit_egui` is the single egui-submission flow; `frame.rs::present_egui` passes `guard_callbacks = true` (paint callbacks unsupported → skipped with a warn), `docked.rs` passes `false` (the placeholder never produces callbacks). `egui_render_pass` is now private to `egui_pass` (only `submit_egui` uses it). No public API change.
+
 ## 0.63.0
 
 **`DialogueStyle` — restyle `DialogueSystem` without forking the engine.** Dialogue layout (positions, font sizes, colors for the speaker / body / choice list / advance hint / portrait, plus the no-`ViewportSize` fallback) was hardcoded in `DialogueSystem`, so a game had to edit engine source to change normal dialogue style. It's now a new opt-in `DialogueStyle` resource: insert a customized one to restyle, or leave it absent and the system uses `DialogueStyle::default()`, which reproduces the previous look **exactly** — existing games are unchanged. Vertical positions are offsets up from the viewport bottom (so the box stays anchored on a taller window).

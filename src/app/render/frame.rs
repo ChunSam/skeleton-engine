@@ -1,5 +1,5 @@
 use super::super::App;
-use crate::app::egui_pass::{egui_render_pass, paint_jobs_contain_callbacks};
+use crate::app::egui_pass::submit_egui;
 use crate::app::render_state::RenderState;
 use crate::renderer::{
     DrawRect, FrameContext, GpuContext, PostProcessConfig, UiImageQueue, UiQueue,
@@ -19,43 +19,9 @@ impl App {
     /// Paint callbacks are unsupported (skipped) to preserve render-pass lifetime safety.
     /// Extracted from `render()`.
     fn present_egui(render: &mut RenderState, gpu: &GpuContext, final_view: &wgpu::TextureView) {
-        if let (Some(mut er), Some((paint_jobs, textures_delta, ppp))) =
-            (render.egui_renderer.take(), render.egui_output.take())
-        {
-            let screen_desc = egui_wgpu::ScreenDescriptor {
-                size_in_pixels: [gpu.config.width, gpu.config.height],
-                pixels_per_point: ppp,
-            };
-            for (id, delta) in &textures_delta.set {
-                er.update_texture(&gpu.device, &gpu.queue, *id, delta);
-            }
-            let mut egui_enc = gpu
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("egui encoder"),
-                });
-            er.update_buffers(
-                &gpu.device,
-                &gpu.queue,
-                &mut egui_enc,
-                &paint_jobs,
-                &screen_desc,
-            );
-            if paint_jobs_contain_callbacks(&paint_jobs) {
-                log::warn!(
-                    "egui paint callbacks are unsupported and were skipped to preserve render-pass lifetime safety"
-                );
-            } else {
-                // Due to the Renderer::render<'rp>(&'rp self, &mut RenderPass<'rp>) lifetime constraint,
-                // we tie &er and &mut egui_enc to the same lifetime 'a in a standalone function.
-                egui_render_pass(&er, &mut egui_enc, &paint_jobs, &screen_desc, final_view);
-            }
-            gpu.queue.submit(std::iter::once(egui_enc.finish()));
-            for id in &textures_delta.free {
-                er.free_texture(id);
-            }
-            render.egui_renderer = Some(er);
-        }
+        // `guard_callbacks = true`: this is the final surface overlay, where paint callbacks are
+        // unsupported (render-pass lifetime safety) and skipped with a warn.
+        submit_egui(render, gpu, final_view, true);
     }
 
     fn render(&mut self) -> Result<(), wgpu::CurrentSurfaceTexture> {
