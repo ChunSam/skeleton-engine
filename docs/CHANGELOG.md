@@ -4,6 +4,14 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.63.3
+
+**Internal: extracted shared wgpu render boilerplate into `renderer::common`.** Code-quality scan P3 (2026-06-23): the sprite / lighting / post-process / texture / UI-primitive / egui passes each built byte-identical bind-group-layout entries, clamp samplers, and single-color render passes inline, so a wgpu upgrade meant editing the copies in lockstep. New `pub(crate)` helpers centralize the shared shapes; the values produced are identical to the previous inline literals. **No public API change, no behavior change** (verified by a native render smoke of `lit_dungeon` lighting + `tonemap` post-process).
+
+### Changed (internal)
+- New `src/renderer/common.rs`: `filterable_texture_entry` / `filtering_sampler_entry` / `uniform_buffer_entry` (bind-group-layout entries), `create_clamp_sampler` (clamp-to-edge sampler, filter as a param), `begin_color_pass` (single color attachment + store + no depth, load op as a param; `.forget_lifetime()` at the egui site).
+- Call sites switched to the helpers: `texture.rs` (layout + nearest sampler), `post_process.rs` (layout + linear sampler + pass), `lighting.rs` (4-entry layout + linear sampler + clear-normal + lighting passes), `sprite/draw.rs` + `sprite/ui_primitives.rs` + `app/egui_pass.rs` (passes).
+
 ## 0.63.2
 
 **Internal: promoted DebugDraw and native frame-pacing hardcoded literals to named constants.** Two low-risk code-quality findings from the 2026-06-23 scan (P3): the debug-overlay shape renderer embedded magic numbers (stroke `1.5`, circle `24` segments, step floor `0.5`, min length `0.001`, z `999.0`) inline, and the native redraw-cadence policy embedded `60.0` fallback / `[60.0, 240.0]` clamp / `1.0` min-valid in one expression. Both are now named constants with intent docs, ready for a future `DebugDrawConfig` / `FramePacingConfig` to lift without hunting through code. **No public API change, no behavior change.**

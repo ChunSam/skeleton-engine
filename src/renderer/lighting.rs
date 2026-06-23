@@ -196,14 +196,11 @@ impl LightingRenderer {
             source: wgpu::ShaderSource::Wgsl(shader_src.into()),
         });
 
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("lighting sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
+        let sampler = super::common::create_clamp_sampler(
+            device,
+            Some("lighting sampler"),
+            wgpu::FilterMode::Linear,
+        );
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("lighting uniforms"),
@@ -214,46 +211,10 @@ impl LightingRenderer {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("lighting bgl"),
             entries: &[
-                // binding 0: scene texture
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                // binding 1: sampler
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                // binding 2: uniform buffer
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                // binding 3: flat-normal buffer texture
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
+                super::common::filterable_texture_entry(0), // binding 0: scene texture
+                super::common::filtering_sampler_entry(1),  // binding 1: sampler
+                super::common::uniform_buffer_entry(2),     // binding 2: uniform buffer
+                super::common::filterable_texture_entry(3), // binding 3: flat-normal buffer texture
             ],
         });
 
@@ -341,29 +302,18 @@ impl LightingRenderer {
 
     /// Clears the normal buffer to the flat-normal color (0.5, 0.5, 1.0, 1.0) each frame.
     pub fn clear_normal_buffer(&self, encoder: &mut wgpu::CommandEncoder) {
-        let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("clear_normal"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &self.normal_view,
-                resolve_target: None,
-                depth_slice: None,
-                ops: wgpu::Operations {
-                    // LoadOp::Clear fills the attachment with the flat normal color.
-                    // No draw call needed.
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.5,
-                        g: 0.5,
-                        b: 1.0,
-                        a: 1.0,
-                    }),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
+        // LoadOp::Clear fills the attachment with the flat-normal color; no draw call needed.
+        let _pass = super::common::begin_color_pass(
+            encoder,
+            "clear_normal",
+            &self.normal_view,
+            wgpu::LoadOp::Clear(wgpu::Color {
+                r: 0.5,
+                g: 0.5,
+                b: 1.0,
+                a: 1.0,
+            }),
+        );
         // pass drops here — clear is committed
     }
 
@@ -488,22 +438,12 @@ impl LightingRenderer {
             .as_ref()
             .expect("cached_bind_group is set in the branch above");
 
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("lighting pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: output_view,
-                resolve_target: None,
-                depth_slice: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-            multiview_mask: None,
-        });
+        let mut pass = super::common::begin_color_pass(
+            encoder,
+            "lighting pass",
+            output_view,
+            wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+        );
 
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, bind_group, &[]);

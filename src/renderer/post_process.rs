@@ -197,14 +197,11 @@ impl PostProcessRenderer {
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/post_process.wgsl").into()),
         });
 
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("post_process sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
+        let sampler = super::common::create_clamp_sampler(
+            device,
+            Some("post_process sampler"),
+            wgpu::FilterMode::Linear,
+        );
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("post_process uniforms"),
@@ -215,35 +212,9 @@ impl PostProcessRenderer {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("post_process bgl"),
             entries: &[
-                // binding 0: scene texture
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                // binding 1: sampler
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                // binding 2: uniforms
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
+                super::common::filterable_texture_entry(0), // binding 0: scene texture
+                super::common::filtering_sampler_entry(1),  // binding 1: sampler
+                super::common::uniform_buffer_entry(2),     // binding 2: uniforms
             ],
         });
 
@@ -354,22 +325,12 @@ impl PostProcessRenderer {
 
     /// Runs the post-process pass from the intermediate texture into the final swapchain view.
     pub fn run_pass(&self, enc: &mut wgpu::CommandEncoder, final_view: &wgpu::TextureView) {
-        let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("post_process pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: final_view,
-                resolve_target: None,
-                depth_slice: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-            multiview_mask: None,
-        });
+        let mut pass = super::common::begin_color_pass(
+            enc,
+            "post_process pass",
+            final_view,
+            wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+        );
 
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.bind_group, &[]);
