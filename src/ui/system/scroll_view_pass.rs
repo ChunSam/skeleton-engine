@@ -6,17 +6,23 @@ use crate::resources::ViewportSize;
 use crate::ui::node::UiNode;
 use crate::ui::scroll_view::ScrollView;
 
-use super::state::{in_bounds, InputSnapshot, UiOutput};
+use super::capture::PointerCapture;
+use super::state::{InputSnapshot, UiOutput};
 
 pub(super) fn run(
     world: &mut World,
     viewport: &ViewportSize,
     input: &InputSnapshot,
+    capture: &PointerCapture,
     output: &mut UiOutput,
     scratch: &mut Vec<Entity>,
 ) {
     scratch.clear();
     scratch.extend(world.query2::<UiNode, ScrollView>().map(|(e, _, _)| e));
+
+    // The wheel scrolls only the scroll view that owns the pointer (shared capture → a scroll view
+    // covered by another widget kind doesn't capture the wheel through it).
+    let hover_owner = capture.topmost_at(input.cursor);
 
     for entity in scratch.iter().copied() {
         let (pos, size, z, visible) = match world.get::<UiNode>(entity) {
@@ -27,7 +33,7 @@ pub(super) fn run(
             continue;
         }
 
-        if input.scroll_delta != 0.0 && in_bounds(input.cursor, pos, size) {
+        if input.scroll_delta != 0.0 && hover_owner == Some(entity) {
             if let Some(sv) = world.get_mut::<ScrollView>(entity) {
                 sv.scroll_offset -= input.scroll_delta * sv.item_height;
                 sv.clamp_scroll(size.y);

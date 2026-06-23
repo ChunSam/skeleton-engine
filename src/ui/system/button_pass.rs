@@ -6,13 +6,15 @@ use crate::resources::ViewportSize;
 use crate::ui::button::{Button, ButtonState};
 use crate::ui::node::UiNode;
 
-use super::state::{in_bounds, node_layout, InputSnapshot, UiOutput};
+use super::capture::PointerCapture;
+use super::state::{node_layout, InputSnapshot, UiOutput};
 use super::UiEvent;
 
 pub(super) fn run(
     world: &mut World,
     viewport: &ViewportSize,
     input: &InputSnapshot,
+    capture: &PointerCapture,
     output: &mut UiOutput,
     scratch: &mut Vec<Entity>,
 ) {
@@ -20,26 +22,19 @@ pub(super) fn run(
     scratch.extend(world.query2::<UiNode, Button>().map(|(e, _, _)| e));
     let button_entities = &*scratch;
 
-    // Collect click candidates: (entity, z) for buttons that pass the hit-test this frame.
-    // Only the topmost (greatest z) candidate fires ButtonClicked; visual state updates
-    // still happen for every button regardless.
-    // TODO: a button beneath a *different* widget type (e.g. a Panel) can still fire here;
-    // shared pointer-consumption across widget kinds is a broader concern left for a future pass.
-    let mut click_candidate: Option<(Entity, f32)> = None;
+    // The shared pointer-capture set decides which widget owns each point across *all* widget kinds
+    // (so a button covered by a panel or another widget no longer fires). A button is hovered /
+    // pressed / clicked only while it is the topmost pointer-opaque surface under the cursor. Because
+    // `topmost_at` already resolves z-order, at most one button can satisfy the click — no separate
+    // candidate-resolution pass is needed.
+    let hover_owner = capture.topmost_at(input.cursor);
+    let pressed_owner = capture.topmost_at(input.press_cursor);
+    let released_owner = capture.topmost_at(input.release_cursor);
 
     for entity in button_entities.iter().copied() {
-        let (pos, size, z, visible) = match node_layout(world, entity, viewport) {
-            Some(layout) => layout,
-            None => continue,
-        };
-        if !visible {
-            continue;
-        }
-
-        let hover = in_bounds(input.cursor, pos, size);
-        let clicked = input.just_released
-            && in_bounds(input.press_cursor, pos, size)
-            && in_bounds(input.release_cursor, pos, size);
+        let hover = hover_owner == Some(entity);
+        let clicked =
+            input.just_released && pressed_owner == Some(entity) && released_owner == Some(entity);
 
         let btn = match world.get_mut::<Button>(entity) {
             Some(b) => b,
@@ -55,22 +50,10 @@ pub(super) fn run(
             } else {
                 ButtonState::Normal
             };
-            // Register as a click candidate; the winner is resolved after the loop.
             if clicked {
-                let is_better = match click_candidate {
-                    None => true,
-                    Some((_, best_z)) => z > best_z,
-                };
-                if is_better {
-                    click_candidate = Some((entity, z));
-                }
+                output.events.push(UiEvent::ButtonClicked(entity));
             }
         }
-    }
-
-    // Fire ButtonClicked for the single topmost candidate (if any).
-    if let Some((winner, _)) = click_candidate {
-        output.events.push(UiEvent::ButtonClicked(winner));
     }
 
     // Second pass: render each button (borrow immutably now that state mutations are done).

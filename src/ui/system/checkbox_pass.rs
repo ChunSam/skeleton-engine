@@ -6,18 +6,25 @@ use crate::resources::ViewportSize;
 use crate::ui::checkbox::CheckBox;
 use crate::ui::node::UiNode;
 
-use super::state::{in_bounds, node_layout, InputSnapshot, UiOutput};
+use super::capture::PointerCapture;
+use super::state::{node_layout, InputSnapshot, UiOutput};
 use super::UiEvent;
 
 pub(super) fn run(
     world: &mut World,
     viewport: &ViewportSize,
     input: &InputSnapshot,
+    capture: &PointerCapture,
     output: &mut UiOutput,
     scratch: &mut Vec<Entity>,
 ) {
     scratch.clear();
     scratch.extend(world.query2::<UiNode, CheckBox>().map(|(e, _, _)| e));
+
+    // Toggle only when this checkbox owns the pointer at both press and release (shared capture →
+    // a checkbox covered by another widget kind does not toggle through it).
+    let pressed_owner = capture.topmost_at(input.press_cursor);
+    let released_owner = capture.topmost_at(input.release_cursor);
 
     for entity in scratch.iter().copied() {
         let (pos, size, z, visible) = match node_layout(world, entity, viewport) {
@@ -28,11 +35,10 @@ pub(super) fn run(
             continue;
         }
 
-        // Toggle on release, just like a Button (only when both press and release are inside the box).
-        // Dragging outside the box before releasing cancels the toggle.
-        let toggled = input.just_released
-            && in_bounds(input.press_cursor, pos, size)
-            && in_bounds(input.release_cursor, pos, size);
+        // Toggle on release, just like a Button (only when both press and release land on this box).
+        // Dragging onto another widget before releasing cancels the toggle.
+        let toggled =
+            input.just_released && pressed_owner == Some(entity) && released_owner == Some(entity);
         if toggled {
             if let Some(cb) = world.get_mut::<CheckBox>(entity) {
                 cb.checked = !cb.checked;

@@ -7,7 +7,8 @@ use crate::ui::focus::{FocusRingStyle, UiFocus};
 use crate::ui::slider::Slider;
 use crate::ui::text_input::TextInput;
 
-use super::state::{in_bounds, node_layout, InputSnapshot, UiOutput};
+use super::capture::PointerCapture;
+use super::state::{node_layout, InputSnapshot, UiOutput};
 use super::UiEvent;
 
 /// Fraction of a slider's range that one Left/Right press nudges the value.
@@ -21,6 +22,7 @@ pub(super) fn run(
     world: &mut World,
     viewport: &ViewportSize,
     input: &InputSnapshot,
+    capture: &PointerCapture,
     elapsed: f32,
     output: &mut UiOutput,
     scratch: &mut Vec<Entity>,
@@ -51,13 +53,15 @@ pub(super) fn run(
         .and_then(|f| f.entity)
         .filter(|&e| is_focusable(focusables, e));
 
-    // A click moves focus to the clicked widget, so Tab resumes from there.
+    // A click moves focus to the clicked widget, so Tab resumes from there. The shared pointer
+    // capture decides which widget the click landed on across *all* widget kinds (the same topmost
+    // surface the button/checkbox/etc. passes act on), so a focusable covered by another widget is
+    // not focused through it. The click counts only when press and release land on the same surface.
     if input.just_released {
-        for &e in focusables {
-            if let Some((pos, size, _, _)) = node_layout(world, e, viewport) {
-                if in_bounds(input.press_cursor, pos, size)
-                    && in_bounds(input.release_cursor, pos, size)
-                {
+        let owner = capture.topmost_at(input.press_cursor);
+        if owner.is_some() && owner == capture.topmost_at(input.release_cursor) {
+            if let Some(e) = owner {
+                if is_focusable(focusables, e) {
                     focus = Some(e);
                 }
             }
@@ -702,28 +706,29 @@ mod tests {
         w
     }
 
-    /// Two overlapping TextInputs: clicking the shared area focuses the last one in entity-index
-    /// order (focus_pass iterates focusables by entity index, last match wins). The TextFocused
-    /// event is emitted only for that entity.
+    /// Two overlapping TextInputs at different z: clicking the shared area focuses the one drawn on
+    /// top (greater z), matching what the player sees — focus now follows the shared pointer capture
+    /// (z-order), consistent with the button/checkbox/etc. passes. The TextFocused event is emitted
+    /// only for that entity. (Previously focus ignored z and picked the last entity index; the new
+    /// occlusion-aware capture makes z decide.)
     #[test]
-    fn click_on_overlapping_text_inputs_focuses_last_spawned() {
+    fn click_on_overlapping_text_inputs_focuses_topmost_z() {
         let mut w = world_with_focus_resources();
-        // Spawn first (lower entity index) with a higher z; spawn second (higher entity index) with lower z.
-        // focus_pass will pick the last-spawned entity regardless of z.
+        // `first` has the lower entity index but the HIGHER z (drawn on top), so it must win even
+        // though `second` was spawned later.
         let first = spawn_text_input(&mut w, 0.0, 0.0, 100.0, 30.0, 0.9);
         let second = spawn_text_input(&mut w, 0.0, 0.0, 100.0, 30.0, 0.5);
 
         click_at(&mut w, glam::Vec2::new(50.0, 15.0));
         UiSystem::new().run(&mut w, 0.0);
 
-        // focus_pass last-entity-index wins: second (higher index) is focused.
         assert!(
-            w.get::<TextInput>(second).unwrap().focused,
-            "last-spawned (higher entity index) TextInput should be focused after click"
+            w.get::<TextInput>(first).unwrap().focused,
+            "the higher-z TextInput (drawn on top) should be focused after click"
         );
         assert!(
-            !w.get::<TextInput>(first).unwrap().focused,
-            "first-spawned TextInput should not be focused"
+            !w.get::<TextInput>(second).unwrap().focused,
+            "the lower-z TextInput (behind) should not be focused"
         );
 
         let events = w.resource::<Events<UiEvent>>().unwrap().read().to_vec();
@@ -739,8 +744,29 @@ mod tests {
             .collect();
         assert_eq!(
             focused_entities,
-            vec![second],
+            vec![first],
             "TextFocused should be emitted only for the focused entity"
+        );
+    }
+
+    /// Two overlapping TextInputs at the SAME z: the tie is broken by entity index (later-spawned /
+    /// higher index draws on top in painter's order), so the last-spawned one is focused.
+    #[test]
+    fn click_on_same_z_text_inputs_focuses_last_spawned() {
+        let mut w = world_with_focus_resources();
+        let first = spawn_text_input(&mut w, 0.0, 0.0, 100.0, 30.0, 0.5);
+        let second = spawn_text_input(&mut w, 0.0, 0.0, 100.0, 30.0, 0.5);
+
+        click_at(&mut w, glam::Vec2::new(50.0, 15.0));
+        UiSystem::new().run(&mut w, 0.0);
+
+        assert!(
+            w.get::<TextInput>(second).unwrap().focused,
+            "on a z tie, the higher-entity-index (last-spawned) TextInput should be focused"
+        );
+        assert!(
+            !w.get::<TextInput>(first).unwrap().focused,
+            "the lower-index TextInput should not be focused on a z tie"
         );
     }
 

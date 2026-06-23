@@ -1,6 +1,7 @@
 use crate::ecs::{Entity, System, World};
 
 mod button_pass;
+mod capture;
 mod checkbox_pass;
 mod event;
 mod focus_pass;
@@ -10,6 +11,7 @@ mod slider_pass;
 mod state;
 mod text_input_pass;
 
+use capture::PointerCapture;
 pub use event::UiEvent;
 use state::{submit_output, viewport_from_world, InputSnapshot, StickNav, UiOutput};
 
@@ -34,6 +36,9 @@ pub struct UiSystem {
     scroll_view_scratch: Vec<Entity>,
     slider_scratch: Vec<Entity>,
     text_input_scratch: Vec<Entity>,
+    /// Shared per-frame pointer-occlusion map, rebuilt each run and read by the pointer-driven
+    /// passes so one widget kind can't fire through another drawn on top. See [`PointerCapture`].
+    capture: PointerCapture,
     /// Edge-detection state for the left analog stick → discrete focus nav (persists across frames,
     /// like the scratch buffers). See [`StickNav`].
     stick_nav: StickNav,
@@ -75,11 +80,16 @@ impl System for UiSystem {
         let mut output = UiOutput::default();
         // Advance the focus-ring pulse clock (wrapped so `+= dt` never loses precision).
         self.ring_elapsed = (self.ring_elapsed + dt).rem_euclid(RING_PULSE_WRAP);
+        // One shared "who is on top here?" decision for every pointer interaction this frame, so a
+        // widget covered by another widget kind (e.g. a button under a panel) does not fire. Node
+        // geometry/visibility/z does not change across the passes below, so a single rebuild holds.
+        self.capture.rebuild(world, &viewport);
         // Keyboard focus first, so a Tab-focused TextInput receives this frame's typed characters.
         focus_pass::run(
             world,
             &viewport,
             &input,
+            &self.capture,
             self.ring_elapsed,
             &mut output,
             &mut self.focus_scratch,
@@ -88,6 +98,7 @@ impl System for UiSystem {
             world,
             &viewport,
             &input,
+            &self.capture,
             &mut output,
             &mut self.button_scratch,
         );
@@ -103,6 +114,7 @@ impl System for UiSystem {
             world,
             &viewport,
             &input,
+            &self.capture,
             &mut output,
             &mut self.scroll_view_scratch,
         );
@@ -111,6 +123,7 @@ impl System for UiSystem {
             world,
             &viewport,
             &input,
+            &self.capture,
             &mut output,
             &mut self.slider_scratch,
         );
@@ -118,6 +131,7 @@ impl System for UiSystem {
             world,
             &viewport,
             &input,
+            &self.capture,
             &mut output,
             &mut self.checkbox_scratch,
         );
@@ -136,6 +150,7 @@ mod tests {
     use crate::resources::ViewportSize;
     use crate::ui::button::{Button, ButtonState};
     use crate::ui::node::UiNode;
+    use crate::ui::panel::{LayoutDir, Panel};
     use crate::ui::scroll_view::ScrollView;
     use crate::ui::slider::Slider;
 
@@ -318,6 +333,102 @@ mod tests {
         assert!(
             matches!(events[0], UiEvent::ButtonClicked(e) if e == high_btn),
             "expected high-z button to fire, got {events:?}"
+        );
+    }
+
+    // ── Cross-widget pointer capture: a covered button must not fire ─────────
+
+    /// Spawns a button at `z` covering (50..150, 50..100) and returns its entity.
+    fn spawn_button_at(world: &mut World, z: f32) -> Entity {
+        let btn = world.spawn();
+        let mut node = UiNode::new(50.0, 50.0, 100.0, 50.0);
+        node.z = z;
+        world.add_component(btn, node);
+        world.add_component(btn, Button::new("Hidden"));
+        btn
+    }
+
+    /// Spawns a full-area panel at `z` covering (0..300, 0..200) and returns its entity.
+    fn spawn_panel_at(world: &mut World, z: f32) -> Entity {
+        let panel = world.spawn();
+        let mut node = UiNode::new(0.0, 0.0, 300.0, 200.0);
+        node.z = z;
+        world.add_component(panel, node);
+        world.add_component(panel, Panel::new(LayoutDir::Vertical));
+        panel
+    }
+
+    /// Simulates a press+release click at `cursor` in one frame and runs the UI system.
+    fn click_world(world: &mut World, cursor: Vec2) {
+        world.insert_resource(ViewportSize::new(400, 300));
+        world.insert_resource(Events::<UiEvent>::default());
+        let mut input = InputState::default();
+        input.set_cursor(cursor);
+        world.insert_resource(input);
+        {
+            let input = world.resource_mut::<InputState>().unwrap();
+            input.press_mouse(MouseButton::Left);
+            input.release_mouse(MouseButton::Left);
+        }
+        UiSystem::default().run(world, 0.016);
+    }
+
+    /// A Panel drawn on top of a button (higher z) absorbs the click — the covered button must NOT
+    /// emit ButtonClicked. This is the cross-widget pointer-capture regression: before the shared
+    /// capture, the button pass hit-tested only buttons and fired straight through the panel.
+    #[test]
+    fn button_covered_by_higher_z_panel_does_not_fire() {
+        let mut world = World::new();
+        let btn = spawn_button_at(&mut world, 0.5);
+        // Panel background draws at z - 0.01 = 0.89, still well above the button's 0.5.
+        spawn_panel_at(&mut world, 0.9);
+
+        click_world(&mut world, Vec2::new(60.0, 60.0));
+
+        assert_eq!(
+            click_count(&world, btn),
+            0,
+            "a button covered by a higher-z panel must not fire"
+        );
+    }
+
+    /// A Panel behind a button (lower z) does not block it — the button still fires. Guards against
+    /// the capture over-reaching and swallowing legitimate clicks.
+    #[test]
+    fn button_over_lower_z_panel_still_fires() {
+        let mut world = World::new();
+        let btn = spawn_button_at(&mut world, 0.9);
+        spawn_panel_at(&mut world, 0.1); // panel bg at 0.09, below the button
+
+        click_world(&mut world, Vec2::new(60.0, 60.0));
+
+        assert_eq!(
+            click_count(&world, btn),
+            1,
+            "a button drawn over a lower-z panel must still fire"
+        );
+    }
+
+    /// A button covered by a higher-z TextInput must not fire either (capture spans every widget
+    /// kind, not just panels).
+    #[test]
+    fn button_covered_by_higher_z_text_input_does_not_fire() {
+        use crate::ui::text_input::TextInput;
+        let mut world = World::new();
+        let btn = spawn_button_at(&mut world, 0.5);
+        let ti = world.spawn();
+        let mut node = UiNode::new(50.0, 50.0, 100.0, 50.0);
+        node.z = 0.9;
+        world.add_component(ti, node);
+        world.add_component(ti, TextInput::new(""));
+
+        world.insert_resource(crate::ui::focus::UiFocus::default());
+        click_world(&mut world, Vec2::new(60.0, 60.0));
+
+        assert_eq!(
+            click_count(&world, btn),
+            0,
+            "a button covered by a higher-z text input must not fire"
         );
     }
 
