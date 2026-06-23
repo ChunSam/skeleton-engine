@@ -4,6 +4,16 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.62.2
+
+**GPU particles now render under HDR post-process.** HDR post (`PostProcessConfig::hdr`) renders the scene into an `Rgba16Float` intermediate; the GPU-particle render pipeline was built only for the surface format, so particles were skipped (with a warn-once) under HDR — the last render pass not yet format-matched. The renderer now lazily builds and caches a render pipeline per non-surface target format, mirroring the sprite/material/UI pipeline caches (v0.56.0/v0.59.0). With this, **every scene pass is format-matched under HDR.** The surface-format path is unchanged (the common case is a cache no-op).
+
+### Fixed
+- GPU particles are no longer skipped under HDR post-process. `GpuParticleRenderer` gains `ensure_render_pipeline(device, format)` + an internal per-format pipeline cache; `render` takes the scene's `target_format` and selects the matching pipeline. The surface-format fast path is byte-identical. (`src/renderer/gpu_particle.rs`, `src/app/render/frame.rs`.)
+
+### Changed
+- `gpu_particles` example: `H` toggles HDR post-process (ACES tonemap) to demonstrate particles rendering into the HDR intermediate.
+
 ## 0.62.1
 
 **Fixed: a UI widget covered by another widget kind could still fire.** Each widget pass (button / checkbox / slider / scroll / focus) used to hit-test only its own kind, so e.g. a button behind an opaque `Panel` (or any higher-z widget) still emitted `ButtonClicked` on a click that visually landed on the panel. A new shared per-frame pointer-occlusion map now decides which single widget owns each point across *all* widget kinds, and every pointer interaction (click, toggle, slider press, wheel scroll, click-to-focus) is granted only to the topmost pointer-opaque surface under the cursor. No public API change.

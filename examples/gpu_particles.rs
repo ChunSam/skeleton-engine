@@ -8,9 +8,10 @@
 //! spawn over a `Circle` emit shape. Edit `gpu_particles.ron` while running to hot-reload.
 //! - Space: toggle emission for the current emitters
 //! - R: remove all emitters
+//! - H: toggle HDR post-process (ACES tonemap) — confirms GPU particles render under HDR post
 use engine::{
     App, DrawText, GpuParticleEmitter, InputState, KeyCode, MouseButton, ParticleConfigRegistry,
-    System, TextQueue, Transform, WindowConfig, World,
+    PostProcessConfig, System, TextQueue, Tonemap, Transform, WindowConfig, World,
 };
 use glam::Vec2;
 
@@ -20,7 +21,7 @@ struct GpuParticleDemo {
 
 impl System for GpuParticleDemo {
     fn run(&mut self, world: &mut World, _dt: f32) {
-        let (mouse_pos, left_just_pressed, space_just_pressed, r_just_pressed) = {
+        let (mouse_pos, left_just_pressed, space_just_pressed, r_just_pressed, h_just_pressed) = {
             let Some(input) = world.resource::<InputState>() else {
                 return;
             };
@@ -29,8 +30,26 @@ impl System for GpuParticleDemo {
                 input.mouse_just_pressed(MouseButton::Left),
                 input.just_pressed(KeyCode::Space),
                 input.just_pressed(KeyCode::KeyR),
+                input.just_pressed(KeyCode::KeyH),
             )
         };
+
+        // H: toggle HDR post-process (ACES tonemap). With HDR on, the scene renders into an
+        // Rgba16Float intermediate — the particles must still appear, confirming they are
+        // format-matched to the HDR target (previously they were skipped under HDR post).
+        if h_just_pressed {
+            let cfg = world.resource_mut::<PostProcessConfig>();
+            if let Some(cfg) = cfg {
+                let on = !cfg.hdr;
+                cfg.enabled = on;
+                cfg.hdr = on;
+                cfg.tonemap = if on {
+                    Tonemap::AcesFilmic
+                } else {
+                    Tonemap::None
+                };
+            }
+        }
 
         // Mouse click → spawn a new emitter, built from the RON config via the GPU path
         // (gravity + Circle scatter come straight from gpu_particles.ron). Read the registry
@@ -81,17 +100,19 @@ impl System for GpuParticleDemo {
         }
 
         // HUD
+        let hdr_on = world.resource::<PostProcessConfig>().is_some_and(|c| c.hdr);
         if let Some(tq) = world.resource_mut::<TextQueue>() {
             tq.push(DrawText::new(
-                "GPU Particle Demo — LClick: spawn  Space: toggle  R: clear",
+                "GPU Particle Demo — LClick: spawn  Space: toggle  R: clear  H: HDR post",
                 Vec2::new(10.0, 10.0),
                 18.0,
                 [220, 220, 220, 230],
             ));
             tq.push(DrawText::new(
                 format!(
-                    "Emitters: {}  (4096 particle slots total)",
-                    self.emitter_count
+                    "Emitters: {}  (4096 particle slots total)   HDR post: {}",
+                    self.emitter_count,
+                    if hdr_on { "ON (ACES)" } else { "off" }
                 ),
                 Vec2::new(10.0, 36.0),
                 16.0,
@@ -109,6 +130,8 @@ fn main() {
         height: 720,
         clear_color: [0.03, 0.03, 0.08, 1.0],
     });
+    // HDR post-process config (off by default; press H to toggle it on with ACES tonemap).
+    app.world.insert_resource(PostProcessConfig::default());
     app.load_particle_configs("vfx", "examples/gpu_particles.ron");
 
     // Spawn one emitter at screen center from the RON config, so the demo shows the RON→GPU

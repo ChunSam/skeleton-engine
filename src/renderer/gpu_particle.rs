@@ -53,9 +53,59 @@ pub struct GpuParticleRenderer {
     particle_capacity: u32,
     // ── Render pipeline ────────────────────────────────────────────────────
     render_pipeline: wgpu::RenderPipeline,
+    /// The surface format the base `render_pipeline` targets. A scene target with a different
+    /// format (e.g. the `Rgba16Float` HDR post-process intermediate) gets a matching pipeline
+    /// from `extra_render_pipelines`.
+    base_format: wgpu::TextureFormat,
+    /// Reused to lazily build a render pipeline per non-surface target format.
+    render_pipeline_layout: wgpu::PipelineLayout,
+    /// Lazily-built render pipelines keyed by target format (the HDR / offscreen case); the surface
+    /// format always uses `render_pipeline` directly.
+    extra_render_pipelines: std::collections::HashMap<wgpu::TextureFormat, wgpu::RenderPipeline>,
     camera_buf: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     particle_bind_group: wgpu::BindGroup,
+}
+
+/// Builds the GPU-particle render pipeline for a given color-target `format`. Shared by
+/// [`GpuParticleRenderer::new`] (the surface format) and
+/// [`GpuParticleRenderer::ensure_render_pipeline`] (a non-surface render-target format, e.g. the
+/// `Rgba16Float` HDR post-process intermediate), so the pipeline descriptor (alpha blend, triangle
+/// list, no depth) lives in exactly one place.
+fn build_particle_render_pipeline(
+    device: &wgpu::Device,
+    shader: &wgpu::ShaderModule,
+    layout: &wgpu::PipelineLayout,
+    format: wgpu::TextureFormat,
+) -> wgpu::RenderPipeline {
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("gpu particle render pipeline"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: shader,
+            entry_point: Some("vs_main"),
+            buffers: &[],
+            compilation_options: Default::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: shader,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: Default::default(),
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            ..Default::default()
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview_mask: None,
+        cache: None,
+    })
 }
 
 impl GpuParticleRenderer {
@@ -222,34 +272,12 @@ impl GpuParticleRenderer {
                 immediate_size: 0,
             });
 
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("gpu particle render pipeline"),
-            layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &render_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &render_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: surface_format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
+        let render_pipeline = build_particle_render_pipeline(
+            device,
+            &render_shader,
+            &render_pipeline_layout,
+            surface_format,
+        );
 
         Self {
             compute_pipeline,
@@ -258,9 +286,45 @@ impl GpuParticleRenderer {
             particle_buf,
             particle_capacity: capacity,
             render_pipeline,
+            base_format: surface_format,
+            render_pipeline_layout,
+            extra_render_pipelines: std::collections::HashMap::new(),
             camera_buf,
             camera_bind_group,
             particle_bind_group,
+        }
+    }
+
+    /// Ensures a render pipeline matching `format` exists — builds + caches one for a non-surface
+    /// render-target format (e.g. the `Rgba16Float` HDR post-process intermediate) on first use; a
+    /// no-op for the base (surface) format and on cache hits. Recompiles the particle render shader
+    /// for the new pipeline, paid once per distinct format (never per frame). Mirrors
+    /// `SpriteRenderer::ensure_sprite_pipeline`.
+    pub fn ensure_render_pipeline(&mut self, device: &wgpu::Device, format: wgpu::TextureFormat) {
+        if format == self.base_format || self.extra_render_pipelines.contains_key(&format) {
+            return;
+        }
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("gpu particle render (rt format)"),
+            source: wgpu::ShaderSource::Wgsl(
+                include_str!("shaders/gpu_particle_render.wgsl").into(),
+            ),
+        });
+        let pipeline =
+            build_particle_render_pipeline(device, &shader, &self.render_pipeline_layout, format);
+        self.extra_render_pipelines.insert(format, pipeline);
+    }
+
+    /// The render pipeline matching `format`: the base pipeline for the surface format, else the
+    /// cached extra ([`ensure_render_pipeline`](Self::ensure_render_pipeline) must have built it;
+    /// falls back to the base pipeline if somehow missing, to never panic mid-frame).
+    fn render_pipeline_for(&self, format: wgpu::TextureFormat) -> &wgpu::RenderPipeline {
+        if format == self.base_format {
+            &self.render_pipeline
+        } else {
+            self.extra_render_pipelines
+                .get(&format)
+                .unwrap_or(&self.render_pipeline)
         }
     }
 
@@ -312,6 +376,7 @@ impl GpuParticleRenderer {
         world: &World,
         width: u32,
         height: u32,
+        target_format: wgpu::TextureFormat,
         clip_scale: glam::Vec2,
     ) {
         let fallback = Camera::default();
@@ -345,7 +410,7 @@ impl GpuParticleRenderer {
             timestamp_writes: None,
             multiview_mask: None,
         });
-        pass.set_pipeline(&self.render_pipeline);
+        pass.set_pipeline(self.render_pipeline_for(target_format));
         pass.set_bind_group(0, &self.camera_bind_group, &[]);
         pass.set_bind_group(1, &self.particle_bind_group, &[]);
         pass.draw(0..vertex_count, 0..1);
