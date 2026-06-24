@@ -32,12 +32,14 @@ impl App {
         format: Option<wgpu::TextureFormat>,
     ) {
         if let Some(gpu) = &self.gpu {
-            // GPU already initialized — create immediately (None inherits the surface format).
+            // GPU already initialized — create immediately. `None` inherits the surface format; a
+            // caller-chosen format that this GPU cannot render into falls back (with a warning).
+            let resolved = gpu.resolve_render_target_format(format, &name);
             let rt = crate::renderer::render_target::RenderTarget::new(
                 &gpu.device,
                 width,
                 height,
-                format.unwrap_or(gpu.config.format),
+                resolved,
             );
             self.render.render_targets.insert(name, rt);
         } else {

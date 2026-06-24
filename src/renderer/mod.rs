@@ -29,7 +29,7 @@ pub(crate) struct CameraUniform {
     pub(crate) view_proj: [[f32; 4]; 4],
 }
 
-pub use context::{GpuContext, GpuContextError};
+pub use context::{GpuContext, GpuContextError, RenderCapabilities};
 pub use post_process::{PostProcessConfig, PostProcessRenderer, Tonemap};
 pub use render_plugin::RenderPlugin;
 pub use render_target::RenderTarget;

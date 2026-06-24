@@ -700,16 +700,20 @@ impl App {
                 }
             }
         }
-        // pending_render_targets: create RTs registered before GPU initialization
+        // pending_render_targets: create RTs registered before GPU initialization. A caller-chosen
+        // format that this GPU cannot render into falls back to the surface format (with a warning).
         for (name, w, h, fmt) in self.pending_render_targets.drain(..) {
-            let rt = crate::renderer::render_target::RenderTarget::new(
-                &gpu.device,
-                w,
-                h,
-                fmt.unwrap_or(gpu.config.format),
-            );
+            let format = gpu.resolve_render_target_format(fmt, &name);
+            let rt = crate::renderer::render_target::RenderTarget::new(&gpu.device, w, h, format);
             self.render.render_targets.insert(name, rt);
         }
+        // Expose GPU render-format support to game systems (e.g. to choose an HDR render target
+        // only where renderable). Inserted after the surface format is known.
+        self.world
+            .insert_resource(crate::renderer::context::RenderCapabilities::new(
+                gpu.adapter.clone(),
+                gpu.config.format,
+            ));
         let font_bytes = self
             .world
             .resource::<FontData>()
