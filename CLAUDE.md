@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.6.145 | package `skeleton-engine` v0.68.2, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
+> Version v1.6.146 | package `skeleton-engine` v0.68.2, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example game ships to
 > the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`  
@@ -155,30 +155,8 @@ Detailed in **`docs/PATTERNS.md`**:
 
 ## Agent working notes
 
-### Context management
-
-The longer a session runs, the more accumulated context degrades response quality. Split the approach by task type:
-
-| Situation | Recommended approach |
-|------|-----------|
-| Single-file edit (clear requirements) | Edit directly in the main session |
-| Feature spanning multiple files | Split out into a Task subagent |
-| Exploration needs 3+ files | Explore subagent |
-| Writing code after a long conversation | Task subagent (avoid context pollution) |
-
-### Efficient exploration
-
-- Locate symbols/keywords with `grep` before reading whole files
-- If the path is already known, use Read directly (no Explore subagent needed)
-- Reading order: `src/lib.rs` → module map → narrow down to the target file
-
-### Subagent prompt principles
-
-A subagent starts without knowing the current conversation context. Always include in the prompt:
-
-1. **Paths to edit** (absolute paths)
-2. **Patterns to apply** — pass a summary of this file's core-pattern sections (borrow workaround, layer separation, etc.)
-3. **Expected result** — what behavior should change
+Context-management heuristics (when to split work into a subagent by task type),
+efficient-exploration order, and subagent-prompt principles → **`docs/AGENT_NOTES.md`**.
 
 ---
 
@@ -203,6 +181,7 @@ A subagent starts without knowing the current conversation context. Always inclu
 |------|------|
 | `CLAUDE.md` (this file) | Agent quick reference — module map, task checklists |
 | `docs/PATTERNS.md` | Core architecture patterns + task recipes (extracted from this file) |
+| `docs/AGENT_NOTES.md` | Agent working heuristics — context-management split, exploration order, subagent-prompt principles (extracted from this file) |
 | `docs/MACOS_FFI.md` | How to add an objc2 Apple-framework binding (version-pin, discover the API from registry source, feature flags) — e.g. the macOS GameController gamepad backend |
 | `REFERENCE.html` | Full public API + code examples (detailed) |
 | `docs/HANDOFF.md` | Per-phase dev history, background on architecture decisions |
