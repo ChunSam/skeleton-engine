@@ -4,6 +4,15 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.68.1
+
+**Behavior-preserving refactor: the 871-line grab-bag `src/resources.rs` is split into `src/resources/` by concern.** The flat module that held ~26 unrelated engine resources became a directory of seven focused submodules, all re-exported from `mod.rs` so `crate::resources::*` and the `engine::*` re-exports in `lib.rs` resolve unchanged. Pure code movement — only module location, imports, and paths changed; the moved tests are otherwise verbatim. **No public API change, no behavior change.** Follows the prior editor god-file split precedent (e.g. `docked.rs` → 0.49.1).
+
+### Changed (internal)
+- `src/resources.rs` → `src/resources/{mod,debug_draw,display,fonts,lifecycle,profiling,render,time}.rs`. Grouping: `debug_draw` (`DebugShape`/`DebugDraw`/`FilledRect`), `display` (`ViewportSize`/`DesignResolution`/`Letterbox`/`DisplayScaleFactor`/`DEFAULT_CANVAS_ID`/`WindowConfig`/`WindowMode`/`WindowOptions`/`ImeConfig`/`PendingResize`), `fonts` (`FontData`/`ExtraFonts`), `lifecycle` (`PanickedSystems`/`LoadProgress`/`GameState`/`ShouldQuit`/`FadeTransition`), `profiling` (`SelectedEntity`/`SystemProfile`/`RenderStats`/`ProfilerData`), `render` (`CullConfig`/`AmbientLight`), `time` (`TimeScale`/`RealDt`).
+- `mod.rs` re-exports all 27 public items, keeping every existing path stable; `lib.rs` is unchanged. The `debug_draw`/`letterbox`/`fade` unit tests moved with their types and run under the new module paths.
+- `CLAUDE.md` module-map row for the resources updated to point at `src/resources/`.
+
 ## 0.68.0
 
 **The `bloom` example now runs in the browser — the mip-chain "dual filter" bloom renders on WebGL2.** Ships the existing `bloom` example to the web with the same engine code as native (the `hdr_render_target` v0.60.0 / `render_format_query` v0.66.0 precedent: a web harness is a MINOR even with no library change). This is the most worthwhile example to put on the web because the bloom pass renders the scene into an `Rgba16Float` HDR intermediate and blurs the highlights through a pyramid of `Rgba16Float` mip render targets — all usable on WebGL2 only with the `EXT_color_buffer_float` extension, so whether the whole HDR + mip-chain pipeline actually runs differs from the desktop case. **No library (`src/`) change.**
