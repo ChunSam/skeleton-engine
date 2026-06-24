@@ -15,7 +15,10 @@
 //! Keys: `B` toggle real/inline bloom · `↑`/`↓` intensity · `←`/`→` pyramid depth (glow width) ·
 //! `Esc` quit.
 //!
-//! Run: `cargo run --example bloom`
+//! Run natively: `cargo run --example bloom`. For the browser build see
+//! `examples/bloom/web/build.sh` — the web build confirms the HDR + mip-chain bloom pipeline (an
+//! `Rgba16Float` intermediate + a pyramid of `Rgba16Float` mip targets) actually renders on WebGL2,
+//! where float render targets need `EXT_color_buffer_float`.
 
 use engine::{
     App, Camera, Color, DrawText, InputState, KeyCode, PostProcessConfig, ShouldQuit, Sprite,
@@ -61,10 +64,38 @@ fn spawn_emitter(app: &mut App, x: f32, brightness: f32, hue: [f32; 3]) {
     );
 }
 
-struct BloomDemo;
+/// Drives the bloom demo. On wasm it also runs a headless self-check: after the HDR + mip-chain
+/// bloom pipeline has rendered a handful of frames without panicking, it writes a PASS verdict to
+/// the tab title (`scripts/bloom_web_smoke.sh` reads it). The point of the web build is to confirm
+/// the `Rgba16Float` HDR intermediate + the mip-pyramid bloom targets actually render on WebGL2.
+#[derive(Default)]
+struct BloomDemo {
+    /// wasm self-check: frames survived so far.
+    #[cfg(target_arch = "wasm32")]
+    frames: u32,
+    /// wasm self-check: guard so the verdict is written to the tab title only once.
+    #[cfg(target_arch = "wasm32")]
+    reported: bool,
+}
 
 impl System for BloomDemo {
     fn run(&mut self, world: &mut World, _dt: f32) {
+        // wasm headless self-check: survive a few frames of HDR + mip-chain bloom on WebGL2, then
+        // report PASS to the tab title. A boot panic (e.g. an unrenderable Rgba16Float target)
+        // fires console_error_panic_hook and no verdict ever appears -> the smoke FAILs.
+        #[cfg(target_arch = "wasm32")]
+        {
+            if !self.reported {
+                self.frames += 1;
+                if self.frames >= 30 {
+                    self.reported = true;
+                    if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+                        doc.set_title("BLOOM_WEB_CHECK: PASS (1/1)");
+                    }
+                }
+            }
+        }
+
         let (toggle, up, down, left, right, quit) = {
             let Some(input) = world.resource::<InputState>() else {
                 return;
@@ -147,7 +178,8 @@ impl System for BloomDemo {
     }
 }
 
-fn main() {
+/// Builds the configured app — shared by the native binary and the wasm entry point.
+fn build_app() -> App {
     let mut app = App::new();
     app.world.insert_resource(WindowConfig {
         title: "skeleton-engine — bloom".to_string(),
@@ -176,6 +208,25 @@ fn main() {
     });
 
     app.world.insert_resource(Camera::new(Vec2::ZERO, 1.0));
-    app.add_system(BloomDemo);
-    app.run();
+    app.add_system(BloomDemo::default());
+    app
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn main() {
+    build_app().run();
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {}
+
+/// Browser entry point. Build with `examples/bloom/web/build.sh`, then serve the `web/` dir and
+/// click **Start**: the over-bright emitters bloom on the canvas, and once the HDR + mip-chain
+/// bloom pipeline has rendered a few frames on WebGL2 a self-check verdict
+/// (`BLOOM_WEB_CHECK: PASS (1/1)`) is written to the tab title.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn run_bloom() {
+    console_error_panic_hook::set_once();
+    build_app().run();
 }

@@ -52,6 +52,14 @@ cargo install wasm-bindgen-cli --version <ver>   # MUST match the wasm-bindgen c
   the DevTools endpoint. Also proves the example loads + renders on WebGL2 without panicking (no
   verdict appears otherwise). Run after touching the renderability query path in
   `src/renderer/context.rs` or the example.
+- **Bloom check — `./scripts/bloom_web_smoke.sh`** builds the `bloom` example to wasm, serves it
+  (`?autostart=1`), boots it headless under **SwiftShader**, and asserts the engine's mip-chain "dual
+  filter" [bloom](../src/renderer/bloom.rs) pipeline **renders on the WebGL2 backend** — the example
+  survives ~30 frames of HDR + bloom and writes `BLOOM_WEB_CHECK: PASS (1/1)` to the page title, which
+  this reads over the DevTools endpoint. This exercises an `Rgba16Float` HDR intermediate **plus** a
+  pyramid of `Rgba16Float` mip render targets (all need `EXT_color_buffer_float` on WebGL2); a boot
+  panic on an unrenderable target leaves no verdict → FAIL. Run after touching `src/renderer/bloom.rs`,
+  `bloom.wgsl`, the HDR post intermediate, or the example.
 
 ## Web examples without a dedicated smoke
 

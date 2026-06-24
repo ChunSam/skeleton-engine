@@ -4,6 +4,15 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.68.0
+
+**The `bloom` example now runs in the browser — the mip-chain "dual filter" bloom renders on WebGL2.** Ships the existing `bloom` example to the web with the same engine code as native (the `hdr_render_target` v0.60.0 / `render_format_query` v0.66.0 precedent: a web harness is a MINOR even with no library change). This is the most worthwhile example to put on the web because the bloom pass renders the scene into an `Rgba16Float` HDR intermediate and blurs the highlights through a pyramid of `Rgba16Float` mip render targets — all usable on WebGL2 only with the `EXT_color_buffer_float` extension, so whether the whole HDR + mip-chain pipeline actually runs differs from the desktop case. **No library (`src/`) change.**
+
+### Added
+- `examples/bloom.rs` gains a wasm browser entry point: `#[wasm_bindgen] run_bloom()` (app setup factored into a shared `build_app()` used by both the native `main()` and the wasm entry), plus a wasm-only headless self-check — the demo survives ~30 frames of HDR + mip-chain bloom and writes `BLOOM_WEB_CHECK: PASS (1/1)` to the tab title (a boot panic on an unrenderable target fires `console_error_panic_hook` and no verdict appears).
+- `examples/bloom/web/{build.sh,index.html}` — the `cargo build --example` + `wasm-bindgen --target web` harness with a **Start** button (`pkg/` is gitignored).
+- `scripts/bloom_web_smoke.sh` — an optional (non-CI) headless smoke that boots the example under SwiftShader WebGL2 (`?autostart=1`) and asserts the `BLOOM_WEB_CHECK: PASS` verdict over Chrome's DevTools endpoint, confirming the `Rgba16Float` HDR intermediate + the mip-pyramid float bloom targets actually render in a browser. Documented in `docs/WASM_SMOKES.md`.
+
 ## 0.67.0
 
 **Fuller bloom: the real multi-pass bloom now uses a downsample/upsample mip pyramid ("dual filter").** The opt-in `PostProcessConfig.bloom` pass was rebuilt from a fixed-half-res separable Gaussian (ping-ponged `bloom_iterations` times) into the physically-based mip-chain bloom from Jimenez's "Next Generation Post Processing in CoD: Advanced Warfare": a 13-tap **downsample chain** builds a mip pyramid of the bright highlights, and a 3×3-tent **upsample chain** accumulates the levels back up with additive blending, producing a wider, smoother, energy-preserving glow in a few passes (the separable blur's reach was bounded by `kernel × iterations` and looked boxy when pushed). The **public API is unchanged** — `bloom_iterations` now selects the pyramid depth (number of mip levels); both old and new meaning control glow width. The bloom OFF path (cheap inline 4-tap) is byte-identical to before; the pass still runs on the scene intermediate format so it works under HDR.
