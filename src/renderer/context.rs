@@ -28,10 +28,39 @@ impl std::error::Error for GpuContextError {}
 /// GPU context bundling the core wgpu objects.
 pub struct GpuContext {
     pub surface: wgpu::Surface<'static>,
+    /// The physical GPU adapter. Retained (not just used at init) so render-format
+    /// capabilities can be queried at runtime — see [`GpuContext::supports_render_target`]
+    /// and [`RenderCapabilities`].
+    pub adapter: wgpu::Adapter,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration,
     pub size: PhysicalSize<u32>,
+}
+
+/// Returns `true` if `format` can be used as a color render attachment on `adapter`'s GPU/backend.
+///
+/// Single source of truth shared by [`GpuContext::supports_render_target`] and
+/// [`RenderCapabilities::supports_render_target`].
+fn format_supports_render_target(adapter: &wgpu::Adapter, format: wgpu::TextureFormat) -> bool {
+    adapter
+        .get_texture_format_features(format)
+        .allowed_usages
+        .contains(wgpu::TextureUsages::RENDER_ATTACHMENT)
+}
+
+/// Pure render-target format decision (no GPU): the requested format when it is renderable,
+/// otherwise the surface fallback. Extracted from [`GpuContext::resolve_render_target_format`]
+/// so the fallback policy is unit-testable without a live GPU.
+fn pick_render_target_format(
+    requested: Option<wgpu::TextureFormat>,
+    requested_is_renderable: bool,
+    surface_format: wgpu::TextureFormat,
+) -> wgpu::TextureFormat {
+    match requested {
+        Some(format) if requested_is_renderable => format,
+        _ => surface_format,
+    }
 }
 
 impl GpuContext {
@@ -141,11 +170,46 @@ impl GpuContext {
 
         Ok(Self {
             surface,
+            adapter,
             device,
             queue,
             config,
             size,
         })
+    }
+
+    /// Returns `true` if `format` can be used as a color render attachment on this GPU/backend.
+    ///
+    /// Backs [`RenderCapabilities`] and the automatic render-target fallback. Most relevant on
+    /// wasm/WebGL2, where float formats like `Rgba16Float` are renderable only when the
+    /// `EXT_color_buffer_float` extension is present.
+    pub fn supports_render_target(&self, format: wgpu::TextureFormat) -> bool {
+        format_supports_render_target(&self.adapter, format)
+    }
+
+    /// Resolves a requested render-target format to one this GPU can actually render into.
+    ///
+    /// `None` resolves to the surface format. A `Some(format)` that is not renderable falls back
+    /// to the surface format with a warning (e.g. `Rgba16Float` on a WebGL2 context lacking
+    /// `EXT_color_buffer_float`), so [`crate::App::create_render_target_with_format`] degrades
+    /// gracefully instead of creating an invalid texture. Query ahead of time with
+    /// [`RenderCapabilities`].
+    pub fn resolve_render_target_format(
+        &self,
+        requested: Option<wgpu::TextureFormat>,
+        name: &str,
+    ) -> wgpu::TextureFormat {
+        let renderable = requested.is_none_or(|f| self.supports_render_target(f));
+        if let Some(format) = requested {
+            if !renderable {
+                log::warn!(
+                    "render target '{name}': {format:?} is not a renderable format on this GPU; \
+                     falling back to the surface format {:?}",
+                    self.config.format
+                );
+            }
+        }
+        pick_render_target_format(requested, renderable, self.config.format)
     }
 
     /// Reconfigures the surface when the window is resized.
@@ -200,5 +264,92 @@ impl GpuContext {
         self.queue.submit(std::iter::once(enc.finish()));
         frame.present();
         Ok(())
+    }
+}
+
+/// GPU render-format capabilities, queryable from game code.
+///
+/// Inserted into the [`World`](crate::World) as a resource at GPU initialization, so a system or
+/// `Scene::on_enter` can branch on what the GPU/backend can render into — e.g. request an HDR
+/// (`Rgba16Float`) render target only where it is renderable. (When a requested format is *not*
+/// renderable, [`crate::App::create_render_target_with_format`] also falls back to the surface
+/// format automatically, with a warning — so the query is for deliberate branching, not crash
+/// avoidance.)
+///
+/// Most useful on wasm/WebGL2, where float render targets require `EXT_color_buffer_float`; on a
+/// desktop Vulkan/Metal/DX12 backend, `Rgba16Float` is renderable.
+///
+/// ```rust,ignore
+/// fn setup(world: &mut World) {
+///     let hdr_ok = world
+///         .resource::<RenderCapabilities>()
+///         .is_some_and(|caps| caps.supports_render_target(wgpu::TextureFormat::Rgba16Float));
+///     // request an HDR render target only when `hdr_ok`
+/// }
+/// ```
+#[derive(Clone)]
+pub struct RenderCapabilities {
+    adapter: wgpu::Adapter,
+    surface_format: wgpu::TextureFormat,
+}
+
+impl RenderCapabilities {
+    pub(crate) fn new(adapter: wgpu::Adapter, surface_format: wgpu::TextureFormat) -> Self {
+        Self {
+            adapter,
+            surface_format,
+        }
+    }
+
+    /// The window surface's pixel format — the default render-target format, and the fallback
+    /// used when a requested format is not renderable.
+    pub fn surface_format(&self) -> wgpu::TextureFormat {
+        self.surface_format
+    }
+
+    /// Returns `true` if `format` can be used as a color render attachment on this GPU/backend.
+    pub fn supports_render_target(&self, format: wgpu::TextureFormat) -> bool {
+        format_supports_render_target(&self.adapter, format)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pick_render_target_format;
+    use wgpu::TextureFormat;
+
+    // The renderability query itself needs a live GPU (verified by the native render smoke);
+    // here we pin the pure fallback policy, which CI can run without a GPU.
+
+    #[test]
+    fn pick_format_none_uses_surface() {
+        assert_eq!(
+            pick_render_target_format(None, true, TextureFormat::Bgra8UnormSrgb),
+            TextureFormat::Bgra8UnormSrgb
+        );
+    }
+
+    #[test]
+    fn pick_format_renderable_uses_requested() {
+        assert_eq!(
+            pick_render_target_format(
+                Some(TextureFormat::Rgba16Float),
+                true,
+                TextureFormat::Bgra8UnormSrgb
+            ),
+            TextureFormat::Rgba16Float
+        );
+    }
+
+    #[test]
+    fn pick_format_unrenderable_falls_back_to_surface() {
+        assert_eq!(
+            pick_render_target_format(
+                Some(TextureFormat::Rgba16Float),
+                false,
+                TextureFormat::Bgra8UnormSrgb
+            ),
+            TextureFormat::Bgra8UnormSrgb
+        );
     }
 }

@@ -4,6 +4,18 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.65.0
+
+**Engine-level render-format renderability query + automatic render-target fallback.** A game can now ask whether a `wgpu::TextureFormat` is a usable color render target on the current GPU/backend *before* requesting one — float formats like `Rgba16Float` are renderable only with `EXT_color_buffer_float` on WebGL2, for example. The new `RenderCapabilities` resource exposes the query to systems, and `App::create_render_target_with_format` now degrades gracefully (falls back to the surface format with a warning) instead of creating an invalid texture when a requested format is not renderable. This closes the "real fallback" deferred from the HDR/render-format arc. The supported/default path is unchanged.
+
+### Added
+- `RenderCapabilities` resource (re-exported at the crate root, inserted into the `World` at GPU initialization): `supports_render_target(format) -> bool` and `surface_format() -> wgpu::TextureFormat`. Read it from a system or `Scene::on_enter` to branch on GPU capabilities (e.g. request an HDR render target only where renderable).
+- `GpuContext` now retains the GPU `adapter` (previously dropped after init) and gains `supports_render_target` + `resolve_render_target_format` (`src/renderer/context.rs`).
+- Example `render_format_query` (`cargo run --example render_format_query`): renders a color-coded yes/no capability table + the HDR-vs-fallback decision; logs the table once for a headless smoke.
+
+### Changed
+- `App::create_render_target_with_format` (and the deferred-creation path drained at GPU init) now resolve a non-renderable caller-chosen format to the surface format with a `log::warn!`, instead of attempting to create an invalid render target. A `None` format and a renderable format behave exactly as before.
+
 ## 0.64.0
 
 **Real multi-pass bloom in the post-process pass.** Opt-in via `PostProcessConfig.bloom` (default `false`, so the OFF path is byte-identical to before — the cheap inline 4-tap bloom). When enabled (requires `enabled: true`), a new `BloomRenderer` extracts scene highlights, blurs them with a separable Gaussian ping-ponged at half resolution `bloom_iterations` times (0..=8, default 4), and additively composites the soft glow back onto the scene intermediate *before* the post-process composite; the post shader then skips its inline 4-tap. The bloom pipelines are built for the scene intermediate format, so it works under HDR (`Rgba16Float`). Like the post-process and lighting renderers (and unlike the sprite/material/UI/GPU-particle per-target-format pipeline *cache*), there is one target per frame, so a format change just rebuilds the renderer.
