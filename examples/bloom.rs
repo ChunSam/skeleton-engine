@@ -4,15 +4,15 @@
 //! A dark scene holds several **over-bright** emitters (colour values well above `1.0`) plus a
 //! couple of **dim** swatches below the bloom threshold. With HDR on, the `> 1.0` values survive
 //! into the `Rgba16Float` intermediate; the bloom pass then extracts the highlights, blurs them
-//! with a separable Gaussian (ping-ponged `bloom_iterations` times), and additively composites the
-//! soft glow back onto the scene before tone-mapping.
+//! through a **downsample/upsample mip pyramid** (`bloom_iterations` levels deep), and additively
+//! composites the soft glow back onto the scene before tone-mapping.
 //!
 //! Press **B** to toggle between the **real multi-pass bloom** (`bloom: true`) and the cheap
 //! **inline 4-tap** bloom (`bloom: false`): the real pass spreads a wide, soft halo around the
 //! bright emitters, while the inline version only smears a few pixels. The dim swatches never glow
 //! (their luminance is below `bloom_threshold`).
 //!
-//! Keys: `B` toggle real/inline bloom · `↑`/`↓` intensity · `←`/`→` iterations (glow width) ·
+//! Keys: `B` toggle real/inline bloom · `↑`/`↓` intensity · `←`/`→` pyramid depth (glow width) ·
 //! `Esc` quit.
 //!
 //! Run: `cargo run --example bloom`
@@ -116,9 +116,9 @@ impl System for BloomDemo {
             ));
             tq.push(DrawText::new(
                 format!(
-                    "bloom: {}    intensity: {:.1}    iterations: {}",
+                    "bloom: {}    intensity: {:.1}    pyramid depth: {}",
                     if bloom {
-                        "REAL (multi-pass Gaussian)"
+                        "REAL (mip-chain dual filter)"
                     } else {
                         "inline 4-tap (cheap)"
                     },
@@ -134,7 +134,7 @@ impl System for BloomDemo {
                 },
             ));
             tq.push(DrawText::new(
-                "B toggle real/inline   Up/Down intensity   Left/Right iterations   Esc quit",
+                "B toggle real/inline   Up/Down intensity   Left/Right pyramid depth   Esc quit",
                 Vec2::new(20.0, WIN_H as f32 - 28.0),
                 13.0,
                 [170, 190, 210, 255],

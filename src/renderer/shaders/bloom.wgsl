@@ -1,16 +1,23 @@
-// ─── Real multi-pass bloom ───────────────────────────────────────────────────
-// Three stages, all sharing one bind-group layout (input texture + sampler + uniform):
-//   fs_prefilter — bright-pass: keep only luminance above the threshold (scene → bloom tex)
-//   fs_blur      — separable Gaussian, one axis per pass, ping-ponged N times
-//   fs_composite — output the blurred bloom scaled by intensity (additive blend onto the scene)
+// ─── Mip-chain ("dual filter") bloom ─────────────────────────────────────────
+// Physically-based bloom (Jimenez — "Next Generation Post Processing in CoD: Advanced Warfare").
+// A progressive DOWNSAMPLE chain (13-tap filter) builds a mip pyramid of the bright highlights,
+// then an UPSAMPLE chain (3x3 tent, additive) accumulates the levels back up, producing a wide,
+// smooth, energy-preserving glow. Replaces the older fixed-half-res separable Gaussian (whose
+// spread was bounded by kernel x iterations and looked boxy when pushed).
+//
+//   fs_prefilter  — 13-tap downsample of the scene + threshold knee   (scene  -> mip0)
+//   fs_downsample — 13-tap downsample                                 (mip i-1 -> mip i)
+//   fs_upsample   — 3x3 tent, additive blend                          (mip i+1 -> mip i)
+//   fs_composite  — mip0 * intensity, additive blend                  (mip0   -> scene)
 // Driven by src/renderer/bloom.rs. Distinct from the cheap inline 4-tap in post_process.wgsl.
 
 struct Uniforms {
     threshold: f32,        // fs_prefilter: luminance bright-pass threshold
     intensity: f32,        // fs_composite: additive bloom strength
-    texel:     vec2<f32>,  // fs_blur: (1/bloom_width, 1/bloom_height)
-    direction: vec2<f32>,  // fs_blur: blur axis — (1,0) horizontal | (0,1) vertical
-    _pad:      vec2<f32>,
+    radius:    f32,        // fs_upsample:  tent radius, in source texels
+    _pad0:     f32,
+    texel:     vec2<f32>,  // 1 / source-resolution for this pass
+    _pad1:     vec2<f32>,
 }
 
 @group(0) @binding(0) var src_tex:     texture_2d<f32>;
@@ -45,34 +52,71 @@ fn luminance(c: vec3<f32>) -> f32 {
     return dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
 }
 
-// Bright-pass: keep the portion of the colour whose luminance exceeds the threshold, scaled by a
-// soft knee. Same shape as the old inline 4-tap so `bloom_threshold` feels familiar.
+// 13-tap downsample filter (Jimenez 2014). `t` = source texel size. Reads a 4x4 neighbourhood in
+// overlapping groups and weights them so the half-resolution result is a stable, alias-resistant
+// average (the wide footprint is what keeps the downsampled pyramid from shimmering).
+fn downsample_13(uv: vec2<f32>, t: vec2<f32>) -> vec3<f32> {
+    let a = textureSample(src_tex, src_sampler, uv + t * vec2<f32>(-2.0,  2.0)).rgb;
+    let b = textureSample(src_tex, src_sampler, uv + t * vec2<f32>( 0.0,  2.0)).rgb;
+    let c = textureSample(src_tex, src_sampler, uv + t * vec2<f32>( 2.0,  2.0)).rgb;
+    let d = textureSample(src_tex, src_sampler, uv + t * vec2<f32>(-2.0,  0.0)).rgb;
+    let e = textureSample(src_tex, src_sampler, uv + t * vec2<f32>( 0.0,  0.0)).rgb;
+    let f = textureSample(src_tex, src_sampler, uv + t * vec2<f32>( 2.0,  0.0)).rgb;
+    let g = textureSample(src_tex, src_sampler, uv + t * vec2<f32>(-2.0, -2.0)).rgb;
+    let h = textureSample(src_tex, src_sampler, uv + t * vec2<f32>( 0.0, -2.0)).rgb;
+    let i = textureSample(src_tex, src_sampler, uv + t * vec2<f32>( 2.0, -2.0)).rgb;
+    let j = textureSample(src_tex, src_sampler, uv + t * vec2<f32>(-1.0,  1.0)).rgb;
+    let k = textureSample(src_tex, src_sampler, uv + t * vec2<f32>( 1.0,  1.0)).rgb;
+    let l = textureSample(src_tex, src_sampler, uv + t * vec2<f32>(-1.0, -1.0)).rgb;
+    let m = textureSample(src_tex, src_sampler, uv + t * vec2<f32>( 1.0, -1.0)).rgb;
+    var r = e * 0.125;
+    r += (a + c + g + i) * 0.03125;
+    r += (b + d + f + h) * 0.0625;
+    r += (j + k + l + m) * 0.125;
+    return r;
+}
+
+// 3x3 tent upsample. `t` = source (smaller-mip) texel size, scaled by the filter radius. Combined
+// with bilinear magnification this spreads each level smoothly into the next-larger one.
+fn upsample_tent(uv: vec2<f32>, t: vec2<f32>) -> vec3<f32> {
+    let r = t * u.radius;
+    var s = textureSample(src_tex, src_sampler, uv + vec2<f32>(-r.x,  r.y)).rgb;
+    s += textureSample(src_tex, src_sampler, uv + vec2<f32>( 0.0,  r.y)).rgb * 2.0;
+    s += textureSample(src_tex, src_sampler, uv + vec2<f32>( r.x,  r.y)).rgb;
+    s += textureSample(src_tex, src_sampler, uv + vec2<f32>(-r.x,  0.0)).rgb * 2.0;
+    s += textureSample(src_tex, src_sampler, uv + vec2<f32>( 0.0,  0.0)).rgb * 4.0;
+    s += textureSample(src_tex, src_sampler, uv + vec2<f32>( r.x,  0.0)).rgb * 2.0;
+    s += textureSample(src_tex, src_sampler, uv + vec2<f32>(-r.x, -r.y)).rgb;
+    s += textureSample(src_tex, src_sampler, uv + vec2<f32>( 0.0, -r.y)).rgb * 2.0;
+    s += textureSample(src_tex, src_sampler, uv + vec2<f32>( r.x, -r.y)).rgb;
+    return s * (1.0 / 16.0);
+}
+
+// Bright-pass: downsample the scene (13-tap) into mip0, then keep the portion whose luminance
+// exceeds the threshold (soft knee — same shape as before, so `bloom_threshold` feels familiar).
 @fragment
 fn fs_prefilter(in: VOut) -> @location(0) vec4<f32> {
-    let c   = textureSample(src_tex, src_sampler, in.uv).rgb;
+    let c   = downsample_13(in.uv, u.texel);
     let lum = luminance(c);
     let w   = max(0.0, lum - u.threshold) / max(0.001, 1.0 - u.threshold);
     return vec4<f32>(c * w, 1.0);
 }
 
-// Separable Gaussian (9-tap, normalized weights). Sampled along `u.direction` (one axis per pass).
+// Downsample one pyramid level into the next (no threshold — only the prefilter thresholds).
 @fragment
-fn fs_blur(in: VOut) -> @location(0) vec4<f32> {
-    // `var` (not `let`): a dynamically-indexed array needs an address space (naga rejects
-    // dynamic indexing of a `let` array).
-    var weights = array<f32, 5>(0.227027, 0.194595, 0.121622, 0.054054, 0.016216);
-    let step = u.texel * u.direction;
-    var result = textureSample(src_tex, src_sampler, in.uv).rgb * weights[0];
-    for (var i = 1; i < 5; i++) {
-        let off = step * f32(i);
-        result += textureSample(src_tex, src_sampler, in.uv + off).rgb * weights[i];
-        result += textureSample(src_tex, src_sampler, in.uv - off).rgb * weights[i];
-    }
-    return vec4<f32>(result, 1.0);
+fn fs_downsample(in: VOut) -> @location(0) vec4<f32> {
+    return vec4<f32>(downsample_13(in.uv, u.texel), 1.0);
 }
 
-// Additive composite: the pipeline's blend state adds this onto the scene intermediate, so just
-// emit the blurred bloom scaled by intensity. Alpha is held by the blend state (dst preserved).
+// Upsample the smaller level; the pipeline's additive blend adds it onto the larger level's
+// already-downsampled content (mip i = downsample[i] + tent(mip i+1)).
+@fragment
+fn fs_upsample(in: VOut) -> @location(0) vec4<f32> {
+    return vec4<f32>(upsample_tent(in.uv, u.texel), 1.0);
+}
+
+// Additive composite: the pipeline's blend adds this onto the scene intermediate, so just emit the
+// accumulated bloom (mip0) scaled by intensity. Alpha is held by the blend state (dst preserved).
 @fragment
 fn fs_composite(in: VOut) -> @location(0) vec4<f32> {
     let bloom = textureSample(src_tex, src_sampler, in.uv).rgb;

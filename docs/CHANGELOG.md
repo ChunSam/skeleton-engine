@@ -4,6 +4,16 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.67.0
+
+**Fuller bloom: the real multi-pass bloom now uses a downsample/upsample mip pyramid ("dual filter").** The opt-in `PostProcessConfig.bloom` pass was rebuilt from a fixed-half-res separable Gaussian (ping-ponged `bloom_iterations` times) into the physically-based mip-chain bloom from Jimenez's "Next Generation Post Processing in CoD: Advanced Warfare": a 13-tap **downsample chain** builds a mip pyramid of the bright highlights, and a 3×3-tent **upsample chain** accumulates the levels back up with additive blending, producing a wider, smoother, energy-preserving glow in a few passes (the separable blur's reach was bounded by `kernel × iterations` and looked boxy when pushed). The **public API is unchanged** — `bloom_iterations` now selects the pyramid depth (number of mip levels); both old and new meaning control glow width. The bloom OFF path (cheap inline 4-tap) is byte-identical to before; the pass still runs on the scene intermediate format so it works under HDR.
+
+### Changed
+- `src/renderer/bloom.rs` (`BloomRenderer`, `pub(crate)` API unchanged: `new`/`reconfigure`/`resize`/`update`/`run` + `MAX_BLOOM_ITERATIONS`) rewritten to a mip pyramid: a `Vec<Mip>` of half-and-down render targets (capped at `MAX_BLOOM_ITERATIONS` levels and stopping before a dimension degenerates), prefilter → downsample chain → additive upsample chain → additive composite. The render-orchestration call sites (`frame.rs` step 3.5, `post_lighting.rs` setup) are untouched.
+- `src/renderer/shaders/bloom.wgsl` replaces `fs_blur` (separable Gaussian) with `fs_downsample` (13-tap) + `fs_upsample` (3×3 tent); `fs_prefilter` now does the 13-tap bright-pass downsample; `fs_composite` unchanged in spirit. The shared uniform gains a `radius` (upsample tent) field.
+- `PostProcessConfig::bloom_iterations` doc updated: it is now the pyramid depth (clamped to `0..=8` and to the levels the resolution allows). Default `4` and all field types unchanged.
+- Example `bloom` wording updated (mip-chain / "pyramid depth"); behaviour and keys unchanged.
+
 ## 0.66.0
 
 **`render_format_query` example shipped to the web.** The v0.65.0 render-format renderability query (`RenderCapabilities`) now runs in the browser — which is where it matters most: on WebGL2 a float render target like `Rgba16Float` is renderable only with the `EXT_color_buffer_float` extension, so a backend's actual renderability differs from the desktop case. Same engine code as native; no library change.
