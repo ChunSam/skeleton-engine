@@ -1,4 +1,5 @@
 use super::super::App;
+use crate::app::editor::EditorState;
 use crate::app::egui_pass::submit_egui;
 use crate::app::render_state::RenderState;
 use crate::renderer::GpuContext;
@@ -67,6 +68,157 @@ impl App {
             gpu.reconfigure();
         }
         Ok(())
+    }
+
+    /// Docked-editor scene-target management: when in docked mode, (re)create the offscreen
+    /// game-scene texture on the debounce schedule, keep its egui registration in sync, and
+    /// return a fresh `TextureView` of it to use as this frame's scene render target.
+    ///
+    /// Returns `None` when not docked (after tearing down any existing RT) or while the RT is
+    /// still warming up — in which case `render()` targets the surface as usual, so the common
+    /// (non-docked) render path is byte-identical. Extracted from `render()`; native-only.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) fn prepare_docked_scene_view(
+        render: &mut RenderState,
+        editor: &mut EditorState,
+        window: Option<&winit::window::Window>,
+        gpu: &GpuContext,
+    ) -> Option<wgpu::TextureView> {
+        use crate::app::editor::docked_rt::{compute_central_rect, rect_to_physical};
+        use crate::app::editor::EditorMode;
+
+        if editor.mode == EditorMode::Docked {
+            let scale = window
+                .map(|w| w.scale_factor() as f32)
+                .unwrap_or(1.0)
+                .max(1.0);
+            let win_logical_w = gpu.config.width as f32 / scale;
+            let win_logical_h = gpu.config.height as f32 / scale;
+
+            // Compute the central viewport rect (logical points).
+            // Package 2 writes central_rect from real panel bounds; until then use
+            // the placeholder-margin fallback.
+            let rect = editor
+                .central_rect
+                .or_else(|| compute_central_rect(win_logical_w, win_logical_h));
+
+            if let Some(rect) = rect {
+                if let Some((target_pw, target_ph)) = rect_to_physical(rect, scale) {
+                    // Tick the debounce — only recreate when stable for 3 frames.
+                    let current_size = render
+                        .docked_scene_texture
+                        .as_ref()
+                        .map(|(w, h, _, _, _)| (*w, *h));
+                    if let Some((new_w, new_h)) = editor
+                        .rt_debounce
+                        .tick((target_pw, target_ph), current_size)
+                    {
+                        // Free the old egui texture registration before recreating.
+                        {
+                            let RenderState {
+                                egui_renderer,
+                                docked_scene_texture,
+                                ..
+                            } = &mut *render;
+                            if let (Some(er), Some(old_id)) =
+                                (egui_renderer.as_mut(), editor.docked_texture_id.take())
+                            {
+                                er.free_texture(&old_id);
+                            }
+                            // Create new offscreen texture.
+                            let tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
+                                label: Some("docked_scene"),
+                                size: wgpu::Extent3d {
+                                    width: new_w,
+                                    height: new_h,
+                                    depth_or_array_layers: 1,
+                                },
+                                mip_level_count: 1,
+                                sample_count: 1,
+                                dimension: wgpu::TextureDimension::D2,
+                                format: gpu.config.format,
+                                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                                view_formats: &[],
+                            });
+                            let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+                            *docked_scene_texture =
+                                Some((new_w, new_h, gpu.config.format, tex, view));
+
+                            // Register with egui so CentralPanel can display the texture.
+                            if let (Some(er), Some((_, _, _, _, view))) =
+                                (egui_renderer.as_mut(), docked_scene_texture.as_ref())
+                            {
+                                let id = er.register_native_texture(
+                                    &gpu.device,
+                                    view,
+                                    wgpu::FilterMode::Linear,
+                                );
+                                editor.docked_texture_id = Some(id);
+                            }
+                        }
+                    }
+
+                    // Also refresh the egui registration when format changed (e.g. surface re-created).
+                    {
+                        let RenderState {
+                            egui_renderer,
+                            docked_scene_texture,
+                            ..
+                        } = &mut *render;
+                        if let Some((_, _, fmt, _, _)) = docked_scene_texture.as_ref() {
+                            if *fmt != gpu.config.format {
+                                if let (Some(er), Some(old_id)) =
+                                    (egui_renderer.as_mut(), editor.docked_texture_id.take())
+                                {
+                                    er.free_texture(&old_id);
+                                }
+                                // Force a debounce flush next frame — set stable_count to 0.
+                                editor.rt_debounce.reset();
+                                *docked_scene_texture = None;
+                            }
+                        }
+                    }
+
+                    // Build a fresh TextureView from the current texture for this frame.
+                    // The view stored in docked_scene_texture is authoritative; we borrow
+                    // it as the render target for the scene pass below.
+                    // We cannot return a borrowed &wgpu::TextureView here because it would
+                    // borrow `render` for the rest of the caller. Instead, create a
+                    // second view from the texture (zero-cost, same GPU object).
+                    render
+                        .docked_scene_texture
+                        .as_ref()
+                        .map(|(_, _, _, tex, _)| {
+                            tex.create_view(&wgpu::TextureViewDescriptor::default())
+                        })
+                } else {
+                    // Degenerate central rect (zero physical size) — skip scene render this frame.
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            // Not docked: tear down the RT so it's freed when mode exits.
+            {
+                let RenderState {
+                    egui_renderer,
+                    docked_scene_texture,
+                    ..
+                } = &mut *render;
+                if docked_scene_texture.is_some() {
+                    if let (Some(er), Some(old_id)) =
+                        (egui_renderer.as_mut(), editor.docked_texture_id.take())
+                    {
+                        er.free_texture(&old_id);
+                    }
+                    *docked_scene_texture = None;
+                    editor.rt_debounce.reset();
+                }
+            }
+            None
+        }
     }
 
     /// Keep the egui-side registration of the Tile Paint swatch atlas in sync with the
