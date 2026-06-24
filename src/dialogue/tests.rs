@@ -1,5 +1,11 @@
 use super::*;
 
+// `LocaleResource` was previously in scope via `super`'s glob (mod.rs's private
+// `use crate::locale::LocaleResource;`). After the box/style/system split that import
+// lives in the submodules, so name it directly here. (World/Events/TextQueue/ViewportSize
+// are already imported locally inside the tests that use them.)
+use crate::locale::LocaleResource;
+
 #[test]
 fn typewriter_reveals_over_time() {
     let mut d = DialogueBox::new("", ["hello"]).with_chars_per_sec(10.0);
