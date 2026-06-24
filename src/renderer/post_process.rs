@@ -61,14 +61,15 @@ pub struct PostProcessConfig {
     pub bloom_threshold: f32,
     /// Bloom brightness multiplier (used by both the inline and the real bloom).
     pub bloom_intensity: f32,
-    /// Enable the **real multi-pass bloom** (bright-pass → separable Gaussian blur → additive
-    /// composite), instead of the cheap inline 4-tap. Requires `enabled: true`; pairs naturally
-    /// with `hdr: true` so over-bright highlights glow. `false` (default) keeps the inline bloom,
-    /// so the OFF path is byte-identical to before. Example: `cargo run --example bloom`.
+    /// Enable the **real multi-pass bloom** (bright-pass → downsample/upsample mip pyramid →
+    /// additive composite), instead of the cheap inline 4-tap. Requires `enabled: true`; pairs
+    /// naturally with `hdr: true` so over-bright highlights glow. `false` (default) keeps the inline
+    /// bloom, so the OFF path is byte-identical to before. Example: `cargo run --example bloom`.
     pub bloom: bool,
-    /// Number of separable blur iterations for the real bloom pass (each = one horizontal + one
-    /// vertical pass). Higher = wider, softer glow. Clamped to `0..=8`; ignored when
-    /// [`bloom`](Self::bloom) is `false`. Default `4`.
+    /// Pyramid depth for the real bloom pass — the number of mip levels the highlights are
+    /// downsampled through (and accumulated back up). Higher = wider, softer glow. Clamped to
+    /// `0..=8` and to the levels the resolution allows; ignored when [`bloom`](Self::bloom) is
+    /// `false`. Default `4`.
     pub bloom_iterations: u32,
     /// Brightness offset (-1.0~1.0; 0.0 = original).
     pub brightness: f32,
