@@ -4,6 +4,16 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.68.2
+
+**Behavior-preserving refactor: the ~900-line `impl World` in `src/ecs/world.rs` is split into concern submodules under `src/ecs/world/`.** The core ECS file held a single 26-method `impl World` block (spawn/despawn/components/queries/resources/reflect/change-tracking/clone) inline alongside the data model; that surface is now grouped into one submodule per concern, each re-opening `impl World` as a descendant module so it reaches `World`'s private fields and the shared private archetype plumbing (`get_or_create_archetype`/`move_entity`/`clone_component_by_typeid`/`has_component_typeid`) unchanged. Pure code movement — only module location and imports changed; method bodies are verbatim. **No public API change, no behavior change** (931 lib tests unchanged). Directly follows the 0.68.1 `resources.rs` split precedent.
+
+### Changed (internal)
+- `src/ecs/world.rs` now holds only the data model (`Entity`/`Archetype`/`World` structs, type aliases, reflect free-fns, `ReflectEntry`), `World::new`, the private archetype helpers, and the `Default` impl. The `impl World` API moved verbatim into `src/ecs/world/{entities,components,queries,resources,reflect,change_tracking,clone}.rs`, plus native-only `parallel.rs` for the `#[cfg(not(target_arch = "wasm32"))]` `par_query*` block.
+- Grouping: `entities` (`spawn`/`despawn`/`is_alive`/`entity_count`/`entities`/`apply_commands`), `components` (`add`/`remove`/`take_component`/`get`/`get_mut`/`has_component`), `queries` (`query`/`query2`-`query4`/`query_mut`/`query2_mut`/`query3_mut`/`query_with`/`query_without`/`query_opt2`), `resources` (`insert_resource`/`resource`/`resource_mut`/`remove_resource`/`with_resource_mut`/`*_erased`), `reflect` (`register_reflect_named`/`reflect_registered_types`/`get_reflect`/`get_reflect_mut`/`reflected_components`), `change_tracking` (`clear_change_tracking`/`query_added`/`query_changed`/`mark_changed`/`get_mut_tracked`), `clone` (`register_clone`/`clone_entity`).
+- `world/tests.rs` is unchanged (`use super::*` still resolves; `World`/`Entity` stay in the `world` module). `lib.rs` and all call sites are unchanged.
+- `CLAUDE.md` module-map row for the ECS world updated to describe the split.
+
 ## 0.68.1
 
 **Behavior-preserving refactor: the 871-line grab-bag `src/resources.rs` is split into `src/resources/` by concern.** The flat module that held ~26 unrelated engine resources became a directory of seven focused submodules, all re-exported from `mod.rs` so `crate::resources::*` and the `engine::*` re-exports in `lib.rs` resolve unchanged. Pure code movement — only module location, imports, and paths changed; the moved tests are otherwise verbatim. **No public API change, no behavior change.** Follows the prior editor god-file split precedent (e.g. `docked.rs` → 0.49.1).
