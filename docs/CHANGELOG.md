@@ -4,6 +4,14 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.66.0
+
+**`render_format_query` example shipped to the web.** The v0.65.0 render-format renderability query (`RenderCapabilities`) now runs in the browser — which is where it matters most: on WebGL2 a float render target like `Rgba16Float` is renderable only with the `EXT_color_buffer_float` extension, so a backend's actual renderability differs from the desktop case. Same engine code as native; no library change.
+
+### Added
+- `render_format_query` web harness (`examples/render_format_query/web/build.sh` + `index.html`) over a new wasm-only `#[wasm_bindgen] run_render_format_query` entry point; the example's app setup moved into a shared `build_app()`. A Start button boots it (`?autostart=1` boots headless). `pkg/` is gitignored.
+- `scripts/render_format_query_smoke.sh` — headless Chrome (SwiftShader WebGL2) boots the example and asserts the query is correct on the live WebGL2 backend: the example self-checks two backend-independent invariants (the surface format is a renderable color render target; a block-compressed format is not) and writes `RENDER_FORMAT_QUERY_CHECK: PASS (2/2)` to the page title. Optional local check, not a CI gate; documented in `docs/WASM_SMOKES.md`.
+
 ## 0.65.0
 
 **Engine-level render-format renderability query + automatic render-target fallback.** A game can now ask whether a `wgpu::TextureFormat` is a usable color render target on the current GPU/backend *before* requesting one — float formats like `Rgba16Float` are renderable only with `EXT_color_buffer_float` on WebGL2, for example. The new `RenderCapabilities` resource exposes the query to systems, and `App::create_render_target_with_format` now degrades gracefully (falls back to the surface format with a warning) instead of creating an invalid texture when a requested format is not renderable. This closes the "real fallback" deferred from the HDR/render-format arc. The supported/default path is unchanged.
