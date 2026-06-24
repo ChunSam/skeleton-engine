@@ -87,6 +87,23 @@ impl System for QuerySystem {
                     }
                 );
             }
+
+            // On the web, write a self-check verdict to the tab title for a headless smoke.
+            // Two invariants the query must satisfy on any backend: the surface format is
+            // renderable (it IS the on-screen render target), and a block-compressed format
+            // is never a color render attachment.
+            #[cfg(target_arch = "wasm32")]
+            {
+                let surface_ok = caps.supports_render_target(caps.surface_format());
+                let compressed_rejected = !caps.supports_render_target(TextureFormat::Bc1RgbaUnorm);
+                let passed = surface_ok as u32 + compressed_rejected as u32;
+                let verdict = if passed == 2 { "PASS" } else { "FAIL" };
+                if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+                    doc.set_title(&format!(
+                        "RENDER_FORMAT_QUERY_CHECK: {verdict} ({passed}/2)"
+                    ));
+                }
+            }
         }
 
         let Some(tq) = world.resource_mut::<TextQueue>() else {
@@ -148,8 +165,8 @@ impl System for QuerySystem {
     }
 }
 
-fn main() {
-    env_logger::init();
+/// Builds the configured app — shared by the native binary and the wasm entry point.
+fn build_app() -> App {
     let mut app = App::new();
     app.world.insert_resource(WindowConfig {
         title: "render_format_query — GPU render-format capabilities".to_string(),
@@ -164,5 +181,24 @@ fn main() {
     app.create_render_target_with_format("scene_hdr", 256, 256, HDR_FORMAT);
 
     app.add_system(QuerySystem::default());
-    app.run();
+    app
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn main() {
+    env_logger::init();
+    build_app().run();
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {}
+
+/// Browser entry point. Build with `examples/render_format_query/web/build.sh`, then serve the
+/// `web/` dir and click **Start**. The capability table renders on the canvas, the per-format
+/// log goes to the console, and a self-check verdict is written to the tab title.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn run_render_format_query() {
+    console_error_panic_hook::set_once();
+    build_app().run();
 }

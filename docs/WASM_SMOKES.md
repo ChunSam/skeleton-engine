@@ -43,6 +43,15 @@ cargo install wasm-bindgen-cli --version <ver>   # MUST match the wasm-bindgen c
   too). Eyeball the saved shot (`SMOKE_KEEP=1`): the HDR (left) monitor keeps the bright core vs the
   mid square distinct while the LDR (right) monitor collapses them. Run after touching render targets,
   the offscreen pass, or the example.
+- **Render-format-query check — `./scripts/render_format_query_smoke.sh`** builds the
+  `render_format_query` example to wasm, serves it (`?autostart=1`), boots it headless under
+  **SwiftShader**, and asserts the [`RenderCapabilities`](../src/renderer/context.rs) query is correct
+  on the WebGL2 backend: the example self-checks two backend-independent invariants — the surface
+  format **is** a renderable color render target, and a block-compressed format (`Bc1RgbaUnorm`) is
+  **not** — and writes `RENDER_FORMAT_QUERY_CHECK: PASS (2/2)` to the page title, which this reads over
+  the DevTools endpoint. Also proves the example loads + renders on WebGL2 without panicking (no
+  verdict appears otherwise). Run after touching the renderability query path in
+  `src/renderer/context.rs` or the example.
 
 ## Web examples without a dedicated smoke
 
