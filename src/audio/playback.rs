@@ -5,12 +5,48 @@ use std::time::Duration;
 
 use super::types::Fade;
 
+use rodio::buffer::SamplesBuffer;
 use rodio::source::SineWave;
 use rodio::{Decoder, Sink, Source};
 
 use super::source::PannedSource;
 use super::types::{is_finished_state, is_playing_state, playback_state_from_sink};
 use super::{AudioChannelState, AudioManager};
+
+/// De-click envelope for synthesized tones: a short linear attack + release ramp so a `play_tone`
+/// beep starts and ends at zero gain instead of clicking. Edge = `min(25% of the tone, 8 ms)`,
+/// matching the wasm `WebAudio` tone envelope (`audio_wasm.rs`) for cross-platform parity.
+const TONE_ENVELOPE_FRAC: f32 = 0.25;
+const TONE_ENVELOPE_MAX_SECS: f32 = 0.008;
+const TONE_SAMPLE_RATE: f32 = 48_000.0; // rodio `SineWave` is fixed at 48 kHz mono.
+
+/// Synthesizes a mono 48 kHz sine of `freq` for `duration_secs` at `volume`, with a linear
+/// attack/release envelope so the tone does not click on or off. The sine body mirrors rodio's
+/// [`SineWave`] phase (`sin(2π·freq·(i+1)/48000)`), so apart from the edge ramp the samples are
+/// identical to the previous un-enveloped tone.
+fn enveloped_tone_samples(freq: f32, duration_secs: f32, volume: f32) -> Vec<f32> {
+    let n = (duration_secs.max(0.0) * TONE_SAMPLE_RATE).round() as usize;
+    let edge = (duration_secs * TONE_ENVELOPE_FRAC).clamp(0.0, TONE_ENVELOPE_MAX_SECS);
+    let edge_n = (edge * TONE_SAMPLE_RATE).round() as usize;
+    let mut buf = Vec::with_capacity(n);
+    for i in 0..n {
+        let phase = 2.0 * std::f32::consts::PI * freq * (i as f32 + 1.0) / TONE_SAMPLE_RATE;
+        let mut s = phase.sin() * volume;
+        if edge_n > 0 {
+            // Linear attack over the first `edge_n` samples (0 → full gain) …
+            if i < edge_n {
+                s *= i as f32 / edge_n as f32;
+            }
+            // … and a symmetric linear release over the last `edge_n` (full → 0).
+            let from_end = n.saturating_sub(1).saturating_sub(i);
+            if from_end < edge_n {
+                s *= from_end as f32 / edge_n as f32;
+            }
+        }
+        buf.push(s);
+    }
+    buf
+}
 
 impl AudioManager {
     /// Initializes the audio device. Returns `None` on failure; the game continues silently.
@@ -161,7 +197,14 @@ impl AudioManager {
                         (None, _) => Box::new(s),
                     }
                 }
-                None => Box::new(base),
+                // No channel effect: emit the tone with a default de-click envelope (attack +
+                // release) so a plain `play_tone` beep doesn't click on/off. rodio 0.19 has no
+                // source `fade_out`, so the enveloped tone is materialized into a buffer.
+                None => Box::new(SamplesBuffer::new(
+                    1,
+                    TONE_SAMPLE_RATE as u32,
+                    enveloped_tone_samples(freq, duration_secs, volume),
+                )),
             };
         sink.append(source);
         self.sinks.insert(channel.to_string(), sink);
@@ -552,5 +595,40 @@ pub(super) fn read_cached_bytes(
             log::warn!("Cannot open audio file '{path}': {e}");
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tone_envelope_tests {
+    use super::enveloped_tone_samples;
+
+    #[test]
+    fn tone_envelope_ramps_to_zero_at_both_ends() {
+        let buf = enveloped_tone_samples(440.0, 0.1, 1.0);
+        assert!(!buf.is_empty());
+        // De-click: the tone starts and ends at (near) zero gain instead of an abrupt edge.
+        assert!(
+            buf[0].abs() < 1e-6,
+            "tone must start at zero gain, got {}",
+            buf[0]
+        );
+        assert!(
+            buf[buf.len() - 1].abs() < 1e-6,
+            "tone must end at zero gain, got {}",
+            buf[buf.len() - 1]
+        );
+        // The envelope only touches the edges — the body still peaks near full amplitude.
+        let peak = buf.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+        assert!(
+            peak > 0.9,
+            "enveloped tone should still peak near 1.0, got {peak}"
+        );
+    }
+
+    #[test]
+    fn tone_sample_count_matches_duration() {
+        // 0.1 s @ 48 kHz mono = 4800 samples; a zero-length tone is empty.
+        assert_eq!(enveloped_tone_samples(440.0, 0.1, 1.0).len(), 4800);
+        assert!(enveloped_tone_samples(440.0, 0.0, 1.0).is_empty());
     }
 }

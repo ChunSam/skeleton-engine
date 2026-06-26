@@ -4,6 +4,13 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.69.1
+
+**Fix: native synthesized tones (`AudioManager::play_tone` with no channel effect) no longer click on/off.** The wasm `WebAudio` backend already wraps every tone in a short attack/release gain envelope, but the native rodio path emitted a raw `SineWave` that started and ended at an abrupt amplitude — an audible click, and a cross-platform behavior gap. The default (no-effect) native tone now carries the same `min(25% of the tone, 8 ms)` linear attack+release envelope as wasm. rodio 0.19 has no source `fade_out`, so the enveloped tone is materialized into a `SamplesBuffer`. Tones that already configure a channel effect are unchanged. No public API change.
+
+### Fixed
+- `src/audio/playback.rs` — `play_tone`'s no-effect branch now emits an enveloped tone via `enveloped_tone_samples` (linear attack/release matching the wasm envelope formula, named consts `TONE_ENVELOPE_FRAC` / `TONE_ENVELOPE_MAX_SECS`). Added `tone_envelope_ramps_to_zero_at_both_ends` + `tone_sample_count_matches_duration` tests that assert the de-click objectively (first/last samples at zero gain, body still peaks near full amplitude) without an audio device.
+
 ## 0.69.0
 
 **Added: per-tilemap render depth via `Tilemap::z` / `with_z`, so multiple orthographic or hexagonal tilemaps can be stacked as background/foreground layers.** Previously `cell_z()` returned a fixed `-1.0` for every orthographic/hexagonal tile, so two such tilemaps drew at the same depth and could not be reliably layered. `Tilemap` now carries a `pub z: f32` (default `-1.0`, set via the `with_z` builder) that `cell_z()` returns for those projections. Isometric is unchanged — it still derives a per-cell depth (`row + col`) and ignores `z`. Existing maps keep the `-1.0` default, so behavior is unchanged unless `z` is set.
