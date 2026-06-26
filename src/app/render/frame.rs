@@ -1,4 +1,5 @@
 use super::super::App;
+use super::EDITOR_SURFACE_CLEAR;
 use crate::app::egui_pass::submit_egui;
 use crate::app::render_state::RenderState;
 use crate::renderer::{
@@ -6,6 +7,7 @@ use crate::renderer::{
 };
 use crate::resources::{
     DebugDraw, Letterbox, PendingResize, ShouldQuit, ViewportSize, WindowConfig,
+    DEFAULT_CLEAR_COLOR,
 };
 use winit::event_loop::ActiveEventLoop;
 
@@ -199,7 +201,7 @@ impl App {
             .world
             .resource::<WindowConfig>()
             .map(|c| c.clear_color)
-            .unwrap_or([0.08, 0.08, 0.12, 1.0]);
+            .unwrap_or(DEFAULT_CLEAR_COLOR);
         {
             let _pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("clear pass"),
@@ -533,12 +535,7 @@ impl App {
                     resolve_target: None,
                     depth_slice: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.08,
-                            g: 0.08,
-                            b: 0.12,
-                            a: 1.0,
-                        }),
+                        load: wgpu::LoadOp::Clear(EDITOR_SURFACE_CLEAR),
                         store: wgpu::StoreOp::Store,
                     },
                 })],

@@ -15,7 +15,7 @@ mod time;
 pub use debug_draw::{DebugDraw, DebugShape};
 pub use display::{
     DesignResolution, DisplayScaleFactor, ImeConfig, Letterbox, PendingResize, ViewportSize,
-    WindowConfig, WindowMode, WindowOptions, DEFAULT_CANVAS_ID,
+    WindowConfig, WindowMode, WindowOptions, DEFAULT_CANVAS_ID, DEFAULT_CLEAR_COLOR,
 };
 pub use fonts::{ExtraFonts, FontData};
 pub use lifecycle::{FadeTransition, GameState, LoadProgress, PanickedSystems, ShouldQuit};

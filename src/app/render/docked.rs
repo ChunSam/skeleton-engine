@@ -1,4 +1,5 @@
 use super::super::App;
+use super::EDITOR_SURFACE_CLEAR;
 use crate::app::editor::EditorState;
 use crate::app::egui_pass::submit_egui;
 use crate::app::render_state::RenderState;
@@ -39,12 +40,7 @@ impl App {
                     resolve_target: None,
                     depth_slice: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.08,
-                            g: 0.08,
-                            b: 0.12,
-                            a: 1.0,
-                        }),
+                        load: wgpu::LoadOp::Clear(EDITOR_SURFACE_CLEAR),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
