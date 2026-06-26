@@ -34,6 +34,14 @@ pub(in crate::app) fn particle_tuner_grid(
         );
     });
     ui.horizontal(|ui| {
+        ui.label(tr("max/frame", "프레임당 최대"));
+        ui.add(
+            egui::DragValue::new(&mut em.max_per_frame)
+                .range(1..=8192)
+                .speed(1.0),
+        );
+    });
+    ui.horizontal(|ui| {
         ui.label(tr("lifetime", "수명"));
         ui.add(
             egui::DragValue::new(&mut em.lifetime)

@@ -126,6 +126,9 @@ struct EmitterDef {
     /// Spawn scatter shape. Defaults to `Point`.
     #[serde(default)]
     emit_shape: EmitShapeDef,
+    /// Per-frame spawn cap (runaway guard). Defaults to `64`; raise for dense rain/snow.
+    #[serde(default = "default_max_per_frame")]
+    max_per_frame: u32,
 }
 
 // ── Serde defaults mirroring `ParticleEmitter::default()` ────────────────────
@@ -153,6 +156,9 @@ fn default_size() -> Vec2Def {
 }
 fn default_emit() -> bool {
     true
+}
+fn default_max_per_frame() -> u32 {
+    crate::particle::DEFAULT_MAX_PER_FRAME
 }
 
 // ── Top-level RON document ────────────────────────────────────────────────────
@@ -242,6 +248,7 @@ impl ParticleConfigSet {
             texture: def.texture.as_deref().map(std::sync::Arc::from),
             z: def.z,
             emit: def.emit,
+            max_per_frame: def.max_per_frame,
             timer: 0.0,
         })
     }

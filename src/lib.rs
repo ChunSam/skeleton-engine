@@ -128,7 +128,7 @@ pub use nine_slice::NineSlice;
 pub use parallax::{ParallaxLayer, ParallaxSystem};
 pub use particle::{
     EmitShape, Particle, ParticleBurst, ParticleConfigError, ParticleConfigRegistry,
-    ParticleConfigSet, ParticleEmitter, ParticleSystem,
+    ParticleConfigSet, ParticleEmitter, ParticleSystem, DEFAULT_MAX_PER_FRAME,
 };
 pub use pathfinding::{find_path, find_path_diagonal, PathGrid, MAX_PATH_GRID_CELLS};
 #[cfg(not(target_arch = "wasm32"))]

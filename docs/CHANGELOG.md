@@ -4,6 +4,18 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.71.0
+
+**Feature: a continuous `ParticleEmitter`'s per-frame spawn cap is now configurable (`max_per_frame`, default 64).** The runaway guard that bounds particles spawned in one frame was hardcoded to 64, so an emitter whose `spawn_rate` exceeded `64 * fps` (e.g. dense rain/snow above ≈3840/s at 60 fps) silently under-emitted with no way to fix it short of editing engine source. The cap is now a field; the default stays 64, so every existing emitter is byte-identical (non-breaking). Tier-2 hardcoding-audit knob.
+
+### Added
+- `ParticleEmitter::max_per_frame: u32` field + `with_max_per_frame(n)` builder; `DEFAULT_MAX_PER_FRAME` pub const (= 64, re-exported at the crate root).
+- `max_per_frame` is also a RON emitter-config field (`#[serde(default)]` = 64) and an editor Particle-Tuner row, so dense-rain presets and live tuning can raise it.
+- Example `particle_spawn_cap` — two rain emitters with the same high `spawn_rate` side by side; the default-cap (64) column visibly under-emits vs the raised-cap (256) column, with a live per-column particle count.
+
+### Changed
+- `ParticleSystem`'s continuous-emission path caps the per-frame spawn at `emitter.max_per_frame` instead of the hardcoded `64`.
+
 ## 0.70.0
 
 **Feature: render targets can be sampled with a caller-chosen `FilterMode` for display.** A `RenderTarget`'s sampler was hardcoded to `Nearest`, so any RT shown scaled up or used as a blur source was always pixelated — a fork had to edit engine source to change it. `App::create_render_target_with_filter(name, w, h, filter)` (surface format) now lets the caller pick `Linear` for a smooth scaled/blurred RT; the default stays `Nearest`, so every existing render target is byte-identical (non-breaking). Tier-2 hardcoding-audit knob.
