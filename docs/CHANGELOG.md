@@ -4,6 +4,13 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.68.6
+
+**Fix: an over-large or dimension-overflowing `PathGrid` no longer fails silently.** `grid_cell_count` returned `0` (→ an empty grid where every cell is unwalkable, so all pathfinding fails) when `width × height` exceeded the internal `10_000_000`-cell cap or overflowed `i32`, with no diagnostic — a fork building a large world (e.g. 4096² = 16M cells) got an empty grid and no clue why. Those two cases now log a `log::error!` explaining the empty grid and how to fix it; the benign empty grid from a zero/negative dimension stays silent. The cell cap is also promoted to a public constant so forks can size against it. No behavior change beyond the added logging.
+
+### Changed
+- `src/pathfinding.rs` — `MAX_PATH_GRID_CELLS` is now `pub` (and re-exported as `engine::MAX_PATH_GRID_CELLS`) with documentation. `grid_cell_count` logs an `error!` on `i32` overflow and on exceeding the cap (but not on a legitimately empty zero-dimension grid). Added `oversized_grid_is_empty_not_allocated` + `overflowing_grid_dims_are_empty` regression tests.
+
 ## 0.68.5
 
 **Behavior-preserving cleanup: duplicated hardcoded literals (window clear color, panel z-offset) hoisted into named constants.** Found by a whole-`src/` hardcoding audit. The window clear color `[0.08, 0.08, 0.12, 1.0]` appeared as four independent literals (two array-form, two `wgpu::Color`-form) that could silently drift; the panel-background z-offset `0.01` had a named constant in the pointer-capture pass but `LayoutSystem` still used a raw literal that has to match it. Each is now a single source of truth. Values are byte-identical, so rendering is unchanged. **No behavior change**; one additive public re-export (`DEFAULT_CLEAR_COLOR`).
