@@ -37,6 +37,20 @@ pub struct CharacterController {
     /// [`with_drop_duration`](CharacterController::with_drop_duration) or direct assignment
     /// (heavier characters may need a longer window to clear a thick platform).
     pub drop_duration: f32,
+    /// One-way-platform landing skin width, in **physics units**.
+    ///
+    /// When the character moves down, a one-way collider keeps blocking until the
+    /// character's bottom sinks more than this much below the platform's top surface,
+    /// so a resting character does not jitter or slip through on slight numerical
+    /// penetration. Because it is a *physics-unit* length, it should scale with your
+    /// `pixels_per_unit`: the default suits the engine's nominal PPU (≈64), so a game
+    /// at a coarser scale (small PPU, large physics world) wants a larger value to keep
+    /// the same visual skin.
+    ///
+    /// Defaults to [`CharacterController::DEFAULT_ONE_WAY_TOLERANCE`]; tune via
+    /// [`with_one_way_tolerance`](CharacterController::with_one_way_tolerance) or direct
+    /// assignment (it is read fresh by `move_character` every frame).
+    pub one_way_tolerance: f32,
 }
 
 impl Default for CharacterController {
@@ -62,6 +76,7 @@ impl Default for CharacterController {
             inner,
             drop_timer: 0.0,
             drop_duration: Self::DROP_DURATION,
+            one_way_tolerance: Self::DEFAULT_ONE_WAY_TOLERANCE,
         }
     }
 }
@@ -93,6 +108,17 @@ impl CharacterController {
     /// Sets how long (seconds) a one-way drop-through stays active after `request_drop`.
     pub fn with_drop_duration(mut self, seconds: f32) -> Self {
         self.drop_duration = seconds;
+        self
+    }
+
+    /// Sets the one-way-platform landing skin width in physics units.
+    ///
+    /// Scale this with your `pixels_per_unit` (see [`one_way_tolerance`]). A coarse-scale
+    /// game (small PPU) wants a larger value than the default.
+    ///
+    /// [`one_way_tolerance`]: CharacterController::one_way_tolerance
+    pub fn with_one_way_tolerance(mut self, tolerance: f32) -> Self {
+        self.one_way_tolerance = tolerance;
         self
     }
 
@@ -142,6 +168,11 @@ impl CharacterController {
     /// character to clear a typical platform thickness. The per-instance value lives in
     /// [`drop_duration`](CharacterController::drop_duration).
     pub const DROP_DURATION: f32 = 0.2;
+
+    /// Default one-way-platform landing skin width (physics units), tuned for the engine's
+    /// nominal pixels-per-unit (≈64). The per-instance value lives in
+    /// [`one_way_tolerance`](CharacterController::one_way_tolerance).
+    pub const DEFAULT_ONE_WAY_TOLERANCE: f32 = 0.05;
 }
 
 #[cfg(test)]
@@ -163,6 +194,29 @@ mod tests {
         assert!(
             (ctrl.inner.min_slope_slide_angle - expected).abs() < 1e-6,
             "inner.min_slope_slide_angle must be synced by with_max_slope_deg"
+        );
+    }
+
+    #[test]
+    fn default_one_way_tolerance_matches_historical_constant() {
+        // Guard the out-of-the-box behavior: the default must reproduce the value that was
+        // hardcoded in move_character before it became a field, so existing games are unchanged.
+        assert!(
+            (CharacterController::new().one_way_tolerance - 0.05).abs() < 1e-9,
+            "default one_way_tolerance must stay 0.05 (the old hardcoded skin width)"
+        );
+        assert!(
+            (CharacterController::DEFAULT_ONE_WAY_TOLERANCE - 0.05).abs() < 1e-9,
+            "DEFAULT_ONE_WAY_TOLERANCE const must stay 0.05"
+        );
+    }
+
+    #[test]
+    fn with_one_way_tolerance_sets_field() {
+        let ctrl = CharacterController::new().with_one_way_tolerance(0.25);
+        assert!(
+            (ctrl.one_way_tolerance - 0.25).abs() < 1e-9,
+            "with_one_way_tolerance must set the field"
         );
     }
 

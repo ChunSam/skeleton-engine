@@ -320,6 +320,42 @@ fn one_way_platform_blocks_from_top_passes_from_below_and_on_drop() {
 }
 
 #[test]
+fn one_way_tolerance_widens_the_landing_skin() {
+    // The one-way landing skin width (`CharacterController::one_way_tolerance`) decides how far
+    // below a platform's top surface a downward-moving character is still "caught". Start the
+    // character already penetrated 0.1 units below the top, moving down, and vary the tolerance.
+    //
+    // Platform center y=2.0, half 0.5 → top surface y=1.5. Character half 0.5, center y=1.1
+    // → bottom y=1.6 → 0.1 below the top. ppu=1.0 so pixels == physics units.
+    let dt = 1.0 / 60.0;
+    let run = |tolerance: f32| -> f32 {
+        let mut pw = PhysicsWorld::new(Vec2::ZERO);
+        let (_p, pcol) = pw.add_static_box(Vec2::new(0.0, 2.0), 1.0, 0.5);
+        pw.set_one_way(pcol, true);
+        let (crb, ccol) = pw.add_kinematic_box(Vec2::new(0.0, 1.1), 0.5, 0.5);
+        let mut ctrl = CharacterController::new().with_one_way_tolerance(tolerance);
+        // Initial step registers colliders in the query_pipeline (move_character queries it).
+        pw.step(dt);
+        pw.move_character(&mut ctrl, crb, ccol, Vec2::new(0.0, 0.6), dt, 1.0);
+        pw.step(dt);
+        pw.rigid_body(crb).unwrap().translation().y
+    };
+
+    // Tight tolerance (0.05 < 0.1 penetration): treated as "below" → platform ignored →
+    // the character slips through and keeps falling (center ≈ 1.7).
+    assert!(
+        run(0.05) > 1.4,
+        "tight tolerance lets the penetrated character slip through the one-way platform"
+    );
+    // Wide tolerance (0.2 > 0.1 penetration): still treated as "landing" → blocked, the
+    // character stays on/at the platform (center ≤ ~1.1, never falls past).
+    assert!(
+        run(0.2) < 1.2,
+        "wide tolerance keeps the penetrated character on the one-way platform"
+    );
+}
+
+#[test]
 fn cast_ray_no_hit_after_remove_body_before_step() {
     // Without the fix, the query_pipeline still contains the removed collider and the ray hits.
     // With the fix, cast_ray lazily rebuilds the pipeline → no hit.
