@@ -12,6 +12,10 @@ pub struct RenderTarget {
     /// for this format (a non-surface format, e.g. `Rgba16Float` for an HDR target, gets its own
     /// pipeline variant). See [`format`](RenderTarget::format).
     pub(crate) format: wgpu::TextureFormat,
+    /// The min/mag filter the target's sampler uses when this RT is sampled for **display** (e.g. a
+    /// sprite that shows the RT texture). `Nearest` (the default) keeps a pixel-art look; `Linear`
+    /// smooths a scaled or blurred RT. See [`filter`](RenderTarget::filter).
+    pub(crate) filter: wgpu::FilterMode,
     /// Optional per-target clear color `[r, g, b, a]` (sRGB, `f64`).
     ///
     /// When `Some`, the offscreen pass clears with this color instead of
@@ -24,7 +28,9 @@ pub struct RenderTarget {
 }
 
 impl RenderTarget {
-    /// Creates a new render target of the given dimensions and pixel format.
+    /// Creates a new render target of the given dimensions and pixel format, sampled with
+    /// `FilterMode::Nearest` (pixel-art look). For a smooth/scaled/blurred RT use
+    /// [`new_with_filter`](RenderTarget::new_with_filter) with `FilterMode::Linear`.
     ///
     /// The bind-group layout is built internally using the same descriptor as the
     /// sprite pipeline (filterable texture @0, filtering sampler @1), so the
@@ -34,6 +40,19 @@ impl RenderTarget {
         width: u32,
         height: u32,
         format: wgpu::TextureFormat,
+    ) -> Self {
+        Self::new_with_filter(device, width, height, format, wgpu::FilterMode::Nearest)
+    }
+
+    /// Like [`new`](RenderTarget::new), but with a caller-chosen min/mag `filter` for the sampler
+    /// used when the RT is sampled for **display**. `FilterMode::Linear` smooths a render target
+    /// that is shown scaled up or used as a blur source; `FilterMode::Nearest` keeps it crisp.
+    pub fn new_with_filter(
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+        format: wgpu::TextureFormat,
+        filter: wgpu::FilterMode,
     ) -> Self {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("render target texture"),
@@ -53,8 +72,8 @@ impl RenderTarget {
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
+            mag_filter: filter,
+            min_filter: filter,
             ..Default::default()
         });
         // Build our own layout — same descriptor as the sprite pipeline's texture slot
@@ -84,6 +103,7 @@ impl RenderTarget {
             width,
             height,
             format,
+            filter,
             clear_color: None,
         }
     }
@@ -91,6 +111,11 @@ impl RenderTarget {
     /// The pixel format the target was created with (what the offscreen sprite pass must target).
     pub fn format(&self) -> wgpu::TextureFormat {
         self.format
+    }
+
+    /// The min/mag filter the target's sampler uses when the RT is sampled for display.
+    pub fn filter(&self) -> wgpu::FilterMode {
+        self.filter
     }
 
     /// Sets a per-target clear color, overriding `WindowConfig::clear_color` for this RT.

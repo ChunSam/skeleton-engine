@@ -702,9 +702,15 @@ impl App {
         }
         // pending_render_targets: create RTs registered before GPU initialization. A caller-chosen
         // format that this GPU cannot render into falls back to the surface format (with a warning).
-        for (name, w, h, fmt) in self.pending_render_targets.drain(..) {
+        for (name, w, h, fmt, filter) in self.pending_render_targets.drain(..) {
             let format = gpu.resolve_render_target_format(fmt, &name);
-            let rt = crate::renderer::render_target::RenderTarget::new(&gpu.device, w, h, format);
+            let rt = crate::renderer::render_target::RenderTarget::new_with_filter(
+                &gpu.device,
+                w,
+                h,
+                format,
+                filter,
+            );
             self.render.render_targets.insert(name, rt);
         }
         // Expose GPU render-format support to game systems (e.g. to choose an HDR render target

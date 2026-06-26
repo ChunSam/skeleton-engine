@@ -143,8 +143,15 @@ pub struct App {
     pending_texture_formats: std::collections::HashMap<String, wgpu::TextureFormat>,
     /// Render target info registered before GPU init. Actually created in `finish_init()`.
     /// The optional format is the caller's chosen pixel format; `None` = inherit the surface format
-    /// (not known until GPU init).
-    pending_render_targets: Vec<(String, u32, u32, Option<wgpu::TextureFormat>)>,
+    /// (not known until GPU init). The `FilterMode` is the sampler filter used when the RT is
+    /// displayed.
+    pending_render_targets: Vec<(
+        String,
+        u32,
+        u32,
+        Option<wgpu::TextureFormat>,
+        wgpu::FilterMode,
+    )>,
     /// Closures that drain event queues at the end of each frame.
     event_flushers: Vec<EventHook>,
     /// Closures that re-insert event resources on `reload_scene`.
