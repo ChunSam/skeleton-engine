@@ -52,7 +52,8 @@ impl PhysicsWorld {
         let moving_down = desired.y > 1e-6;
         let char_bottom = shape.compute_aabb(&col_pos).maxs.y;
         // Treat anything slightly above the top surface (within skin thickness) as "above" for stable landing.
-        const ONE_WAY_TOLERANCE: f32 = 0.05;
+        // The skin width is a physics-unit length the caller scales to their PPU (default ≈ PPU 64).
+        let one_way_tolerance = controller.one_way_tolerance;
         let one_way = &self.one_way_colliders;
         let predicate =
             move |handle: rapier2d::prelude::ColliderHandle, collider: &Collider| -> bool {
@@ -64,7 +65,7 @@ impl PhysicsWorld {
                 }
                 // Block only when moving down AND the character bottom is above (or nearly touching) the platform top.
                 let platform_top = collider.compute_aabb().mins.y;
-                char_bottom <= platform_top + ONE_WAY_TOLERANCE
+                char_bottom <= platform_top + one_way_tolerance
             };
 
         let output = controller.inner.move_shape(

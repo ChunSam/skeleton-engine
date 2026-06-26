@@ -4,6 +4,17 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.72.0
+
+**Feature: a `CharacterController`'s one-way-platform landing skin width is now configurable (`one_way_tolerance`, default 0.05).** A one-way collider keeps blocking a downward-moving character until its bottom sinks more than this much below the platform's top surface, so a resting character does not jitter or slip through on slight numerical penetration. The width was hardcoded to `0.05` *physics units* — wrong at any `pixels_per_unit` ≠ the engine's nominal ≈64, so a game at a coarser scale (small PPU) had to edit engine source. It is now a field; the default stays `0.05`, so every existing controller is byte-identical (non-breaking). Tier-2 hardcoding-audit knob.
+
+### Added
+- `CharacterController::one_way_tolerance: f32` field + `with_one_way_tolerance(t)` builder; `DEFAULT_ONE_WAY_TOLERANCE` pub const (= 0.05). The field is read fresh by `move_character` every frame, so direct assignment works too.
+- Example `one_way_tolerance` — a small playable one-way platformer at a deliberately coarse **PPU 24** that scales the tolerance to its PPU (`DEFAULT_ONE_WAY_TOLERANCE * 64 / PPU`); jump up *through* the platform and land on top, or press Down to drop through onto the solid ground.
+
+### Changed
+- `PhysicsWorld::move_character` reads `controller.one_way_tolerance` for the one-way landing predicate instead of a hardcoded `const ONE_WAY_TOLERANCE = 0.05`.
+
 ## 0.71.0
 
 **Feature: a continuous `ParticleEmitter`'s per-frame spawn cap is now configurable (`max_per_frame`, default 64).** The runaway guard that bounds particles spawned in one frame was hardcoded to 64, so an emitter whose `spawn_rate` exceeded `64 * fps` (e.g. dense rain/snow above ≈3840/s at 60 fps) silently under-emitted with no way to fix it short of editing engine source. The cap is now a field; the default stays 64, so every existing emitter is byte-identical (non-breaking). Tier-2 hardcoding-audit knob.
