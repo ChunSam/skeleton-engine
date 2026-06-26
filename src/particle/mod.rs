@@ -74,6 +74,10 @@ impl EmitShape {
     }
 }
 
+/// Default per-frame spawn cap for a continuous [`ParticleEmitter`] — see
+/// [`ParticleEmitter::max_per_frame`]. Also the runaway guard's historical value.
+pub const DEFAULT_MAX_PER_FRAME: u32 = 64;
+
 /// Emitter component that spawns particles.
 ///
 /// Attach to an entity together with `Transform`; `ParticleSystem` will create particles.
@@ -105,6 +109,12 @@ pub struct ParticleEmitter {
     pub z: f32,
     /// Set to false to stop emitting.
     pub emit: bool,
+    /// Upper bound on particles spawned in a single frame — a runaway guard against a very large
+    /// `spawn_rate` combined with a long frame `dt`. Default `64`. A continuous emitter whose
+    /// `spawn_rate` exceeds `max_per_frame * fps` (e.g. dense rain/snow at 60 fps needs
+    /// `spawn_rate > 3840`) silently under-emits at the default; raise this to let it reach full
+    /// density. Set it high (e.g. a few thousand) for "effectively unlimited" while keeping a bound.
+    pub max_per_frame: u32,
     /// Internal timer (no need to modify directly).
     pub(crate) timer: f32,
 }
@@ -124,6 +134,7 @@ impl Default for ParticleEmitter {
             texture: None,
             z: 0.0,
             emit: true,
+            max_per_frame: DEFAULT_MAX_PER_FRAME,
             timer: 0.0,
         }
     }
@@ -152,6 +163,7 @@ impl ParticleEmitter {
             texture: None,
             z: 0.0,
             emit: false,
+            max_per_frame: DEFAULT_MAX_PER_FRAME,
             timer: 0.0,
         }
     }
@@ -172,6 +184,14 @@ impl ParticleEmitter {
     /// Sets the spawn scatter shape (builder style).
     pub fn with_emit_shape(mut self, shape: EmitShape) -> Self {
         self.emit_shape = shape;
+        self
+    }
+
+    /// Sets the per-frame spawn cap (builder style). Raise above the default
+    /// [`DEFAULT_MAX_PER_FRAME`] for dense rain/snow whose `spawn_rate` exceeds
+    /// `max_per_frame * fps`. See [`max_per_frame`](ParticleEmitter::max_per_frame).
+    pub fn with_max_per_frame(mut self, max_per_frame: u32) -> Self {
+        self.max_per_frame = max_per_frame;
         self
     }
 }
@@ -325,8 +345,9 @@ impl System for ParticleSystem {
                         em.timer -= interval;
                         count += 1;
                     }
-                    // Runaway guard: at most 64 per frame (handles very large spawn_rate + long dt).
-                    count.min(64)
+                    // Runaway guard: cap at the emitter's `max_per_frame` (default 64) — handles a
+                    // very large spawn_rate + long dt; raised for dense rain/snow.
+                    count.min(em.max_per_frame)
                 };
 
                 if spawn_count > 0 {
@@ -488,6 +509,30 @@ mod tests {
             zs.iter().all(|&z| (z - 5.0).abs() < 1e-6),
             "particles did not inherit emitter z: {zs:?}"
         );
+    }
+
+    #[test]
+    fn spawn_count_respects_max_per_frame() {
+        // A huge spawn_rate * dt would request far more than the cap in one tick.
+        let spawn_one_tick = |max_per_frame: u32| -> usize {
+            let mut world = World::new();
+            let emitter = world.spawn();
+            world.add_component(emitter, Transform::default());
+            world.add_component(
+                emitter,
+                ParticleEmitter {
+                    spawn_rate: 1_000_000.0,
+                    max_per_frame,
+                    ..Default::default()
+                },
+            );
+            ParticleSystem.run(&mut world, 1.0);
+            world.query::<Particle>().count()
+        };
+        // Default cap (64) bounds the per-frame spawn even at an extreme rate.
+        assert_eq!(spawn_one_tick(DEFAULT_MAX_PER_FRAME), 64);
+        // Raising the cap lets a dense emitter spawn more in a single frame.
+        assert_eq!(spawn_one_tick(256), 256);
     }
 
     #[test]
