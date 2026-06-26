@@ -4,6 +4,18 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.70.0
+
+**Feature: render targets can be sampled with a caller-chosen `FilterMode` for display.** A `RenderTarget`'s sampler was hardcoded to `Nearest`, so any RT shown scaled up or used as a blur source was always pixelated — a fork had to edit engine source to change it. `App::create_render_target_with_filter(name, w, h, filter)` (surface format) now lets the caller pick `Linear` for a smooth scaled/blurred RT; the default stays `Nearest`, so every existing render target is byte-identical (non-breaking). Tier-2 hardcoding-audit knob.
+
+### Added
+- `App::create_render_target_with_filter(name, width, height, filter)` — create an RT (surface format) whose display sampler uses the given `wgpu::FilterMode`.
+- `RenderTarget::new_with_filter(device, width, height, format, filter)` + `RenderTarget::filter()` accessor; `RenderTarget` stores its sampler filter (mirrors the `format()` pattern). `RenderTarget::new` delegates to `new_with_filter` with `Nearest` (unchanged behavior).
+- Example `render_target_filter` — the same tiny 40×40 scene rendered into two RTs and displayed 7.5× side by side; left `Nearest` (blocky), right `Linear` (smooth). The only difference is the sampler filter.
+
+### Changed (internal)
+- `create_render_target_impl` + the `pending_render_targets` deferred-creation tuple thread a `wgpu::FilterMode`; the existing `create_render_target` / `create_render_target_with_format` pass `Nearest`.
+
 ## 0.69.1
 
 **Fix: native synthesized tones (`AudioManager::play_tone` with no channel effect) no longer click on/off.** The wasm `WebAudio` backend already wraps every tone in a short attack/release gain envelope, but the native rodio path emitted a raw `SineWave` that started and ended at an abrupt amplitude — an audible click, and a cross-platform behavior gap. The default (no-effect) native tone now carries the same `min(25% of the tone, 8 ms)` linear attack+release envelope as wasm. rodio 0.19 has no source `fade_out`, so the enveloped tone is materialized into a `SamplesBuffer`. Tones that already configure a channel effect are unchanged. No public API change.

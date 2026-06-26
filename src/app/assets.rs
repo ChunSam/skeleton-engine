@@ -5,7 +5,21 @@ impl App {
     /// format. For an HDR (`Rgba16Float`) or other caller-chosen format, use
     /// [`create_render_target_with_format`](Self::create_render_target_with_format).
     pub fn create_render_target(&mut self, name: impl Into<String>, width: u32, height: u32) {
-        self.create_render_target_impl(name.into(), width, height, None);
+        self.create_render_target_impl(name.into(), width, height, None, wgpu::FilterMode::Nearest);
+    }
+
+    /// Creates a render target (surface format) sampled with a caller-chosen `filter` when the RT is
+    /// shown for display. `wgpu::FilterMode::Linear` smooths a render target that is displayed scaled
+    /// up or used as a blur source (the default `Nearest` keeps it pixelated). Pair with an
+    /// `OffscreenCamera` like [`create_render_target`](Self::create_render_target).
+    pub fn create_render_target_with_filter(
+        &mut self,
+        name: impl Into<String>,
+        width: u32,
+        height: u32,
+        filter: wgpu::FilterMode,
+    ) {
+        self.create_render_target_impl(name.into(), width, height, None, filter);
     }
 
     /// Creates a render target with a caller-chosen pixel `format` (e.g. `wgpu::TextureFormat::Rgba16Float`
@@ -21,7 +35,13 @@ impl App {
         height: u32,
         format: wgpu::TextureFormat,
     ) {
-        self.create_render_target_impl(name.into(), width, height, Some(format));
+        self.create_render_target_impl(
+            name.into(),
+            width,
+            height,
+            Some(format),
+            wgpu::FilterMode::Nearest,
+        );
     }
 
     fn create_render_target_impl(
@@ -30,22 +50,24 @@ impl App {
         width: u32,
         height: u32,
         format: Option<wgpu::TextureFormat>,
+        filter: wgpu::FilterMode,
     ) {
         if let Some(gpu) = &self.gpu {
             // GPU already initialized — create immediately. `None` inherits the surface format; a
             // caller-chosen format that this GPU cannot render into falls back (with a warning).
             let resolved = gpu.resolve_render_target_format(format, &name);
-            let rt = crate::renderer::render_target::RenderTarget::new(
+            let rt = crate::renderer::render_target::RenderTarget::new_with_filter(
                 &gpu.device,
                 width,
                 height,
                 resolved,
+                filter,
             );
             self.render.render_targets.insert(name, rt);
         } else {
             // GPU not yet initialized — defer to pending (the format resolves at creation).
             self.pending_render_targets
-                .push((name, width, height, format));
+                .push((name, width, height, format, filter));
         }
     }
 
