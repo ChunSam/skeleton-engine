@@ -120,6 +120,12 @@ pub struct Tilemap {
     pub origin: Vec2,
     /// How the grid maps to world positions. Defaults to [`TilemapProjection::Orthographic`].
     pub projection: TilemapProjection,
+    /// Render depth (`z`) for **orthographic and hexagonal** tilemaps — raise or lower it to stack
+    /// multiple tilemaps (e.g. a background floor under a foreground decoration map). Defaults to
+    /// `-1.0` (behind sprites at the default `z = 0`). Ignored for [`TilemapProjection::Isometric`],
+    /// which derives a per-cell depth (`row + col`) for back-to-front sorting. Set via
+    /// [`with_z`](Self::with_z).
+    pub z: f32,
     /// Monotonically increasing counter, bumped on every tile mutation.
     /// [`TilemapSystem`] uses this to skip the diff pass when the map is unchanged.
     pub(crate) generation: u64,
@@ -133,6 +139,7 @@ impl Tilemap {
             tile_size,
             origin,
             projection: TilemapProjection::Orthographic,
+            z: -1.0,
             generation: 0,
         }
     }
@@ -142,6 +149,14 @@ impl Tilemap {
     /// grid.
     pub fn with_projection(mut self, projection: TilemapProjection) -> Self {
         self.projection = projection;
+        self
+    }
+
+    /// Sets the render depth [`z`](Self::z) (builder). Layer two orthographic/hexagonal tilemaps
+    /// by giving the background a lower `z` than the foreground. No effect on isometric maps
+    /// (their depth is per-cell). Default `-1.0`.
+    pub fn with_z(mut self, z: f32) -> Self {
+        self.z = z;
         self
     }
 
@@ -249,11 +264,11 @@ impl Tilemap {
     /// entities meant to stand on the floor a `z` above the cells they occupy.)
     pub fn cell_z(&self, row: usize, col: usize) -> f32 {
         match self.projection {
-            // Orthographic and hexagonal (both orientations) tiles tessellate without overlap, so a
-            // fixed z is fine.
+            // Orthographic and hexagonal (both orientations) tiles tessellate without overlap, so
+            // the whole map shares one depth: the caller-set `z` (default -1.0).
             TilemapProjection::Orthographic
             | TilemapProjection::Hexagonal
-            | TilemapProjection::HexagonalFlat => -1.0,
+            | TilemapProjection::HexagonalFlat => self.z,
             TilemapProjection::Isometric => (row + col) as f32,
         }
     }
@@ -704,5 +719,35 @@ mod tests {
             tm.generation, gen0,
             "generation must not change when set_tile is a no-op"
         );
+    }
+
+    #[test]
+    fn cell_z_defaults_to_minus_one() {
+        let tm = make_tilemap(vec![vec![1; 2]; 2]);
+        assert_eq!(tm.cell_z(0, 0), -1.0);
+        assert_eq!(tm.cell_z(1, 1), -1.0);
+    }
+
+    #[test]
+    fn with_z_sets_render_depth_for_ortho_and_hex() {
+        // Orthographic: the whole map shares the caller's z.
+        let ortho = make_tilemap(vec![vec![1; 2]; 2]).with_z(-5.0);
+        assert_eq!(ortho.cell_z(0, 0), -5.0);
+        assert_eq!(ortho.cell_z(1, 1), -5.0);
+        // Hexagonal: same — a single shared depth.
+        let hex = make_tilemap(vec![vec![1; 2]; 2])
+            .with_projection(TilemapProjection::Hexagonal)
+            .with_z(3.0);
+        assert_eq!(hex.cell_z(1, 1), 3.0);
+    }
+
+    #[test]
+    fn isometric_ignores_z() {
+        // Isometric depth is per-cell (row + col); `z` does not apply.
+        let iso = make_tilemap(vec![vec![1; 2]; 2])
+            .with_projection(TilemapProjection::Isometric)
+            .with_z(99.0);
+        assert_eq!(iso.cell_z(0, 0), 0.0);
+        assert_eq!(iso.cell_z(1, 1), 2.0);
     }
 }

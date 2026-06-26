@@ -4,6 +4,14 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.69.0
+
+**Added: per-tilemap render depth via `Tilemap::z` / `with_z`, so multiple orthographic or hexagonal tilemaps can be stacked as background/foreground layers.** Previously `cell_z()` returned a fixed `-1.0` for every orthographic/hexagonal tile, so two such tilemaps drew at the same depth and could not be reliably layered. `Tilemap` now carries a `pub z: f32` (default `-1.0`, set via the `with_z` builder) that `cell_z()` returns for those projections. Isometric is unchanged — it still derives a per-cell depth (`row + col`) and ignores `z`. Existing maps keep the `-1.0` default, so behavior is unchanged unless `z` is set.
+
+### Added
+- `src/tilemap/mod.rs` — `Tilemap::z` field + `Tilemap::with_z(z)` builder; `cell_z()` returns `self.z` for orthographic/hexagonal projections (isometric keeps `row + col`). Tests: `cell_z_defaults_to_minus_one`, `with_z_sets_render_depth_for_ortho_and_hex`, `isometric_ignores_z`.
+- `examples/tilemap_layers.rs` — stacks a background floor (`z = -2.0`) under a foreground decoration map (`z = -1.0`); the foreground is spawned *first* yet draws on top, demonstrating that `z` (not spawn order) drives layering. Verified natively (screenshot).
+
 ## 0.68.6
 
 **Fix: an over-large or dimension-overflowing `PathGrid` no longer fails silently.** `grid_cell_count` returned `0` (→ an empty grid where every cell is unwalkable, so all pathfinding fails) when `width × height` exceeded the internal `10_000_000`-cell cap or overflowed `i32`, with no diagnostic — a fork building a large world (e.g. 4096² = 16M cells) got an empty grid and no clue why. Those two cases now log a `log::error!` explaining the empty grid and how to fix it; the benign empty grid from a zero/negative dimension stays silent. The cell cap is also promoted to a public constant so forks can size against it. No behavior change beyond the added logging.
