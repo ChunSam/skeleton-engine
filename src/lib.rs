@@ -130,7 +130,7 @@ pub use particle::{
     EmitShape, Particle, ParticleBurst, ParticleConfigError, ParticleConfigRegistry,
     ParticleConfigSet, ParticleEmitter, ParticleSystem,
 };
-pub use pathfinding::{find_path, find_path_diagonal, PathGrid};
+pub use pathfinding::{find_path, find_path_diagonal, PathGrid, MAX_PATH_GRID_CELLS};
 #[cfg(not(target_arch = "wasm32"))]
 pub use physics::{
     sync_tilemap_entity_colliders, BodyHandle, CharacterController, ColliderHandle, CollisionEvent,

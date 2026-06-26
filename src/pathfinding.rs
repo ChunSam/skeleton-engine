@@ -12,7 +12,12 @@ pub struct PathGrid {
     cells: Vec<bool>,
 }
 
-const MAX_PATH_GRID_CELLS: usize = 10_000_000;
+/// Hard cap on the number of cells a [`PathGrid`] may allocate (`width × height`).
+///
+/// A grid that exceeds this is created **empty** (every cell unwalkable, so all pathfinding
+/// fails) with a logged error, rather than attempting a multi-gigabyte allocation. Exposed so a
+/// fork building large worlds can size its grids against the limit (or know to raise it).
+pub const MAX_PATH_GRID_CELLS: usize = 10_000_000;
 
 impl PathGrid {
     /// Creates a grid with all cells walkable.
@@ -95,13 +100,23 @@ impl PathGrid {
 
 fn grid_cell_count(width: i32, height: i32) -> usize {
     let Some(size) = width.checked_mul(height) else {
+        log::error!(
+            "PathGrid {width}×{height} overflows i32; creating an EMPTY grid \
+             (all pathfinding will fail). Reduce the grid dimensions."
+        );
         return 0;
     };
     if size <= 0 {
+        // Legitimately empty (zero/negative dimension, e.g. an empty tilemap) — not an error.
         return 0;
     }
     let size = size as usize;
     if size > MAX_PATH_GRID_CELLS {
+        log::error!(
+            "PathGrid {width}×{height} = {size} cells exceeds MAX_PATH_GRID_CELLS \
+             ({MAX_PATH_GRID_CELLS}); creating an EMPTY grid (all pathfinding will fail). \
+             Reduce the grid size or raise the cap."
+        );
         0
     } else {
         size
@@ -665,5 +680,24 @@ mod tests {
             }
             prev = p;
         }
+    }
+
+    /// A grid whose cell count exceeds [`MAX_PATH_GRID_CELLS`] is created empty (no huge
+    /// allocation) — every cell reads unwalkable rather than panicking or OOMing.
+    #[test]
+    fn oversized_grid_is_empty_not_allocated() {
+        // 4000×4000 = 16M cells > the 10M MAX_PATH_GRID_CELLS cap.
+        let grid = PathGrid::new(4000, 4000);
+        assert!(!grid.is_walkable(0, 0));
+        assert!(!grid.is_walkable(1234, 2345));
+        // No path is found in the degenerate grid (rather than indexing out of bounds).
+        assert!(find_path(&grid, IVec2::new(0, 0), IVec2::new(1, 1)).is_none());
+    }
+
+    /// A grid whose dimensions overflow `i32` multiplication is likewise empty, not a panic.
+    #[test]
+    fn overflowing_grid_dims_are_empty() {
+        let grid = PathGrid::new(i32::MAX, 2);
+        assert!(!grid.is_walkable(0, 0));
     }
 }
