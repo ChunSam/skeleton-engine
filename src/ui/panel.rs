@@ -9,6 +9,11 @@ use crate::resources::ViewportSize;
 
 use super::node::{Anchor, UiNode};
 
+/// Z-offset below a panel's own z at which [`LayoutSystem`] draws the panel background, so the
+/// background renders beneath the panel's child widgets. The pointer-capture pass mirrors this
+/// (see `crate::ui::system::capture`), so both must agree — hence one shared constant.
+pub(crate) const PANEL_BG_Z_OFFSET: f32 = 0.01;
+
 /// Layout direction for child entities.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum LayoutDir {
@@ -215,7 +220,7 @@ impl System for LayoutSystem {
                         snap.size.y,
                         snap.bg_color,
                     )
-                    .with_z(snap.z - 0.01),
+                    .with_z(snap.z - PANEL_BG_Z_OFFSET),
                 );
             }
         }

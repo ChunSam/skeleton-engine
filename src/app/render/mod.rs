@@ -16,3 +16,16 @@ mod post_lighting;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod docked;
+
+/// Clear color for the docked-editor surface (the area egui draws the editor chrome onto, both
+/// the warm-up placeholder and the post-scene docked clear).
+///
+/// Holds the same value as [`DEFAULT_CLEAR_COLOR`](crate::resources::DEFAULT_CLEAR_COLOR) but is
+/// intentionally a separate constant: a game changing its own `WindowConfig::clear_color` should
+/// not repaint the editor letterbox to match.
+const EDITOR_SURFACE_CLEAR: wgpu::Color = wgpu::Color {
+    r: 0.08,
+    g: 0.08,
+    b: 0.12,
+    a: 1.0,
+};

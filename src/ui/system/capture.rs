@@ -5,7 +5,7 @@ use crate::resources::ViewportSize;
 use crate::ui::button::Button;
 use crate::ui::checkbox::CheckBox;
 use crate::ui::node::UiNode;
-use crate::ui::panel::Panel;
+use crate::ui::panel::{Panel, PANEL_BG_Z_OFFSET};
 use crate::ui::scroll_view::ScrollView;
 use crate::ui::slider::Slider;
 use crate::ui::text_input::TextInput;
@@ -25,10 +25,6 @@ struct CaptureItem {
     /// [`LayoutSystem`]: crate::ui::panel::LayoutSystem
     z: f32,
 }
-
-/// Panel backgrounds are drawn at `z - 0.01` by `LayoutSystem` (beneath their own children), so the
-/// capture z mirrors that: a panel occludes lower-z widgets behind it but never its own children.
-const PANEL_BG_Z_OFFSET: f32 = 0.01;
 
 /// Per-frame map of pointer-opaque UI surfaces, rebuilt once per [`UiSystem`](super::UiSystem) run
 /// and shared by the focus / button / checkbox / slider / scroll passes so that a single, consistent

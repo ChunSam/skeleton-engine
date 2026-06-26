@@ -4,6 +4,15 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.68.5
+
+**Behavior-preserving cleanup: duplicated hardcoded literals (window clear color, panel z-offset) hoisted into named constants.** Found by a whole-`src/` hardcoding audit. The window clear color `[0.08, 0.08, 0.12, 1.0]` appeared as four independent literals (two array-form, two `wgpu::Color`-form) that could silently drift; the panel-background z-offset `0.01` had a named constant in the pointer-capture pass but `LayoutSystem` still used a raw literal that has to match it. Each is now a single source of truth. Values are byte-identical, so rendering is unchanged. **No behavior change**; one additive public re-export (`DEFAULT_CLEAR_COLOR`).
+
+### Changed (internal)
+- `src/resources/display.rs` — new `pub const DEFAULT_CLEAR_COLOR: [f64; 4]` is the single source for `WindowConfig::default().clear_color` and the clear-pass fallback in `frame.rs` (which previously repeated the literal). Re-exported from `crate::resources`.
+- `src/app/render/mod.rs` — new `const EDITOR_SURFACE_CLEAR: wgpu::Color`, shared by the two docked-editor surface clears (`frame.rs` post-scene clear + `docked.rs` warm-up placeholder), which each previously inlined the same `wgpu::Color`. Kept a separate constant from `DEFAULT_CLEAR_COLOR` on purpose: a game changing its own `WindowConfig::clear_color` should not repaint the editor letterbox.
+- `src/ui/panel.rs` — hoisted `pub(crate) const PANEL_BG_Z_OFFSET: f32 = 0.01` (the value `LayoutSystem` draws panel backgrounds at) and used it in place of the raw literal; `src/ui/system/capture.rs` now imports it instead of re-declaring its own copy, so render and pointer-capture can no longer drift apart.
+
 ## 0.68.4
 
 **Behavior-preserving refactor: the 730-line grab-bag `src/dialogue/mod.rs` is split into themed submodules.** The flat module mixed the `DialogueBox`/`DialogueChoice` data model, the `DialogueStyle` resource, and the `DialogueSystem` renderer in one file. Those concerns moved into focused submodules, all re-exported from `mod.rs` so `crate::dialogue::*` and the `engine::*` re-exports in `lib.rs` resolve unchanged. Pure code movement — method/struct bodies are verbatim; only module location, imports, and a few intra-doc links changed. **No public API change, no behavior change** (the dialogue unit + doc tests are unchanged and pass). Follows the 0.68.1 `resources.rs` / 0.68.2 `world.rs` split-PATCH precedent.

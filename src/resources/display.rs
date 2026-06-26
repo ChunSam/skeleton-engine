@@ -140,6 +140,12 @@ impl Default for DisplayScaleFactor {
 /// `<canvas id="...">`.
 pub const DEFAULT_CANVAS_ID: &str = "game-canvas";
 
+/// Default window background clear color (RGBA, wgpu linear-space f64).
+///
+/// Single source of truth for [`WindowConfig::default`] and the clear-pass fallback used when
+/// no [`WindowConfig`] resource is present.
+pub const DEFAULT_CLEAR_COLOR: [f64; 4] = [0.08, 0.08, 0.12, 1.0];
+
 /// Initial window configuration. Insert before `App::run()` to open the window with these settings.
 #[derive(Debug, Clone)]
 pub struct WindowConfig {
@@ -156,7 +162,7 @@ impl Default for WindowConfig {
             width: 1280,
             height: 720,
             title: "Game".to_string(),
-            clear_color: [0.08, 0.08, 0.12, 1.0],
+            clear_color: DEFAULT_CLEAR_COLOR,
         }
     }
 }
