@@ -356,6 +356,84 @@ fn one_way_tolerance_widens_the_landing_skin() {
 }
 
 #[test]
+fn set_solver_iterations_sets_and_clamps() {
+    let mut pw = PhysicsWorld::new(Vec2::ZERO);
+    // Default is rapier's 4 — the value a fork must be able to raise.
+    assert_eq!(pw.integration_params().num_solver_iterations.get(), 4);
+
+    pw.set_solver_iterations(16);
+    assert_eq!(
+        pw.integration_params().num_solver_iterations.get(),
+        16,
+        "set_solver_iterations must update the integration params"
+    );
+
+    // 0 would panic in rapier (NonZeroUsize) — must clamp up to 1.
+    pw.set_solver_iterations(0);
+    assert_eq!(
+        pw.integration_params().num_solver_iterations.get(),
+        1,
+        "0 iterations must clamp to 1"
+    );
+}
+
+#[test]
+fn with_integration_params_overrides_full_struct() {
+    let params = IntegrationParameters {
+        num_solver_iterations: std::num::NonZeroUsize::new(9).unwrap(),
+        ..Default::default()
+    };
+    let pw = PhysicsWorld::new(Vec2::ZERO).with_integration_params(params);
+    assert_eq!(pw.integration_params().num_solver_iterations.get(), 9);
+}
+
+#[test]
+fn solver_iterations_stiffen_a_joint_chain() {
+    // Behavioral proof (mirrors the `solver_iterations` example): a heavy-ended hanging
+    // revolute chain stretches when the solver under-converges and holds taut when it
+    // iterates more. Stretch = how far the bottom weight hangs below its rigid position.
+    // (rapier-0.22-specific magnitudes; thresholds are generous to absorb minor drift.)
+    let stretch = |iters: usize| -> f32 {
+        let mut pw = PhysicsWorld::new(Vec2::new(0.0, 30.0));
+        pw.set_solver_iterations(iters);
+        let n = 10;
+        let seg = 0.5;
+        let (anchor, _) = pw.add_static_box(Vec2::new(0.0, 0.0), 0.1, 0.1);
+        let mut prev = anchor;
+        let mut bottom = anchor;
+        for i in 0..n {
+            let y = (i as f32 + 1.0) * 1.0;
+            let (rb, _) = pw.add_dynamic_box(Vec2::new(0.0, y), seg, seg, false);
+            pw.add_revolute_joint(prev, rb, Vec2::new(0.0, seg), Vec2::new(0.0, -seg));
+            prev = rb;
+            bottom = rb;
+        }
+        pw.rigid_body_mut(bottom)
+            .unwrap()
+            .set_additional_mass(50.0, true);
+        for _ in 0..600 {
+            pw.step(1.0 / 60.0);
+        }
+        pw.rigid_body(bottom).unwrap().translation().y - n as f32
+    };
+
+    let low = stretch(2);
+    let high = stretch(16);
+    assert!(
+        low > 0.4,
+        "a 2-iteration solver should leave the heavy chain visibly stretched (got {low:.3})"
+    );
+    assert!(
+        high < 0.15,
+        "a 16-iteration solver should hold the chain nearly taut (got {high:.3})"
+    );
+    assert!(
+        low > high * 3.0,
+        "more solver iterations must measurably stiffen the chain (low {low:.3} vs high {high:.3})"
+    );
+}
+
+#[test]
 fn cast_ray_no_hit_after_remove_body_before_step() {
     // Without the fix, the query_pipeline still contains the removed collider and the ray hits.
     // With the fix, cast_ray lazily rebuilds the pipeline → no hit.

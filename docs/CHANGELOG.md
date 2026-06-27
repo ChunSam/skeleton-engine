@@ -4,6 +4,15 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.73.0
+
+**Feature: the physics constraint-solver iteration count is now tunable (`PhysicsWorld::set_solver_iterations`, rapier default 4).** Each `step` runs the solver a fixed number of iterations; more iterations converge contacts and **joints** harder. The count was baked into `IntegrationParameters::default()`, so a fork with stiff ragdolls, long joint chains, or high mass ratios that need a stiffer solver had to edit engine source. It is now adjustable; the default is unchanged (rapier's 4), so every existing world is byte-identical (non-breaking). Tier-2 hardcoding-audit knob.
+
+### Added
+- `PhysicsWorld::set_solver_iterations(n)` — sets `IntegrationParameters::num_solver_iterations` (clamped to ≥1, since rapier panics on 0).
+- `PhysicsWorld::with_integration_params(IntegrationParameters)` builder — full solver/CCD override escape hatch — and `integration_params()` getter (`dt` is still set per-`step`, so any `dt` here is ignored).
+- Example `solver_iterations` — two heavy-ended hanging joint chains in separate worlds; the 2-iteration chain visibly stretches under its weight while the 16-iteration chain holds taut, with a live per-chain `stretch` readout. The effect is also pinned by the deterministic test `solver_iterations_stiffen_a_joint_chain`.
+
 ## 0.72.0
 
 **Feature: a `CharacterController`'s one-way-platform landing skin width is now configurable (`one_way_tolerance`, default 0.05).** A one-way collider keeps blocking a downward-moving character until its bottom sinks more than this much below the platform's top surface, so a resting character does not jitter or slip through on slight numerical penetration. The width was hardcoded to `0.05` *physics units* — wrong at any `pixels_per_unit` ≠ the engine's nominal ≈64, so a game at a coarser scale (small PPU) had to edit engine source. It is now a field; the default stays `0.05`, so every existing controller is byte-identical (non-breaking). Tier-2 hardcoding-audit knob.
