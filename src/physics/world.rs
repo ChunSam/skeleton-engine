@@ -283,6 +283,36 @@ impl PhysicsWorld {
         }
     }
 
+    /// Sets the number of constraint-solver iterations per step (rapier default: **4**).
+    ///
+    /// Raise this to cut interpenetration and jitter in tall stacks, heavy-on-light mass
+    /// ratios, or ragdolls — at a CPU cost. Clamped to at least 1 (rapier panics on 0).
+    ///
+    /// ```rust,ignore
+    /// let mut physics = PhysicsWorld::new(Vec2::new(0.0, 9.81));
+    /// physics.set_solver_iterations(16); // stiffer stacks than the default 4
+    /// ```
+    pub fn set_solver_iterations(&mut self, iterations: usize) {
+        self.integration_params.num_solver_iterations =
+            std::num::NonZeroUsize::new(iterations.max(1)).expect("max(1) is always nonzero");
+    }
+
+    /// Overrides the full rapier [`IntegrationParameters`] (solver/CCD tuning) for this world.
+    ///
+    /// A builder-style escape hatch for forks that need control beyond
+    /// [`set_solver_iterations`](PhysicsWorld::set_solver_iterations) — e.g. friction
+    /// iterations or CCD substeps. Note: `dt` is overwritten every
+    /// [`step`](PhysicsWorld::step) with the frame delta, so any `dt` set here is ignored.
+    pub fn with_integration_params(mut self, params: IntegrationParameters) -> Self {
+        self.integration_params = params;
+        self
+    }
+
+    /// Returns the world's current rapier [`IntegrationParameters`] (solver/CCD tuning).
+    pub fn integration_params(&self) -> &IntegrationParameters {
+        &self.integration_params
+    }
+
     /// Marks or unmarks a collider as a one-way (blocks from above only) platform.
     ///
     /// A one-way collider only collides in [`PhysicsWorld::move_character`] when the
