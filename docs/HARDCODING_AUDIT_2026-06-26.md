@@ -31,7 +31,19 @@ The user chose to land all of Tier 1 (verified, genuinely worth doing), as four 
 
 ---
 
-## Open — Tier 2 (fork-configurability knobs; additive, not yet done)
+## Resolution log — Tier 2 (shipped)
+
+Landed as additive, default-preserving knobs (non-breaking), each with a VISION example.
+
+| Item | Fix | PR / version |
+|---|---|---|
+| `renderer/render_target.rs` sampler always `Nearest` | `App::create_render_target_with_filter` / `RenderTarget::with_filter(FilterMode)` | #253 / v0.70.0 |
+| `particle/mod.rs` per-frame `count.min(64)` spawn cap | `ParticleEmitter::max_per_frame` field + `with_max_per_frame` + `DEFAULT_MAX_PER_FRAME`; RON + editor row; example `particle_spawn_cap` | #254 / v0.71.0 |
+| `physics/world/character_movement.rs` `ONE_WAY_TOLERANCE = 0.05` | `CharacterController::one_way_tolerance` field + `with_one_way_tolerance` + `DEFAULT_ONE_WAY_TOLERANCE`; example `one_way_tolerance`; deterministic threshold test | #255 / v0.72.0 |
+| `physics/world.rs` `IntegrationParameters::default()` | `PhysicsWorld::set_solver_iterations(n)` + `with_integration_params` builder + `integration_params()` getter; example `solver_iterations` (heavy-ended joint chains); behavioral test. NOTE: rapier 0.22's default-4 TGS solver is already robust for plain stacks — the regime where iteration count *visibly* matters is loaded joints/ragdolls (the example) and extreme mass ratios, not ordinary box stacks. | #256 / v0.73.0 |
+| `app/render/frame.rs` max-dt cap `.min(0.1)` | `FrameConfig { max_dt }` resource (default 0.1, auto-inserted) + `FrameConfig::cap`; example `frame_dt_cap`; default+clamp tests | #257 / v0.74.0 |
+
+## Open — Tier 2 (remaining fork-configurability knobs; additive, not yet done)
 
 These are genuine "a fork must edit engine source" limits. Each is an additive field / builder /
 const (default preserved → non-breaking). Candidates for a future feature pass, ideally each with
@@ -40,18 +52,13 @@ a small example per the VISION loop.
 | Pri | Site | Limit | Suggested API |
 |---|---|---|---|
 | High | `renderer/lighting.rs` `MAX_LIGHTS = 16` | baked into the WGSL `array<GpuLight,16>` + `LightingUniforms` size → hard cap of 16 point lights | configurable cap (non-trivial: dynamic uniform array) |
-| High | `input/gamepad.rs` `[Option<Slot>;4]` + `pad < 4` ×3 | no >4-pad local co-op | `pub const MAX_GAMEPADS` + widen the array |
-| High | `physics/world.rs` `IntegrationParameters::default()` | can't raise solver iterations for stacked bodies/ragdolls | `with_integration_params` / `set_solver_iterations` |
-| High | `physics/world/character_movement.rs` `ONE_WAY_TOLERANCE = 0.05` | physics-unit skin width, wrong at any PPU ≠ the assumed scale | `CharacterController` field + builder |
-| Med | `renderer/render_target.rs` sampler always `Nearest` | scaled/blur RT use always pixelated | `RenderTarget::with_filter(FilterMode)` |
+| High | `input/gamepad.rs` `[Option<Slot>;4]` + `pad < 4` ×3 | no >4-pad local co-op | `pub const MAX_GAMEPADS` + widen the array (hard to verify: needs >4 physical pads) |
 | Med | `renderer/context.rs` `desired_maximum_frame_latency: 2` | rhythm/fighting forks can't request latency=1 | `WindowConfig`/`WindowOptions` field |
-| Med | `particle/mod.rs` per-frame `count.min(64)` spawn cap | dense rain/snow silently under-emits | field on `ParticleEmitter`/`ParticleSystem` |
-| Med | `tilemap/mod.rs` (resolved for z) + autotile phase `0.37` stagger | animated-tile stagger not configurable | const or `TileAnimationSet` field |
+| Med | `tilemap/mod.rs` autotile phase `0.37` stagger | animated-tile stagger not configurable | const or `TileAnimationSet` field |
 | Med | `ui/system/state.rs` `STICK_ACTIVATE 0.6`/`STICK_RELEASE 0.35` | gamepad deadzone not tunable | `UiConfig` resource fields |
 | Med | `ui/system/focus_pass.rs` `SLIDER_STEP_FRAC 0.05` | keyboard slider step fixed | per-`Slider` override |
 | Med | `network/native.rs` `READ_TIMEOUT 5ms` | poll granularity not in `NetworkConfig` | `NetworkConfig` field |
 | Med | `renderer/sprite/batch.rs` material params fixed at 16 B (`[f32;4]`) | no richer per-material shader data | larger/typed params payload |
-| High | `app/render/frame.rs` max-dt cap `.min(0.1)` | physics/anim catch-up ceiling, no knob | `FrameConfig` resource or named const |
 | Med | `app/editor/settings.rs` app-id `"skeleton-engine"` in the settings dir | every fork shares one editor-settings dir on disk | crate-level `APP_ID` const a fork overrides |
 | Med | `app/editor/ui/gizmo_math.rs` `ROT_HANDLE_GAP 16`/`ROT_HIT_RADIUS 8` (world units) | rotation gizmo unusable at non-default world scale | scale the handle by zoom or expose in `EditorSettings` |
 
