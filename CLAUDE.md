@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.6.157 | package `skeleton-engine` v0.74.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
+> Version v1.6.158 | package `skeleton-engine` v0.75.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example game ships to
 > the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`  
@@ -79,7 +79,7 @@ Where to read to find a given thing:
 
 | Looking for | File |
 |---------|------|
-| Engine entry point, main loop, render orchestration, `load_image` (+ **`load_image_with_format`** = upload a texture with a caller-chosen `wgpu::TextureFormat`, e.g. `Rgba8Unorm` linear data textures sampled without the sRGB decode; default `load_image` stays `Rgba8UnormSrgb`; mirror `SpriteRenderer::load_texture_with_format`; example `texture_format`) | `src/app.rs` |
+| Engine entry point, main loop, render orchestration, `load_image` (+ **`load_image_with_format`** = upload a texture with a caller-chosen `wgpu::TextureFormat`, e.g. `Rgba8Unorm` linear data textures sampled without the sRGB decode; default `load_image` stays `Rgba8UnormSrgb`; mirror `SpriteRenderer::load_texture_with_format`; example `texture_format`); **headless screenshot** — `App::save_screenshot_headless(frames, path)` / `screenshot_headless(frames) -> (w,h,RGBA8)` render the real render path into an offscreen texture with **NO window/surface/display** (works with the monitor off/asleep/locked; `GpuContext::new_headless` = surfaceless adapter + offscreen color + `read_headless_rgba`; renderer init factored into `App::init_gpu_renderers`, shared with the windowed path; native-only; example `headless_screenshot` + `scripts/headless_screenshot_smoke.sh`) | `src/app.rs`, `src/app/headless.rs`, `src/renderer/context.rs` |
 | Handle<T>, ImageAsset, ScriptAsset, AssetServer (asset load / caching / hot reload); **HotReloadable** trait + `App::register_hot_reloadable::<T>` (fork-friendly hot-reload extension point — built-in registries auto-registered; native-only) | `src/asset.rs` |
 | TextureAtlas (uniform grid atlas), AtlasSprite (atlas tile render component) | `src/atlas.rs` |
 | Reflect trait, ReflectValue (`F32`/`I32`/`Vec2`/`Bool`/`String`/`Color`, `#[non_exhaustive]`; runtime field read/write, egui Inspector integration); **`#[derive(Reflect)]`** proc-macro (in the `engine_reflect_derive` workspace crate, used via `engine_reflect_derive::Reflect`; path dev-dependency, not feature-gated) | `src/reflect.rs`, `engine_reflect_derive/` |

@@ -27,7 +27,14 @@ impl std::error::Error for GpuContextError {}
 
 /// GPU context bundling the core wgpu objects.
 pub struct GpuContext {
-    pub surface: wgpu::Surface<'static>,
+    /// The window surface (swapchain). `None` in **headless** mode (no window), where the
+    /// final frame is rendered into [`headless_color`](Self::headless_color) instead — see
+    /// [`GpuContext::new_headless`] and [`crate::App::save_screenshot_headless`].
+    pub surface: Option<wgpu::Surface<'static>>,
+    /// Offscreen final-frame color texture used in headless mode (`Some` iff `surface` is `None`).
+    /// Format matches [`config`](Self::config)`.format`; usable as a render attachment and a copy
+    /// source so the rendered frame can be read back to a PNG.
+    pub headless_color: Option<wgpu::Texture>,
     /// The physical GPU adapter. Retained (not just used at init) so render-format
     /// capabilities can be queried at runtime — see [`GpuContext::supports_render_target`]
     /// and [`RenderCapabilities`].
@@ -169,13 +176,118 @@ impl GpuContext {
         surface.configure(&device, &config);
 
         Ok(Self {
-            surface,
+            surface: Some(surface),
+            headless_color: None,
             adapter,
             device,
             queue,
             config,
             size,
         })
+    }
+
+    /// Initializes a **headless** GPU context — no window, no surface, no display dependency.
+    ///
+    /// Renders into an offscreen `Rgba8UnormSrgb` color texture instead of a swapchain, so it
+    /// works with the monitor off/asleep/locked and on a machine with no display attached. Drives
+    /// [`crate::App::save_screenshot_headless`]; read the rendered frame back with
+    /// [`read_headless_rgba`](Self::read_headless_rgba).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn new_headless(width: u32, height: u32) -> Result<Self, GpuContextError> {
+        let width = width.max(1);
+        let height = height.max(1);
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            flags: wgpu::InstanceFlags::default(),
+            memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
+            backend_options: wgpu::BackendOptions::default(),
+            display: None,
+        });
+        // No surface: pass `compatible_surface: None` so the adapter is selected purely on the GPU.
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::default(),
+                compatible_surface: None,
+                force_fallback_adapter: false,
+            })
+            .await
+            .map_err(|_| GpuContextError::AdapterNotFound)?;
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("headless device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                memory_hints: wgpu::MemoryHints::default(),
+                trace: wgpu::Trace::Off,
+            })
+            .await
+            .map_err(GpuContextError::Device)?;
+
+        // Rgba8UnormSrgb so the read-back bytes are directly RGBA8 (sRGB) for a PNG — no channel
+        // swizzle, and an sRGB color target matching the usual surface encoding.
+        let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width,
+            height,
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: wgpu::CompositeAlphaMode::Opaque,
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+        let headless_color = Self::create_headless_color(&device, format, width, height);
+
+        Ok(Self {
+            surface: None,
+            headless_color: Some(headless_color),
+            adapter,
+            device,
+            queue,
+            config,
+            size: PhysicalSize::new(width, height),
+        })
+    }
+
+    /// Builds the offscreen final-frame texture (render attachment + copy source).
+    #[cfg(not(target_arch = "wasm32"))]
+    fn create_headless_color(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        width: u32,
+        height: u32,
+    ) -> wgpu::Texture {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("headless final color"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        })
+    }
+
+    /// Whether this context renders headlessly (no window/surface).
+    pub fn is_headless(&self) -> bool {
+        self.surface.is_none()
+    }
+
+    /// A view of the headless final-frame texture (the render target in headless mode).
+    ///
+    /// # Panics
+    /// Panics if called on a windowed (non-headless) context.
+    pub fn headless_view(&self) -> wgpu::TextureView {
+        self.headless_color
+            .as_ref()
+            .expect("headless_view called on a windowed GpuContext")
+            .create_view(&wgpu::TextureViewDescriptor::default())
     }
 
     /// Returns `true` if `format` can be used as a color render attachment on this GPU/backend.
@@ -220,17 +332,108 @@ impl GpuContext {
         self.size = new_size;
         self.config.width = new_size.width;
         self.config.height = new_size.height;
-        self.surface.configure(&self.device, &self.config);
+        if let Some(surface) = &self.surface {
+            surface.configure(&self.device, &self.config);
+        }
+        // Headless: rebuild the offscreen final-frame texture at the new size.
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.headless_color.is_some() {
+            self.headless_color = Some(Self::create_headless_color(
+                &self.device,
+                self.config.format,
+                new_size.width,
+                new_size.height,
+            ));
+        }
     }
 
-    /// Reconfigures the surface after it is lost (`SurfaceError::Lost`).
+    /// Reconfigures the surface after it is lost (`SurfaceError::Lost`). No-op when headless.
     pub fn reconfigure(&self) {
-        self.surface.configure(&self.device, &self.config);
+        if let Some(surface) = &self.surface {
+            surface.configure(&self.device, &self.config);
+        }
+    }
+
+    /// Copies the headless final-frame texture back to CPU memory as tightly-packed RGBA8 bytes
+    /// (row stride = `width * 4`, sRGB-encoded). Returns `(width, height, pixels)`.
+    ///
+    /// # Panics
+    /// Panics if called on a windowed (non-headless) context.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn read_headless_rgba(&self) -> (u32, u32, Vec<u8>) {
+        let texture = self
+            .headless_color
+            .as_ref()
+            .expect("read_headless_rgba called on a windowed GpuContext");
+        let (w, h) = (self.config.width, self.config.height);
+        let unpadded = w * 4;
+        // wgpu requires each copied row to be 256-byte aligned.
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded = unpadded.div_ceil(align) * align;
+
+        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("headless readback"),
+            size: (padded * h) as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut enc = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("headless readback"),
+            });
+        enc.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded),
+                    rows_per_image: Some(h),
+                },
+            },
+            wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+        );
+        self.queue.submit(std::iter::once(enc.finish()));
+
+        let slice = buffer.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| {
+            let _ = tx.send(r);
+        });
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .expect("poll for readback");
+        rx.recv().expect("readback channel").expect("map readback");
+
+        let data = slice.get_mapped_range();
+        // Drop the row padding into a tight width*4 stride.
+        let mut pixels = Vec::with_capacity((unpadded * h) as usize);
+        for row in 0..h {
+            let start = (row * padded) as usize;
+            pixels.extend_from_slice(&data[start..start + unpadded as usize]);
+        }
+        drop(data);
+        buffer.unmap();
+        (w, h, pixels)
     }
 
     /// Clears the screen to a solid color. Used to show the background when there are no sprites.
     pub fn clear(&mut self, color: wgpu::Color) -> Result<(), String> {
-        let frame = match self.surface.get_current_texture() {
+        // No surface to clear in headless mode (the render path clears the offscreen target).
+        let Some(surface) = &self.surface else {
+            return Ok(());
+        };
+        let frame = match surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(t)
             | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
             e => return Err(format!("{e:?}")),
