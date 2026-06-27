@@ -640,47 +640,12 @@ impl App {
 
     /// Initializes the renderer and egui once the GPU context and window are ready.
     /// Native: called directly from resumed(). WASM: called from about_to_wait() after checking PENDING_GPU.
-    fn finish_init(&mut self, gpu: GpuContext, window: Arc<Window>) {
-        // WASM: rebind the GPU context as mutable so the surface can be resized to the DPR-scaled
-        // buffer below. Native never resizes here, so it keeps the immutable parameter.
-        #[cfg(target_arch = "wasm32")]
-        let mut gpu = gpu;
-        // WASM crisp-Retina sizing: render into a DPR-scaled drawing buffer while the canvas CSS
-        // *display* box stays at the logical size. The browser then maps the larger buffer 1:1 onto
-        // the logical box (sharp) instead of upscaling a logical-size buffer (soft) — and instead of
-        // stretching a buffer that differs from the display box (the old left-clipped-HUD bug). The
-        // LOGICAL size is the canvas's authored width/height attributes (stable across scene resets,
-        // unlike WindowConfig); store it in WASM_LOGICAL_SIZE for the per-frame viewport math. The
-        // scale is uniform (preserves aspect) and capped so neither axis exceeds WebGL2's 2048 max
-        // texture size. Set after winit has sized the canvas; a game can still override the CSS.
-        #[cfg(target_arch = "wasm32")]
-        {
-            use wasm_bindgen::JsCast;
-            let dpr = web_sys::window()
-                .map(|w| w.device_pixel_ratio())
-                .unwrap_or(1.0)
-                .max(1.0);
-            if let Some(canvas) = web_sys::window()
-                .and_then(|w| w.document())
-                .and_then(|d| d.get_element_by_id(crate::DEFAULT_CANVAS_ID))
-                .and_then(|el| el.dyn_into::<web_sys::HtmlCanvasElement>().ok())
-            {
-                let logical_w = canvas.width().max(1);
-                let logical_h = canvas.height().max(1);
-                super::WASM_LOGICAL_SIZE.with(|c| c.set((logical_w, logical_h)));
-                let scale = dpr
-                    .min(2048.0 / logical_w as f64)
-                    .min(2048.0 / logical_h as f64);
-                let buf_w = ((logical_w as f64 * scale).round() as u32).clamp(1, 2048);
-                let buf_h = ((logical_h as f64 * scale).round() as u32).clamp(1, 2048);
-                canvas.set_width(buf_w);
-                canvas.set_height(buf_h);
-                let style = canvas.style();
-                let _ = style.set_property("width", &format!("{logical_w}px"));
-                let _ = style.set_property("height", &format!("{logical_h}px"));
-                gpu.resize(winit::dpi::PhysicalSize::new(buf_w, buf_h));
-            }
-        }
+    /// Builds the GPU renderers that do **not** need a window — the sprite renderer (+ pending
+    /// textures), the text renderer (+ fonts), pre-GPU render targets, and the `RenderCapabilities`
+    /// resource. Shared by the windowed init ([`finish_init`](Self::finish_init)) and the headless
+    /// screenshot path ([`save_screenshot_headless`](App::save_screenshot_headless)); egui/IME
+    /// setup, which needs a window, stays in `finish_init`.
+    pub(in crate::app) fn init_gpu_renderers(&mut self, gpu: &GpuContext) {
         let mut sprite_renderer = SpriteRenderer::new(&gpu.device, &gpu.queue, gpu.config.format);
         // Drain into a local first so the per-path format lookup below borrows a separate field.
         let pending_textures: Vec<String> = self.pending_textures.drain(..).collect();
@@ -748,6 +713,54 @@ impl App {
             &font_bytes,
             &extra_fonts,
         ));
+        self.render.sprite_renderer = Some(sprite_renderer);
+        self.render.text_renderer = text_renderer;
+    }
+
+    fn finish_init(&mut self, gpu: GpuContext, window: Arc<Window>) {
+        // WASM: rebind the GPU context as mutable so the surface can be resized to the DPR-scaled
+        // buffer below. Native never resizes here, so it keeps the immutable parameter.
+        #[cfg(target_arch = "wasm32")]
+        let mut gpu = gpu;
+        // WASM crisp-Retina sizing: render into a DPR-scaled drawing buffer while the canvas CSS
+        // *display* box stays at the logical size. The browser then maps the larger buffer 1:1 onto
+        // the logical box (sharp) instead of upscaling a logical-size buffer (soft) — and instead of
+        // stretching a buffer that differs from the display box (the old left-clipped-HUD bug). The
+        // LOGICAL size is the canvas's authored width/height attributes (stable across scene resets,
+        // unlike WindowConfig); store it in WASM_LOGICAL_SIZE for the per-frame viewport math. The
+        // scale is uniform (preserves aspect) and capped so neither axis exceeds WebGL2's 2048 max
+        // texture size. Set after winit has sized the canvas; a game can still override the CSS.
+        #[cfg(target_arch = "wasm32")]
+        {
+            use wasm_bindgen::JsCast;
+            let dpr = web_sys::window()
+                .map(|w| w.device_pixel_ratio())
+                .unwrap_or(1.0)
+                .max(1.0);
+            if let Some(canvas) = web_sys::window()
+                .and_then(|w| w.document())
+                .and_then(|d| d.get_element_by_id(crate::DEFAULT_CANVAS_ID))
+                .and_then(|el| el.dyn_into::<web_sys::HtmlCanvasElement>().ok())
+            {
+                let logical_w = canvas.width().max(1);
+                let logical_h = canvas.height().max(1);
+                super::WASM_LOGICAL_SIZE.with(|c| c.set((logical_w, logical_h)));
+                let scale = dpr
+                    .min(2048.0 / logical_w as f64)
+                    .min(2048.0 / logical_h as f64);
+                let buf_w = ((logical_w as f64 * scale).round() as u32).clamp(1, 2048);
+                let buf_h = ((logical_h as f64 * scale).round() as u32).clamp(1, 2048);
+                canvas.set_width(buf_w);
+                canvas.set_height(buf_h);
+                let style = canvas.style();
+                let _ = style.set_property("width", &format!("{logical_w}px"));
+                let _ = style.set_property("height", &format!("{logical_h}px"));
+                gpu.resize(winit::dpi::PhysicalSize::new(buf_w, buf_h));
+            }
+        }
+        // Build the window-independent GPU renderers (sprites, text, render targets,
+        // RenderCapabilities). Shared with the headless screenshot path.
+        self.init_gpu_renderers(&gpu);
         let egui_ctx = egui::Context::default();
         let egui_state = egui_winit::State::new(
             egui_ctx.clone(),
@@ -772,8 +785,6 @@ impl App {
         self.world.insert_resource(DebugUi::new_with_ctx(egui_ctx));
         self.render.egui_renderer = Some(egui_renderer);
         self.render.egui_state = Some(egui_state);
-        self.render.sprite_renderer = Some(sprite_renderer);
-        self.render.text_renderer = text_renderer;
         self.gpu = Some(gpu);
         // IME support is controlled by the `ImeConfig` resource (default: off — see `src/resources.rs`).
         // When enabled, CJK input on macOS etc. arrives via `Ime::Preedit/Commit`, but active CJK

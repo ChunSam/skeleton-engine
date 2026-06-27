@@ -4,6 +4,19 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.75.0
+
+**Feature: headless screenshots — render a frame to a PNG with no window, no surface, and no display.** `App::save_screenshot_headless(frames, path)` (and the raw-bytes `screenshot_headless(frames) -> (w, h, RGBA8)`) run the engine's **real** render path into an offscreen GPU texture and read it back, so the captured image matches what the windowed app draws. Because nothing touches the windowing system, it works with the monitor off/asleep/locked and on a machine with no display attached — exactly the cases where the OS window-capture path fails. Useful for golden-image/CI/away-from-keyboard verification of GPU rendering. Native-only (the offscreen read-back path is not on wasm).
+
+### Added
+- `App::save_screenshot_headless(frames, path)` → PNG, and `App::screenshot_headless(frames)` → `(width, height, Vec<u8>)` tightly-packed sRGB RGBA8. Call **instead of** `run`.
+- `GpuContext::new_headless(width, height)` — a surfaceless GPU context (adapter requested with `compatible_surface: None`) rendering into an offscreen color texture — plus `read_headless_rgba()`, `headless_view()`, and `is_headless()`.
+- `App::init_gpu_renderers(&GpuContext)` factors the window-independent renderer init (sprite/text renderers, pre-GPU render targets, `RenderCapabilities`) out of the windowed `finish_init`, shared with the headless path.
+- Example `headless_screenshot` (renders three quads + text to a PNG and self-checks it is non-blank) and `scripts/headless_screenshot_smoke.sh` (a native GPU render smoke needing no display/Chrome).
+
+### Changed (internal)
+- `GpuContext.surface` is now `Option<wgpu::Surface>` (`None` in headless mode), and the render path branches its frame acquire/present accordingly. `GpuContext` is not re-exported, so this is not a public-API change.
+
 ## 0.74.0
 
 **Feature: the main loop's per-frame delta-time cap is now configurable (`FrameConfig::max_dt`, default 0.1 s).** Each frame's `dt` is clamped so a single stall — a window drag, a debugger breakpoint, a backgrounded tab — can't hand systems a huge `dt` that tunnels physics or leaps animations. The cap was hardcoded to `0.1`, so a game wanting larger catch-up steps (a fixed-timestep sim that re-derives `dt`) or a tighter bound had to edit engine source. It is now a `FrameConfig` resource, auto-inserted with `max_dt = 0.1`, so a `World` that never touches it behaves exactly as before (non-breaking). Tier-2 hardcoding-audit knob.

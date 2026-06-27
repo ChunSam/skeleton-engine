@@ -26,7 +26,7 @@ impl App {
         submit_egui(render, gpu, final_view, true);
     }
 
-    fn render(&mut self) -> Result<(), wgpu::CurrentSurfaceTexture> {
+    pub(in crate::app) fn render(&mut self) -> Result<(), wgpu::CurrentSurfaceTexture> {
         let gpu = match self.gpu.as_mut() {
             Some(g) => g,
             None => return Ok(()),
@@ -112,14 +112,22 @@ impl App {
             }
         }
 
-        let (frame, suboptimal) = match gpu.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(t) => (t, false),
-            wgpu::CurrentSurfaceTexture::Suboptimal(t) => (t, true),
-            e => return Err(e),
+        // Acquire the final render target: the swapchain texture (windowed) or the offscreen
+        // headless color texture (no window/surface — for `save_screenshot_headless`).
+        let (surface_frame, suboptimal, final_view) = match &gpu.surface {
+            Some(surface) => {
+                let (frame, suboptimal) = match surface.get_current_texture() {
+                    wgpu::CurrentSurfaceTexture::Success(t) => (t, false),
+                    wgpu::CurrentSurfaceTexture::Suboptimal(t) => (t, true),
+                    e => return Err(e),
+                };
+                let view = frame
+                    .texture
+                    .create_view(&wgpu::TextureViewDescriptor::default());
+                (Some(frame), suboptimal, view)
+            }
+            None => (None, false, gpu.headless_view()),
         };
-        let final_view = frame
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
         // In docked mode the scene pipeline terminates at the offscreen texture;
         // the surface only receives egui.  All passes that used to write to
         // `final_view` now write to `scene_target` instead.
@@ -556,11 +564,13 @@ impl App {
         if let Some(window) = &self.window {
             window.pre_present_notify();
         }
-        frame.present();
-        // If the surface became suboptimal (e.g. DPI/monitor change), reconfigure
-        // so subsequent frames are optimal. Present first, reconfigure after.
-        if suboptimal {
-            gpu.reconfigure();
+        // Headless mode has no swapchain to present; the frame stays in the offscreen texture
+        // for read-back. Windowed mode presents and reconfigures on a suboptimal surface.
+        if let Some(frame) = surface_frame {
+            frame.present();
+            if suboptimal {
+                gpu.reconfigure();
+            }
         }
         Ok(())
     }

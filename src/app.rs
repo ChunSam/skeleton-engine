@@ -11,6 +11,10 @@ mod assets;
 mod core_resources;
 mod editor;
 mod egui_pass;
+/// Headless rendering — render frames to an offscreen target and read them back with no window
+/// or display (works with the monitor off/asleep/locked). Backs `App::save_screenshot_headless`.
+#[cfg(not(target_arch = "wasm32"))]
+mod headless;
 mod render;
 mod render_state;
 mod scenes;

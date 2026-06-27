@@ -17,8 +17,12 @@ impl App {
         gpu: &mut GpuContext,
     ) -> Result<(), wgpu::CurrentSurfaceTexture> {
         // RT not ready yet — still need to acquire + present the frame so the
-        // window stays responsive, but skip all scene rendering.
-        let (frame, suboptimal) = match gpu.surface.get_current_texture() {
+        // window stays responsive, but skip all scene rendering. The docked editor only runs
+        // windowed, so a headless (surfaceless) context never reaches here.
+        let Some(surface) = &gpu.surface else {
+            return Ok(());
+        };
+        let (frame, suboptimal) = match surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(t) => (t, false),
             wgpu::CurrentSurfaceTexture::Suboptimal(t) => (t, true),
             e => return Err(e),
