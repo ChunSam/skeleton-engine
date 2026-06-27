@@ -577,9 +577,17 @@ impl App {
 
     pub(in crate::app) fn step_frame(&mut self, event_loop: &ActiveEventLoop) {
         let now = Instant::now();
+        // Cap the frame delta so a single stall (window drag, breakpoint, backgrounded tab)
+        // can't hand systems a huge dt that tunnels physics / leaps animations. Configurable
+        // via the `FrameConfig` resource; absent → the historical 0.1 s cap.
+        let frame_cfg = self
+            .world
+            .resource::<crate::resources::FrameConfig>()
+            .copied()
+            .unwrap_or_default();
         let dt = self
             .last_frame
-            .map(|t| (now - t).as_secs_f32().min(0.1))
+            .map(|t| frame_cfg.cap((now - t).as_secs_f32()))
             .unwrap_or(1.0 / 60.0);
         // Telemetry: log when the frame gap exceeds ~30fps (33ms). Debug log to quantify
         // stalls during live drag (gated by RUST_LOG=debug).

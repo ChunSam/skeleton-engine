@@ -157,10 +157,10 @@ pub use renderer::{
 };
 pub use resources::{
     AmbientLight, CullConfig, DebugDraw, DebugShape, DesignResolution, DisplayScaleFactor,
-    ExtraFonts, FadeTransition, FontData, GameState, ImeConfig, Letterbox, LoadProgress,
-    PanickedSystems, PendingResize, ProfilerData, RealDt, RenderStats, SelectedEntity, ShouldQuit,
-    SystemProfile, TimeScale, ViewportSize, WindowConfig, WindowMode, WindowOptions,
-    DEFAULT_CANVAS_ID,
+    ExtraFonts, FadeTransition, FontData, FrameConfig, GameState, ImeConfig, Letterbox,
+    LoadProgress, PanickedSystems, PendingResize, ProfilerData, RealDt, RenderStats,
+    SelectedEntity, ShouldQuit, SystemProfile, TimeScale, ViewportSize, WindowConfig, WindowMode,
+    WindowOptions, DEFAULT_CANVAS_ID,
 };
 /// Native-only: the RON-load trait (hot-reload does not run on wasm).
 #[cfg(not(target_arch = "wasm32"))]
