@@ -252,5 +252,18 @@ fn main() {
     app.add_system(MovementSystem); // moves the character (sets next kinematic translation)
     app.add_system(PhysicsSystem::new(PPU)); // steps physics + syncs body -> Transform
     app.add_system(HudSystem);
+
+    // `HEADLESS_SHOT=path` → render to a PNG with no window and exit (the player falls onto the
+    // one-way platform over the frames). See the other examples.
+    if let Ok(path) = std::env::var("HEADLESS_SHOT") {
+        let frames = std::env::var("HEADLESS_FRAMES")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(120);
+        app.save_screenshot_headless(frames, &path)
+            .expect("headless screenshot");
+        println!("wrote {path} ({frames} frames)");
+        return;
+    }
     app.run();
 }

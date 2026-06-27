@@ -176,5 +176,19 @@ fn main() {
     app.add_system(ChainSystem {
         chains: vec![left, right],
     });
+
+    // `HEADLESS_SHOT=path` → render to a PNG with no window (the chains settle over the frames)
+    // and exit, instead of opening a window. Lets this example be pixel-verified with the
+    // monitor off / from CI. `HEADLESS_FRAMES` overrides the settle frame count (default 600).
+    if let Ok(path) = std::env::var("HEADLESS_SHOT") {
+        let frames = std::env::var("HEADLESS_FRAMES")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(600);
+        app.save_screenshot_headless(frames, &path)
+            .expect("headless screenshot");
+        println!("wrote {path} ({frames} frames)");
+        return;
+    }
     app.run();
 }

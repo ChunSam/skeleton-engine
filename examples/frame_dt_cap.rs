@@ -201,5 +201,17 @@ fn main() {
     });
 
     app.add_system(CapSystem);
+
+    // `HEADLESS_SHOT=path` → render to a PNG with no window and exit (see the other examples).
+    if let Ok(path) = std::env::var("HEADLESS_SHOT") {
+        let frames = std::env::var("HEADLESS_FRAMES")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(120);
+        app.save_screenshot_headless(frames, &path)
+            .expect("headless screenshot");
+        println!("wrote {path} ({frames} frames)");
+        return;
+    }
     app.run();
 }

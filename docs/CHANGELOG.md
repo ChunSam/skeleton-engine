@@ -4,6 +4,13 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.75.1
+
+**Examples: headless screenshot via `HEADLESS_SHOT`.** The `solver_iterations`, `one_way_tolerance`, and `frame_dt_cap` examples now render to a PNG and exit when `HEADLESS_SHOT=<path>` is set (with `HEADLESS_FRAMES` overriding the settle frame count) instead of opening a window — so they can be pixel-verified with the monitor off or from a remote session via `App::save_screenshot_headless` (added in 0.75.0). No library change.
+
+### Changed
+- `examples/{solver_iterations,one_way_tolerance,frame_dt_cap}.rs` gained a `HEADLESS_SHOT` env-var branch (no-op unless the variable is set, so `cargo run --example …` is unchanged).
+
 ## 0.75.0
 
 **Feature: headless screenshots — render a frame to a PNG with no window, no surface, and no display.** `App::save_screenshot_headless(frames, path)` (and the raw-bytes `screenshot_headless(frames) -> (w, h, RGBA8)`) run the engine's **real** render path into an offscreen GPU texture and read it back, so the captured image matches what the windowed app draws. Because nothing touches the windowing system, it works with the monitor off/asleep/locked and on a machine with no display attached — exactly the cases where the OS window-capture path fails. Useful for golden-image/CI/away-from-keyboard verification of GPU rendering. Native-only (the offscreen read-back path is not on wasm).
