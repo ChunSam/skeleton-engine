@@ -21,4 +21,4 @@ pub use fonts::{ExtraFonts, FontData};
 pub use lifecycle::{FadeTransition, GameState, LoadProgress, PanickedSystems, ShouldQuit};
 pub use profiling::{ProfilerData, RenderStats, SelectedEntity, SystemProfile};
 pub use render::{AmbientLight, CullConfig};
-pub use time::{RealDt, TimeScale};
+pub use time::{FrameConfig, RealDt, TimeScale};

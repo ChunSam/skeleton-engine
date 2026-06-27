@@ -4,6 +4,17 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.74.0
+
+**Feature: the main loop's per-frame delta-time cap is now configurable (`FrameConfig::max_dt`, default 0.1 s).** Each frame's `dt` is clamped so a single stall — a window drag, a debugger breakpoint, a backgrounded tab — can't hand systems a huge `dt` that tunnels physics or leaps animations. The cap was hardcoded to `0.1`, so a game wanting larger catch-up steps (a fixed-timestep sim that re-derives `dt`) or a tighter bound had to edit engine source. It is now a `FrameConfig` resource, auto-inserted with `max_dt = 0.1`, so a `World` that never touches it behaves exactly as before (non-breaking). Tier-2 hardcoding-audit knob.
+
+### Added
+- `FrameConfig` resource (`max_dt`, default 0.1 s) + `FrameConfig::cap(raw_dt)` helper; re-exported and auto-inserted in `insert_core_resources`.
+- Example `frame_dt_cap` — two markers move at the same speed while the demo hitches on purpose; the engine-`dt` marker (clamped to `max_dt`) never leaps, while the raw wall-clock marker lurches on each stall. `↑/↓` change `max_dt` live.
+
+### Changed
+- The main loop (`app/render/frame.rs` `step_frame`) clamps `dt` via `FrameConfig::cap` instead of a hardcoded `.min(0.1)`.
+
 ## 0.73.0
 
 **Feature: the physics constraint-solver iteration count is now tunable (`PhysicsWorld::set_solver_iterations`, rapier default 4).** Each `step` runs the solver a fixed number of iterations; more iterations converge contacts and **joints** harder. The count was baked into `IntegrationParameters::default()`, so a fork with stiff ragdolls, long joint chains, or high mass ratios that need a stiffer solver had to edit engine source. It is now adjustable; the default is unchanged (rapier's 4), so every existing world is byte-identical (non-breaking). Tier-2 hardcoding-audit knob.

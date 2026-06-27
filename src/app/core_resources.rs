@@ -5,8 +5,8 @@ use crate::{
     input::{GamepadState, InputState, TouchState},
     renderer::{TextQueue, UiImageQueue, UiQueue},
     resources::{
-        DebugDraw, GameState, LoadProgress, PanickedSystems, PendingResize, ProfilerData, RealDt,
-        SelectedEntity, ShouldQuit, TimeScale, ViewportSize, WindowConfig,
+        DebugDraw, FrameConfig, GameState, LoadProgress, PanickedSystems, PendingResize,
+        ProfilerData, RealDt, SelectedEntity, ShouldQuit, TimeScale, ViewportSize, WindowConfig,
     },
     scene::SceneChange,
 };
@@ -19,6 +19,7 @@ pub(super) fn insert_core_resources(world: &mut World) {
     world.insert_resource(ShouldQuit(false));
     world.insert_resource(TimeScale::default());
     world.insert_resource(RealDt::default());
+    world.insert_resource(FrameConfig::default());
     world.insert_resource(WindowConfig::default());
     world.insert_resource(ViewportSize::default());
     world.insert_resource(PendingResize::default());
