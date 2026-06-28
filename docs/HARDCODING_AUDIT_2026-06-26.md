@@ -70,11 +70,27 @@ no game example. If the bar is "clean field + example + CI test" like the shippe
 **met** — consider this chain effectively complete and pivot to: (1) the dungeon-merchant wishlist
 board (ACTIVE empty, next ID EW-004), or (2) a new VISION breadth feature, or (3) Tier-3 dedup below.
 
+## Resolution log — Tier 3 (shipped)
+
+Behavior-preserving (value-identical) named-constant dedups for **genuinely** duplicated
+same-logical-value literals. The "low value" caveat held: only a handful were real duplications.
+
+| Item | Fix | PR / version |
+|---|---|---|
+| `1280×720` duplicated in `ViewportSize::default` vs `WindowConfig::default` (cross-struct drift risk) | `DEFAULT_WINDOW_WIDTH`/`DEFAULT_WINDOW_HEIGHT` (`resources/display.rs`, re-exported from `resources`) — single source of truth for both | #270 / v0.80.1 |
+| UI sublayer z-step `0.001` in `checkbox_pass` + `slider_pass` | `UI_SUBLAYER_Z_STEP` (`ui/system.rs`, `pub(super)`) shared by both widget passes | #270 / v0.80.1 |
+| Fade min-duration floor `.max(0.001)` in `audio/types.rs` + `audio/bus.rs` | `MIN_AUDIO_DURATION_SECS` (`audio.rs`) shared by both fade constructors | #270 / v0.80.1 |
+
 ## Open — Tier 3 (naming / dedup; low value)
 
-- Magic-number duplication: `1280×720` in `ViewportSize::default` vs `WindowConfig::default`; the
-  `0.001` fade/duck/release floors scattered ~10 sites in `src/audio/`; UI sublayer z-step `0.001`
-  ×3; `64*1024` in `network/event.rs` vs `scripting.rs`.
+- ~~Magic-number duplication~~ — the real duplications shipped (#270, above). **Two audit entries were
+  re-classified as NOT duplications and deliberately left:** (1) the ~10 `0.001` sites in `src/audio/`
+  are mostly **comparison epsilons** of *different units* (attack/release seconds vs `pan`/`pitch`
+  ratios) — coupling them under one constant would be semantically wrong; only the 2 true duration
+  *floors* were deduped. (2) `64*1024` in `network/event.rs` (WS message cap, already named
+  `DEFAULT_MAX_MESSAGE_BYTES`) vs `scripting.rs` (`max_string_size`, Rhai string limit) are
+  **semantically unrelated**, coincidentally equal; a shared const would couple unrelated limits, so
+  both stay as-is.
 - Default named-const gaps (a knob already exists): camera shake `30Hz`/`1.7`/`2.3`; `chars_per_sec
   28.0` duplicated in two `DialogueBox` ctors; Rhai limits in `scripting.rs`; text line-height
   `×1.2`; sprite/UI/material initial buffer caps `128`/`64`/`16`.

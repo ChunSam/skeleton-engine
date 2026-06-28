@@ -17,8 +17,8 @@ pub struct ViewportSize {
 impl Default for ViewportSize {
     fn default() -> Self {
         Self {
-            width: 1280.0,
-            height: 720.0,
+            width: DEFAULT_WINDOW_WIDTH as f32,
+            height: DEFAULT_WINDOW_HEIGHT as f32,
         }
     }
 }
@@ -146,6 +146,12 @@ pub const DEFAULT_CANVAS_ID: &str = "game-canvas";
 /// no [`WindowConfig`] resource is present.
 pub const DEFAULT_CLEAR_COLOR: [f64; 4] = [0.08, 0.08, 0.12, 1.0];
 
+/// Default window / viewport width in logical pixels. Single source of truth shared by
+/// [`WindowConfig::default`] and [`ViewportSize::default`] so the two can't drift apart.
+pub const DEFAULT_WINDOW_WIDTH: u32 = 1280;
+/// Default window / viewport height in logical pixels. See [`DEFAULT_WINDOW_WIDTH`].
+pub const DEFAULT_WINDOW_HEIGHT: u32 = 720;
+
 /// Initial window configuration. Insert before `App::run()` to open the window with these settings.
 #[derive(Debug, Clone)]
 pub struct WindowConfig {
@@ -159,8 +165,8 @@ pub struct WindowConfig {
 impl Default for WindowConfig {
     fn default() -> Self {
         Self {
-            width: 1280,
-            height: 720,
+            width: DEFAULT_WINDOW_WIDTH,
+            height: DEFAULT_WINDOW_HEIGHT,
             title: "Game".to_string(),
             clear_color: DEFAULT_CLEAR_COLOR,
         }

@@ -10,6 +10,11 @@ mod positional;
 mod source;
 mod types;
 
+/// Minimum duration (seconds) a fade is clamped to, so the scheduler always gets at least one tick
+/// to run instead of a zero-length fade that would complete before it starts. Shared by the fade
+/// constructors in `types` and `bus`.
+const MIN_AUDIO_DURATION_SECS: f32 = 0.001;
+
 pub use ducking::{BusDuck, Sidechain};
 pub use types::{AudioChannelState, AudioEffect};
 

@@ -4,6 +4,16 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.80.1
+
+**Tier-3 cleanup: named constants for duplicated default magic numbers.** Behavior-preserving (value-identical) dedup of the genuinely duplicated literals flagged by `docs/HARDCODING_AUDIT_2026-06-26.md` — no API change beyond two additive default constants, no behavior change. Two audit entries were re-classified as *not* real duplications and deliberately left (see below).
+
+### Changed (internal)
+- `DEFAULT_WINDOW_WIDTH` / `DEFAULT_WINDOW_HEIGHT` (`resources/display.rs`, re-exported from `engine::resources`) — single source of truth for `WindowConfig::default` and `ViewportSize::default`, which both hardcoded `1280×720` separately (cross-struct drift risk).
+- `UI_SUBLAYER_Z_STEP` (`ui/system.rs`) — the `0.001` z-step shared by the checkbox and slider passes.
+- `MIN_AUDIO_DURATION_SECS` (`audio.rs`) — the fade min-duration floor shared by `audio/types.rs` and `audio/bus.rs`.
+- Deliberately **not** deduped (would be semantically wrong): the other `0.001` sites in `src/audio/` are comparison epsilons of different units (seconds vs `pan`/`pitch` ratios); `64*1024` in `network/event.rs` (WS message cap) and `scripting.rs` (Rhai string limit) are unrelated values that coincidentally match.
+
 ## 0.80.0
 
 **Configurable native socket read timeout — `NetworkConfig::read_timeout`.** The native `NetworkClient` runs its WebSocket on a background thread that wakes on a socket read timeout to flush queued outbound messages; that interval was a hardcoded `const READ_TIMEOUT = 5ms` in `network/native.rs`. It is now a `NetworkConfig` field (default `DEFAULT_READ_TIMEOUT` = 5ms, so behavior is unchanged), letting a latency-sensitive game poll the socket more often (sends flush sooner, slightly more CPU) or a relaxed one poll less. Clamped to a 1ms floor (a zero timeout would block the thread). **No effect on WASM** (its receive path is event-driven), mirroring how `max_buffered_bytes` is WASM-only. Continues the hardcoding-audit Tier-2 fork-config-knob chain. **Additive field on an existing config struct; no breaking change.**

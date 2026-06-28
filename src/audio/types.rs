@@ -124,7 +124,7 @@ impl Fade {
         Self {
             start_vol,
             target_vol: 0.0,
-            duration: duration.max(0.001),
+            duration: duration.max(super::MIN_AUDIO_DURATION_SECS),
             elapsed: 0.0,
             stop_when_done: true,
         }

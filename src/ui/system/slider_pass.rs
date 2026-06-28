@@ -107,7 +107,7 @@ pub(super) fn run(
                 size.y,
                 fill_col,
             )
-            .with_z(z + 0.001),
+            .with_z(z + super::UI_SUBLAYER_Z_STEP),
         );
         let tc = if thumb_hovered {
             thumb_hover_col
