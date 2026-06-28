@@ -43,6 +43,7 @@ pub mod resources;
 mod ron_registry;
 pub mod save;
 pub mod serde_registry;
+pub mod ysort;
 pub use save::{
     delete, exists, load, load_migrated, load_or_default, load_with_key, save, save_path,
     save_versioned, save_with_key, SaveError, SaveKey, SaveMigrator,
@@ -146,6 +147,7 @@ pub use skeletal::{
     BoneKeyframe, BoneTrack, SkeletalAnimationSystem, SkeletalAnimator, SkeletalClip,
     SkeletonBuilder,
 };
+pub use ysort::{YSort, YSortSystem};
 // par_query_for_each / par_query_map / par_query2_for_each / par_query2_map are
 // World methods, so they are accessible via the World re-export (no separate re-export needed)
 pub use reflect::{Reflect, ReflectValue};
