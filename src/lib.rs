@@ -179,8 +179,9 @@ pub use timer::Timer;
 pub use tween::{Easing, Lerp, Tween, TweenSequence};
 pub use ui::{
     Anchor, Button, ButtonState, CheckBox, FocusRingStyle, Label, LayoutDir, LayoutSystem,
-    LocalizationSystem, LocalizedText, Panel, ScrollView, Slider, TextInput, UiEvent, UiFocus,
-    UiNode, UiSystem, VirtualJoystick, DEFAULT_SLIDER_STEP_FRAC,
+    LocalizationSystem, LocalizedText, Panel, ScrollView, Slider, StickNavConfig, TextInput,
+    UiEvent, UiFocus, UiNode, UiSystem, VirtualJoystick, DEFAULT_SLIDER_STEP_FRAC,
+    DEFAULT_STICK_ACTIVATE, DEFAULT_STICK_RELEASE,
 };
 
 // ── WASM panic hook ───────────────────────────────────────────────────────────

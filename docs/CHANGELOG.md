@@ -4,6 +4,19 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.79.0
+
+**Configurable analog-stick UI-navigation deadzone — `StickNavConfig`.** When a gamepad is connected, the left stick drives UI focus navigation the same way Tab / the D-pad do, edge-detected with hysteresis so one push = one focus step. The two hysteresis thresholds were hardcoded literals (`0.6` activate / `0.35` release); they are now an opt-in `StickNavConfig` resource (auto-inserted with those exact defaults, so behavior is **byte-identical** when left untouched). A game can retune the deadzone — tighter for snappier menus, wider for jitter rejection — without forking the UI system. Continues the hardcoding-audit Tier-2 fork-config-knob chain. **Additive opt-in resource; no breaking change.**
+
+### Added
+- `engine::StickNavConfig` (in `src/ui/focus.rs`) — `activate` / `release` thresholds + `resolved()` (clamps `release` into `[0, activate]` and `activate` into `[0, 1]` so a misconfigured pair can never invert the hysteresis band). Auto-inserted in `insert_core_resources`.
+- `engine::DEFAULT_STICK_ACTIVATE` (0.6) / `engine::DEFAULT_STICK_RELEASE` (0.35) — the historical hardcoded thresholds, re-exported as named constants.
+- Example `ui_nav_deadzone` — a focus list + a live bar visualizing the stick-X neutral/activate bands and marker, with runtime threshold tuning (`[` `]` / `,` `.`); `HEADLESS_SHOT` supported.
+- Unit tests for a tighter custom deadzone firing earlier and for `resolved()` clamping invalid thresholds (`src/ui/system/state.rs`).
+
+### Changed
+- `src/ui/system/state.rs` — the internal `StickNav` edge detector (`update` / `step_axis`) now takes the resolved `(activate, release)` thresholds; the focus pass reads them from `StickNavConfig` each frame (default if absent). The module-private `STICK_ACTIVATE` / `STICK_RELEASE` consts moved to `focus.rs` as the public `DEFAULT_*` constants.
+
 ## 0.78.1
 
 **CI-verifiable GPU render path.** CI is ubuntu-only with no GPU, so every render pass (sprite / text / lighting / letterbox) was exercised *only* by local macOS shell smokes — a shader, pipeline, or projection regression could pass all of CI and ship. A new `render` CI job installs Mesa **lavapipe** (a software Vulkan driver) so `wgpu` gets a CPU adapter and `tests/render.rs` renders the real path headlessly on the runner, asserting **renderer-tolerant** invariants (relative to a sampled background pixel, never absolute RGB — so the same assertions pass on local Metal and CI lavapipe). **No public API change**; no runtime behavior change (test + CI + docs only).
