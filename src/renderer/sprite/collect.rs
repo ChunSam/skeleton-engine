@@ -33,11 +33,25 @@ impl SpriteRenderer {
             let uv = world.get::<UvRect>(entity).copied().unwrap_or(UvRect::FULL);
             // During a crossfade, pass the "to" frame + progress for the shader lerp.
             let blend = world.get::<BlendUv>(entity).copied();
-            let make_instance = |model: [[f32; 4]; 4]| match blend {
-                Some(b) if b.weight > 0.0 => {
-                    InstanceRaw::blended(model, sprite.color.to_array(), uv, b.to, b.weight)
+            // SpriteFlip mirrors the sampled UV region (absent/default = no flip → unchanged).
+            // NineSlice deliberately ignores it (a 9-patch has no meaningful mirror), so the flip
+            // is applied inside `make_instance` — the nine-slice branch below keeps the raw `uv`.
+            let flip = world
+                .get::<crate::components::SpriteFlip>(entity)
+                .copied()
+                .unwrap_or_default();
+            let make_instance = |model: [[f32; 4]; 4]| {
+                let uv = uv.flipped(flip.x, flip.y);
+                match blend {
+                    Some(b) if b.weight > 0.0 => InstanceRaw::blended(
+                        model,
+                        sprite.color.to_array(),
+                        uv,
+                        b.to.flipped(flip.x, flip.y),
+                        b.weight,
+                    ),
+                    _ => InstanceRaw::single(model, sprite.color.to_array(), uv),
                 }
-                _ => InstanceRaw::single(model, sprite.color.to_array(), uv),
             };
             let layer = world
                 .get::<crate::components::RenderLayer>(entity)
@@ -144,6 +158,12 @@ impl SpriteRenderer {
                             .get::<UvRect>(*entity)
                             .copied()
                             .unwrap_or_else(|| atlas.uv_rect(*index));
+                        // SpriteFlip mirrors the sampled UV region (absent/default = no flip).
+                        let flip = world
+                            .get::<crate::components::SpriteFlip>(*entity)
+                            .copied()
+                            .unwrap_or_default();
+                        let uv = uv.flipped(flip.x, flip.y);
                         // O(1) refcount bump; Arc::from(path()) would copy the string bytes.
                         let tex_key: Arc<str> = atlas.texture_path_arc();
                         let layer = world
@@ -223,6 +243,12 @@ impl SpriteRenderer {
         self.material.seen_new_hashes_scratch.clear();
         for (entity, hash, params) in mat_ids {
             let uv = world.get::<UvRect>(entity).copied().unwrap_or(UvRect::FULL);
+            // SpriteFlip mirrors the sampled UV region (absent/default = no flip).
+            let flip = world
+                .get::<crate::components::SpriteFlip>(entity)
+                .copied()
+                .unwrap_or_default();
+            let uv = uv.flipped(flip.x, flip.y);
             let sprite = match world.get::<Sprite>(entity) {
                 Some(sprite) => sprite,
                 None => continue,

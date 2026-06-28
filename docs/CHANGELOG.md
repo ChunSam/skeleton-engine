@@ -4,6 +4,19 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.81.0
+
+**Sprite flipping — `SpriteFlip` component.** Add `SpriteFlip { x, y }` to any sprite-bearing entity to mirror it horizontally / vertically at render time. The renderer flips the sampled UV region in place, so it works uniformly across plain `Sprite`, `AtlasSprite`, and `ShaderMaterial` — including animation frames and atlas tiles — with no texture swap and without negating `Transform::scale` (negative scale also mirrors lighting/children and breaks rotation). This closes a genuine breadth gap: a downstream game previously had to hand-roll UV flipping in game code to face a character by movement direction. Absent or `default()` (no flip) renders byte-identically. **Additive component; no breaking change.**
+
+### Added
+- `engine::SpriteFlip` component (`{ x: bool, y: bool }`) — ctors `horizontal()` / `vertical()` / `NONE` + `is_flipped()`; derives `Copy`/`Default`/`Serialize`/`Deserialize`; clone- and editor-add/remove-registered like `RenderLayer`.
+- `UvRect::flipped(flip_x, flip_y)` — composes the existing `flipped_x` / `flipped_y` primitives (previously unused); `flipped(false, false)` is a no-op.
+- Example `sprite_flip` — a fixed reference vs. a controllable copy of a 4-quadrant texture, toggled with **H** / **V** (`HEADLESS_SHOT` supported).
+- Unit tests: `UvRect::flipped` composition / no-op; covered by the sprite render path.
+
+### Changed
+- `renderer/sprite/collect.rs` applies a present `SpriteFlip` to the sampled UV in all three sprite paths (plain `Sprite` incl. crossfade target frame, `AtlasSprite`, `ShaderMaterial`). **`NineSlice` is excluded** (a 9-patch has no meaningful mirror).
+
 ## 0.80.1
 
 **Tier-3 cleanup: named constants for duplicated default magic numbers.** Behavior-preserving (value-identical) dedup of the genuinely duplicated literals flagged by `docs/HARDCODING_AUDIT_2026-06-26.md` — no API change beyond two additive default constants, no behavior change. Two audit entries were re-classified as *not* real duplications and deliberately left (see below).
