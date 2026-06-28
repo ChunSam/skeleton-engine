@@ -112,14 +112,28 @@ impl App {
     ) -> bool {
         let has_lighting = world.resource::<crate::resources::AmbientLight>().is_some();
         if has_lighting {
+            // Point-light cap: opt-in LightingConfig, else the historical default (16).
+            let max_lights = world
+                .resource::<crate::resources::LightingConfig>()
+                .map(|c| c.max_lights)
+                .unwrap_or(crate::resources::DEFAULT_MAX_LIGHTS);
             match &mut render.lighting_renderer {
                 None => {
-                    render.lighting_renderer = Some(
-                        crate::renderer::lighting::LightingRenderer::new(device, w, h, fmt),
-                    );
+                    render.lighting_renderer =
+                        Some(crate::renderer::lighting::LightingRenderer::new(
+                            device, w, h, fmt, max_lights,
+                        ));
                 }
                 Some(lr) if lr.format() != fmt => {
                     lr.reconfigure(device, w, h, fmt);
+                }
+                Some(lr) if lr.max_lights() != max_lights => {
+                    lr.set_max_lights(device, max_lights);
+                    // set_max_lights rebuilds from the stored size; ensure the live viewport
+                    // size is honored too (it may have changed in the same frame).
+                    if lr.width != w || lr.height != h {
+                        lr.resize(device, w, h);
+                    }
                 }
                 Some(lr) if lr.width != w || lr.height != h => {
                     lr.resize(device, w, h);

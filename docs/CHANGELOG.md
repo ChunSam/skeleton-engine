@@ -4,6 +4,17 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.76.0
+
+**Configurable point-light cap — `LightingConfig`.** The 2D point-light pass was hard-capped at **16** lights, baked into the WGSL `array<GpuLight, 16>` and the uniform struct; a fork hit that ceiling with no way to raise it. The cap is now an opt-in `LightingConfig { max_lights }` resource (default `DEFAULT_MAX_LIGHTS` = 16), so **not inserting it preserves the old behavior exactly** (byte-identical 544-byte uniform). Native-only (lighting is a no-op on wasm32).
+
+### Added
+- `LightingConfig { max_lights }` resource + `DEFAULT_MAX_LIGHTS` const (`src/resources/render.rs`, re-exported from the crate root). Insert before `App::run()` to raise/lower the per-frame point-light cap; the nearest-to-camera cull keeps the closest `max_lights`.
+- Example `lighting_cap` (40-light grid; **SPACE** toggles the cap 16 ↔ 40; `LIGHTING_CAP` env overrides the initial cap; `HEADLESS_SHOT` self-reports a lit-pixel count) and `scripts/lighting_cap_smoke.sh` (headless GPU A/B asserting the 40-cap lights >1.5× the area of the 16-cap).
+
+### Changed (internal)
+- `LightingRenderer` is built for a runtime `max_lights`: the WGSL light-array length is substituted at shader-build time and the uniform is a fixed 32-byte `LightingHeader` followed by a runtime-sized `[GpuLightData; max_lights]` region (`32 + max_lights * 32` bytes) written as one byte block, replacing the fixed `LightingUniforms` struct. A runtime cap change rebuilds the renderer (`set_max_lights`), wired through `setup_lighting` (reads `LightingConfig`). `select_nearest_lights` takes the cap as a parameter. No behavior change at the default cap.
+
 ## 0.75.1
 
 **Examples: headless screenshot via `HEADLESS_SHOT`.** The `solver_iterations`, `one_way_tolerance`, and `frame_dt_cap` examples now render to a PNG and exit when `HEADLESS_SHOT=<path>` is set (with `HEADLESS_FRAMES` overriding the settle frame count) instead of opening a window — so they can be pixel-verified with the monitor off or from a remote session via `App::save_screenshot_headless` (added in 0.75.0). No library change.

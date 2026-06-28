@@ -63,3 +63,47 @@ impl Default for AmbientLight {
         }
     }
 }
+
+/// Default point-light cap when no [`LightingConfig`] resource is present.
+///
+/// Matches the historical hardcoded `MAX_LIGHTS` so the default lighting pass is
+/// byte-identical to before the cap became configurable.
+pub const DEFAULT_MAX_LIGHTS: usize = 16;
+
+/// Tuning for the point-light pass — currently the maximum number of point lights
+/// rendered per frame.
+///
+/// **Opt-in:** absent → the engine uses [`DEFAULT_MAX_LIGHTS`] (16), the historical
+/// hard cap, so not inserting this resource preserves the old behavior exactly. Insert
+/// it before `App::run()` to raise (or lower) the cap:
+///
+/// ```rust,no_run
+/// # use engine::{App, LightingConfig};
+/// # let mut app = App::new();
+/// app.world.insert_resource(LightingConfig { max_lights: 64 });
+/// ```
+///
+/// When more `PointLight`s than `max_lights` are present, only the `max_lights`
+/// **nearest the camera** are rendered (distant lights are dropped, not arbitrary
+/// ones). The cap sizes a per-frame GPU uniform (`32 + max_lights * 32` bytes), so
+/// keep it within the platform's max uniform-buffer binding size; a few hundred is
+/// safe everywhere.
+///
+/// **Platform note:** lighting is native-only. On `wasm32` this resource is accepted
+/// but the lighting pass is a no-op, so the cap has no effect there.
+///
+/// Changing `max_lights` at runtime rebuilds the lighting renderer (shader + uniform)
+/// on the next frame — fine for a settings toggle, not something to animate per-frame.
+#[derive(Debug, Clone, Copy)]
+pub struct LightingConfig {
+    /// Maximum number of point lights rendered per frame (nearest-to-camera kept).
+    pub max_lights: usize,
+}
+
+impl Default for LightingConfig {
+    fn default() -> Self {
+        Self {
+            max_lights: DEFAULT_MAX_LIGHTS,
+        }
+    }
+}
