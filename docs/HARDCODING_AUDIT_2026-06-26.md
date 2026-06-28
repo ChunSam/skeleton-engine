@@ -45,22 +45,30 @@ Landed as additive, default-preserving knobs (non-breaking), each with a VISION 
 | `renderer/lighting.rs` `MAX_LIGHTS = 16` (WGSL `array<GpuLight,16>` + `LightingUniforms` size) | `LightingConfig { max_lights }` resource (default `DEFAULT_MAX_LIGHTS`=16) — runtime-sized uniform (32 B `LightingHeader` + `[GpuLightData; N]`), WGSL array length substituted at shader build, `set_max_lights` rebuild; example `lighting_cap` + `lighting_cap_smoke.sh` (headless GPU A/B). Kept a uniform (not a storage buffer) → minimal GPU risk, default byte-identical. | #262 / v0.76.0 |
 | `ui/system/focus_pass.rs` `SLIDER_STEP_FRAC 0.05` | `Slider::keyboard_step: Option<f32>` + `with_keyboard_step` + `resolved_keyboard_step()` + `DEFAULT_SLIDER_STEP_FRAC` const; example `slider_keyboard_step`. Non-breaking (private field → builder-only construction). | #263 / v0.77.0 |
 | `tilemap/system.rs` autotile phase `0.37` stagger | `TileAnimationSet::stagger` field + `with_stagger` + `DEFAULT_TILE_ANIM_STAGGER` const; formula → unit-tested `stagger_phase` helper; example `tile_anim_stagger` (synced vs rippling). Manual `Default` to keep 0.37. | #264 / v0.78.0 |
+| `ui/system/state.rs` `STICK_ACTIVATE 0.6`/`STICK_RELEASE 0.35` gamepad UI-nav deadzone | `StickNavConfig { activate, release }` resource (in `ui/focus.rs`) + `DEFAULT_STICK_ACTIVATE`/`DEFAULT_STICK_RELEASE` consts; `resolved()` clamps `release<=activate`; threaded through the focus pass; example `ui_nav_deadzone`. Auto-inserted → byte-identical default. | #267 / v0.79.0 |
+| `network/native.rs` `READ_TIMEOUT 5ms` socket poll | `NetworkConfig::read_timeout: Duration` + `DEFAULT_READ_TIMEOUT` (5ms); clamped `≥1ms` in native.rs; no-op on WASM (event-driven); set via `connect_with_config`; example `mp_client` (2ms). | #268 / v0.80.0 |
 
 ## Open — Tier 2 (remaining fork-configurability knobs; additive, not yet done)
 
-These are genuine "a fork must edit engine source" limits. Each is an additive field / builder /
-const (default preserved → non-breaking). Candidates for a future feature pass, ideally each with
-a small example per the VISION loop.
+**Status (2026-06-29):** the clean, CI-verifiable Tier-2 knobs are **done** (8 shipped, #253–#268).
+What remains is genuinely weaker — each is either invasive, hardware-gated, or editor/tooling-only
+with no playable VISION example. Still additive + default-preserving (non-breaking), but pick
+deliberately: none is a clean "field + example + unit test" win like the shipped ones.
 
-| Pri | Site | Limit | Suggested API |
-|---|---|---|---|
-| High | `input/gamepad.rs` `[Option<Slot>;4]` + `pad < 4` ×3 | no >4-pad local co-op | `pub const MAX_GAMEPADS` + widen the array (hard to verify: needs >4 physical pads) |
-| Med | `renderer/context.rs` `desired_maximum_frame_latency: 2` | rhythm/fighting forks can't request latency=1 | `WindowConfig`/`WindowOptions` field |
-| Med | `ui/system/state.rs` `STICK_ACTIVATE 0.6`/`STICK_RELEASE 0.35` | gamepad deadzone not tunable | `UiConfig` resource fields |
-| Med | `network/native.rs` `READ_TIMEOUT 5ms` | poll granularity not in `NetworkConfig` | `NetworkConfig` field |
-| Med | `renderer/sprite/batch.rs` material params fixed at 16 B (`[f32;4]`) | no richer per-material shader data | larger/typed params payload |
-| Med | `app/editor/settings.rs` app-id `"skeleton-engine"` in the settings dir | every fork shares one editor-settings dir on disk | crate-level `APP_ID` const a fork overrides |
-| Med | `app/editor/ui/gizmo_math.rs` `ROT_HANDLE_GAP 16`/`ROT_HIT_RADIUS 8` (world units) | rotation gizmo unusable at non-default world scale | scale the handle by zoom or expose in `EditorSettings` |
+Ordered best-remaining-first. "Verif." = can CI prove it works (CI is ubuntu, no GPU/pads/display).
+
+| # | Site | Limit (fork must edit source) | Suggested API | Effort | Verif. | Notes / tradeoff |
+|---|---|---|---|---|---|---|
+| T2-a | `app/editor/settings.rs:52` `save_path("skeleton-engine", …)` | every fork shares ONE editor-settings dir on disk → settings collide between forks | crate-level `EditorSettings::app_id` (or an `App` setter) a fork overrides; default `"skeleton-engine"` | **Low** | partial (unit-test the path builder; the dir write is native-only) | Cleanest remaining. But editor/native-only + **no playable example** (the editor itself is the "feature") — breaks the VISION example rule, so it'd ship with a unit test + doc only. |
+| T2-b | `renderer/context.rs:174,238` `desired_maximum_frame_latency: 2` | rhythm/fighting forks can't request latency 1 (lower input-to-photon) | opt-in `WindowOptions`/render-config field (default 2) | **Low** | **No** (latency is temporal; CI/screenshot can't measure it) | The default **2 is load-bearing on macOS** — the inline comment records that latency=1 blocked the AppKit main thread. Exposing it lets a fork reintroduce that bug; ship only with a strong doc warning. |
+| T2-c | `input/gamepad.rs:78` `slots: [Option<Slot>;4]` (+ `pad < 4` guards) | no >4-pad local co-op | `pub const MAX_GAMEPADS` + widen array → `Vec`/const-generic; update the macOS + gilrs backends | **High** | **No** (needs >4 physical pads + per-OS hardware) | Hardware-gated AND invasive (fixed array → dynamic; touches both input backends). Slot-assignment logic could be unit-tested with synthetic connect events, but the real value (5th+ pad) is unprovable in CI. |
+| T2-d | `material.rs:42` `params: [f32;4]` → WGSL `@group(2) var<uniform> params: vec4<f32>` | no richer per-material shader data (>4 floats) | variable-length / typed params payload | **High** | yes (lavapipe render test) | **Breaking-ish**: the `vec4<f32>` binding is the contract every existing `ShaderMaterial` shader declares. A clean non-breaking path (keep vec4 default + opt-in extra payload) is awkward. 4 floats already covers most uses (pack more, or sample a texture). Low value-for-effort. |
+| T2-e | `app/editor/ui/gizmo_math.rs` `ROT_HANDLE_GAP 16`/`ROT_HIT_RADIUS 8` (world units) | rotation gizmo handle unusable at a non-default world scale | scale the handle by camera zoom, or expose in `EditorSettings` | **Med** | partial (math unit-testable; visual is editor-only) | Editor/native-only; better framed as a *fix* (scale-by-zoom) than a knob. |
+
+**Recommendation if continuing Tier-2:** T2-a (editor app-id) is the only low-effort one, but it has
+no game example. If the bar is "clean field + example + CI test" like the shipped knobs, that bar is
+**met** — consider this chain effectively complete and pivot to: (1) the dungeon-merchant wishlist
+board (ACTIVE empty, next ID EW-004), or (2) a new VISION breadth feature, or (3) Tier-3 dedup below.
 
 ## Open — Tier 3 (naming / dedup; low value)
 
