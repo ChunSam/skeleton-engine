@@ -4,6 +4,17 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.77.0
+
+**Per-slider keyboard nudge step — `Slider::keyboard_step`.** A focused `Slider` moved by a **hardcoded** 5%-of-range step on each ←/→ (or D-pad / left-stick) press — wrong for a slider that selects a few discrete levels (5% of a `0..3` range = 0.15, landing *between* levels). `Slider::with_keyboard_step(s)` now overrides it with an absolute step in value units; the default (`None`) is byte-identical to before. `Slider` has a private field so it is only constructed via `Slider::new` + builders, making the field add non-breaking; the field carries `#[serde(default)]` so existing scene RON loads unchanged.
+
+### Added
+- `Slider::keyboard_step: Option<f32>` field + `with_keyboard_step(step)` builder + `resolved_keyboard_step()` (override, else `DEFAULT_SLIDER_STEP_FRAC × range`). `DEFAULT_SLIDER_STEP_FRAC` (= 0.05) is now a re-exported `pub const`.
+- Example `slider_keyboard_step` (a continuous Volume slider at the default 5% step beside a discrete 0..3 Quality slider stepping one level per press).
+
+### Changed (internal)
+- `ui/system/focus_pass.rs` keyboard/gamepad slider nudge now calls `Slider::resolved_keyboard_step()` instead of the local hardcoded `SLIDER_STEP_FRAC`. No behavior change at the default.
+
 ## 0.76.0
 
 **Configurable point-light cap — `LightingConfig`.** The 2D point-light pass was hard-capped at **16** lights, baked into the WGSL `array<GpuLight, 16>` and the uniform struct; a fork hit that ceiling with no way to raise it. The cap is now an opt-in `LightingConfig { max_lights }` resource (default `DEFAULT_MAX_LIGHTS` = 16), so **not inserting it preserves the old behavior exactly** (byte-identical 544-byte uniform). Native-only (lighting is a no-op on wasm32).

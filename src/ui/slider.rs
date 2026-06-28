@@ -3,6 +3,12 @@ use serde::{Deserialize, Serialize};
 use crate::color::Color;
 use crate::reflect::{Reflect, ReflectValue};
 
+/// Default keyboard/gamepad nudge step for a [`Slider`], as a fraction of its `max - min`
+/// range, used when [`Slider::keyboard_step`] is `None`. A focused slider moves by this
+/// much per ←/→ (or D-pad / left-stick) press. `0.05` = 5% of the range = 20 presses end
+/// to end — the historical hardcoded value.
+pub const DEFAULT_SLIDER_STEP_FRAC: f32 = 0.05;
+
 /// Horizontal slider component.
 ///
 /// Attach to an entity alongside `UiNode`.
@@ -39,6 +45,13 @@ pub struct Slider {
     pub thumb_hovered_color: Color,
     /// Thumb width in pixels. Height matches `UiNode.size.y`.
     pub thumb_width: f32,
+    /// Absolute value step for a keyboard/gamepad nudge (←/→, D-pad, left stick) while the
+    /// slider is focused. `None` (default) falls back to [`DEFAULT_SLIDER_STEP_FRAC`] × the
+    /// `max - min` range. `Some(s)` overrides it with an absolute step in value units — set
+    /// it to e.g. `1.0` for a slider that selects discrete integer levels, so each press
+    /// moves exactly one level instead of a fixed 5% of the range.
+    #[serde(default)]
+    pub keyboard_step: Option<f32>,
 }
 
 impl Default for Slider {
@@ -104,7 +117,23 @@ impl Slider {
             thumb_color: Color::rgba(0.70, 0.70, 0.82, 1.0),
             thumb_hovered_color: Color::rgba(0.90, 0.90, 1.00, 1.0),
             thumb_width: 14.0,
+            keyboard_step: None,
         }
+    }
+
+    /// Sets the absolute keyboard/gamepad nudge step (value units per ←/→ press),
+    /// overriding the default [`DEFAULT_SLIDER_STEP_FRAC`] fraction-of-range. Builder form.
+    pub fn with_keyboard_step(mut self, step: f32) -> Self {
+        self.keyboard_step = Some(step);
+        self
+    }
+
+    /// The absolute value step a keyboard/gamepad nudge moves this slider by — the
+    /// [`keyboard_step`](Self::keyboard_step) override if set, else
+    /// [`DEFAULT_SLIDER_STEP_FRAC`] × the `max - min` range.
+    pub fn resolved_keyboard_step(&self) -> f32 {
+        self.keyboard_step
+            .unwrap_or((self.max - self.min) * DEFAULT_SLIDER_STEP_FRAC)
     }
 
     /// Normalizes the current value to [0.0, 1.0].
@@ -142,6 +171,23 @@ mod tests {
         assert!((back.max - 100.0).abs() < f32::EPSILON);
         // Runtime `value` defaults to 0.0 (skipped field default).
         assert!((back.value - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn keyboard_step_defaults_to_frac_of_range_and_honors_override() {
+        // Default: 5% of the range.
+        let s = Slider::new(0.0, 100.0, 50.0);
+        assert!(s.keyboard_step.is_none());
+        assert!((s.resolved_keyboard_step() - 5.0).abs() < f32::EPSILON);
+
+        // Override: an absolute step, independent of the range.
+        let s = Slider::new(0.0, 3.0, 0.0).with_keyboard_step(1.0);
+        assert_eq!(s.keyboard_step, Some(1.0));
+        assert!((s.resolved_keyboard_step() - 1.0).abs() < f32::EPSILON);
+
+        // The override survives a serde round-trip (it's a persisted field).
+        let back: Slider = ron::from_str(&ron::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back.keyboard_step, Some(1.0));
     }
 
     #[test]
