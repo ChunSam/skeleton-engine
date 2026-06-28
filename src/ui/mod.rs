@@ -20,6 +20,6 @@ pub use localized::{LocalizationSystem, LocalizedText};
 pub use node::{Anchor, UiNode};
 pub use panel::{LayoutDir, LayoutSystem, Panel};
 pub use scroll_view::ScrollView;
-pub use slider::Slider;
+pub use slider::{Slider, DEFAULT_SLIDER_STEP_FRAC};
 pub use system::{UiEvent, UiSystem};
 pub use text_input::TextInput;

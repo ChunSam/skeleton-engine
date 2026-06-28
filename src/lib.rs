@@ -180,7 +180,7 @@ pub use tween::{Easing, Lerp, Tween, TweenSequence};
 pub use ui::{
     Anchor, Button, ButtonState, CheckBox, FocusRingStyle, Label, LayoutDir, LayoutSystem,
     LocalizationSystem, LocalizedText, Panel, ScrollView, Slider, TextInput, UiEvent, UiFocus,
-    UiNode, UiSystem, VirtualJoystick,
+    UiNode, UiSystem, VirtualJoystick, DEFAULT_SLIDER_STEP_FRAC,
 };
 
 // ── WASM panic hook ───────────────────────────────────────────────────────────

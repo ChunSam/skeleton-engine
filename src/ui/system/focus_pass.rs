@@ -11,9 +11,6 @@ use super::capture::PointerCapture;
 use super::state::{node_layout, InputSnapshot, UiOutput};
 use super::UiEvent;
 
-/// Fraction of a slider's range that one Left/Right press nudges the value.
-const SLIDER_STEP_FRAC: f32 = 0.05;
-
 /// Keyboard focus pass: Tab/Shift+Tab cycle focus across focusable widgets, clicking moves focus to
 /// the clicked widget, Enter/Space activate (button click / checkbox toggle), Left/Right nudge a
 /// focused slider, and a focus ring is drawn around the focused widget. Runs before the widget
@@ -127,7 +124,7 @@ pub(super) fn run(
             }
             if input.nav_left || input.nav_right {
                 if let Some(sl) = world.get_mut::<Slider>(e) {
-                    let step = (sl.max - sl.min) * SLIDER_STEP_FRAC;
+                    let step = sl.resolved_keyboard_step();
                     let delta = if input.nav_right { step } else { -step };
                     let new_val = (sl.value + delta).clamp(sl.min, sl.max);
                     if (new_val - sl.value).abs() > f32::EPSILON {
@@ -429,6 +426,30 @@ mod tests {
         assert!(
             v > 50.0,
             "stick-right should nudge the focused slider up, got {v}"
+        );
+    }
+
+    #[test]
+    fn focused_slider_honors_a_custom_keyboard_step() {
+        // A 0..3 slider with an absolute step of 1.0 moves exactly one level per ←/→,
+        // not the default 5%-of-range (which would be 0.15 here).
+        let mut w = World::new();
+        w.insert_resource(ViewportSize::new(400, 300));
+        w.insert_resource(InputState::default());
+        w.insert_resource(UiFocus::default());
+        w.insert_resource(Events::<UiEvent>::default());
+        let e = w.spawn();
+        w.add_component(e, UiNode::new(10.0, 10.0, 200.0, 30.0));
+        w.add_component(e, Slider::new(0.0, 3.0, 0.0).with_keyboard_step(1.0));
+        w.resource_mut::<UiFocus>().unwrap().entity = Some(e);
+
+        let mut sys = UiSystem::new();
+        press(&mut w, KeyCode::ArrowRight);
+        sys.run(&mut w, 0.0);
+        let v = w.get::<Slider>(e).unwrap().value;
+        assert!(
+            (v - 1.0).abs() < f32::EPSILON,
+            "one ArrowRight should step exactly one level (1.0), got {v}"
         );
     }
 
