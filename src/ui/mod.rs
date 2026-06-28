@@ -13,7 +13,9 @@ pub mod text_input;
 
 pub use button::{Button, ButtonState};
 pub use checkbox::CheckBox;
-pub use focus::{FocusRingStyle, UiFocus};
+pub use focus::{
+    FocusRingStyle, StickNavConfig, UiFocus, DEFAULT_STICK_ACTIVATE, DEFAULT_STICK_RELEASE,
+};
 pub use joystick::VirtualJoystick;
 pub use label::Label;
 pub use localized::{LocalizationSystem, LocalizedText};

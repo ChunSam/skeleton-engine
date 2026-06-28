@@ -9,14 +9,7 @@ use crate::resources::ViewportSize;
 use crate::ui::node::UiNode;
 
 use super::UiEvent;
-
-/// Activation / release thresholds for treating an analog stick as a discrete D-pad.
-///
-/// A stick push past `STICK_ACTIVATE` latches a direction (one focus step); the stick must fall back
-/// below `STICK_RELEASE` (the neutral band) before it can fire again. The gap between the two is the
-/// hysteresis that prevents a held / jittering stick from auto-repeating.
-const STICK_ACTIVATE: f32 = 0.6;
-const STICK_RELEASE: f32 = 0.35;
+use crate::ui::focus::StickNavConfig;
 
 /// Per-axis edge detector that turns a continuous analog stick into discrete D-pad-style steps.
 ///
@@ -37,21 +30,27 @@ impl StickNav {
     /// fired **this frame** for each axis (`-1`, `0`, or `1`). A non-zero result means the stick just
     /// crossed into that direction; holding it past the threshold yields `0` until it returns to
     /// neutral. Must be called once per frame for the edge detection to stay correct.
-    pub(super) fn update(&mut self, x: f32, y: f32) -> (i8, i8) {
-        (step_axis(&mut self.x, x), step_axis(&mut self.y, y))
+    ///
+    /// `activate`/`release` are the hysteresis thresholds (see [`StickNavConfig`]); callers pass the
+    /// resolved (clamped) pair so `release <= activate` always holds.
+    pub(super) fn update(&mut self, x: f32, y: f32, activate: f32, release: f32) -> (i8, i8) {
+        (
+            step_axis(&mut self.x, x, activate, release),
+            step_axis(&mut self.y, y, activate, release),
+        )
     }
 }
 
 /// Advances one axis's latched zone and reports whether it fired a step this frame. `value` past
-/// `±STICK_ACTIVATE` latches that direction; within `±STICK_RELEASE` it resets to neutral; the band
-/// in between holds the previous zone (hysteresis). A step fires only on a transition *into* a
-/// non-neutral zone, so a held stick fires once.
-fn step_axis(latched: &mut i8, value: f32) -> i8 {
-    let zone = if value >= STICK_ACTIVATE {
+/// `±activate` latches that direction; within `±release` it resets to neutral; the band in between
+/// holds the previous zone (hysteresis). A step fires only on a transition *into* a non-neutral
+/// zone, so a held stick fires once.
+fn step_axis(latched: &mut i8, value: f32, activate: f32, release: f32) -> i8 {
+    let zone = if value >= activate {
         1
-    } else if value <= -STICK_ACTIVATE {
+    } else if value <= -activate {
         -1
-    } else if value.abs() <= STICK_RELEASE {
+    } else if value.abs() <= release {
         0
     } else {
         *latched
@@ -123,9 +122,16 @@ impl InputSnapshot {
         // Optional resource — no pad / no GamepadState = no-op.
         if let Some(gp) = world.resource::<GamepadState>() {
             if let Some(p) = gp.primary() {
+                let (activate, release) = world
+                    .resource::<StickNavConfig>()
+                    .copied()
+                    .unwrap_or_default()
+                    .resolved();
                 let (sx, sy) = stick.update(
                     gp.axis(p, GamepadAxis::LeftStickX),
                     gp.axis(p, GamepadAxis::LeftStickY),
+                    activate,
+                    release,
                 );
                 let up = gp.just_pressed(p, GamepadButton::DPadUp) || sy < 0;
                 let down = gp.just_pressed(p, GamepadButton::DPadDown) || sy > 0;
@@ -198,30 +204,37 @@ pub(super) fn node_layout(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::focus::{DEFAULT_STICK_ACTIVATE, DEFAULT_STICK_RELEASE};
+
+    /// Drives one frame with the default (historical) thresholds — keeps the legacy assertions
+    /// readable now that `update` takes the hysteresis thresholds explicitly.
+    fn upd(s: &mut StickNav, x: f32, y: f32) -> (i8, i8) {
+        s.update(x, y, DEFAULT_STICK_ACTIVATE, DEFAULT_STICK_RELEASE)
+    }
 
     /// A push past the activation threshold fires once; holding it (even relaxed into the
     /// hysteresis band) does not repeat; only after returning to neutral does it fire again.
     #[test]
     fn stick_fires_once_per_push_then_requires_neutral() {
         let mut s = StickNav::default();
-        assert_eq!(s.update(0.0, -0.8), (0, -1), "first push fires");
+        assert_eq!(upd(&mut s, 0.0, -0.8), (0, -1), "first push fires");
         assert_eq!(
-            s.update(0.0, -0.8),
+            upd(&mut s, 0.0, -0.8),
             (0, 0),
             "held past threshold does not repeat"
         );
         assert_eq!(
-            s.update(0.0, -0.5),
+            upd(&mut s, 0.0, -0.5),
             (0, 0),
             "relaxed into the hysteresis band (RELEASE..ACTIVATE) still does not fire"
         );
         assert_eq!(
-            s.update(0.0, 0.0),
+            upd(&mut s, 0.0, 0.0),
             (0, 0),
             "returning to neutral does not fire, just resets"
         );
         assert_eq!(
-            s.update(0.0, -0.8),
+            upd(&mut s, 0.0, -0.8),
             (0, -1),
             "pushing again after neutral fires"
         );
@@ -232,9 +245,9 @@ mod tests {
     #[test]
     fn stick_slam_to_opposite_direction_fires() {
         let mut s = StickNav::default();
-        assert_eq!(s.update(0.9, 0.0), (1, 0), "push right fires +1");
+        assert_eq!(upd(&mut s, 0.9, 0.0), (1, 0), "push right fires +1");
         assert_eq!(
-            s.update(-0.9, 0.0),
+            upd(&mut s, -0.9, 0.0),
             (-1, 0),
             "slam left fires -1 without a neutral frame"
         );
@@ -244,8 +257,8 @@ mod tests {
     #[test]
     fn stick_below_release_never_fires() {
         let mut s = StickNav::default();
-        assert_eq!(s.update(0.3, 0.2), (0, 0));
-        assert_eq!(s.update(-0.3, -0.2), (0, 0));
+        assert_eq!(upd(&mut s, 0.3, 0.2), (0, 0));
+        assert_eq!(upd(&mut s, -0.3, -0.2), (0, 0));
     }
 
     /// A latched zone carries the sign of the stick value (positive → `1`, negative → `-1`); the
@@ -253,8 +266,69 @@ mod tests {
     #[test]
     fn stick_zone_carries_value_sign() {
         let mut s = StickNav::default();
-        assert_eq!(s.update(0.8, 0.8), (1, 1));
+        assert_eq!(upd(&mut s, 0.8, 0.8), (1, 1));
         let mut s2 = StickNav::default();
-        assert_eq!(s2.update(-0.8, -0.8), (-1, -1));
+        assert_eq!(upd(&mut s2, -0.8, -0.8), (-1, -1));
+    }
+
+    /// A tighter custom deadzone fires at a push the default thresholds would still treat as the
+    /// neutral/hold band — the knob actually changes where the step triggers.
+    #[test]
+    fn custom_tight_deadzone_fires_earlier() {
+        // Default (0.6 / 0.35): a 0.45 push sits in the hold band → no step.
+        let mut def = StickNav::default();
+        assert_eq!(
+            def.update(0.0, -0.45, DEFAULT_STICK_ACTIVATE, DEFAULT_STICK_RELEASE),
+            (0, 0),
+            "0.45 is below the default activate (0.6) → no step"
+        );
+        // Tighter (0.4 / 0.2): the same 0.45 push is past activate → fires.
+        let mut tight = StickNav::default();
+        assert_eq!(
+            tight.update(0.0, -0.45, 0.4, 0.2),
+            (0, -1),
+            "0.45 is past the tight activate (0.4) → fires"
+        );
+        // ...and re-arming now requires falling back inside the tighter 0.2 release band: a relax to
+        // 0.3 stays latched (still in the 0.2..0.4 hold band).
+        assert_eq!(
+            tight.update(0.0, -0.3, 0.4, 0.2),
+            (0, 0),
+            "held in hold band"
+        );
+        assert_eq!(
+            tight.update(0.0, -0.15, 0.4, 0.2),
+            (0, 0),
+            "reset to neutral"
+        );
+        assert_eq!(
+            tight.update(0.0, -0.45, 0.4, 0.2),
+            (0, -1),
+            "fires again after neutral"
+        );
+    }
+
+    /// `resolved()` clamps so a misconfigured `release >= activate` can never invert the band.
+    #[test]
+    fn config_resolved_clamps_invalid_thresholds() {
+        let inverted = StickNavConfig {
+            activate: 0.5,
+            release: 0.9,
+        };
+        assert_eq!(
+            inverted.resolved(),
+            (0.5, 0.5),
+            "release is clamped down to activate"
+        );
+        let over = StickNavConfig {
+            activate: 2.0,
+            release: -1.0,
+        };
+        assert_eq!(over.resolved(), (1.0, 0.0), "both clamped into range");
+        assert_eq!(
+            StickNavConfig::default().resolved(),
+            (DEFAULT_STICK_ACTIVATE, DEFAULT_STICK_RELEASE),
+            "default resolves to the historical thresholds"
+        );
     }
 }

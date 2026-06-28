@@ -111,6 +111,69 @@ impl FocusRingStyle {
     }
 }
 
+/// Default activation threshold for [`StickNavConfig`] — a left-stick push past `±0.6` latches a
+/// focus step. The historical hardcoded value.
+pub const DEFAULT_STICK_ACTIVATE: f32 = 0.6;
+/// Default release threshold for [`StickNavConfig`] — the stick must fall back inside `±0.35` before
+/// it can fire another step. The historical hardcoded value.
+pub const DEFAULT_STICK_RELEASE: f32 = 0.35;
+
+/// Analog-stick → discrete-focus-navigation thresholds used by [`UiSystem`]'s focus pass.
+///
+/// When a gamepad is connected, the left stick drives the same focus navigation as Tab / the D-pad:
+/// pushing it Down/Up steps focus, Left/Right nudges a focused [`Slider`]. To turn the continuous
+/// axis into discrete steps it is edge-detected with hysteresis — a push past `activate` fires
+/// **one** step, and the stick must fall back inside `release` (the neutral band) before it can fire
+/// again. The gap between the two stops a held or jittering stick from auto-repeating.
+///
+/// A `World` resource (auto-inserted with the historical defaults, see `insert_core_resources`),
+/// so the default behavior is byte-identical to the old hardcoded thresholds. Insert your own to
+/// retune the deadzone — e.g. a tighter, more responsive stick:
+///
+/// ```
+/// # use engine::StickNavConfig;
+/// let cfg = StickNavConfig {
+///     activate: 0.4, // fire as soon as the stick is pushed 40%
+///     release: 0.2,  // re-arm once it relaxes back inside 20%
+/// };
+/// assert_eq!(cfg.resolved(), (0.4, 0.2));
+/// ```
+///
+/// [`UiSystem`]: crate::ui::UiSystem
+/// [`Slider`]: crate::ui::Slider
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StickNavConfig {
+    /// A stick axis past `±activate` latches a step. Clamped to `[0, 1]` by [`resolved`].
+    ///
+    /// [`resolved`]: StickNavConfig::resolved
+    pub activate: f32,
+    /// The stick must relax back inside `±release` before it can fire again — the neutral band.
+    /// Clamped to `[0, activate]` by [`resolved`] so the hysteresis band can never invert.
+    ///
+    /// [`resolved`]: StickNavConfig::resolved
+    pub release: f32,
+}
+
+impl Default for StickNavConfig {
+    fn default() -> Self {
+        Self {
+            activate: DEFAULT_STICK_ACTIVATE,
+            release: DEFAULT_STICK_RELEASE,
+        }
+    }
+}
+
+impl StickNavConfig {
+    /// The `(activate, release)` thresholds clamped to a sane range: `activate` into `[0, 1]` and
+    /// `release` into `[0, activate]`, so a misconfigured `release >= activate` can never invert the
+    /// hysteresis band (it collapses to a hard threshold with no hold band instead).
+    pub fn resolved(&self) -> (f32, f32) {
+        let activate = self.activate.clamp(0.0, 1.0);
+        let release = self.release.clamp(0.0, activate);
+        (activate, release)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::FocusRingStyle;
