@@ -4,6 +4,15 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.82.0
+
+**Top-down depth sorting — `YSort` + `YSortSystem`.** Add a `YSort` component and the engine depth-orders the sprite by its world Y so an entity lower on the screen (Y increases downward) overlaps one higher up — the standard top-down "draw nearer things in front" rule. `YSortSystem` writes `Transform.z = position.y + bias` each frame; the sprite renderer already sorts by `(layer, z)` (higher z in front), so ordering is correct within a `RenderLayer`. Previously a top-down game had to compute per-sprite z by hand. **Additive component + opt-in system; no breaking change.**
+
+### Added
+- `engine::YSort { bias }` component (`new(bias)`; `Copy`/`Default`/`serde`) + `engine::YSortSystem` (user-added, like `ParallaxSystem`). `bias` shifts the sort point along Y (e.g. +half the sprite height to sort by the feet). Clone- and editor-add/remove-registered.
+- Example `ysort` — three overlapping "trees" + a player that weaves in front of/behind them with **↑/↓**; **Space** toggles sorting off (sprites fall back to spawn order — the overlap bug Y-sort fixes). `HEADLESS_SHOT` supported.
+- Unit tests: `z = y + bias`, non-`YSort` entities untouched, lower entity gets the higher z.
+
 ## 0.81.0
 
 **Sprite flipping — `SpriteFlip` component.** Add `SpriteFlip { x, y }` to any sprite-bearing entity to mirror it horizontally / vertically at render time. The renderer flips the sampled UV region in place, so it works uniformly across plain `Sprite`, `AtlasSprite`, and `ShaderMaterial` — including animation frames and atlas tiles — with no texture swap and without negating `Transform::scale` (negative scale also mirrors lighting/children and breaks rotation). This closes a genuine breadth gap: a downstream game previously had to hand-roll UV flipping in game code to face a character by movement direction. Absent or `default()` (no flip) renders byte-identically. **Additive component; no breaking change.**
