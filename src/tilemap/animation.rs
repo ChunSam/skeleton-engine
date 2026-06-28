@@ -108,15 +108,56 @@ impl TileAnimation {
 /// // Value 1 cycles atlas IDs 0-3 at 200 ms each
 /// set.insert(1, TileAnimation::new(vec![0, 1, 2, 3], 0.2));
 /// ```
-#[derive(Debug, Clone, Default)]
+/// Default per-cell animation **phase stagger** factor (see [`TileAnimationSet::stagger`]).
+///
+/// Was a hardcoded literal in [`super::system::TilemapSystem`]; `0.37` keeps the historical
+/// look (neighbouring animated cells start slightly out of phase so they don't sync-flash).
+pub const DEFAULT_TILE_ANIM_STAGGER: f32 = 0.37;
+
+#[derive(Debug, Clone)]
 pub struct TileAnimationSet {
     anims: HashMap<u32, TileAnimation>,
+    /// Per-cell phase-stagger factor: each animated cell starts at phase
+    /// `(row + col) × frame_time × stagger`, so a higher value spreads neighbouring cells
+    /// further apart in their cycle (a rippling, out-of-sync look). `0.0` makes **every**
+    /// cell of a tile value animate in lockstep (a synchronized pulse). Default
+    /// [`DEFAULT_TILE_ANIM_STAGGER`] (`0.37`) reproduces the previous hardcoded behaviour.
+    pub stagger: f32,
+}
+
+impl Default for TileAnimationSet {
+    fn default() -> Self {
+        Self {
+            anims: HashMap::new(),
+            stagger: DEFAULT_TILE_ANIM_STAGGER,
+        }
+    }
+}
+
+/// Per-cell animation start phase (seconds): `(row + col) × frame_time × stagger`, wrapped
+/// into `[0, total_time)`. `stagger = 0` → every cell starts at phase 0 (lockstep). Extracted
+/// from `TilemapSystem` so the stagger formula has one home and is unit-testable.
+pub(crate) fn stagger_phase(
+    row: usize,
+    col: usize,
+    frame_time: f32,
+    total_time: f32,
+    stagger: f32,
+) -> f32 {
+    ((row + col) as f32 * frame_time * stagger) % total_time.max(f32::EPSILON)
 }
 
 impl TileAnimationSet {
-    /// Creates an empty `TileAnimationSet`.
+    /// Creates an empty `TileAnimationSet` with the default [`stagger`](Self::stagger).
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Sets the per-cell phase [`stagger`](Self::stagger) factor. Builder form: `0.0`
+    /// synchronizes every cell of a value, larger values spread them further out of phase.
+    pub fn with_stagger(mut self, stagger: f32) -> Self {
+        self.stagger = stagger;
+        self
     }
 
     /// Registers a [`TileAnimation`] for the given tile value.
@@ -338,6 +379,35 @@ mod tests {
         set.insert(5, TileAnimation::new(vec![0, 1, 2], 0.5));
         let anim = set.get(5).unwrap();
         assert_eq!(anim.frames.len(), 3, "second insert should overwrite");
+    }
+
+    #[test]
+    fn stagger_defaults_to_historical_value_and_builder_overrides() {
+        assert!((TileAnimationSet::new().stagger - DEFAULT_TILE_ANIM_STAGGER).abs() < 1e-6);
+        assert!((DEFAULT_TILE_ANIM_STAGGER - 0.37).abs() < 1e-6);
+        let synced = TileAnimationSet::new().with_stagger(0.0);
+        assert_eq!(synced.stagger, 0.0);
+    }
+
+    #[test]
+    fn stagger_phase_synchronizes_at_zero_and_spreads_otherwise() {
+        let (frame_time, total_time) = (0.2_f32, 0.8_f32);
+
+        // stagger 0 → every cell starts at phase 0 (lockstep).
+        for (r, c) in [(0, 0), (1, 0), (3, 5), (9, 9)] {
+            assert_eq!(stagger_phase(r, c, frame_time, total_time, 0.0), 0.0);
+        }
+
+        // stagger 0.37 → neighbouring cells differ; (0,0) is still 0.
+        assert_eq!(stagger_phase(0, 0, frame_time, total_time, 0.37), 0.0);
+        let p10 = stagger_phase(1, 0, frame_time, total_time, 0.37);
+        assert!(p10 > 0.0, "a staggered neighbour must shift off phase 0");
+        // (1,0) and (0,1) share row+col so land on the same phase.
+        assert!((p10 - stagger_phase(0, 1, frame_time, total_time, 0.37)).abs() < 1e-6);
+
+        // The phase always wraps into [0, total_time) even for far cells.
+        let far = stagger_phase(100, 100, frame_time, total_time, 0.37);
+        assert!((0.0..total_time).contains(&far), "phase must wrap: {far}");
     }
 
     // ── AnimatedTileCell::current_frame ──────────────────────────────────────

@@ -13,7 +13,10 @@ pub mod animation;
 pub mod autotile;
 pub mod system;
 
-pub use animation::{AnimatedTileCell, AnimatedTileSystem, TileAnimation, TileAnimationSet};
+pub use animation::{
+    AnimatedTileCell, AnimatedTileSystem, TileAnimation, TileAnimationSet,
+    DEFAULT_TILE_ANIM_STAGGER,
+};
 pub use autotile::{
     compute_tile_mask, compute_tile_mask_typed, AutotileMode, Neighborhood, TerrainRule,
     TilemapAutotile,
