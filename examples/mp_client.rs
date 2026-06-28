@@ -18,8 +18,9 @@
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
     use engine::{
-        App, DrawText, Events, NetworkClient, NetworkEvent, NetworkSystem, RemoteEntities, Scene,
-        Sprite, System, SystemRegistrar, TextQueue, Transform, WindowConfig, World,
+        App, DrawText, Events, NetworkClient, NetworkConfig, NetworkEvent, NetworkSystem,
+        RemoteEntities, Scene, Sprite, System, SystemRegistrar, TextQueue, Transform, WindowConfig,
+        World,
     };
     use glam::Vec2;
     use serde::{Deserialize, Serialize};
@@ -49,7 +50,13 @@ fn main() {
 
     impl Scene for MultiScene {
         fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar) {
-            let client = NetworkClient::connect("ws://127.0.0.1:9001");
+            // Movement is sent continuously, so poll the socket a bit faster than the 5 ms default
+            // to shave latency off our position updates (NetworkConfig::read_timeout, native-only).
+            let config = NetworkConfig {
+                read_timeout: std::time::Duration::from_millis(2),
+                ..Default::default()
+            };
+            let client = NetworkClient::connect_with_config("ws://127.0.0.1:9001", config);
             world.insert_resource(client);
             systems.add(NetworkSystem::new());
             systems.add(MultiplayerSystem::new());

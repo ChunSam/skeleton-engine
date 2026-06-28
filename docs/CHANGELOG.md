@@ -4,6 +4,18 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.80.0
+
+**Configurable native socket read timeout — `NetworkConfig::read_timeout`.** The native `NetworkClient` runs its WebSocket on a background thread that wakes on a socket read timeout to flush queued outbound messages; that interval was a hardcoded `const READ_TIMEOUT = 5ms` in `network/native.rs`. It is now a `NetworkConfig` field (default `DEFAULT_READ_TIMEOUT` = 5ms, so behavior is unchanged), letting a latency-sensitive game poll the socket more often (sends flush sooner, slightly more CPU) or a relaxed one poll less. Clamped to a 1ms floor (a zero timeout would block the thread). **No effect on WASM** (its receive path is event-driven), mirroring how `max_buffered_bytes` is WASM-only. Continues the hardcoding-audit Tier-2 fork-config-knob chain. **Additive field on an existing config struct; no breaking change.**
+
+### Added
+- `NetworkConfig::read_timeout: Duration` + `engine::network::DEFAULT_READ_TIMEOUT` (5ms). Passed via the existing `NetworkClient::connect_with_config`; a `NetworkConfig` doctest shows the usage.
+- Unit tests: `read_timeout` default; a custom value carried via struct-update syntax; `connect_with_config` with a custom timeout constructs cleanly (native dead-port smoke).
+
+### Changed
+- `network/native.rs` — the client thread reads `config.read_timeout` (clamped `≥ 1ms`) instead of the hardcoded 5ms const for both plain-TCP and rustls-TLS sockets.
+- Example `mp_client` now connects via `connect_with_config` with a 2ms `read_timeout` (snappier position updates) — the knob's usage site.
+
 ## 0.79.0
 
 **Configurable analog-stick UI-navigation deadzone — `StickNavConfig`.** When a gamepad is connected, the left stick drives UI focus navigation the same way Tab / the D-pad do, edge-detected with hysteresis so one push = one focus step. The two hysteresis thresholds were hardcoded literals (`0.6` activate / `0.35` release); they are now an opt-in `StickNavConfig` resource (auto-inserted with those exact defaults, so behavior is **byte-identical** when left untouched). A game can retune the deadzone — tighter for snappier menus, wider for jitter rejection — without forking the UI system. Continues the hardcoding-audit Tier-2 fork-config-knob chain. **Additive opt-in resource; no breaking change.**

@@ -34,6 +34,9 @@ impl NetworkClient {
         let url = url.to_string();
         let max_message_bytes = config.max_message_bytes;
         let max_pending_events = config.max_pending_events;
+        // Clamp to a 1 ms floor: a zero read timeout puts the socket into blocking mode, which would
+        // wedge the loop on `read` and never service the outbound channel.
+        let read_timeout = config.read_timeout.max(std::time::Duration::from_millis(1));
         let connected = Arc::new(AtomicBool::new(false));
         let thread_connected = Arc::clone(&connected);
         let close_requested = Arc::new(AtomicBool::new(false));
@@ -53,16 +56,15 @@ impl NetworkClient {
                 }
             };
 
-            // 5 ms read timeout → the loop checks the outbound channel every 5 ms.
-            // Set directly on the inner TcpStream for both plain TCP and rustls TLS.
-            const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(5);
+            // `read_timeout` (from NetworkConfig, default 5 ms) → the loop checks the outbound
+            // channel this often. Set directly on the inner TcpStream for both plain TCP and TLS.
             let stream = socket.get_mut();
             if let tungstenite::stream::MaybeTlsStream::Plain(tcp) = stream {
-                tcp.set_read_timeout(Some(READ_TIMEOUT)).ok();
+                tcp.set_read_timeout(Some(read_timeout)).ok();
             } else if let tungstenite::stream::MaybeTlsStream::Rustls(tls) = stream {
-                // rustls::StreamOwned.sock is a pub field (rustls 0.22+)
-                // so wss:// connections also check the outbound channel every 5 ms.
-                tls.sock.set_read_timeout(Some(READ_TIMEOUT)).ok();
+                // rustls::StreamOwned.sock is a pub field (rustls 0.22+), so wss:// connections
+                // also check the outbound channel on the same cadence.
+                tls.sock.set_read_timeout(Some(read_timeout)).ok();
             }
 
             thread_connected.store(true, Ordering::Release);

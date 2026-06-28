@@ -9,7 +9,7 @@ mod wasm_impl;
 
 pub use event::{
     NetworkConfig, NetworkEvent, DEFAULT_MAX_MESSAGE_BYTES, DEFAULT_MAX_PENDING_EVENTS,
-    DEFAULT_MAX_PENDING_MESSAGES,
+    DEFAULT_MAX_PENDING_MESSAGES, DEFAULT_READ_TIMEOUT,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::NetworkClient;
