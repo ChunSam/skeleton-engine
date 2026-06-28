@@ -42,6 +42,9 @@ Landed as additive, default-preserving knobs (non-breaking), each with a VISION 
 | `physics/world/character_movement.rs` `ONE_WAY_TOLERANCE = 0.05` | `CharacterController::one_way_tolerance` field + `with_one_way_tolerance` + `DEFAULT_ONE_WAY_TOLERANCE`; example `one_way_tolerance`; deterministic threshold test | #255 / v0.72.0 |
 | `physics/world.rs` `IntegrationParameters::default()` | `PhysicsWorld::set_solver_iterations(n)` + `with_integration_params` builder + `integration_params()` getter; example `solver_iterations` (heavy-ended joint chains); behavioral test. NOTE: rapier 0.22's default-4 TGS solver is already robust for plain stacks — the regime where iteration count *visibly* matters is loaded joints/ragdolls (the example) and extreme mass ratios, not ordinary box stacks. | #256 / v0.73.0 |
 | `app/render/frame.rs` max-dt cap `.min(0.1)` | `FrameConfig { max_dt }` resource (default 0.1, auto-inserted) + `FrameConfig::cap`; example `frame_dt_cap`; default+clamp tests | #257 / v0.74.0 |
+| `renderer/lighting.rs` `MAX_LIGHTS = 16` (WGSL `array<GpuLight,16>` + `LightingUniforms` size) | `LightingConfig { max_lights }` resource (default `DEFAULT_MAX_LIGHTS`=16) — runtime-sized uniform (32 B `LightingHeader` + `[GpuLightData; N]`), WGSL array length substituted at shader build, `set_max_lights` rebuild; example `lighting_cap` + `lighting_cap_smoke.sh` (headless GPU A/B). Kept a uniform (not a storage buffer) → minimal GPU risk, default byte-identical. | #262 / v0.76.0 |
+| `ui/system/focus_pass.rs` `SLIDER_STEP_FRAC 0.05` | `Slider::keyboard_step: Option<f32>` + `with_keyboard_step` + `resolved_keyboard_step()` + `DEFAULT_SLIDER_STEP_FRAC` const; example `slider_keyboard_step`. Non-breaking (private field → builder-only construction). | #263 / v0.77.0 |
+| `tilemap/system.rs` autotile phase `0.37` stagger | `TileAnimationSet::stagger` field + `with_stagger` + `DEFAULT_TILE_ANIM_STAGGER` const; formula → unit-tested `stagger_phase` helper; example `tile_anim_stagger` (synced vs rippling). Manual `Default` to keep 0.37. | #264 / v0.78.0 |
 
 ## Open — Tier 2 (remaining fork-configurability knobs; additive, not yet done)
 
@@ -51,12 +54,9 @@ a small example per the VISION loop.
 
 | Pri | Site | Limit | Suggested API |
 |---|---|---|---|
-| High | `renderer/lighting.rs` `MAX_LIGHTS = 16` | baked into the WGSL `array<GpuLight,16>` + `LightingUniforms` size → hard cap of 16 point lights | configurable cap (non-trivial: dynamic uniform array) |
 | High | `input/gamepad.rs` `[Option<Slot>;4]` + `pad < 4` ×3 | no >4-pad local co-op | `pub const MAX_GAMEPADS` + widen the array (hard to verify: needs >4 physical pads) |
 | Med | `renderer/context.rs` `desired_maximum_frame_latency: 2` | rhythm/fighting forks can't request latency=1 | `WindowConfig`/`WindowOptions` field |
-| Med | `tilemap/mod.rs` autotile phase `0.37` stagger | animated-tile stagger not configurable | const or `TileAnimationSet` field |
 | Med | `ui/system/state.rs` `STICK_ACTIVATE 0.6`/`STICK_RELEASE 0.35` | gamepad deadzone not tunable | `UiConfig` resource fields |
-| Med | `ui/system/focus_pass.rs` `SLIDER_STEP_FRAC 0.05` | keyboard slider step fixed | per-`Slider` override |
 | Med | `network/native.rs` `READ_TIMEOUT 5ms` | poll granularity not in `NetworkConfig` | `NetworkConfig` field |
 | Med | `renderer/sprite/batch.rs` material params fixed at 16 B (`[f32;4]`) | no richer per-material shader data | larger/typed params payload |
 | Med | `app/editor/settings.rs` app-id `"skeleton-engine"` in the settings dir | every fork shares one editor-settings dir on disk | crate-level `APP_ID` const a fork overrides |
