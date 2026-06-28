@@ -26,16 +26,22 @@ pub(crate) struct GpuLightData {
     pub(crate) light_height: f32, // virtual Z height for flat-normal lighting (0.05~1.0 typical)
 }
 
-/// Full GPU uniform block (544 bytes).
+/// Fixed-size header of the lighting uniform block (32 bytes), followed in the GPU
+/// buffer by a runtime-sized `[GpuLightData; max_lights]` array.
+///
+/// The whole uniform is `32 + max_lights * 32` bytes. The light count was once baked
+/// into a fixed `[GpuLightData; 16]`; splitting the header off lets the array length
+/// be a runtime value (see [`LightingConfig`](crate::resources::LightingConfig)) while
+/// the field order — and therefore the WGSL std140 layout — stays exactly as before
+/// (header occupies offsets 0..32, lights start at 32).
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-pub(crate) struct LightingUniforms {
+pub(crate) struct LightingHeader {
     pub(crate) ambient_color: [f32; 3],
     pub(crate) ambient_intensity: f32,
     pub(crate) light_count: u32,
     pub(crate) aspect_ratio: f32,
     pub(crate) _pad: [f32; 2],
-    pub(crate) lights: [GpuLightData; MAX_LIGHTS],
 }
 
 // ─── WGSL shader ──────────────────────────────────────────────────────────────
@@ -117,6 +123,10 @@ pub struct LightingRenderer {
     pub(crate) width: u32,
     /// Current output texture height.
     pub(crate) height: u32,
+    /// Maximum point lights this renderer's shader + uniform buffer were built for.
+    /// A change (game inserts/edits [`LightingConfig`](crate::resources::LightingConfig))
+    /// triggers a rebuild via `reconfigure` — the shader array length is baked at build.
+    max_lights: usize,
     format: wgpu::TextureFormat,
     pipeline: wgpu::RenderPipeline,
     sampler: wgpu::Sampler,
@@ -158,39 +168,50 @@ fn light_position_ndc(
     ([ndc_x, ndc_y], radius_ndc)
 }
 
-/// Maximum number of lights the lighting pass can process in one call (matches the GPU uniform array size).
-const MAX_LIGHTS: usize = 16;
-
-/// Selects indices of up to `MAX_LIGHTS` lights, nearest to the camera first.
+/// Selects indices of up to `max_lights` lights, nearest to the camera first.
 ///
-/// Replaces the old behavior where distant lights were silently dropped (first 16 in query order)
+/// Replaces the old behavior where distant lights were silently dropped (first N in query order)
 /// when the light count exceeded the cap. The return order is not sorted
-/// (additive lighting makes the order within the 16 irrelevant).
-fn select_nearest_lights(positions: &[glam::Vec2], camera_pos: glam::Vec2) -> Vec<usize> {
+/// (additive lighting makes the order within the selection irrelevant).
+fn select_nearest_lights(
+    positions: &[glam::Vec2],
+    camera_pos: glam::Vec2,
+    max_lights: usize,
+) -> Vec<usize> {
     let mut idx: Vec<usize> = (0..positions.len()).collect();
-    if positions.len() > MAX_LIGHTS {
-        idx.select_nth_unstable_by(MAX_LIGHTS - 1, |&a, &b| {
+    if positions.len() > max_lights && max_lights > 0 {
+        idx.select_nth_unstable_by(max_lights - 1, |&a, &b| {
             positions[a]
                 .distance_squared(camera_pos)
                 .total_cmp(&positions[b].distance_squared(camera_pos))
         });
-        idx.truncate(MAX_LIGHTS);
+        idx.truncate(max_lights);
+    } else if max_lights == 0 {
+        idx.clear();
     }
     idx
 }
 
 impl LightingRenderer {
-    /// Creates a new `LightingRenderer`.
+    /// Creates a new `LightingRenderer` sized for up to `max_lights` point lights.
+    ///
+    /// `max_lights` sets the WGSL `array<GpuLight, N>` length (baked at shader build) and
+    /// the uniform buffer size (`32 + max_lights * 32` bytes). A value of 0 is clamped to
+    /// 1 so the shader array stays non-empty (no lights are then ever selected).
     pub fn new(
         device: &wgpu::Device,
         width: u32,
         height: u32,
         surface_format: wgpu::TextureFormat,
+        max_lights: usize,
     ) -> Self {
+        // WGSL forbids a zero-length array; clamp the *shader* array to >=1. The cull still
+        // selects 0 lights when the configured cap is 0, so this only guards the type.
+        let array_len = max_lights.max(1);
         // `LIGHTING_SHADER` carries the `MAX_LIGHTS` token (invalid WGSL on its own) so the
-        // GPU array length stays bound to the Rust `MAX_LIGHTS` const — the single source of
-        // truth shared with the `LightingUniforms` array and the nearest-light cull.
-        let shader_src = LIGHTING_SHADER.replace("MAX_LIGHTS", &MAX_LIGHTS.to_string());
+        // GPU array length stays bound to the configured cap — the single source of truth
+        // shared with the uniform buffer size and the nearest-light cull.
+        let shader_src = LIGHTING_SHADER.replace("MAX_LIGHTS", &array_len.to_string());
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("lighting shader"),
             source: wgpu::ShaderSource::Wgsl(shader_src.into()),
@@ -202,9 +223,13 @@ impl LightingRenderer {
             wgpu::FilterMode::Linear,
         );
 
+        // Header (32 B) + array_len * GpuLightData (32 B each), zero-initialized so a pass
+        // that somehow runs before the first `update` reads a valid (all-dark) block.
+        let uniform_size =
+            std::mem::size_of::<LightingHeader>() + array_len * std::mem::size_of::<GpuLightData>();
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("lighting uniforms"),
-            contents: bytemuck::bytes_of(&LightingUniforms::zeroed()),
+            contents: &vec![0u8; uniform_size],
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -257,6 +282,7 @@ impl LightingRenderer {
             normal_view,
             width,
             height,
+            max_lights,
             format: surface_format,
             pipeline,
             sampler,
@@ -271,6 +297,12 @@ impl LightingRenderer {
         self.format
     }
 
+    /// The point-light cap this renderer was built for (drives the rebuild-on-change
+    /// check in `setup_lighting` when a game edits [`LightingConfig`]).
+    pub(crate) fn max_lights(&self) -> usize {
+        self.max_lights
+    }
+
     pub(crate) fn reconfigure(
         &mut self,
         device: &wgpu::Device,
@@ -278,7 +310,13 @@ impl LightingRenderer {
         height: u32,
         surface_format: wgpu::TextureFormat,
     ) {
-        *self = Self::new(device, width, height, surface_format);
+        *self = Self::new(device, width, height, surface_format, self.max_lights);
+    }
+
+    /// Rebuilds the renderer for a new point-light cap (shader array length + uniform
+    /// buffer size are baked at build time, so a cap change needs a full rebuild).
+    pub(crate) fn set_max_lights(&mut self, device: &wgpu::Device, max_lights: usize) {
+        *self = Self::new(device, self.width, self.height, self.format, max_lights);
     }
 
     /// Recreates the normal buffer when the window is resized.
@@ -319,8 +357,8 @@ impl LightingRenderer {
 
     /// Collects light data from the ECS World and updates the uniform buffer.
     ///
-    /// When more than `MAX_LIGHTS` (16) lights are present, only the 16 closest to the camera
-    /// are sent (distant lights are not dropped arbitrarily).
+    /// When more than `max_lights` point lights are present, only the `max_lights` closest
+    /// to the camera are sent (distant lights are not dropped arbitrarily).
     pub fn update(
         &self,
         queue: &wgpu::Queue,
@@ -342,13 +380,15 @@ impl LightingRenderer {
             .map(|(_, light, transform)| (transform.position, *light))
             .collect();
 
-        if collected.len() > MAX_LIGHTS {
+        let max_lights = self.max_lights;
+        if collected.len() > max_lights {
             static CAP_WARN: std::sync::Once = std::sync::Once::new();
             let n = collected.len();
             CAP_WARN.call_once(|| {
                 log::warn!(
-                    "lighting: {n} point lights exceed the {MAX_LIGHTS}-light cap; \
-                     rendering the nearest {MAX_LIGHTS} to the camera"
+                    "lighting: {n} point lights exceed the {max_lights}-light cap; \
+                     rendering the nearest {max_lights} to the camera \
+                     (raise it with LightingConfig {{ max_lights }})"
                 );
             });
         }
@@ -357,9 +397,10 @@ impl LightingRenderer {
         // Cull anchor = viewport center in world space (camera.position is the top-left corner).
         let cull_center = camera.position
             + glam::Vec2::new(vp_w as f32, vp_h as f32) / (2.0 * camera.zoom.max(f32::EPSILON));
-        let selected = select_nearest_lights(&positions, cull_center);
+        let selected = select_nearest_lights(&positions, cull_center, max_lights);
 
-        let mut lights_gpu = [GpuLightData::zeroed(); MAX_LIGHTS];
+        // Lights region of the uniform: exactly `max_lights` entries, zeroed past the count.
+        let mut lights_gpu = vec![GpuLightData::zeroed(); max_lights];
         let mut light_count = 0u32;
         for &i in &selected {
             let (pos, light) = collected[i];
@@ -380,16 +421,23 @@ impl LightingRenderer {
             light_count += 1;
         }
 
-        let uniforms = LightingUniforms {
+        let header = LightingHeader {
             ambient_color: ambient.color.to_rgb(),
             ambient_intensity: ambient.intensity,
             light_count,
             aspect_ratio: vp_h as f32 / vp_w as f32,
             _pad: [0.0; 2],
-            lights: lights_gpu,
         };
 
-        queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
+        // GPU layout = [header (32 B)] ++ [GpuLightData; max_lights]. Assemble as one
+        // contiguous byte block matching the WGSL `LightingUniforms` std140 layout.
+        let mut bytes = Vec::with_capacity(
+            std::mem::size_of::<LightingHeader>()
+                + lights_gpu.len() * std::mem::size_of::<GpuLightData>(),
+        );
+        bytes.extend_from_slice(bytemuck::bytes_of(&header));
+        bytes.extend_from_slice(bytemuck::cast_slice(&lights_gpu));
+        queue.write_buffer(&self.uniform_buffer, 0, &bytes);
     }
 
     /// Applies lighting to the scene texture and writes the result to `output_view`.
@@ -482,10 +530,19 @@ impl LightingRenderer {
 mod tests {
     use super::*;
 
+    fn uniform_size(max_lights: usize) -> usize {
+        std::mem::size_of::<LightingHeader>() + max_lights * std::mem::size_of::<GpuLightData>()
+    }
+
     #[test]
     fn gpu_struct_sizes() {
         assert_eq!(std::mem::size_of::<GpuLightData>(), 32);
-        assert_eq!(std::mem::size_of::<LightingUniforms>(), 544);
+        assert_eq!(std::mem::size_of::<LightingHeader>(), 32);
+        // The full uniform = header + max_lights light slots. The default cap (16)
+        // reproduces the historical 544-byte block exactly (32 + 16*32); the size
+        // scales linearly with the configured cap.
+        assert_eq!(uniform_size(crate::resources::DEFAULT_MAX_LIGHTS), 544);
+        assert_eq!(uniform_size(64), 2080);
     }
 
     #[test]
@@ -553,10 +610,12 @@ mod tests {
         );
     }
 
+    const CAP: usize = crate::resources::DEFAULT_MAX_LIGHTS;
+
     #[test]
     fn select_nearest_lights_returns_all_under_cap() {
         let positions: Vec<glam::Vec2> = (0..5).map(|i| glam::Vec2::new(i as f32, 0.0)).collect();
-        let selected = select_nearest_lights(&positions, glam::Vec2::ZERO);
+        let selected = select_nearest_lights(&positions, glam::Vec2::ZERO, CAP);
         assert_eq!(selected.len(), 5);
     }
 
@@ -564,15 +623,29 @@ mod tests {
     fn select_nearest_lights_keeps_closest_to_camera() {
         // Place 18 lights at x = 0,1,..,17 → smaller index = closer to the camera at the origin.
         let positions: Vec<glam::Vec2> = (0..18).map(|i| glam::Vec2::new(i as f32, 0.0)).collect();
-        let selected = select_nearest_lights(&positions, glam::Vec2::ZERO);
+        let selected = select_nearest_lights(&positions, glam::Vec2::ZERO, CAP);
 
-        assert_eq!(selected.len(), MAX_LIGHTS);
+        assert_eq!(selected.len(), CAP);
         // Only the 16 closest (indices 0..=15) should be selected; the farthest 16 and 17 must be excluded.
         let mut sorted = selected.clone();
         sorted.sort_unstable();
-        assert_eq!(sorted, (0..MAX_LIGHTS).collect::<Vec<usize>>());
+        assert_eq!(sorted, (0..CAP).collect::<Vec<usize>>());
         assert!(!selected.contains(&16));
         assert!(!selected.contains(&17));
+    }
+
+    #[test]
+    fn select_nearest_lights_honors_a_custom_cap() {
+        // 30 lights, cap raised to 24 → exactly the 24 nearest (indices 0..=23) selected.
+        let positions: Vec<glam::Vec2> = (0..30).map(|i| glam::Vec2::new(i as f32, 0.0)).collect();
+        let selected = select_nearest_lights(&positions, glam::Vec2::ZERO, 24);
+        assert_eq!(selected.len(), 24);
+        let mut sorted = selected.clone();
+        sorted.sort_unstable();
+        assert_eq!(sorted, (0..24).collect::<Vec<usize>>());
+
+        // A cap of 0 selects nothing (a darkened scene, no panic on the empty-array path).
+        assert!(select_nearest_lights(&positions, glam::Vec2::ZERO, 0).is_empty());
     }
 
     #[test]
@@ -599,8 +672,8 @@ mod tests {
         let far_idx_1 = positions.len();
         positions.push(glam::Vec2::new(2.0, 1.0)); // near top-left
 
-        let selected = select_nearest_lights(&positions, cull_center);
-        assert_eq!(selected.len(), MAX_LIGHTS);
+        let selected = select_nearest_lights(&positions, cull_center, CAP);
+        assert_eq!(selected.len(), CAP);
         assert!(
             !selected.contains(&far_idx_0),
             "top-left light should be excluded"
