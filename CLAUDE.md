@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.6.162 | package `skeleton-engine` v0.78.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
+> Version v1.6.163 | package `skeleton-engine` v0.78.1, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example game ships to
 > the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`  
@@ -54,6 +54,11 @@ Or run all of them in order via `./scripts/verify.sh`.
   `./scripts/wasm_smoke.sh` (coin_race render), `wasm_save_smoke.sh` (AEAD localStorage),
   `wasm_audio_smoke.sh` (`WebAudio` lifecycle), `centered_text_smoke.sh` (EW-001 centered-text
   render). Each builds its example to wasm + runs it headless. See **`docs/WASM_SMOKES.md`**.
+- **GPU render tests run on CI now** (the `render` job): it installs Mesa **lavapipe** (a software
+  Vulkan driver) so `tests/render.rs` renders the real path headlessly on the GPU-less ubuntu runner
+  and asserts renderer-tolerant invariants (sprite/text/lighting/letterbox). `SKELETON_REQUIRE_GPU=1`
+  makes a missing adapter a hard failure (no silent skip); the tests skip cleanly on a GPU-less box
+  and run automatically under `verify.sh` where a GPU exists. See **`docs/RENDER_TESTING.md`**.
 
 ---
 
@@ -183,6 +188,7 @@ efficient-exploration order, and subagent-prompt principles → **`docs/AGENT_NO
 | `docs/PATTERNS.md` | Core architecture patterns + task recipes (extracted from this file) |
 | `docs/AGENT_NOTES.md` | Agent working heuristics — context-management split, exploration order, subagent-prompt principles (extracted from this file) |
 | `docs/MACOS_FFI.md` | How to add an objc2 Apple-framework binding (version-pin, discover the API from registry source, feature flags) — e.g. the macOS GameController gamepad backend |
+| `docs/RENDER_TESTING.md` | CI-verifying the GPU render path — `tests/render.rs` + the lavapipe `render` job |
 | `REFERENCE.html` | Full public API + code examples (detailed) |
 | `docs/HANDOFF.md` | Per-phase dev history, background on architecture decisions |
 

@@ -4,6 +4,15 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.78.1
+
+**CI-verifiable GPU render path.** CI is ubuntu-only with no GPU, so every render pass (sprite / text / lighting / letterbox) was exercised *only* by local macOS shell smokes — a shader, pipeline, or projection regression could pass all of CI and ship. A new `render` CI job installs Mesa **lavapipe** (a software Vulkan driver) so `wgpu` gets a CPU adapter and `tests/render.rs` renders the real path headlessly on the runner, asserting **renderer-tolerant** invariants (relative to a sampled background pixel, never absolute RGB — so the same assertions pass on local Metal and CI lavapipe). **No public API change**; no runtime behavior change (test + CI + docs only).
+
+### Added
+- `tests/render.rs` — headless render tests over the real render path via `App::screenshot_headless`: `red_quad_reads_red` (sprite color + placement), `hud_text_non_blank` (glyph pass, injects the bundled DejaVu Sans for runner-independent fonts), `lighting_cap_lights_more_when_raised` (`LightingConfig::max_lights` drives the GPU lighting pass), `design_resolution_letterboxes` (design-resolution scale+center projection). `render_or_skip` probes for an adapter and skips cleanly when none is present — unless `SKELETON_REQUIRE_GPU=1`, which makes a missing adapter a hard failure so CI can never silently no-op green.
+- `render` job in `.github/workflows/ci.yml` (Mesa lavapipe via `mesa-vulkan-drivers`; ICD globbed into `VK_ICD_FILENAMES`; `vulkaninfo` sanity guard; `SKELETON_REQUIRE_GPU=1` + an `[render-test] adapter=` marker grep as two independent silent-skip guards).
+- `docs/RENDER_TESTING.md` — the harness, the lavapipe CI setup, the renderer-tolerance rationale, and how to add a render test.
+
 ## 0.78.0
 
 **Configurable animated-tile phase stagger — `TileAnimationSet::stagger`.** Animated tiles of the same value start out of phase by `(row + col) × frame_time × stagger` so neighbours don't sync-flash — but that stagger factor was a **hardcoded** `0.37` literal in `TilemapSystem`. It's now a field on `TileAnimationSet` (default `DEFAULT_TILE_ANIM_STAGGER` = 0.37, so existing maps are unchanged): set `0.0` to make every cell of a value animate in lockstep (a synchronized pulse), or a larger value for a more rippling spread. `TileAnimationSet`'s map is a private field, so the field add is non-breaking (constructed via `new()` + `insert`).

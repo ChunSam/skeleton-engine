@@ -65,6 +65,63 @@ jobs:
       - name: cargo build (release)
         run: cargo build --release
 
+  # ── GPU 렌더 테스트 (소프트웨어 GPU: Mesa lavapipe) ─────────────────────────
+  # CI has no GPU, so the engine's render path was never exercised here — only by local macOS
+  # shell smokes. This job installs Mesa's software Vulkan driver (lavapipe) so wgpu gets a CPU
+  # adapter and `tests/render.rs` renders the real path headlessly. `SKELETON_REQUIRE_GPU=1` makes
+  # a missing/unselected adapter a HARD failure (never a silent green skip), and the marker grep is
+  # an independent second guard that the job actually rendered. See docs/RENDER_TESTING.md.
+  render:
+    name: Render tests (lavapipe)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build + Vulkan software (lavapipe) deps
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libudev-dev libxkbcommon-dev \
+            libwayland-dev libx11-dev pkg-config \
+            mesa-vulkan-drivers libvulkan1 vulkan-tools
+
+      # The lavapipe ICD filename varies across Mesa versions (lvp_icd.x86_64.json vs lvp_icd.json),
+      # so glob it rather than hardcoding. The engine calls a raw `instance.request_adapter` with
+      # `Backends::all()` (it does NOT honor WGPU_BACKEND/WGPU_ADAPTER_NAME), so the adapter must be
+      # constrained at the Vulkan-loader level here. No GL software driver is installed, so lavapipe
+      # is the only adapter wgpu can pick. No xvfb needed — the headless path is surfaceless.
+      - name: Select the lavapipe ICD
+        run: |
+          icd="$(echo /usr/share/vulkan/icd.d/lvp_icd*.json)"
+          echo "VK_ICD_FILENAMES=$icd" >> "$GITHUB_ENV"
+          echo "selected ICD: $icd"
+
+      - name: Vulkan sanity — lavapipe (llvmpipe) must enumerate
+        run: vulkaninfo --summary | grep -i llvmpipe
+
+      - name: Install Rust 1.95
+        uses: dtolnay/rust-toolchain@1.95.0
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-render-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-render-
+
+      # SKELETON_REQUIRE_GPU=1 → "no adapter" panics instead of skipping; the grep then confirms a
+      # real render happened. Both must pass, so the render path can never silently go unverified.
+      - name: Render tests — must actually render, never silently skip
+        env:
+          SKELETON_REQUIRE_GPU: "1"
+        run: |
+          set -o pipefail
+          cargo test --test render -- --nocapture 2>&1 | tee render.log
+          grep -q '\[render-test\] adapter=' render.log
+
   # ── WASM 빌드 ─────────────────────────────────────────────────────────────
   wasm:
     name: Build (WASM)
