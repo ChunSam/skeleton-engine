@@ -7,6 +7,37 @@ fn network_config_defaults() {
     assert_eq!(cfg.max_message_bytes, DEFAULT_MAX_MESSAGE_BYTES);
     assert_eq!(cfg.max_pending_messages, DEFAULT_MAX_PENDING_MESSAGES);
     assert_eq!(cfg.max_pending_events, DEFAULT_MAX_PENDING_EVENTS);
+    assert_eq!(
+        cfg.read_timeout, DEFAULT_READ_TIMEOUT,
+        "read_timeout defaults to the historical 5 ms"
+    );
+}
+
+#[test]
+fn network_config_carries_custom_read_timeout() {
+    let cfg = NetworkConfig {
+        read_timeout: std::time::Duration::from_millis(1),
+        ..Default::default()
+    };
+    assert_eq!(cfg.read_timeout, std::time::Duration::from_millis(1));
+    // The other fields keep their defaults (struct-update syntax).
+    assert_eq!(cfg.max_message_bytes, DEFAULT_MAX_MESSAGE_BYTES);
+}
+
+#[test]
+fn connect_with_custom_read_timeout_constructs() {
+    // The config→thread plumbing must accept a custom read_timeout without panicking and behave
+    // like a normal failed connect (port 1 never listens). Exercises the new field end-to-end on
+    // the native client path.
+    let cfg = NetworkConfig {
+        read_timeout: std::time::Duration::from_millis(1),
+        ..Default::default()
+    };
+    let client = native::NetworkClient::connect_with_config("ws://127.0.0.1:1", cfg);
+    assert!(
+        !client.is_connected(),
+        "is_connected stays false against a dead port regardless of read_timeout"
+    );
 }
 
 #[test]
