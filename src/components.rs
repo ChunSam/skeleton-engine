@@ -233,6 +233,55 @@ impl Reflect for Sprite {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
 pub struct RenderLayer(pub i32);
 
+// ─── SpriteFlip ─────────────────────────────────────────────────────────────────
+
+/// Mirrors an entity's sprite across the X and/or Y axis at render time.
+///
+/// Add it to any sprite-bearing entity — a plain [`Sprite`], an
+/// [`AtlasSprite`](crate::AtlasSprite), or a [`ShaderMaterial`](crate::ShaderMaterial) — to flip
+/// which way it faces without swapping textures or negating `Transform::scale` (negative scale also
+/// mirrors lighting/children, and breaks rotation). The renderer mirrors the sampled UV region in
+/// place, so the flip is free and works with animation frames and atlas tiles.
+///
+/// Absent or `default()` (no flip) renders byte-identically to before — purely additive.
+///
+/// ```
+/// # use engine::SpriteFlip;
+/// // Face left when moving left:
+/// let facing_left = true;
+/// let flip = SpriteFlip { x: facing_left, y: false };
+/// assert_eq!(flip, SpriteFlip::horizontal());
+/// ```
+///
+/// Note: does **not** apply to [`NineSlice`](crate::NineSlice) (a 9-patch has no meaningful mirror).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct SpriteFlip {
+    /// Mirror horizontally (left↔right).
+    pub x: bool,
+    /// Mirror vertically (top↔bottom).
+    pub y: bool,
+}
+
+impl SpriteFlip {
+    /// Flipped on neither axis (same as [`SpriteFlip::default`]).
+    pub const NONE: Self = Self { x: false, y: false };
+
+    /// Horizontal flip only (the common "face the other way" case).
+    pub const fn horizontal() -> Self {
+        Self { x: true, y: false }
+    }
+
+    /// Vertical flip only.
+    pub const fn vertical() -> Self {
+        Self { x: false, y: true }
+    }
+
+    /// Whether either axis is flipped.
+    pub const fn is_flipped(&self) -> bool {
+        self.x || self.y
+    }
+}
+
 // ─── PointLight ───────────────────────────────────────────────────────────────
 
 /// World-space point light component.

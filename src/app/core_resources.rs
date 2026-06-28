@@ -60,6 +60,7 @@ pub(super) fn register_core_component_metadata(world: &mut World) {
     world.register_clone::<crate::components::Transform>();
     world.register_clone::<crate::components::Sprite>();
     world.register_clone::<crate::components::RenderLayer>();
+    world.register_clone::<crate::components::SpriteFlip>();
     world.register_clone::<crate::prefab::Tag>();
     world.register_clone::<crate::animation::player::AnimationPlayer>();
     world.register_clone::<crate::timer::Timer>();

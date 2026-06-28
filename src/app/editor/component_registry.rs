@@ -15,6 +15,9 @@ impl App {
         self.register_component("RenderLayer", |world, e| {
             world.add_component(e, crate::components::RenderLayer::default());
         });
+        self.register_component("SpriteFlip", |world, e| {
+            world.add_component(e, crate::components::SpriteFlip::default());
+        });
         self.register_component("ParticleEmitter", |world, e| {
             world.add_component(e, crate::particle::ParticleEmitter::default());
         });
@@ -54,6 +57,9 @@ impl App {
         });
         self.register_component_remover("RenderLayer", |world, e| {
             world.remove_component::<crate::components::RenderLayer>(e);
+        });
+        self.register_component_remover("SpriteFlip", |world, e| {
+            world.remove_component::<crate::components::SpriteFlip>(e);
         });
         self.register_component_remover("ParticleEmitter", |world, e| {
             world.remove_component::<crate::particle::ParticleEmitter>(e);

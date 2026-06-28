@@ -84,6 +84,19 @@ impl UvRect {
         self.v_size = -self.v_size;
         self
     }
+
+    /// Samples the same region flipped on the given axes. Each `false` axis passes through
+    /// unchanged, so `flipped(false, false)` returns `self` byte-identically. Composes
+    /// [`flipped_x`](Self::flipped_x) / [`flipped_y`](Self::flipped_y); used by the renderer to
+    /// apply a [`SpriteFlip`](crate::SpriteFlip) component.
+    pub fn flipped(self, flip_x: bool, flip_y: bool) -> Self {
+        let r = if flip_x { self.flipped_x() } else { self };
+        if flip_y {
+            r.flipped_y()
+        } else {
+            r
+        }
+    }
 }
 
 /// Component used by the renderer to alpha-lerp two frames during a crossfade.
@@ -137,5 +150,17 @@ mod uv_tests {
 
         let uv = UvRect::new(0.1, 0.2, 0.3, 0.4).flipped_x();
         assert_eq!(uv, UvRect::new(0.4, 0.2, -0.3, 0.4));
+    }
+
+    #[test]
+    fn flipped_composes_axes_and_is_noop_when_both_false() {
+        let uv = UvRect::new(0.1, 0.2, 0.3, 0.4);
+        // No flip → byte-identical (the default `SpriteFlip` path stays unchanged).
+        assert_eq!(uv.flipped(false, false), uv);
+        // Single axes match the dedicated helpers.
+        assert_eq!(uv.flipped(true, false), uv.flipped_x());
+        assert_eq!(uv.flipped(false, true), uv.flipped_y());
+        // Both axes compose to the same as applying each helper in turn.
+        assert_eq!(uv.flipped(true, true), uv.flipped_x().flipped_y());
     }
 }
