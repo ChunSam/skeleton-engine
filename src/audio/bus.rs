@@ -125,7 +125,7 @@ impl AudioManager {
             Fade {
                 start_vol,
                 target_vol: target.clamp(0.0, 1.0),
-                duration: duration_secs.max(0.001),
+                duration: duration_secs.max(super::MIN_AUDIO_DURATION_SECS),
                 elapsed: 0.0,
                 stop_when_done: false,
             },

@@ -15,6 +15,11 @@ use capture::PointerCapture;
 pub use event::UiEvent;
 use state::{submit_output, viewport_from_world, InputSnapshot, StickNav, UiOutput};
 
+/// Z increment a widget pass adds when drawing a sub-element (a checkbox tick, a slider fill) just
+/// above the widget's own background, so it composites on top within the same widget. Shared by the
+/// widget passes (`checkbox_pass`, `slider_pass`) so the sublayer step stays consistent.
+pub(super) const UI_SUBLAYER_Z_STEP: f32 = 0.001;
+
 /// System that processes `UiNode` + `Button` / `Label` / `TextInput` / `ScrollView` / `Slider` / `CheckBox` entities.
 ///
 /// Per-frame execution order:

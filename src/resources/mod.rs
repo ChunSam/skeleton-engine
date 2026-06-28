@@ -16,6 +16,7 @@ pub use debug_draw::{DebugDraw, DebugShape};
 pub use display::{
     DesignResolution, DisplayScaleFactor, ImeConfig, Letterbox, PendingResize, ViewportSize,
     WindowConfig, WindowMode, WindowOptions, DEFAULT_CANVAS_ID, DEFAULT_CLEAR_COLOR,
+    DEFAULT_WINDOW_HEIGHT, DEFAULT_WINDOW_WIDTH,
 };
 pub use fonts::{ExtraFonts, FontData};
 pub use lifecycle::{FadeTransition, GameState, LoadProgress, PanickedSystems, ShouldQuit};

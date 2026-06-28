@@ -89,7 +89,7 @@ pub(super) fn run(
                 box_size - pad * 2.0,
                 inner_col,
             )
-            .with_z(z + 0.001),
+            .with_z(z + super::UI_SUBLAYER_Z_STEP),
         );
         if !label.is_empty() {
             output.texts.push(
