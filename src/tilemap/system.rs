@@ -106,8 +106,15 @@ fn make_anim_cell(
         return None;
     }
     let frame_uvs: Vec<UvRect> = anim.frames.iter().map(|&id| tm.atlas.uv_for(id)).collect();
-    // Phase offset based on cell position so neighbouring cells don't sync-flash.
-    let phase = ((row + col) as f32 * anim.frame_time * 0.37) % anim.total_time().max(f32::EPSILON);
+    // Phase offset based on cell position so neighbouring cells don't sync-flash. The stagger
+    // factor is configurable on the TileAnimationSet (0.0 = synchronized lockstep).
+    let phase = super::animation::stagger_phase(
+        row,
+        col,
+        anim.frame_time,
+        anim.total_time(),
+        anim_set.stagger,
+    );
     Some(AnimatedTileCell::new(frame_uvs, anim.frame_time, phase))
 }
 

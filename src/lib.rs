@@ -172,7 +172,7 @@ pub use steering::{Arrive, Flee, Seek, SteeringSystem, SteeringVelocity, Wander}
 pub use tilemap::{
     compute_tile_mask, compute_tile_mask_typed, AnimatedTileCell, AnimatedTileSystem, AutotileMode,
     Neighborhood, TerrainRule, TileAnimation, TileAnimationSet, Tilemap, TilemapAtlas,
-    TilemapAutotile, TilemapProjection, TilemapSystem,
+    TilemapAutotile, TilemapProjection, TilemapSystem, DEFAULT_TILE_ANIM_STAGGER,
 };
 pub use timeline::{CameraTarget, Keyframe, Timeline, TimelineSystem, Track};
 pub use timer::Timer;

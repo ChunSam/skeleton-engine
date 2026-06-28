@@ -4,6 +4,17 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.78.0
+
+**Configurable animated-tile phase stagger — `TileAnimationSet::stagger`.** Animated tiles of the same value start out of phase by `(row + col) × frame_time × stagger` so neighbours don't sync-flash — but that stagger factor was a **hardcoded** `0.37` literal in `TilemapSystem`. It's now a field on `TileAnimationSet` (default `DEFAULT_TILE_ANIM_STAGGER` = 0.37, so existing maps are unchanged): set `0.0` to make every cell of a value animate in lockstep (a synchronized pulse), or a larger value for a more rippling spread. `TileAnimationSet`'s map is a private field, so the field add is non-breaking (constructed via `new()` + `insert`).
+
+### Added
+- `TileAnimationSet::stagger` field + `with_stagger(factor)` builder + `DEFAULT_TILE_ANIM_STAGGER` re-exported `pub const`.
+- Example `tile_anim_stagger` (two identical animated grids cycling a colour ramp — left `with_stagger(0.0)` flat/lockstep, right default 0.37 showing a diagonal frame gradient; the difference is visible in a single frame).
+
+### Changed (internal)
+- The per-cell phase formula moved from an inline literal in `tilemap/system.rs` into a unit-tested `tilemap::animation::stagger_phase(row, col, frame_time, total_time, stagger)` helper. No behavior change at the default.
+
 ## 0.77.0
 
 **Per-slider keyboard nudge step — `Slider::keyboard_step`.** A focused `Slider` moved by a **hardcoded** 5%-of-range step on each ←/→ (or D-pad / left-stick) press — wrong for a slider that selects a few discrete levels (5% of a `0..3` range = 0.15, landing *between* levels). `Slider::with_keyboard_step(s)` now overrides it with an absolute step in value units; the default (`None`) is byte-identical to before. `Slider` has a private field so it is only constructed via `Slider::new` + builders, making the field add non-breaking; the field carries `#[serde(default)]` so existing scene RON loads unchanged.
