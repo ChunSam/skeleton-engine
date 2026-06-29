@@ -4,6 +4,16 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.83.0
+
+**Animation events — fire a tagged event when a playhead enters a frame.** Add an `AnimationEvents` component next to an `AnimationPlayer` and list `(clip, frame, tag)` triples; when `AnimationSystem` advances the playhead **onto** a listed frame it sends an `AnimationEvent` on `Events<AnimationEvent>`, the idiomatic way to drive footsteps / attack hit-frames / VFX off an animation without hand-polling `current_frame`. This is a **separate component, not a field on `AnimationClip`**, so every existing clip and player keeps working unchanged (the 26 existing `AnimationClip { … }` literals are untouched) and a game can attach different event sets to entities that share the same clip data. Events fire on frame **transitions** only — the initial frame at spawn never fires, a looping clip re-fires frame 0 on each wrap, and during a crossfade only the outgoing clip emits. **Additive component + new event type; no breaking change.**
+
+### Added
+- `engine::AnimationEvents { events: Vec<FrameEvent> }` component (builder `new().on(clip, frame, tag)`; `Clone`/`Default`/`serde`), `engine::FrameEvent { clip, frame, tag }`, and `engine::AnimationEvent { entity, clip, frame, tag }` emitted on `Events<AnimationEvent>` (register with `App::register_event::<AnimationEvent>()`; events are dropped with a one-time warning if the bus is unregistered). Clone- and editor-add/remove-registered like `RenderLayer`.
+- `AnimationSystem` now records the frames a player's playhead transitions onto each tick and emits matching events after the per-entity advance — zero allocation on the hot path (no `AnimationEvents` component / no frame advance → no work).
+- Example `animation_events` — a 4-frame walk cycle with `"footstep"` events on the two contact frames; a reader system counts the steps, flashes "STEP!", and logs each one. `HEADLESS_SHOT` supported (defaults to 60 warmup frames so the cycle advances).
+- Unit tests: builder/serde round-trip, event fires on frame entry (incl. multi-frame jumps), non-matching frame emits nothing, initial frame does not fire but loop-wrap does, unregistered bus drops + warns without panic, entity without the component emits nothing.
+
 ## 0.82.0
 
 **Top-down depth sorting — `YSort` + `YSortSystem`.** Add a `YSort` component and the engine depth-orders the sprite by its world Y so an entity lower on the screen (Y increases downward) overlaps one higher up — the standard top-down "draw nearer things in front" rule. `YSortSystem` writes `Transform.z = position.y + bias` each frame; the sprite renderer already sorts by `(layer, z)` (higher z in front), so ordering is correct within a `RenderLayer`. Previously a top-down game had to compute per-sprite z by hand. **Additive component + opt-in system; no breaking change.**

@@ -1,5 +1,6 @@
+use crate::animation::events::{AnimationEvent, AnimationEvents};
 use crate::animation::player::{AnimationPlayer, BlendWeight};
-use crate::ecs::{Entity, System, World};
+use crate::ecs::{Entity, Events, System, World};
 use crate::renderer::uv::BlendUv;
 
 /// Advances the `AnimationPlayer` timer every frame and synchronizes
@@ -16,6 +17,9 @@ use crate::renderer::uv::BlendUv;
 #[derive(Default)]
 pub struct AnimationSystem {
     scratch: Vec<Entity>,
+    /// Set once after warning that `AnimationEvents` are present but `Events<AnimationEvent>` was
+    /// never registered, so the warning is not repeated every frame.
+    warned_no_event_bus: bool,
 }
 
 impl AnimationSystem {
@@ -50,7 +54,18 @@ impl System for AnimationSystem {
         self.scratch
             .extend(world.query::<AnimationPlayer>().map(|(e, _)| e));
 
+        // Frame events entered this tick, flushed into `Events<AnimationEvent>` after the loop.
+        // Local (not on `self`) because the loop holds `&self.scratch`; both vecs stay empty —
+        // and therefore unallocated — on the hot path where no frame advances / no events match.
+        let mut pending: Vec<AnimationEvent> = Vec::new();
+
         for &entity in &self.scratch {
+            // Frames the playhead *entered* (transitioned onto) this tick, and the clip they belong
+            // to. Captured during the borrowed advance below, matched against `AnimationEvents` once
+            // the borrow is released.
+            let mut entered_frames: Vec<usize> = Vec::new();
+            let mut active_clip = 0usize;
+
             let (uv, weight, blend_uv) = {
                 let Some(player) = world.get_mut::<AnimationPlayer>(entity) else {
                     continue;
@@ -119,14 +134,26 @@ impl System for AnimationSystem {
                     // fps <= 0 → frame_dur = +inf — do not advance frames (0 = paused,
                     // negative = prevent infinite loop). The clip borrow ends at this line.
                     let dur = frame_dur(clip.fps);
+                    active_clip = player.current_clip;
                     player.timer += dt;
                     while player.timer >= dur {
                         player.timer -= dur;
                         let n = player.clips[player.current_clip].frames.len();
+                        let prev_frame = player.current_frame;
                         if player.clips[player.current_clip].looping {
                             player.current_frame = (player.current_frame + 1) % n;
+                            // Record only a genuine transition (a 1-frame loop, n == 1, stays put
+                            // and emits nothing); a looping clip re-records frame 0 each wrap.
+                            if player.current_frame != prev_frame {
+                                entered_frames.push(player.current_frame);
+                            }
                         } else {
                             player.current_frame = (player.current_frame + 1).min(n - 1);
+                            // Record the entry, but not a held last frame (prev == current), so a
+                            // finished clip does not re-emit its last-frame event every tick.
+                            if player.current_frame != prev_frame {
+                                entered_frames.push(player.current_frame);
+                            }
                             // Non-looping: once the last frame is reached the timer has
                             // already been clamped to that frame; stop draining to avoid
                             // an infinite loop (dur is finite but frame never advances).
@@ -171,6 +198,42 @@ impl System for AnimationSystem {
             world.add_component(entity, uv);
             world.add_component(entity, BlendWeight(weight));
             world.add_component(entity, blend_uv);
+
+            // Match the frames entered this tick against the entity's event defs (if any).
+            if !entered_frames.is_empty() {
+                if let Some(defs) = world.get::<AnimationEvents>(entity) {
+                    for &frame in &entered_frames {
+                        for def in &defs.events {
+                            if def.clip == active_clip && def.frame == frame {
+                                pending.push(AnimationEvent {
+                                    entity,
+                                    clip: active_clip,
+                                    frame,
+                                    tag: def.tag.clone(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Flush the frame events once, after every player has advanced. Dropping them when the bus
+        // is unregistered (with a single warning) keeps `AnimationEvents` opt-in without forcing a
+        // game that ignores events to register a bus.
+        if !pending.is_empty() {
+            if let Some(bus) = world.resource_mut::<Events<AnimationEvent>>() {
+                for ev in pending {
+                    bus.send(ev);
+                }
+            } else if !self.warned_no_event_bus {
+                self.warned_no_event_bus = true;
+                log::warn!(
+                    "AnimationEvents are present but Events<AnimationEvent> is not registered, so \
+                     animation events are being dropped. Call \
+                     App::register_event::<AnimationEvent>() during setup."
+                );
+            }
         }
     }
 }
@@ -410,5 +473,115 @@ mod tests {
             world.get::<AnimationPlayer>(a).is_none(),
             "entity a must no longer have an AnimationPlayer"
         );
+    }
+
+    // ── Animation events ─────────────────────────────────────────────────────────
+
+    use crate::animation::events::AnimationEvents;
+
+    /// Spawns a looping 4-frame, 10-fps (100 ms/frame) player with the given event defs and a
+    /// registered `Events<AnimationEvent>` bus.
+    fn world_with_events(defs: AnimationEvents) -> (World, crate::ecs::Entity) {
+        let mut world = World::new();
+        world.insert_resource(Events::<AnimationEvent>::default());
+        let e = world.spawn();
+        world.add_component(e, AnimationPlayer::new(vec![make_clip(4, 10.0, true)]));
+        world.add_component(e, defs);
+        (world, e)
+    }
+
+    fn drain_events(world: &World) -> Vec<AnimationEvent> {
+        world
+            .resource::<Events<AnimationEvent>>()
+            .unwrap()
+            .read()
+            .to_vec()
+    }
+
+    #[test]
+    fn event_fires_when_playhead_enters_event_frame() {
+        // Event on frame 2 of clip 0.
+        let (mut world, e) = world_with_events(AnimationEvents::new().on(0, 2, "step"));
+        let mut sys = AnimationSystem::new();
+
+        // 250 ms advances 0→1→2 (frame 2 entered) in a single tick — also covers multi-frame jumps.
+        sys.run(&mut world, 0.25);
+
+        let events = drain_events(&world);
+        assert_eq!(events.len(), 1, "exactly one event for the single match");
+        assert_eq!(events[0].tag, "step");
+        assert_eq!(events[0].frame, 2);
+        assert_eq!(events[0].clip, 0);
+        assert_eq!(events[0].entity, e);
+    }
+
+    #[test]
+    fn non_matching_frame_emits_nothing() {
+        // Event only on frame 3, but we advance only to frame 1.
+        let (mut world, _e) = world_with_events(AnimationEvents::new().on(0, 3, "x"));
+        let mut sys = AnimationSystem::new();
+        sys.run(&mut world, 0.15); // 150 ms → frame 1 only
+        assert!(
+            drain_events(&world).is_empty(),
+            "no event should fire for a frame with no def"
+        );
+    }
+
+    #[test]
+    fn initial_frame_does_not_fire_but_loop_wrap_does() {
+        // Event on frame 0: must not fire at spawn (frame 0 is never "entered"), only on wrap-around.
+        let (mut world, _e) = world_with_events(AnimationEvents::new().on(0, 0, "loop"));
+        let mut sys = AnimationSystem::new();
+
+        // 50 ms < frame_dur → no transition; the starting frame 0 must not fire.
+        sys.run(&mut world, 0.05);
+        assert!(
+            drain_events(&world).is_empty(),
+            "the initial frame must not emit (it is never transitioned onto)"
+        );
+        world
+            .resource_mut::<Events<AnimationEvent>>()
+            .unwrap()
+            .flush();
+
+        // Advance a further 400 ms (450 ms total): 0→1→2→3→0 (four transitions) — the wrap
+        // re-enters frame 0. (350 ms would stop at frame 3, one transition short of the wrap.)
+        sys.run(&mut world, 0.40);
+        let events = drain_events(&world);
+        assert_eq!(events.len(), 1, "the wrap back to frame 0 fires once");
+        assert_eq!(events[0].frame, 0);
+        assert_eq!(events[0].tag, "loop");
+    }
+
+    #[test]
+    fn unregistered_bus_drops_events_and_warns_once_without_panic() {
+        // Player with event defs but NO Events<AnimationEvent> resource registered.
+        let mut world = World::new();
+        let e = world.spawn();
+        world.add_component(e, AnimationPlayer::new(vec![make_clip(4, 10.0, true)]));
+        world.add_component(e, AnimationEvents::new().on(0, 1, "step"));
+        let mut sys = AnimationSystem::new();
+
+        sys.run(&mut world, 0.15); // would emit for frame 1 — must not panic, just drop.
+        assert!(
+            sys.warned_no_event_bus,
+            "missing bus should set the one-time warning flag"
+        );
+    }
+
+    #[test]
+    fn entity_without_events_component_emits_nothing() {
+        // A plain animated entity (no AnimationEvents) must produce no events even with a bus present.
+        let mut world = World::new();
+        world.insert_resource(Events::<AnimationEvent>::default());
+        let e = world.spawn();
+        world.add_component(e, AnimationPlayer::new(vec![make_clip(4, 10.0, true)]));
+        let mut sys = AnimationSystem::new();
+        sys.run(&mut world, 0.25);
+        assert!(
+            drain_events(&world).is_empty(),
+            "no AnimationEvents component → no events"
+        );
+        let _ = e;
     }
 }

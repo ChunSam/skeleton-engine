@@ -64,6 +64,7 @@ pub(super) fn register_core_component_metadata(world: &mut World) {
     world.register_clone::<crate::ysort::YSort>();
     world.register_clone::<crate::prefab::Tag>();
     world.register_clone::<crate::animation::player::AnimationPlayer>();
+    world.register_clone::<crate::animation::events::AnimationEvents>();
     world.register_clone::<crate::timer::Timer>();
 
     // UI widget clone registrations
