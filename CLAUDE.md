@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.6.173 | package `skeleton-engine` v0.87.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
+> Version v1.6.174 | package `skeleton-engine` v0.87.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example game ships to
 > the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`  
@@ -37,6 +37,12 @@ Or run all of them in order via `./scripts/verify.sh`.
   trailing pipe) reports `tail`'s `0` and **hides** a real `fmt --check`/`clippy` failure
   (bit twice). Capture it: `./scripts/verify.sh > /tmp/verify.log 2>&1; echo $?` (or
   `VERIFY_EXIT=$?`) is the authoritative verdict.
+  - **zsh: `$pipestatus`, not `${PIPESTATUS[0]}`.** The shell here is **zsh**, where the
+    pipe-status array is `$pipestatus` and is **1-indexed** — bash-style `${PIPESTATUS[0]}`
+    is always the empty string (a whole session of `echo "X_EXIT=${PIPESTATUS[0]}"` silently
+    printed `X_EXIT=`). Read a gate's code from a **non-piped** command
+    (`cmd > /tmp/x.log 2>&1; echo $?`) or from a `run_in_background` task's completion
+    notification (which reports the real code); if you must index a pipe, use `${pipestatus[1]}`.
 - **WASM gotcha:** do *not* gate on `--target wasm32 --all-targets` — it fails on the
   native-only examples (`platformer_game`/`mp_server`/`gpu_particles`, which pull in
   `rapier2d`/`tungstenite`/`GpuParticleEmitter`). The lib+bins build above (or `--lib`)
