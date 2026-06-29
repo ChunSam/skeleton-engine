@@ -1,3 +1,4 @@
+pub mod anim_effect;
 pub mod animation;
 pub mod app;
 pub mod asset;
@@ -19,6 +20,7 @@ pub mod data_table;
 pub mod debug_ui;
 pub mod dialogue;
 pub mod ecs;
+pub mod effect;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod gpu_particle;
 pub mod hierarchy;
@@ -91,6 +93,7 @@ pub use asset::{
 };
 // ScriptAsset re-exported from scripting (canonical location after K-refactor).
 // Also bridged below via `pub use scripting::ScriptAsset` for source-compat.
+pub use anim_effect::{AnimEffectBindings, AnimEffectError, AnimEffectRegistry, AnimEffectSystem};
 pub use atlas::{AtlasSprite, TextureAtlas};
 #[cfg(not(target_arch = "wasm32"))]
 pub use audio::{AudioChannelState, AudioEffect, AudioManager, AudioSystem, BusDuck, Sidechain};
@@ -116,6 +119,7 @@ pub use dialogue::{
 };
 pub use ecs::schedule::{ScheduleError, SystemConfig, SystemLabel};
 pub use ecs::{Commands, Entity, Events, System, World};
+pub use effect::{Effect, EffectAnchor};
 #[cfg(not(target_arch = "wasm32"))]
 pub use gpu_particle::{GpuParticleConfig, GpuParticleEmitter};
 pub use hierarchy::{
@@ -158,8 +162,8 @@ pub use trigger_zone::{
 };
 pub use ysort::{YSort, YSortSystem};
 pub use zone_effect::{
-    Effect, EffectAnchor, ZoneEffectBindings, ZoneEffectError, ZoneEffectRegistry, ZoneEffectRule,
-    ZoneEffectSystem, ZonePhase,
+    ZoneEffectBindings, ZoneEffectError, ZoneEffectRegistry, ZoneEffectRule, ZoneEffectSystem,
+    ZonePhase,
 };
 // par_query_for_each / par_query_map / par_query2_for_each / par_query2_map are
 // World methods, so they are accessible via the World re-export (no separate re-export needed)
