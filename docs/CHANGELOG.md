@@ -4,6 +4,20 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.89.0
+
+**Data-driven Animation→Effect bindings — fire RON-authored effects on tagged animation frames.** The companion to Zone→Effect bindings (0.88.0): where that reacts to a zone overlap, this reacts to an `AnimationEvent` — an `AnimEffectBindings` table maps a frame's `tag` (e.g. `"footstep"`) to a bare `Vec<Effect>` (no phase — an animation event is an instantaneous fire), and a user-added `AnimEffectSystem::new(name)` (run after `AnimationSystem`) reads each event, looks up its tag's effects, and applies them anchored at the animating entity. The shared `Effect` vocabulary (`SpawnParticles` / `PlayTone` / `Flash`) + its application were extracted into a new `engine::effect` module and are reused directly — so animation reactions, the particles they fire, and the animation itself can all live in RON. **Additive types + one `App` method; the shared-module extraction is behavior-preserving with no public API change** (`engine::Effect`/`engine::EffectAnchor` keep their crate-root paths).
+
+### Added
+- `engine::AnimEffectBindings` — `from_ron_str(s)` (cross-platform), `effects_for(tag)`, `len`/`is_empty`; the tag-keyed `HashMap<String, Vec<Effect>>` table.
+- `engine::AnimEffectRegistry` (World resource) + `engine::AnimEffectError`. Auto-registered as hot-reloadable, so loaded files reload on edit (native).
+- `App::load_anim_effects(name, path)` — lazily inserts the registry + watches the file; no-op on wasm.
+- `engine::AnimEffectSystem::new(name)` — user-added system applying a named binding table to incoming `AnimationEvent`s (add after `AnimationSystem`); anchors `SpawnParticles` + `Flash` at the animating entity (`EffectAnchor` is not consulted).
+- Example `anim_effects` — a walk cycle whose contact frames fire a dust burst + a click tone + a warm flash, all authored in RON (`HEADLESS_SHOT` supported).
+
+### Changed (internal)
+- Extracted the shared `Effect` / `EffectAnchor` vocabulary and the effect-application machinery (`resolve_effect` / `apply_pending` / `lookup_emitter`) out of `zone_effect` into a new `engine::effect` module, so both `zone_effect` and `anim_effect` reuse one implementation. **No public API change** — `engine::Effect` and `engine::EffectAnchor` keep their crate-root re-export paths; `zone_effect` is behavior-identical (its tests are unchanged).
+
 ## 0.88.0
 
 **Data-driven Zone→Effect bindings — author *what happens* on a trigger zone in RON.** The companion to data-driven trigger zones (0.87.0): a `ZoneEffectBindings` table maps a zone's `Tag` name to rules, each a `ZonePhase` (Entered/Stayed/Exited) paired with an `Effect`. The supported effects are the three game-feel reactions the engine already produces — `SpawnParticles` (a one-shot burst reusing a named `ParticleConfigRegistry` emitter, anchored at the entering entity or the zone), `PlayTone` (the cross-platform `Audio` facade), and `Flash` (a `HitFlash` on the entrant). A user-added `ZoneEffectSystem::new(name)` (run after `TriggerZoneSystem`) reads each `ZoneEvent`, resolves the zone's `Tag` to a key, and applies the matching rules — so a level's zones, the particles they fire, and their reactions all live in RON, composed by tag, with no Rust glue. Mirrors the existing config-set pattern (registry + native hot-reload, auto-registered); the effect vocabulary is deliberately ZoneEvent-focused (an `AnimationEvent`→effect binding is a natural future reuse of `Effect`). **Additive types + one `App` method; no breaking change.**

@@ -1,4 +1,4 @@
-//! Data-driven event→effect bindings — react to [`ZoneEvent`]s with RON-authored effects.
+//! Data-driven Zone→Effect bindings — react to [`ZoneEvent`]s with RON-authored effects.
 //!
 //! The data-driven [`TriggerZone`](crate::TriggerZone)s let a designer author *where* a zone is in
 //! a RON file; this module lets them author *what happens* when an entity enters/stays/exits one,
@@ -6,14 +6,10 @@
 //! Rust glue.
 //!
 //! A [`ZoneEffectBindings`] table maps a zone's [`Tag`] name to a list of [`ZoneEffectRule`]s. Each
-//! rule pairs a [`ZonePhase`] (which event fires it) with an [`Effect`] (what to do). The supported
-//! effects are the three game-feel reactions the engine can already produce:
-//!
-//! - [`Effect::SpawnParticles`] — a one-shot particle burst, reusing a named emitter from the
-//!   [`ParticleConfigRegistry`] (so the particle visuals are *also* data-driven), anchored at the
-//!   entering entity or the zone.
-//! - [`Effect::PlayTone`] — a synthesized tone via the cross-platform [`Audio`] facade.
-//! - [`Effect::Flash`] — a [`HitFlash`] added to the entity that triggered the event.
+//! rule pairs a [`ZonePhase`] (which event fires it) with an [`Effect`] (what to do). The
+//! [`Effect`] vocabulary (`SpawnParticles` / `PlayTone` / `Flash`) and its application live in the
+//! shared [`crate::effect`] module; [`anim_effect`](crate::anim_effect) reuses them to react to
+//! `AnimationEvent`s instead.
 //!
 //! [`ZoneEffectSystem`] (user-added, like [`TriggerZoneSystem`](crate::TriggerZoneSystem)) reads
 //! [`ZoneEvent`]s, resolves each zone to its [`Tag`] name, looks up the matching rules, and applies
@@ -21,33 +17,15 @@
 //! events the same frame). Load a binding set with
 //! [`App::load_zone_effects`](crate::App::load_zone_effects) (native hot-reload) and name it when
 //! constructing the system: `ZoneEffectSystem::new("effects")`.
-//!
-//! The effect vocabulary is deliberately small and ZoneEvent-focused; an `AnimationEvent`→effect
-//! binding is a natural future extension that would reuse the same [`Effect`] enum.
 
 use std::collections::HashMap;
 
-use glam::Vec2;
 use serde::Deserialize;
 
-use crate::audio_facade::Audio;
-use crate::color::Color;
-use crate::components::{Sprite, Transform};
 use crate::ecs::{Entity, Events, System, World};
-use crate::hit_flash::HitFlash;
-use crate::particle::{ParticleBurst, ParticleConfigRegistry, ParticleEmitter};
+use crate::effect::{apply_pending, resolve_effect, Effect, EffectAnchor};
 use crate::prefab::Tag;
 use crate::trigger_zone::ZoneEvent;
-
-/// Which entity an [`Effect::SpawnParticles`] burst is anchored at.
-#[derive(Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum EffectAnchor {
-    /// The entity that entered/stayed/exited the zone (default).
-    #[default]
-    Other,
-    /// The zone entity itself.
-    Zone,
-}
 
 /// Which [`ZoneEvent`] phase a [`ZoneEffectRule`] fires on.
 #[derive(Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -59,52 +37,6 @@ pub enum ZonePhase {
     Stayed,
     /// The frame an entity leaves.
     Exited,
-}
-
-/// An effect a [`ZoneEffectRule`] runs when its [`ZonePhase`] matches.
-///
-/// All variants deserialize from RON (the `color` of [`Flash`](Effect::Flash) is an `(r, g, b, a)`
-/// tuple of `0.0..=1.0` floats, matching the particle-config RON convention).
-#[derive(Deserialize, Clone, Debug)]
-pub enum Effect {
-    /// Spawn a one-shot particle burst using a named emitter looked up across the loaded
-    /// [`ParticleConfigRegistry`] sets (load configs with
-    /// [`App::load_particle_configs`](crate::App::load_particle_configs)). The emitter's continuous
-    /// emission is forced off — only the `count`-particle burst fires.
-    SpawnParticles {
-        /// Emitter name to look up across loaded particle-config sets.
-        particles: String,
-        /// Number of particles in the burst (default 16).
-        #[serde(default = "default_count")]
-        count: u32,
-        /// Where the burst is anchored (default [`EffectAnchor::Other`]).
-        #[serde(default)]
-        at: EffectAnchor,
-    },
-    /// Play a synthesized tone via the cross-platform [`Audio`] facade.
-    PlayTone {
-        /// Frequency in Hz.
-        freq: f32,
-        /// Duration in seconds.
-        dur: f32,
-        /// Volume, `0.0..=1.0`.
-        vol: f32,
-        /// Optional mixer-bus name; routes through [`Audio::play_tone_on_bus`] when set.
-        #[serde(default)]
-        bus: Option<String>,
-    },
-    /// Add a [`HitFlash`] to the entity that triggered the event (it needs a [`Sprite`] for the
-    /// flash to show; the effect is skipped if it has none).
-    Flash {
-        /// Flash color as `(r, g, b, a)`, each `0.0..=1.0`.
-        color: (f32, f32, f32, f32),
-        /// Flash duration in seconds.
-        secs: f32,
-    },
-}
-
-fn default_count() -> u32 {
-    16
 }
 
 /// One rule in a [`ZoneEffectBindings`] table: an [`Effect`] gated to a [`ZonePhase`].
@@ -225,27 +157,6 @@ impl crate::asset::HotReloadable for ZoneEffectRegistry {
     }
 }
 
-/// A resolved effect to apply this frame (built read-only, applied with `&mut World`).
-enum PendingAction {
-    Burst {
-        pos: Vec2,
-        z: f32,
-        emitter: ParticleEmitter,
-        count: u32,
-    },
-    Tone {
-        freq: f32,
-        dur: f32,
-        vol: f32,
-        bus: Option<String>,
-    },
-    Flash {
-        target: Entity,
-        color: Color,
-        secs: f32,
-    },
-}
-
 /// Applies a named [`ZoneEffectBindings`] table to incoming [`ZoneEvent`]s.
 ///
 /// Add it to the schedule **after** [`TriggerZoneSystem`](crate::TriggerZoneSystem) (and the
@@ -266,14 +177,6 @@ impl ZoneEffectSystem {
             warned_missing_particles: false,
         }
     }
-}
-
-/// Find an emitter named `name` across every loaded [`ParticleConfigRegistry`] set (first match).
-fn lookup_emitter(world: &World, name: &str) -> Option<ParticleEmitter> {
-    let reg = world.resource::<ParticleConfigRegistry>()?;
-    reg.names()
-        .iter()
-        .find_map(|set| reg.get(set).and_then(|s| s.emitter(name)))
 }
 
 impl System for ZoneEffectSystem {
@@ -310,8 +213,10 @@ impl System for ZoneEffectSystem {
             return;
         }
 
-        // 3. Resolve events against the table into a flat action list (read-only world access).
-        let mut actions: Vec<PendingAction> = Vec::new();
+        // 3. Resolve matching rules into a flat action list (read-only world access). A zone's Tag
+        //    names the rule key; `at` picks a SpawnParticles anchor (entrant vs zone), while a Flash
+        //    always targets the entrant.
+        let mut actions = Vec::new();
         let mut missing_particles = false;
         for (phase, zone, other) in events {
             let Some(tag) = world.get::<Tag>(zone).map(|t| t.0.clone()) else {
@@ -321,51 +226,21 @@ impl System for ZoneEffectSystem {
                 if rule.on != phase {
                     continue;
                 }
-                match &rule.effect {
-                    Effect::Flash { color, secs } => actions.push(PendingAction::Flash {
-                        target: other,
-                        color: Color::rgba(color.0, color.1, color.2, color.3),
-                        secs: *secs,
-                    }),
-                    Effect::PlayTone {
-                        freq,
-                        dur,
-                        vol,
-                        bus,
-                    } => actions.push(PendingAction::Tone {
-                        freq: *freq,
-                        dur: *dur,
-                        vol: *vol,
-                        bus: bus.clone(),
-                    }),
+                let particle_anchor = match &rule.effect {
                     Effect::SpawnParticles {
-                        particles,
-                        count,
-                        at,
-                    } => {
-                        let anchor = match at {
-                            EffectAnchor::Other => other,
-                            EffectAnchor::Zone => zone,
-                        };
-                        let Some(t) = world.get::<Transform>(anchor) else {
-                            continue;
-                        };
-                        let (pos, z) = (t.position, t.z);
-                        match lookup_emitter(world, particles) {
-                            Some(mut emitter) => {
-                                // Burst-only: silence the emitter's continuous emission.
-                                emitter.emit = false;
-                                emitter.spawn_rate = 0.0;
-                                actions.push(PendingAction::Burst {
-                                    pos,
-                                    z,
-                                    emitter,
-                                    count: *count,
-                                });
-                            }
-                            None => missing_particles = true,
-                        }
-                    }
+                        at: EffectAnchor::Zone,
+                        ..
+                    } => zone,
+                    _ => other,
+                };
+                if let Some(pe) = resolve_effect(
+                    world,
+                    &rule.effect,
+                    particle_anchor,
+                    other,
+                    &mut missing_particles,
+                ) {
+                    actions.push(pe);
                 }
             }
         }
@@ -379,52 +254,7 @@ impl System for ZoneEffectSystem {
         }
 
         // 4. Apply the actions (mutating world access).
-        for action in actions {
-            match action {
-                PendingAction::Flash {
-                    target,
-                    color,
-                    secs,
-                } => {
-                    // HitFlashSystem only animates entities with a Sprite — skip otherwise so a
-                    // dangling HitFlash isn't left on a sprite-less entity forever.
-                    if world.get::<Sprite>(target).is_some() {
-                        world.add_component(target, HitFlash::new(color, secs));
-                    }
-                }
-                PendingAction::Tone {
-                    freq,
-                    dur,
-                    vol,
-                    bus,
-                } => {
-                    if let Some(audio) = world.resource_mut::<Audio>() {
-                        match bus {
-                            Some(b) => audio.play_tone_on_bus(freq, dur, vol, &b),
-                            None => audio.play_tone(freq, dur, vol),
-                        }
-                    }
-                }
-                PendingAction::Burst {
-                    pos,
-                    z,
-                    emitter,
-                    count,
-                } => {
-                    let e = world.spawn();
-                    world.add_component(
-                        e,
-                        Transform {
-                            position: pos,
-                            z,
-                            ..Default::default()
-                        },
-                    );
-                    world.add_component(e, emitter);
-                    world.add_component(e, ParticleBurst { remaining: count });
-                }
-            }
-        }
+        apply_pending(world, actions);
     }
 
     fn name(&self) -> &'static str {
@@ -435,6 +265,11 @@ impl System for ZoneEffectSystem {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::color::Color;
+    use crate::components::{Sprite, Transform};
+    use crate::hit_flash::HitFlash;
+    use crate::particle::{ParticleBurst, ParticleConfigRegistry};
+    use glam::Vec2;
 
     const BINDINGS_RON: &str = r#"(bindings: {
         "heal":   [ (on: Entered, effect: SpawnParticles(particles: "sparkle", count: 12, at: Zone)) ],

@@ -305,4 +305,48 @@ impl App {
             let _ = (name, path);
         }
     }
+
+    /// Load a RON anim-effect binding table from `path` and register it under `name`.
+    ///
+    /// Lazily inserts a [`crate::anim_effect::AnimEffectRegistry`] resource if one is not yet
+    /// present. On native builds the path is also registered with the `AssetServer` file watcher so
+    /// disk changes are hot-reloaded. Apply the loaded table with an
+    /// [`AnimEffectSystem::new(name)`](crate::AnimEffectSystem) added after
+    /// [`AnimationSystem`](crate::animation::AnimationSystem).
+    ///
+    /// Errors (file not found, parse failure) are logged via `log::warn!` and silently dropped — the
+    /// registry will simply not contain the table. This method is a no-op on wasm (file I/O is
+    /// unsupported there; parse with
+    /// [`AnimEffectBindings::from_ron_str`](crate::AnimEffectBindings::from_ron_str) and
+    /// [`AnimEffectRegistry::insert`](crate::AnimEffectRegistry::insert) instead).
+    pub fn load_anim_effects(&mut self, name: impl Into<String>, path: impl Into<String>) {
+        use crate::anim_effect::AnimEffectRegistry;
+
+        let name = name.into();
+        let path = path.into();
+
+        if self.world.resource::<AnimEffectRegistry>().is_none() {
+            self.world.insert_resource(AnimEffectRegistry::default());
+        }
+        // Preserve the registry across scene Replace world resets.
+        self.register_persistent::<AnimEffectRegistry>();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(reg) = self.world.resource_mut::<AnimEffectRegistry>() {
+                if let Err(e) = reg.load(name, &path) {
+                    log::warn!("load_anim_effects: failed to load '{path}': {e}");
+                    return;
+                }
+            }
+            if let Some(assets) = self.world.resource_mut::<crate::asset::AssetServer>() {
+                assets.watch_path(&path);
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (name, path);
+        }
+    }
 }
