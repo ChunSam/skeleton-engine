@@ -23,6 +23,7 @@ pub mod ecs;
 pub mod gpu_particle;
 pub mod hierarchy;
 pub mod history;
+pub mod hit_flash;
 pub mod input;
 pub mod locale;
 pub mod material;
@@ -120,6 +121,7 @@ pub use hierarchy::{
     attach, detach, topological_sort_entities, Children, GlobalTransform, HierarchySystem, Parent,
 };
 pub use history::History;
+pub use hit_flash::{HitFlash, HitFlashSystem};
 pub use input::AxisBinding;
 pub use input::{GamepadAxis, GamepadButton, GamepadState, InputMap, InputState, TouchState};
 pub use locale::{LocaleBundle, LocaleData, LocaleResource, TextDirection};

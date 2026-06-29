@@ -24,6 +24,9 @@ impl App {
         self.register_component("TriggerZone", |world, e| {
             world.add_component(e, crate::trigger_zone::TriggerZone::default());
         });
+        self.register_component("HitFlash", |world, e| {
+            world.add_component(e, crate::hit_flash::HitFlash::default());
+        });
         self.register_component("AnimationEvents", |world, e| {
             world.add_component(e, crate::animation::events::AnimationEvents::default());
         });
@@ -75,6 +78,9 @@ impl App {
         });
         self.register_component_remover("TriggerZone", |world, e| {
             world.remove_component::<crate::trigger_zone::TriggerZone>(e);
+        });
+        self.register_component_remover("HitFlash", |world, e| {
+            world.remove_component::<crate::hit_flash::HitFlash>(e);
         });
         self.register_component_remover("AnimationEvents", |world, e| {
             world.remove_component::<crate::animation::events::AnimationEvents>(e);
