@@ -4,6 +4,15 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.86.0
+
+**Camera motion lookahead — bias the camera ahead of a moving follow target.** With a plain smooth-follow the camera centers on the target, so a fast-moving player sees as much behind them as ahead. Set `Camera::lookahead` (world units) and the camera now leads the view in the target's direction of motion: `Camera::update` derives the target's velocity from the change in follow position, eases an offset toward `direction * lookahead` (at `Camera::lookahead_speed`), and aims the follow at `position + offset` — so the player sees more of where they are going, and the view recenters when they stop. It is entirely internal to `Camera` (the App's per-frame `Camera::update` call site is unchanged), and `lookahead == 0` (the default) is byte-identical to a direct follow. **Additive `Camera` fields + one accessor; no breaking change.**
+
+### Added
+- `Camera::lookahead` (world units, default `0.0` = disabled) and `Camera::lookahead_speed` (default `DEFAULT_LOOKAHEAD_SPEED` = 3.0, re-exported) public fields, plus the `Camera::lookahead_offset()` accessor returning the current smoothed offset (`Vec2::ZERO` when disabled or stationary).
+- Example `camera_lookahead` — a player crosses a field of posts with a camera-anchor follow; a screen-space center line shows the lead (a player moving right sits left of center with lookahead on, re-centers when off). `Space` toggles lookahead; `HEADLESS_SHOT` auto-drifts the player so the capture shows the lead (defaults to 120 warmup frames).
+- Unit tests: lookahead-off is byte-identical to a plain follow, the offset leads in the direction of motion (bounded by `lookahead`), and it recenters when the target stops.
+
 ## 0.85.0
 
 **Hit-flash — flash a sprite when it is hit, then fade it back.** Add a `HitFlash` component to an entity with a `Sprite` and the engine pops the sprite to a flash color (white by default) and eases it back to its original color over a short duration, then removes the component — the game-feel staple every action game re-implements. `HitFlashSystem` (user-added, like `YSortSystem`) drives it: it captures the sprite's pre-flash color on the **first** run (so it never needs to know the color in advance), `Lerp`s from the flash color back to that base over `secs`, and removes the component when finished (restoring the original color exactly). It pairs naturally with a damage event — a `ZoneEvent` from a damage `TriggerZone`, a `CollisionEvent`, or an animation event — by adding a `HitFlash` to the hit entity. `HitFlash` carries no serde (it is a transient runtime effect, like `TriggerZone`); it is clone- and editor-add/remove-registered like `YSort`. **Additive component + opt-in system; no breaking change.**

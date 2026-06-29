@@ -100,7 +100,7 @@ pub use behavior::{
     AlwaysSucceed, BehaviorNode, BehaviorStatus, BehaviorSystem, BehaviorTree, Blackboard,
     BlackboardValue, Inverter, Selector, Sequence,
 };
-pub use camera::Camera;
+pub use camera::{Camera, DEFAULT_LOOKAHEAD_SPEED};
 pub use collision::{
     Collider, CollisionDebugSystem, CollisionGridSystem, CollisionLayer, DebugConfig, SpatialGrid,
 };
