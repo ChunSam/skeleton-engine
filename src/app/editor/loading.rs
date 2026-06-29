@@ -200,4 +200,65 @@ impl App {
             let _ = (name, path);
         }
     }
+
+    /// Load a RON trigger-zone file from `path` and register the set under `name`.
+    ///
+    /// Lazily inserts a [`crate::trigger_zone::TriggerZoneRegistry`] resource if one is not yet
+    /// present. On native builds the path is also registered with the `AssetServer` file watcher so
+    /// disk changes are hot-reloaded. Spawn the loaded zones with
+    /// [`spawn_trigger_zones`](Self::spawn_trigger_zones).
+    ///
+    /// Errors (file not found, parse failure) are logged via `log::warn!` and silently dropped — the
+    /// registry will simply not contain the set. This method is a no-op on wasm (file I/O is
+    /// unsupported there; parse with [`TriggerZoneSet::from_ron_str`](crate::TriggerZoneSet::from_ron_str)
+    /// and [`TriggerZoneRegistry::insert`](crate::TriggerZoneRegistry::insert) instead).
+    pub fn load_trigger_zones(&mut self, name: impl Into<String>, path: impl Into<String>) {
+        use crate::trigger_zone::TriggerZoneRegistry;
+
+        let name = name.into();
+        let path = path.into();
+
+        if self.world.resource::<TriggerZoneRegistry>().is_none() {
+            self.world.insert_resource(TriggerZoneRegistry::default());
+        }
+        // Preserve the registry across scene Replace world resets.
+        self.register_persistent::<TriggerZoneRegistry>();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(reg) = self.world.resource_mut::<TriggerZoneRegistry>() {
+                if let Err(e) = reg.load(name, &path) {
+                    log::warn!("load_trigger_zones: failed to load '{path}': {e}");
+                    return;
+                }
+            }
+            if let Some(assets) = self.world.resource_mut::<crate::asset::AssetServer>() {
+                assets.watch_path(&path);
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (name, path);
+        }
+    }
+
+    /// Spawn the zones of the named [`TriggerZoneSet`](crate::TriggerZoneSet) (loaded via
+    /// [`load_trigger_zones`](Self::load_trigger_zones)) into the world, returning the spawned
+    /// entities. Cross-platform. Returns an empty vec (and warns) if no set is registered under
+    /// `name`.
+    pub fn spawn_trigger_zones(&mut self, name: &str) -> Vec<crate::ecs::Entity> {
+        // Clone the set out so we can take `&mut World` to spawn it.
+        let set = self
+            .world
+            .resource::<crate::trigger_zone::TriggerZoneRegistry>()
+            .and_then(|reg| reg.get(name).cloned());
+        match set {
+            Some(set) => set.spawn_into(&mut self.world),
+            None => {
+                log::warn!("spawn_trigger_zones: no trigger-zone set registered under '{name}'");
+                Vec::new()
+            }
+        }
+    }
 }

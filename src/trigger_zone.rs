@@ -242,6 +242,209 @@ impl System for TriggerZoneSystem {
     }
 }
 
+// ── Data-driven trigger zones ─────────────────────────────────────────────────
+//
+// Author a level's zones in a RON file and spawn them as entities, the same way
+// particle/dialogue/animation configs are data-driven (private serde-mirror types →
+// a `RonLoadable` set → a `RonRegistry`-backed registry with native hot-reload).
+
+use serde::Deserialize;
+
+/// Serde-only tuple for [`Vec2`]: `(x, y)`.
+#[derive(Deserialize, Clone, Copy, Debug, Default)]
+struct Vec2Def(f32, f32);
+
+impl From<Vec2Def> for Vec2 {
+    fn from(v: Vec2Def) -> Vec2 {
+        Vec2::new(v.0, v.1)
+    }
+}
+
+/// Serde-only mirror of [`TriggerShape`]. RON: `Circle(radius: 60.0)` /
+/// `Rect(half_extents: (48.0, 64.0))`.
+#[derive(Deserialize, Clone, Copy, Debug)]
+enum TriggerShapeDef {
+    Circle { radius: f32 },
+    Rect { half_extents: Vec2Def },
+}
+
+impl From<TriggerShapeDef> for TriggerShape {
+    fn from(s: TriggerShapeDef) -> TriggerShape {
+        match s {
+            TriggerShapeDef::Circle { radius } => TriggerShape::Circle { radius },
+            TriggerShapeDef::Rect { half_extents } => TriggerShape::Rect {
+                half_extents: half_extents.into(),
+            },
+        }
+    }
+}
+
+/// One zone's definition inside a RON file: a `tag` (optional name, attached as a
+/// [`Tag`](crate::Tag) for reacting to [`ZoneEvent`]s), a world `pos`, a `shape`, and a `mask`
+/// (raw [`CollisionLayer`] bits; defaults to all layers).
+#[derive(Deserialize, Clone, Debug)]
+struct TriggerZoneDef {
+    #[serde(default)]
+    tag: String,
+    pos: Vec2Def,
+    shape: TriggerShapeDef,
+    #[serde(default = "default_mask")]
+    mask: u32,
+}
+
+fn default_mask() -> u32 {
+    CollisionLayer::ALL.0
+}
+
+#[derive(Deserialize, Debug)]
+struct TriggerZoneDoc {
+    zones: Vec<TriggerZoneDef>,
+}
+
+/// Error returned by [`TriggerZoneSet::from_ron_str`] / [`TriggerZoneRegistry::load`].
+///
+/// A type alias for [`crate::asset::AssetLoadError`] (shared with the particle/animation config
+/// loaders) — keeps the public name stable without duplicating the error boilerplate.
+pub type TriggerZoneSetError = crate::asset::AssetLoadError;
+
+/// A set of [`TriggerZone`]s loaded from a single RON file (see the [module docs](crate::trigger_zone)).
+///
+/// Spawn them with [`spawn_into`](TriggerZoneSet::spawn_into) (or [`App::spawn_trigger_zones`](crate::App::spawn_trigger_zones)):
+/// each def becomes an entity with a [`Transform`], a [`TriggerZone`], and — if the def has a
+/// non-empty `tag` — a [`Tag`](crate::Tag) so a [`ZoneEvent`] can be resolved to a named zone. The
+/// zone entities carry **no** `Sprite`; a game draws them however it likes (the `data_trigger_zones`
+/// example sizes a debug quad from each zone's shape).
+///
+/// ```
+/// # use engine::TriggerZoneSet;
+/// let ron = r#"(zones: [
+///     (tag: "heal",   pos: (190.0, 250.0), shape: Rect(half_extents: (48.0, 64.0)), mask: 1),
+///     (tag: "damage", pos: (420.0, 250.0), shape: Circle(radius: 60.0)),
+/// ])"#;
+/// let set = TriggerZoneSet::from_ron_str(ron).unwrap();
+/// assert_eq!(set.len(), 2);
+/// assert_eq!(set.tags(), vec!["heal".to_string(), "damage".to_string()]);
+/// ```
+#[derive(Clone, Debug)]
+pub struct TriggerZoneSet {
+    defs: Vec<TriggerZoneDef>,
+}
+
+impl TriggerZoneSet {
+    /// Parse a [`TriggerZoneSet`] from a RON string (cross-platform).
+    ///
+    /// Returns `Err` on malformed input rather than panicking.
+    pub fn from_ron_str(s: &str) -> Result<Self, TriggerZoneSetError> {
+        let doc: TriggerZoneDoc =
+            ron::from_str(s).map_err(|e| TriggerZoneSetError::Ron(e.to_string()))?;
+        Ok(TriggerZoneSet { defs: doc.zones })
+    }
+
+    /// Number of zones in the set.
+    pub fn len(&self) -> usize {
+        self.defs.len()
+    }
+
+    /// Whether the set has no zones.
+    pub fn is_empty(&self) -> bool {
+        self.defs.is_empty()
+    }
+
+    /// The zones' tags, in file order (empty strings for untagged zones).
+    pub fn tags(&self) -> Vec<String> {
+        self.defs.iter().map(|d| d.tag.clone()).collect()
+    }
+
+    /// Spawn one entity per zone into `world` and return the spawned entities (in file order).
+    ///
+    /// Each entity gets a [`Transform`] at the def's position, a [`TriggerZone`] with the def's
+    /// shape + mask, and — when the def has a non-empty `tag` — a [`Tag`](crate::Tag).
+    pub fn spawn_into(&self, world: &mut World) -> Vec<Entity> {
+        self.defs
+            .iter()
+            .map(|d| {
+                let e = world.spawn();
+                world.add_component(
+                    e,
+                    Transform {
+                        position: d.pos.into(),
+                        ..Default::default()
+                    },
+                );
+                world.add_component(
+                    e,
+                    TriggerZone {
+                        shape: d.shape.into(),
+                        mask: CollisionLayer(d.mask),
+                        occupants: Vec::new(),
+                    },
+                );
+                if !d.tag.is_empty() {
+                    world.add_component(e, crate::prefab::Tag(d.tag.clone()));
+                }
+                e
+            })
+            .collect()
+    }
+}
+
+/// Registry of named [`TriggerZoneSet`]s, stored as a World resource.
+///
+/// On native builds, load sets via [`App::load_trigger_zones`](crate::App::load_trigger_zones)
+/// (which wires up the file watcher for hot-reload) and spawn them with
+/// [`App::spawn_trigger_zones`](crate::App::spawn_trigger_zones). On wasm, parse with
+/// [`TriggerZoneSet::from_ron_str`] and [`insert`](TriggerZoneRegistry::insert).
+#[derive(Default)]
+pub struct TriggerZoneRegistry {
+    inner: crate::ron_registry::RonRegistry<TriggerZoneSet>,
+}
+
+impl TriggerZoneRegistry {
+    /// Load a [`TriggerZoneSet`] from `path` and register it under `name` (native only).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn load(&mut self, name: impl Into<String>, path: &str) -> Result<(), TriggerZoneSetError> {
+        self.inner.load(name, path)
+    }
+
+    /// Insert a set directly (in-memory; useful for tests or wasm).
+    pub fn insert(&mut self, name: impl Into<String>, set: TriggerZoneSet) {
+        self.inner.insert(name, set);
+    }
+
+    /// Look up a [`TriggerZoneSet`] by name.
+    pub fn get(&self, name: &str) -> Option<&TriggerZoneSet> {
+        self.inner.get(name)
+    }
+
+    /// Sorted list of registered set names.
+    pub fn names(&self) -> Vec<String> {
+        self.inner.names()
+    }
+
+    /// Re-read the file whose registered path matches `path` (native only). Called automatically
+    /// by [`App`](crate::App) on every hot-reload tick.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn reload_path(&mut self, path: &str) {
+        self.inner.reload_path(path, "trigger_zone");
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl crate::ron_registry::RonLoadable for TriggerZoneSet {
+    type Err = TriggerZoneSetError;
+    fn load_ron(path: &str) -> Result<Self, Self::Err> {
+        let text = std::fs::read_to_string(path)?;
+        Self::from_ron_str(&text)
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl crate::asset::HotReloadable for TriggerZoneRegistry {
+    fn reload_path(&mut self, path: &str) {
+        TriggerZoneRegistry::reload_path(self, path);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -442,5 +645,94 @@ mod tests {
         assert!(zone_sys.warned_no_grid);
         assert!(events(&world).is_empty());
         assert!(world.get::<TriggerZone>(zone).unwrap().occupants.is_empty());
+    }
+
+    // ── Data-driven set tests ──────────────────────────────────────────────────
+
+    const ZONES_RON: &str = r#"(zones: [
+        (tag: "heal",   pos: (190.0, 250.0), shape: Rect(half_extents: (48.0, 64.0)), mask: 1),
+        (tag: "damage", pos: (420.0, 250.0), shape: Circle(radius: 60.0), mask: 1),
+        (pos: (640.0, 250.0), shape: Rect(half_extents: (48.0, 64.0))),
+    ])"#;
+
+    #[test]
+    fn set_parses_and_spawns_entities_with_zones_and_tags() {
+        let set = TriggerZoneSet::from_ron_str(ZONES_RON).expect("parse");
+        assert_eq!(set.len(), 3);
+        assert_eq!(
+            set.tags(),
+            vec!["heal".to_string(), "damage".to_string(), String::new()]
+        );
+
+        let mut world = World::new();
+        let spawned = set.spawn_into(&mut world);
+        assert_eq!(spawned.len(), 3);
+
+        // First zone: rect, mask 1, tagged "heal".
+        let z0 = world.get::<TriggerZone>(spawned[0]).unwrap();
+        assert_eq!(
+            z0.shape,
+            TriggerShape::Rect {
+                half_extents: Vec2::new(48.0, 64.0)
+            }
+        );
+        assert_eq!(z0.mask, CollisionLayer(1));
+        assert_eq!(
+            world.get::<Transform>(spawned[0]).unwrap().position,
+            Vec2::new(190.0, 250.0)
+        );
+        assert_eq!(
+            world.get::<crate::prefab::Tag>(spawned[0]).unwrap().0,
+            "heal"
+        );
+
+        // Second zone: circle.
+        assert_eq!(
+            world.get::<TriggerZone>(spawned[1]).unwrap().shape,
+            TriggerShape::Circle { radius: 60.0 }
+        );
+
+        // Third zone: no tag → no Tag component; mask defaults to ALL.
+        assert!(world.get::<crate::prefab::Tag>(spawned[2]).is_none());
+        assert_eq!(
+            world.get::<TriggerZone>(spawned[2]).unwrap().mask,
+            CollisionLayer::ALL
+        );
+    }
+
+    #[test]
+    fn set_malformed_ron_returns_err() {
+        assert!(TriggerZoneSet::from_ron_str("not ron at all {{{").is_err());
+    }
+
+    #[test]
+    fn spawned_zones_detect_overlap_end_to_end() {
+        // A data-driven zone behaves exactly like a hand-built one once spawned.
+        let set = TriggerZoneSet::from_ron_str(
+            r#"(zones: [(tag: "z", pos: (0.0, 0.0), shape: Circle(radius: 50.0))])"#,
+        )
+        .expect("parse");
+        let mut world = World::new();
+        world.insert_resource(Events::<ZoneEvent>::default());
+        let zone = set.spawn_into(&mut world)[0];
+        let actor = spawn_actor(&mut world, Vec2::new(10.0, 0.0), None);
+
+        CollisionGridSystem::new(128.0).run(&mut world, 0.016);
+        TriggerZoneSystem::default().run(&mut world, 0.016);
+
+        assert_eq!(
+            events(&world),
+            vec![ZoneEvent::Entered { zone, other: actor }]
+        );
+    }
+
+    #[test]
+    fn registry_insert_get_names() {
+        let set = TriggerZoneSet::from_ron_str(ZONES_RON).expect("parse");
+        let mut reg = TriggerZoneRegistry::default();
+        reg.insert("level1", set);
+        assert_eq!(reg.get("level1").unwrap().len(), 3);
+        assert!(reg.get("missing").is_none());
+        assert_eq!(reg.names(), vec!["level1".to_string()]);
     }
 }
