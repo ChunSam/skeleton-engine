@@ -4,6 +4,18 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.88.0
+
+**Data-driven Zone→Effect bindings — author *what happens* on a trigger zone in RON.** The companion to data-driven trigger zones (0.87.0): a `ZoneEffectBindings` table maps a zone's `Tag` name to rules, each a `ZonePhase` (Entered/Stayed/Exited) paired with an `Effect`. The supported effects are the three game-feel reactions the engine already produces — `SpawnParticles` (a one-shot burst reusing a named `ParticleConfigRegistry` emitter, anchored at the entering entity or the zone), `PlayTone` (the cross-platform `Audio` facade), and `Flash` (a `HitFlash` on the entrant). A user-added `ZoneEffectSystem::new(name)` (run after `TriggerZoneSystem`) reads each `ZoneEvent`, resolves the zone's `Tag` to a key, and applies the matching rules — so a level's zones, the particles they fire, and their reactions all live in RON, composed by tag, with no Rust glue. Mirrors the existing config-set pattern (registry + native hot-reload, auto-registered); the effect vocabulary is deliberately ZoneEvent-focused (an `AnimationEvent`→effect binding is a natural future reuse of `Effect`). **Additive types + one `App` method; no breaking change.**
+
+### Added
+- `engine::Effect` (enum: `SpawnParticles { particles, count, at }` / `PlayTone { freq, dur, vol, bus }` / `Flash { color, secs }`), `engine::EffectAnchor` (`Other`/`Zone`), `engine::ZonePhase` (`Entered`/`Stayed`/`Exited`), `engine::ZoneEffectRule { on, effect }`.
+- `engine::ZoneEffectBindings` — `from_ron_str(s)` (cross-platform), `rules_for(tag)`, `len`/`is_empty`; the tag-keyed binding table.
+- `engine::ZoneEffectRegistry` (World resource) + `engine::ZoneEffectError`. Auto-registered as hot-reloadable, so loaded files reload on edit (native).
+- `App::load_zone_effects(name, path)` — lazily inserts the registry + watches the file; no-op on wasm (parse with `ZoneEffectBindings::from_ron_str` + `ZoneEffectRegistry::insert` there).
+- `engine::ZoneEffectSystem::new(name)` — user-added system applying a named binding table to incoming `ZoneEvent`s (add after `TriggerZoneSystem`).
+- Example `zone_effects` — heal/damage/goal zones, particle emitters, and effect bindings all authored in three RON files, composed by tag (`HEADLESS_SHOT` supported).
+
 ## 0.87.0
 
 **Data-driven trigger zones — author a level's zones in RON, load + spawn them.** The code-built `TriggerZone` (0.84.0) now has a data-driven counterpart: describe a set of zones in a RON file — each with a `tag` (name), `pos`, `shape` (`Circle`/`Rect`), and `mask` — load it with `App::load_trigger_zones(name, path)` (registry + native hot-reload, auto-registered like the particle/dialogue config registries), and spawn it with `App::spawn_trigger_zones(name)`. Each entry becomes an entity with a `Transform`, a `TriggerZone`, and (when tagged) a `Tag`, so a game reacts to a `ZoneEvent` by reading the zone entity's `Tag` and can add/move/retune zones by editing the RON without touching code. Mirrors the existing config-set pattern (private serde-mirror types), so no serde is added to the runtime `TriggerShape`/`CollisionLayer`. **Additive types + two `App` methods; no breaking change.**

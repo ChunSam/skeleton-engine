@@ -1,0 +1,29 @@
+// Data-driven Zone→Effect bindings for examples/zone_effects.rs.
+//
+// Loaded via `App::load_zone_effects("effects", "examples/zone_effects.ron")` and applied by a
+// `ZoneEffectSystem::new("effects")` added after `TriggerZoneSystem`. The system reads each
+// `ZoneEvent`, resolves the zone entity to its `Tag` name (the keys below), and runs the matching
+// rules. Edit + save while the example runs (native) to retune reactions with no code change.
+//
+// Each rule: `on` = which phase (Entered [default] / Stayed / Exited), `effect` = one of:
+//   SpawnParticles(particles: "<emitter>", count: <n>, at: Other|Zone)  — burst (emitter from the
+//       particle-config registry; `at` anchors it at the entering entity [default] or the zone)
+//   PlayTone(freq: <hz>, dur: <s>, vol: <0..1>, bus: Some("<name>"))     — synthesized tone
+//   Flash(color: (r, g, b, a), secs: <s>)                                — HitFlash on the entrant
+(
+    bindings: {
+        "heal": [
+            (on: Entered, effect: SpawnParticles(particles: "sparkle", count: 18, at: Zone)),
+            (on: Entered, effect: PlayTone(freq: 660.0, dur: 0.18, vol: 0.3)),
+        ],
+        "damage": [
+            (on: Entered, effect: Flash(color: (1.0, 0.3, 0.3, 1.0), secs: 0.3)),
+            (on: Entered, effect: SpawnParticles(particles: "blood", count: 22, at: Other)),
+            (on: Entered, effect: PlayTone(freq: 110.0, dur: 0.15, vol: 0.4)),
+        ],
+        "goal": [
+            (on: Entered, effect: SpawnParticles(particles: "sparkle", count: 30, at: Other)),
+            (on: Entered, effect: PlayTone(freq: 880.0, dur: 0.4, vol: 0.5)),
+        ],
+    },
+)

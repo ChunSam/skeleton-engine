@@ -46,6 +46,7 @@ pub mod save;
 pub mod serde_registry;
 pub mod trigger_zone;
 pub mod ysort;
+pub mod zone_effect;
 pub use save::{
     delete, exists, load, load_migrated, load_or_default, load_with_key, save, save_path,
     save_versioned, save_with_key, SaveError, SaveKey, SaveMigrator,
@@ -156,6 +157,10 @@ pub use trigger_zone::{
     TriggerZoneSystem, ZoneEvent,
 };
 pub use ysort::{YSort, YSortSystem};
+pub use zone_effect::{
+    Effect, EffectAnchor, ZoneEffectBindings, ZoneEffectError, ZoneEffectRegistry, ZoneEffectRule,
+    ZoneEffectSystem, ZonePhase,
+};
 // par_query_for_each / par_query_map / par_query2_for_each / par_query2_map are
 // World methods, so they are accessible via the World re-export (no separate re-export needed)
 pub use reflect::{Reflect, ReflectValue};
