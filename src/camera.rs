@@ -1,6 +1,14 @@
 use crate::ecs::Entity;
 use glam::{Mat4, Vec2};
 
+/// Default [`Camera::lookahead_speed`] — how fast the lookahead offset eases toward its target,
+/// per second.
+pub const DEFAULT_LOOKAHEAD_SPEED: f32 = 3.0;
+
+/// Follow-target speed (world units/second) below which lookahead treats the target as stationary
+/// and eases the offset back to center.
+const LOOKAHEAD_VEL_EPSILON: f32 = 1.0;
+
 /// Post-multiplies a centered clip-space letterbox scale onto a projection matrix.
 ///
 /// When `clip_scale == (1.0, 1.0)` (no design resolution active) the projection is returned
@@ -35,6 +43,20 @@ pub fn apply_letterbox(clip_scale: Vec2, proj: Mat4) -> Mat4 {
 /// Set `bounds = Some((min, max))` to constrain the camera so the visible viewport never
 /// scrolls outside the world rectangle. Call [`clamp_to_bounds`](Self::clamp_to_bounds)
 /// (or let App call it automatically each frame) after positioning the camera.
+///
+/// # Motion lookahead
+///
+/// Set [`lookahead`](Self::lookahead) (world units) to bias the camera ahead of a moving
+/// [`follow_entity`](Self::follow_entity), so the player sees more of where they are going. The
+/// offset is derived from the target's velocity and eases in/out at
+/// [`lookahead_speed`](Self::lookahead_speed); `0.0` (the default) disables it.
+///
+/// ```
+/// # use engine::{Camera, Vec2};
+/// let mut cam = Camera::default();
+/// cam.lookahead = 120.0; // lead up to 120 world units in the direction of motion
+/// assert_eq!(cam.lookahead_offset(), Vec2::ZERO); // zero until it follows a moving target
+/// ```
 #[derive(Debug, Clone, Copy)]
 pub struct Camera {
     /// Top-left world coordinate of the viewport (in pixels)
@@ -64,6 +86,19 @@ pub struct Camera {
     /// Lerp strength per second. 0.0 = no tracking, 1.0 = instant snap. Default 5.0
     pub lerp_factor: f32,
 
+    // --- Motion Lookahead ---
+    /// Maximum distance (world units) to lead the follow target in its direction of motion, so the
+    /// player sees more of where they are going. `0.0` (the default) disables lookahead → the camera
+    /// tracks the target directly (byte-identical to a plain follow).
+    pub lookahead: f32,
+    /// How fast the lookahead offset eases toward its target (and back to center when the target
+    /// stops), per second — see [`DEFAULT_LOOKAHEAD_SPEED`]. Higher = snappier lead.
+    pub lookahead_speed: f32,
+    /// Current smoothed lookahead offset (read via [`lookahead_offset`](Self::lookahead_offset)).
+    lookahead_offset: Vec2,
+    /// Previous follow position, used to derive the target's velocity for lookahead.
+    last_follow_pos: Option<Vec2>,
+
     // --- Zoom Tween ---
     /// Target zoom value
     zoom_target: f32,
@@ -82,6 +117,10 @@ impl Default for Camera {
             shake_timer: 0.0,
             follow_entity: None,
             lerp_factor: 5.0,
+            lookahead: 0.0,
+            lookahead_speed: DEFAULT_LOOKAHEAD_SPEED,
+            lookahead_offset: Vec2::ZERO,
+            last_follow_pos: None,
             zoom_target: 1.0,
             zoom_tween_speed: 0.0,
         }
@@ -140,6 +179,14 @@ impl Camera {
     /// Returns the remaining shake duration in seconds (0.0 if no shake is active).
     pub fn shake_remaining(&self) -> f32 {
         self.shake_duration.max(0.0)
+    }
+
+    /// The current smoothed lookahead offset applied to the follow target (see
+    /// [`lookahead`](Self::lookahead)). `Vec2::ZERO` when lookahead is disabled or the target is
+    /// stationary; otherwise it points in the target's direction of motion with magnitude up to
+    /// [`lookahead`](Self::lookahead).
+    pub fn lookahead_offset(&self) -> Vec2 {
+        self.lookahead_offset
     }
 
     /// Safe zoom multiplier to prevent division-by-zero/NaN. Even if `zoom` is set to
@@ -226,10 +273,35 @@ impl Camera {
     /// `follow_pos`: world position of the entity to follow this frame (`None` if none).
     /// Called automatically every frame by App.
     pub fn update(&mut self, dt: f32, follow_pos: Option<Vec2>) {
-        // 1. Smooth follow
+        // 1. Smooth follow (with optional motion lookahead)
         if let Some(pos) = follow_pos {
+            // Lookahead: lead the target in its direction of motion. Derive the target's velocity
+            // from the change in follow position, ease an offset toward `dir * lookahead`, and aim
+            // the follow at `pos + offset`. When the target is (near) stationary the offset eases
+            // back to zero (recenters). With `lookahead == 0` the offset stays zero, so this is
+            // byte-identical to a direct follow.
+            let target_offset = if self.lookahead > 0.0 {
+                match self.last_follow_pos {
+                    Some(last) if dt > 0.0 => {
+                        let velocity = (pos - last) / dt;
+                        if velocity.length() > LOOKAHEAD_VEL_EPSILON {
+                            velocity.normalize() * self.lookahead
+                        } else {
+                            Vec2::ZERO
+                        }
+                    }
+                    _ => Vec2::ZERO,
+                }
+            } else {
+                Vec2::ZERO
+            };
+            let ease = (self.lookahead_speed * dt).clamp(0.0, 1.0);
+            self.lookahead_offset += (target_offset - self.lookahead_offset) * ease;
+            self.last_follow_pos = Some(pos);
+
+            let aim = pos + self.lookahead_offset;
             let factor = (self.lerp_factor * dt).min(1.0);
-            self.position = self.position + (pos - self.position) * factor;
+            self.position = self.position + (aim - self.position) * factor;
         }
 
         // 2. Zoom tween
@@ -483,6 +555,82 @@ mod tests {
         // follow_pos = (100, 0), dt = 0.1s → factor = min(10*0.1, 1.0) = 1.0 → snap
         cam.update(0.1, Some(Vec2::new(100.0, 0.0)));
         assert!((cam.position.x - 100.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn lookahead_off_is_byte_identical_follow() {
+        // Default lookahead == 0 → the follow result must match a plain lerp, offset stays zero.
+        let mut cam = Camera {
+            position: Vec2::ZERO,
+            lerp_factor: 10.0,
+            ..Default::default()
+        };
+        cam.update(0.1, Some(Vec2::new(100.0, 0.0))); // factor=min(10*0.1,1)=1 → snap to aim=pos
+        assert!((cam.position.x - 100.0).abs() < 1e-5);
+        assert_eq!(cam.lookahead_offset(), Vec2::ZERO);
+    }
+
+    #[test]
+    fn lookahead_leads_in_direction_of_motion() {
+        let mut cam = Camera {
+            lookahead: 50.0,
+            lookahead_speed: 100.0, // ease ≈ 1 at dt=0.1 → offset snaps to target each frame
+            lerp_factor: 5.0,
+            ..Default::default()
+        };
+        // First frame establishes last_follow_pos (no velocity yet → no offset).
+        cam.update(0.1, Some(Vec2::ZERO));
+        assert_eq!(
+            cam.lookahead_offset(),
+            Vec2::ZERO,
+            "no lead before any motion"
+        );
+        // Move steadily right.
+        for i in 1..20 {
+            cam.update(0.1, Some(Vec2::new(i as f32 * 20.0, 0.0)));
+        }
+        let off = cam.lookahead_offset();
+        assert!(off.x > 0.0, "leads in +x direction: {off:?}");
+        assert!(
+            off.y.abs() < 1e-3,
+            "no vertical lead for horizontal motion: {off:?}"
+        );
+        // Magnitude never exceeds the configured lookahead distance.
+        assert!(
+            off.length() <= 50.0 + 1e-3,
+            "bounded by lookahead: {}",
+            off.length()
+        );
+        assert!(
+            (off.x - 50.0).abs() < 1.0,
+            "approaches the full lead distance: {}",
+            off.x
+        );
+    }
+
+    #[test]
+    fn lookahead_recenters_when_target_stops() {
+        let mut cam = Camera {
+            lookahead: 40.0,
+            lookahead_speed: 20.0,
+            ..Default::default()
+        };
+        cam.update(0.05, Some(Vec2::ZERO));
+        for i in 1..30 {
+            cam.update(0.05, Some(Vec2::new(i as f32 * 10.0, 0.0)));
+        }
+        let moving = cam.lookahead_offset().x;
+        assert!(moving > 0.0, "built up a lead while moving: {moving}");
+        // Hold still → velocity 0 → offset eases back toward center.
+        let last = Vec2::new(29.0 * 10.0, 0.0);
+        for _ in 0..120 {
+            cam.update(0.05, Some(last));
+        }
+        assert!(
+            cam.lookahead_offset().x < moving * 0.05,
+            "recentered after stopping: {} (was {moving})",
+            cam.lookahead_offset().x
+        );
     }
 
     #[test]
