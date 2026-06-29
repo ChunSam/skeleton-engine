@@ -266,6 +266,7 @@ impl App {
             app.register_hot_reloadable::<crate::particle::ParticleConfigRegistry>();
             app.register_hot_reloadable::<crate::dialogue::DialogueRegistry>();
             app.register_hot_reloadable::<crate::trigger_zone::TriggerZoneRegistry>();
+            app.register_hot_reloadable::<crate::zone_effect::ZoneEffectRegistry>();
         }
 
         // Register HierarchySystem as the one permanent tail built-in.

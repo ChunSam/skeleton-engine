@@ -261,4 +261,48 @@ impl App {
             }
         }
     }
+
+    /// Load a RON zone-effect binding table from `path` and register it under `name`.
+    ///
+    /// Lazily inserts a [`crate::zone_effect::ZoneEffectRegistry`] resource if one is not yet
+    /// present. On native builds the path is also registered with the `AssetServer` file watcher so
+    /// disk changes are hot-reloaded. Apply the loaded table with a
+    /// [`ZoneEffectSystem::new(name)`](crate::ZoneEffectSystem) added after
+    /// [`TriggerZoneSystem`](crate::TriggerZoneSystem).
+    ///
+    /// Errors (file not found, parse failure) are logged via `log::warn!` and silently dropped — the
+    /// registry will simply not contain the table. This method is a no-op on wasm (file I/O is
+    /// unsupported there; parse with
+    /// [`ZoneEffectBindings::from_ron_str`](crate::ZoneEffectBindings::from_ron_str) and
+    /// [`ZoneEffectRegistry::insert`](crate::ZoneEffectRegistry::insert) instead).
+    pub fn load_zone_effects(&mut self, name: impl Into<String>, path: impl Into<String>) {
+        use crate::zone_effect::ZoneEffectRegistry;
+
+        let name = name.into();
+        let path = path.into();
+
+        if self.world.resource::<ZoneEffectRegistry>().is_none() {
+            self.world.insert_resource(ZoneEffectRegistry::default());
+        }
+        // Preserve the registry across scene Replace world resets.
+        self.register_persistent::<ZoneEffectRegistry>();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(reg) = self.world.resource_mut::<ZoneEffectRegistry>() {
+                if let Err(e) = reg.load(name, &path) {
+                    log::warn!("load_zone_effects: failed to load '{path}': {e}");
+                    return;
+                }
+            }
+            if let Some(assets) = self.world.resource_mut::<crate::asset::AssetServer>() {
+                assets.watch_path(&path);
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (name, path);
+        }
+    }
 }
