@@ -4,6 +4,17 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.87.0
+
+**Data-driven trigger zones — author a level's zones in RON, load + spawn them.** The code-built `TriggerZone` (0.84.0) now has a data-driven counterpart: describe a set of zones in a RON file — each with a `tag` (name), `pos`, `shape` (`Circle`/`Rect`), and `mask` — load it with `App::load_trigger_zones(name, path)` (registry + native hot-reload, auto-registered like the particle/dialogue config registries), and spawn it with `App::spawn_trigger_zones(name)`. Each entry becomes an entity with a `Transform`, a `TriggerZone`, and (when tagged) a `Tag`, so a game reacts to a `ZoneEvent` by reading the zone entity's `Tag` and can add/move/retune zones by editing the RON without touching code. Mirrors the existing config-set pattern (private serde-mirror types), so no serde is added to the runtime `TriggerShape`/`CollisionLayer`. **Additive types + two `App` methods; no breaking change.**
+
+### Added
+- `engine::TriggerZoneSet` — `from_ron_str(s)` (cross-platform), `len`/`is_empty`/`tags`, and `spawn_into(world) -> Vec<Entity>` (one entity per def: `Transform` + `TriggerZone` + a `Tag` when the def has a non-empty tag; zones carry no `Sprite` — the game draws them).
+- `engine::TriggerZoneRegistry` (World resource) + `engine::TriggerZoneSetError`. The registry is auto-registered as hot-reloadable, so loaded files reload on edit (native).
+- `App::load_trigger_zones(name, path)` (lazily inserts the registry + watches the file; no-op on wasm) and `App::spawn_trigger_zones(name) -> Vec<Entity>` (cross-platform).
+- Example `data_trigger_zones` (+ `examples/data_trigger_zones.ron`) — the heal/damage/goal walk from `trigger_zones`, but the zones are loaded from RON and spawned; the example sizes a debug quad from each zone's shape and resolves `ZoneEvent`s to names via `Tag`. `HEADLESS_SHOT` supported (auto-drifts the player; defaults to 130 warmup frames).
+- Unit tests: parse + spawn (entities get the right shape/mask/Tag, untagged → no Tag, mask defaults to all), malformed RON → Err, a spawned zone detects overlap end-to-end, and registry insert/get/names.
+
 ## 0.86.0
 
 **Camera motion lookahead — bias the camera ahead of a moving follow target.** With a plain smooth-follow the camera centers on the target, so a fast-moving player sees as much behind them as ahead. Set `Camera::lookahead` (world units) and the camera now leads the view in the target's direction of motion: `Camera::update` derives the target's velocity from the change in follow position, eases an offset toward `direction * lookahead` (at `Camera::lookahead_speed`), and aims the follow at `position + offset` — so the player sees more of where they are going, and the view recenters when they stop. It is entirely internal to `Camera` (the App's per-frame `Camera::update` call site is unchanged), and `lookahead == 0` (the default) is byte-identical to a direct follow. **Additive `Camera` fields + one accessor; no breaking change.**

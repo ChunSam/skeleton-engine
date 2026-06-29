@@ -1,0 +1,16 @@
+// Data-driven trigger zones for examples/data_trigger_zones.rs.
+//
+// Loaded via `App::load_trigger_zones("level", "examples/data_trigger_zones.ron")` and spawned with
+// `App::spawn_trigger_zones("level")`. Edit this file while the example runs (native) — the zones
+// hot-reload on the next spawn. Each zone:
+//   - tag:   name, attached as an `engine::Tag` so a `ZoneEvent` can be resolved to a named zone
+//   - pos:   world position (the zone's center)
+//   - shape: `Circle(radius: r)` or `Rect(half_extents: (hw, hh))`
+//   - mask:  CollisionLayer bits to watch (the player is on layer 1); defaults to all layers
+(
+    zones: [
+        (tag: "heal",   pos: (190.0, 250.0), shape: Rect(half_extents: (48.0, 64.0)), mask: 1),
+        (tag: "damage", pos: (420.0, 250.0), shape: Circle(radius: 64.0),             mask: 1),
+        (tag: "goal",   pos: (640.0, 250.0), shape: Rect(half_extents: (48.0, 64.0)), mask: 1),
+    ],
+)

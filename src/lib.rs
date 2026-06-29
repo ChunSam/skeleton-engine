@@ -151,7 +151,10 @@ pub use skeletal::{
     BoneKeyframe, BoneTrack, SkeletalAnimationSystem, SkeletalAnimator, SkeletalClip,
     SkeletonBuilder,
 };
-pub use trigger_zone::{TriggerShape, TriggerZone, TriggerZoneSystem, ZoneEvent};
+pub use trigger_zone::{
+    TriggerShape, TriggerZone, TriggerZoneRegistry, TriggerZoneSet, TriggerZoneSetError,
+    TriggerZoneSystem, ZoneEvent,
+};
 pub use ysort::{YSort, YSortSystem};
 // par_query_for_each / par_query_map / par_query2_for_each / par_query2_map are
 // World methods, so they are accessible via the World re-export (no separate re-export needed)
