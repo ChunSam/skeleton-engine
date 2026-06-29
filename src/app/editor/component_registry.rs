@@ -21,6 +21,9 @@ impl App {
         self.register_component("YSort", |world, e| {
             world.add_component(e, crate::ysort::YSort::default());
         });
+        self.register_component("TriggerZone", |world, e| {
+            world.add_component(e, crate::trigger_zone::TriggerZone::default());
+        });
         self.register_component("AnimationEvents", |world, e| {
             world.add_component(e, crate::animation::events::AnimationEvents::default());
         });
@@ -69,6 +72,9 @@ impl App {
         });
         self.register_component_remover("YSort", |world, e| {
             world.remove_component::<crate::ysort::YSort>(e);
+        });
+        self.register_component_remover("TriggerZone", |world, e| {
+            world.remove_component::<crate::trigger_zone::TriggerZone>(e);
         });
         self.register_component_remover("AnimationEvents", |world, e| {
             world.remove_component::<crate::animation::events::AnimationEvents>(e);
