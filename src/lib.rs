@@ -76,8 +76,9 @@ pub use winit::keyboard::KeyCode;
 
 pub use animation::{
     AnimParam, AnimState, AnimTransition, AnimationClip, AnimationClipRegistry, AnimationClipSet,
-    AnimationPlayer, AnimationStateMachine, AnimationSystem, BlendEntry, BlendTree1D,
-    BlendTreeSystem, BlendWeight, ClipSetError, StateMachineSystem, TransitionCond,
+    AnimationEvent, AnimationEvents, AnimationPlayer, AnimationStateMachine, AnimationSystem,
+    BlendEntry, BlendTree1D, BlendTreeSystem, BlendWeight, ClipSetError, FrameEvent,
+    StateMachineSystem, TransitionCond,
 };
 pub use app::{App, ScheduleErrorPolicy, SystemPanicPolicy};
 #[cfg(not(target_arch = "wasm32"))]

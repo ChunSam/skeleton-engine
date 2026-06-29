@@ -40,12 +40,14 @@
 
 pub mod blend_system;
 pub mod blend_tree;
+pub mod events;
 pub mod player;
 pub mod state_machine;
 pub mod system;
 
 pub use blend_system::BlendTreeSystem;
 pub use blend_tree::{BlendEntry, BlendTree1D};
+pub use events::{AnimationEvent, AnimationEvents, FrameEvent};
 pub use player::{AnimationClip, AnimationPlayer, BlendWeight};
 pub use state_machine::{
     AnimParam, AnimState, AnimTransition, AnimationStateMachine, StateMachineSystem, TransitionCond,
