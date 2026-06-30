@@ -6,6 +6,35 @@ use super::EditorHistory;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::app::ComponentFactory;
 
+/// Default lifetime (seconds) of an editor toast before it fades out and is dropped.
+#[cfg(not(target_arch = "wasm32"))]
+pub(in crate::app) const DEFAULT_TOAST_TTL: f32 = 2.6;
+
+/// Severity / colour of an editor [`Toast`] (transient action-feedback popup).
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(in crate::app) enum ToastKind {
+    /// Neutral notice (e.g. "Pasted 2").
+    Info,
+    /// A succeeded action (e.g. "Scene saved").
+    Success,
+    /// A failed action (e.g. "Save failed: …").
+    Error,
+}
+
+/// A transient on-screen action-feedback popup (e.g. "Scene saved", "3 deleted") drawn bottom-right
+/// and aged out after [`DEFAULT_TOAST_TTL`]. Pushed by editor actions via `App::push_editor_toast`,
+/// aged + rendered each frame by `App::draw_editor_toasts`.
+#[cfg(not(target_arch = "wasm32"))]
+pub(in crate::app) struct Toast {
+    pub(in crate::app) message: String,
+    pub(in crate::app) kind: ToastKind,
+    /// Seconds since the toast was pushed.
+    pub(in crate::app) age: f32,
+    /// Total lifetime in seconds (the last ~0.6 s fades out).
+    pub(in crate::app) ttl: f32,
+}
+
 /// A pluggable inspector sub-panel registered via [`App::register_inspector_panel`].
 ///
 /// When the inspector draws the selected entity, each registered panel is evaluated:
@@ -303,6 +332,9 @@ pub(in crate::app) struct EditorState {
     /// `? Keys` button). Discoverability aid — lists every editor shortcut.
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) show_shortcuts: bool,
+    /// Active action-feedback toasts (transient popups; aged + drawn bottom-right each frame).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) toasts: Vec<Toast>,
     /// Editor UI language (English / Korean). Persisted in `editor_settings.ron`.
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) locale: super::EditorLocale,
@@ -400,6 +432,7 @@ impl EditorState {
             show_bounds: false,
             show_pathgrid: false,
             show_shortcuts: false,
+            toasts: Vec::new(),
             locale: super::EditorLocale::default(),
             rotate_active: false,
             rotate_start_rotation: 0.0,

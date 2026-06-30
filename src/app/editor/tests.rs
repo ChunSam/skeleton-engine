@@ -504,3 +504,15 @@ fn editor_focus_camera_centers_on_selection() {
     let cam = app.world.resource::<Camera>().unwrap();
     assert_eq!(cam.position, glam::Vec2::new(100.0, 0.0));
 }
+
+#[test]
+fn editor_toasts_push_and_cap_to_five() {
+    let mut app = crate::app::App::new();
+    for i in 0..8 {
+        app.editor_toast(format!("toast {i}"));
+    }
+    // The queue is capped at 5, dropping the oldest.
+    assert_eq!(app.editor.toasts.len(), 5);
+    assert_eq!(app.editor.toasts.first().unwrap().message, "toast 3");
+    assert_eq!(app.editor.toasts.last().unwrap().message, "toast 7");
+}

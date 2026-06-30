@@ -3,6 +3,10 @@ use super::*;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::app::editor::entity_to_def;
 #[cfg(not(target_arch = "wasm32"))]
+use crate::app::editor::state::ToastKind;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::app::editor::tr;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::app::editor::EditorCmd;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::camera::Camera;
@@ -121,7 +125,9 @@ impl App {
         }
         if let Some(&first) = pasted.first() {
             self.editor.inspector_selected = Some(first);
+            let n = pasted.len();
             self.editor.selected_entities = pasted;
+            self.push_editor_toast(format!("{} {n}", tr("Pasted", "붙여넣기")), ToastKind::Info);
         }
     }
 
@@ -138,6 +144,7 @@ impl App {
     /// Delete every entity in the current editor selection (multi-select aware), recording each for
     /// undo, then clear the selection. Backs the Delete / Backspace shortcut.
     pub(in crate::app) fn editor_delete_selection(&mut self) {
+        let mut deleted = 0u32;
         for e in self.editor_effective_selection() {
             if !self.world.is_alive(e) {
                 continue;
@@ -147,9 +154,16 @@ impl App {
                 .cmd_history
                 .push(EditorCmd::DeleteEntity { entity: None, def });
             self.world.despawn(e);
+            deleted += 1;
         }
         self.editor.inspector_selected = None;
         self.editor.selected_entities.clear();
+        if deleted > 0 {
+            self.push_editor_toast(
+                format!("{} {deleted}", tr("Deleted", "삭제됨")),
+                ToastKind::Success,
+            );
+        }
     }
 
     /// Duplicate every selected entity (clone all components, offset +16 px), record each for undo,
@@ -171,7 +185,12 @@ impl App {
         }
         if let Some(&first) = clones.first() {
             self.editor.inspector_selected = Some(first);
+            let n = clones.len();
             self.editor.selected_entities = clones;
+            self.push_editor_toast(
+                format!("{} {n}", tr("Duplicated", "복제됨")),
+                ToastKind::Success,
+            );
         }
     }
 

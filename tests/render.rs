@@ -448,3 +448,45 @@ fn editor_overlay_renders_headless() {
         "no bright editor-UI pixels — the headless editor overlay did not render: max_luma={max_luma}"
     );
 }
+
+/// The headless editor path also draws **action toasts** (bottom-right colour-coded popups). With a
+/// dark clear color, the toast's panel + light text make the bottom-right corner measurably brighter
+/// than the bare bottom-left — proving the toast rendered. (The overlay's EngineStats sits top-left,
+/// so it doesn't pollute either sampled region.)
+#[test]
+fn editor_toast_renders_headless() {
+    let (w, h) = (520u32, 380u32);
+    let mut app = App::new();
+    app.world.insert_resource(WindowConfig {
+        title: "editor toast headless".into(),
+        width: w,
+        height: h,
+        clear_color: [0.05, 0.06, 0.09, 1.0],
+    });
+    app.editor_toast_success("Scene saved (3)");
+
+    let Some((rw, rh, px)) = editor_render_or_skip(&mut app, 3) else {
+        return;
+    };
+    assert_eq!((rw, rh), (w, h), "read-back size mismatch");
+
+    // The Success toast's green panel is actually darker than the (also-dark) clear color, but its
+    // light TEXT is not: the brightest pixel in the bottom-right quadrant (where the toast sits;
+    // EngineStats is top-left) far exceeds the uniform clear color. Compare against a bare pixel.
+    let clear = px_rgb(&px, rw, rw / 2, rh / 2);
+    let clear_luma = clear[0] as u32 + clear[1] as u32 + clear[2] as u32;
+    let mut max_br = 0u32;
+    for y in (rh / 2)..rh {
+        for x in (rw / 2)..rw {
+            let p = px_rgb(&px, rw, x, y);
+            let l = p[0] as u32 + p[1] as u32 + p[2] as u32;
+            if l > max_br {
+                max_br = l;
+            }
+        }
+    }
+    assert!(
+        max_br > clear_luma + 120,
+        "action toast text not visible bottom-right: max_br={max_br} clear_luma={clear_luma}"
+    );
+}

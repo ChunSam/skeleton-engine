@@ -867,7 +867,19 @@ pub(in crate::app) fn do_save_scene_with_list(
     }
     let count = scene_def.entities.len();
     let path = app.editor.editor_save_path.clone();
-    app.editor.editor_save_status = match scene_def.save(std::path::Path::new(&path)) {
+    let save_result = scene_def.save(std::path::Path::new(&path));
+    // Surface the outcome as a toast (covers both the toolbar button and Ctrl+S).
+    match &save_result {
+        Ok(()) => app.push_editor_toast(
+            format!("{} ({count})", tr("Scene saved", "씬 저장됨")),
+            crate::app::editor::state::ToastKind::Success,
+        ),
+        Err(e) => app.push_editor_toast(
+            format!("{}: {e}", tr("Save failed", "저장 실패")),
+            crate::app::editor::state::ToastKind::Error,
+        ),
+    }
+    app.editor.editor_save_status = match save_result {
         Ok(()) => {
             if dropped_parent_links > 0 {
                 Some(format!(

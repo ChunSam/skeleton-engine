@@ -29,11 +29,15 @@ fn main() {
         app.world.add_component(e, Transform::default());
     }
 
-    // Open the keyboard-shortcuts cheatsheet, then capture the editor overlay headlessly.
+    // Open the keyboard-shortcuts cheatsheet (top-left) and push some action-feedback toasts
+    // (bottom-right, colour-coded), then capture the editor overlay headlessly.
     app.set_editor_shortcuts_visible(true);
+    app.editor_toast("Pasted 2");
+    app.editor_toast_success("Scene saved (3)");
+    app.editor_toast_error("Load failed: missing.ron");
 
     let out = std::env::var("HEADLESS_SHOT").unwrap_or_else(|_| "/tmp/editor_headless.png".into());
     app.screenshot_editor_headless(3, &out)
         .expect("headless editor screenshot");
-    println!("wrote {out} (editor overlay + shortcuts cheatsheet)");
+    println!("wrote {out} (editor overlay + cheatsheet + action toasts)");
 }
