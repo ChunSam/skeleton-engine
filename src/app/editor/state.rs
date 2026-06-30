@@ -299,6 +299,10 @@ pub(in crate::app) struct EditorState {
     /// Whether the pathfinding-grid overlay is drawn (per-`Tilemap` walkable/blocked cells).
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) show_pathgrid: bool,
+    /// Whether the keyboard-shortcuts cheatsheet window is shown (toggled by `?` or the toolbar
+    /// `? Keys` button). Discoverability aid — lists every editor shortcut.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) show_shortcuts: bool,
     /// Editor UI language (English / Korean). Persisted in `editor_settings.ron`.
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) locale: super::EditorLocale,
@@ -395,6 +399,7 @@ impl EditorState {
             show_grid: false,
             show_bounds: false,
             show_pathgrid: false,
+            show_shortcuts: false,
             locale: super::EditorLocale::default(),
             rotate_active: false,
             rotate_start_rotation: 0.0,

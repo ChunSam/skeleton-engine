@@ -240,6 +240,17 @@ fn docked_toolbar(ui: &mut egui::Ui, app: &mut App) {
             app.editor.locale = app.editor.locale.toggled();
             app.save_editor_settings();
         }
+        // Keyboard-shortcuts cheatsheet toggle (also bound to the `?` key).
+        if ui
+            .selectable_label(app.editor.show_shortcuts, tr("? Keys", "? 단축키"))
+            .on_hover_text(tr(
+                "show the keyboard-shortcuts cheatsheet (or press ?)",
+                "키보드 단축키 안내 표시 (또는 ? 키)",
+            ))
+            .clicked()
+        {
+            app.editor.show_shortcuts = !app.editor.show_shortcuts;
+        }
 
         ui.separator();
 
@@ -880,7 +891,7 @@ pub(in crate::app) fn do_save_scene_with_list(
 ///
 /// Used by the toolbar "💾 Save" which runs before the entity list is built.
 #[cfg(not(target_arch = "wasm32"))]
-fn do_save_scene(app: &mut App) {
+pub(in crate::app) fn do_save_scene(app: &mut App) {
     let entity_list: Vec<Entity> = app.world.entities().to_vec();
     let tag_map: HashMap<Entity, String> = app
         .world

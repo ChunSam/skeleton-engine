@@ -420,3 +420,87 @@ fn pointlight_registered_as_editor_component() {
         "factory adds a PointLight"
     );
 }
+
+// ── Keyboard-UX shortcuts: delete / duplicate selection + camera focus ──────────
+
+#[test]
+fn editor_delete_selection_despawns_all_and_clears_with_undo() {
+    use crate::components::Transform;
+    let mut app = crate::app::App::new();
+    let a = app.world.spawn();
+    app.world.add_component(a, Tag("A".into()));
+    app.world.add_component(a, Transform::default());
+    let b = app.world.spawn();
+    app.world.add_component(b, Tag("B".into()));
+    app.world.add_component(b, Transform::default());
+    app.editor.selected_entities = vec![a, b];
+    app.editor.inspector_selected = Some(a);
+
+    app.editor_delete_selection();
+
+    assert!(
+        !app.world.is_alive(a) && !app.world.is_alive(b),
+        "both gone"
+    );
+    assert!(app.editor.selected_entities.is_empty());
+    assert!(app.editor.inspector_selected.is_none());
+
+    // One undo brings the most recent delete back (two delete cmds were recorded).
+    let mut sel = None;
+    app.editor.cmd_history.undo(&mut app.world, &mut sel);
+    app.editor.cmd_history.undo(&mut app.world, &mut sel);
+    let alive = app.world.query::<Tag>().count();
+    assert_eq!(alive, 2, "both entities restored by two undos");
+}
+
+#[test]
+fn editor_duplicate_selection_clones_offset_and_selects() {
+    use crate::components::Transform;
+    let mut app = crate::app::App::new();
+    let e = app.world.spawn();
+    app.world.add_component(e, Tag("Orig".into()));
+    app.world.add_component(
+        e,
+        Transform {
+            position: glam::Vec2::new(100.0, 50.0),
+            ..Default::default()
+        },
+    );
+    app.editor.selected_entities = vec![e];
+    app.editor.inspector_selected = Some(e);
+
+    app.editor_duplicate_selection();
+
+    // Now two entities; the selection points at the clone, offset by (16,16).
+    assert_eq!(app.world.query::<Tag>().count(), 2);
+    let clone = app.editor.inspector_selected.expect("clone selected");
+    assert_ne!(clone, e, "selection moved to the new clone");
+    let pos = app.world.get::<Transform>(clone).unwrap().position;
+    assert_eq!(pos, glam::Vec2::new(116.0, 66.0));
+}
+
+#[test]
+fn editor_focus_camera_centers_on_selection() {
+    use crate::camera::Camera;
+    use crate::components::Transform;
+    use crate::resources::ViewportSize;
+    let mut app = crate::app::App::new();
+    app.world
+        .insert_resource(Camera::new(glam::Vec2::ZERO, 1.0));
+    app.world.insert_resource(ViewportSize::new(800, 600));
+    let e = app.world.spawn();
+    app.world.add_component(
+        e,
+        Transform {
+            position: glam::Vec2::new(500.0, 300.0),
+            ..Default::default()
+        },
+    );
+    app.editor.inspector_selected = Some(e);
+
+    app.editor_focus_camera_on_selection();
+
+    // position = entity_pos - viewport/2 / zoom = (500,300) - (400,300) = (100,0).
+    let cam = app.world.resource::<Camera>().unwrap();
+    assert_eq!(cam.position, glam::Vec2::new(100.0, 0.0));
+}
