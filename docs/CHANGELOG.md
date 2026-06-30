@@ -4,6 +4,18 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.94.0
+
+**Docked-mode headless editor capture — verify docked-panel editor UI with no window/display.** The headless editor screenshot could only draw the *overlay* editor (cheatsheet/toasts); the **docked** layout — entity list, inspector, Data Tables, and the game scene in the central viewport — was invisible to it, so docked-panel UI (e.g. the entity-list eye toggle) couldn't be visually verified or golden-image tested. New `App::screenshot_editor_docked_headless[_rgba]` enter docked mode before driving egui, so the full docked editor composites onto the offscreen texture with no window (monitor off / asleep / locked / CI lavapipe). **All additive; the overlay path is unchanged.** Pre-1.0 additive → MINOR.
+
+### Added
+- `App::screenshot_editor_docked_headless(frames, path)` / `screenshot_editor_docked_headless_rgba(frames)` (`src/app/headless.rs`) — render the full docked editor layout headlessly. The central game viewport is a debounced offscreen RT, so `frames >= 5` shows the scene; fewer frames render the side panels with a placeholder central. Native-only.
+- `App::editor_select_entity(entity)` (`src/app/headless.rs`) — public editor-selection API (sets the Inspector selection + sole multi-selection), so a headless capture or a game can populate the Inspector programmatically. Closes the documented-but-missing "select an entity to populate the Inspector" gap.
+- Render test `tests/render.rs::editor_docked_renders_headless` (lavapipe-verified: the docked left panel renders bright UI text headlessly) + example `editor_docked_headless_shot` (entity list with the eye toggle + a Hidden quad + the scene in the central viewport).
+
+### Changed (internal)
+- The overlay/docked headless captures now share one `App::editor_headless_capture(frames, docked)` driver (`src/app/headless.rs`); `screenshot_editor_headless_rgba` is a thin wrapper over it. The shared `tests/render.rs::editor_render_or_skip` helper gained a `docked` flag. Behavior-preserving for the existing overlay path.
+
 ## 0.93.0
 
 **Entity visibility — a `Hidden` component + an editor per-entity eye toggle.** The editor entity list gains a per-row visibility toggle (👁/🙈) that hides/shows an entity's sprite without despawning it; the engine side is a new `Hidden` marker component the sprite pass skips, also usable directly by games. **All additive; absent `Hidden` = byte-identical.** Pre-1.0 additive → MINOR.
