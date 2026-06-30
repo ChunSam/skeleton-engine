@@ -4,6 +4,18 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.96.0
+
+**Inline entity rename in the editor entity list.** Double-clicking a row in the docked editor's Entities list now replaces its label with a focused text box; Enter or clicking away commits the new name (`Tag`), Escape cancels. Previously renaming meant selecting the entity first and using the separate "Name:" field — this edits in place. A blank or whitespace-only name, or a despawned entity, cancels instead of overwriting. Additive (the "Name:" field and all other rows are unchanged); the only new public API is `App::editor_begin_rename`, so pre-1.0 additive → MINOR.
+
+### Added
+- `App::editor_begin_rename(entity)` (`src/app/editor/ui/rename.rs`, public) — start an inline rename programmatically (the same state a list-row double-click produces); seeds the buffer from the entity's current `Tag` and requests one-frame keyboard focus. Native-only.
+- `EditorState::entity_rename` / `EntityRename { entity, buffer, focus_pending }` (`src/app/editor/state.rs`) — transient edit state (not serde, like the other editor markers); cleared when its entity is despawned.
+- `tests/render.rs::editor_docked_inline_rename_renders_headless` — drives the in-edit text box headlessly (lavapipe-safe) and asserts the left panel still composites.
+
+### Changed
+- `entities_tab_body` (`src/app/editor/ui/docked.rs`) renders a text box for the renaming row (Enter/click-away → `App::editor_commit_rename`, Esc → `editor_cancel_rename`) and starts a rename on a row double-click; non-renaming rows gain a "double-click to rename" hover hint. Internal `App::editor_commit_rename` / `editor_cancel_rename` hold the commit/cancel behavior. 7 unit tests in `rename.rs` (buffer seeding, trim, blank-cancel, despawn-noop, cancel-discard).
+
 ## 0.95.0
 
 **Editor prefab save/spawn now surface action toasts.** Saving the selected entity as a prefab, or spawning a prefab, in the docked editor previously only set the inline `prefab_status` label; both now also push a colour-coded action toast (success/error) like the scene-save action, completing the toast coverage of the editor's file actions. Editor-only behavior; no public API change.

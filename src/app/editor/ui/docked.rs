@@ -402,19 +402,50 @@ pub(in crate::app) fn entities_tab_body(
                             app.world.add_component(e, crate::components::Hidden);
                         }
                     }
-                    // Dim the label of a hidden entity.
-                    let label_rt = if hidden {
-                        egui::RichText::new(&label).weak()
+                    // Inline rename: while this row is being renamed, draw a focused text box in
+                    // place of the label. Enter or clicking away commits (writes the Tag); Escape
+                    // cancels. Otherwise draw the (selectable) label; a double-click starts a rename.
+                    let renaming = matches!(&app.editor.entity_rename, Some(r) if r.entity == e);
+                    if renaming {
+                        let (mut commit, mut cancel) = (false, false);
+                        if let Some(rn) = app.editor.entity_rename.as_mut() {
+                            let resp = ui.text_edit_singleline(&mut rn.buffer);
+                            if rn.focus_pending {
+                                resp.request_focus();
+                                rn.focus_pending = false;
+                            }
+                            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                cancel = true;
+                            } else if resp.lost_focus() {
+                                commit = true;
+                            }
+                        }
+                        if commit {
+                            app.editor_commit_rename();
+                        } else if cancel {
+                            app.editor_cancel_rename();
+                        }
                     } else {
-                        egui::RichText::new(&label)
-                    };
-                    if ui.selectable_label(is_sel, label_rt).clicked() {
-                        apply_multiselect(
-                            e,
-                            ui.input(|i| i.modifiers.ctrl),
-                            &mut app.editor.selected_entities,
-                            &mut app.editor.inspector_selected,
-                        );
+                        // Dim the label of a hidden entity.
+                        let label_rt = if hidden {
+                            egui::RichText::new(&label).weak()
+                        } else {
+                            egui::RichText::new(&label)
+                        };
+                        let resp = ui
+                            .selectable_label(is_sel, label_rt)
+                            .on_hover_text(tr("double-click to rename", "더블클릭하여 이름 변경"));
+                        if resp.clicked() {
+                            apply_multiselect(
+                                e,
+                                ui.input(|i| i.modifiers.ctrl),
+                                &mut app.editor.selected_entities,
+                                &mut app.editor.inspector_selected,
+                            );
+                        }
+                        if resp.double_clicked() {
+                            app.editor_begin_rename(e);
+                        }
                     }
                 });
             }
