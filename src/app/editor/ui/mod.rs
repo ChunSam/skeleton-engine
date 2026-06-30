@@ -15,6 +15,8 @@ mod lighting_panel;
 mod particle_panel;
 #[cfg(not(target_arch = "wasm32"))]
 mod rename;
+#[cfg(not(target_arch = "wasm32"))]
+mod reparent;
 mod shortcuts;
 #[cfg(not(target_arch = "wasm32"))]
 mod state_machine_panel;

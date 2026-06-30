@@ -452,9 +452,20 @@ pub(in crate::app) fn entities_tab_body(
         });
 }
 
+/// egui drag-and-drop payload for the Scene-tree: the entity being dragged to a new parent.
+/// `'static + Send + Sync` (a plain `Entity` id) as egui's `dnd_drag_source` requires.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Copy)]
+struct DragEntity(Entity);
+
 /// Scene graph tab body.  Shows a parent→children indented tree.
 ///
 /// Used in: docked left panel (Scene tab), overlay Inspector window (tab 2).
+///
+/// **Drag-to-reparent:** each tree node is an egui drag source AND a drop target — dragging a node
+/// onto another re-parents it under that node; dragging onto the bottom "unparent" zone detaches it
+/// to a root. Edits go through the cycle-safe [`App::editor_reparent`], so a drop that would create
+/// a cycle (onto self or a descendant) is a no-op.
 #[cfg(not(target_arch = "wasm32"))]
 pub(in crate::app) fn scene_tab_body(
     ui: &mut egui::Ui,
@@ -468,6 +479,8 @@ pub(in crate::app) fn scene_tab_body(
 
     let mut clicked_entity: Option<Entity> = None;
     let mut ctrl_clicked: bool = false;
+    // A node drop sets `(dragged_child, Some(target_parent))`; the unparent zone sets `(_, None)`.
+    let mut dropped: Option<(Entity, Option<Entity>)> = None;
 
     egui::ScrollArea::vertical()
         .id_salt("docked_scene_graph")
@@ -483,10 +496,26 @@ pub(in crate::app) fn scene_tab_body(
                     .unwrap_or(false);
                 let prefix = if has_children { "▶ " } else { "  " };
                 let label_text = format!("{}{}{}", "  ".repeat(depth), prefix, name);
-                let response = ui.selectable_label(is_selected, &label_text);
+                // Each node is a drag source (so it can be picked up) whose returned response also
+                // ORs in the inner selectable_label — so `.clicked()` still selects. `dnd_drag_source`
+                // sets the payload while dragged; `dnd_release_payload` fires when a drag is dropped
+                // over this node, making the node a drop target too.
+                let dnd_id = egui::Id::new(("scene_dnd", entity));
+                let response = ui
+                    .dnd_drag_source(dnd_id, DragEntity(entity), |ui| {
+                        // Inner response is unused — selection comes from the OR'd outer response
+                        // below; this draws only the selection highlight.
+                        let _ = ui.selectable_label(is_selected, &label_text);
+                    })
+                    .response;
                 if response.clicked() {
                     clicked_entity = Some(entity);
                     ctrl_clicked = ui.input(|i| i.modifiers.ctrl);
+                }
+                if let Some(payload) = response.dnd_release_payload::<DragEntity>() {
+                    if payload.0 != entity {
+                        dropped = Some((payload.0, Some(entity)));
+                    }
                 }
                 if let Some(ch) = children_map.get(&entity) {
                     for &child in ch.iter().rev() {
@@ -503,6 +532,21 @@ pub(in crate::app) fn scene_tab_body(
             &mut app.editor.selected_entities,
             &mut app.editor.inspector_selected,
         );
+    }
+
+    // Drop a node here (outside any parent) to detach it to a root.
+    let unparent_frame = egui::Frame::default()
+        .inner_margin(4.0)
+        .stroke(ui.visuals().widgets.noninteractive.bg_stroke);
+    let (_, root_payload) = ui.dnd_drop_zone::<DragEntity, _>(unparent_frame, |ui| {
+        ui.label(tr("⤴ drop here to unparent", "⤴ 여기에 놓아 부모 해제"));
+    });
+    if let Some(payload) = root_payload {
+        dropped = Some((payload.0, None));
+    }
+
+    if let Some((child, new_parent)) = dropped {
+        app.editor_reparent(child, new_parent);
     }
 
     ui.separator();

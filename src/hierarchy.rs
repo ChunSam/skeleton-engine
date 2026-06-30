@@ -84,6 +84,65 @@ pub fn detach(world: &mut World, child: Entity) {
     world.add_component(parent, Children(children));
 }
 
+/// Re-parents `child` under `new_parent` (or detaches it to a root when `new_parent` is `None`),
+/// maintaining both the `Parent` and `Children` lists and **preventing cycles**.
+///
+/// Unlike the low-level [`attach`] (which only guards against self-attachment), this is safe to
+/// drive from arbitrary UI — e.g. the editor's drag-to-reparent — because it returns `false` and
+/// makes no change instead of corrupting the graph when the move would:
+/// - create a cycle (`new_parent == child`, or `new_parent` is a descendant of `child`), or
+/// - change nothing (`new_parent` is already the current parent, or `None` is passed for a root).
+///
+/// Otherwise the child is detached from its old parent, attached to the new one (or left detached
+/// for `None`), and `true` is returned. The child keeps its **local** `Transform`, so its world
+/// position shifts to be relative to the new parent — matching [`attach`].
+pub fn reparent(world: &mut World, child: Entity, new_parent: Option<Entity>) -> bool {
+    let current = world.get::<Parent>(child).map(|p| p.0);
+    match new_parent {
+        Some(p) => {
+            if p == child || current == Some(p) {
+                return false;
+            }
+            if is_ancestor(world, child, p) {
+                log::warn!(
+                    "hierarchy::reparent: {p:?} is a descendant of {child:?}; reparenting would \
+                     create a cycle — ignoring"
+                );
+                return false;
+            }
+            detach(world, child);
+            attach(world, child, p);
+            true
+        }
+        None => {
+            if current.is_none() {
+                return false;
+            }
+            detach(world, child);
+            true
+        }
+    }
+}
+
+/// Returns `true` if `maybe_ancestor` lies on the `Parent` chain above `entity`
+/// (i.e. `entity` is in the subtree rooted at `maybe_ancestor`). Self is not an ancestor.
+///
+/// Walks up at most once per entity (a `visited` set guards against a pre-existing cycle).
+fn is_ancestor(world: &World, maybe_ancestor: Entity, entity: Entity) -> bool {
+    let mut visited = std::collections::HashSet::new();
+    let mut cur = world.get::<Parent>(entity).map(|p| p.0);
+    while let Some(p) = cur {
+        if p == maybe_ancestor {
+            return true;
+        }
+        if !visited.insert(p) {
+            break; // already-cyclic graph — stop rather than loop forever
+        }
+        cur = world.get::<Parent>(p).map(|x| x.0);
+    }
+    false
+}
+
 /// Topologically sorts the entity list so roots come before their children.
 ///
 /// Uses BFS from root entities (those with no `Parent` in the provided slice) down to
@@ -279,6 +338,117 @@ mod tests {
         let gt = world.get::<GlobalTransform>(e).unwrap();
         assert_eq!(gt.position, Vec2::new(5.0, 7.0));
         assert_eq!(gt.z, 2.0);
+    }
+
+    /// Helpers for the reparent tests: spawn a bare entity (Transform only) and read a parent's
+    /// `Children` list (empty when absent).
+    fn spawn_t(world: &mut World) -> Entity {
+        let e = world.spawn();
+        world.add_component(e, Transform::default());
+        e
+    }
+    fn children_of(world: &World, e: Entity) -> Vec<Entity> {
+        world
+            .get::<Children>(e)
+            .map(|c| c.0.clone())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn reparent_moves_child_between_parents() {
+        let mut world = World::new();
+        let (r1, r2, c) = (
+            spawn_t(&mut world),
+            spawn_t(&mut world),
+            spawn_t(&mut world),
+        );
+        attach(&mut world, c, r1);
+
+        assert!(
+            reparent(&mut world, c, Some(r2)),
+            "a valid move returns true"
+        );
+        assert_eq!(
+            world.get::<Parent>(c).map(|p| p.0),
+            Some(r2),
+            "Parent updated"
+        );
+        assert!(
+            children_of(&world, r1).is_empty(),
+            "old parent's Children pruned"
+        );
+        assert_eq!(
+            children_of(&world, r2),
+            vec![c],
+            "new parent's Children gains the child"
+        );
+    }
+
+    #[test]
+    fn reparent_to_none_detaches_to_root() {
+        let mut world = World::new();
+        let (p, c) = (spawn_t(&mut world), spawn_t(&mut world));
+        attach(&mut world, c, p);
+
+        assert!(
+            reparent(&mut world, c, None),
+            "detaching a child returns true"
+        );
+        assert!(world.get::<Parent>(c).is_none(), "child becomes a root");
+        assert!(
+            children_of(&world, p).is_empty(),
+            "parent's Children pruned"
+        );
+    }
+
+    #[test]
+    fn reparent_rejects_self() {
+        let mut world = World::new();
+        let e = spawn_t(&mut world);
+        assert!(!reparent(&mut world, e, Some(e)), "self-parent rejected");
+        assert!(world.get::<Parent>(e).is_none());
+    }
+
+    #[test]
+    fn reparent_rejects_descendant_cycle() {
+        // p → c. Reparenting p UNDER c would make a cycle; must be refused.
+        let mut world = World::new();
+        let (p, c) = (spawn_t(&mut world), spawn_t(&mut world));
+        attach(&mut world, c, p);
+
+        assert!(
+            !reparent(&mut world, p, Some(c)),
+            "descendant target rejected"
+        );
+        assert!(world.get::<Parent>(p).is_none(), "p stays a root");
+        assert_eq!(
+            world.get::<Parent>(c).map(|x| x.0),
+            Some(p),
+            "c still under p"
+        );
+    }
+
+    #[test]
+    fn reparent_to_same_parent_is_noop_false() {
+        let mut world = World::new();
+        let (p, c) = (spawn_t(&mut world), spawn_t(&mut world));
+        attach(&mut world, c, p);
+        assert!(
+            !reparent(&mut world, c, Some(p)),
+            "no-op move returns false"
+        );
+        assert_eq!(
+            children_of(&world, p),
+            vec![c],
+            "Children unchanged (no duplicate)"
+        );
+    }
+
+    #[test]
+    fn reparent_root_to_none_is_noop_false() {
+        let mut world = World::new();
+        let e = spawn_t(&mut world);
+        assert!(!reparent(&mut world, e, None), "already a root → false");
     }
 
     #[test]

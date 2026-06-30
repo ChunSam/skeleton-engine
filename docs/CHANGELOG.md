@@ -4,6 +4,19 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.97.0
+
+**Scene-tree drag-to-reparent in the editor + a cycle-safe `hierarchy::reparent`.** The docked editor's Scene tab was a read-only hierarchy view; now dragging a node onto another re-parents it under that node, and dragging onto the bottom "⤴ unparent" zone detaches it to a root. The graph edit goes through a new public `hierarchy::reparent`, which adds cycle prevention on top of the low-level `attach`/`detach` (a drop onto self or a descendant, or a no-op move, leaves the graph untouched). Additive — the read-only tree, `attach`/`detach`, and every other panel are unchanged.
+
+### Added
+- `hierarchy::reparent(world, child, new_parent: Option<Entity>) -> bool` (`src/hierarchy.rs`, public, re-exported at crate root) — detach + cycle-checked attach; returns `false` and makes no change for a self-parent, a descendant target (would cycle), or a no-op (same parent / detaching a root). Keeps the child's local `Transform`, like `attach`. 6 unit tests.
+- `App::editor_reparent(child, new_parent)` (`src/app/editor/ui/reparent.rs`, public) — drives `hierarchy::reparent` from the editor and shows a success toast on a real change; native-only. 3 unit tests.
+- `App::editor_show_scene_tree()` (`src/app/headless.rs`, public) — switch the docked left panel to the Scene tab (for headless capture of the hierarchy view).
+- `tests/render.rs::editor_docked_scene_tree_reparent_renders_headless` — reparent + show the Scene tab + capture, asserting the tree composites (lavapipe-safe).
+
+### Changed
+- `scene_tab_body` (`src/app/editor/ui/docked.rs`) wraps each tree node in an egui `dnd_drag_source` (the OR'd inner `selectable_label` keeps click-to-select) and treats each node as a drop target (`dnd_release_payload`); a bottom `dnd_drop_zone` detaches to a root. Drops call `App::editor_reparent`. New `DragEntity(Entity)` DnD payload.
+
 ## 0.96.0
 
 **Inline entity rename in the editor entity list.** Double-clicking a row in the docked editor's Entities list now replaces its label with a focused text box; Enter or clicking away commits the new name (`Tag`), Escape cancels. Previously renaming meant selecting the entity first and using the separate "Name:" field — this edits in place. A blank or whitespace-only name, or a despawned entity, cancels instead of overwriting. Additive (the "Name:" field and all other rows are unchanged); the only new public API is `App::editor_begin_rename`, so pre-1.0 additive → MINOR.
