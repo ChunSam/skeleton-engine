@@ -54,6 +54,12 @@ pub enum Effect {
         /// Where the burst is anchored (default [`EffectAnchor::Other`]; ignored by `anim_effect`).
         #[serde(default)]
         at: EffectAnchor,
+        /// World-space `(x, y)` offset added to the anchor's [`Transform`] position, so a burst can
+        /// spawn off-center — e.g. footstep dust at the feet rather than the entity center. In world
+        /// units; **not** rotated/scaled by the anchor's transform. Default `(0.0, 0.0)` spawns at
+        /// the anchor (byte-identical to before this field existed).
+        #[serde(default)]
+        offset: (f32, f32),
     },
     /// Play a synthesized tone via the cross-platform [`Audio`] facade.
     PlayTone {
@@ -142,10 +148,13 @@ pub(crate) fn resolve_effect(
             bus: bus.clone(),
         }),
         Effect::SpawnParticles {
-            particles, count, ..
+            particles,
+            count,
+            offset,
+            ..
         } => {
             let t = world.get::<Transform>(particle_anchor)?;
-            let (pos, z) = (t.position, t.z);
+            let (pos, z) = (t.position + Vec2::new(offset.0, offset.1), t.z);
             match lookup_emitter(world, particles) {
                 Some(mut emitter) => {
                     // Burst-only: silence the emitter's continuous emission.

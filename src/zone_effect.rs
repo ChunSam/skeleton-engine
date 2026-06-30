@@ -298,16 +298,18 @@ mod tests {
             other => panic!("expected Flash, got {other:?}"),
         }
 
-        // `count`/`at` omitted → defaults (16 / Other).
+        // `count`/`at`/`offset` omitted → defaults (16 / Other / (0,0)).
         match &b.rules_for("damage")[1].effect {
             Effect::SpawnParticles {
                 particles,
                 count,
                 at,
+                offset,
             } => {
                 assert_eq!(particles, "blood");
                 assert_eq!(*count, 16);
                 assert_eq!(*at, EffectAnchor::Other);
+                assert_eq!(*offset, (0.0, 0.0));
             }
             other => panic!("expected SpawnParticles, got {other:?}"),
         }

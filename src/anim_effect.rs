@@ -356,4 +356,51 @@ mod tests {
         let pos = world.get::<Transform>(bursts[0].0).unwrap().position;
         assert_eq!(pos, Vec2::new(70.0, 20.0));
     }
+
+    #[test]
+    fn spawn_particles_offset_displaces_burst() {
+        use crate::particle::ParticleConfigSet;
+
+        let mut world = World::new();
+        world.insert_resource(Events::<AnimationEvent>::default());
+        let mut reg = AnimEffectRegistry::default();
+        reg.insert(
+            "fx",
+            AnimEffectBindings::from_ron_str(
+                r#"(bindings: { "footstep": [
+                    SpawnParticles(particles: "dust", count: 4, offset: (0.0, 50.0)),
+                ] })"#,
+            )
+            .unwrap(),
+        );
+        world.insert_resource(reg);
+
+        let mut preg = ParticleConfigRegistry::default();
+        preg.insert(
+            "set",
+            ParticleConfigSet::from_ron_str(r#"(emitters: { "dust": (lifetime: 0.4) })"#).unwrap(),
+        );
+        world.insert_resource(preg);
+
+        let actor = world.spawn();
+        world.add_component(
+            actor,
+            Transform {
+                position: Vec2::new(70.0, 20.0),
+                ..Default::default()
+            },
+        );
+
+        send_anim_event(&mut world, actor, "footstep");
+        AnimEffectSystem::new("fx").run(&mut world, 0.016);
+
+        // The burst spawns at the anchor position PLUS the RON offset (feet, not center).
+        let burst = world
+            .query::<ParticleBurst>()
+            .map(|(e, _)| e)
+            .next()
+            .expect("one burst");
+        let pos = world.get::<Transform>(burst).unwrap().position;
+        assert_eq!(pos, Vec2::new(70.0, 70.0));
+    }
 }
