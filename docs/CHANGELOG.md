@@ -4,6 +4,20 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.91.0
+
+**Editor keyboard-UX upgrade + a headless editor-screenshot capability to verify it without a display.** The in-game editor gains standard keyboard shortcuts and a discoverable cheatsheet; and because the egui editor overlay is normally driven by the windowed loop (so a plain headless screenshot can't capture it), a new path drives egui manually with no window — making editor UI visually verifiable with the monitor off/locked and on CI (lavapipe). **All additive; the editor is native-only, so nothing wasm-facing changes.**
+
+### Added — editor keyboard UX
+- Editor shortcuts (`src/app/editor/ui/shortcuts.rs`): **Ctrl+S** save scene, **Ctrl+D** duplicate selection, **Delete**/**Backspace** delete selection, **F** focus camera on the selection, **?** toggle a cheatsheet (alongside the existing Ctrl+Z/Shift+Z/C/V). Bare single-key shortcuts are gated on `egui_wants_keyboard_input()` so typing in a text field never triggers them.
+- Selection-scoped editor ops factored into `App::editor_delete_selection` / `editor_duplicate_selection` / `editor_focus_camera_on_selection` (multi-select aware, each recorded for undo). Undo/redo/paste logic extracted into helpers.
+- A **keyboard-shortcuts cheatsheet** window (`EditorState::show_shortcuts`), toggled by `?` or a new **`? Keys`** toolbar button; localized (English/Korean) like the rest of the editor.
+
+### Added — headless editor screenshot
+- `App::screenshot_editor_headless(frames, path)` / `screenshot_editor_headless_rgba(frames)` (`src/app/headless.rs`) render the egui **editor overlay** to an offscreen texture with **no window/display** — driving egui manually (synthesized `RawInput` → `App::update_editor_ui` → tessellate → the render path's egui pass), with a fresh `DebugUi`/egui `Context` and an offscreen-format `egui_wgpu::Renderer`. Native-only.
+- `App::set_editor_shortcuts_visible(bool)` opens the cheatsheet programmatically.
+- Example `editor_headless_shot` and render test `tests/render.rs::editor_overlay_renders_headless` (runs on the GPU-less CI runner via lavapipe), so the editor UI is now CI-verifiable.
+
 ## 0.90.0
 
 **Richer effect payload — per-effect spawn offset.** `Effect::SpawnParticles` gains an `offset: (x, y)` field — a world-space displacement added to the burst's anchor position, so a data-authored burst can spawn off-center (e.g. footstep dust at the feet, not the entity center) instead of always at the anchor's `Transform`. The field is shared by both effect sources (`zone_effect` + `anim_effect`) since it lives on the common `Effect` vocabulary. **Additive, non-breaking** — `#[serde(default)]` makes `offset` default to `(0.0, 0.0)`, which is byte-identical to the prior behavior (existing RON and the old burst position are unchanged).

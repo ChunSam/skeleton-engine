@@ -216,9 +216,13 @@ impl App {
             #[cfg(not(target_arch = "wasm32"))]
             crate::app::editor::set_locale(self.editor.locale);
 
-            // ── Undo (Ctrl+Z) / Redo (Ctrl+Shift+Z) / Copy (Ctrl+C) / Paste (Ctrl+V) ─
+            // ── Undo (Ctrl+Z) / Redo (Ctrl+Shift+Z) / Copy (Ctrl+C) / Paste (Ctrl+V) /
+            //    Save (Ctrl+S) / Duplicate (Ctrl+D) / Delete / Focus (F) / Cheatsheet (?) ─
             #[cfg(not(target_arch = "wasm32"))]
             self.handle_editor_shortcuts(ctx);
+            // Keyboard-shortcuts cheatsheet window (shown while `show_shortcuts` is on; both modes).
+            #[cfg(not(target_arch = "wasm32"))]
+            self.draw_editor_shortcuts_window(ctx);
 
             // Docked mode: draw the full docked layout.
             #[cfg(not(target_arch = "wasm32"))]

@@ -383,3 +383,68 @@ fn design_resolution_letterboxes() {
         "top/bottom bars differ (letterbox not centered): top={top:?} bot={bot:?}"
     );
 }
+
+/// Like [`render_or_skip`] but drives the **editor overlay** via
+/// [`App::screenshot_editor_headless_rgba`] — verifies the headless egui-editor path on the
+/// GPU-less runner (lavapipe) the same way the game-render tests do.
+fn editor_render_or_skip(app: &mut App, frames: u32) -> Option<(u32, u32, Vec<u8>)> {
+    match pollster::block_on(GpuContext::new_headless(4, 4)) {
+        Ok(ctx) => {
+            let info = ctx.adapter.get_info();
+            println!(
+                "{MARKER} adapter={} backend={:?} type={:?}",
+                info.name, info.backend, info.device_type
+            );
+            drop(ctx);
+            Some(app.screenshot_editor_headless_rgba(frames))
+        }
+        Err(e) => {
+            if std::env::var("SKELETON_REQUIRE_GPU").as_deref() == Ok("1") {
+                panic!("{MARKER} SKELETON_REQUIRE_GPU=1 set but no GPU adapter found: {e}");
+            }
+            println!("{MARKER} SKIP: no GPU adapter ({e})");
+            None
+        }
+    }
+}
+
+/// The headless **editor** screenshot path draws the egui editor overlay (here the keyboard-shortcuts
+/// cheatsheet) onto the offscreen texture with no window. Over a dark clear color the cheatsheet's
+/// light text/panel must produce pixels far brighter than the background — if the editor egui never
+/// rendered, the whole frame stays at the dark clear color. Position-independent (scans for the
+/// brightest pixel) so it doesn't depend on egui's exact window placement.
+#[test]
+fn editor_overlay_renders_headless() {
+    let (w, h) = (520u32, 380u32);
+    let mut app = App::new();
+    app.world.insert_resource(WindowConfig {
+        title: "editor headless".into(),
+        width: w,
+        height: h,
+        clear_color: [0.05, 0.06, 0.09, 1.0], // dark, so the lighter editor UI contrasts sharply
+    });
+    app.set_editor_shortcuts_visible(true);
+
+    let Some((rw, rh, px)) = editor_render_or_skip(&mut app, 3) else {
+        return;
+    };
+    assert_eq!((rw, rh), (w, h), "read-back size mismatch");
+
+    // Brightest pixel in the frame: with only a dark clear color in the scene, anything bright is
+    // editor UI (the cheatsheet's light text/title). Clear-color luma ≈ 0.05+0.06+0.09 in 8-bit
+    // terms is tiny; the editor text pushes some pixel's R+G+B well past 400/765.
+    let mut max_luma = 0u32;
+    for y in 0..rh {
+        for x in 0..rw {
+            let p = px_rgb(&px, rw, x, y);
+            let l = p[0] as u32 + p[1] as u32 + p[2] as u32;
+            if l > max_luma {
+                max_luma = l;
+            }
+        }
+    }
+    assert!(
+        max_luma > 400,
+        "no bright editor-UI pixels — the headless editor overlay did not render: max_luma={max_luma}"
+    );
+}
