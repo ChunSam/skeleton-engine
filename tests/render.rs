@@ -490,3 +490,61 @@ fn editor_toast_renders_headless() {
         "action toast text not visible bottom-right: max_br={max_br} clear_luma={clear_luma}"
     );
 }
+
+/// A `Hidden` component suppresses an entity's sprite in the render path. Two quads — left red
+/// (visible), right green (Hidden). The left reads red; the right region stays at the background
+/// (the green quad is gone), proving the sprite pass skips Hidden entities.
+#[test]
+fn hidden_component_suppresses_sprite() {
+    let (w, h) = (256u32, 256u32);
+    let mut app = App::new();
+    app.world.insert_resource(WindowConfig {
+        title: "render-test: hidden".into(),
+        width: w,
+        height: h,
+        clear_color: [0.06, 0.07, 0.10, 1.0],
+    });
+    // Left: a plain visible red quad.
+    spawn_quad(
+        &mut app,
+        Vec2::new(w as f32 * 0.25, h as f32 / 2.0),
+        Vec2::splat(80.0),
+        Sprite::colored(1.0, 0.0, 0.0),
+    );
+    // Right: a green quad, but Hidden — it must not render.
+    let g = app.world.spawn();
+    app.world.add_component(
+        g,
+        Transform {
+            position: Vec2::new(w as f32 * 0.75, h as f32 / 2.0),
+            scale: Vec2::splat(80.0),
+            rotation: 0.0,
+            z: 0.0,
+        },
+    );
+    app.world.add_component(g, Sprite::colored(0.0, 1.0, 0.0));
+    app.world.add_component(g, engine::Hidden);
+
+    let Some((rw, rh, px)) = render_or_skip(&mut app, 4) else {
+        return;
+    };
+    // Left: the red quad drew (R dominates).
+    let left = region_mean(&px, rw, rw / 4 - 15, rh / 2 - 15, rw / 4 + 15, rh / 2 + 15);
+    assert!(
+        left[0] - left[1] > 60.0 && left[0] - left[2] > 60.0,
+        "left red quad not drawn: {left:?}"
+    );
+    // Right: the Hidden green quad did NOT draw — the region is background, not green-dominant.
+    let right = region_mean(
+        &px,
+        rw,
+        (rw * 3) / 4 - 15,
+        rh / 2 - 15,
+        (rw * 3) / 4 + 15,
+        rh / 2 + 15,
+    );
+    assert!(
+        right[1] - right[0] < 30.0 && right[1] - right[2] < 30.0,
+        "Hidden green quad still rendered: {right:?}"
+    );
+}

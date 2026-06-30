@@ -282,6 +282,30 @@ impl SpriteFlip {
     }
 }
 
+// ─── Hidden ─────────────────────────────────────────────────────────────────────
+
+/// Marker component that hides an entity's **sprite-family** rendering.
+///
+/// When present on an entity, the sprite pass skips it — its [`Sprite`] (incl. a
+/// [`NineSlice`](crate::NineSlice) sub-quad expansion), [`AtlasSprite`](crate::AtlasSprite), or
+/// [`ShaderMaterial`](crate::ShaderMaterial) is not drawn. Everything else (the entity, its
+/// `Transform`, physics, other components) is untouched, so toggling it is cheap and reversible —
+/// it's the engine side of the editor's per-entity visibility (eye) toggle, and a game can use it to
+/// hide/show entities without despawning them.
+///
+/// Scope: it gates the sprite-family passes only (the dominant visual). It does **not** suppress
+/// particles, lights, or screen-space text/UI — hide those by their own means if needed.
+///
+/// ```rust,no_run
+/// # use engine::{App, Hidden};
+/// # let mut app = App::new();
+/// # let e = app.world.spawn();
+/// app.world.add_component(e, Hidden); // e's sprite stops rendering
+/// app.world.remove_component::<Hidden>(e); // ...and shows again
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct Hidden;
+
 // ─── PointLight ───────────────────────────────────────────────────────────────
 
 /// World-space point light component.

@@ -109,7 +109,9 @@ pub use collision::{
     Collider, CollisionDebugSystem, CollisionGridSystem, CollisionLayer, DebugConfig, SpatialGrid,
 };
 pub use color::Color;
-pub use components::{OffscreenCamera, PointLight, RenderLayer, Sprite, SpriteFlip, Transform};
+pub use components::{
+    Hidden, OffscreenCamera, PointLight, RenderLayer, Sprite, SpriteFlip, Transform,
+};
 pub use coroutine::{Coroutine, CoroutineRunner, CoroutineSystem};
 pub use data_table::{DataTable, DataTableRegistry};
 pub use debug_ui::DebugUi;

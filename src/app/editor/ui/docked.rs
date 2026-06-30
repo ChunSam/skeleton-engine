@@ -380,15 +380,43 @@ pub(in crate::app) fn entities_tab_body(
                     continue;
                 }
                 let is_sel = app.editor.selected_entities.contains(&e);
-                let resp = ui.selectable_label(is_sel, &label);
-                if resp.clicked() {
-                    apply_multiselect(
-                        e,
-                        ui.input(|i| i.modifiers.ctrl),
-                        &mut app.editor.selected_entities,
-                        &mut app.editor.inspector_selected,
-                    );
-                }
+                let hidden = app.world.get::<crate::components::Hidden>(e).is_some();
+                ui.horizontal(|ui| {
+                    // Per-entity visibility toggle: a filled eye = visible, slashed = hidden. Adds /
+                    // removes the `Hidden` component (the sprite pass skips Hidden entities).
+                    let (eye, hint) = if hidden {
+                        (
+                            "\u{1F648}",
+                            tr("hidden — click to show", "숨김 — 클릭하여 표시"),
+                        )
+                    } else {
+                        (
+                            "\u{1F441}",
+                            tr("visible — click to hide", "표시 — 클릭하여 숨김"),
+                        )
+                    };
+                    if ui.small_button(eye).on_hover_text(hint).clicked() {
+                        if hidden {
+                            app.world.remove_component::<crate::components::Hidden>(e);
+                        } else {
+                            app.world.add_component(e, crate::components::Hidden);
+                        }
+                    }
+                    // Dim the label of a hidden entity.
+                    let label_rt = if hidden {
+                        egui::RichText::new(&label).weak()
+                    } else {
+                        egui::RichText::new(&label)
+                    };
+                    if ui.selectable_label(is_sel, label_rt).clicked() {
+                        apply_multiselect(
+                            e,
+                            ui.input(|i| i.modifiers.ctrl),
+                            &mut app.editor.selected_entities,
+                            &mut app.editor.inspector_selected,
+                        );
+                    }
+                });
             }
         });
 }

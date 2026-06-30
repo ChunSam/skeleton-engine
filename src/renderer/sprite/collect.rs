@@ -29,6 +29,10 @@ impl SpriteRenderer {
             if world.get::<ShaderMaterial>(entity).is_some() {
                 continue;
             }
+            // Hidden entities are skipped (the editor visibility toggle / a game hiding an entity).
+            if world.get::<crate::components::Hidden>(entity).is_some() {
+                continue;
+            }
 
             let uv = world.get::<UvRect>(entity).copied().unwrap_or(UvRect::FULL);
             // During a crossfade, pass the "to" frame + progress for the shader lerp.
@@ -147,6 +151,8 @@ impl SpriteRenderer {
         self.atlas_entries_scratch.extend(
             world
                 .query::<AtlasSprite>()
+                // Skip Hidden entities (visibility toggle).
+                .filter(|(e, _)| world.get::<crate::components::Hidden>(*e).is_none())
                 .map(|(e, s)| (e, s.index, s.color, s.atlas.clone())),
         );
 
@@ -223,8 +229,11 @@ impl SpriteRenderer {
         // (cloning per-entity at query time would clone once per entity sharing a new
         // material; deduping at query time could hand the source to an entity that is
         // then culled, leaving the pipeline uncompiled).
+        // Hidden entities are excluded from drawing (but NOT from the live set below, so their GPU
+        // buffers are retained while hidden — only despawn/material-removal frees them).
         let mat_ids: Vec<(crate::ecs::Entity, u64, [f32; 4])> = world
             .query::<ShaderMaterial>()
+            .filter(|(e, _)| world.get::<crate::components::Hidden>(*e).is_none())
             .map(|(e, mat)| (e, mat.source_hash(), mat.params))
             .collect();
 
