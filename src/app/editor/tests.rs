@@ -506,6 +506,29 @@ fn editor_focus_camera_centers_on_selection() {
 }
 
 #[test]
+fn hidden_registered_as_editor_component() {
+    let mut app = crate::app::App::new();
+    assert!(app.editor.component_factories.contains_key("Hidden"));
+    assert!(app.editor.component_removers.contains_key("Hidden"));
+
+    let e = app.world.spawn();
+    if let Some(factory) = app.editor.component_factories.get("Hidden") {
+        factory(&mut app.world, e);
+    }
+    assert!(
+        app.world.get::<crate::components::Hidden>(e).is_some(),
+        "factory adds Hidden"
+    );
+    if let Some(remover) = app.editor.component_removers.get("Hidden") {
+        remover(&mut app.world, e);
+    }
+    assert!(
+        app.world.get::<crate::components::Hidden>(e).is_none(),
+        "remover removes Hidden"
+    );
+}
+
+#[test]
 fn editor_toasts_push_and_cap_to_five() {
     let mut app = crate::app::App::new();
     for i in 0..8 {

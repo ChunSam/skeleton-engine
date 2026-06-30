@@ -18,6 +18,9 @@ impl App {
         self.register_component("SpriteFlip", |world, e| {
             world.add_component(e, crate::components::SpriteFlip::default());
         });
+        self.register_component("Hidden", |world, e| {
+            world.add_component(e, crate::components::Hidden);
+        });
         self.register_component("YSort", |world, e| {
             world.add_component(e, crate::ysort::YSort::default());
         });
@@ -72,6 +75,9 @@ impl App {
         });
         self.register_component_remover("SpriteFlip", |world, e| {
             world.remove_component::<crate::components::SpriteFlip>(e);
+        });
+        self.register_component_remover("Hidden", |world, e| {
+            world.remove_component::<crate::components::Hidden>(e);
         });
         self.register_component_remover("YSort", |world, e| {
             world.remove_component::<crate::ysort::YSort>(e);

@@ -61,6 +61,7 @@ pub(super) fn register_core_component_metadata(world: &mut World) {
     world.register_clone::<crate::components::Sprite>();
     world.register_clone::<crate::components::RenderLayer>();
     world.register_clone::<crate::components::SpriteFlip>();
+    world.register_clone::<crate::components::Hidden>();
     world.register_clone::<crate::ysort::YSort>();
     world.register_clone::<crate::trigger_zone::TriggerZone>();
     world.register_clone::<crate::hit_flash::HitFlash>();

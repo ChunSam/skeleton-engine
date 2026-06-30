@@ -4,6 +4,15 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.93.0
+
+**Entity visibility — a `Hidden` component + an editor per-entity eye toggle.** The editor entity list gains a per-row visibility toggle (👁/🙈) that hides/shows an entity's sprite without despawning it; the engine side is a new `Hidden` marker component the sprite pass skips, also usable directly by games. **All additive; absent `Hidden` = byte-identical.** Pre-1.0 additive → MINOR.
+
+### Added
+- `engine::Hidden` (`src/components.rs`) — marker component; when present, the sprite collect pass (`src/renderer/sprite/collect.rs`, all three loops: `Sprite` incl. `NineSlice` / `AtlasSprite` / `ShaderMaterial`) skips the entity, suppressing its sprite-family rendering. Does **not** affect particles/lights/screen-space text. Registered for clone + editor add/remove like `SpriteFlip`.
+- Editor entity list: a per-row **visibility toggle** (eye 👁 visible / 🙈 hidden) that adds/removes `Hidden` and dims hidden rows (`src/app/editor/ui/docked.rs`).
+- Render test `tests/render.rs::hidden_component_suppresses_sprite` (lavapipe-verified: a `Hidden` quad does not render) + unit test `hidden_registered_as_editor_component`.
+
 ## 0.92.0
 
 **Editor action toasts — transient, colour-coded feedback popups.** Editor actions used to write a status string into a panel where it's easy to miss; now they also surface a bottom-right toast ("Scene saved (3)", "Deleted 2", "Load failed: …") that auto-expires and fades out. Verified headlessly with the v0.91.0 headless editor-screenshot path. **All additive; editor is native-only.** Pre-1.0 additive → MINOR.
