@@ -27,8 +27,8 @@
 use engine::renderer::GpuContext;
 use engine::{
     AmbientLight, App, Camera, Color, DesignResolution, DrawRect, DrawText, FontData,
-    LightingConfig, PointLight, Sprite, System, TextQueue, Transform, UiQueue, Vec2, WindowConfig,
-    World,
+    LightingConfig, PointLight, Sprite, System, Tag, TextQueue, Transform, UiQueue, Vec2,
+    WindowConfig, World,
 };
 
 /// Prefix the CI silent-skip guard greps for (`grep -q '\[render-test\] adapter='`).
@@ -384,10 +384,11 @@ fn design_resolution_letterboxes() {
     );
 }
 
-/// Like [`render_or_skip`] but drives the **editor overlay** via
-/// [`App::screenshot_editor_headless_rgba`] — verifies the headless egui-editor path on the
-/// GPU-less runner (lavapipe) the same way the game-render tests do.
-fn editor_render_or_skip(app: &mut App, frames: u32) -> Option<(u32, u32, Vec<u8>)> {
+/// Like [`render_or_skip`] but drives the **editor** egui path on the GPU-less runner (lavapipe)
+/// the same way the game-render tests do. `docked = false` captures the overlay editor via
+/// [`App::screenshot_editor_headless_rgba`]; `docked = true` captures the full docked layout via
+/// [`App::screenshot_editor_docked_headless_rgba`].
+fn editor_render_or_skip(app: &mut App, frames: u32, docked: bool) -> Option<(u32, u32, Vec<u8>)> {
     match pollster::block_on(GpuContext::new_headless(4, 4)) {
         Ok(ctx) => {
             let info = ctx.adapter.get_info();
@@ -396,7 +397,11 @@ fn editor_render_or_skip(app: &mut App, frames: u32) -> Option<(u32, u32, Vec<u8
                 info.name, info.backend, info.device_type
             );
             drop(ctx);
-            Some(app.screenshot_editor_headless_rgba(frames))
+            Some(if docked {
+                app.screenshot_editor_docked_headless_rgba(frames)
+            } else {
+                app.screenshot_editor_headless_rgba(frames)
+            })
         }
         Err(e) => {
             if std::env::var("SKELETON_REQUIRE_GPU").as_deref() == Ok("1") {
@@ -425,7 +430,7 @@ fn editor_overlay_renders_headless() {
     });
     app.set_editor_shortcuts_visible(true);
 
-    let Some((rw, rh, px)) = editor_render_or_skip(&mut app, 3) else {
+    let Some((rw, rh, px)) = editor_render_or_skip(&mut app, 3, false) else {
         return;
     };
     assert_eq!((rw, rh), (w, h), "read-back size mismatch");
@@ -465,7 +470,7 @@ fn editor_toast_renders_headless() {
     });
     app.editor_toast_success("Scene saved (3)");
 
-    let Some((rw, rh, px)) = editor_render_or_skip(&mut app, 3) else {
+    let Some((rw, rh, px)) = editor_render_or_skip(&mut app, 3, false) else {
         return;
     };
     assert_eq!((rw, rh), (w, h), "read-back size mismatch");
@@ -488,6 +493,63 @@ fn editor_toast_renders_headless() {
     assert!(
         max_br > clear_luma + 120,
         "action toast text not visible bottom-right: max_br={max_br} clear_luma={clear_luma}"
+    );
+}
+
+/// The headless **docked** editor path draws the full docked layout (top toolbar, left entity list,
+/// right inspector, bottom assets panel) with no window. The left entity-list panel is the part the
+/// *overlay* capture can never show — so a bright UI pixel in the left-panel region (where the
+/// entity rows' light text sits) proves the docked side panels composited headlessly. In overlay
+/// mode (or a bare game frame) that region is just the dark clear color. Position-tolerant: scans
+/// the left strip for the brightest pixel, so it doesn't depend on egui's exact text layout.
+#[test]
+fn editor_docked_renders_headless() {
+    // Wide enough that the 260px left + 300px right panels both fit with a central strip between.
+    let (w, h) = (700u32, 460u32);
+    let mut app = App::new();
+    app.world.insert_resource(WindowConfig {
+        title: "docked editor headless".into(),
+        width: w,
+        height: h,
+        clear_color: [0.05, 0.06, 0.09, 1.0], // dark, so the lighter docked panels contrast sharply
+    });
+    // A few named entities so the left entity list has rows of light text to draw.
+    let mut ents = Vec::new();
+    for i in 0..3 {
+        let e = app.world.spawn();
+        app.world.add_component(e, Tag(format!("Quad {i}")));
+        app.world.add_component(
+            e,
+            Transform::new(Vec2::new(40.0, 40.0), Vec2::splat(24.0), 0.0),
+        );
+        app.world.add_component(e, Sprite::colored(0.8, 0.4, 0.4));
+        ents.push(e);
+    }
+    app.world.add_component(ents[1], engine::Hidden);
+
+    // >= 5 frames so the docked layout is fully built (the central RT debounce is irrelevant to the
+    // side panels, which render from frame 1, but use the documented count for realism).
+    let Some((rw, rh, px)) = editor_render_or_skip(&mut app, 6, true) else {
+        return;
+    };
+    assert_eq!((rw, rh), (w, h), "read-back size mismatch");
+
+    // Brightest pixel in the LEFT panel strip (x < 240, below the toolbar): the entity-list text is
+    // near-white, far brighter than the dark clear color. If the docked left panel never rendered,
+    // this region would stay at the clear color and max_luma would be tiny.
+    let mut max_luma = 0u32;
+    for y in 40..(rh - 220) {
+        for x in 10..240 {
+            let p = px_rgb(&px, rw, x, y);
+            let l = p[0] as u32 + p[1] as u32 + p[2] as u32;
+            if l > max_luma {
+                max_luma = l;
+            }
+        }
+    }
+    assert!(
+        max_luma > 400,
+        "no bright docked-panel pixels in the left strip — the docked editor did not render: max_luma={max_luma}"
     );
 }
 

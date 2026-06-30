@@ -84,13 +84,76 @@ impl App {
     ///
     /// Set up the editor state you want captured *before* calling — e.g.
     /// [`set_editor_shortcuts_visible(true)`](Self::set_editor_shortcuts_visible) to open the
-    /// shortcuts cheatsheet, or select an entity to populate the Inspector. The editor overlay
-    /// (EngineStats + Inspector) is enabled automatically. Uses **overlay** mode (egui windows over
-    /// the scene), not the docked layout. Call this **instead of** [`run`](Self::run). Native-only.
+    /// shortcuts cheatsheet, or select an entity to populate the Inspector. Uses **overlay** mode
+    /// (egui windows over the scene), not the docked layout — for the docked layout use
+    /// [`screenshot_editor_docked_headless_rgba`](Self::screenshot_editor_docked_headless_rgba).
+    /// The unconditional editor chrome (the shortcuts cheatsheet + action toasts) draws in overlay
+    /// mode; the EngineStats / Inspector windows are gated on `Overlay` mode and don't appear here
+    /// (overlay headless leaves the editor mode `Off`). Call this **instead of** [`run`](Self::run).
+    /// Native-only.
     ///
     /// # Panics
     /// Panics if headless GPU initialization fails (no usable adapter).
     pub fn screenshot_editor_headless_rgba(&mut self, frames: u32) -> (u32, u32, Vec<u8>) {
+        self.editor_headless_capture(frames, false)
+    }
+
+    /// Renders `frames` frames headlessly with the editor overlay and saves the final frame as a PNG.
+    /// Convenience wrapper over [`screenshot_editor_headless_rgba`](Self::screenshot_editor_headless_rgba).
+    /// Native-only.
+    pub fn screenshot_editor_headless(
+        &mut self,
+        frames: u32,
+        path: impl AsRef<Path>,
+    ) -> Result<(), String> {
+        let (w, h, pixels) = self.screenshot_editor_headless_rgba(frames);
+        let img = image::RgbaImage::from_raw(w, h, pixels)
+            .ok_or_else(|| "read-back produced an unexpected byte count".to_string())?;
+        img.save(path.as_ref()).map_err(|e| e.to_string())
+    }
+
+    /// Renders `frames` frames headlessly **with the full docked editor layout** (top toolbar,
+    /// left entity list, right inspector, bottom assets/data-tables, and the game scene in the
+    /// central viewport), returning the final frame as tightly-packed sRGB `RGBA8`
+    /// `(width, height, pixels)`.
+    ///
+    /// This is the docked counterpart to [`screenshot_editor_headless_rgba`](Self::screenshot_editor_headless_rgba):
+    /// it enters docked editor mode (F2) before driving egui, so the **docked side panels** — which
+    /// the overlay capture can't show — render with no window/display (monitor
+    /// off / asleep / locked / headless CI). This is what unblocks visual verification + golden-image
+    /// tests of docked-panel editor UI (the entity-list eye toggle, Data Tables, the inspector, …).
+    ///
+    /// **Warm-up:** the central game viewport is a debounced offscreen render target (recreated only
+    /// after its size is stable for 3 frames, then shown by egui the following frame). Pass
+    /// **`frames >= 5`** so the scene appears in the central panel; with fewer frames the side panels
+    /// still render but the central panel shows the *(no game frame yet)* placeholder. Set up the
+    /// scene + selection *before* calling. Call this **instead of** [`run`](Self::run). Native-only.
+    ///
+    /// # Panics
+    /// Panics if headless GPU initialization fails (no usable adapter).
+    pub fn screenshot_editor_docked_headless_rgba(&mut self, frames: u32) -> (u32, u32, Vec<u8>) {
+        self.editor_headless_capture(frames, true)
+    }
+
+    /// Renders `frames` frames headlessly with the docked editor layout and saves the final frame
+    /// as a PNG. Convenience wrapper over
+    /// [`screenshot_editor_docked_headless_rgba`](Self::screenshot_editor_docked_headless_rgba)
+    /// (pass `frames >= 5` for the central scene). Native-only.
+    pub fn screenshot_editor_docked_headless(
+        &mut self,
+        frames: u32,
+        path: impl AsRef<Path>,
+    ) -> Result<(), String> {
+        let (w, h, pixels) = self.screenshot_editor_docked_headless_rgba(frames);
+        let img = image::RgbaImage::from_raw(w, h, pixels)
+            .ok_or_else(|| "read-back produced an unexpected byte count".to_string())?;
+        img.save(path.as_ref()).map_err(|e| e.to_string())
+    }
+
+    /// Shared headless editor-capture driver for both the overlay and docked paths: stand up a
+    /// headless GPU + an egui context with no window, optionally enter docked mode, then run the
+    /// `update → drive egui → render` loop and read the offscreen texture back.
+    fn editor_headless_capture(&mut self, frames: u32, docked: bool) -> (u32, u32, Vec<u8>) {
         let (w, h) = self
             .world
             .resource::<WindowConfig>()
@@ -120,6 +183,13 @@ impl App {
         ));
         self.gpu = Some(gpu);
 
+        // Docked mode: enter the docked layout so `update_editor_ui` builds the full panel chrome
+        // (the overlay capture leaves the mode `Off`). The central viewport's offscreen RT then
+        // warms up over the debounce window — see the method doc's frame-count note.
+        if docked {
+            self.editor.mode = crate::app::editor::EditorMode::Docked;
+        }
+
         let dt = 1.0 / 60.0;
         for _ in 0..frames.max(1) {
             // Advance the game (the windowed egui begin/build is a no-op headlessly — no window).
@@ -136,24 +206,19 @@ impl App {
             .read_headless_rgba()
     }
 
-    /// Renders `frames` frames headlessly with the editor overlay and saves the final frame as a PNG.
-    /// Convenience wrapper over [`screenshot_editor_headless_rgba`](Self::screenshot_editor_headless_rgba).
-    /// Native-only.
-    pub fn screenshot_editor_headless(
-        &mut self,
-        frames: u32,
-        path: impl AsRef<Path>,
-    ) -> Result<(), String> {
-        let (w, h, pixels) = self.screenshot_editor_headless_rgba(frames);
-        let img = image::RgbaImage::from_raw(w, h, pixels)
-            .ok_or_else(|| "read-back produced an unexpected byte count".to_string())?;
-        img.save(path.as_ref()).map_err(|e| e.to_string())
-    }
-
     /// Show or hide the editor keyboard-shortcuts cheatsheet (the same window the `?` key / `? Keys`
     /// toolbar button toggle). Public so a headless capture or a game can open it programmatically.
     pub fn set_editor_shortcuts_visible(&mut self, visible: bool) {
         self.editor.show_shortcuts = visible;
+    }
+
+    /// Select `entity` in the editor: populate the Inspector with its components and make it the
+    /// sole multi-selection. Public so a headless capture (to set up an Inspector screenshot) or a
+    /// game can drive editor selection programmatically — the same state a click in the entity list
+    /// produces. Native-only.
+    pub fn editor_select_entity(&mut self, entity: crate::Entity) {
+        self.editor.inspector_selected = Some(entity);
+        self.editor.selected_entities = vec![entity];
     }
 
     /// Drive one egui editor frame with a synthesized `RawInput` (no window): begin the pass, build
