@@ -4,6 +4,15 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.90.0
+
+**Richer effect payload — per-effect spawn offset.** `Effect::SpawnParticles` gains an `offset: (x, y)` field — a world-space displacement added to the burst's anchor position, so a data-authored burst can spawn off-center (e.g. footstep dust at the feet, not the entity center) instead of always at the anchor's `Transform`. The field is shared by both effect sources (`zone_effect` + `anim_effect`) since it lives on the common `Effect` vocabulary. **Additive, non-breaking** — `#[serde(default)]` makes `offset` default to `(0.0, 0.0)`, which is byte-identical to the prior behavior (existing RON and the old burst position are unchanged).
+
+### Added
+- `Effect::SpawnParticles.offset: (f32, f32)` (`src/effect.rs`) — world-space `(x, y)` offset added to the anchor's `Transform` position in `resolve_effect` (`pos = position + offset`); not rotated/scaled by the transform. Default `(0.0, 0.0)`.
+- `examples/anim_effects` now spawns the footstep dust at the walker's **feet** via the new `offset` (`anim_effects.ron`: `SpawnParticles(particles: "dust", count: 18, offset: (0.0, 70.0))`), with `＋ center` / `◦ feet` HUD guides showing the displacement. Closes the prior "dust spawns at the entity center" limitation noted when `anim_effect` shipped (0.89.0).
+- Unit test `anim_effect::tests::spawn_particles_offset_displaces_burst` (burst Transform = anchor + offset); `zone_effect`'s default-parse test now also asserts `offset` defaults to `(0.0, 0.0)`.
+
 ## 0.89.0
 
 **Data-driven Animation→Effect bindings — fire RON-authored effects on tagged animation frames.** The companion to Zone→Effect bindings (0.88.0): where that reacts to a zone overlap, this reacts to an `AnimationEvent` — an `AnimEffectBindings` table maps a frame's `tag` (e.g. `"footstep"`) to a bare `Vec<Effect>` (no phase — an animation event is an instantaneous fire), and a user-added `AnimEffectSystem::new(name)` (run after `AnimationSystem`) reads each event, looks up its tag's effects, and applies them anchored at the animating entity. The shared `Effect` vocabulary (`SpawnParticles` / `PlayTone` / `Flash`) + its application were extracted into a new `engine::effect` module and are reused directly — so animation reactions, the particles they fire, and the animation itself can all live in RON. **Additive types + one `App` method; the shared-module extraction is behavior-preserving with no public API change** (`engine::Effect`/`engine::EffectAnchor` keep their crate-root paths).

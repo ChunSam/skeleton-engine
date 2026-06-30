@@ -9,6 +9,12 @@
 //! and a quick warm flash on the walker. The animation, the particles, and the reactions are all
 //! authored in RON, composed by the frame tag, with **zero reaction glue in code**.
 //!
+//! The dust uses the [`SpawnParticles`] `offset` field to spawn at the walker's **feet** (+70 world
+//! units down), not the sprite center — the HUD draws a `＋ center` / `◦ feet` guide so the
+//! displacement is visible. Edit the `offset` in `anim_effects.ron` to move where the dust kicks up.
+//!
+//! [`SpawnParticles`]: engine::Effect::SpawnParticles
+//!
 //! - **Esc** — quit
 //!
 //! Headless (`HEADLESS_SHOT=/tmp/anim_effects.png cargo run --example anim_effects`): runs 70 warmup
@@ -25,6 +31,9 @@ const WIN_W: u32 = 640;
 const WIN_H: u32 = 420;
 const FRAMES: u32 = 4;
 const FPS: f32 = 4.0; // 0.25 s/frame — footsteps land ~twice per second
+/// Mirrors the `offset` in `anim_effects.ron`'s footstep `SpawnParticles` (the dust's feet anchor),
+/// used only to draw the on-screen `◦ feet` guide marker. The RON value is the real source of truth.
+const FEET_OFFSET: Vec2 = Vec2::new(0.0, 70.0);
 
 /// Writes a 4×1 walk sheet (same as `animation_events`). Frames 1 and 3 are "contact" poses — the
 /// body bobs down and a ground band appears — exactly the frames the `"footstep"` events fire on.
@@ -97,13 +106,44 @@ impl System for Hud {
             .get::<AnimationPlayer>(self.player)
             .map(|p| p.current_frame)
             .unwrap_or(0);
+
+        // Map the walker's center + feet (center + FEET_OFFSET) to screen space so the HUD can mark
+        // exactly where the offset puts the dust burst. Computed under immutable borrows first.
+        let guides = world
+            .get::<Transform>(self.player)
+            .map(|t| t.position)
+            .zip(world.resource::<Camera>().copied())
+            .map(|(pos, cam)| {
+                (
+                    cam.world_to_screen(pos),
+                    cam.world_to_screen(pos + FEET_OFFSET),
+                )
+            });
+
         if let Some(tq) = world.resource_mut::<TextQueue>() {
             tq.push(DrawText::new(
-                "Animation → Effect bindings — dust + click + flash on the contact frames, all in RON",
+                "Animation → Effect bindings — footstep dust spawns at the FEET via SpawnParticles offset (RON)",
                 Vec2::new(20.0, 22.0),
                 15.0,
                 Color::rgb(0.92, 0.9, 0.78),
             ));
+
+            // Guide markers: where the burst would anchor by default (center) vs where the RON
+            // `offset` puts it (feet). The dust should kick up at the `◦ feet` mark, not `＋`.
+            if let Some((center_s, feet_s)) = guides {
+                tq.push(DrawText::centered(
+                    "＋ center",
+                    center_s,
+                    13.0,
+                    Color::rgb(0.55, 0.6, 0.7),
+                ));
+                tq.push(DrawText::centered(
+                    "◦ feet (offset)",
+                    feet_s,
+                    13.0,
+                    Color::rgb(0.95, 0.8, 0.45),
+                ));
+            }
             tq.push(DrawText::new(
                 format!("current frame: {cur}    footsteps: {}", self.steps),
                 Vec2::new(20.0, WIN_H as f32 - 52.0),

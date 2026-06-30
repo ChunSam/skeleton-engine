@@ -9,12 +9,15 @@
 // The value per tag is a bare list of effects (no phase — an animation event is an instantaneous
 // fire). Effect variants: SpawnParticles / PlayTone / Flash (see the `zone_effects.ron` header).
 // `at` is accepted but IGNORED here (an animation effect always anchors at the animating entity).
+//
+// `SpawnParticles.offset: (x, y)` displaces the burst from the anchor in world units — here the
+// dust spawns at the walker's FEET (+70 down), not the sprite center. Default `(0, 0)` = at center.
 (
     bindings: {
-        // Each contact frame of the walk cycle fires a footstep: a dust puff, a soft click, and a
-        // quick warm flash on the walker.
+        // Each contact frame of the walk cycle fires a footstep: a dust puff at the feet, a soft
+        // click, and a quick warm flash on the walker.
         "footstep": [
-            SpawnParticles(particles: "dust", count: 18),
+            SpawnParticles(particles: "dust", count: 18, offset: (0.0, 70.0)),
             PlayTone(freq: 180.0, dur: 0.06, vol: 0.18),
             Flash(color: (1.0, 0.95, 0.7, 1.0), secs: 0.12),
         ],
