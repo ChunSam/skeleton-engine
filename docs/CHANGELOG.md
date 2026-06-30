@@ -4,6 +4,15 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.92.0
+
+**Editor action toasts — transient, colour-coded feedback popups.** Editor actions used to write a status string into a panel where it's easy to miss; now they also surface a bottom-right toast ("Scene saved (3)", "Deleted 2", "Load failed: …") that auto-expires and fades out. Verified headlessly with the v0.91.0 headless editor-screenshot path. **All additive; editor is native-only.** Pre-1.0 additive → MINOR.
+
+### Added
+- `src/app/editor/ui/toasts.rs` — `EditorState::toasts` + `Toast`/`ToastKind` (Info/Success/Error); `App::push_editor_toast(msg, kind)` (internal) + public `App::editor_toast` / `editor_toast_success` / `editor_toast_error`; `App::draw_editor_toasts` ages + draws a bottom-right stack (fading over the last ~0.6 s, queue capped at 5) in both overlay and docked modes.
+- Wired to the keyboard/editor actions: delete ("Deleted N"), duplicate ("Duplicated N"), paste ("Pasted N"), and scene save (success "Scene saved (N)" / error "Save failed: …", covering both the toolbar button and Ctrl+S).
+- Unit test `editor_toasts_push_and_cap_to_five` + render test `tests/render.rs::editor_toast_renders_headless` (lavapipe-verified). Example `editor_headless_shot` now also shows the colour-coded toast stack.
+
 ## 0.91.0
 
 **Editor keyboard-UX upgrade + a headless editor-screenshot capability to verify it without a display.** The in-game editor gains standard keyboard shortcuts and a discoverable cheatsheet; and because the egui editor overlay is normally driven by the windowed loop (so a plain headless screenshot can't capture it), a new path drives egui manually with no window — making editor UI visually verifiable with the monitor off/locked and on CI (lavapipe). **All additive; the editor is native-only, so nothing wasm-facing changes.**

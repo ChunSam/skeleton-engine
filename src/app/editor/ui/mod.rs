@@ -19,6 +19,8 @@ mod state_machine_panel;
 mod tile_paint;
 #[cfg(not(target_arch = "wasm32"))]
 mod timeline_panel;
+#[cfg(not(target_arch = "wasm32"))]
+mod toasts;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::app::editor::EditorMode;
@@ -223,6 +225,9 @@ impl App {
             // Keyboard-shortcuts cheatsheet window (shown while `show_shortcuts` is on; both modes).
             #[cfg(not(target_arch = "wasm32"))]
             self.draw_editor_shortcuts_window(ctx);
+            // Action-feedback toasts (bottom-right, auto-expiring; both modes).
+            #[cfg(not(target_arch = "wasm32"))]
+            self.draw_editor_toasts(ctx, dt);
 
             // Docked mode: draw the full docked layout.
             #[cfg(not(target_arch = "wasm32"))]
