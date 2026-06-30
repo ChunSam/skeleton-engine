@@ -539,3 +539,32 @@ fn editor_toasts_push_and_cap_to_five() {
     assert_eq!(app.editor.toasts.first().unwrap().message, "toast 3");
     assert_eq!(app.editor.toasts.last().unwrap().message, "toast 7");
 }
+
+#[test]
+fn prefab_save_and_spawn_push_toasts() {
+    use crate::app::editor::state::ToastKind;
+    let mut app = crate::app::App::new();
+
+    // Spawning from a missing file surfaces an Error toast.
+    app.spawn_prefab("/nonexistent-skeleton-engine-dir/does_not_exist.ron");
+    assert_eq!(
+        app.editor.toasts.last().expect("a toast was pushed").kind,
+        ToastKind::Error,
+        "loading a missing prefab should toast an error"
+    );
+
+    // Saving a real entity to a temp path surfaces a Success toast.
+    let e = app.world.spawn();
+    app.world
+        .add_component(e, crate::prefab::Tag("Saveable".into()));
+    app.world
+        .add_component(e, crate::components::Transform::default());
+    let path = std::env::temp_dir().join("skeleton_engine_prefab_toast_test.ron");
+    app.save_selected_as_prefab(e, path.to_str().unwrap());
+    assert_eq!(
+        app.editor.toasts.last().expect("a toast was pushed").kind,
+        ToastKind::Success,
+        "saving a prefab should toast success"
+    );
+    let _ = std::fs::remove_file(&path);
+}
