@@ -35,6 +35,24 @@ pub(in crate::app) struct Toast {
     pub(in crate::app) ttl: f32,
 }
 
+/// In-progress inline rename of an entity in the editor entity list.
+///
+/// Set when a list row is double-clicked (or [`App::editor_begin_rename`]): the editor renders a
+/// focused text box bound to [`buffer`](EntityRename::buffer) in place of that row's label.
+/// Committing (Enter or click-away) writes `Tag(buffer)` to the entity; Escape cancels.
+///
+/// Native-only — the docked/overlay entity list is excluded from wasm builds.
+#[cfg(not(target_arch = "wasm32"))]
+pub(in crate::app) struct EntityRename {
+    /// The entity whose name is being edited.
+    pub(in crate::app) entity: Entity,
+    /// The editable name buffer, seeded from the entity's current `Tag` (empty if it has none).
+    pub(in crate::app) buffer: String,
+    /// `true` for the first frame after the rename begins, so the text box grabs keyboard focus
+    /// exactly once (re-requesting focus every frame would trap it and block click-away commits).
+    pub(in crate::app) focus_pending: bool,
+}
+
 /// A pluggable inspector sub-panel registered via [`App::register_inspector_panel`].
 ///
 /// When the inspector draws the selected entity, each registered panel is evaluated:
@@ -319,6 +337,10 @@ pub(in crate::app) struct EditorState {
     /// Entity-list search query (case-insensitive substring of the entity label).
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) entity_filter: String,
+    /// In-progress inline entity rename (double-click a list row to edit its name). `None` when
+    /// not renaming. See [`EntityRename`] + `App::editor_begin_rename`/`editor_commit_rename`.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) entity_rename: Option<EntityRename>,
     /// Whether the world-aligned grid overlay is drawn on the docked viewport.
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) show_grid: bool,
@@ -428,6 +450,7 @@ impl EditorState {
             paint_erase: false,
             component_clipboard: None,
             entity_filter: String::new(),
+            entity_rename: None,
             show_grid: false,
             show_bounds: false,
             show_pathgrid: false,

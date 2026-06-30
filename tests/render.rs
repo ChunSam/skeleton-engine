@@ -553,6 +553,58 @@ fn editor_docked_renders_headless() {
     );
 }
 
+/// With an inline rename in progress, the docked entity list draws a focused text box (bound to the
+/// rename buffer) in place of one row's label. This drives that path headlessly: begin a rename via
+/// [`App::editor_begin_rename`], then capture the docked editor. The left-panel strip must still
+/// composite bright UI (the text box + the buffer text), proving the rename branch renders without
+/// panicking — the prerequisite for golden-testing the in-edit state.
+#[test]
+fn editor_docked_inline_rename_renders_headless() {
+    let (w, h) = (700u32, 460u32);
+    let mut app = App::new();
+    app.world.insert_resource(WindowConfig {
+        title: "docked rename headless".into(),
+        width: w,
+        height: h,
+        clear_color: [0.05, 0.06, 0.09, 1.0],
+    });
+    let mut ents = Vec::new();
+    for i in 0..3 {
+        let e = app.world.spawn();
+        app.world.add_component(e, Tag(format!("Quad {i}")));
+        app.world.add_component(
+            e,
+            Transform::new(Vec2::new(40.0, 40.0), Vec2::splat(24.0), 0.0),
+        );
+        app.world.add_component(e, Sprite::colored(0.8, 0.4, 0.4));
+        ents.push(e);
+    }
+    // Start renaming the middle row: its label is replaced by a text box showing this buffer.
+    app.editor_begin_rename(ents[1]);
+
+    let Some((rw, rh, px)) = editor_render_or_skip(&mut app, 6, true) else {
+        return;
+    };
+    assert_eq!((rw, rh), (w, h), "read-back size mismatch");
+
+    // Same left-strip brightness probe as the docked test: a renaming row still draws bright UI
+    // (the text box frame + the editable name), so the left panel composited the in-edit state.
+    let mut max_luma = 0u32;
+    for y in 40..(rh - 220) {
+        for x in 10..240 {
+            let p = px_rgb(&px, rw, x, y);
+            let l = p[0] as u32 + p[1] as u32 + p[2] as u32;
+            if l > max_luma {
+                max_luma = l;
+            }
+        }
+    }
+    assert!(
+        max_luma > 400,
+        "no bright pixels in the left strip while renaming — the inline-rename row did not render: max_luma={max_luma}"
+    );
+}
+
 /// A `Hidden` component suppresses an entity's sprite in the render path. Two quads — left red
 /// (visible), right green (Hidden). The left reads red; the right region stays at the background
 /// (the green quad is gone), proving the sprite pass skips Hidden entities.

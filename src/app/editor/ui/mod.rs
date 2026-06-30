@@ -13,6 +13,8 @@ mod grid_overlay;
 mod lighting_panel;
 #[cfg(not(target_arch = "wasm32"))]
 mod particle_panel;
+#[cfg(not(target_arch = "wasm32"))]
+mod rename;
 mod shortcuts;
 #[cfg(not(target_arch = "wasm32"))]
 mod state_machine_panel;
@@ -182,6 +184,13 @@ impl App {
         self.editor
             .selected_entities
             .retain(|&e| self.world.is_alive(e));
+        // Drop an in-progress inline rename if its entity was despawned (avoids a stale text box).
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(rn) = &self.editor.entity_rename {
+            if !self.world.is_alive(rn.entity) {
+                self.editor.entity_rename = None;
+            }
+        }
         // comp_fields must be built unconditionally: it is consumed after the egui block
         // for inspector write-back (~line 742).  entity_list / tag_map are only needed
         // inside the is_enabled() gate and are moved there to avoid per-frame allocations
