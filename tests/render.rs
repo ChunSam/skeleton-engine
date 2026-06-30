@@ -605,6 +605,69 @@ fn editor_docked_inline_rename_renders_headless() {
     );
 }
 
+/// The docked **Scene** tab renders the parent→children tree with drag-to-reparent wiring. This
+/// drives the structural path headlessly: build a small hierarchy, reparent a node via the cycle-safe
+/// [`App::editor_reparent`] (the same edit a drop performs), switch to the Scene tab via
+/// [`App::editor_show_scene_tree`], then capture. The left-panel strip must composite the (now
+/// re-nested) tree's bright UI text, proving the Scene tab + DnD-wrapped nodes render without panic.
+#[test]
+fn editor_docked_scene_tree_reparent_renders_headless() {
+    let (w, h) = (700u32, 460u32);
+    let mut app = App::new();
+    app.world.insert_resource(WindowConfig {
+        title: "docked scene-tree headless".into(),
+        width: w,
+        height: h,
+        clear_color: [0.05, 0.06, 0.09, 1.0],
+    });
+    // Three roots; give each a Transform so the hierarchy is well-formed.
+    let mut ents = Vec::new();
+    for i in 0..3 {
+        let e = app.world.spawn();
+        app.world.add_component(e, Tag(format!("Node {i}")));
+        app.world.add_component(
+            e,
+            Transform::new(Vec2::new(40.0, 40.0), Vec2::splat(24.0), 0.0),
+        );
+        ents.push(e);
+    }
+    // Reparent Node 1 + Node 2 under Node 0 (the same edit a Scene-tree drop performs).
+    assert!(
+        app.editor_reparent(ents[1], Some(ents[0])),
+        "valid reparent"
+    );
+    assert!(
+        app.editor_reparent(ents[2], Some(ents[0])),
+        "valid reparent"
+    );
+    // A cycle attempt must be refused (Node 0 under its own child Node 1).
+    assert!(
+        !app.editor_reparent(ents[0], Some(ents[1])),
+        "descendant target rejected — no cycle"
+    );
+    app.editor_show_scene_tree();
+
+    let Some((rw, rh, px)) = editor_render_or_skip(&mut app, 6, true) else {
+        return;
+    };
+    assert_eq!((rw, rh), (w, h), "read-back size mismatch");
+
+    let mut max_luma = 0u32;
+    for y in 40..(rh - 220) {
+        for x in 10..240 {
+            let p = px_rgb(&px, rw, x, y);
+            let l = p[0] as u32 + p[1] as u32 + p[2] as u32;
+            if l > max_luma {
+                max_luma = l;
+            }
+        }
+    }
+    assert!(
+        max_luma > 400,
+        "no bright pixels in the left strip — the docked Scene tree did not render: max_luma={max_luma}"
+    );
+}
+
 /// A `Hidden` component suppresses an entity's sprite in the render path. Two quads — left red
 /// (visible), right green (Hidden). The left reads red; the right region stays at the background
 /// (the green quad is gone), proving the sprite pass skips Hidden entities.

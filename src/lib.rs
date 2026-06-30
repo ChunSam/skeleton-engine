@@ -125,7 +125,8 @@ pub use effect::{Effect, EffectAnchor};
 #[cfg(not(target_arch = "wasm32"))]
 pub use gpu_particle::{GpuParticleConfig, GpuParticleEmitter};
 pub use hierarchy::{
-    attach, detach, topological_sort_entities, Children, GlobalTransform, HierarchySystem, Parent,
+    attach, detach, reparent, topological_sort_entities, Children, GlobalTransform,
+    HierarchySystem, Parent,
 };
 pub use history::History;
 pub use hit_flash::{HitFlash, HitFlashSystem};

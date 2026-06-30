@@ -221,6 +221,13 @@ impl App {
         self.editor.selected_entities = vec![entity];
     }
 
+    /// Switch the docked left panel to the **Scene** tab (the parent→children tree, where
+    /// drag-to-reparent lives), as if the user clicked its tab. Public so a headless capture can
+    /// screenshot the hierarchy view (the default is the flat Entities tab). Native-only.
+    pub fn editor_show_scene_tree(&mut self) {
+        self.editor.inspector_tab = 2;
+    }
+
     /// Drive one egui editor frame with a synthesized `RawInput` (no window): begin the pass, build
     /// the editor UI, tessellate, and stash the paint jobs in `render.egui_output` for the render
     /// pass's egui overlay to consume.
