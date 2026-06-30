@@ -57,33 +57,54 @@ impl App {
     }
 
     /// Save the selected entity as a prefab RON file at `path` (captures tag/transform/sprite/
-    /// parent + serde-registered components via `entity_to_def`). Sets `prefab_status`.
+    /// parent + serde-registered components via `entity_to_def`). Sets `prefab_status` AND surfaces
+    /// the outcome as an action toast (success/error), matching the scene-save feedback.
     pub(in crate::app) fn save_selected_as_prefab(&mut self, sel: Entity, path: &str) {
-        let status = match entity_to_def(&self.world, sel) {
+        use crate::app::editor::state::ToastKind;
+        let (status, kind) = match entity_to_def(&self.world, sel) {
             Some(def) => {
                 let prefab = crate::prefab::Prefab { def };
                 match prefab.save(std::path::Path::new(path)) {
-                    Ok(()) => format!("{} → {path}", tr("Saved prefab", "프리팹 저장됨")),
-                    Err(e) => format!("{}: {e}", tr("Save failed", "저장 실패")),
+                    Ok(()) => (
+                        format!("{} → {path}", tr("Saved prefab", "프리팹 저장됨")),
+                        ToastKind::Success,
+                    ),
+                    Err(e) => (
+                        format!("{}: {e}", tr("Save failed", "저장 실패")),
+                        ToastKind::Error,
+                    ),
                 }
             }
-            None => tr("No entity to save", "저장할 엔티티 없음").to_string(),
+            None => (
+                tr("No entity to save", "저장할 엔티티 없음").to_string(),
+                ToastKind::Error,
+            ),
         };
+        self.push_editor_toast(status.clone(), kind);
         self.editor.prefab_status = Some(status);
     }
 
     /// Load a prefab from `path` and spawn it (with a `PrefabInstance` marker so Break Prefab
-    /// works), then select the new entity. Sets `prefab_status`.
+    /// works), then select the new entity. Sets `prefab_status` AND surfaces the outcome as an
+    /// action toast (success/error), matching the scene-save feedback.
     pub(in crate::app) fn spawn_prefab(&mut self, path: &str) {
-        let status = match crate::prefab::Prefab::load(std::path::Path::new(path)) {
+        use crate::app::editor::state::ToastKind;
+        let (status, kind) = match crate::prefab::Prefab::load(std::path::Path::new(path)) {
             Ok(prefab) => {
                 let e = prefab.spawn_with_tracking(&mut self.world, path.to_string());
                 self.editor.inspector_selected = Some(e);
                 self.editor.selected_entities = vec![e];
-                format!("{} {path}", tr("Spawned prefab from", "프리팹 생성:"))
+                (
+                    format!("{} {path}", tr("Spawned prefab from", "프리팹 생성:")),
+                    ToastKind::Success,
+                )
             }
-            Err(e) => format!("{}: {e}", tr("Load failed", "불러오기 실패")),
+            Err(e) => (
+                format!("{}: {e}", tr("Load failed", "불러오기 실패")),
+                ToastKind::Error,
+            ),
         };
+        self.push_editor_toast(status.clone(), kind);
         self.editor.prefab_status = Some(status);
     }
 }

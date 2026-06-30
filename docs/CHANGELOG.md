@@ -4,6 +4,14 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.95.0
+
+**Editor prefab save/spawn now surface action toasts.** Saving the selected entity as a prefab, or spawning a prefab, in the docked editor previously only set the inline `prefab_status` label; both now also push a colour-coded action toast (success/error) like the scene-save action, completing the toast coverage of the editor's file actions. Editor-only behavior; no public API change.
+
+### Changed
+- `App::save_selected_as_prefab` / `App::spawn_prefab` (`src/app/editor/prefab.rs`) push an `App::push_editor_toast` (`ToastKind::Success` / `ToastKind::Error`) in addition to setting `prefab_status`, mirroring `do_save_scene_with_list`'s feedback.
+- Unit test `prefab_save_and_spawn_push_toasts` (`src/app/editor/tests.rs`): a missing-file spawn toasts `Error`; a successful save toasts `Success`.
+
 ## 0.94.0
 
 **Docked-mode headless editor capture — verify docked-panel editor UI with no window/display.** The headless editor screenshot could only draw the *overlay* editor (cheatsheet/toasts); the **docked** layout — entity list, inspector, Data Tables, and the game scene in the central viewport — was invisible to it, so docked-panel UI (e.g. the entity-list eye toggle) couldn't be visually verified or golden-image tested. New `App::screenshot_editor_docked_headless[_rgba]` enter docked mode before driving egui, so the full docked editor composites onto the offscreen texture with no window (monitor off / asleep / locked / CI lavapipe). **All additive; the overlay path is unchanged.** Pre-1.0 additive → MINOR.
