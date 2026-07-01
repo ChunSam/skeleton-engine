@@ -58,6 +58,10 @@ pub(in crate::app) enum EditorCmd {
     /// Re-parent an entity in the Scene-tree hierarchy (drag-to-reparent). Undo restores the
     /// `old_parent`, redo re-applies the `new_parent` — both through the cycle-safe
     /// [`crate::hierarchy::reparent`]. `None` means a root (no parent).
+    ///
+    /// Undo/redo route through the same cycle-safe `reparent`, so if an interleaved edit had made
+    /// `old_parent` a descendant of `entity`, restoring it would be a silent no-op. Normal LIFO
+    /// undo can't reach that state (every hierarchy edit is itself an undo entry, unwound in order).
     Reparent {
         entity: Entity,
         old_parent: Option<Entity>,
