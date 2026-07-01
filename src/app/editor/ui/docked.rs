@@ -404,11 +404,13 @@ fn sorted_entity_list(
     v
 }
 
-/// A right-click action offered on an Entities-list row. Dispatched through
+/// A right-click action offered on an Entities-list row or a Scene-tree node. Dispatched through
 /// [`App::editor_apply_entity_context_action`] so the wiring stays testable without egui.
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EntityContextAction {
+    /// Scene-tree only: spawn a new entity parented under the target and select the child.
+    AddChild,
     Rename,
     Duplicate,
     Focus,
@@ -417,14 +419,30 @@ enum EntityContextAction {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl App {
-    /// Apply an Entities-list right-click [`EntityContextAction`] to `entity`. Selects `entity`
-    /// first, so the selection-scoped duplicate/delete/focus ops act on the right-clicked row (not
-    /// whatever happened to be selected before), then runs the op. A dead entity is a no-op. Drives
-    /// the same public ops the toolbar/shortcuts use; native-only. Module-private (its only callers —
-    /// `entities_tab_body` and the tests — live in this file), so the private `EntityContextAction`
-    /// never leaks through a more-public signature.
+    /// Apply a right-click [`EntityContextAction`] to `entity` (Entities list AND Scene tree). For the
+    /// selection-scoped ops (Rename/Duplicate/Focus/Delete) it selects `entity` first, so they act on
+    /// the right-clicked row — not whatever happened to be selected before — then runs the op.
+    /// `AddChild` instead spawns a NEW entity parented under `entity` (via the cycle-safe
+    /// [`crate::hierarchy::reparent`]) and selects that child, so it does NOT pre-select `entity`. A
+    /// dead entity is a no-op. Drives the same public ops the toolbar/shortcuts use; native-only.
+    /// Module-private (its only callers — `entities_tab_body`/`scene_tab_body` and the tests — live in
+    /// this file), so the private `EntityContextAction` never leaks through a more-public signature.
     fn editor_apply_entity_context_action(&mut self, entity: Entity, action: EntityContextAction) {
         if !self.world.is_alive(entity) {
+            return;
+        }
+        if action == EntityContextAction::AddChild {
+            // Same fresh-spawn shape as the "＋ New Entity" toolbar button (Transform + Tag), then
+            // parented under the target. Not undoable, matching that button. Select the child so the
+            // user can immediately rename/edit it.
+            let child = self.world.spawn();
+            self.world
+                .add_component(child, crate::components::Transform::default());
+            self.world
+                .add_component(child, crate::prefab::Tag("New Entity".into()));
+            crate::hierarchy::reparent(&mut self.world, child, Some(entity));
+            self.editor.inspector_selected = Some(child);
+            self.editor.selected_entities = vec![child];
             return;
         }
         self.editor.inspector_selected = Some(entity);
@@ -434,7 +452,50 @@ impl App {
             EntityContextAction::Duplicate => self.editor_duplicate_selection(),
             EntityContextAction::Focus => self.editor_focus_camera_on_selection(),
             EntityContextAction::Delete => self.editor_delete_selection(),
+            EntityContextAction::AddChild => {}
         }
+    }
+}
+
+/// Draw the shared entity right-click context menu and record the chosen `(entity, action)` into
+/// `out` (collect-then-apply — the caller applies it after the list/tree is drawn, so the closure
+/// never mutates `App` mid-iteration). Shared by the Entities list and the Scene tree; `add_child`
+/// includes the Scene-tree-only "＋ Add child" item (spawns a parented entity). All glyphs are
+/// already verified to render in egui's bundled font (reused from the "New Entity" button + the
+/// existing menu items).
+#[cfg(not(target_arch = "wasm32"))]
+fn entity_context_menu(
+    ui: &mut egui::Ui,
+    e: Entity,
+    add_child: bool,
+    out: &mut Option<(Entity, EntityContextAction)>,
+) {
+    if add_child {
+        if ui.button(tr("＋ Add child", "＋ 자식 추가")).clicked() {
+            *out = Some((e, EntityContextAction::AddChild));
+            ui.close();
+        }
+        ui.separator();
+    }
+    if ui.button(tr("Rename", "이름 변경")).clicked() {
+        *out = Some((e, EntityContextAction::Rename));
+        ui.close();
+    }
+    if ui.button(tr("⎘ Duplicate", "⎘ 복제")).clicked() {
+        *out = Some((e, EntityContextAction::Duplicate));
+        ui.close();
+    }
+    if ui
+        .button(tr("🎯 Focus camera", "🎯 카메라 포커스"))
+        .clicked()
+    {
+        *out = Some((e, EntityContextAction::Focus));
+        ui.close();
+    }
+    ui.separator();
+    if ui.button(tr("🗑 Delete", "🗑 삭제")).clicked() {
+        *out = Some((e, EntityContextAction::Delete));
+        ui.close();
     }
 }
 
@@ -608,30 +669,10 @@ pub(in crate::app) fn entities_tab_body(
                             .selectable_label(is_sel, label_rt)
                             .on_hover_text(tr("double-click to rename", "더블클릭하여 이름 변경"));
                         // Right-click context menu: the same rename/duplicate/focus/delete ops as the
-                        // toolbar + shortcuts, per-row and discoverable. Each button records the chosen
-                        // action (applied after the list is drawn) and closes the menu.
-                        resp.context_menu(|ui| {
-                            if ui.button(tr("Rename", "이름 변경")).clicked() {
-                                ctx_action = Some((e, EntityContextAction::Rename));
-                                ui.close();
-                            }
-                            if ui.button(tr("⎘ Duplicate", "⎘ 복제")).clicked() {
-                                ctx_action = Some((e, EntityContextAction::Duplicate));
-                                ui.close();
-                            }
-                            if ui
-                                .button(tr("🎯 Focus camera", "🎯 카메라 포커스"))
-                                .clicked()
-                            {
-                                ctx_action = Some((e, EntityContextAction::Focus));
-                                ui.close();
-                            }
-                            ui.separator();
-                            if ui.button(tr("🗑 Delete", "🗑 삭제")).clicked() {
-                                ctx_action = Some((e, EntityContextAction::Delete));
-                                ui.close();
-                            }
-                        });
+                        // toolbar + shortcuts, per-row and discoverable. The flat list offers no
+                        // "Add child" (that's a Scene-tree-only op). Records the chosen action,
+                        // applied after the list is drawn.
+                        resp.context_menu(|ui| entity_context_menu(ui, e, false, &mut ctx_action));
                         if resp.clicked() {
                             apply_multiselect(
                                 e,
@@ -683,6 +724,8 @@ pub(in crate::app) fn scene_tab_body(
     let mut ctrl_clicked: bool = false;
     // A node drop sets `(dragged_child, Some(target_parent))`; the unparent zone sets `(_, None)`.
     let mut dropped: Option<(Entity, Option<Entity>)> = None;
+    // A right-click menu choice (collect-then-apply, like `dropped` — applied after the tree is drawn).
+    let mut ctx_action: Option<(Entity, EntityContextAction)> = None;
 
     egui::ScrollArea::vertical()
         .id_salt("docked_scene_graph")
@@ -748,6 +791,11 @@ pub(in crate::app) fn scene_tab_body(
                     if response.double_clicked() {
                         app.editor_begin_rename(entity);
                     }
+                    // Right-click a node → the shared entity menu, plus the Scene-tree-only "Add child"
+                    // (spawns an entity parented under this node). Secondary-click doesn't disturb the
+                    // primary-drag reparent source.
+                    response
+                        .context_menu(|ui| entity_context_menu(ui, entity, true, &mut ctx_action));
                     if let Some(payload) = response.dnd_release_payload::<DragEntity>() {
                         if payload.0 != entity {
                             dropped = Some((payload.0, Some(entity)));
@@ -784,6 +832,11 @@ pub(in crate::app) fn scene_tab_body(
 
     if let Some((child, new_parent)) = dropped {
         app.editor_reparent(child, new_parent);
+    }
+    // Apply the right-click menu action chosen this frame (collect-then-apply keeps the menu closure
+    // free of `app` mutation during iteration).
+    if let Some((e, action)) = ctx_action {
+        app.editor_apply_entity_context_action(e, action);
     }
 
     ui.separator();
@@ -1517,5 +1570,50 @@ mod context_action_tests {
         // Must not panic or start a rename on a despawned entity.
         app.editor_apply_entity_context_action(e, EntityContextAction::Rename);
         assert!(app.editor.entity_rename.is_none());
+    }
+
+    #[test]
+    fn add_child_spawns_a_parented_entity_and_selects_the_child() {
+        use crate::hierarchy::{Children, Parent};
+        let mut app = App::new();
+        let parent = app.world.spawn();
+        app.world.add_component(parent, Tag("Parent".into()));
+        let before = app.world.entities().len();
+
+        app.editor_apply_entity_context_action(parent, EntityContextAction::AddChild);
+
+        assert_eq!(app.world.entities().len(), before + 1, "one child spawned");
+        // Selection moved to the NEW child, not the right-clicked parent.
+        let child = app.editor.inspector_selected.expect("child selected");
+        assert_ne!(child, parent, "the child is selected, not the parent");
+        assert_eq!(app.editor.selected_entities, vec![child]);
+        // The child is parented under the target, and the target lists it as a child.
+        assert_eq!(
+            app.world.get::<Parent>(child).map(|p| p.0),
+            Some(parent),
+            "child points at the parent"
+        );
+        assert!(
+            app.world
+                .get::<Children>(parent)
+                .is_some_and(|c| c.0.contains(&child)),
+            "parent lists the child"
+        );
+        // Fresh-spawn shape: Transform + a Tag (like the New Entity button).
+        assert!(app.world.get::<Transform>(child).is_some());
+    }
+
+    #[test]
+    fn add_child_on_a_dead_entity_is_a_noop() {
+        let mut app = App::new();
+        let e = app.world.spawn();
+        app.world.despawn(e);
+        let before = app.world.entities().len();
+        app.editor_apply_entity_context_action(e, EntityContextAction::AddChild);
+        assert_eq!(
+            app.world.entities().len(),
+            before,
+            "no child spawned under a dead entity"
+        );
     }
 }

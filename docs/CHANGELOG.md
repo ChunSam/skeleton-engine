@@ -4,6 +4,17 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.103.0
+
+**The docked editor's right-click context menu now works on the Scene tree too — plus a new "＋ Add child".** Right-clicking a Scene-tab tree node opens the same Rename / Duplicate / Focus camera / Delete menu the Entities list already had, and adds a Scene-tree-only **＋ Add child** that spawns a fresh entity parented under the node (then selects it) — the first context-menu path that *creates* a hierarchy relationship. The menu markup is now shared between the two tabs. Additive, native-only, no public API.
+
+### Added
+- `EntityContextAction::AddChild` + its dispatch in `App::editor_apply_entity_context_action` (`src/app/editor/ui/docked.rs`) — spawns a `Transform`+`Tag("New Entity")` entity (the same shape as the "＋ New Entity" toolbar button), parents it under the right-clicked node via the cycle-safe `crate::hierarchy::reparent`, and selects the new child (so it does **not** pre-select the parent the way the selection-scoped ops do). Not undoable, matching the New Entity button. 2 unit tests (spawns + parents + selects the child; a dead target is a no-op).
+- `scene_tab_body` (`src/app/editor/ui/docked.rs`) attaches the context menu to each tree node's response (collect-then-apply, like the existing drag-to-reparent drop — the menu closure only records `(entity, action)`, applied after the tree is drawn). A secondary-click doesn't disturb the primary-drag reparent source.
+
+### Changed (internal)
+- Extracted `docked.rs::entity_context_menu(ui, entity, add_child, out)` — one shared helper drawing the Rename/Duplicate/Focus/Delete buttons (and the Scene-tree-only ＋ Add child) — replacing the inline menu that lived in `entities_tab_body`. Both the Entities list (`add_child = false`) and the Scene tree (`add_child = true`) call it, so the two menus can't drift.
+
 ## 0.102.0
 
 **Right-click context menu on the docked editor's Entities list.** Right-clicking a row now opens a menu with Rename / Duplicate / Focus camera / Delete — the same operations available from the toolbar and keyboard shortcuts, surfaced per-row and on the entity you clicked. Additive, native-only, no public API; every action reuses an existing, already-tested op.
