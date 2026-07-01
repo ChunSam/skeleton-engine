@@ -66,6 +66,7 @@ pub(super) fn register_core_component_metadata(world: &mut World) {
     world.register_clone::<crate::trigger_zone::TriggerZone>();
     world.register_clone::<crate::hit_flash::HitFlash>();
     world.register_clone::<crate::floating_text::FloatingText>();
+    world.register_clone::<crate::sprite_trail::SpriteTrail>();
     world.register_clone::<crate::prefab::Tag>();
     world.register_clone::<crate::animation::player::AnimationPlayer>();
     world.register_clone::<crate::animation::events::AnimationEvents>();

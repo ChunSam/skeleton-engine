@@ -4,6 +4,15 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.106.0
+
+**Sprite trail / afterimage — leave a fading ghost behind a moving sprite.** The motion trail every dash / dodge / fast projectile wants: attach a `SpriteTrail` to a moving `Sprite` and `SpriteTrailSystem` drops a fading copy behind it every few frames, each fading out and despawning on its own. Additive, native+wasm, models the `HitFlash`/`FloatingText` pattern (transient + user-added system).
+
+### Added
+- `SpriteTrail` component (`src/sprite_trail.rs`) `{interval, lifetime, start_alpha}` + private timer, plus `SpriteTrailGhost` (the emitted fading copy). Ctors `new(interval, lifetime)` / `default()` (`DEFAULT_TRAIL_INTERVAL` = 0.045, `DEFAULT_TRAIL_LIFETIME` = 0.4, `DEFAULT_TRAIL_START_ALPHA` = 0.55) + `with_start_alpha` / `with_lifetime`. Clone- and editor-add/remove-registered like `YSort`.
+- `SpriteTrailSystem` (user-added, like `HitFlashSystem`) — two passes per frame: snapshot a ghost for every due `SpriteTrail` (a full `Sprite` clone, drawn at `Transform.z - 0.1` so it sits behind the live sprite; **one ghost per source per frame** so a slow frame can't spawn a storm; ghosts carry no `SpriteTrail` so they never emit ghosts of their own), then fade every `SpriteTrailGhost`'s alpha to zero over its lifetime and despawn it. A ghost only fades itself — it never touches the source, so a `SpriteTrail` is safe on a gameplay entity you keep. All re-exported from `engine`.
+- Example `sprite_trail` — an orbiting box leaves a fading arc; Space toggles the trail (existing ghosts keep fading out). 6 unit tests + 2 doctests.
+
 ## 0.105.0
 
 **Input buffering + coyote time — the two forgiveness tricks that make a platformer jump feel fair.** A jump pressed just *before* landing now fires on touchdown (input buffering), and a jump pressed just *after* walking off a ledge still fires (coyote time). `InputBuffer` is a small pure-logic helper you drive yourself (like `Timer`/`Tween` — not a system or component), genre-agnostic. Additive, native+wasm, one new public type.
