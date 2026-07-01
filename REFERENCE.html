@@ -856,7 +856,7 @@ world.add_component(e, Collider {
 world.insert_resource(SpatialGrid::new(64.0));  // 셀 크기
 
 // 시스템 등록 (충돌 쌍을 SpatialGrid에 채워 넣음)
-app.add_system(CollisionGridSystem);</code></pre>
+app.add_system(CollisionGridSystem::new(64.0));</code></pre>
 <p>충돌 쌍 읽기:</p>
 <pre><code class="language-rust">if let Some(grid) = world.resource::&lt;SpatialGrid&gt;() {
     for (a, b) in grid.pairs() {
@@ -866,7 +866,7 @@ app.add_system(CollisionGridSystem);</code></pre>
 <h3 id="충돌-디버그-시각화">충돌 디버그 시각화</h3>
 <pre><code class="language-rust">use engine::{CollisionDebugSystem, DebugConfig};
 
-world.insert_resource(DebugConfig { draw_colliders: true });
+world.insert_resource(DebugConfig { show_colliders: true });
 app.add_system(CollisionDebugSystem);</code></pre>
 <hr>
 <h2 id="오디오">오디오</h2>
@@ -1002,7 +1002,7 @@ tilemap.bump_generation();</code></pre>
 <blockquote><code>set_tile</code>은 변경이 있을 때만 <code>generation</code>을 증가시켜 <code>TilemapSystem</code>이 diff 패스를 건너뛸 수 있게 한다.</blockquote>
 <h3 id="오토타일링">오토타일링</h3>
 <p>같은 엔티티에 <code>TilemapAutotile</code> 컴포넌트를 붙이면 <code>TilemapSystem</code>이 이웃 연결성으로 표시 UV를 자동 결정한다.</p>
-<pre><code class="language-rust">use engine::{TilemapAutotile, MultiTerrainAutotile};
+<pre><code class="language-rust">use engine::TilemapAutotile;
 
 // 16타일 엣지 레이아웃 (atlas strip 시작 id = 0)
 world.add_component(map_entity, TilemapAutotile::edge_16(0));
@@ -1016,11 +1016,11 @@ world.add_component(map_entity,
 
 // 다중 지형: 값 1 = grass (atlas 0번~), 값 2 = water (atlas 16번~)
 world.add_component(map_entity,
-    MultiTerrainAutotile::edge_16(&amp;[(1, 0), (2, 16)]));</code></pre>
+    TilemapAutotile::multi_edge_16(&amp;[(1, 0), (2, 16)]));</code></pre>
 <ul>
 <li><code>Neighborhood::Edge4</code>: 4방향, 16가지 마스크 (N=1, E=2, S=4, W=8)</li>
 <li><code>Neighborhood::Blob8</code>: 8방향 blob 감소, 47가지 마스크 — 대각 비트는 인접 직교 비트가 모두 1일 때만 유효</li>
-<li><code>MultiTerrainAutotile</code>은 같은 값의 이웃끼리만 연결 (값 1 ↔ 값 1, 값 2 ↔ 값 2)</li>
+<li><code>TilemapAutotile::multi_edge_16</code>은 같은 값의 이웃끼리만 연결 (값 1 ↔ 값 1, 값 2 ↔ 값 2)</li>
 </ul>
 <p>예제: <code>examples/dig_quest</code>, <code>examples/multi_terrain</code></p>
 <h3 id="콜라이더-동기화">콜라이더 동기화</h3>
@@ -1509,8 +1509,9 @@ match path {
 }</code></pre>
 <ul><li>4방향 이동 (상하좌우). 대각선 없음.</li><li><code>start == goal</code> → <code>Some(vec![goal])</code></li><li>목표 셀이 막혀 있으면 즉시 <code>None</code></li><li>반환 경로는 <strong>start 미포함, goal 포함</strong></li></ul>
 <h3 id="타일맵과-연동-예">타일맵과 연동 예</h3>
-<pre><code class="language-rust">// Tilemap 크기에 맞춰 PathGrid 생성
-let grid = PathGrid::new(tilemap.width as i32, tilemap.height as i32);
+<pre><code class="language-rust">// Tilemap 크기에 맞춰 PathGrid 생성 (dims()는 (rows, cols) 반환)
+let (rows, cols) = tilemap.dims();
+let grid = PathGrid::new(cols as i32, rows as i32);
 // ... 타일 종류에 따라 set_walkable 설정
 
 // 적 AI: 매 프레임 또는 경로 갱신 주기마다 호출
@@ -1605,7 +1606,7 @@ app.add_system(BehaviorSystem);</code></pre>
 <h3 id="컴포넌트">컴포넌트</h3>
 <div class="table-wrap"><table><thead><tr><th>컴포넌트</th><th>설명</th></tr></thead><tbody><tr><td><code>SteeringVelocity { velocity: Vec2, max_speed: f32 }</code></td><td>스티어링 계산 결과 저장. <code>SteeringSystem</code>이 이 값을 읽어 <code>Transform</code> 이동</td></tr><tr><td><code>Seek { target: Vec2, max_speed: f32 }</code></td><td>목표 위치를 향해 최대 속도로 직선 이동</td></tr><tr><td><code>Flee { target: Vec2, max_speed: f32, flee_radius: f32 }</code></td><td><code>flee_radius</code> 이내 접근 시 도망. 반경 밖이면 정지</td></tr><tr><td><code>Arrive { target: Vec2, max_speed: f32, slow_radius: f32, stop_radius: f32 }</code></td><td>목표에 가까워질수록 감속, <code>stop_radius</code> 이내 정지</td></tr><tr><td><code>Wander { max_speed: f32, change_interval: f32 }</code></td><td><code>change_interval</code>마다 방향 변경하며 배회</td></tr></tbody></table></div>
 <h3 id="steeringsystem-등록">SteeringSystem 등록</h3>
-<pre><code class="language-rust">app.add_system(SteeringSystem);  // Seek→Flee→Arrive→Wander 순서 처리 후 Transform 이동</code></pre>
+<pre><code class="language-rust">app.add_system(SteeringSystem::new());  // Seek→Flee→Arrive→Wander 순서 처리 후 Transform 이동</code></pre>
 <h3 id="사용-예">사용 예</h3>
 <pre><code class="language-rust">// 적이 플레이어를 향해 이동
 world.add_component(enemy, Seek { target: player_pos, max_speed: 120.0 });
@@ -2382,9 +2383,11 @@ pub struct DrawText {
     pub position: Vec2,       // 좌상단 픽셀 좌표 (스크린 스페이스)
     pub bounds: Option&lt;Vec2&gt;, // 텍스트 레이아웃 영역. None이면 화면 끝까지
     pub size: f32,            // 폰트 픽셀 크기
-    pub color: [u8; 4],       // RGBA (0~255)
+    pub color: Color,         // RGBA
     pub align: TextAlign,
+    pub anchor: TextAnchor,   // position이 텍스트 박스를 앵커하는 방식 (기본 TopLeft)
     pub rich: bool,
+    pub single_line_caret: Option&lt;usize&gt;, // Some이면 단일 줄 + 캐럿까지 가로 스크롤 (TextInput용)
 }</code></pre>
 <p><code>DrawText</code>는 빌더 패턴도 지원한다:</p>
 <pre><code class="language-rust">DrawText::new(text, position, size, color)
@@ -2392,8 +2395,8 @@ pub struct DrawText {
     .with_align(TextAlign::Center)          // 정렬 설정
     .rich()                                 // 리치 텍스트 활성화</code></pre>
 <h3 id="textalign">TextAlign</h3>
-<pre><code class="language-rust">pub enum TextAlign { Left, Center, Right }</code></pre>
-<p><code>bounds</code>를 설정해야 <code>Center</code>/<code>Right</code> 정렬이 의미 있다. <code>bounds</code>가 <code>None</code>이면 화면 끝까지가 레이아웃 폭으로 사용된다.</p>
+<pre><code class="language-rust">pub enum TextAlign { Left, Center, Right, End, Auto }</code></pre>
+<p><code>bounds</code>를 설정해야 <code>Center</code>/<code>Right</code> 정렬이 의미 있다. <code>bounds</code>가 <code>None</code>이면 화면 끝까지가 레이아웃 폭으로 사용된다. <code>End</code>는 스크립트 방향의 끝(LTR=오른쪽, RTL=왼쪽) 정렬, <code>Auto</code>는 텍스트의 스크립트 방향에 따라 좌/우를 자동 선택한다.</p>
 <h3 id="리치-텍스트-rich-true">리치 텍스트 (rich: true)</h3>
 <p><code>DrawText::rich()</code>를 호출하면 다음 마크업 태그를 해석한다:</p>
 <div class="table-wrap"><table><thead><tr><th>태그</th><th>효과</th></tr></thead><tbody><tr><td><code>[color=#RRGGBB]...[/color]</code></td><td>지정 16진수 색상. <code>#RRGGBBAA</code>(8자리)로 알파 지정 가능</td></tr><tr><td><code>[b]...[/b]</code></td><td>굵게 (Bold)</td></tr><tr><td><code>[i]...[/i]</code></td><td>기울임 (Italic)</td></tr></tbody></table></div>
@@ -2703,8 +2706,8 @@ if let Some(em) = world.get_mut::&lt;GpuParticleEmitter&gt;(entity) {
 <pre><code class="language-rust">world.insert_resource(PostProcessConfig {
     enabled: true,
     vignette_strength: 0.4,
-    aberration_strength: 0.003,
-    bloom_strength: 0.15,
+    chroma_offset: 0.003,
+    bloom_intensity: 0.15,
     brightness: 0.05,   // -1.0 ~ 1.0 (0 = 변화 없음)
     contrast: 1.1,      // 0.0 ~ 2.0  (1.0 = 변화 없음)
     saturation: 1.2,    // 0.0 ~ 2.0  (1.0 = 변화 없음)
@@ -2719,10 +2722,10 @@ if let Some(em) = world.get_mut::&lt;GpuParticleEmitter&gt;(entity) {
 // 셋업: 리소스로 연결 + 이벤트 등록 + 시스템 추가
 world.insert_resource(NetworkClient::connect("ws://127.0.0.1:9002"));
 app.register_event::&lt;NetworkEvent&gt;();
-app.add_system(NetworkSystem);
+app.add_system(NetworkSystem::new());
 
 // 큐/크기 상한 커스터마이즈 (선택)
-world.insert_resource(NetworkConfig { max_queue: 512, max_message_bytes: 65536 });
+world.insert_resource(NetworkConfig { max_pending_messages: 512, max_message_bytes: 65536, ..Default::default() });
 
 // 전송 (시스템 안에서)
 if let Some(client) = world.resource::&lt;NetworkClient&gt;() {
