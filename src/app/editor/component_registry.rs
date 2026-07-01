@@ -69,6 +69,9 @@ impl App {
         self.register_component("Panel", |world, e| {
             world.add_component(e, crate::ui::panel::Panel::default());
         });
+        self.register_component("ProgressBar", |world, e| {
+            world.add_component(e, crate::ui::ProgressBar::default());
+        });
         // register removal closures — the Inspector "✕" button uses this map to show/act
         self.register_component_remover("Sprite", |world, e| {
             world.remove_component::<crate::components::Sprite>(e);
@@ -129,6 +132,9 @@ impl App {
         });
         self.register_component_remover("Panel", |world, e| {
             world.remove_component::<crate::ui::panel::Panel>(e);
+        });
+        self.register_component_remover("ProgressBar", |world, e| {
+            world.remove_component::<crate::ui::ProgressBar>(e);
         });
 
         // ── Built-in inspector sub-panels ─────────────────────────────────────
