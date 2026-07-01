@@ -28,6 +28,7 @@ pub mod hierarchy;
 pub mod history;
 pub mod hit_flash;
 pub mod input;
+pub mod input_buffer;
 pub mod locale;
 pub mod material;
 pub mod network;
@@ -137,6 +138,7 @@ pub use history::History;
 pub use hit_flash::{HitFlash, HitFlashSystem};
 pub use input::AxisBinding;
 pub use input::{GamepadAxis, GamepadButton, GamepadState, InputMap, InputState, TouchState};
+pub use input_buffer::{InputBuffer, DEFAULT_BUFFER_SECS, DEFAULT_COYOTE_SECS};
 pub use locale::{LocaleBundle, LocaleData, LocaleResource, TextDirection};
 pub use material::ShaderMaterial;
 pub use network::{
