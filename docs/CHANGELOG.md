@@ -4,6 +4,14 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.98.0
+
+**Editor drag-to-reparent is now undoable.** The Scene-tree drag-to-reparent shipped in 0.97.0 recorded no undo step, so a mis-drag couldn't be reverted with Ctrl+Z (unlike the gizmo move/resize/rotate, which do record undo). A reparent now pushes an `EditorCmd::Reparent` onto the existing editor history: Ctrl+Z restores the entity's previous parent and Ctrl+Shift+Z re-applies the move, both through the cycle-safe `hierarchy::reparent`. A rejected drag (self / descendant-cycle / no-op) records nothing, so undo never replays a move that never happened. Additive — no API change to `App::editor_reparent`; the only behavioral change is that a successful reparent now leaves an undo entry.
+
+### Changed
+- `App::editor_reparent` (`src/app/editor/ui/reparent.rs`) reads the child's parent before the move and, on a real change, pushes an `EditorCmd::Reparent { entity, old_parent, new_parent }` onto `EditorHistory` (alongside the existing success toast). The Scene-tab drag wiring and `hierarchy::reparent` are unchanged.
+- `EditorCmd::Reparent` (`src/app/editor/history.rs`) — new undo/redo variant; undo calls `hierarchy::reparent(entity, old_parent)`, redo calls `hierarchy::reparent(entity, new_parent)`, each selecting the moved entity. 3 unit tests (undo/redo restores parent, undo reattaches after detach-to-root, a rejected move records no undo).
+
 ## 0.97.0
 
 **Scene-tree drag-to-reparent in the editor + a cycle-safe `hierarchy::reparent`.** The docked editor's Scene tab was a read-only hierarchy view; now dragging a node onto another re-parents it under that node, and dragging onto the bottom "⤴ unparent" zone detaches it to a root. The graph edit goes through a new public `hierarchy::reparent`, which adds cycle prevention on top of the low-level `attach`/`detach` (a drop onto self or a descendant, or a no-op move, leaves the graph untouched). Additive — the read-only tree, `attach`/`detach`, and every other panel are unchanged.
