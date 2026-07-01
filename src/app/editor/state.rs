@@ -124,6 +124,21 @@ pub(in crate::app) enum PaintTool {
     Bucket,
 }
 
+/// How the docked editor's **Entities** list is ordered for display. Sorts a display-only copy —
+/// the world's entity order and the scene-save order are unaffected. `Insertion` (the default) is
+/// the historical raw-`entity_list` order, so the list is byte-identical until a sort is chosen.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(in crate::app) enum EntitySortMode {
+    /// World insertion order (the raw `entity_list`).
+    #[default]
+    Insertion,
+    /// Alphabetical by display label (case-insensitive), ties keep insertion order.
+    Name,
+    /// Grouped by entity kind (the same classification as the type-icon), then by name.
+    Kind,
+}
+
 /// Apply the F1 press transition to `mode`.
 ///
 /// Extracted as a pure function so the logic is unit-testable without spinning up App.
@@ -337,6 +352,9 @@ pub(in crate::app) struct EditorState {
     /// Entity-list search query (case-insensitive substring of the entity label).
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) entity_filter: String,
+    /// How the Entities list is ordered for display (name / kind / raw insertion order).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) entity_sort: EntitySortMode,
     /// In-progress inline entity rename (double-click a list row to edit its name). `None` when
     /// not renaming. See [`EntityRename`] + `App::editor_begin_rename`/`editor_commit_rename`.
     #[cfg(not(target_arch = "wasm32"))]
@@ -450,6 +468,7 @@ impl EditorState {
             paint_erase: false,
             component_clipboard: None,
             entity_filter: String::new(),
+            entity_sort: EntitySortMode::Insertion,
             entity_rename: None,
             show_grid: false,
             show_bounds: false,

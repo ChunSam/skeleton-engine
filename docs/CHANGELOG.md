@@ -4,6 +4,17 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.101.0
+
+**The docked editor's Entities list can be sorted by name or by kind.** A `Sort:` toggle above the list orders the displayed rows — Default (raw insertion order), A–Z (case-insensitive by label), or Type (grouped by the same kind classification as the per-row type-icon, then by name). The sort is display-only: it reorders a copy for the panel, so the world's entity order and the scene-save order are untouched. Additive, native-only, no public API; Default reproduces the previous list exactly.
+
+### Added
+- `EntitySortMode` (`src/app/editor/state.rs`, `Insertion`/`Name`/`Kind`) + `EditorState::entity_sort` (transient, not persisted) — the chosen order for the Entities tab, driven by a three-way toolbar toggle in `entities_tab_body`.
+- `sorted_entity_list(entity_list, mode, world, tag_map)` (`src/app/editor/ui/docked.rs`) — returns a display-only sorted copy; a stable sort, so within a group equal keys keep insertion order. 3 unit tests (Insertion preserves raw order, Name is case-insensitive A–Z, Kind groups Light→Sprite→Transform→Bare then name).
+
+### Changed (internal)
+- `entity_type_icon` now delegates to a shared `entity_kind(world, entity) -> EntityKind` classifier (`src/app/editor/ui/docked.rs`); `EntityKind::icon()` maps a kind to its glyph and the enum's variant order backs the Kind sort — so the type-icon and the "sort by type" grouping can never drift apart. The rendered glyphs are unchanged (existing 6 icon unit tests still pass).
+
 ## 0.100.0
 
 **Inline entity rename now works from the docked editor's Scene tree, not just the Entities list.** Double-clicking a node in the Scene tab replaces its label with a focused text box (Enter/click-away commits `Tag`, Escape cancels) — the same in-place rename shipped for the Entities list in 0.96.0, reusing the same shared rename state and commit/cancel path. Additive; native-only; no new public API (the existing `App::editor_begin_rename` already drives both views).

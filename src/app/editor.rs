@@ -46,7 +46,7 @@ pub(super) use state::EditorState;
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) use state::ResizeHandle;
 #[cfg(not(target_arch = "wasm32"))]
-pub(super) use state::{apply_f1, apply_f2, EditorMode, InspectorPanel, PaintTool};
+pub(super) use state::{apply_f1, apply_f2, EditorMode, EntitySortMode, InspectorPanel, PaintTool};
 
 // Re-exports so the existing `ui/` and `state` call sites that reference these by the
 // `crate::app::editor::…` / `super::super::…` paths keep resolving after the split.
