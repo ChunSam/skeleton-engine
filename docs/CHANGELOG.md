@@ -4,6 +4,16 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.99.0
+
+**Per-row type-icon in the docked editor's entity views.** The docked editor's Entities list and Scene tree each show a small glyph before an entity's label hinting its "kind", derived from its most salient component so an entity's type is legible at a glance without opening the Inspector. Additive and native-only; no public API (a private helper), a pure `world.get` scan that never mutates, and no behavior change to any existing panel.
+
+### Added
+- `entity_type_icon(world, entity) -> &'static str` (`src/app/editor/ui/docked.rs`, private helper) — maps an entity to a one-glyph kind hint in priority order (first match wins): `PointLight` 💡, `Tilemap` 🗺, `ParticleEmitter` ✨, `CameraTarget` 🎥, `AnimationPlayer`/`AnimationStateMachine` 🎬, a UI widget (`UiNode`/`Button`/`Label`/`TextInput`/`Slider`/`CheckBox`/`Panel`) 🔘, the sprite family (`Sprite`/`AtlasSprite`/`NineSlice`/`ShaderMaterial`) 🖼, a transform-only entity 🔹, and a bare/marker-only entity ·. Priority means a light that also carries a sprite still reads as a light. Glyphs are chosen from egui's bundled emoji set (verified to render — not □ tofu — via the headless docked capture). 6 unit tests cover the mapping and the priority.
+
+### Changed
+- `entities_tab_body` and `scene_tab_body` (`src/app/editor/ui/docked.rs`) draw the icon before each row's label (the Entities list adds a weak-styled label between the eye toggle and the name; the Scene tree injects the glyph into the node's display string). The eye/visibility toggle, inline rename, drag-to-reparent, selection, and every other panel are unchanged.
+
 ## 0.98.0
 
 **Editor drag-to-reparent is now undoable.** The Scene-tree drag-to-reparent shipped in 0.97.0 recorded no undo step, so a mis-drag couldn't be reverted with Ctrl+Z (unlike the gizmo move/resize/rotate, which do record undo). A reparent now pushes an `EditorCmd::Reparent` onto the existing editor history: Ctrl+Z restores the entity's previous parent and Ctrl+Shift+Z re-applies the move, both through the cycle-safe `hierarchy::reparent`. A rejected drag (self / descendant-cycle / no-op) records nothing, so undo never replays a move that never happened. Additive — no API change to `App::editor_reparent`; the only behavioral change is that a successful reparent now leaves an undo entry.
