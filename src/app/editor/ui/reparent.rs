@@ -9,22 +9,32 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use super::*;
+use crate::app::editor::EditorCmd;
+use crate::hierarchy::Parent;
 use crate::prefab::Tag;
 
 impl App {
     /// Re-parent `child` under `new_parent` (or to a root with `None`) from the editor, via the
-    /// cycle-safe [`crate::hierarchy::reparent`], and surface a success toast when the hierarchy
-    /// actually changed. Returns that change flag — a self / descendant-cycle / no-op move returns
-    /// `false` and shows no toast. Public so a headless capture or a game tool can drive a reparent
-    /// the same way a Scene-tree drag does. Native-only.
+    /// cycle-safe [`crate::hierarchy::reparent`], record it on the editor undo stack, and surface a
+    /// success toast when the hierarchy actually changed. Returns that change flag — a self /
+    /// descendant-cycle / no-op move returns `false`, pushes nothing, and shows no toast (so Ctrl+Z
+    /// never replays a rejected drag). Public so a headless capture or a game tool can drive a
+    /// reparent the same way a Scene-tree drag does. Native-only.
     pub fn editor_reparent(
         &mut self,
         child: crate::Entity,
         new_parent: Option<crate::Entity>,
     ) -> bool {
+        // Capture the pre-move parent so undo can restore it; read before the graph mutates.
+        let old_parent = self.world.get::<Parent>(child).map(|p| p.0);
         if !crate::hierarchy::reparent(&mut self.world, child, new_parent) {
             return false;
         }
+        self.editor.cmd_history.push(EditorCmd::Reparent {
+            entity: child,
+            old_parent,
+            new_parent,
+        });
         let label = |w: &crate::ecs::World, e: crate::Entity| {
             w.get::<Tag>(e)
                 .map(|t| t.0.clone())
@@ -91,5 +101,67 @@ mod tests {
 
         assert!(app.editor_reparent(c, None), "detach returns true");
         assert!(app.world.get::<Parent>(c).is_none(), "c becomes a root");
+    }
+
+    #[test]
+    fn editor_reparent_undo_redo_restores_parent() {
+        let mut app = App::new();
+        let (p1, p2, c) = (spawn(&mut app), spawn(&mut app), spawn(&mut app));
+        attach(&mut app.world, c, p1);
+
+        // Move c from p1 to p2, then undo: back under p1, redo: back under p2.
+        assert!(app.editor_reparent(c, Some(p2)));
+        assert_eq!(app.world.get::<Parent>(c).map(|x| x.0), Some(p2));
+
+        let mut sel = None;
+        app.editor.cmd_history.undo(&mut app.world, &mut sel);
+        assert_eq!(
+            app.world.get::<Parent>(c).map(|x| x.0),
+            Some(p1),
+            "undo restores the original parent"
+        );
+        assert_eq!(sel, Some(c), "undo selects the reparented entity");
+
+        app.editor.cmd_history.redo(&mut app.world, &mut sel);
+        assert_eq!(
+            app.world.get::<Parent>(c).map(|x| x.0),
+            Some(p2),
+            "redo re-applies the move"
+        );
+    }
+
+    #[test]
+    fn editor_reparent_undo_reattaches_after_detach_to_root() {
+        let mut app = App::new();
+        let (p, c) = (spawn(&mut app), spawn(&mut app));
+        attach(&mut app.world, c, p);
+
+        // Detach c to a root, then undo: it should reattach under p.
+        assert!(app.editor_reparent(c, None));
+        assert!(app.world.get::<Parent>(c).is_none());
+
+        let mut sel = None;
+        app.editor.cmd_history.undo(&mut app.world, &mut sel);
+        assert_eq!(
+            app.world.get::<Parent>(c).map(|x| x.0),
+            Some(p),
+            "undo reattaches the detached entity to its old parent"
+        );
+    }
+
+    #[test]
+    fn editor_reparent_rejected_move_records_no_undo() {
+        let mut app = App::new();
+        let (p, c) = (spawn(&mut app), spawn(&mut app));
+        attach(&mut app.world, c, p);
+
+        // Reparenting p under its own child c is a cycle → rejected, nothing recorded.
+        assert!(!app.editor_reparent(p, Some(c)));
+
+        // Undo must be a no-op: p stays a root, c stays under p.
+        let mut sel = None;
+        app.editor.cmd_history.undo(&mut app.world, &mut sel);
+        assert!(app.world.get::<Parent>(p).is_none(), "p still a root");
+        assert_eq!(app.world.get::<Parent>(c).map(|x| x.0), Some(p));
     }
 }

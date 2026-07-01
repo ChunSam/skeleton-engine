@@ -55,6 +55,14 @@ pub(in crate::app) enum EditorCmd {
         entity: Entity,
         changes: Vec<(usize, usize, u32, u32)>,
     },
+    /// Re-parent an entity in the Scene-tree hierarchy (drag-to-reparent). Undo restores the
+    /// `old_parent`, redo re-applies the `new_parent` — both through the cycle-safe
+    /// [`crate::hierarchy::reparent`]. `None` means a root (no parent).
+    Reparent {
+        entity: Entity,
+        old_parent: Option<Entity>,
+        new_parent: Option<Entity>,
+    },
 }
 
 #[derive(Default)]
@@ -146,6 +154,12 @@ impl EditorHistory {
                 }
                 // Re-sync colliders so undo restores the pre-stroke physics state too.
                 crate::physics::sync_tilemap_entity_colliders(world, *entity);
+                *selected = Some(*entity);
+            }
+            EditorCmd::Reparent {
+                entity, old_parent, ..
+            } => {
+                crate::hierarchy::reparent(world, *entity, *old_parent);
                 *selected = Some(*entity);
             }
         }
@@ -240,6 +254,12 @@ impl EditorHistory {
                 }
                 // Re-sync colliders so redo re-applies the post-stroke physics state too.
                 crate::physics::sync_tilemap_entity_colliders(world, *entity);
+                *selected = Some(*entity);
+            }
+            EditorCmd::Reparent {
+                entity, new_parent, ..
+            } => {
+                crate::hierarchy::reparent(world, *entity, *new_parent);
                 *selected = Some(*entity);
             }
         }
