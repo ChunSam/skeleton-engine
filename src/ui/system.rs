@@ -6,6 +6,7 @@ mod checkbox_pass;
 mod event;
 mod focus_pass;
 mod label_pass;
+mod progress_bar_pass;
 mod scroll_view_pass;
 mod slider_pass;
 mod state;
@@ -38,6 +39,7 @@ pub struct UiSystem {
     checkbox_scratch: Vec<Entity>,
     focus_scratch: Vec<Entity>,
     label_scratch: Vec<Entity>,
+    progress_bar_scratch: Vec<Entity>,
     scroll_view_scratch: Vec<Entity>,
     slider_scratch: Vec<Entity>,
     text_input_scratch: Vec<Entity>,
@@ -124,6 +126,12 @@ impl System for UiSystem {
             &mut self.scroll_view_scratch,
         );
         label_pass::run(world, &viewport, &mut output, &mut self.label_scratch);
+        progress_bar_pass::run(
+            world,
+            &viewport,
+            &mut output,
+            &mut self.progress_bar_scratch,
+        );
         slider_pass::run(
             world,
             &viewport,

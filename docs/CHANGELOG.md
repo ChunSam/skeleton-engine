@@ -4,6 +4,15 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.107.0
+
+**A read-only UI `ProgressBar` / gauge widget — health, mana, loading, XP.** Fills a gap in the widget set (Button/Slider/CheckBox/Label/TextInput/ScrollView/Panel had no read-only bar). Unlike `Slider` it takes no input — the game drives its `value` each frame and the bar reflects it. Additive, native+wasm, one new UI widget.
+
+### Added
+- `ProgressBar` (`src/ui/progress_bar.rs`) `{value: 0.0..=1.0, fill_color, bg_color, corner_radius, border, border_color}`. Ctors `new(value)` (clamps) + `with_colors` / `with_corner_radius` / `with_border` builders + `fraction()` (clamps to `0..=1`). Registered for reflect / clone / serde / editor add-remove like the other widgets. Re-exported from `engine` (and `engine::ui`).
+- `system/progress_bar_pass.rs` — a non-interactive render pass (mirrors `label_pass`) that draws a background track rect + a fill rect `fraction × width` wide via `DrawRect` (rounded corners + optional border come from the existing UI SDF pipeline), the fill one Z sub-layer above the track. Wired into `UiSystem`.
+- Example `ui_progress` — three bars driven over time (oscillating health, looping loading, slow XP), each rounded + bordered with a live percentage readout. 5 unit tests + 1 doctest.
+
 ## 0.106.1
 
 **Internal refactor: split the 1619-line `docked.rs` editor module into a `docked/` directory.** Behavior-preserving — no public API change, tests unchanged (only moved with their code). The docked in-game editor's UI, which had grown into a single 1600+-line file, is now split by concern.
