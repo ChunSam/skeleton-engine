@@ -30,6 +30,9 @@ impl App {
         self.register_component("HitFlash", |world, e| {
             world.add_component(e, crate::hit_flash::HitFlash::default());
         });
+        self.register_component("SpriteTrail", |world, e| {
+            world.add_component(e, crate::sprite_trail::SpriteTrail::default());
+        });
         self.register_component("AnimationEvents", |world, e| {
             world.add_component(e, crate::animation::events::AnimationEvents::default());
         });
@@ -87,6 +90,9 @@ impl App {
         });
         self.register_component_remover("HitFlash", |world, e| {
             world.remove_component::<crate::hit_flash::HitFlash>(e);
+        });
+        self.register_component_remover("SpriteTrail", |world, e| {
+            world.remove_component::<crate::sprite_trail::SpriteTrail>(e);
         });
         self.register_component_remover("AnimationEvents", |world, e| {
             world.remove_component::<crate::animation::events::AnimationEvents>(e);

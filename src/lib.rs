@@ -48,6 +48,7 @@ pub mod resources;
 mod ron_registry;
 pub mod save;
 pub mod serde_registry;
+pub mod sprite_trail;
 pub mod trigger_zone;
 pub mod ysort;
 pub mod zone_effect;
@@ -165,6 +166,10 @@ pub use prefab::{
 pub use skeletal::{
     BoneKeyframe, BoneTrack, SkeletalAnimationSystem, SkeletalAnimator, SkeletalClip,
     SkeletonBuilder,
+};
+pub use sprite_trail::{
+    SpriteTrail, SpriteTrailGhost, SpriteTrailSystem, DEFAULT_TRAIL_INTERVAL,
+    DEFAULT_TRAIL_LIFETIME, DEFAULT_TRAIL_START_ALPHA,
 };
 pub use trigger_zone::{
     TriggerShape, TriggerZone, TriggerZoneRegistry, TriggerZoneSet, TriggerZoneSetError,
