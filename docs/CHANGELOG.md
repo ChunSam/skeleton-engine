@@ -4,6 +4,13 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.100.0
+
+**Inline entity rename now works from the docked editor's Scene tree, not just the Entities list.** Double-clicking a node in the Scene tab replaces its label with a focused text box (Enter/click-away commits `Tag`, Escape cancels) — the same in-place rename shipped for the Entities list in 0.96.0, reusing the same shared rename state and commit/cancel path. Additive; native-only; no new public API (the existing `App::editor_begin_rename` already drives both views).
+
+### Changed
+- `scene_tab_body` (`src/app/editor/ui/docked.rs`) draws a focused text box for a node whose entity is being renamed (bound to the shared `EditorState::entity_rename` buffer) instead of the draggable label, and starts a rename on a node's `double_clicked()`. The rename text box is deliberately **not** wrapped in the `dnd_drag_source`, so typing or dragging within the field never starts a reparent DnD; a non-renaming node is unchanged (draggable, click-to-select). New render test `editor_docked_scene_tree_rename_renders_headless` drives the path headlessly (nest a node, show the Scene tab, begin a rename, capture).
+
 ## 0.99.0
 
 **Per-row type-icon in the docked editor's entity views.** The docked editor's Entities list and Scene tree each show a small glyph before an entity's label hinting its "kind", derived from its most salient component so an entity's type is legible at a glance without opening the Inspector. Additive and native-only; no public API (a private helper), a pure `world.get` scan that never mutates, and no behavior change to any existing panel.

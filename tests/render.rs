@@ -668,6 +668,60 @@ fn editor_docked_scene_tree_reparent_renders_headless() {
     );
 }
 
+/// Inline rename also works from the docked **Scene** tab (not just the Entities list). This drives
+/// that path headlessly: build a hierarchy, switch to the Scene tab, begin renaming a nested node via
+/// the shared [`App::editor_begin_rename`], then capture. In the Scene tree a renaming node draws a
+/// focused text box (bound to the rename buffer) instead of the draggable label — the left-panel
+/// strip must still composite bright UI, proving the Scene-tab rename branch renders without panic.
+#[test]
+fn editor_docked_scene_tree_rename_renders_headless() {
+    let (w, h) = (700u32, 460u32);
+    let mut app = App::new();
+    app.world.insert_resource(WindowConfig {
+        title: "docked scene-rename headless".into(),
+        width: w,
+        height: h,
+        clear_color: [0.05, 0.06, 0.09, 1.0],
+    });
+    let mut ents = Vec::new();
+    for i in 0..3 {
+        let e = app.world.spawn();
+        app.world.add_component(e, Tag(format!("Node {i}")));
+        app.world.add_component(
+            e,
+            Transform::new(Vec2::new(40.0, 40.0), Vec2::splat(24.0), 0.0),
+        );
+        ents.push(e);
+    }
+    // Nest Node 1 under Node 0, then rename the (now nested) child from the Scene tab.
+    assert!(
+        app.editor_reparent(ents[1], Some(ents[0])),
+        "valid reparent"
+    );
+    app.editor_show_scene_tree();
+    app.editor_begin_rename(ents[1]);
+
+    let Some((rw, rh, px)) = editor_render_or_skip(&mut app, 6, true) else {
+        return;
+    };
+    assert_eq!((rw, rh), (w, h), "read-back size mismatch");
+
+    let mut max_luma = 0u32;
+    for y in 40..(rh - 220) {
+        for x in 10..240 {
+            let p = px_rgb(&px, rw, x, y);
+            let l = p[0] as u32 + p[1] as u32 + p[2] as u32;
+            if l > max_luma {
+                max_luma = l;
+            }
+        }
+    }
+    assert!(
+        max_luma > 400,
+        "no bright pixels in the left strip — the Scene-tab inline-rename node did not render: max_luma={max_luma}"
+    );
+}
+
 /// A `Hidden` component suppresses an entity's sprite in the render path. Two quads — left red
 /// (visible), right green (Hidden). The left reads red; the right region stays at the background
 /// (the green quad is gone), proving the sprite pass skips Hidden entities.
