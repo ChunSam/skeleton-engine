@@ -291,6 +291,54 @@ fn docked_toolbar(ui: &mut egui::Ui, app: &mut App) {
 // (`ui/mod.rs`).  The overlay windows must NOT change behaviour: the bodies
 // only mutate `app.editor.*` and `app.world` through well-defined paths.
 
+/// A small per-row glyph hinting at an entity's "kind", derived from its most salient component.
+/// Drawn before the label in the Entities list and the Scene tree so an entity's type is legible at
+/// a glance — a light 💡 vs a sprite 🖼 vs a tilemap 🗺 vs a UI widget 🔘. Checked in priority order
+/// (first match wins), so a light that also has a sprite still reads as a light. Falls back to a
+/// generic diamond 🔹 for a transform-only entity and a dot · for a bare / marker-only one. Glyphs
+/// are chosen from egui's bundled emoji set (verified to render, not tofu, in the headless docked
+/// capture). Native-only (the whole docked UI is); a pure `world.get` scan, so it never mutates.
+#[cfg(not(target_arch = "wasm32"))]
+fn entity_type_icon(world: &crate::World, e: Entity) -> &'static str {
+    use crate::{
+        AnimationPlayer, AnimationStateMachine, AtlasSprite, Button, CameraTarget, CheckBox, Label,
+        NineSlice, Panel, ParticleEmitter, PointLight, ShaderMaterial, Slider, Sprite, TextInput,
+        Tilemap, Transform, UiNode,
+    };
+    if world.get::<PointLight>(e).is_some() {
+        "💡"
+    } else if world.get::<Tilemap>(e).is_some() {
+        "🗺"
+    } else if world.get::<ParticleEmitter>(e).is_some() {
+        "✨"
+    } else if world.get::<CameraTarget>(e).is_some() {
+        "🎥"
+    } else if world.get::<AnimationPlayer>(e).is_some()
+        || world.get::<AnimationStateMachine>(e).is_some()
+    {
+        "🎬"
+    } else if world.get::<UiNode>(e).is_some()
+        || world.get::<Button>(e).is_some()
+        || world.get::<Label>(e).is_some()
+        || world.get::<TextInput>(e).is_some()
+        || world.get::<Slider>(e).is_some()
+        || world.get::<CheckBox>(e).is_some()
+        || world.get::<Panel>(e).is_some()
+    {
+        "🔘"
+    } else if world.get::<Sprite>(e).is_some()
+        || world.get::<AtlasSprite>(e).is_some()
+        || world.get::<NineSlice>(e).is_some()
+        || world.get::<ShaderMaterial>(e).is_some()
+    {
+        "🖼"
+    } else if world.get::<Transform>(e).is_some() {
+        "🔹"
+    } else {
+        "·"
+    }
+}
+
 /// Entity list tab body.  Shows a flat, multi-selectable list of all entities.
 ///
 /// Used in: docked left panel (Entities tab), overlay Inspector window.
@@ -381,6 +429,7 @@ pub(in crate::app) fn entities_tab_body(
                 }
                 let is_sel = app.editor.selected_entities.contains(&e);
                 let hidden = app.world.get::<crate::components::Hidden>(e).is_some();
+                let icon = entity_type_icon(&app.world, e);
                 ui.horizontal(|ui| {
                     // Per-entity visibility toggle: a filled eye = visible, slashed = hidden. Adds /
                     // removes the `Hidden` component (the sprite pass skips Hidden entities).
@@ -402,6 +451,9 @@ pub(in crate::app) fn entities_tab_body(
                             app.world.add_component(e, crate::components::Hidden);
                         }
                     }
+                    // Type glyph: a subtle per-row hint at the entity's kind (light / sprite /
+                    // tilemap / UI / …), drawn between the eye toggle and the label.
+                    ui.label(egui::RichText::new(icon).weak());
                     // Inline rename: while this row is being renamed, draw a focused text box in
                     // place of the label. Enter or clicking away commits (writes the Tag); Escape
                     // cancels. Otherwise draw the (selectable) label; a double-click starts a rename.
@@ -495,7 +547,8 @@ pub(in crate::app) fn scene_tab_body(
                     .map(|c| !c.is_empty())
                     .unwrap_or(false);
                 let prefix = if has_children { "▶ " } else { "  " };
-                let label_text = format!("{}{}{}", "  ".repeat(depth), prefix, name);
+                let icon = entity_type_icon(&app.world, entity);
+                let label_text = format!("{}{}{} {}", "  ".repeat(depth), prefix, icon, name);
                 // Each node is a drag source (so it can be picked up) whose returned response also
                 // ORs in the inner selectable_label — so `.clicked()` still selects. `dnd_drag_source`
                 // sets the payload while dragged; `dnd_release_payload` fires when a drag is dropped
@@ -1081,5 +1134,64 @@ mod swatch_tests {
         let r = uv_rect_to_egui(UvRect::FULL);
         assert_eq!(r.min, egui::pos2(0.0, 0.0));
         assert_eq!(r.max, egui::pos2(1.0, 1.0));
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod icon_tests {
+    use super::entity_type_icon;
+    use crate::{App, CameraTarget, PointLight, Sprite, Transform};
+
+    #[test]
+    fn bare_entity_gets_the_generic_dot() {
+        let mut app = App::new();
+        let e = app.world.spawn();
+        assert_eq!(entity_type_icon(&app.world, e), "·");
+    }
+
+    #[test]
+    fn transform_only_entity_gets_the_diamond() {
+        let mut app = App::new();
+        let e = app.world.spawn();
+        app.world.add_component(e, Transform::default());
+        assert_eq!(entity_type_icon(&app.world, e), "🔹");
+    }
+
+    #[test]
+    fn a_sprite_entity_gets_the_picture_glyph() {
+        let mut app = App::new();
+        let e = app.world.spawn();
+        app.world.add_component(e, Transform::default());
+        app.world.add_component(e, Sprite::colored(0.5, 0.5, 0.5));
+        assert_eq!(entity_type_icon(&app.world, e), "🖼");
+    }
+
+    #[test]
+    fn a_light_entity_gets_the_bulb_glyph() {
+        let mut app = App::new();
+        let e = app.world.spawn();
+        app.world.add_component(e, Transform::default());
+        app.world.add_component(e, PointLight::default());
+        assert_eq!(entity_type_icon(&app.world, e), "💡");
+    }
+
+    #[test]
+    fn a_camera_rig_gets_the_camera_glyph() {
+        let mut app = App::new();
+        let e = app.world.spawn();
+        app.world.add_component(e, CameraTarget);
+        assert_eq!(entity_type_icon(&app.world, e), "🎥");
+    }
+
+    #[test]
+    fn priority_a_light_that_also_has_a_sprite_still_reads_as_a_light() {
+        // Priority order: PointLight is checked before Sprite, so the more specific "kind" wins even
+        // when both components are present.
+        let mut app = App::new();
+        let e = app.world.spawn();
+        app.world.add_component(e, Transform::default());
+        app.world.add_component(e, Sprite::colored(1.0, 1.0, 1.0));
+        app.world.add_component(e, PointLight::default());
+        assert_eq!(entity_type_icon(&app.world, e), "💡");
     }
 }
