@@ -548,26 +548,60 @@ pub(in crate::app) fn scene_tab_body(
                     .unwrap_or(false);
                 let prefix = if has_children { "▶ " } else { "  " };
                 let icon = entity_type_icon(&app.world, entity);
-                let label_text = format!("{}{}{} {}", "  ".repeat(depth), prefix, icon, name);
-                // Each node is a drag source (so it can be picked up) whose returned response also
-                // ORs in the inner selectable_label — so `.clicked()` still selects. `dnd_drag_source`
-                // sets the payload while dragged; `dnd_release_payload` fires when a drag is dropped
-                // over this node, making the node a drop target too.
-                let dnd_id = egui::Id::new(("scene_dnd", entity));
-                let response = ui
-                    .dnd_drag_source(dnd_id, DragEntity(entity), |ui| {
-                        // Inner response is unused — selection comes from the OR'd outer response
-                        // below; this draws only the selection highlight.
-                        let _ = ui.selectable_label(is_selected, &label_text);
-                    })
-                    .response;
-                if response.clicked() {
-                    clicked_entity = Some(entity);
-                    ctrl_clicked = ui.input(|i| i.modifiers.ctrl);
-                }
-                if let Some(payload) = response.dnd_release_payload::<DragEntity>() {
-                    if payload.0 != entity {
-                        dropped = Some((payload.0, Some(entity)));
+                let indent = format!("{}{}{}", "  ".repeat(depth), prefix, icon);
+                // Inline rename in the Scene tree: while this node is being renamed, draw a focused
+                // text box (bound to the shared `entity_rename` buffer, same as the Entities list)
+                // in place of the label — and NOT wrapped in a drag source, so typing/dragging in
+                // the field never starts a reparent DnD. Otherwise draw the draggable node; a
+                // double-click starts a rename via the shared `editor_begin_rename`.
+                let renaming = matches!(&app.editor.entity_rename, Some(r) if r.entity == entity);
+                if renaming {
+                    ui.horizontal(|ui| {
+                        ui.label(&indent);
+                        let (mut commit, mut cancel) = (false, false);
+                        if let Some(rn) = app.editor.entity_rename.as_mut() {
+                            let resp = ui.text_edit_singleline(&mut rn.buffer);
+                            if rn.focus_pending {
+                                resp.request_focus();
+                                rn.focus_pending = false;
+                            }
+                            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                cancel = true;
+                            } else if resp.lost_focus() {
+                                commit = true;
+                            }
+                        }
+                        if commit {
+                            app.editor_commit_rename();
+                        } else if cancel {
+                            app.editor_cancel_rename();
+                        }
+                    });
+                } else {
+                    let label_text = format!("{indent} {name}");
+                    // Each node is a drag source (so it can be picked up) whose returned response
+                    // also ORs in the inner selectable_label — so `.clicked()` still selects.
+                    // `dnd_drag_source` sets the payload while dragged; `dnd_release_payload` fires
+                    // when a drag is dropped over this node, making the node a drop target too.
+                    let dnd_id = egui::Id::new(("scene_dnd", entity));
+                    let response = ui
+                        .dnd_drag_source(dnd_id, DragEntity(entity), |ui| {
+                            // Inner response is unused — selection comes from the OR'd outer
+                            // response below; this draws only the selection highlight.
+                            let _ = ui.selectable_label(is_selected, &label_text);
+                        })
+                        .response;
+                    if response.clicked() {
+                        clicked_entity = Some(entity);
+                        ctrl_clicked = ui.input(|i| i.modifiers.ctrl);
+                    }
+                    if response.double_clicked() {
+                        app.editor_begin_rename(entity);
+                    }
+                    if let Some(payload) = response.dnd_release_payload::<DragEntity>() {
+                        if payload.0 != entity {
+                            dropped = Some((payload.0, Some(entity)));
+                        }
                     }
                 }
                 if let Some(ch) = children_map.get(&entity) {
