@@ -4,6 +4,14 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.102.0
+
+**Right-click context menu on the docked editor's Entities list.** Right-clicking a row now opens a menu with Rename / Duplicate / Focus camera / Delete — the same operations available from the toolbar and keyboard shortcuts, surfaced per-row and on the entity you clicked. Additive, native-only, no public API; every action reuses an existing, already-tested op.
+
+### Added
+- `EntityContextAction` + `App::editor_apply_entity_context_action(entity, action)` (`src/app/editor/ui/docked.rs`) — the menu buttons only record `(entity, action)`; the dispatch selects that entity first (so a duplicate/delete/focus acts on the right-clicked row, not the prior selection), then runs the matching op (`editor_begin_rename` / `editor_duplicate_selection` / `editor_focus_camera_on_selection` / `editor_delete_selection`). A dead entity is a no-op. 4 unit tests (rename seeds + selects, delete acts on the clicked row not the old selection, duplicate clones + reselects, dead-entity no-op).
+- `entities_tab_body` (`src/app/editor/ui/docked.rs`) attaches the `egui` context menu to each row (collect-then-apply, so the menu closure never mutates `App` mid-iteration).
+
 ## 0.101.0
 
 **The docked editor's Entities list can be sorted by name or by kind.** A `Sort:` toggle above the list orders the displayed rows — Default (raw insertion order), A–Z (case-insensitive by label), or Type (grouped by the same kind classification as the per-row type-icon, then by name). The sort is display-only: it reorders a copy for the panel, so the world's entity order and the scene-save order are untouched. Additive, native-only, no public API; Default reproduces the previous list exactly.
