@@ -95,4 +95,4 @@ automatically — no `build.rs` or `-framework` flag needed.
   (≈ correct API usage).
 - CI is ubuntu and will **not** compile this path — run the macOS build locally, and verify
   runtime behavior by hand/hardware (for the gamepad backend, `cargo run --example
-  gamepad_probe`). See the "CI is Linux only" rule in `CLAUDE.md`.
+  gamepad_probe`). See the "CI is ubuntu only" rule in `CLAUDE.md`.

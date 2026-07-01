@@ -221,7 +221,8 @@ remove_body()
 
 ### Add a new resource
 
-1. Define the struct in `src/resources.rs`
+1. Define the struct in the appropriate file under `src/resources/` (e.g.
+   `display.rs`, `time.rs`, `render.rs`), then re-export it from `src/resources/mod.rs`
 2. Register with `app.world.insert_resource(MyResource { ... })`
 3. Add a re-export in `src/lib.rs` if needed
 

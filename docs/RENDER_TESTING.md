@@ -38,10 +38,15 @@ runs identically on local Metal and CI lavapipe, yet still catches real regressi
 dropped pass, a blank frame, a broken letterbox. (A tolerant pixel-golden for one ultra-stable scene
 could be added later; deferred.)
 
-Current tests: `red_quad_reads_red` (sprite color + placement), `hud_text_non_blank` (glyph pass,
-injects the bundled DejaVu Sans for runner-independent fonts), `lighting_cap_lights_more_when_raised`
-(`LightingConfig::max_lights` drives the GPU lighting pass), `design_resolution_letterboxes`
-(design-resolution scale+center projection).
+Current tests (see `tests/render.rs` for the authoritative list — it grows with each editor/render
+feature). **Scene invariants:** `red_quad_reads_red` (sprite color + placement), `hud_text_non_blank`
+(glyph pass, injects the bundled DejaVu Sans for runner-independent fonts),
+`lighting_cap_lights_more_when_raised` (`LightingConfig::max_lights` drives the GPU lighting pass),
+`design_resolution_letterboxes` (design-resolution scale+center projection),
+`hidden_component_suppresses_sprite` (the `Hidden` marker skips the sprite pass). **Editor overlay/docked
+UI** (via the headless editor-capture path — see `CLAUDE.md`): `editor_overlay_renders_headless`,
+`editor_toast_renders_headless`, `editor_docked_renders_headless`, `editor_docked_inline_rename_renders_headless`,
+`editor_docked_scene_tree_rename_renders_headless`, `editor_docked_scene_tree_reparent_renders_headless`.
 
 ## Running
 
