@@ -4,6 +4,13 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.106.1
+
+**Internal refactor: split the 1619-line `docked.rs` editor module into a `docked/` directory.** Behavior-preserving — no public API change, tests unchanged (only moved with their code). The docked in-game editor's UI, which had grown into a single 1600+-line file, is now split by concern.
+
+### Changed (internal)
+- `src/app/editor/ui/docked.rs` → `src/app/editor/ui/docked/{mod, toolbar, entity_kind, context_menu, entities_tab, scene_tab, inspector_tab, assets_tab, save_load}.rs`. `mod.rs` keeps the `update_docked_ui` orchestrator + the `pub(in crate::app)` re-exports so the parent `ui/mod.rs` import is unchanged; the shared entity-kind classifier (`entity_kind`/`entity_type_icon`/`sorted_entity_list`) and context-menu dispatch (`entity_context_menu`/`editor_apply_entity_context_action`) become `pub(super)` in their submodules. The three test modules (`icon_tests`, `context_action_tests`, `swatch_tests`) moved verbatim alongside the code they test. No behavior change; largest file now 341 lines.
+
 ## 0.106.0
 
 **Sprite trail / afterimage — leave a fading ghost behind a moving sprite.** The motion trail every dash / dodge / fast projectile wants: attach a `SpriteTrail` to a moving `Sprite` and `SpriteTrailSystem` drops a fading copy behind it every few frames, each fading out and despawning on its own. Additive, native+wasm, models the `HitFlash`/`FloatingText` pattern (transient + user-added system).
