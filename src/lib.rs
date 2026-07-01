@@ -21,6 +21,7 @@ pub mod debug_ui;
 pub mod dialogue;
 pub mod ecs;
 pub mod effect;
+pub mod floating_text;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod gpu_particle;
 pub mod hierarchy;
@@ -122,6 +123,10 @@ pub use dialogue::{
 pub use ecs::schedule::{ScheduleError, SystemConfig, SystemLabel};
 pub use ecs::{Commands, Entity, Events, System, World};
 pub use effect::{Effect, EffectAnchor};
+pub use floating_text::{
+    spawn_floating_text, FloatingText, FloatingTextSystem, DEFAULT_FLOAT_LIFETIME,
+    DEFAULT_FLOAT_SIZE, DEFAULT_FLOAT_SPEED,
+};
 #[cfg(not(target_arch = "wasm32"))]
 pub use gpu_particle::{GpuParticleConfig, GpuParticleEmitter};
 pub use hierarchy::{

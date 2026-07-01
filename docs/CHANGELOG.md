@@ -4,6 +4,19 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.104.0
+
+**Floating combat text — pop rising, fading numbers at a world position, then despawn.** A genre-agnostic game-feel primitive: spawn a short-lived `FloatingText` (a damage number, a "+15" heal, a "MISS") that drifts up, fades out, and despawns itself, projected to the screen through the camera. Models the existing `HitFlash` pattern (transient component + user-added system, no serde). Additive, native+wasm, one new public module.
+
+### Added
+- `FloatingText` component (`src/floating_text.rs`) `{text, color, velocity, size, lifetime, fade}` + private `elapsed` runtime state. Ctors `new(text)` / `colored(text, color)`, builders `with_velocity` / `with_size` / `with_lifetime` / `with_fade`, read accessors `progress()` / `is_finished()`. Default velocity rises (negative Y is up in this engine's world space, as in `YSort`). Clone-registered; **no serde** (transient effect, like `HitFlash`).
+- `FloatingTextSystem` (user-added, like `HitFlashSystem`) — each frame ages every `FloatingText`, drifts its entity by `velocity`, fades the alpha over `lifetime`, draws it via the `TextQueue` (screen-space, projected with `Camera::world_to_screen`; a `Transform`-position fallback when there's no `Camera`), and **despawns the whole entity** when it expires. Add it before rendering.
+- `spawn_floating_text(world, pos, ft) -> Entity` free helper (usable from inside a system, where combat text is usually spawned) + `App::spawn_floating_text` / `App::spawn_floating_text_colored` convenience wrappers for the app context. All re-exported from `engine`, alongside `DEFAULT_FLOAT_SPEED` / `DEFAULT_FLOAT_LIFETIME` / `DEFAULT_FLOAT_SIZE`.
+- Example `floating_text` — Space pops colored numbers over three targets, left-click pops one at the cursor, headless auto-fires on a timer (`HEADLESS_SHOT` capture). 6 unit tests (rise+despawn, alpha fade, no-fade, camera projection, no-camera fallback, accessors) + 2 doctests.
+
+### Notes
+- `FloatingText` is deliberately **not** registered as an editor add/remove component: because the system despawns its own entity when the text expires, hand-authoring one on an existing entity in the editor would silently despawn that entity. Spawn a dedicated ephemeral entity for it (as `spawn_floating_text` / `App::spawn_floating_text` do). Precedent: `Timer` is likewise clone-registered but not editor-added.
+
 ## 0.103.0
 
 **The docked editor's right-click context menu now works on the Scene tree too — plus a new "＋ Add child".** Right-clicking a Scene-tab tree node opens the same Rename / Duplicate / Focus camera / Delete menu the Entities list already had, and adds a Scene-tree-only **＋ Add child** that spawns a fresh entity parented under the node (then selects it) — the first context-menu path that *creates* a hierarchy relationship. The menu markup is now shared between the two tabs. Additive, native-only, no public API.
