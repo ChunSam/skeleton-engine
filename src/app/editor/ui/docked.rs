@@ -404,6 +404,40 @@ fn sorted_entity_list(
     v
 }
 
+/// A right-click action offered on an Entities-list row. Dispatched through
+/// [`App::editor_apply_entity_context_action`] so the wiring stays testable without egui.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EntityContextAction {
+    Rename,
+    Duplicate,
+    Focus,
+    Delete,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl App {
+    /// Apply an Entities-list right-click [`EntityContextAction`] to `entity`. Selects `entity`
+    /// first, so the selection-scoped duplicate/delete/focus ops act on the right-clicked row (not
+    /// whatever happened to be selected before), then runs the op. A dead entity is a no-op. Drives
+    /// the same public ops the toolbar/shortcuts use; native-only. Module-private (its only callers —
+    /// `entities_tab_body` and the tests — live in this file), so the private `EntityContextAction`
+    /// never leaks through a more-public signature.
+    fn editor_apply_entity_context_action(&mut self, entity: Entity, action: EntityContextAction) {
+        if !self.world.is_alive(entity) {
+            return;
+        }
+        self.editor.inspector_selected = Some(entity);
+        self.editor.selected_entities = vec![entity];
+        match action {
+            EntityContextAction::Rename => self.editor_begin_rename(entity),
+            EntityContextAction::Duplicate => self.editor_duplicate_selection(),
+            EntityContextAction::Focus => self.editor_focus_camera_on_selection(),
+            EntityContextAction::Delete => self.editor_delete_selection(),
+        }
+    }
+}
+
 /// Entity list tab body.  Shows a flat, multi-selectable list of all entities.
 ///
 /// Used in: docked left panel (Entities tab), overlay Inspector window.
@@ -502,6 +536,9 @@ pub(in crate::app) fn entities_tab_body(
     // Flat entity list with multi-select, ordered by the chosen sort mode (a display-only copy).
     let filter = app.editor.entity_filter.clone();
     let display = sorted_entity_list(entity_list, app.editor.entity_sort, &app.world, tag_map);
+    // A right-click menu writes its chosen (entity, action) here; applied after the list is drawn
+    // (collect-then-apply, so the menu closure never has to mutate `app` mid-iteration).
+    let mut ctx_action: Option<(Entity, EntityContextAction)> = None;
     egui::ScrollArea::vertical()
         .id_salt("docked_ent_list")
         .show(ui, |ui| {
@@ -570,6 +607,31 @@ pub(in crate::app) fn entities_tab_body(
                         let resp = ui
                             .selectable_label(is_sel, label_rt)
                             .on_hover_text(tr("double-click to rename", "더블클릭하여 이름 변경"));
+                        // Right-click context menu: the same rename/duplicate/focus/delete ops as the
+                        // toolbar + shortcuts, per-row and discoverable. Each button records the chosen
+                        // action (applied after the list is drawn) and closes the menu.
+                        resp.context_menu(|ui| {
+                            if ui.button(tr("Rename", "이름 변경")).clicked() {
+                                ctx_action = Some((e, EntityContextAction::Rename));
+                                ui.close();
+                            }
+                            if ui.button(tr("⎘ Duplicate", "⎘ 복제")).clicked() {
+                                ctx_action = Some((e, EntityContextAction::Duplicate));
+                                ui.close();
+                            }
+                            if ui
+                                .button(tr("🎯 Focus camera", "🎯 카메라 포커스"))
+                                .clicked()
+                            {
+                                ctx_action = Some((e, EntityContextAction::Focus));
+                                ui.close();
+                            }
+                            ui.separator();
+                            if ui.button(tr("🗑 Delete", "🗑 삭제")).clicked() {
+                                ctx_action = Some((e, EntityContextAction::Delete));
+                                ui.close();
+                            }
+                        });
                         if resp.clicked() {
                             apply_multiselect(
                                 e,
@@ -585,6 +647,11 @@ pub(in crate::app) fn entities_tab_body(
                 });
             }
         });
+    // Apply the right-click menu action chosen this frame (collect-then-apply keeps the menu closure
+    // free of `app` mutation during iteration).
+    if let Some((e, action)) = ctx_action {
+        app.editor_apply_entity_context_action(e, action);
+    }
 }
 
 /// egui drag-and-drop payload for the Scene-tree: the entity being dragged to a new parent.
@@ -1381,5 +1448,74 @@ mod icon_tests {
             vec![light, sprite, xform, bare],
             "grouped Light → Sprite → Transform → Bare"
         );
+    }
+}
+
+/// Tests for the Entities-list right-click context menu's action dispatch. The egui menu buttons only
+/// record `(entity, action)`; `editor_apply_entity_context_action` does the real work — so testing it
+/// directly covers the behaviour without driving egui.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod context_action_tests {
+    use super::EntityContextAction;
+    use crate::prefab::Tag;
+    use crate::{App, Transform};
+
+    #[test]
+    fn rename_selects_the_target_and_starts_a_rename() {
+        let mut app = App::new();
+        let e = app.world.spawn();
+        app.world.add_component(e, Tag("Goblin".into()));
+
+        app.editor_apply_entity_context_action(e, EntityContextAction::Rename);
+
+        assert_eq!(app.editor.inspector_selected, Some(e), "target is selected");
+        let rn = app.editor.entity_rename.as_ref().expect("rename active");
+        assert_eq!(rn.entity, e);
+        assert_eq!(rn.buffer, "Goblin", "rename buffer seeded from the Tag");
+    }
+
+    #[test]
+    fn delete_acts_on_the_right_clicked_row_even_if_it_was_not_selected() {
+        // The dispatch selects the target first, so Delete removes the right-clicked entity, not the
+        // previously-selected one — the whole point of select-then-op.
+        let mut app = App::new();
+        let selected = app.world.spawn();
+        let clicked = app.world.spawn();
+        app.editor.inspector_selected = Some(selected);
+        app.editor.selected_entities = vec![selected];
+
+        app.editor_apply_entity_context_action(clicked, EntityContextAction::Delete);
+
+        assert!(!app.world.is_alive(clicked), "right-clicked entity deleted");
+        assert!(
+            app.world.is_alive(selected),
+            "the old selection is untouched"
+        );
+    }
+
+    #[test]
+    fn duplicate_clones_the_target() {
+        let mut app = App::new();
+        let e = app.world.spawn();
+        app.world.add_component(e, Tag("Src".into()));
+        app.world.add_component(e, Transform::default());
+        let before = app.world.entities().len();
+
+        app.editor_apply_entity_context_action(e, EntityContextAction::Duplicate);
+
+        assert_eq!(app.world.entities().len(), before + 1, "one clone spawned");
+        // Selection moved to the clone (not the original).
+        assert_ne!(app.editor.inspector_selected, Some(e));
+        assert!(app.editor.inspector_selected.is_some());
+    }
+
+    #[test]
+    fn action_on_a_dead_entity_is_a_noop() {
+        let mut app = App::new();
+        let e = app.world.spawn();
+        app.world.despawn(e);
+        // Must not panic or start a rename on a despawned entity.
+        app.editor_apply_entity_context_action(e, EntityContextAction::Rename);
+        assert!(app.editor.entity_rename.is_none());
     }
 }
