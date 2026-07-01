@@ -4,6 +4,17 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.105.0
+
+**Input buffering + coyote time — the two forgiveness tricks that make a platformer jump feel fair.** A jump pressed just *before* landing now fires on touchdown (input buffering), and a jump pressed just *after* walking off a ledge still fires (coyote time). `InputBuffer` is a small pure-logic helper you drive yourself (like `Timer`/`Tween` — not a system or component), genre-agnostic. Additive, native+wasm, one new public type.
+
+### Added
+- `InputBuffer` (`src/input_buffer.rs`) — per-frame `set_grounded(bool)` → `press()` → `try_consume() -> bool` → `tick(dt)` (tick **last**). A press is live while `since_press <= buffer_secs`; a jump is eligible while grounded or within `coyote_secs` of leaving the ground; consuming clears both windows so one press yields exactly one jump (no mid-air double-jump). Ctors `new(buffer_secs, coyote_secs)` / `default()` (`DEFAULT_BUFFER_SECS` = 0.12, `DEFAULT_COYOTE_SECS` = 0.10), accessors `buffered_remaining` / `coyote_remaining` / `is_buffered` / `is_coyote_available` / `is_grounded` / `buffer_secs` / `coyote_secs`. All re-exported from `engine`.
+- Example `input_buffer` — a kinematic box on a platform with a gap: walk off the right edge to feel coyote time, tap jump before landing to feel the buffer; the HUD shows both windows counting down and labels each jump (ground / coyote / buffered). 9 unit tests + 2 doctests.
+
+### Notes
+- **Ticking last** (after `try_consume`) is deliberate: it means a zero-length window disables the forgiveness without a footgun — a grounded same-frame press still jumps. Windows are clamped to `>= 0`.
+
 ## 0.104.0
 
 **Floating combat text — pop rising, fading numbers at a world position, then despawn.** A genre-agnostic game-feel primitive: spawn a short-lived `FloatingText` (a damage number, a "+15" heal, a "MISS") that drifts up, fades out, and despawns itself, projected to the screen through the camera. Models the existing `HitFlash` pattern (transient component + user-added system, no serde). Additive, native+wasm, one new public module.
