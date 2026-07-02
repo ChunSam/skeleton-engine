@@ -35,6 +35,11 @@ cargo install wasm-bindgen-cli --version <ver>   # MUST match the wasm-bindgen c
   centering (each `DrawText::centered` label's center on its guide line — the centering itself is
   *not* auto-checked, same subtle-class limit as `wasm_smoke.sh`). Run after touching the text
   renderer or the example.
+- **Game-feel capstone check — `./scripts/game_feel_web_smoke.sh`** builds the `game_feel` example
+  to wasm, serves it (`?autostart=1`), renders one headless DPR=2 frame, and asserts a **non-blank
+  frame** (centered_text's render-only model). The game-feel behaviors (jump forgiveness, hit-stop,
+  trail, the live settings menu) are interactive and *not* auto-checked — play the page (Start
+  button) or the native example. Run after touching the example or the widget passes it composes.
 
 - **HDR render-target check — `./scripts/hdr_web_smoke.sh`** builds the `hdr_render_target` example
   to wasm, serves it (`?autostart=1`), renders one headless frame under **SwiftShader**, and asserts
