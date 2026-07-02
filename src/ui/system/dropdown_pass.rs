@@ -120,19 +120,25 @@ pub(super) fn run(
         );
         let text_y = pos.y + (size.y - dd.font_size) / 2.0;
         if let Some(item) = dd.selected_item() {
-            output.texts.push(DrawText::new(
-                item.to_string(),
-                Vec2::new(pos.x + TEXT_PAD_X, text_y),
+            output.texts.push(
+                DrawText::new(
+                    item.to_string(),
+                    Vec2::new(pos.x + TEXT_PAD_X, text_y),
+                    dd.font_size,
+                    dd.text_color,
+                )
+                .with_z(box_z),
+            );
+        }
+        output.texts.push(
+            DrawText::new(
+                if dd.open { "▲" } else { "▼" },
+                Vec2::new(pos.x + size.x - dd.font_size - TEXT_PAD_X, text_y),
                 dd.font_size,
                 dd.text_color,
-            ));
-        }
-        output.texts.push(DrawText::new(
-            if dd.open { "▲" } else { "▼" },
-            Vec2::new(pos.x + size.x - dd.font_size - TEXT_PAD_X, text_y),
-            dd.font_size,
-            dd.text_color,
-        ));
+            )
+            .with_z(box_z),
+        );
 
         // Open list: one row per item, the row under the cursor highlighted.
         if dd.open {
@@ -162,12 +168,15 @@ pub(super) fn run(
                         .with_z(DROPDOWN_LIST_Z + super::UI_SUBLAYER_Z_STEP),
                 );
                 let marker = if i == dd.selected_index() { "• " } else { "" };
-                output.texts.push(DrawText::new(
-                    format!("{marker}{item}"),
-                    Vec2::new(pos.x + TEXT_PAD_X, row_y + (item_h - dd.font_size) / 2.0),
-                    dd.font_size,
-                    dd.text_color,
-                ));
+                output.texts.push(
+                    DrawText::new(
+                        format!("{marker}{item}"),
+                        Vec2::new(pos.x + TEXT_PAD_X, row_y + (item_h - dd.font_size) / 2.0),
+                        dd.font_size,
+                        dd.text_color,
+                    )
+                    .with_z(DROPDOWN_LIST_Z + super::UI_SUBLAYER_Z_STEP),
+                );
             }
         }
     }

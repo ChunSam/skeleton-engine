@@ -214,6 +214,123 @@ fn hud_text_non_blank() {
     );
 }
 
+/// Number of pixels within `(x0,y0)..(x1,y1)` farther than `thresh` (per channel, max) from `bg`.
+#[allow(clippy::too_many_arguments)]
+fn region_count_far(
+    buf: &[u8],
+    w: u32,
+    x0: u32,
+    y0: u32,
+    x1: u32,
+    y1: u32,
+    bg: [u8; 3],
+    thresh: i32,
+) -> usize {
+    let mut n = 0;
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let p = px_rgb(buf, w, x, y);
+            let d = (0..3)
+                .map(|i| (p[i] as i32 - bg[i] as i32).abs())
+                .max()
+                .unwrap();
+            if d > thresh {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+/// Pushes the text-layering scene every frame: a layered text COVERED by a higher-z bg-colored
+/// rect (must vanish), an uncovered layered control text (must render), and an on-top (z-None)
+/// text over another high-z rect (must still render — the historical always-on-top path).
+struct LayeredTextScene;
+impl System for LayeredTextScene {
+    fn run(&mut self, world: &mut World, _dt: f32) {
+        if let Some(tq) = world.resource_mut::<TextQueue>() {
+            // Covered: layered text at z 0.2 under a z 1.0 rect.
+            tq.push(
+                DrawText::new("COVERED", Vec2::new(40.0, 90.0), 32.0, [255, 255, 255, 255])
+                    .with_z(0.2),
+            );
+            // Control: same z, no cover.
+            tq.push(
+                DrawText::new(
+                    "VISIBLE",
+                    Vec2::new(40.0, 170.0),
+                    32.0,
+                    [255, 255, 255, 255],
+                )
+                .with_z(0.2),
+            );
+            // On-top: z-None text over a high-z rect still draws (legacy behavior).
+            tq.push(DrawText::new(
+                "ONTOP",
+                Vec2::new(300.0, 90.0),
+                32.0,
+                [255, 255, 255, 255],
+            ));
+        }
+        if let Some(uq) = world.resource_mut::<UiQueue>() {
+            // Background-colored covers, so any text bleeding through reads as non-bg pixels.
+            uq.push(DrawRect::new(20.0, 70.0, 220.0, 70.0, [0.05, 0.05, 0.07, 1.0]).with_z(1.0));
+            uq.push(DrawRect::new(280.0, 70.0, 180.0, 70.0, [0.05, 0.05, 0.07, 1.0]).with_z(50.0));
+        }
+    }
+    fn name(&self) -> &'static str {
+        "LayeredTextScene"
+    }
+}
+
+/// A UI rect drawn above a layered (`DrawText::with_z`) text actually covers it, an uncovered
+/// layered text still renders, and z-None text keeps drawing on top of every rect.
+#[test]
+fn layered_text_is_covered_by_higher_z_rect() {
+    let mut app = App::new();
+    let (w, h) = (480u32, 240u32);
+    app.world.insert_resource(WindowConfig {
+        title: "render-test: text layering".into(),
+        width: w,
+        height: h,
+        clear_color: [0.05, 0.05, 0.07, 1.0],
+    });
+    app.world.insert_resource(FontData(
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/fonts/DejaVuSans.ttf"
+        ))
+        .to_vec(),
+    ));
+    app.add_system(LayeredTextScene);
+
+    let Some((rw, _rh, px)) = render_or_skip(&mut app, 4) else {
+        return;
+    };
+    let bg = px_rgb(&px, rw, 2, 2);
+
+    // "COVERED" glyphs sit around (40..200, 90..130); the covering rect spans (20..240, 70..140).
+    let covered = region_count_far(&px, rw, 30, 80, 230, 135, bg, 40);
+    // "VISIBLE" glyphs around (40..200, 170..210) — uncovered control.
+    let visible = region_count_far(&px, rw, 30, 165, 230, 215, bg, 40);
+    // "ONTOP" around (300..420, 90..130) — over the z=50 rect.
+    let ontop = region_count_far(&px, rw, 290, 80, 450, 135, bg, 40);
+    println!("{MARKER} text-layering covered={covered} visible={visible} ontop={ontop}");
+
+    assert!(
+        visible > 100,
+        "uncovered layered text should render (visible={visible})"
+    );
+    assert!(
+        ontop > 100,
+        "z-None text should stay on top of every rect (ontop={ontop})"
+    );
+    assert!(
+        covered < visible / 20,
+        "layered text under a higher-z rect must be covered (covered={covered}, visible={visible})"
+    );
+}
+
 // ── Lighting path ────────────────────────────────────────────────────────────────────────────
 
 /// Build the lighting scene used by both halves of the cap test: a gray floor lit by a grid of

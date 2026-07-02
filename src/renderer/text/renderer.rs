@@ -31,26 +31,40 @@ fn caret_x(buf: &Buffer, caret_byte: usize) -> f32 {
     run.line_w
 }
 
+/// One target-format's glyphon resources: a format-bound [`TextAtlas`] plus a pool of glyphon
+/// renderers — one per text **batch** rendered this frame. Each glyphon `TextRenderer` owns the
+/// vertex buffers of exactly one prepared batch; reusing a single one across batches would
+/// overwrite earlier batches' buffers before the encoder executes (the same reason the UI pass
+/// uploads its instance buffer once). `used` counts the batches taken this frame and is reset by
+/// [`TextRenderer::end_frame`]. Non-surface formats (e.g. the HDR `Rgba16Float` intermediate) get
+/// their own pool lazily — the text analogue of the sprite/UI format-matched pipeline caches.
+struct FormatPool {
+    format: TextureFormat,
+    atlas: TextAtlas,
+    renderers: Vec<GlyphonTextRenderer>,
+    used: usize,
+}
+
 /// Text renderer backed by glyphon 0.6.
 ///
 /// ## Ownership layout
-/// - `Cache` is created first and shared with `TextAtlas` / `Viewport`.
+/// - `Cache` is created first and shared with every `TextAtlas` / the `Viewport`.
 ///   (`TextAtlas::new` requires `&Cache`; `TextRenderer` retains ownership of `Cache`.)
 /// - `Viewport::update(queue, Resolution{w,h})` refreshes the GPU uniform each frame.
+/// - `pools[0]` is created for the init (surface) format; further formats are added lazily by
+///   [`render_batch`](Self::render_batch).
 pub struct TextRenderer {
     font_system: FontSystem,
     swash_cache: SwashCache,
-    /// Cache is created first and shared with atlas / viewport (glyphon 0.6 requirement).
-    /// TextAtlas clones the Cache internally, so this field does not have to be kept,
-    /// but we retain explicit ownership here.
-    #[allow(dead_code)]
+    /// Cache is created first and shared with the atlases / viewport (glyphon 0.6 requirement);
+    /// retained so lazily-created per-format pools can build their atlas from it.
     cache: Cache,
-    atlas: TextAtlas,
     viewport: Viewport,
-    renderer: GlyphonTextRenderer,
+    /// Per-target-format atlas + renderer pools (see [`FormatPool`]).
+    pools: Vec<FormatPool>,
     /// Cross-frame cache of shaped plain-text Buffers, keyed by all layout-affecting inputs.
-    /// Entries not accessed in the current frame are evicted after `render()` (generation-based,
-    /// mirroring the `atlas.trim()` per-frame pattern). Rich text is NOT cached.
+    /// Entries not accessed in the current frame are evicted by [`end_frame`](Self::end_frame)
+    /// (generation-based, mirroring the `atlas.trim()` per-frame pattern). Rich text is NOT cached.
     shaped_buffer_cache: std::collections::HashMap<PlainTextCacheKey, CachedBuffer>,
     /// Monotonically increasing frame counter used to evict stale cache entries.
     cache_generation: u64,
@@ -105,15 +119,51 @@ impl TextRenderer {
             font_system,
             swash_cache,
             cache,
-            atlas,
             viewport,
-            renderer,
+            pools: vec![FormatPool {
+                format,
+                atlas,
+                renderers: vec![renderer],
+                used: 0,
+            }],
             shaped_buffer_cache: std::collections::HashMap::new(),
             cache_generation: 0,
         }
     }
 
-    /// Pulls the `TextQueue` from the ECS `World` and renders all text.
+    /// Index of the pool for `format`, creating it (atlas + one renderer) on first use.
+    fn pool_index(&mut self, device: &Device, queue: &Queue, format: TextureFormat) -> usize {
+        if let Some(i) = self.pools.iter().position(|p| p.format == format) {
+            return i;
+        }
+        let mut atlas = TextAtlas::new(device, queue, &self.cache, format);
+        let renderer =
+            GlyphonTextRenderer::new(&mut atlas, device, MultisampleState::default(), None);
+        self.pools.push(FormatPool {
+            format,
+            atlas,
+            renderers: vec![renderer],
+            used: 0,
+        });
+        self.pools.len() - 1
+    }
+
+    /// Ends the frame's text rendering: evicts shaped-buffer cache entries not used this frame,
+    /// trims every pool's atlas, resets the per-frame batch counters, and advances the cache
+    /// generation. Called once per frame by the render orchestration, after the last text pass.
+    pub fn end_frame(&mut self) {
+        let gen = self.cache_generation;
+        self.shaped_buffer_cache
+            .retain(|_k, v| v.last_used_gen == gen);
+        for pool in &mut self.pools {
+            pool.atlas.trim();
+            pool.used = 0;
+        }
+        self.cache_generation = self.cache_generation.wrapping_add(1);
+    }
+
+    /// Pulls the `TextQueue` from the ECS `World` and renders all text onto `view` (assumed to be
+    /// in the init/surface format) — the final, on-top text pass.
     ///
     /// - Returns immediately without opening a render pass if the queue is empty.
     /// - Composites over the sprite pass with `LoadOp::Load`.
@@ -146,8 +196,45 @@ impl TextRenderer {
         // (identity when no DesignResolution is set). `px_scale`/`px_offset` are in logical pixels;
         // `scale_factor` then takes logical → physical for crisp device-resolution glyphs.
         let lb = world.resource::<Letterbox>().copied().unwrap_or_default();
+        let format = self.pools[0].format;
+        self.render_batch(
+            device,
+            queue,
+            encoder,
+            view,
+            format,
+            items,
+            w,
+            h,
+            scale_factor,
+            lb,
+        );
+    }
 
-        // Update Viewport (writes the resolution to the GPU uniform each frame)
+    /// Renders one batch of `items` onto `view` (whose texture format is `format`) in a single
+    /// glyphon prepare + render pass, using the next pooled renderer for that format. Used both by
+    /// the on-top [`render`](Self::render) wrapper and by the z-interleaved layered-text runs in
+    /// the frame orchestration (which alternates UI-primitive sub-ranges with text batches).
+    /// [`end_frame`](Self::end_frame) must run once per frame after the last batch.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_batch(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+        view: &TextureView,
+        format: TextureFormat,
+        items: Vec<DrawText>,
+        w: u32,
+        h: u32,
+        scale_factor: f32,
+        lb: Letterbox,
+    ) {
+        if items.is_empty() {
+            return;
+        }
+        // Update Viewport (writes the resolution to the GPU uniform; idempotent across the
+        // frame's batches, which all target same-sized views).
         self.viewport.update(
             queue,
             Resolution {
@@ -155,11 +242,116 @@ impl TextRenderer {
                 height: h,
             },
         );
-
-        // Increment frame generation for shaped-buffer cache eviction.
-        self.cache_generation += 1;
         let gen = self.cache_generation;
+        let buffers = self.build_batch(items, w, h, scale_factor, lb);
+        let pool_idx = self.pool_index(device, queue, format);
 
+        let text_areas: Vec<TextArea<'_>> = buffers
+            .iter()
+            .map(|(buf, d, scroll, _key)| TextArea {
+                buffer: buf,
+                left: d.position.x - *scroll,
+                top: d.position.y,
+                scale: 1.0,
+                bounds: TextBounds {
+                    left: d.position.x as i32,
+                    top: d.position.y as i32,
+                    right: d
+                        .bounds
+                        .map_or(w as i32, |b| (d.position.x + b.x).ceil() as i32),
+                    bottom: d
+                        .bounds
+                        .map_or(h as i32, |b| (d.position.y + b.y).ceil() as i32),
+                },
+                default_color: {
+                    let [r, g, b, a] = d.color.to_u8();
+                    Color::rgba(r, g, b, a)
+                },
+                custom_glyphs: &[],
+            })
+            .collect();
+
+        {
+            let pool = &mut self.pools[pool_idx];
+            if pool.used >= pool.renderers.len() {
+                pool.renderers.push(GlyphonTextRenderer::new(
+                    &mut pool.atlas,
+                    device,
+                    MultisampleState::default(),
+                    None,
+                ));
+            }
+            let batch = pool.used;
+            pool.used += 1;
+            let FormatPool {
+                atlas, renderers, ..
+            } = pool;
+            let renderer = &mut renderers[batch];
+
+            // prepare — rasterize glyphs + upload to GPU buffers
+            if let Err(e) = renderer.prepare(
+                device,
+                queue,
+                &mut self.font_system,
+                atlas,
+                &self.viewport,
+                text_areas,
+                &mut self.swash_cache,
+            ) {
+                log::warn!("text prepare failed: {e}");
+            }
+
+            // Text render pass — composite over what is already in `view` with LoadOp::Load
+            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("text pass"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: Operations {
+                        load: LoadOp::Load,
+                        store: StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            if let Err(e) = renderer.render(atlas, &self.viewport, &mut pass) {
+                log::error!("text render failed: {e}");
+            }
+        }
+
+        // ── Re-insert plain-text buffers into the shaped-buffer cache ────────
+        // Only plain (non-rich) entries have a key; rich text buffers are dropped. Entries not
+        // re-inserted by any batch this frame keep their old generation and are evicted by
+        // `end_frame`.
+        for (buffer, _d, _scroll, plain_key) in buffers {
+            if let Some(key) = plain_key {
+                self.shaped_buffer_cache.insert(
+                    key,
+                    CachedBuffer {
+                        buffer,
+                        last_used_gen: gen,
+                    },
+                );
+            }
+        }
+    }
+
+    /// Shapes one batch of `DrawText`s into glyphon Buffers (serving plain text from the
+    /// cross-frame shaped-buffer cache), returning `(buffer, scaled draw, scroll, cache key)` per
+    /// item. Extracted from the old monolithic `render` so multiple batches per frame share the
+    /// cache.
+    fn build_batch(
+        &mut self,
+        items: Vec<DrawText>,
+        w: u32,
+        h: u32,
+        scale_factor: f32,
+        lb: crate::resources::Letterbox,
+    ) -> Vec<(Buffer, DrawText, f32, Option<PlainTextCacheKey>)> {
         // Convert each DrawText into a glyphon Buffer.
         // - `Buffer::set_size` takes `(font_system, Option<f32>, Option<f32>)` in cosmic-text.
         // - `set_text` takes `(font_system, text, attrs, shaping)`.
@@ -175,9 +367,10 @@ impl TextRenderer {
         // per-frame build path for rich DrawTexts.
         //
         // Cache strategy: `remove` the entry to get an owned Buffer, use it, then
-        // re-insert with the updated generation. This avoids lifetime conflicts
-        // between the cache (field on self) and text_areas (borrows the Vec).
-        let buffers: Vec<(Buffer, DrawText, f32, Option<PlainTextCacheKey>)> = items
+        // re-insert with the updated generation (done by `render_batch` after drawing). This
+        // avoids lifetime conflicts between the cache (field on self) and text_areas (which
+        // borrows the returned Vec).
+        items
             .into_iter()
             .map(|d| {
                 let size = d.size * lb.px_scale * scale_factor;
@@ -319,96 +512,7 @@ impl TextRenderer {
                 scaled.size = size;
                 (buf, scaled, scroll, plain_key)
             })
-            .collect();
-
-        let text_areas: Vec<TextArea<'_>> = buffers
-            .iter()
-            .map(|(buf, d, scroll, _key)| TextArea {
-                buffer: buf,
-                left: d.position.x - *scroll,
-                top: d.position.y,
-                scale: 1.0,
-                bounds: TextBounds {
-                    left: d.position.x as i32,
-                    top: d.position.y as i32,
-                    right: d
-                        .bounds
-                        .map_or(w as i32, |b| (d.position.x + b.x).ceil() as i32),
-                    bottom: d
-                        .bounds
-                        .map_or(h as i32, |b| (d.position.y + b.y).ceil() as i32),
-                },
-                default_color: {
-                    let [r, g, b, a] = d.color.to_u8();
-                    Color::rgba(r, g, b, a)
-                },
-                custom_glyphs: &[],
-            })
-            .collect();
-
-        // prepare — rasterize glyphs + upload to GPU buffers
-        if let Err(e) = self.renderer.prepare(
-            device,
-            queue,
-            &mut self.font_system,
-            &mut self.atlas,
-            &self.viewport,
-            text_areas,
-            &mut self.swash_cache,
-        ) {
-            log::warn!("text prepare failed: {e}");
-        }
-
-        // Text render pass — composite over sprites with LoadOp::Load
-        {
-            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("text pass"),
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view,
-                    resolve_target: None,
-                    depth_slice: None,
-                    ops: Operations {
-                        load: LoadOp::Load,
-                        store: StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            if let Err(e) = self.renderer.render(&self.atlas, &self.viewport, &mut pass) {
-                log::error!("text render failed: {e}");
-            }
-        }
-
-        // ── Re-insert plain-text buffers into the shaped-buffer cache ────────
-        // Only plain (non-rich) entries have a key; rich text buffers are dropped.
-        // Entries from previous frames that were not seen this frame (removed at
-        // the start of this loop and not re-inserted) are implicitly evicted.
-        // Additionally, any entries that were NOT removed at the start (i.e. their
-        // DrawText was not in the queue this frame) still hold their previous
-        // generation. We evict those below by retaining only entries from the
-        // current generation.
-        for (buffer, _d, _scroll, plain_key) in buffers {
-            if let Some(key) = plain_key {
-                self.shaped_buffer_cache.insert(
-                    key,
-                    CachedBuffer {
-                        buffer,
-                        last_used_gen: gen,
-                    },
-                );
-            }
-            // Rich-text buffers drop here (no key).
-        }
-        // Evict entries that were NOT accessed this frame (stale from a prior frame
-        // where different text was rendered). Mirrors atlas.trim() below.
-        self.shaped_buffer_cache
-            .retain(|_k, v| v.last_used_gen == gen);
-
-        // Trim unused glyphs from the atlas for the next frame
-        self.atlas.trim();
+            .collect()
     }
 }
 

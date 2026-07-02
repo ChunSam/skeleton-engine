@@ -97,7 +97,131 @@ pub(super) fn sorted_ui_primitives(rects: &[DrawRect], images: &[DrawImage]) -> 
     primitives
 }
 
+/// One frame's UI primitives, sorted by z and already uploaded to the shared instance buffer —
+/// ready for [`SpriteRenderer::render_ui_primitive_range`] to draw any sub-range in its own render
+/// pass. The instance buffer (and the UI camera uniform) is written **once** per frame by
+/// [`SpriteRenderer::prepare_ui_primitives`]; `queue.write_buffer` executes at submit time, so a
+/// second upload before submission would clobber every earlier pass's instances — range draws over
+/// one upload are how the z-interleaved text layering slices the surface list.
+pub struct PreparedUiPrimitives {
+    /// Texture-key per instance (sorted order) — drives the per-run bind group inside a range.
+    keys: Vec<Option<String>>,
+    /// Z per instance (ascending) — the surface half of the text-layering interleave.
+    pub(crate) zs: Vec<f32>,
+}
+
+impl PreparedUiPrimitives {
+    /// Number of prepared instances.
+    pub fn len(&self) -> usize {
+        self.keys.len()
+    }
+
+    /// True when nothing was prepared.
+    pub fn is_empty(&self) -> bool {
+        self.keys.is_empty()
+    }
+}
+
 impl SpriteRenderer {
+    /// Sorts `rects` + `images` by z, uploads the instances + the screen-space camera uniform, and
+    /// returns the per-instance metadata for range rendering. Call once per frame per target;
+    /// follow with one or more [`render_ui_primitive_range`](Self::render_ui_primitive_range).
+    #[allow(clippy::too_many_arguments)]
+    pub fn prepare_ui_primitives(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        rects: &[DrawRect],
+        images: &[DrawImage],
+        width: u32,
+        height: u32,
+        clip_scale: Vec2,
+    ) -> PreparedUiPrimitives {
+        let screen_proj = crate::camera::apply_letterbox(
+            clip_scale,
+            Mat4::orthographic_rh(0.0, width as f32, height as f32, 0.0, -1.0, 1.0),
+        );
+        let cam = CameraUniform {
+            view_proj: screen_proj.to_cols_array_2d(),
+        };
+        queue.write_buffer(&self.ui_camera_buf, 0, bytemuck::bytes_of(&cam));
+
+        let primitives = sorted_ui_primitives(rects, images);
+        let zs: Vec<f32> = primitives.iter().map(|p| p.z).collect();
+        let mut keys = Vec::with_capacity(primitives.len());
+        let mut instances = Vec::with_capacity(primitives.len());
+        for p in primitives {
+            keys.push(p.texture_key);
+            instances.push(p.instance);
+        }
+
+        if instances.len() > self.ui_instance_capacity {
+            self.ui_instance_capacity = instances.len().next_power_of_two();
+            self.ui_instance_buf = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("ui instance buffer"),
+                size: (self.ui_instance_capacity * std::mem::size_of::<UiInstanceRaw>()) as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
+        if !instances.is_empty() {
+            queue.write_buffer(&self.ui_instance_buf, 0, bytemuck::cast_slice(&instances));
+        }
+
+        PreparedUiPrimitives { keys, zs }
+    }
+
+    /// Draws `prepared[start..end)` in one render pass (instance-buffer byte offsets into the
+    /// single per-frame upload — no re-upload). No-op for an empty range.
+    pub fn render_ui_primitive_range(
+        &mut self,
+        ctx: &mut FrameContext,
+        prepared: &PreparedUiPrimitives,
+        start: usize,
+        end: usize,
+    ) {
+        if start >= end {
+            return;
+        }
+        let fmt = ctx.format;
+        // Build/select a UI pipeline matching the target format (the surface, or e.g. the HDR
+        // post-process intermediate / an offscreen RT).
+        self.ensure_ui_pipeline(ctx.device, fmt);
+
+        let instance_size = std::mem::size_of::<UiInstanceRaw>() as u64;
+        let ui_pipeline = self.ui_pipeline_for(fmt);
+        let mut pass = crate::renderer::common::begin_color_pass(
+            ctx.encoder,
+            "ui primitive pass",
+            ctx.view,
+            wgpu::LoadOp::Load,
+        );
+
+        pass.set_pipeline(ui_pipeline);
+        pass.set_bind_group(0, &self.ui_camera_bind_group, &[]);
+        pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
+        pass.set_index_buffer(self.index_buf.slice(..), wgpu::IndexFormat::Uint16);
+
+        let mut i = start;
+        while i < end {
+            let run_key = prepared.keys[i].as_deref();
+            let run_start = i;
+            i += 1;
+            while i < end && prepared.keys[i].as_deref() == run_key {
+                i += 1;
+            }
+            let run_len = i - run_start;
+            let byte_start = run_start as u64 * instance_size;
+            let byte_end = byte_start + run_len as u64 * instance_size;
+            let bind_group = self.bind_group_for_texture_key(run_key);
+            pass.set_bind_group(1, bind_group, &[]);
+            pass.set_vertex_buffer(1, self.ui_instance_buf.slice(byte_start..byte_end));
+            pass.draw_indexed(0..INDICES.len() as u32, 0, 0..run_len as u32);
+        }
+    }
+
+    /// Prepare + draw every UI primitive in one pass — the single-call path used when no layered
+    /// text interleaves with the surfaces (and by earlier callers; behavior unchanged).
     pub fn render_ui_primitives_from_slices(
         &mut self,
         ctx: &mut FrameContext,
@@ -110,72 +234,10 @@ impl SpriteRenderer {
         if rects.is_empty() && images.is_empty() {
             return;
         }
-
-        let fmt = ctx.format;
-        // Build/select a UI pipeline matching the target format (the surface, or e.g. the HDR
-        // post-process intermediate / an offscreen RT).
-        self.ensure_ui_pipeline(ctx.device, fmt);
-
-        let device = ctx.device;
-        let queue = ctx.queue;
-        let view = ctx.view;
-        let encoder = &mut *ctx.encoder;
-
-        let screen_proj = crate::camera::apply_letterbox(
-            clip_scale,
-            Mat4::orthographic_rh(0.0, width as f32, height as f32, 0.0, -1.0, 1.0),
+        let prepared = self.prepare_ui_primitives(
+            ctx.device, ctx.queue, rects, images, width, height, clip_scale,
         );
-        let cam = CameraUniform {
-            view_proj: screen_proj.to_cols_array_2d(),
-        };
-        queue.write_buffer(&self.ui_camera_buf, 0, bytemuck::bytes_of(&cam));
-
-        let entries: Vec<(Option<String>, UiInstanceRaw)> = sorted_ui_primitives(rects, images)
-            .into_iter()
-            .map(|primitive| (primitive.texture_key, primitive.instance))
-            .collect();
-        let instances: Vec<UiInstanceRaw> = entries.iter().map(|(_, instance)| *instance).collect();
-
-        if instances.len() > self.ui_instance_capacity {
-            self.ui_instance_capacity = instances.len().next_power_of_two();
-            self.ui_instance_buf = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("ui instance buffer"),
-                size: (self.ui_instance_capacity * std::mem::size_of::<UiInstanceRaw>()) as u64,
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-        }
-        queue.write_buffer(&self.ui_instance_buf, 0, bytemuck::cast_slice(&instances));
-
-        let instance_size = std::mem::size_of::<UiInstanceRaw>() as u64;
-        let ui_pipeline = self.ui_pipeline_for(fmt);
-        let mut pass = crate::renderer::common::begin_color_pass(
-            encoder,
-            "ui primitive pass",
-            view,
-            wgpu::LoadOp::Load,
-        );
-
-        pass.set_pipeline(ui_pipeline);
-        pass.set_bind_group(0, &self.ui_camera_bind_group, &[]);
-        pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
-        pass.set_index_buffer(self.index_buf.slice(..), wgpu::IndexFormat::Uint16);
-
-        let mut i = 0usize;
-        while i < entries.len() {
-            let run_key = entries[i].0.as_deref();
-            let run_start = i;
-            i += 1;
-            while i < entries.len() && entries[i].0.as_deref() == run_key {
-                i += 1;
-            }
-            let run_len = i - run_start;
-            let byte_start = run_start as u64 * instance_size;
-            let byte_end = byte_start + run_len as u64 * instance_size;
-            let bind_group = self.bind_group_for_texture_key(run_key);
-            pass.set_bind_group(1, bind_group, &[]);
-            pass.set_vertex_buffer(1, self.ui_instance_buf.slice(byte_start..byte_end));
-            pass.draw_indexed(0..INDICES.len() as u32, 0, 0..run_len as u32);
-        }
+        let end = prepared.len();
+        self.render_ui_primitive_range(ctx, &prepared, 0, end);
     }
 }

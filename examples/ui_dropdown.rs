@@ -11,9 +11,9 @@
 //! "through" the open list), plus a bottom-edge dropdown that opens upward. The HUD echoes every
 //! `DropdownChanged` event.
 //!
-//! Known engine-wide limitation (predates this widget, same as a `Panel` over a `Button`): text
-//! renders in its own pass after all UI rects, so a covered widget's *label* still shows through
-//! an overlay. The open list absorbs the pointer correctly; only the text bleeds.
+//! The open list also *visually* covers the labels of the buttons underneath: widget text is
+//! z-layered with the UI rects (`DrawText::with_z`, set by the widget passes — see the
+//! `text_layers` example), so an overlay hides both the rects and the text below it.
 //!
 //! - **Esc** — quit
 //!

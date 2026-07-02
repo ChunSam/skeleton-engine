@@ -90,12 +90,15 @@ pub(super) fn run(
         }
         // No layout bounds: lines break only at `\n`, so a slightly-narrow width estimate can never
         // trigger a surprise wrap that overflows the box vertically.
-        output.texts.push(DrawText::new(
-            tip.text.clone(),
-            p + Vec2::splat(tip.padding),
-            tip.font_size,
-            faded(tip.text_color, alpha),
-        ));
+        output.texts.push(
+            DrawText::new(
+                tip.text.clone(),
+                p + Vec2::splat(tip.padding),
+                tip.font_size,
+                faded(tip.text_color, alpha),
+            )
+            .with_z(TOOLTIP_Z + super::UI_SUBLAYER_Z_STEP),
+        );
     }
 }
 
