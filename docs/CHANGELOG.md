@@ -4,6 +4,20 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.110.0
+
+**Text z-ordering — an overlay finally hides the labels underneath it.** Historically all text drew in one final pass on top of every UI rect, so an open dropdown list, a tooltip, or a panel could never visually cover a widget label (the label bled through — surfaced by the `ui_dropdown` capture in 0.109.0). A `DrawText` can now carry a UI-layer z and composite **among** the rects; the widget passes set it automatically. Additive — text without a z keeps the exact historical on-top behavior.
+
+### Added
+- `DrawText.z: Option<f32>` + `with_z(z)`. `None` (default) = the final on-top text pass, over every rect and after post-processing — right for HUD readouts, byte-identical to before. `Some(z)` = the text interleaves with the UI rects/images at that z (same scale as `DrawRect::z`): a surface above covers it, a surface below stays behind, a z tie draws the text on top (a label over its own widget background). Layered text renders **before** post-processing, so under an HDR/bloom pipeline it is graded together with its widget.
+- The interleave machinery: `text/layering.rs::interleave_runs` (pure run-splitting, 7 unit tests); `SpriteRenderer::prepare_ui_primitives` + `render_ui_primitive_range` (the sorted primitives upload **once** per frame — `queue.write_buffer` executes at submit, so per-run re-uploads would clobber earlier passes — and each run draws an instance-buffer sub-range); `TextRenderer::render_batch` + `end_frame` with per-format `FormatPool`s (a format-bound glyphon atlas + one pooled glyphon renderer per batch, since each holds exactly one prepared batch's vertex buffers; non-surface formats — e.g. the HDR `Rgba16Float` intermediate — get their own pool lazily, the text analogue of the format-matched pipeline caches). The shaped-buffer cache is shared across batches; eviction/trim/reset happen once per frame in `end_frame`.
+- Every widget pass now layers its text at its widget's z (label / button / checkbox / text input / scroll view / dropdown box + rows / tooltip) — so the open dropdown list and the tooltip box now hide covered labels for real. `TextQueue::take_layered` (crate-internal) partitions the queue in the frame orchestration.
+- Example `text_layers` — two overlapping cards whose captions layer with them (Space raises/lowers the overlay; the covered caption half disappears/reappears) + an on-top HUD line. Render test `layered_text_is_covered_by_higher_z_rect` (covered layered text reads as background, uncovered control renders, z-None text still draws over a z=50 rect) — runs on CI lavapipe.
+
+### Notes
+- `DrawText` is documented as builder-constructed (`new`/`centered` + `with_*`), so the new field is non-breaking for documented usage.
+- Widget label text moving from the post-post on-top pass into the pre-post scene affects HDR/bloom scenes only: widget text is now tone-mapped with its widgets (arguably the correct look); game-pushed HUD text (no z) is unchanged.
+
 ## 0.109.2
 
 **Example layout nit from the playtest re-test.** No engine change.

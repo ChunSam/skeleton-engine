@@ -312,24 +312,114 @@ impl App {
             .resource_mut::<UiQueue>()
             .map(|q| std::mem::take(&mut q.items))
             .unwrap_or_default();
-        if !ui_rects.is_empty() || !ui_images.is_empty() {
+        // Texts with an explicit UI-layer z (`DrawText::with_z`) leave the queue here and
+        // composite among the UI rects/images below; z-None texts stay queued for the on-top
+        // text pass (step 4.7) — the historical always-on-top behavior.
+        let mut layered_texts: Vec<crate::renderer::DrawText> = self
+            .world
+            .resource_mut::<crate::renderer::TextQueue>()
+            .map(|q| q.take_layered())
+            .unwrap_or_default();
+        // Physical pixel size of the text viewport — the docked offscreen texture in docked
+        // mode, else the surface size. Shared by the layered batches here and step 4.7.
+        #[cfg(not(target_arch = "wasm32"))]
+        let (text_w, text_h) = if is_docked_with_rt {
+            self.render
+                .docked_scene_texture
+                .as_ref()
+                .map(|(w, h, _, _, _)| (*w, *h))
+                .unwrap_or((gpu.config.width, gpu.config.height))
+        } else {
+            (gpu.config.width, gpu.config.height)
+        };
+        #[cfg(target_arch = "wasm32")]
+        let (text_w, text_h) = (gpu.config.width, gpu.config.height);
+        if !ui_rects.is_empty() || !ui_images.is_empty() || !layered_texts.is_empty() {
             if let Some(sr) = &mut self.render.sprite_renderer {
                 // The UI-primitive pass picks a pipeline matching `scene_format`, so it renders
                 // correctly into the HDR post-process intermediate as well as the surface.
-                sr.render_ui_primitives_from_slices(
-                    &mut FrameContext {
-                        device: &gpu.device,
-                        queue: &gpu.queue,
-                        view: render_view,
-                        format: scene_format,
-                        encoder: &mut enc,
-                    },
-                    &ui_rects,
-                    &ui_images,
-                    logical_w,
-                    logical_h,
-                    clip_scale,
-                );
+                if layered_texts.is_empty() {
+                    // Fast path — no layered text: one pass over every primitive, as before.
+                    sr.render_ui_primitives_from_slices(
+                        &mut FrameContext {
+                            device: &gpu.device,
+                            queue: &gpu.queue,
+                            view: render_view,
+                            format: scene_format,
+                            encoder: &mut enc,
+                        },
+                        &ui_rects,
+                        &ui_images,
+                        logical_w,
+                        logical_h,
+                        clip_scale,
+                    );
+                } else {
+                    // Z-interleaved path: upload the sorted primitives ONCE, then alternate
+                    // primitive sub-ranges with pooled glyphon text batches so a surface drawn
+                    // above a text's z actually covers it (an open dropdown list / tooltip /
+                    // panel over a widget label). Stable sort keeps push order on z ties.
+                    layered_texts
+                        .sort_by(|a, b| a.z.partial_cmp(&b.z).unwrap_or(std::cmp::Ordering::Equal));
+                    let prepared = sr.prepare_ui_primitives(
+                        &gpu.device,
+                        &gpu.queue,
+                        &ui_rects,
+                        &ui_images,
+                        logical_w,
+                        logical_h,
+                        clip_scale,
+                    );
+                    let text_zs: Vec<f32> = layered_texts.iter().filter_map(|t| t.z).collect();
+                    let runs = crate::renderer::text::interleave_runs(&prepared.zs, &text_zs);
+                    let text_scale = self
+                        .world
+                        .resource::<crate::resources::DisplayScaleFactor>()
+                        .map(|s| s.0)
+                        .unwrap_or(1.0)
+                        .max(1.0);
+                    let text_lb = self
+                        .world
+                        .resource::<crate::resources::Letterbox>()
+                        .copied()
+                        .unwrap_or_default();
+                    let mut next_surface = 0usize;
+                    let mut texts_iter = layered_texts.into_iter();
+                    for run in runs {
+                        if run.surfaces > 0 {
+                            sr.render_ui_primitive_range(
+                                &mut FrameContext {
+                                    device: &gpu.device,
+                                    queue: &gpu.queue,
+                                    view: render_view,
+                                    format: scene_format,
+                                    encoder: &mut enc,
+                                },
+                                &prepared,
+                                next_surface,
+                                next_surface + run.surfaces,
+                            );
+                            next_surface += run.surfaces;
+                        }
+                        if run.texts > 0 {
+                            let batch: Vec<_> = texts_iter.by_ref().take(run.texts).collect();
+                            if let Some(tr) = &mut self.render.text_renderer {
+                                tr.render_batch(
+                                    &gpu.device,
+                                    &gpu.queue,
+                                    &mut enc,
+                                    render_view,
+                                    scene_format,
+                                    batch,
+                                    text_w,
+                                    text_h,
+                                    text_scale,
+                                    text_lb,
+                                );
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -472,42 +562,24 @@ impl App {
             }
         }
 
-        // Step 4.7: HUD/text pass — drawn onto scene_target after post and lighting. In
-        // normal mode scene_target == final_view; in docked mode it's the offscreen texture
-        // so text renders into the game viewport (not over the editor chrome).
-        {
-            #[cfg(not(target_arch = "wasm32"))]
-            let (w, h) = if is_docked_with_rt {
-                // In docked mode, text should lay out to the offscreen texture size (which
-                // matches the viewport logical size × scale).
-                (
-                    self.render
-                        .docked_scene_texture
-                        .as_ref()
-                        .map(|(w, _, _, _, _)| *w)
-                        .unwrap_or(gpu.config.width),
-                    self.render
-                        .docked_scene_texture
-                        .as_ref()
-                        .map(|(_, h, _, _, _)| *h)
-                        .unwrap_or(gpu.config.height),
-                )
-            } else {
-                (gpu.config.width, gpu.config.height)
-            };
-            #[cfg(target_arch = "wasm32")]
-            let (w, h) = (gpu.config.width, gpu.config.height);
-            if let Some(tr) = &mut self.render.text_renderer {
-                tr.render(
-                    &gpu.device,
-                    &gpu.queue,
-                    &mut enc,
-                    scene_target,
-                    &mut self.world,
-                    w,
-                    h,
-                );
-            }
+        // Step 4.7: HUD/text pass — the remaining (z-None, always-on-top) texts, drawn onto
+        // scene_target after post and lighting. In normal mode scene_target == final_view; in
+        // docked mode it's the offscreen texture so text renders into the game viewport (not
+        // over the editor chrome). `text_w`/`text_h` were computed with the layered batches at
+        // step 2.7 (docked offscreen size in docked mode, else the surface size).
+        if let Some(tr) = &mut self.render.text_renderer {
+            tr.render(
+                &gpu.device,
+                &gpu.queue,
+                &mut enc,
+                scene_target,
+                &mut self.world,
+                text_w,
+                text_h,
+            );
+            // One per-frame text cleanup after the LAST batch: shaped-cache eviction, atlas
+            // trims, pooled-renderer reset, generation bump.
+            tr.end_frame();
         }
 
         // Step 5 (pre): Fade overlay pass (topmost game-scene pass, before egui)

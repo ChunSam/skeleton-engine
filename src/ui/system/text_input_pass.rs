@@ -138,7 +138,8 @@ pub(super) fn run(
                 text_color,
             )
             .with_bounds(Vec2::new((size.x - 12.0).max(0.0), size.y))
-            .with_single_line_caret(caret_byte),
+            .with_single_line_caret(caret_byte)
+            .with_z(z),
         );
     }
 }

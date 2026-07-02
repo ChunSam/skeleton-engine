@@ -87,7 +87,8 @@ pub(super) fn run(
                     font_size,
                     color,
                 )
-                .with_bounds(Vec2::new((size.x - 8.0).max(0.0), item_height)),
+                .with_bounds(Vec2::new((size.x - 8.0).max(0.0), item_height))
+                .with_z(z),
             );
         }
     }

@@ -40,6 +40,16 @@ pub struct DrawText {
     /// horizontally to keep the caret byte position visible within `bounds`.
     /// Used by `TextInput`. `None` uses the normal line-wrap behaviour.
     pub single_line_caret: Option<usize>,
+    /// UI-layer depth. `None` (default) keeps the historical behavior: the text is drawn in the
+    /// final on-top text pass, over every UI rect/image and after post-processing — right for HUD
+    /// readouts. `Some(z)` composites the text **among** the UI rects/images at that z (same scale
+    /// as [`DrawRect::z`](crate::renderer::DrawRect)): a rect drawn above it (greater z) covers it,
+    /// which is what widget labels want so an overlay (an open dropdown list, a tooltip, a panel)
+    /// actually hides the text underneath. On a z tie the text draws over the rect. Layered text
+    /// renders before post-processing, so under an HDR/bloom pipeline it is graded with its widget
+    /// (on-top `None` text is not). Set via [`with_z`](DrawText::with_z); the built-in widget
+    /// passes set it to their widget's z automatically.
+    pub z: Option<f32>,
 }
 
 impl DrawText {
@@ -59,6 +69,7 @@ impl DrawText {
             anchor: TextAnchor::TopLeft,
             rich: false,
             single_line_caret: None,
+            z: None,
         }
     }
 
@@ -104,6 +115,13 @@ impl DrawText {
     /// caret (a byte offset into `text`) visible inside `bounds`. Used by `TextInput`.
     pub fn with_single_line_caret(mut self, caret_byte: usize) -> Self {
         self.single_line_caret = Some(caret_byte);
+        self
+    }
+
+    /// Composite this text among the UI rects/images at `z` instead of the on-top text pass —
+    /// a rect drawn above it then actually covers it (see [`DrawText::z`]).
+    pub fn with_z(mut self, z: f32) -> Self {
+        self.z = Some(z);
         self
     }
 }
@@ -159,6 +177,17 @@ impl TextQueue {
     /// Adds a text item to the queue.
     pub fn push(&mut self, item: DrawText) {
         self.items.push(item);
+    }
+
+    /// Removes and returns the **layered** items (`z = Some`), leaving the on-top (`z = None`)
+    /// items queued for the final text pass. Called once per frame by the render orchestration,
+    /// which composites the layered items among the UI rects by z.
+    pub(crate) fn take_layered(&mut self) -> Vec<DrawText> {
+        let (layered, top): (Vec<_>, Vec<_>) = std::mem::take(&mut self.items)
+            .into_iter()
+            .partition(|t| t.z.is_some());
+        self.items = top;
+        layered
     }
 
     /// Removes all items.

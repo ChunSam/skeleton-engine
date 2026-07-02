@@ -88,7 +88,8 @@ pub(super) fn run(
             output.texts.push(
                 DrawText::new(label_text, Vec2::new(pos.x, text_y), font_size, text_color)
                     .with_bounds(Vec2::new(size.x, size.y))
-                    .with_align(TextAlign::Center),
+                    .with_align(TextAlign::Center)
+                    .with_z(z),
             );
         }
     }

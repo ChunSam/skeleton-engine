@@ -99,7 +99,8 @@ pub(super) fn run(
                     font_size,
                     text_color,
                 )
-                .with_bounds(Vec2::new((size.x - box_size - 6.0).max(0.0), size.y)),
+                .with_bounds(Vec2::new((size.x - box_size - 6.0).max(0.0), size.y))
+                .with_z(z + super::UI_SUBLAYER_Z_STEP),
             );
         }
     }
