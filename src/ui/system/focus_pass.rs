@@ -5,6 +5,7 @@ use crate::ui::button::{Button, ButtonState};
 use crate::ui::checkbox::CheckBox;
 use crate::ui::dropdown::Dropdown;
 use crate::ui::focus::{FocusRingStyle, UiFocus};
+use crate::ui::radio_group::RadioGroup;
 use crate::ui::slider::Slider;
 use crate::ui::text_input::TextInput;
 
@@ -170,6 +171,20 @@ pub(super) fn run(
                             output.events.push(UiEvent::DropdownChanged(e, next));
                         }
                     }
+                } else if let Some(rg) = world.get_mut::<RadioGroup>(e) {
+                    // Same clamped step as a Dropdown — the whole group is one focus stop.
+                    if !rg.items.is_empty() {
+                        let cur = rg.selected_index();
+                        let next = if input.nav_right {
+                            (cur + 1).min(rg.items.len() - 1)
+                        } else {
+                            cur.saturating_sub(1)
+                        };
+                        if next != cur {
+                            rg.selected = next;
+                            output.events.push(UiEvent::RadioChanged(e, next));
+                        }
+                    }
                 }
             }
         }
@@ -198,6 +213,7 @@ fn collect_focusables(world: &World, viewport: &ViewportSize, out: &mut Vec<Enti
     out.extend(world.query::<Slider>().map(|(e, _)| e));
     out.extend(world.query::<CheckBox>().map(|(e, _)| e));
     out.extend(world.query::<Dropdown>().map(|(e, _)| e));
+    out.extend(world.query::<RadioGroup>().map(|(e, _)| e));
     out.sort_by_key(|e| e.index());
     out.dedup();
     out.retain(|&e| {

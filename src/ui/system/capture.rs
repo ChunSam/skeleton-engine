@@ -7,6 +7,7 @@ use crate::ui::checkbox::CheckBox;
 use crate::ui::dropdown::{Dropdown, DROPDOWN_LIST_Z};
 use crate::ui::node::UiNode;
 use crate::ui::panel::{Panel, PANEL_BG_Z_OFFSET};
+use crate::ui::radio_group::RadioGroup;
 use crate::ui::scroll_view::ScrollView;
 use crate::ui::slider::Slider;
 use crate::ui::text_input::TextInput;
@@ -41,14 +42,15 @@ pub(super) struct PointerCapture {
 
 impl PointerCapture {
     /// Rebuilds the capture set from every visible pointer-opaque widget (buttons, checkboxes,
-    /// sliders, text inputs, scroll views, and panels). Reuses the backing allocation across frames
-    /// (cleared, not reallocated), like the passes' scratch buffers. Labels are intentionally
-    /// excluded — text is not pointer-opaque and must not block clicks behind it.
+    /// sliders, radio groups, text inputs, scroll views, and panels). Reuses the backing allocation
+    /// across frames (cleared, not reallocated), like the passes' scratch buffers. Labels are
+    /// intentionally excluded — text is not pointer-opaque and must not block clicks behind it.
     pub(super) fn rebuild(&mut self, world: &World, viewport: &ViewportSize) {
         self.items.clear();
         self.extend_kind::<Button>(world, viewport, 0.0);
         self.extend_kind::<CheckBox>(world, viewport, 0.0);
         self.extend_kind::<Slider>(world, viewport, 0.0);
+        self.extend_kind::<RadioGroup>(world, viewport, 0.0);
         self.extend_kind::<TextInput>(world, viewport, 0.0);
         self.extend_kind::<ScrollView>(world, viewport, 0.0);
         self.extend_kind::<Panel>(world, viewport, PANEL_BG_Z_OFFSET);

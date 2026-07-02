@@ -8,6 +8,7 @@ mod event;
 mod focus_pass;
 mod label_pass;
 mod progress_bar_pass;
+mod radio_group_pass;
 mod scroll_view_pass;
 mod slider_pass;
 mod state;
@@ -24,7 +25,7 @@ use state::{submit_output, viewport_from_world, InputSnapshot, StickNav, UiOutpu
 pub(super) const UI_SUBLAYER_Z_STEP: f32 = 0.001;
 
 /// System that processes `UiNode` + `Button` / `Label` / `TextInput` / `ScrollView` / `Slider` /
-/// `CheckBox` / `ProgressBar` / `Dropdown` / `Tooltip` entities.
+/// `CheckBox` / `ProgressBar` / `RadioGroup` / `Dropdown` / `Tooltip` entities.
 ///
 /// Per-frame execution order:
 /// 1. Input state snapshot
@@ -36,9 +37,10 @@ pub(super) const UI_SUBLAYER_Z_STEP: f32 = 0.001;
 /// 7. ProgressBar pass
 /// 8. Slider pass
 /// 9. CheckBox pass
-/// 10. Dropdown pass — open/select/close the item list (drawn above normal UI)
-/// 11. Tooltip pass — hover-delay popups (last, so tooltip text draws over other widget text)
-/// 12. Submit render queue + batch-emit events
+/// 10. RadioGroup pass — click-select an option row
+/// 11. Dropdown pass — open/select/close the item list (drawn above normal UI)
+/// 12. Tooltip pass — hover-delay popups (last, so tooltip text draws over other widget text)
+/// 13. Submit render queue + batch-emit events
 #[derive(Default)]
 pub struct UiSystem {
     button_scratch: Vec<Entity>,
@@ -47,6 +49,7 @@ pub struct UiSystem {
     focus_scratch: Vec<Entity>,
     label_scratch: Vec<Entity>,
     progress_bar_scratch: Vec<Entity>,
+    radio_group_scratch: Vec<Entity>,
     scroll_view_scratch: Vec<Entity>,
     slider_scratch: Vec<Entity>,
     text_input_scratch: Vec<Entity>,
@@ -155,6 +158,14 @@ impl System for UiSystem {
             &self.capture,
             &mut output,
             &mut self.checkbox_scratch,
+        );
+        radio_group_pass::run(
+            world,
+            &viewport,
+            &input,
+            &self.capture,
+            &mut output,
+            &mut self.radio_group_scratch,
         );
         dropdown_pass::run(
             world,
