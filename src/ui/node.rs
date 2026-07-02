@@ -133,6 +133,14 @@ impl UiNode {
         self
     }
 
+    /// Set the initial visibility. Builder form — spawn a widget hidden (e.g. a pause-menu
+    /// entity revealed later by flipping [`visible`](Self::visible)) without mutating after
+    /// construction.
+    pub fn with_visible(mut self, visible: bool) -> Self {
+        self.visible = visible;
+        self
+    }
+
     /// Returns the absolute top-left screen pixel coordinate of this node given the viewport size.
     pub fn screen_pos(&self, viewport: &ViewportSize) -> Vec2 {
         let (vw, vh) = (viewport.width, viewport.height);
@@ -168,6 +176,16 @@ mod tests {
         for &a in &variants {
             assert_eq!(Anchor::from_i32(a.to_i32()), a);
         }
+    }
+
+    #[test]
+    fn with_visible_spawns_hidden() {
+        let node = UiNode::new(0.0, 0.0, 10.0, 10.0).with_visible(false);
+        assert!(!node.visible);
+        assert!(
+            UiNode::new(0.0, 0.0, 10.0, 10.0).visible,
+            "default stays visible"
+        );
     }
 
     #[test]

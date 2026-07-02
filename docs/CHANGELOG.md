@@ -4,7 +4,13 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
-## 0.112.0
+## 0.113.0
+
+**The game-feel capstone example — the juice toolkit and the widget suite proven to compose.** `examples/game_feel.rs` is one small playable arena that drives the engine's game-feel helpers **together**, configured live from a real pause/settings menu — the composition target the 0.107.0–0.112.0 widget run was building toward. Engine change is one tiny additive builder the example surfaced (the VISION "fix the API when the example is awkward" rule); everything else composes on the existing public API, unchanged.
+
+### Added
+- Example `game_feel` — a training arena on two pads with a jumpable gap: `InputBuffer` jumps (buffered + coyote), a `SpriteTrail` on the player, and an **X** attack on three dummies that fires the whole juice stack at once — `HitFlash` + a `FloatingText` damage number (crit-styled every 4th hit, sideways-staggered so stacked numbers stay readable) + `Camera::shake` + a `TimeScale` hit-stop timed in `RealDt`. **Esc** pauses (`TimeScale` 0) into a settings panel built from the widget suite: a `TabBar` switches a *Feel* page (`RadioGroup` shake Off/Low/High, `Slider` hit-stop ms, `Dropdown` trail preset Off/Subtle/Heavy — applied on change, since re-adding a `SpriteTrail` each frame would reset its emit timer) and a *Movement* page (`Slider`s for speed + the two `InputBuffer` forgiveness windows, rebuilt on change; both at 0 = a strict jump). Every setting drives the effects the moment you resume. Headless mode plays itself and opens the menu for the capture.
+- `UiNode::with_visible(bool)` builder — spawn a widget hidden (the pause-menu pattern: entities exist from startup, revealed by flipping `visible`) without mutating after construction; previously only reachable by post-construction field assignment. +1 unit test. **No other public API change.**
 
 **A `TabBar` widget — equal-width tab headers, one active; content switching stays the game's job.** The last of the settings-menu staples after `Dropdown` (0.109.0) and `RadioGroup` (0.111.0). The bar renders headers only — a game reads `UiEvent::TabChanged` (or polls `selected_index`) and toggles its per-tab widgets' `UiNode::visible`, which keeps the widget genre-agnostic and composes with focus (hidden widgets are already skipped by Tab cycling, so keyboard nav never lands on an inactive tab's content). Additive, native+wasm.
 
