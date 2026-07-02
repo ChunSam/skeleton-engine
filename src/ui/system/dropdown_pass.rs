@@ -13,13 +13,13 @@ use super::UiEvent;
 /// Horizontal inset for the closed box's item text and the ▼/▲ arrow.
 const TEXT_PAD_X: f32 = 8.0;
 
-/// Handles every [`UiNode`] + [`Dropdown`]: clicking the closed box opens the item list (below the
-/// box, flipping above at the viewport bottom), clicking an item selects it + closes + emits
-/// [`UiEvent::DropdownChanged`] when the selection changed, and a press anywhere else closes the
-/// list without selecting. Clicks resolve through the shared [`PointerCapture`] — while open, the
-/// dropdown registers its whole expanded rect at [`DROPDOWN_LIST_Z`], so it wins the pointer over
-/// (and its rows draw over) everything underneath. Press-drag-release onto a row also selects,
-/// matching native comboboxes.
+/// Handles every [`UiNode`] + [`Dropdown`]: **pressing** the closed box opens the item list (below
+/// the box, flipping above at the viewport bottom; opening on press — not on the completed click —
+/// gives the native one-gesture press-drag-release flow), clicking an item selects it + closes +
+/// emits [`UiEvent::DropdownChanged`] when the selection changed, and a press anywhere else closes
+/// the list without selecting. Clicks resolve through the shared [`PointerCapture`] — while open,
+/// the dropdown registers its whole expanded rect at [`DROPDOWN_LIST_Z`], so it wins the pointer
+/// over (and its rows draw over) everything underneath.
 pub(super) fn run(
     world: &mut World,
     viewport: &ViewportSize,
@@ -50,12 +50,16 @@ pub(super) fn run(
                 None => continue,
             };
             if !visible || dd.items.is_empty() {
-                dd.open = false; // a hidden or empty dropdown can never stay open
+                // A hidden or empty dropdown can never stay open.
+                dd.open = false;
+                dd.press_opened = false;
             } else if dd.open {
                 if clicked {
-                    // A completed click on the expanded surface: on the closed box → just close;
-                    // on a row → select it (the row under the RELEASE point, so press-drag-release
-                    // selects like a native combobox) and close.
+                    // A completed click on the expanded surface: on a row → select it (the row
+                    // under the RELEASE point, so press-drag-release selects like a native
+                    // combobox) and close; on the closed box → close, UNLESS this release ends
+                    // the very press that opened the list (press-open + slow release must not
+                    // immediately toggle it back shut).
                     let list_pos = dd.list_pos(pos, size, viewport.height);
                     let item_h = dd.resolved_item_height(size.y);
                     let list_size = Vec2::new(size.x, dd.list_height(size.y));
@@ -65,19 +69,34 @@ pub(super) fn run(
                         let changed = row != dd.selected_index();
                         dd.selected = row;
                         dd.open = false;
+                        dd.press_opened = false;
                         if changed {
                             output.events.push(UiEvent::DropdownChanged(entity, row));
                         }
+                    } else if dd.press_opened {
+                        dd.press_opened = false; // opening gesture ended on the box — stay open
                     } else {
                         dd.open = false;
                     }
                 } else if input.just_pressed && pressed_owner != Some(entity) {
                     // Press-away closes without selecting (the press still reaches whatever
-                    // surface it landed on — there is no modal grab).
+                    // surface it landed on — there is no modal grab). Checked BEFORE the bare
+                    // release cleanup below, or a same-frame press+release away would only
+                    // clear the flag and leave the list open.
                     dd.open = false;
+                    dd.press_opened = false;
+                } else if input.just_released {
+                    // The opening gesture ended somewhere off the widget — stays open, but the
+                    // next click on the box closes it normally.
+                    dd.press_opened = false;
                 }
-            } else if clicked {
+            } else if input.just_pressed && pressed_owner == Some(entity) {
+                // Open on PRESS (not on the completed click) so the native one-gesture flow
+                // works: press the box, drag onto a row, release to select. If the release
+                // already landed in this same frame, the gesture is over — a later box click
+                // must close, not be swallowed as the opening release.
                 dd.open = true;
+                dd.press_opened = !input.just_released;
             }
         }
 
@@ -386,6 +405,103 @@ mod tests {
         assert!(
             !world.get::<Dropdown>(dd).unwrap().open,
             "Enter again closes"
+        );
+    }
+
+    #[test]
+    fn press_drag_release_selects_in_one_gesture() {
+        let mut world = setup();
+        let dd = spawn_dropdown(&mut world);
+        let mut system = UiSystem::default();
+
+        // Frame 1: press on the closed box (no release yet) → the list opens immediately.
+        {
+            let input = world.resource_mut::<InputState>().unwrap();
+            input.flush();
+            input.set_cursor(Vec2::new(60.0, 60.0));
+            input.press_mouse(MouseButton::Left);
+        }
+        system.run(&mut world, 0.016);
+        assert!(
+            world.get::<Dropdown>(dd).unwrap().open,
+            "the list opens on press, not on the completed click"
+        );
+
+        // Frame 2: still holding, drag onto row 2 ("High", rows open at y 80/110/140) and release.
+        {
+            let input = world.resource_mut::<InputState>().unwrap();
+            input.flush();
+            input.set_cursor(Vec2::new(60.0, 155.0));
+            input.release_mouse(MouseButton::Left);
+        }
+        system.run(&mut world, 0.016);
+        let d = world.get::<Dropdown>(dd).unwrap();
+        assert_eq!(d.selected_index(), 2, "release row selected in one gesture");
+        assert!(!d.open);
+        assert_eq!(changed_events(&world), vec![(dd, 2)]);
+    }
+
+    #[test]
+    fn opening_press_released_on_the_box_keeps_it_open_then_click_closes() {
+        let mut world = setup();
+        let dd = spawn_dropdown(&mut world);
+        let mut system = UiSystem::default();
+
+        // Frame 1: press on the box → opens.
+        {
+            let input = world.resource_mut::<InputState>().unwrap();
+            input.flush();
+            input.set_cursor(Vec2::new(60.0, 60.0));
+            input.press_mouse(MouseButton::Left);
+        }
+        system.run(&mut world, 0.016);
+        assert!(world.get::<Dropdown>(dd).unwrap().open);
+
+        // Frame 2: release still on the box — the opening gesture must NOT toggle it back shut.
+        {
+            let input = world.resource_mut::<InputState>().unwrap();
+            input.flush();
+            input.release_mouse(MouseButton::Left);
+        }
+        system.run(&mut world, 0.016);
+        assert!(
+            world.get::<Dropdown>(dd).unwrap().open,
+            "the opening press's own release keeps the list open"
+        );
+
+        // Frame 3: a fresh click on the box closes it.
+        click(&mut world, &mut system, Vec2::new(60.0, 60.0));
+        assert!(
+            !world.get::<Dropdown>(dd).unwrap().open,
+            "a later click on the box closes the list"
+        );
+    }
+
+    #[test]
+    fn enter_opening_one_dropdown_closes_another() {
+        let mut world = setup();
+        let first = spawn_dropdown(&mut world);
+        // A second dropdown well away from the first.
+        let second = world.spawn();
+        world.add_component(second, UiNode::new(250.0, 50.0, 120.0, 30.0));
+        world.add_component(second, Dropdown::new(["x", "y"]));
+        let mut system = UiSystem::default();
+
+        // Open the first with the pointer.
+        click(&mut world, &mut system, Vec2::new(60.0, 60.0));
+        assert!(world.get::<Dropdown>(first).unwrap().open);
+
+        // Focus the second and open it with Enter → the first must close.
+        world.resource_mut::<UiFocus>().unwrap().entity = Some(second);
+        press_key(&mut world, KeyCode::Enter);
+        system.run(&mut world, 0.016);
+        assert!(
+            world.get::<Dropdown>(second).unwrap().open,
+            "Enter opens the focused one"
+        );
+        assert!(
+            !world.get::<Dropdown>(first).unwrap().open,
+            "opening via Enter closes the other open list"
         );
     }
 

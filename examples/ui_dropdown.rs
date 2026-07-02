@@ -121,6 +121,9 @@ impl System for Demo {
 
 fn main() {
     let mut app = App::new();
+    // Without this the Events<UiEvent> bus does not exist and every DropdownChanged /
+    // ButtonClicked is silently dropped (the HUD line + Apply counter would never move).
+    app.register_event::<UiEvent>();
     app.world.insert_resource(WindowConfig {
         title: "ui_dropdown — combobox".into(),
         width: WIN_W,
