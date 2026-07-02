@@ -4,6 +4,19 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.112.0
+
+**A `TabBar` widget — equal-width tab headers, one active; content switching stays the game's job.** The last of the settings-menu staples after `Dropdown` (0.109.0) and `RadioGroup` (0.111.0). The bar renders headers only — a game reads `UiEvent::TabChanged` (or polls `selected_index`) and toggles its per-tab widgets' `UiNode::visible`, which keeps the widget genre-agnostic and composes with focus (hidden widgets are already skipped by Tab cycling, so keyboard nav never lands on an inactive tab's content). Additive, native+wasm.
+
+### Added
+- `TabBar` (`src/ui/tab_bar.rs`) `{tabs, selected, bg_color, active_color, hover_color, text_color, active_text_color, font_size, corner_radius, gap}`. Ctors `new(tabs)` + `with_selected` / `with_colors` / `with_hover_color` / `with_text_colors` / `with_font_size` / `with_corner_radius` / `with_gap` builders; accessors `selected_index` (clamps on read like `Dropdown`/`RadioGroup`) / `selected_tab`; geometry helpers `tab_width` (equal split minus gaps, floored at zero) / `tab_rect` / `tab_at` — the **single geometry source** shared by rendering and click resolution (the gaps between headers select nothing). Registered for reflect / clone / serde / editor add-remove like the other widgets; re-exported from `engine` (and `engine::ui`).
+- `system/tab_bar_pass.rs` — runs after the radio-group pass, before dropdowns. A completed click (press **and** release owned via the shared `PointerCapture`, `CheckBox`-style; drag-off cancels) selects the header under the release point → new **`UiEvent::TabChanged(entity, index)`** (only when the index actually changed; re-picking the current tab is silent). Headers render active / hovered / inactive backgrounds + centered titles (`TextAlign::Center`).
+- Focus-pass integration: `TabBar` is focusable (Tab / D-pad / stick) as **one focus stop for the whole bar**; **←/→** (or D-pad Left/Right) steps the active tab (clamped, `Slider`-style, emitting `TabChanged`). It also joins the pointer-capture surfaces, so a covered bar doesn't select through an overlay.
+- Example `ui_tabs` — the intended "tab container" wiring: a 3-tab bar (Stats / Inventory / Options) whose tab groups (progress bars / a scroll list / checkbox + slider) are shown/hidden by a tiny per-frame visibility system. 12 unit/integration tests + 1 doctest.
+
+### Notes
+- Adding the `TabChanged` variant to `UiEvent` is technically breaking for exhaustive matches on that enum (pre-1.0 license; add a wildcard arm or the new variant).
+
 ## 0.111.0
 
 **A `RadioGroup` widget — mutually exclusive options, one entity per group.** The settings-menu companion to `Dropdown`: the whole option list lives on one entity (like `Dropdown`/`ScrollView`), so the options can never disagree about which one is selected. Click a row to select it; fully keyboard/gamepad-operable. Additive, native+wasm.

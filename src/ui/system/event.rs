@@ -20,4 +20,7 @@ pub enum UiEvent {
     /// RadioGroup selection changed. The second field is the new selected option index.
     /// Emitted only when the index actually changed (re-picking the current option is silent).
     RadioChanged(Entity, usize),
+    /// TabBar active tab changed. The second field is the new active tab index.
+    /// Emitted only when the index actually changed (re-picking the current tab is silent).
+    TabChanged(Entity, usize),
 }

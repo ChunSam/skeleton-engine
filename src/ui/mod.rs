@@ -12,6 +12,7 @@ pub mod radio_group;
 pub mod scroll_view;
 pub mod slider;
 pub mod system;
+pub mod tab_bar;
 pub mod text_input;
 pub mod tooltip;
 
@@ -31,5 +32,6 @@ pub use radio_group::RadioGroup;
 pub use scroll_view::ScrollView;
 pub use slider::{Slider, DEFAULT_SLIDER_STEP_FRAC};
 pub use system::{UiEvent, UiSystem};
+pub use tab_bar::TabBar;
 pub use text_input::TextInput;
 pub use tooltip::{Tooltip, DEFAULT_TOOLTIP_DELAY_SECS, DEFAULT_TOOLTIP_FADE_SECS, TOOLTIP_Z};

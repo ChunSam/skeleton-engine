@@ -7,6 +7,7 @@ use crate::ui::dropdown::Dropdown;
 use crate::ui::focus::{FocusRingStyle, UiFocus};
 use crate::ui::radio_group::RadioGroup;
 use crate::ui::slider::Slider;
+use crate::ui::tab_bar::TabBar;
 use crate::ui::text_input::TextInput;
 
 use super::capture::PointerCapture;
@@ -185,6 +186,20 @@ pub(super) fn run(
                             output.events.push(UiEvent::RadioChanged(e, next));
                         }
                     }
+                } else if let Some(tb) = world.get_mut::<TabBar>(e) {
+                    // Same clamped step — the whole bar is one focus stop.
+                    if !tb.tabs.is_empty() {
+                        let cur = tb.selected_index();
+                        let next = if input.nav_right {
+                            (cur + 1).min(tb.tabs.len() - 1)
+                        } else {
+                            cur.saturating_sub(1)
+                        };
+                        if next != cur {
+                            tb.selected = next;
+                            output.events.push(UiEvent::TabChanged(e, next));
+                        }
+                    }
                 }
             }
         }
@@ -214,6 +229,7 @@ fn collect_focusables(world: &World, viewport: &ViewportSize, out: &mut Vec<Enti
     out.extend(world.query::<CheckBox>().map(|(e, _)| e));
     out.extend(world.query::<Dropdown>().map(|(e, _)| e));
     out.extend(world.query::<RadioGroup>().map(|(e, _)| e));
+    out.extend(world.query::<TabBar>().map(|(e, _)| e));
     out.sort_by_key(|e| e.index());
     out.dedup();
     out.retain(|&e| {
