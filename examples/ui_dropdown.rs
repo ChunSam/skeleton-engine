@@ -164,10 +164,11 @@ fn main() {
         }
     }
 
-    // Bottom-edge dropdown — opens upward (viewport flip).
+    // Bottom-edge dropdown — opens upward (viewport flip). Far right so it clears the HUD
+    // text lines in the bottom-left corner (playtest note: they overlapped at x=320).
     let bottom = app.world.spawn();
     app.world
-        .add_component(bottom, UiNode::new(320.0, 360.0, 180.0, 32.0));
+        .add_component(bottom, UiNode::new(520.0, 360.0, 180.0, 32.0));
     app.world.add_component(
         bottom,
         Dropdown::new(["Opens", "Upward", "Here"]).with_corner_radius(5.0),

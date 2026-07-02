@@ -4,6 +4,13 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.109.2
+
+**Example layout nit from the playtest re-test.** No engine change.
+
+### Fixed
+- Example `ui_dropdown`: the bottom-edge (flip-up) dropdown sat at x=320 where the HUD event/hint lines overlapped its box — moved to the bottom-right corner (x=520). Reported during the 2026-07-02 real-mouse re-test; cosmetic only.
+
 ## 0.109.1
 
 **Dropdown fixes from the first real-mouse playtest.** Three findings, three fixes; no new public API.
