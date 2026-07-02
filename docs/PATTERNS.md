@@ -123,6 +123,27 @@ The keys differ slightly (`ShaderMaterial` keys by `(source-hash, format)` since
 also varies), so the shape is **duplicated deliberately rather than abstracted** — revisit a
 shared helper only if a fifth pipeline needs it.
 
+### Mid-frame GPU upload rules (upload-once + range-draw, renderer pooling)
+
+`queue.write_buffer` executes at **submit time**, not call time — writing the same buffer
+twice within one frame means the second write lands before *any* pass executes, so the
+earlier pass silently renders the later data. Two sanctioned shapes, both from the text
+z-interleave (v0.110.0, #326):
+
+- **Upload once + draw by range** — upload ALL of a frame's instance data in one
+  `prepare_*` call, then issue sub-draws against byte-offset ranges
+  (`SpriteRenderer::prepare_ui_primitives` → `render_ui_primitive_range`,
+  `src/renderer/sprite/ui_primitives.rs`). Never re-upload the buffer between passes.
+- **Per-frame renderer pooling** — when a third-party renderer owns its vertex buffers per
+  `prepare` call (glyphon's `TextRenderer`: one prepared batch per renderer instance), keep
+  a pool indexed by a `used` counter: take a fresh renderer per batch, reset the counter
+  once per frame in `end_frame()` (`FormatPool` in `src/renderer/text/renderer.rs`; pools
+  are per-target-format — the text analogue of the pipeline cache above).
+
+The pure interleaving algorithm is `src/renderer/text/layering.rs::interleave_runs`
+(two pre-sorted z lists → alternating surface/text run counts; tie = text after surface;
+7 unit tests) — reuse it for any future z-interleave of two draw streams.
+
 ### UI system registration order
 
 When using `Panel`, register `LayoutSystem` **before** `UiSystem`:
@@ -279,6 +300,13 @@ app.register_event::<MyEvent>();
 world.resource_mut::<Events<MyEvent>>().unwrap().send(MyEvent { data: 1.0 });
 for ev in world.resource::<Events<MyEvent>>().unwrap().read() { ... }
 ```
+
+**Engine-emitted events need the same opt-in.** Widget passes emit `UiEvent`,
+`AnimationSystem` emits `AnimationEvent`, `TriggerZoneSystem` emits `ZoneEvent` — an
+example/game that reads any of these must still call `app.register_event::<E>()` at
+startup. An unregistered bus silently drops (or one-time-warns) every send, which
+presents as "the event never arrives" (bit `examples/ui_dropdown` in #324 — the HUD
+counter never moved; the engine was fine).
 
 ### Scene transitions
 
