@@ -12,6 +12,7 @@ mod radio_group_pass;
 mod scroll_view_pass;
 mod slider_pass;
 mod state;
+mod tab_bar_pass;
 mod text_input_pass;
 mod tooltip_pass;
 
@@ -25,7 +26,7 @@ use state::{submit_output, viewport_from_world, InputSnapshot, StickNav, UiOutpu
 pub(super) const UI_SUBLAYER_Z_STEP: f32 = 0.001;
 
 /// System that processes `UiNode` + `Button` / `Label` / `TextInput` / `ScrollView` / `Slider` /
-/// `CheckBox` / `ProgressBar` / `RadioGroup` / `Dropdown` / `Tooltip` entities.
+/// `CheckBox` / `ProgressBar` / `RadioGroup` / `TabBar` / `Dropdown` / `Tooltip` entities.
 ///
 /// Per-frame execution order:
 /// 1. Input state snapshot
@@ -38,9 +39,10 @@ pub(super) const UI_SUBLAYER_Z_STEP: f32 = 0.001;
 /// 8. Slider pass
 /// 9. CheckBox pass
 /// 10. RadioGroup pass — click-select an option row
-/// 11. Dropdown pass — open/select/close the item list (drawn above normal UI)
-/// 12. Tooltip pass — hover-delay popups (last, so tooltip text draws over other widget text)
-/// 13. Submit render queue + batch-emit events
+/// 11. TabBar pass — click-select a tab header
+/// 12. Dropdown pass — open/select/close the item list (drawn above normal UI)
+/// 13. Tooltip pass — hover-delay popups (last, so tooltip text draws over other widget text)
+/// 14. Submit render queue + batch-emit events
 #[derive(Default)]
 pub struct UiSystem {
     button_scratch: Vec<Entity>,
@@ -52,6 +54,7 @@ pub struct UiSystem {
     radio_group_scratch: Vec<Entity>,
     scroll_view_scratch: Vec<Entity>,
     slider_scratch: Vec<Entity>,
+    tab_bar_scratch: Vec<Entity>,
     text_input_scratch: Vec<Entity>,
     tooltip_scratch: Vec<Entity>,
     /// Shared per-frame pointer-occlusion map, rebuilt each run and read by the pointer-driven
@@ -166,6 +169,14 @@ impl System for UiSystem {
             &self.capture,
             &mut output,
             &mut self.radio_group_scratch,
+        );
+        tab_bar_pass::run(
+            world,
+            &viewport,
+            &input,
+            &self.capture,
+            &mut output,
+            &mut self.tab_bar_scratch,
         );
         dropdown_pass::run(
             world,

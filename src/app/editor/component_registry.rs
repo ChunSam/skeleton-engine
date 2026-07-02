@@ -81,6 +81,9 @@ impl App {
         self.register_component("RadioGroup", |world, e| {
             world.add_component(e, crate::ui::RadioGroup::default());
         });
+        self.register_component("TabBar", |world, e| {
+            world.add_component(e, crate::ui::TabBar::default());
+        });
         // register removal closures — the Inspector "✕" button uses this map to show/act
         self.register_component_remover("Sprite", |world, e| {
             world.remove_component::<crate::components::Sprite>(e);
@@ -153,6 +156,9 @@ impl App {
         });
         self.register_component_remover("RadioGroup", |world, e| {
             world.remove_component::<crate::ui::RadioGroup>(e);
+        });
+        self.register_component_remover("TabBar", |world, e| {
+            world.remove_component::<crate::ui::TabBar>(e);
         });
 
         // ── Built-in inspector sub-panels ─────────────────────────────────────
