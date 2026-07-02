@@ -69,6 +69,17 @@ impl PointerCapture {
         );
     }
 
+    /// True when a visible pointer-opaque surface **other than `entity`**, drawn strictly above
+    /// `z`, contains `cursor` — i.e. the widget at (`entity`, `z`) is covered at that point. Used
+    /// by the tooltip pass, whose host widgets (labels, progress bars, …) may not be capture items
+    /// themselves, so [`topmost_at`](Self::topmost_at) alone cannot answer "is my widget covered?".
+    /// An equal-z surface does not occlude (forgiving for widgets stacked at the same depth).
+    pub(super) fn occludes(&self, cursor: Vec2, entity: Entity, z: f32) -> bool {
+        self.items
+            .iter()
+            .any(|it| it.entity != entity && it.z > z && in_bounds(cursor, it.pos, it.size))
+    }
+
     /// Returns the entity of the topmost pointer-opaque surface containing `cursor`, or `None` if no
     /// surface is there. "Topmost" is the greatest capture z; ties (equal z) are broken by the
     /// greater entity index, which matches painter's order (later-submitted draws on top) and the

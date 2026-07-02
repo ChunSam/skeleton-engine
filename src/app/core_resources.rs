@@ -56,6 +56,7 @@ pub(super) fn register_core_component_metadata(world: &mut World) {
     world.register_reflect_named::<crate::ui::ScrollView>("ScrollView");
     world.register_reflect_named::<crate::ui::panel::Panel>("Panel");
     world.register_reflect_named::<crate::ui::ProgressBar>("ProgressBar");
+    world.register_reflect_named::<crate::ui::Tooltip>("Tooltip");
     world.register_reflect_named::<crate::ui::LocalizedText>("LocalizedText");
 
     world.register_clone::<crate::components::Transform>();
@@ -83,6 +84,7 @@ pub(super) fn register_core_component_metadata(world: &mut World) {
     world.register_clone::<crate::ui::ScrollView>();
     world.register_clone::<crate::ui::panel::Panel>();
     world.register_clone::<crate::ui::ProgressBar>();
+    world.register_clone::<crate::ui::Tooltip>();
     world.register_clone::<crate::ui::LocalizedText>();
 
     // Register UI widget serde components for scene save/load
@@ -109,6 +111,7 @@ pub(super) fn register_core_component_metadata(world: &mut World) {
         );
         registry.register::<crate::ui::CheckBox>("CheckBox", None);
         registry.register::<crate::ui::ProgressBar>("ProgressBar", None);
+        registry.register::<crate::ui::Tooltip>("Tooltip", None);
         registry.register::<crate::ui::ScrollView>("ScrollView", None);
         registry.register::<crate::ui::panel::Panel>("Panel", None);
         registry.register::<crate::ui::LocalizedText>("LocalizedText", None);
