@@ -121,9 +121,28 @@ pub(super) fn run(
                     cb.checked = !cb.checked;
                     let checked = cb.checked;
                     output.events.push(UiEvent::CheckBoxToggled(e, checked));
-                } else if let Some(dd) = world.get_mut::<Dropdown>(e) {
-                    if !dd.items.is_empty() {
-                        dd.open = !dd.open;
+                } else if world.get::<Dropdown>(e).is_some() {
+                    let others: Vec<Entity> = world
+                        .query::<Dropdown>()
+                        .map(|(en, _)| en)
+                        .filter(|&en| en != e)
+                        .collect();
+                    let mut opened = false;
+                    if let Some(dd) = world.get_mut::<Dropdown>(e) {
+                        if !dd.items.is_empty() {
+                            dd.open = !dd.open;
+                            opened = dd.open;
+                        }
+                    }
+                    // Only one list open at a time: opening via Enter closes any other open
+                    // dropdown, matching the pointer path (where pressing one dropdown is a
+                    // press-away for every other).
+                    if opened {
+                        for other in others {
+                            if let Some(od) = world.get_mut::<Dropdown>(other) {
+                                od.open = false;
+                            }
+                        }
                     }
                 }
             }

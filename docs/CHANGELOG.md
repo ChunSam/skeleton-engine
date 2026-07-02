@@ -4,6 +4,17 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.109.1
+
+**Dropdown fixes from the first real-mouse playtest.** Three findings, three fixes; no new public API.
+
+### Fixed
+- Example `ui_dropdown` never called `app.register_event::<UiEvent>()`, so the `Events<UiEvent>` bus did not exist and every `DropdownChanged` / `ButtonClicked` was silently dropped — the HUD event line and the Apply click counter never moved. (Engine behavior was correct; the widget's own tests insert the bus. Example-only fix.)
+- Opening a dropdown with **Enter** now closes any other open dropdown, matching the pointer path (where pressing one dropdown is a press-away for every other). Previously a keyboard-opened list left a mouse-opened one dangling.
+
+### Changed
+- The closed box now opens on **press** (was: on the completed press+release click), enabling the native combobox one-gesture flow — press the box, drag onto a row, release to select. The opening press's own release on the box keeps the list open (a transient `press_opened` flag, never serialized); a later box click still closes. Same-frame press+release (a fast click) behaves exactly as before.
+
 ## 0.109.0
 
 **A `Dropdown` / combobox widget — the settings-menu staple.** Click to open the item list, click an item to select it, press anywhere else to close. The open list overlays — and absorbs the pointer over — everything underneath it, and a bottom-edge dropdown flips its list upward. Fully keyboard/gamepad-operable via the existing focus pass. Additive, native+wasm.

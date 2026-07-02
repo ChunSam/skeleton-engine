@@ -14,13 +14,14 @@ pub const DROPDOWN_LIST_Z: f32 = 90.0;
 /// A dropdown / combobox — click to open an item list, click an item to select it.
 ///
 /// Attach it to an entity alongside a [`UiNode`](crate::ui::UiNode). The closed widget shows the
-/// selected item + an arrow; clicking it opens the list just below (flipping **above** when it
-/// would overflow the viewport bottom). Clicking an item selects it, closes the list, and emits
+/// selected item + an arrow; **pressing** it opens the list just below (flipping **above** when
+/// it would overflow the viewport bottom) — so the native one-gesture flow works: press the box,
+/// drag onto an item, release to select. Clicking an item selects it, closes the list, and emits
 /// [`UiEvent::DropdownChanged`](crate::ui::UiEvent::DropdownChanged) when the selection actually
-/// changed; pressing anywhere else closes the list without selecting. Press-drag-release onto an
-/// item also selects (native combobox feel). While open, the whole box+list area is a
-/// pointer-opaque capture surface at [`DROPDOWN_LIST_Z`], so widgets underneath neither fire nor
-/// hover through it.
+/// changed; pressing anywhere else closes the list without selecting. At most one list is open at
+/// a time (opening one — by pointer or Enter — closes the others). While open, the whole box+list
+/// area is a pointer-opaque capture surface at [`DROPDOWN_LIST_Z`], so widgets underneath neither
+/// fire nor hover through it.
 ///
 /// Keyboard/gamepad: the widget is focusable (Tab / D-pad / stick); **Enter/Space/A** toggles the
 /// list open, **←/→** (or D-pad Left/Right) steps the selection directly — a settings row is fully
@@ -46,6 +47,11 @@ pub struct Dropdown {
     /// Enter; a game may also set it directly, e.g. to open programmatically).
     #[serde(skip)]
     pub open: bool,
+    /// The list was opened by the still-held press (transient). Lets the opening gesture's
+    /// release-on-box keep the list open (native combobox: press opens, drag, release selects)
+    /// while a later click on the box still closes it.
+    #[serde(skip)]
+    pub(crate) press_opened: bool,
     /// Closed-box and list-row background color.
     pub bg_color: Color,
     /// Background of the hovered list row (and the closed box while hovered).
@@ -66,6 +72,7 @@ impl Default for Dropdown {
             items: Vec::new(),
             selected: 0,
             open: false,
+            press_opened: false,
             bg_color: Color::rgba(0.20, 0.20, 0.25, 1.0),
             hover_color: Color::rgba(0.30, 0.30, 0.40, 1.0),
             text_color: Color::rgba_u8(220, 220, 220, 255),
