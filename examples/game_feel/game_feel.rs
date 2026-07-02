@@ -19,6 +19,11 @@
 //! runs in, jumps, lands two hits, then opens the menu, so a capture shows the frozen action
 //! (flash + damage numbers + trail) beside the live settings panel. `HEADLESS_FRAMES=N`
 //! overrides the default 62.
+//!
+//! Web (`examples/game_feel/web/build.sh`, then serve that dir): the same arena + settings
+//! menu in the browser via `wasm-bindgen` — see the `run_game_feel` entry point.
+#[cfg(target_arch = "wasm32")]
+use engine::wasm_bindgen;
 use engine::{
     spawn_floating_text, App, Camera, Color, DrawRect, DrawText, Dropdown, Entity, Events,
     FloatingText, FloatingTextSystem, HitFlash, HitFlashSystem, InputBuffer, InputState, KeyCode,
@@ -397,7 +402,10 @@ fn spawn_menu_label(world: &mut World, x: f32, y: f32, text: &str) -> Entity {
     e
 }
 
-fn main() {
+/// Builds the whole example — arena, menu widgets, systems — shared verbatim by the native
+/// `main()` (windowed + `HEADLESS_SHOT` capture) and the wasm `run_game_feel()` entry, so the
+/// browser runs the exact same setup instead of a drifting hand-copied one.
+fn build_app() -> App {
     let mut app = App::new();
     app.world.insert_resource(WindowConfig {
         title: "game_feel — juice toolkit + settings menu".into(),
@@ -560,7 +568,12 @@ fn main() {
     app.add_system(HitFlashSystem);
     app.add_system(FloatingTextSystem);
     app.add_system(SpriteTrailSystem);
+    app
+}
 
+#[cfg(not(target_arch = "wasm32"))]
+fn main() {
+    let mut app = build_app();
     if let Ok(out) = std::env::var("HEADLESS_SHOT") {
         let frames = std::env::var("HEADLESS_FRAMES")
             .ok()
@@ -573,3 +586,15 @@ fn main() {
     }
     app.run();
 }
+
+/// WASM entry point — `examples/game_feel/web/index.html` calls this on the "Start" click
+/// (winit wants a user gesture before grabbing the canvas). Runs the same arena + live
+/// settings menu as native, so the whole juice toolkit is playable in a browser.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn run_game_feel() {
+    build_app().run();
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {}

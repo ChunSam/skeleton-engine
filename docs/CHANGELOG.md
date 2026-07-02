@@ -4,6 +4,15 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.113.2
+
+**The game-feel capstone ships to the web.** `examples/game_feel.rs` — the arena that composes the whole juice toolkit with a live widget-suite settings menu — now runs in a browser via the established `cargo build --example` + `wasm-bindgen` harness. Examples/scripts/docs only; **no engine code or public API change.**
+
+### Added
+- `examples/game_feel/web/` — `build.sh` (release wasm build + `wasm-bindgen --target web`) and `index.html` (Start button — winit wants a user gesture; `?autostart=1` for headless harnesses; canvas keyboard focus for ←/→/Space/X/Esc). The example moved to directory style (`examples/game_feel/game_feel.rs` + a `[[example]]` entry) like the other web-shipped examples.
+- Dual-target entry: setup factored into a shared `build_app()` called by both the native `main()` (windowed + `HEADLESS_SHOT`, which is native-only and now cfg-gated out of the wasm build) and the new `#[wasm_bindgen]` `run_game_feel()` — the browser runs the exact same setup as native.
+- `scripts/game_feel_web_smoke.sh` — render-only wasm smoke (centered_text model): builds, serves, renders one headless DPR=2 frame under SwiftShader, asserts non-blank; listed in `docs/WASM_SMOKES.md`.
+
 ## 0.113.1
 
 **Dropdown open-list seam fix — one rounded background instead of stacked rounded rows.** With a `corner_radius` set, each open-list row was its own 4-corner-rounded `DrawRect`, so stacked rows left notch seams between their corners — and covered widget labels could bleed through the gaps. Visual-only; interaction, geometry helpers, and the public API are untouched.
