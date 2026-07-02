@@ -3,6 +3,7 @@ use crate::renderer::DrawRect;
 use crate::resources::ViewportSize;
 use crate::ui::button::{Button, ButtonState};
 use crate::ui::checkbox::CheckBox;
+use crate::ui::dropdown::Dropdown;
 use crate::ui::focus::{FocusRingStyle, UiFocus};
 use crate::ui::slider::Slider;
 use crate::ui::text_input::TextInput;
@@ -120,6 +121,10 @@ pub(super) fn run(
                     cb.checked = !cb.checked;
                     let checked = cb.checked;
                     output.events.push(UiEvent::CheckBoxToggled(e, checked));
+                } else if let Some(dd) = world.get_mut::<Dropdown>(e) {
+                    if !dd.items.is_empty() {
+                        dd.open = !dd.open;
+                    }
                 }
             }
             if input.nav_left || input.nav_right {
@@ -130,6 +135,21 @@ pub(super) fn run(
                     if (new_val - sl.value).abs() > f32::EPSILON {
                         sl.value = new_val;
                         output.events.push(UiEvent::SliderChanged(e, new_val));
+                    }
+                } else if let Some(dd) = world.get_mut::<Dropdown>(e) {
+                    // Step the selection directly (clamped, like a Slider nudge) — a settings row
+                    // is fully keyboard/gamepad-operable without opening the list.
+                    if !dd.items.is_empty() {
+                        let cur = dd.selected_index();
+                        let next = if input.nav_right {
+                            (cur + 1).min(dd.items.len() - 1)
+                        } else {
+                            cur.saturating_sub(1)
+                        };
+                        if next != cur {
+                            dd.selected = next;
+                            output.events.push(UiEvent::DropdownChanged(e, next));
+                        }
                     }
                 }
             }
@@ -158,6 +178,7 @@ fn collect_focusables(world: &World, viewport: &ViewportSize, out: &mut Vec<Enti
     out.extend(world.query::<TextInput>().map(|(e, _)| e));
     out.extend(world.query::<Slider>().map(|(e, _)| e));
     out.extend(world.query::<CheckBox>().map(|(e, _)| e));
+    out.extend(world.query::<Dropdown>().map(|(e, _)| e));
     out.sort_by_key(|e| e.index());
     out.dedup();
     out.retain(|&e| {

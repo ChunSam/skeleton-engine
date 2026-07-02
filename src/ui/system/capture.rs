@@ -4,6 +4,7 @@ use crate::ecs::{Entity, World};
 use crate::resources::ViewportSize;
 use crate::ui::button::Button;
 use crate::ui::checkbox::CheckBox;
+use crate::ui::dropdown::{Dropdown, DROPDOWN_LIST_Z};
 use crate::ui::node::UiNode;
 use crate::ui::panel::{Panel, PANEL_BG_Z_OFFSET};
 use crate::ui::scroll_view::ScrollView;
@@ -51,6 +52,34 @@ impl PointerCapture {
         self.extend_kind::<TextInput>(world, viewport, 0.0);
         self.extend_kind::<ScrollView>(world, viewport, 0.0);
         self.extend_kind::<Panel>(world, viewport, PANEL_BG_Z_OFFSET);
+        self.extend_dropdowns(world, viewport);
+    }
+
+    /// Appends every visible dropdown. A **closed** dropdown captures like any widget (its node
+    /// rect at its node z); an **open** one captures its whole expanded rect (closed box + item
+    /// list, [`Dropdown::expanded_rect`]) at [`DROPDOWN_LIST_Z`], so the overlaid list wins the
+    /// pointer over — and blocks clicks/hover reaching — everything drawn underneath it.
+    fn extend_dropdowns(&mut self, world: &World, viewport: &ViewportSize) {
+        self.items.extend(
+            world
+                .query2::<UiNode, Dropdown>()
+                .filter(|(_, node, _)| node.visible)
+                .map(|(e, node, dd)| {
+                    let pos = node.screen_pos(viewport);
+                    let (cpos, csize, cz) = if dd.open {
+                        let (epos, esize) = dd.expanded_rect(pos, node.size, viewport.height);
+                        (epos, esize, DROPDOWN_LIST_Z)
+                    } else {
+                        (pos, node.size, node.z)
+                    };
+                    CaptureItem {
+                        entity: e,
+                        pos: cpos,
+                        size: csize,
+                        z: cz,
+                    }
+                }),
+        );
     }
 
     /// Appends every visible `(UiNode, W)` entity as a capture item, drawing its capture z at
