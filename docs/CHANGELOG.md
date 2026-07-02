@@ -4,6 +4,13 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.113.1
+
+**Dropdown open-list seam fix — one rounded background instead of stacked rounded rows.** With a `corner_radius` set, each open-list row was its own 4-corner-rounded `DrawRect`, so stacked rows left notch seams between their corners — and covered widget labels could bleed through the gaps. Visual-only; interaction, geometry helpers, and the public API are untouched.
+
+### Fixed
+- `system/dropdown_pass.rs` — the open list now renders **one** full-list rounded background (`list_pos` × `list_height`, the existing single-source geometry) plus a separate square hover highlight, inset horizontally by the corner radius so it never pokes out of the background's rounding on the first/last row. Row labels moved one Z sub-layer up with the highlight (equal-z tie keeps text over its surface), still under `TOOLTIP_Z`. `corner_radius: 0.0` renders visually identical to before. Existing queue-shape test updated + a new geometry test (background + inset highlight, exact rects); 18 dropdown tests green. Headless before/after captures verified the seams (and the label bleed through them) are gone.
+
 ## 0.113.0
 
 **The game-feel capstone example — the juice toolkit and the widget suite proven to compose.** `examples/game_feel.rs` is one small playable arena that drives the engine's game-feel helpers **together**, configured live from a real pause/settings menu — the composition target the 0.107.0–0.112.0 widget run was building toward. Engine change is one tiny additive builder the example surfaced (the VISION "fix the API when the example is awkward" rule); everything else composes on the existing public API, unchanged.

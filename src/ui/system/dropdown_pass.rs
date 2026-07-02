@@ -19,7 +19,7 @@ const TEXT_PAD_X: f32 = 8.0;
 /// emits [`UiEvent::DropdownChanged`] when the selection changed, and a press anywhere else closes
 /// the list without selecting. Clicks resolve through the shared [`PointerCapture`] — while open,
 /// the dropdown registers its whole expanded rect at [`DROPDOWN_LIST_Z`], so it wins the pointer
-/// over (and its rows draw over) everything underneath.
+/// over (and its list draws over) everything underneath.
 pub(super) fn run(
     world: &mut World,
     viewport: &ViewportSize,
@@ -140,34 +140,45 @@ pub(super) fn run(
             .with_z(box_z),
         );
 
-        // Open list: one row per item, the row under the cursor highlighted.
+        // Open list: ONE rounded background for the whole list (per-row rounded rects leave
+        // notch seams between stacked corners), then a separate non-rounded highlight for the
+        // row under the cursor, inset by the corner radius so its square corners never poke
+        // out of the background's rounding on the first/last row.
         if dd.open {
             let list_pos = dd.list_pos(pos, size, viewport.height);
             let item_h = dd.resolved_item_height(size.y);
+            let list_h = dd.list_height(size.y);
             let hovered_row = if item_h > 0.0
                 && hovered
-                && in_bounds(
-                    input.cursor,
-                    list_pos,
-                    Vec2::new(size.x, dd.list_height(size.y)),
-                ) {
+                && in_bounds(input.cursor, list_pos, Vec2::new(size.x, list_h))
+            {
                 Some(((input.cursor.y - list_pos.y) / item_h) as usize)
             } else {
                 None
             };
+            output.rects.push(
+                DrawRect::new(list_pos.x, list_pos.y, size.x, list_h, dd.bg_color)
+                    .with_corner_radius(dd.corner_radius)
+                    .with_z(DROPDOWN_LIST_Z + super::UI_SUBLAYER_Z_STEP),
+            );
+            if let Some(row) = hovered_row {
+                let inset = dd.corner_radius.clamp(0.0, size.x.min(list_h) / 2.0);
+                output.rects.push(
+                    DrawRect::new(
+                        list_pos.x + inset,
+                        list_pos.y + row as f32 * item_h,
+                        size.x - 2.0 * inset,
+                        item_h,
+                        dd.hover_color,
+                    )
+                    .with_z(DROPDOWN_LIST_Z + 2.0 * super::UI_SUBLAYER_Z_STEP),
+                );
+            }
             for (i, item) in dd.items.iter().enumerate() {
                 let row_y = list_pos.y + i as f32 * item_h;
-                let row_color = if hovered_row == Some(i) {
-                    dd.hover_color
-                } else {
-                    dd.bg_color
-                };
-                output.rects.push(
-                    DrawRect::new(pos.x, row_y, size.x, item_h, row_color)
-                        .with_corner_radius(dd.corner_radius)
-                        .with_z(DROPDOWN_LIST_Z + super::UI_SUBLAYER_Z_STEP),
-                );
                 let marker = if i == dd.selected_index() { "• " } else { "" };
+                // At the highlight's z: an equal-z tie renders text over the surface, so the
+                // hovered row's label stays visible above its highlight.
                 output.texts.push(
                     DrawText::new(
                         format!("{marker}{item}"),
@@ -175,7 +186,7 @@ pub(super) fn run(
                         dd.font_size,
                         dd.text_color,
                     )
-                    .with_z(DROPDOWN_LIST_Z + super::UI_SUBLAYER_Z_STEP),
+                    .with_z(DROPDOWN_LIST_Z + 2.0 * super::UI_SUBLAYER_Z_STEP),
                 );
             }
         }
@@ -529,10 +540,60 @@ mod tests {
             .iter()
             .filter(|r| r.z >= DROPDOWN_LIST_Z)
             .count();
-        // Closed box redrawn at the list z + 3 rows above it.
+        // Closed box redrawn at the list z + the one-piece list background above it.
         assert!(
-            rows >= 4,
-            "expected the box + 3 rows at the list z, got {rows}"
+            rows >= 2,
+            "expected the box + the list background at the list z, got {rows}"
         );
+    }
+
+    #[test]
+    fn open_list_draws_one_background_plus_an_inset_hover_highlight() {
+        let mut world = setup();
+        let dd = spawn_dropdown(&mut world);
+        world.get_mut::<Dropdown>(dd).unwrap().corner_radius = 6.0;
+        let mut system = UiSystem::default();
+        click(&mut world, &mut system, Vec2::new(60.0, 60.0)); // open
+        assert!(world.get::<Dropdown>(dd).unwrap().open);
+
+        // Hover row 1 ("Medium", y 110..140) without clicking. Drop the opening frame's
+        // queued rects first — the test reads the queue raw, frame.rs normally drains it.
+        world.resource_mut::<UiQueue>().unwrap().items.clear();
+        {
+            let input = world.resource_mut::<InputState>().unwrap();
+            input.flush();
+            input.set_cursor(Vec2::new(60.0, 125.0));
+        }
+        system.run(&mut world, 0.016);
+
+        let queue = world.resource::<UiQueue>().unwrap();
+        let mut list_rects: Vec<_> = queue
+            .items
+            .iter()
+            .filter(|r| r.z > DROPDOWN_LIST_Z)
+            .collect();
+        list_rects.sort_by(|a, b| a.z.total_cmp(&b.z));
+        // ONE full-list rounded background + ONE hover highlight — NOT one rounded rect per
+        // row (stacked rounded rows leave seam notches between their corners).
+        assert_eq!(
+            list_rects.len(),
+            2,
+            "expected background + highlight, got {}",
+            list_rects.len()
+        );
+        let bg = list_rects[0];
+        assert_eq!((bg.x, bg.y, bg.w, bg.h), (50.0, 80.0, 120.0, 90.0));
+        assert_eq!(bg.corner_radius, 6.0);
+        let hl = list_rects[1];
+        assert_eq!(
+            (hl.x, hl.y, hl.w, hl.h),
+            (56.0, 110.0, 108.0, 30.0),
+            "highlight inset by the corner radius on the hovered row"
+        );
+        assert_eq!(
+            hl.corner_radius, 0.0,
+            "highlight is square — it sits inside the background's rounding"
+        );
+        assert!(hl.z > bg.z, "highlight draws over the background");
     }
 }
