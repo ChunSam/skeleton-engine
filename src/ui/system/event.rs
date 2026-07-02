@@ -17,4 +17,7 @@ pub enum UiEvent {
     /// Dropdown selection changed. The second field is the new selected item index.
     /// Emitted only when the index actually changed (re-picking the current item is silent).
     DropdownChanged(Entity, usize),
+    /// RadioGroup selection changed. The second field is the new selected option index.
+    /// Emitted only when the index actually changed (re-picking the current option is silent).
+    RadioChanged(Entity, usize),
 }

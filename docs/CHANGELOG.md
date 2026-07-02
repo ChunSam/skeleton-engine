@@ -4,6 +4,19 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.111.0
+
+**A `RadioGroup` widget — mutually exclusive options, one entity per group.** The settings-menu companion to `Dropdown`: the whole option list lives on one entity (like `Dropdown`/`ScrollView`), so the options can never disagree about which one is selected. Click a row to select it; fully keyboard/gamepad-operable. Additive, native+wasm.
+
+### Added
+- `RadioGroup` (`src/ui/radio_group.rs`) `{items, selected, circle_color, fill_color, hover_color, text_color, font_size, circle_size, item_height}`. Ctors `new(items)` + `with_selected` / `with_colors` / `with_text_color` / `with_font_size` / `with_circle_size` / `with_item_height` (`0.0` = divide the node height evenly) builders; accessors `selected_index` (clamps on read like `Dropdown`) / `selected_item`; geometry helpers `resolved_item_height` / `row_at` — the **single geometry source** shared by rendering and click resolution (rows are clickable only inside the node rect, the pointer-capture surface; overflowing rows render but don't select). Registered for reflect / clone / serde / editor add-remove like the other widgets; re-exported from `engine` (and `engine::ui`).
+- `system/radio_group_pass.rs` — runs after the checkbox pass, before dropdowns. A completed click (press **and** release owned by the widget through the shared `PointerCapture`, `CheckBox`-style — dragging off cancels) selects the row under the release point and emits the new **`UiEvent::RadioChanged(entity, index)`** (only when the index actually changed; re-picking the current option is silent). Each row renders a circle ring (an SDF rounded rect at full corner radius), a filled dot on the selected row, the option label, and a subtle hover tint under the cursor's row.
+- Focus-pass integration: `RadioGroup` is focusable (Tab / D-pad / stick) as **one focus stop for the whole group**; **←/→** (or D-pad Left/Right) steps the selection directly (clamped, `Slider`-style, emitting `RadioChanged`). It also joins the pointer-capture surfaces, so a covered group doesn't select through an overlay.
+- Example `ui_radio` — two live groups (difficulty + a custom-styled music group with bigger circles and fixed row heights) wired to a HUD readout + a `RadioChanged` change counter. 13 unit/integration tests + 1 doctest.
+
+### Notes
+- Adding the `RadioChanged` variant to `UiEvent` is technically breaking for exhaustive matches on that enum (pre-1.0 license; add a wildcard arm or the new variant).
+
 ## 0.110.0
 
 **Text z-ordering — an overlay finally hides the labels underneath it.** Historically all text drew in one final pass on top of every UI rect, so an open dropdown list, a tooltip, or a panel could never visually cover a widget label (the label bled through — surfaced by the `ui_dropdown` capture in 0.109.0). A `DrawText` can now carry a UI-layer z and composite **among** the rects; the widget passes set it automatically. Additive — text without a z keeps the exact historical on-top behavior.
