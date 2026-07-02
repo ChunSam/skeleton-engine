@@ -11,6 +11,7 @@ mod scroll_view_pass;
 mod slider_pass;
 mod state;
 mod text_input_pass;
+mod tooltip_pass;
 
 use capture::PointerCapture;
 pub use event::UiEvent;
@@ -21,18 +22,21 @@ use state::{submit_output, viewport_from_world, InputSnapshot, StickNav, UiOutpu
 /// widget passes (`checkbox_pass`, `slider_pass`) so the sublayer step stays consistent.
 pub(super) const UI_SUBLAYER_Z_STEP: f32 = 0.001;
 
-/// System that processes `UiNode` + `Button` / `Label` / `TextInput` / `ScrollView` / `Slider` / `CheckBox` entities.
+/// System that processes `UiNode` + `Button` / `Label` / `TextInput` / `ScrollView` / `Slider` /
+/// `CheckBox` / `ProgressBar` / `Tooltip` entities.
 ///
 /// Per-frame execution order:
 /// 1. Input state snapshot
-/// 2. Button hit-test → update `ButtonState` + emit `UiEvent`
-/// 3. TextInput pass — focus, character input, cursor blink
-/// 4. ScrollView pass — wheel scroll, item render
-/// 5. Label pass
-/// 6. Slider pass
-/// 7. CheckBox pass
-/// 8. Submit render queue
-/// 9. Batch-emit events
+/// 2. Focus pass — Tab/gamepad focus cycling + focus ring
+/// 3. Button hit-test → update `ButtonState` + emit `UiEvent`
+/// 4. TextInput pass — focus, character input, cursor blink
+/// 5. ScrollView pass — wheel scroll, item render
+/// 6. Label pass
+/// 7. ProgressBar pass
+/// 8. Slider pass
+/// 9. CheckBox pass
+/// 10. Tooltip pass — hover-delay popups (last, so tooltip text draws over other widget text)
+/// 11. Submit render queue + batch-emit events
 #[derive(Default)]
 pub struct UiSystem {
     button_scratch: Vec<Entity>,
@@ -43,6 +47,7 @@ pub struct UiSystem {
     scroll_view_scratch: Vec<Entity>,
     slider_scratch: Vec<Entity>,
     text_input_scratch: Vec<Entity>,
+    tooltip_scratch: Vec<Entity>,
     /// Shared per-frame pointer-occlusion map, rebuilt each run and read by the pointer-driven
     /// passes so one widget kind can't fire through another drawn on top. See [`PointerCapture`].
     capture: PointerCapture,
@@ -147,6 +152,15 @@ impl System for UiSystem {
             &self.capture,
             &mut output,
             &mut self.checkbox_scratch,
+        );
+        tooltip_pass::run(
+            world,
+            &viewport,
+            &input,
+            &self.capture,
+            dt,
+            &mut output,
+            &mut self.tooltip_scratch,
         );
         submit_output(world, output);
     }

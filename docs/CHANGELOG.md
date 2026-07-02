@@ -4,6 +4,18 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.108.0
+
+**A hover `Tooltip` widget — the popup every inventory slot, stat readout, and icon button wants.** Attach a `Tooltip` next to any `UiNode` widget (`Button`, `ProgressBar`, `Label`, `Panel`, …); rest the cursor on it and after a delay a small text box fades in next to the cursor. Additive, native+wasm; one small deliberate API opening (`InputState::set_cursor` is now `pub`).
+
+### Added
+- `Tooltip` (`src/ui/tooltip.rs`) `{text, delay_secs, fade_secs, font_size, text_color, bg_color, corner_radius, border, border_color, padding, offset, size_override}` + a private transient hover timer (`#[serde(skip)]`). Ctors `new(text)` + `with_delay` / `with_fade` / `with_font_size` / `with_colors` / `with_corner_radius` / `with_border` / `with_padding` / `with_offset` / `with_size` builders; accessors `hovered_secs` / `is_showing` / `fade_alpha` / `estimated_size`; consts `DEFAULT_TOOLTIP_DELAY_SECS` = 0.4, `DEFAULT_TOOLTIP_FADE_SECS` = 0.1, `TOOLTIP_Z` = 100.0. The box auto-sizes from a shaped-width **estimate** (≈ 0.5 em per ASCII char, 1 em per CJK/full-width char, 1.2× line height, `\n` breaks lines; exact shaping happens at render time) — `with_size` pins the content box exactly. Empty `text` disables. Registered for reflect / clone / serde / editor add-remove like the other widgets; re-exported from `engine` (and `engine::ui`).
+- `system/tooltip_pass.rs` — runs **last** in `UiSystem` (so tooltip text is queued after, and draws over, other widget text). Hover requires the cursor inside the node's rect **and** the point not covered by a pointer-opaque widget drawn above it (new `PointerCapture::occludes` — the host widget itself need not be pointer-opaque, so tooltips on `Label`/`ProgressBar` work, while one under an overlay panel stays silent). After the delay it draws the background box (+ optional border) at `TOOLTIP_Z` via the UI SDF pipeline and the text with a fade-in; the box is viewport-clamped (right overflow slides left, bottom overflow flips above the cursor).
+- Example `ui_tooltip` — a button with a multi-line bordered stats tooltip, a health bar whose tooltip text tracks its live value each frame, and a label with an instant custom-colored tooltip. 13 unit/integration tests + 1 doctest.
+
+### Changed
+- `InputState::set_cursor` is now `pub` (was `pub(crate)`). Normally the windowing loop feeds the cursor; it is public so a game can drive a **virtual cursor** (e.g. a gamepad right-stick pointer hovering UI) and so a headless run can synthesize hover for captures/tests (the `ui_tooltip` example's headless path uses it). No behavior change.
+
 ## 0.107.0
 
 **A read-only UI `ProgressBar` / gauge widget — health, mana, loading, XP.** Fills a gap in the widget set (Button/Slider/CheckBox/Label/TextInput/ScrollView/Panel had no read-only bar). Unlike `Slider` it takes no input — the game drives its `value` each frame and the bar reflects it. Additive, native+wasm, one new UI widget.

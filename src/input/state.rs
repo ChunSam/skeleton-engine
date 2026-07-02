@@ -123,7 +123,14 @@ impl InputState {
         }
     }
 
-    pub(crate) fn set_cursor(&mut self, pos: Vec2) {
+    /// Overrides the cursor position (logical pixels, top-left origin).
+    ///
+    /// Normally the windowing loop feeds this from real mouse motion each frame — most games only
+    /// *read* [`cursor`](Self::cursor). It is public so a game can drive a **virtual cursor** (e.g.
+    /// a gamepad right-stick pointer that hovers/clicks UI) and so a headless run can synthesize
+    /// hover for captures/tests. With a real mouse attached, the next OS cursor event overwrites
+    /// whatever is set here.
+    pub fn set_cursor(&mut self, pos: Vec2) {
         self.cursor = pos;
     }
 
