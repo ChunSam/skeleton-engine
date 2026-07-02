@@ -14,4 +14,7 @@ pub enum UiEvent {
     SliderChanged(Entity, f32),
     /// CheckBox state toggled. The second field is the new checked value.
     CheckBoxToggled(Entity, bool),
+    /// Dropdown selection changed. The second field is the new selected item index.
+    /// Emitted only when the index actually changed (re-picking the current item is silent).
+    DropdownChanged(Entity, usize),
 }

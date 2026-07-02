@@ -75,6 +75,9 @@ impl App {
         self.register_component("Tooltip", |world, e| {
             world.add_component(e, crate::ui::Tooltip::default());
         });
+        self.register_component("Dropdown", |world, e| {
+            world.add_component(e, crate::ui::Dropdown::default());
+        });
         // register removal closures — the Inspector "✕" button uses this map to show/act
         self.register_component_remover("Sprite", |world, e| {
             world.remove_component::<crate::components::Sprite>(e);
@@ -141,6 +144,9 @@ impl App {
         });
         self.register_component_remover("Tooltip", |world, e| {
             world.remove_component::<crate::ui::Tooltip>(e);
+        });
+        self.register_component_remover("Dropdown", |world, e| {
+            world.remove_component::<crate::ui::Dropdown>(e);
         });
 
         // ── Built-in inspector sub-panels ─────────────────────────────────────

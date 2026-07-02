@@ -4,6 +4,21 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.109.0
+
+**A `Dropdown` / combobox widget — the settings-menu staple.** Click to open the item list, click an item to select it, press anywhere else to close. The open list overlays — and absorbs the pointer over — everything underneath it, and a bottom-edge dropdown flips its list upward. Fully keyboard/gamepad-operable via the existing focus pass. Additive, native+wasm.
+
+### Added
+- `Dropdown` (`src/ui/dropdown.rs`) `{items, selected, open, bg_color, hover_color, text_color, font_size, corner_radius, item_height}`; `open` is transient (`#[serde(skip)]` — a saved scene never restores an open list; a game may set it to open programmatically). Ctors `new(items)` + `with_selected` / `with_colors` / `with_hover_color` / `with_font_size` / `with_corner_radius` / `with_item_height` (`0.0` = the node's own height) builders; accessors `selected_index` (clamps like `ProgressBar::fraction`) / `selected_item`; geometry helpers `resolved_item_height` / `list_height` / `flips_up` / `list_pos` / `expanded_rect` — the **single geometry source** shared by rendering, click row resolution, and the pointer capture, so they can never disagree; const `DROPDOWN_LIST_Z` = 90.0 (above normal UI, below `TOOLTIP_Z`). Registered for reflect / clone / serde / editor add-remove like the other widgets; re-exported from `engine` (and `engine::ui`).
+- `system/dropdown_pass.rs` — runs after the checkbox pass, before tooltips. Click on the closed box opens; a completed click on a row selects it + closes + emits the new **`UiEvent::DropdownChanged(entity, index)`** (only when the index actually changed); press-drag-release onto a row also selects (native combobox feel); a press anywhere else closes without selecting. The row under the cursor is hover-highlighted; the selected row carries a `•` marker; the box shows a ▼/▲ state arrow. An empty or hidden dropdown never stays open (`item_height <= 0` is division-safe).
+- `PointerCapture` now registers an **open** dropdown's whole expanded rect (box + list, `Dropdown::expanded_rect`) at `DROPDOWN_LIST_Z`, so a widget under the open list neither clicks nor hovers through it (a closed dropdown captures like any widget at its node z).
+- Focus-pass integration: `Dropdown` is focusable (Tab / D-pad / stick); **Enter/Space/A** toggles the list, **←/→** steps the selection directly (clamped, `Slider`-style, emitting `DropdownChanged`) — a settings row is fully operable without a pointer.
+- Example `ui_dropdown` — a settings panel: quality + difficulty dropdowns over a row of buttons (the HUD's Apply click counter proves the open list absorbs clicks), a bottom-edge dropdown that opens upward, and a `DropdownChanged` event readout. 14 unit/integration tests + 1 doctest.
+
+### Notes
+- Adding the `DropdownChanged` variant to `UiEvent` is technically breaking for exhaustive matches on that enum (pre-1.0 license; add a wildcard arm or the new variant).
+- Known engine-wide limitation, unchanged by this widget: text renders in its own pass after all UI rects, so a covered widget's *label* still shows through an overlay (same as a `Panel` over a `Button`). The open list absorbs the pointer correctly; only text bleeds. A per-text z is the candidate fix.
+
 ## 0.108.0
 
 **A hover `Tooltip` widget — the popup every inventory slot, stat readout, and icon button wants.** Attach a `Tooltip` next to any `UiNode` widget (`Button`, `ProgressBar`, `Label`, `Panel`, …); rest the cursor on it and after a delay a small text box fades in next to the cursor. Additive, native+wasm; one small deliberate API opening (`InputState::set_cursor` is now `pub`).
