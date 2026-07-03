@@ -4,6 +4,18 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.116.0
+
+**Versioned saves round-trip data-carrying enum variants (EW-006).** `save_versioned` used to re-parse the payload into a generic `ron::Value` for the envelope — but `ron::Value` cannot represent enum variants, so a struct variant like `Closed { reopen_day: 3 }` silently degraded to a bare map at save time and failed at load with "expected enum, found map". The envelope now keeps the payload as **RON text** (tagged `format: 1`); when the stored version equals the migrator's current version (no steps to run), `load_migrated` deserializes the target type straight from that text with full serde fidelity. Saves written before 0.116 (the tree envelope, `format` absent) still load and migrate via the legacy path.
+
+### Fixed
+- `save_versioned`/`load_migrated` (+ `_with_key` variants): any serde-serializable payload — including enums with payload — round-trips unchanged when no migration is pending. Regression test `versioned_enum_struct_variant_roundtrips_at_current_version` (the dungeon-merchant repro: `Vec<(u32, MarketStatus)>`).
+
+### Changed
+- New envelope format `(version, format: 1, data: "<payload RON text>")` — older engine builds cannot read saves written by 0.116+ (forward compatibility was never promised); 0.116 reads both formats. A `format: 1` envelope whose `data` is not a string reads as `SaveError::Corrupted`.
+- **Documented constraint:** `SaveMigrator` steps still operate on a `ron::Value`, so an enum-carrying payload that actually *needs migrating* cannot pass through the steps — it now fails with a RON error (test-pinned) instead of silently corrupting. Keep enum-carrying fields stable across schema versions, or mirror them into structs while a migration is pending (both fn docs spell this out).
+- Example `save_migration`: the current save format now carries `GameMode::Custom { multiplier: f32 }` (`#[serde(default)]`, so migrated v1 saves default to `Normal`) — the Space re-save/reload round-trip exercises the fix in real play.
+
 ## 0.115.0
 
 **`Button` catches up to the widget-suite styling conventions (EW-005).** The oldest widget predates the 0.107–0.113 suite: styling one meant imperative field assignment while every neighbouring widget chains `with_*` builders, and its background could not be rounded. Additive — existing field-style construction keeps working, and the new `corner_radius` defaults to `0.0` (sharp, byte-identical; old scene RON loads unchanged via the struct-level `#[serde(default)]`).

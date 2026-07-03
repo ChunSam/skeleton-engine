@@ -6,8 +6,9 @@
 //!   2. Loads it with [`load_migrated`] through a migrator whose step 1→2 inserts
 //!      a `coins` field defaulted to 0, producing `PlayerSave { level, score, coins }`.
 //!   3. Displays the migrated result on screen.
-//!   4. On Space: re-saves at the current schema version and reloads to confirm a
-//!      round-trip with no migration.
+//!   4. On Space: re-saves at the current schema version — the payload now carries a
+//!      **data-carrying enum variant** (`GameMode::Custom { multiplier }`, EW-006) — and
+//!      reloads to confirm a full-fidelity round-trip with no migration.
 //!   5. Cleans up the temp file when the window closes.
 //!
 //! Note: this demo inserts its resources and adds its system directly (no `set_scene`),
@@ -29,12 +30,30 @@ struct PlayerSaveV1 {
     score: u32,
 }
 
-/// Current save format: v2 (added `coins`).
+/// Current save format: v2 (added `coins`; `mode` demonstrates EW-006 — a data-carrying enum
+/// variant that round-trips through the versioned envelope since 0.116).
+///
+/// `mode` is `#[serde(default)]` so a migrated v1 save (which lacks the field) loads as
+/// `Normal` without the migration step having to synthesize an enum — migration steps operate
+/// on a `ron::Value`, which cannot represent enum variants (see [`save_versioned`]'s docs).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 struct PlayerSave {
     level: u32,
     score: u32,
     coins: u32,
+    #[serde(default)]
+    mode: GameMode,
+}
+
+/// A data-carrying enum in the save payload — the exact shape the pre-0.116 envelope lost
+/// ("expected enum, found map" at load time).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+enum GameMode {
+    #[default]
+    Normal,
+    Custom {
+        multiplier: f32,
+    },
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -88,6 +107,8 @@ impl System for DemoSystem {
                     level: 7,
                     score: 1200,
                     coins: 0,
+                    // A struct variant in the payload — round-trips since 0.116 (EW-006).
+                    mode: GameMode::Custom { multiplier: 1.5 },
                 };
                 let migrator = make_migrator();
                 save_versioned(&state.save_path, migrator.current_version(), &current_save)
@@ -96,11 +117,12 @@ impl System for DemoSystem {
                     load_migrated(&state.save_path, &migrator).expect("reload failed");
                 assert_eq!(current_save, reloaded, "round-trip mismatch");
                 state.line3 = format!(
-                    "Re-saved and reloaded at v{}: level {}, score {}, coins {} — round-trip OK!",
+                    "Re-saved and reloaded at v{}: level {}, score {}, coins {}, mode {:?} — round-trip OK!",
                     migrator.current_version(),
                     reloaded.level,
                     reloaded.score,
-                    reloaded.coins
+                    reloaded.coins,
+                    reloaded.mode
                 );
             }
         }
