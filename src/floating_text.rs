@@ -73,6 +73,12 @@ pub struct FloatingText {
     /// Fade the alpha from `color.a` down to `0` across the lifetime (default `true`). Set `false`
     /// to keep full opacity until it pops out.
     pub fade: bool,
+    /// UI-layer depth passed through to the [`DrawText`] drawn each frame (same semantics as
+    /// [`DrawText::z`]). `None` (default) keeps the historical behavior: the text draws in the
+    /// final on-top pass, over every UI rect — right for a bare HUD. `Some(z)` composites it
+    /// **among** the UI rects at that z, so a higher-z overlay (e.g. a pause-menu scrim drawn
+    /// above it) actually covers the floating text instead of the number bleeding through.
+    pub z: Option<f32>,
     /// Elapsed seconds, advanced by [`FloatingTextSystem`] (runtime state — read via
     /// [`progress`](Self::progress)).
     elapsed: f32,
@@ -87,6 +93,7 @@ impl Default for FloatingText {
             size: DEFAULT_FLOAT_SIZE,
             lifetime: DEFAULT_FLOAT_LIFETIME,
             fade: true,
+            z: None,
             elapsed: 0.0,
         }
     }
@@ -130,6 +137,14 @@ impl FloatingText {
     /// Enable or disable the alpha fade-out (default enabled).
     pub fn with_fade(mut self, fade: bool) -> Self {
         self.fade = fade;
+        self
+    }
+
+    /// Composite the text among the UI rects at `z` instead of the always-on-top text pass (see
+    /// [`z`](Self::z)) — a rect drawn above it (greater z) then actually covers the number, which
+    /// is what a pause-menu scrim over live combat text wants.
+    pub fn with_z(mut self, z: f32) -> Self {
+        self.z = Some(z);
         self
     }
 
@@ -207,7 +222,9 @@ impl System for FloatingTextSystem {
                 Some(c) => c.world_to_screen(transform.position),
                 None => transform.position,
             };
-            draws.push(DrawText::centered(ft.text.clone(), screen, ft.size, color));
+            let mut draw = DrawText::centered(ft.text.clone(), screen, ft.size, color);
+            draw.z = ft.z;
+            draws.push(draw);
         }
 
         if let Some(tq) = world.resource_mut::<TextQueue>() {
@@ -354,6 +371,33 @@ mod tests {
         let instant = FloatingText::new("b").with_lifetime(0.0);
         assert_eq!(instant.progress(), 1.0);
         assert!(instant.is_finished());
+    }
+
+    #[test]
+    fn default_z_queues_on_top_text() {
+        // No `with_z` → the queued DrawText carries z = None (the historical on-top text pass).
+        let mut world = World::new();
+        world.insert_resource(TextQueue::default());
+        spawn(&mut world, FloatingText::new("-3"), Vec2::ZERO);
+
+        FloatingTextSystem.run(&mut world, 0.0);
+        let tq = world.resource::<TextQueue>().unwrap();
+        assert_eq!(tq.iter().next().unwrap().z, None, "default stays on top");
+    }
+
+    #[test]
+    fn with_z_passes_through_to_the_queued_text() {
+        let mut world = World::new();
+        world.insert_resource(TextQueue::default());
+        spawn(&mut world, FloatingText::new("-7").with_z(50.0), Vec2::ZERO);
+
+        FloatingTextSystem.run(&mut world, 0.0);
+        let tq = world.resource::<TextQueue>().unwrap();
+        assert_eq!(
+            tq.iter().next().unwrap().z,
+            Some(50.0),
+            "z passed through to the DrawText"
+        );
     }
 
     #[test]
