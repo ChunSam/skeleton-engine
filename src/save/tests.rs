@@ -337,6 +337,95 @@ fn versioned_migration_multistep() {
     fs::remove_dir_all(&dir).ok();
 }
 
+/// EW-006 regression: a data-carrying enum variant round-trips through the versioned envelope.
+/// The pre-0.116 envelope parsed the payload into a `ron::Value` (which cannot represent enum
+/// variants), so `Closed(reopen_day: …)` degraded to a bare map at save time and failed at load
+/// with "expected enum, found map".
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+enum MarketStatus {
+    Open,
+    Closed { reopen_day: u32 },
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct MarketSave {
+    day: u32,
+    markets: Vec<(u32, MarketStatus)>,
+}
+
+#[test]
+fn versioned_enum_struct_variant_roundtrips_at_current_version() {
+    let dir = unique_test_dir();
+    let path = dir.join("enum.save");
+
+    let migrator = make_v1_to_v2_migrator(); // current = 2, no steps run at current version
+    let original = MarketSave {
+        day: 9,
+        markets: vec![
+            (1, MarketStatus::Open),
+            (2, MarketStatus::Closed { reopen_day: 12 }),
+        ],
+    };
+
+    save_versioned(&path, migrator.current_version(), &original).unwrap();
+    let loaded: MarketSave = load_migrated(&path, &migrator).unwrap();
+    assert_eq!(original, loaded);
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+/// The documented EW-006 constraint: an enum-carrying payload that still needs MIGRATING passes
+/// through the `ron::Value` the steps operate on, so it fails with a RON error (instead of
+/// silently corrupting) — enums survive only the no-migration path.
+#[test]
+fn versioned_enum_needing_migration_errors_instead_of_corrupting() {
+    let dir = unique_test_dir();
+    let path = dir.join("enum_migrated.save");
+
+    let migrator = make_v1_to_v2_migrator(); // current = 2
+    let original = MarketSave {
+        day: 1,
+        markets: vec![(1, MarketStatus::Closed { reopen_day: 3 })],
+    };
+
+    // Tagged one version behind → the 1→2 step runs at load, forcing the Value hop.
+    save_versioned(&path, 1, &original).unwrap();
+    let result: Result<MarketSave, SaveError> = load_migrated(&path, &migrator);
+    assert!(matches!(result, Err(SaveError::Ron(_))), "got {result:?}");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+/// Back-compat: a legacy (pre-0.116) envelope — payload stored as a `ron::Value` tree with no
+/// `format` field — still loads and migrates through the legacy path.
+#[test]
+fn versioned_legacy_tree_envelope_still_loads_and_migrates() {
+    let dir = unique_test_dir();
+    let path = dir.join("legacy.save");
+
+    // Replicate the pre-0.116 writer exactly: (version, data: <payload as a Value tree>).
+    #[derive(Serialize)]
+    struct LegacyEnvelope {
+        version: u32,
+        data: ron::Value,
+    }
+    let old = PlayerSaveV1 {
+        level: 4,
+        score: 900,
+    };
+    let data: ron::Value = ron::from_str(&ron::ser::to_string(&old).unwrap()).unwrap();
+    save(&path, &LegacyEnvelope { version: 1, data }).unwrap();
+
+    // The 1→2 step inserts `coins`; the legacy tree path must still feed it.
+    let migrator = make_v1_to_v2_migrator();
+    let loaded: PlayerSaveV2 = load_migrated(&path, &migrator).unwrap();
+    assert_eq!(loaded.level, 4);
+    assert_eq!(loaded.score, 900);
+    assert_eq!(loaded.coins, 0, "legacy save migrated with defaulted coins");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
 /// Test 4: future version → SaveError::Unsupported.
 #[test]
 fn versioned_future_version_returns_unsupported() {

@@ -382,21 +382,34 @@ fn decrypt_save_bytes(bytes: &[u8], key: SaveKey) -> Result<Vec<u8>, SaveError> 
 
 /// Internal envelope stored on disk by [`save_versioned`].
 ///
-/// The `data` field holds the user payload serialized to a `ron::Value` so that
-/// migration steps can inspect and mutate individual fields before the final
-/// deserialization into the concrete target type.
+/// `format` selects how `data` encodes the payload:
+/// - [`ENVELOPE_FORMAT_TEXT`] (written since 0.116): `data` is the payload's **RON text** —
+///   full serde fidelity, including data-carrying enum variants that a [`ron::Value`] cannot
+///   represent (EW-006). The load path parses it into a `ron::Value` only when migration steps
+///   actually have to run.
+/// - `0` / absent (saves written before 0.116): `data` is the payload parsed into a generic
+///   [`ron::Value`] tree; loaded via the legacy path (which degrades enum variants to maps —
+///   the reason the format changed).
 #[derive(Serialize)]
 struct VersionedEnvelope<'a> {
     version: u32,
-    data: &'a ron::Value,
+    format: u32,
+    data: &'a str,
 }
 
-/// Owned counterpart used during loading.
+/// Owned counterpart used during loading. `data` stays a [`ron::Value`] so **both** formats
+/// parse: a text envelope reads it as `Value::String` holding the payload text, a legacy
+/// envelope as the payload tree. `format` defaults to `0` (legacy) when the field is absent.
 #[derive(serde::Deserialize)]
 struct VersionedEnvelopeOwned {
     version: u32,
+    #[serde(default)]
+    format: u32,
     data: ron::Value,
 }
+
+/// Envelope `format` tag for payload-as-RON-text (see [`VersionedEnvelope`]).
+const ENVELOPE_FORMAT_TEXT: u32 = 1;
 
 /// A chain of save-schema migration steps.
 ///
@@ -478,8 +491,15 @@ impl Default for SaveMigrator {
 /// Saves `data` tagged with the given schema `version` using AEAD encryption
 /// (same key as [`save`]).
 ///
-/// The on-disk format is an encrypted RON envelope `(version: u32, data: <payload>)`.
+/// The on-disk format is an encrypted RON envelope holding the payload as RON text, so any
+/// serde-serializable payload round-trips with full fidelity — **including data-carrying enum
+/// variants** (e.g. `Closed { reopen_day: u32 }`), which the pre-0.116 envelope silently lost.
 /// Use [`load_migrated`] to load and automatically upgrade old saves.
+///
+/// One constraint remains: [`SaveMigrator`] steps operate on a [`ron::Value`], which cannot
+/// represent enum variants — so a save that still needs **migrating** cannot carry them through
+/// the steps (see [`load_migrated`]). Keep enum-carrying fields stable across schema versions,
+/// or mirror them into structs while a migration is pending.
 ///
 /// On wasm the encrypted envelope is hex-encoded into `localStorage` (see [`save_with_key`]).
 pub fn save_versioned<T: Serialize>(path: &Path, version: u32, data: &T) -> Result<(), SaveError> {
@@ -497,15 +517,16 @@ pub fn save_versioned_with_key<T: Serialize>(
     data: &T,
     key: SaveKey,
 ) -> Result<(), SaveError> {
-    // Serialize the user payload to a generic ron::Value first so the envelope stores a plain
-    // data tree rather than a double-encoded string.
-    let data_value: ron::Value = {
-        let ron_str = ron::ser::to_string(data).map_err(|e| SaveError::Ron(e.to_string()))?;
-        ron::from_str(&ron_str).map_err(|e| SaveError::Ron(e.to_string()))?
-    };
+    // Keep the payload as RON TEXT in the envelope. The pre-0.116 envelope parsed it into a
+    // generic ron::Value tree, but ron::Value cannot represent enum variants — a data-carrying
+    // enum (`Closed(reopen_day: 3)`) silently degraded to a bare map at save time and then
+    // failed at load with "expected enum, found map" (EW-006). Text keeps full serde fidelity;
+    // the load path only falls back to the Value hop when migration steps actually run.
+    let ron_str = ron::ser::to_string(data).map_err(|e| SaveError::Ron(e.to_string()))?;
     let envelope = VersionedEnvelope {
         version,
-        data: &data_value,
+        format: ENVELOPE_FORMAT_TEXT,
+        data: &ron_str,
     };
     save_with_key(path, &envelope, key)
 }
@@ -516,6 +537,14 @@ pub fn save_versioned_with_key<T: Serialize>(
 /// If the file's stored version is **older** than `migrator.current_version()`,
 /// each registered step from `stored_version` up to `current_version` is applied
 /// in order before deserialization.
+///
+/// When the stored version already **equals** the current version (no steps to run), the
+/// payload deserializes straight from its stored RON text with full serde fidelity — including
+/// data-carrying enum variants (EW-006). When steps **do** run, the payload passes through the
+/// [`ron::Value`] the steps operate on, which cannot represent enum variants — an enum-carrying
+/// payload that needs migrating fails with a RON error instead of round-tripping (see
+/// [`save_versioned`] for the workaround). Saves written before 0.116 (the tree envelope) load
+/// via the legacy path unchanged.
 ///
 /// # Errors
 ///
@@ -548,7 +577,24 @@ pub fn load_migrated_with_key<T: DeserializeOwned>(
     if stored > current {
         return Err(SaveError::Unsupported);
     }
-    let migrated = migrator.migrate(envelope.data, stored);
+    let value = match (envelope.format, envelope.data) {
+        // Text envelope (0.116+): the payload is RON text. With no pending migration steps,
+        // deserialize `T` straight from the text — no ron::Value hop, so data-carrying enum
+        // variants round-trip (EW-006).
+        (ENVELOPE_FORMAT_TEXT, ron::Value::String(text)) => {
+            if stored == current {
+                return ron::from_str::<T>(&text).map_err(|e| SaveError::Ron(e.to_string()));
+            }
+            // Migration steps operate on ron::Value (see [`SaveMigrator`]), so the hop — and
+            // its enum limitation — still applies to saves that need migrating.
+            ron::from_str::<ron::Value>(&text).map_err(|e| SaveError::Ron(e.to_string()))?
+        }
+        // A text-format envelope whose payload is not a string was tampered with.
+        (ENVELOPE_FORMAT_TEXT, _) => return Err(SaveError::Corrupted),
+        // Legacy tree envelope (pre-0.116 save) — the historical path.
+        (_, value) => value,
+    };
+    let migrated = migrator.migrate(value, stored);
     // Drive serde deserialization directly from the ron::Value tree — avoids the struct-syntax
     // round-trip issue where re-serialising a Value::Map produces `{"field": value}` instead of
     // the `(field: value)` syntax RON expects for named structs.
