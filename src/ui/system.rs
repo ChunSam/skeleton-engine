@@ -241,6 +241,25 @@ mod tests {
     }
 
     #[test]
+    fn button_corner_radius_reaches_the_queued_rect() {
+        // EW-005: the button's background rect carries its corner_radius into the UiQueue (the SDF
+        // pipeline renders it rounded); the default 0.0 keeps the sharp fast path.
+        let (mut world, entity) = setup_button_world(Vec2::new(200.0, 200.0));
+        world.get_mut::<Button>(entity).unwrap().corner_radius = 8.0;
+        world.insert_resource(crate::renderer::UiQueue::default());
+
+        UiSystem::default().run(&mut world, 0.016);
+
+        let uq = world.resource::<crate::renderer::UiQueue>().unwrap();
+        let bg = uq
+            .items
+            .iter()
+            .find(|r| r.x == 10.0 && r.y == 10.0)
+            .expect("button background rect queued");
+        assert_eq!(bg.corner_radius, 8.0);
+    }
+
+    #[test]
     fn button_click_emits_once_on_release_in_bounds() {
         let (mut world, entity) = setup_button_world(Vec2::new(20.0, 20.0));
         let mut system = UiSystem::default();

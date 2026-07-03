@@ -4,6 +4,16 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.115.0
+
+**`Button` catches up to the widget-suite styling conventions (EW-005).** The oldest widget predates the 0.107–0.113 suite: styling one meant imperative field assignment while every neighbouring widget chains `with_*` builders, and its background could not be rounded. Additive — existing field-style construction keeps working, and the new `corner_radius` defaults to `0.0` (sharp, byte-identical; old scene RON loads unchanged via the struct-level `#[serde(default)]`).
+
+### Added
+- `Button` builders: `with_colors(normal, hovered, pressed)`, `with_disabled_color`, `with_text_color`, `with_font_size`, `with_corner_radius` — the `TabBar`/`Dropdown`/`RadioGroup` convention.
+- `Button.corner_radius: f32` — the background rect is now pushed `with_corner_radius(...)` through the UI SDF pipeline (`0.0` = the sharp fast path); also a Reflect field, so the editor Inspector can edit it.
+- Tests: builder chain sets every field, old RON without `corner_radius` still loads, reflect roundtrip, and a `UiSystem`-level check that the radius reaches the queued `DrawRect`.
+- Example `ui_rounded` now spawns **rounded buttons** styled entirely through the builders (plus a `HEADLESS_SHOT` capture path).
+
 ## 0.114.0
 
 **`FloatingText` gains a UI-layer z passthrough (EW-004).** A floating combat number can now composite *among* the UI rects instead of always drawing on top — so a higher-z overlay (a pause-menu scrim) actually covers live floats instead of the numbers bleeding through it. Additive: without `with_z` the queued `DrawText` carries `z: None` and the render path is byte-identical to before.

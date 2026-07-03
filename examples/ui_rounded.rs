@@ -8,11 +8,17 @@
 //! be rounded too. This example shows all of it in one window:
 //! - a rounded "card" panel behind a column of focusable widgets,
 //! - a showcase column demonstrating the three fill modes (sharp fill / rounded fill / rounded
-//!   outline), and
+//!   outline),
+//! - **rounded buttons** — `Button` styled through its `with_*` builders
+//!   (`with_corner_radius` / `with_colors` / `with_text_color` / `with_font_size`, the same
+//!   convention as `TabBar`/`Dropdown`/`RadioGroup`), and
 //! - a **rounded** focus ring you can Tab around the widgets to see.
 //!
 //! Run from the repo root:  `cargo run --example ui_rounded`
 //! Tab/Shift+Tab = move focus · Enter/Space = activate · <-/-> = slider · ESC = quit.
+//!
+//! Headless (`HEADLESS_SHOT=/tmp/ui_rounded.png cargo run --example ui_rounded`): renders the
+//! window to a PNG with no display; `HEADLESS_FRAMES=N` overrides the default 10 warm-up frames.
 
 use engine::{
     App, Button, CheckBox, Color, DrawRect, DrawText, Events, FocusRingStyle, InputState, KeyCode,
@@ -154,15 +160,51 @@ fn main() {
     });
 
     // A column of focusable widgets (Tab order = spawn/entity order), sitting on the rounded card.
-    spawn_widget(&mut app, 96.0, 260.0, 48.0, Button::new("Play"));
+    // The buttons use the EW-005 builder surface: rounded corners + chained style, matching the
+    // newer widgets' `with_*` convention (TabBar/Dropdown/RadioGroup).
+    spawn_widget(
+        &mut app,
+        96.0,
+        260.0,
+        48.0,
+        Button::new("Play")
+            .with_corner_radius(12.0)
+            .with_font_size(20.0)
+            .with_text_color(Color::rgba_u8(235, 240, 250, 255)),
+    );
     spawn_widget(&mut app, 168.0, 280.0, 36.0, CheckBox::new("Fullscreen"));
     spawn_widget(&mut app, 232.0, 280.0, 28.0, Slider::new(0.0, 100.0, 50.0));
     spawn_widget(&mut app, 296.0, 280.0, 40.0, TextInput::new("your name…"));
-    spawn_widget(&mut app, 372.0, 260.0, 48.0, Button::new("Quit"));
+    spawn_widget(
+        &mut app,
+        372.0,
+        260.0,
+        48.0,
+        Button::new("Quit")
+            .with_corner_radius(12.0)
+            .with_colors(
+                Color::rgba(0.30, 0.14, 0.16, 1.0),
+                Color::rgba(0.44, 0.20, 0.22, 1.0),
+                Color::rgba(0.22, 0.10, 0.12, 1.0),
+            )
+            .with_text_color(Color::rgba_u8(245, 205, 205, 255)),
+    );
 
     app.add_system(UiSystem::new());
     app.add_system(RoundedDemo {
         last: "(none)".to_string(),
     });
+
+    // `HEADLESS_SHOT=path` → render to a PNG with no window and exit.
+    if let Ok(out) = std::env::var("HEADLESS_SHOT") {
+        let frames = std::env::var("HEADLESS_FRAMES")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(10);
+        app.save_screenshot_headless(frames, &out)
+            .expect("headless screenshot");
+        println!("wrote {out} ({frames} frames)");
+        return;
+    }
     app.run();
 }
