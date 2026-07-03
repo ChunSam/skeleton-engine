@@ -66,7 +66,7 @@ pub(super) fn run(
             continue;
         }
 
-        let (color, label_text, text_color, font_size) = {
+        let (color, label_text, text_color, font_size, corner_radius) = {
             let btn = match world.get::<Button>(entity) {
                 Some(b) => b,
                 None => continue,
@@ -76,12 +76,15 @@ pub(super) fn run(
                 btn.label.clone(),
                 btn.text_color,
                 btn.font_size,
+                btn.corner_radius,
             )
         };
 
-        output
-            .rects
-            .push(DrawRect::new(pos.x, pos.y, size.x, size.y, color).with_z(z));
+        output.rects.push(
+            DrawRect::new(pos.x, pos.y, size.x, size.y, color)
+                .with_corner_radius(corner_radius)
+                .with_z(z),
+        );
 
         if !label_text.is_empty() {
             let text_y = pos.y + (size.y - font_size) / 2.0;
