@@ -4,6 +4,15 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.114.0
+
+**`FloatingText` gains a UI-layer z passthrough (EW-004).** A floating combat number can now composite *among* the UI rects instead of always drawing on top — so a higher-z overlay (a pause-menu scrim) actually covers live floats instead of the numbers bleeding through it. Additive: without `with_z` the queued `DrawText` carries `z: None` and the render path is byte-identical to before.
+
+### Added
+- `FloatingText.z: Option<f32>` + `FloatingText::with_z(z)` — passed through by `FloatingTextSystem` to the `DrawText` it queues (same semantics as `DrawText::z`, the 0.110 layered-text machinery): `Some(z)` renders under any UI rect drawn at a greater z and over a lower one; `None` (default) keeps the historical always-on-top pass.
+- Render regression test `floating_text_with_z_hides_under_a_higher_z_rect` (`tests/render.rs`, runs on CI lavapipe): a covering rect hides a layered float, an uncovered control renders, and a default (no-z) float still draws over every rect.
+- Example `floating_text` now demos the pattern: **P** toggles a z-100 overlay scrim the layered floats hide behind (rising numbers emerge above its top edge), **Z** switches new pops between layered (`with_z(50)`) and the legacy on-top pass; headless auto mode raises the scrim partway through.
+
 ## 0.113.2
 
 **The game-feel capstone ships to the web.** `examples/game_feel.rs` — the arena that composes the whole juice toolkit with a live widget-suite settings menu — now runs in a browser via the established `cargo build --example` + `wasm-bindgen` harness. Examples/scripts/docs only; **no engine code or public API change.**

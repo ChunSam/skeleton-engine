@@ -26,9 +26,9 @@
 
 use engine::renderer::GpuContext;
 use engine::{
-    AmbientLight, App, Camera, Color, DesignResolution, DrawRect, DrawText, FontData,
-    LightingConfig, PointLight, Sprite, System, Tag, TextQueue, Transform, UiQueue, Vec2,
-    WindowConfig, World,
+    spawn_floating_text, AmbientLight, App, Camera, Color, DesignResolution, DrawRect, DrawText,
+    FloatingText, FloatingTextSystem, FontData, LightingConfig, PointLight, Sprite, System, Tag,
+    TextQueue, Transform, UiQueue, Vec2, WindowConfig, World,
 };
 
 /// Prefix the CI silent-skip guard greps for (`grep -q '\[render-test\] adapter='`).
@@ -328,6 +328,95 @@ fn layered_text_is_covered_by_higher_z_rect() {
     assert!(
         covered < visible / 20,
         "layered text under a higher-z rect must be covered (covered={covered}, visible={visible})"
+    );
+}
+
+/// Pushes the two covering rects for [`floating_text_with_z_hides_under_a_higher_z_rect`] every
+/// frame (the floating texts themselves are long-lived entities driven by `FloatingTextSystem`).
+struct FloatingTextCoverScene;
+impl System for FloatingTextCoverScene {
+    fn run(&mut self, world: &mut World, _dt: f32) {
+        if let Some(uq) = world.resource_mut::<UiQueue>() {
+            // Background-colored covers, so any text bleeding through reads as non-bg pixels.
+            uq.push(DrawRect::new(20.0, 70.0, 220.0, 70.0, [0.05, 0.05, 0.07, 1.0]).with_z(1.0));
+            uq.push(DrawRect::new(280.0, 70.0, 180.0, 70.0, [0.05, 0.05, 0.07, 1.0]).with_z(50.0));
+        }
+    }
+    fn name(&self) -> &'static str {
+        "FloatingTextCoverScene"
+    }
+}
+
+/// EW-004 regression: a `FloatingText::with_z` renders under a higher-z UI rect (a pause-scrim
+/// overlay covers live combat text), an uncovered layered one still renders, and the default
+/// (no z) keeps the historical on-top behavior over every rect.
+#[test]
+fn floating_text_with_z_hides_under_a_higher_z_rect() {
+    let mut app = App::new();
+    let (w, h) = (480u32, 240u32);
+    app.world.insert_resource(WindowConfig {
+        title: "render-test: floating-text layering".into(),
+        width: w,
+        height: h,
+        clear_color: [0.05, 0.05, 0.07, 1.0],
+    });
+    app.world.insert_resource(FontData(
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/fonts/DejaVuSans.ttf"
+        ))
+        .to_vec(),
+    ));
+
+    // No Camera resource → FloatingTextSystem uses the Transform position as screen coordinates,
+    // so the texts land exactly where the regions below expect. Zero velocity / no fade / long
+    // lifetime keep them put and fully opaque across the warm-up frames.
+    let still = |text: &str| {
+        FloatingText::new(text)
+            .with_velocity(Vec2::ZERO)
+            .with_fade(false)
+            .with_lifetime(100.0)
+            .with_size(32.0)
+    };
+    // Covered: layered at z 0.2 under the z 1.0 rect (rect spans 20..240 × 70..140).
+    spawn_floating_text(
+        &mut app.world,
+        Vec2::new(130.0, 105.0),
+        still("COVERED").with_z(0.2),
+    );
+    // Control: same z, no cover.
+    spawn_floating_text(
+        &mut app.world,
+        Vec2::new(130.0, 190.0),
+        still("VISIBLE").with_z(0.2),
+    );
+    // Default (no z): on-top pass, over the z 50 rect (rect spans 280..460 × 70..140).
+    spawn_floating_text(&mut app.world, Vec2::new(370.0, 105.0), still("ONTOP"));
+
+    app.add_system(FloatingTextSystem);
+    app.add_system(FloatingTextCoverScene);
+
+    let Some((rw, _rh, px)) = render_or_skip(&mut app, 4) else {
+        return;
+    };
+    let bg = px_rgb(&px, rw, 2, 2);
+
+    let covered = region_count_far(&px, rw, 30, 80, 230, 135, bg, 40);
+    let visible = region_count_far(&px, rw, 30, 165, 230, 215, bg, 40);
+    let ontop = region_count_far(&px, rw, 290, 80, 450, 135, bg, 40);
+    println!("{MARKER} floating-text-layering covered={covered} visible={visible} ontop={ontop}");
+
+    assert!(
+        visible > 100,
+        "uncovered layered floating text should render (visible={visible})"
+    );
+    assert!(
+        ontop > 100,
+        "default floating text should stay on top of every rect (ontop={ontop})"
+    );
+    assert!(
+        covered < visible / 20,
+        "floating text with_z under a higher-z rect must be covered (covered={covered}, visible={visible})"
     );
 }
 
