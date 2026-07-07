@@ -76,6 +76,10 @@ pub(super) struct InputSnapshot {
     pub(super) release_cursor: Vec2,
     pub(super) nav_left: bool,
     pub(super) nav_right: bool,
+    /// Up/Down arrows — keyboard only (a gamepad's D-pad/stick Up/Down cycle focus, so a pad steps a
+    /// list selection with Left/Right). Currently consumed only by the `ListBox` focus arm.
+    pub(super) nav_up: bool,
+    pub(super) nav_down: bool,
     pub(super) nav_home: bool,
     pub(super) nav_end: bool,
     pub(super) nav_delete: bool,
@@ -106,6 +110,8 @@ impl InputSnapshot {
             release_cursor: input.mouse_release_cursor(MouseButton::Left),
             nav_left: input.just_pressed(KeyCode::ArrowLeft),
             nav_right: input.just_pressed(KeyCode::ArrowRight),
+            nav_up: input.just_pressed(KeyCode::ArrowUp),
+            nav_down: input.just_pressed(KeyCode::ArrowDown),
             nav_home: input.just_pressed(KeyCode::Home),
             nav_end: input.just_pressed(KeyCode::End),
             nav_delete: input.just_pressed(KeyCode::Delete),

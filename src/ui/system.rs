@@ -7,6 +7,7 @@ mod dropdown_pass;
 mod event;
 mod focus_pass;
 mod label_pass;
+mod list_box_pass;
 mod progress_bar_pass;
 mod radio_group_pass;
 mod scroll_view_pass;
@@ -40,9 +41,10 @@ pub(super) const UI_SUBLAYER_Z_STEP: f32 = 0.001;
 /// 9. CheckBox pass
 /// 10. RadioGroup pass — click-select an option row
 /// 11. TabBar pass — click-select a tab header
-/// 12. Dropdown pass — open/select/close the item list (drawn above normal UI)
-/// 13. Tooltip pass — hover-delay popups (last, so tooltip text draws over other widget text)
-/// 14. Submit render queue + batch-emit events
+/// 12. ListBox pass — wheel-scroll + click-select a row
+/// 13. Dropdown pass — open/select/close the item list (drawn above normal UI)
+/// 14. Tooltip pass — hover-delay popups (last, so tooltip text draws over other widget text)
+/// 15. Submit render queue + batch-emit events
 #[derive(Default)]
 pub struct UiSystem {
     button_scratch: Vec<Entity>,
@@ -50,6 +52,7 @@ pub struct UiSystem {
     dropdown_scratch: Vec<Entity>,
     focus_scratch: Vec<Entity>,
     label_scratch: Vec<Entity>,
+    list_box_scratch: Vec<Entity>,
     progress_bar_scratch: Vec<Entity>,
     radio_group_scratch: Vec<Entity>,
     scroll_view_scratch: Vec<Entity>,
@@ -177,6 +180,14 @@ impl System for UiSystem {
             &self.capture,
             &mut output,
             &mut self.tab_bar_scratch,
+        );
+        list_box_pass::run(
+            world,
+            &viewport,
+            &input,
+            &self.capture,
+            &mut output,
+            &mut self.list_box_scratch,
         );
         dropdown_pass::run(
             world,

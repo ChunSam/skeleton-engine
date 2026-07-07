@@ -4,6 +4,19 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.117.0
+
+**`ListBox` — a scrollable, selectable single-column list widget.** Rounds out the widget suite alongside `RadioGroup`/`Dropdown`/`TabBar` with the one common control they were missing: a many-item list that scrolls (inventory / level-select / file / dialogue-choice lists). One entity holds all rows + the single selected index (like `RadioGroup`, but scrollable). The mouse wheel scrolls the list under the pointer; clicking a *visible* row selects it (CheckBox-style press+release ownership, drag-off cancels); it is one focus stop where **↑/↓** or **←/→** step the selection and auto-scroll it into view. Additive — no existing widget or event changed.
+
+### Added
+- `engine::ui::ListBox` (re-exported at `engine::ListBox`): `items` / `selected` / transient `scroll_offset` / `row_height` / `font_size` / `bg`·`hover`·`selected`·`text`·`border` colors / `corner_radius` / `border`; builders `new`/`with_selected`/`with_row_height`/`with_font_size`/`with_colors`/`with_corner_radius`/`with_border`; scroll-aware geometry helpers `selected_index`/`selected_item`/`content_height`/`row_at`/`clamp_scroll`/`scroll_to_selected`. `src/ui/list_box.rs`.
+- `UiEvent::ListBoxChanged(Entity, usize)` — emitted only when the selection actually changed (re-picking the current row is silent), like the other widget-change events.
+- `system/list_box_pass.rs`: wheel-scroll + click-select + render, inserted in the `UiSystem` pass order after TabBar and before Dropdown. Highlight rects are clamped and labels bottom-clipped to the node rect so a partly-scrolled row never spills. Registered in `PointerCapture` (pointer-opaque) and as a focus stop.
+- Example `ui_list_box` (12-item inventory that scrolls + a custom-styled level-select list, wired to a live HUD readout + change counter; `HEADLESS_SHOT` self-check). Reflect/clone/serde/editor-add registrations mirror the other widgets.
+
+### Changed (internal)
+- `InputSnapshot` gains keyboard-only `nav_up`/`nav_down` (Arrow Up/Down), consumed only by the `ListBox` focus arm — a gamepad's D-pad/stick Up/Down still cycle focus, so a pad steps a list with Left/Right. The existing Left/Right widget arms are untouched.
+
 ## 0.116.0
 
 **Versioned saves round-trip data-carrying enum variants (EW-006).** `save_versioned` used to re-parse the payload into a generic `ron::Value` for the envelope — but `ron::Value` cannot represent enum variants, so a struct variant like `Closed { reopen_day: 3 }` silently degraded to a bare map at save time and failed at load with "expected enum, found map". The envelope now keeps the payload as **RON text** (tagged `format: 1`); when the stored version equals the migrator's current version (no steps to run), `load_migrated` deserializes the target type straight from that text with full serde fidelity. Saves written before 0.116 (the tree envelope, `format` absent) still load and migrate via the legacy path.
