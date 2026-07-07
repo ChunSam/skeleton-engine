@@ -23,4 +23,7 @@ pub enum UiEvent {
     /// TabBar active tab changed. The second field is the new active tab index.
     /// Emitted only when the index actually changed (re-picking the current tab is silent).
     TabChanged(Entity, usize),
+    /// ListBox selection changed. The second field is the new selected row index.
+    /// Emitted only when the index actually changed (re-picking the current row is silent).
+    ListBoxChanged(Entity, usize),
 }

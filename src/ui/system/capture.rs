@@ -5,6 +5,7 @@ use crate::resources::ViewportSize;
 use crate::ui::button::Button;
 use crate::ui::checkbox::CheckBox;
 use crate::ui::dropdown::{Dropdown, DROPDOWN_LIST_Z};
+use crate::ui::list_box::ListBox;
 use crate::ui::node::UiNode;
 use crate::ui::panel::{Panel, PANEL_BG_Z_OFFSET};
 use crate::ui::radio_group::RadioGroup;
@@ -54,6 +55,7 @@ impl PointerCapture {
         self.extend_kind::<Slider>(world, viewport, 0.0);
         self.extend_kind::<RadioGroup>(world, viewport, 0.0);
         self.extend_kind::<TabBar>(world, viewport, 0.0);
+        self.extend_kind::<ListBox>(world, viewport, 0.0);
         self.extend_kind::<TextInput>(world, viewport, 0.0);
         self.extend_kind::<ScrollView>(world, viewport, 0.0);
         self.extend_kind::<Panel>(world, viewport, PANEL_BG_Z_OFFSET);

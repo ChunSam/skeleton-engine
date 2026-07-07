@@ -5,6 +5,7 @@ use crate::ui::button::{Button, ButtonState};
 use crate::ui::checkbox::CheckBox;
 use crate::ui::dropdown::Dropdown;
 use crate::ui::focus::{FocusRingStyle, UiFocus};
+use crate::ui::list_box::ListBox;
 use crate::ui::radio_group::RadioGroup;
 use crate::ui::slider::Slider;
 use crate::ui::tab_bar::TabBar;
@@ -116,6 +117,10 @@ pub(super) fn run(
     if let Some(e) = focus {
         let is_text = world.get::<TextInput>(e).is_some();
         if !is_text {
+            // A ListBox keeps its selected row scrolled into view; that needs the node's height.
+            let focused_view_h = node_layout(world, e, viewport)
+                .map(|l| l.1.y)
+                .unwrap_or(0.0);
             if input.activate {
                 if world.get::<Button>(e).is_some() {
                     output.events.push(UiEvent::ButtonClicked(e));
@@ -200,6 +205,21 @@ pub(super) fn run(
                             output.events.push(UiEvent::TabChanged(e, next));
                         }
                     }
+                } else if let Some(lb) = world.get_mut::<ListBox>(e) {
+                    // Same clamped step, keeping the selected row scrolled into view.
+                    if let Some(next) = step_list_box(lb, input.nav_right, focused_view_h) {
+                        output.events.push(UiEvent::ListBoxChanged(e, next));
+                    }
+                }
+            }
+            // Up/Down arrows (keyboard only) also step a focused ListBox — the natural keys for a
+            // vertical list. A gamepad reaches the same via Left/Right (its Up/Down cycle focus).
+            // Kept separate from the Left/Right block so the other widgets' arms stay untouched.
+            if input.nav_up || input.nav_down {
+                if let Some(lb) = world.get_mut::<ListBox>(e) {
+                    if let Some(next) = step_list_box(lb, input.nav_down, focused_view_h) {
+                        output.events.push(UiEvent::ListBoxChanged(e, next));
+                    }
                 }
             }
         }
@@ -230,6 +250,7 @@ fn collect_focusables(world: &World, viewport: &ViewportSize, out: &mut Vec<Enti
     out.extend(world.query::<Dropdown>().map(|(e, _)| e));
     out.extend(world.query::<RadioGroup>().map(|(e, _)| e));
     out.extend(world.query::<TabBar>().map(|(e, _)| e));
+    out.extend(world.query::<ListBox>().map(|(e, _)| e));
     out.sort_by_key(|e| e.index());
     out.dedup();
     out.retain(|&e| {
@@ -267,6 +288,28 @@ fn advance(focusables: &[Entity], current: Option<Entity>, reverse: bool) -> Ent
         None if reverse => focusables[n - 1],
         None => focusables[0],
     }
+}
+
+/// Steps a focused [`ListBox`] selection one row (`forward` = toward the end), clamped to the ends,
+/// and scrolls the new row into a `view_height`-tall viewport. Returns the new index when it
+/// actually changed (so the caller emits [`UiEvent::ListBoxChanged`]), or `None` for an empty list
+/// or a clamped no-op at either end. Shared by the ←/→ and ↑/↓ arms so both step identically.
+fn step_list_box(lb: &mut ListBox, forward: bool, view_height: f32) -> Option<usize> {
+    if lb.items.is_empty() {
+        return None;
+    }
+    let cur = lb.selected_index();
+    let next = if forward {
+        (cur + 1).min(lb.items.len() - 1)
+    } else {
+        cur.saturating_sub(1)
+    };
+    if next == cur {
+        return None;
+    }
+    lb.selected = next;
+    lb.scroll_to_selected(view_height);
+    Some(next)
 }
 
 /// Pushes a focus ring around `(pos, size)`, just above the widget's `z`, styled by `style`.
