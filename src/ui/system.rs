@@ -13,6 +13,7 @@ mod radio_group_pass;
 mod scroll_view_pass;
 mod slider_pass;
 mod state;
+mod stepper_pass;
 mod tab_bar_pass;
 mod text_input_pass;
 mod tooltip_pass;
@@ -27,7 +28,8 @@ use state::{submit_output, viewport_from_world, InputSnapshot, StickNav, UiOutpu
 pub(super) const UI_SUBLAYER_Z_STEP: f32 = 0.001;
 
 /// System that processes `UiNode` + `Button` / `Label` / `TextInput` / `ScrollView` / `Slider` /
-/// `CheckBox` / `ProgressBar` / `RadioGroup` / `TabBar` / `Dropdown` / `Tooltip` entities.
+/// `CheckBox` / `ProgressBar` / `RadioGroup` / `TabBar` / `ListBox` / `Stepper` / `Dropdown` /
+/// `Tooltip` entities.
 ///
 /// Per-frame execution order:
 /// 1. Input state snapshot
@@ -42,9 +44,10 @@ pub(super) const UI_SUBLAYER_Z_STEP: f32 = 0.001;
 /// 10. RadioGroup pass — click-select an option row
 /// 11. TabBar pass — click-select a tab header
 /// 12. ListBox pass — wheel-scroll + click-select a row
-/// 13. Dropdown pass — open/select/close the item list (drawn above normal UI)
-/// 14. Tooltip pass — hover-delay popups (last, so tooltip text draws over other widget text)
-/// 15. Submit render queue + batch-emit events
+/// 13. Stepper pass — click the -/+ buttons to step a value
+/// 14. Dropdown pass — open/select/close the item list (drawn above normal UI)
+/// 15. Tooltip pass — hover-delay popups (last, so tooltip text draws over other widget text)
+/// 16. Submit render queue + batch-emit events
 #[derive(Default)]
 pub struct UiSystem {
     button_scratch: Vec<Entity>,
@@ -57,6 +60,7 @@ pub struct UiSystem {
     radio_group_scratch: Vec<Entity>,
     scroll_view_scratch: Vec<Entity>,
     slider_scratch: Vec<Entity>,
+    stepper_scratch: Vec<Entity>,
     tab_bar_scratch: Vec<Entity>,
     text_input_scratch: Vec<Entity>,
     tooltip_scratch: Vec<Entity>,
@@ -188,6 +192,14 @@ impl System for UiSystem {
             &self.capture,
             &mut output,
             &mut self.list_box_scratch,
+        );
+        stepper_pass::run(
+            world,
+            &viewport,
+            &input,
+            &self.capture,
+            &mut output,
+            &mut self.stepper_scratch,
         );
         dropdown_pass::run(
             world,

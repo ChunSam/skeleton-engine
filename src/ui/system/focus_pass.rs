@@ -8,6 +8,7 @@ use crate::ui::focus::{FocusRingStyle, UiFocus};
 use crate::ui::list_box::ListBox;
 use crate::ui::radio_group::RadioGroup;
 use crate::ui::slider::Slider;
+use crate::ui::stepper::Stepper;
 use crate::ui::tab_bar::TabBar;
 use crate::ui::text_input::TextInput;
 
@@ -210,6 +211,13 @@ pub(super) fn run(
                     if let Some(next) = step_list_box(lb, input.nav_right, focused_view_h) {
                         output.events.push(UiEvent::ListBoxChanged(e, next));
                     }
+                } else if let Some(st) = world.get_mut::<Stepper>(e) {
+                    // Step the value by `step` (clamped) — the whole widget is one focus stop.
+                    let nv = st.stepped(input.nav_right);
+                    if (nv - st.clamped_value()).abs() > f32::EPSILON {
+                        st.value = nv;
+                        output.events.push(UiEvent::StepperChanged(e, nv));
+                    }
                 }
             }
             // Up/Down arrows (keyboard only) also step a focused ListBox — the natural keys for a
@@ -251,6 +259,7 @@ fn collect_focusables(world: &World, viewport: &ViewportSize, out: &mut Vec<Enti
     out.extend(world.query::<RadioGroup>().map(|(e, _)| e));
     out.extend(world.query::<TabBar>().map(|(e, _)| e));
     out.extend(world.query::<ListBox>().map(|(e, _)| e));
+    out.extend(world.query::<Stepper>().map(|(e, _)| e));
     out.sort_by_key(|e| e.index());
     out.dedup();
     out.retain(|&e| {

@@ -59,6 +59,7 @@ pub(super) fn register_core_component_metadata(world: &mut World) {
     world.register_reflect_named::<crate::ui::RadioGroup>("RadioGroup");
     world.register_reflect_named::<crate::ui::TabBar>("TabBar");
     world.register_reflect_named::<crate::ui::ListBox>("ListBox");
+    world.register_reflect_named::<crate::ui::Stepper>("Stepper");
     world.register_reflect_named::<crate::ui::Dropdown>("Dropdown");
     world.register_reflect_named::<crate::ui::Tooltip>("Tooltip");
     world.register_reflect_named::<crate::ui::LocalizedText>("LocalizedText");
@@ -91,6 +92,7 @@ pub(super) fn register_core_component_metadata(world: &mut World) {
     world.register_clone::<crate::ui::RadioGroup>();
     world.register_clone::<crate::ui::TabBar>();
     world.register_clone::<crate::ui::ListBox>();
+    world.register_clone::<crate::ui::Stepper>();
     world.register_clone::<crate::ui::Dropdown>();
     world.register_clone::<crate::ui::Tooltip>();
     world.register_clone::<crate::ui::LocalizedText>();
@@ -122,6 +124,7 @@ pub(super) fn register_core_component_metadata(world: &mut World) {
         registry.register::<crate::ui::RadioGroup>("RadioGroup", None);
         registry.register::<crate::ui::TabBar>("TabBar", None);
         registry.register::<crate::ui::ListBox>("ListBox", None);
+        registry.register::<crate::ui::Stepper>("Stepper", None);
         registry.register::<crate::ui::Dropdown>("Dropdown", None);
         registry.register::<crate::ui::Tooltip>("Tooltip", None);
         registry.register::<crate::ui::ScrollView>("ScrollView", None);
