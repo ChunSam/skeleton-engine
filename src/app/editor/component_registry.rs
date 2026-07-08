@@ -90,6 +90,9 @@ impl App {
         self.register_component("Stepper", |world, e| {
             world.add_component(e, crate::ui::Stepper::default());
         });
+        self.register_component("Switch", |world, e| {
+            world.add_component(e, crate::ui::Switch::default());
+        });
         // register removal closures — the Inspector "✕" button uses this map to show/act
         self.register_component_remover("Sprite", |world, e| {
             world.remove_component::<crate::components::Sprite>(e);
@@ -171,6 +174,9 @@ impl App {
         });
         self.register_component_remover("Stepper", |world, e| {
             world.remove_component::<crate::ui::Stepper>(e);
+        });
+        self.register_component_remover("Switch", |world, e| {
+            world.remove_component::<crate::ui::Switch>(e);
         });
 
         // ── Built-in inspector sub-panels ─────────────────────────────────────
