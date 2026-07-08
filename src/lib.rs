@@ -214,10 +214,10 @@ pub use tween::{Easing, Lerp, Tween, TweenSequence};
 pub use ui::{
     Anchor, Button, ButtonState, CheckBox, Dropdown, FocusRingStyle, Label, LayoutDir,
     LayoutSystem, ListBox, LocalizationSystem, LocalizedText, Panel, ProgressBar, RadioGroup,
-    ScrollView, Slider, StepButton, Stepper, StickNavConfig, TabBar, TextInput, Tooltip, UiEvent,
-    UiFocus, UiNode, UiSystem, VirtualJoystick, DEFAULT_SLIDER_STEP_FRAC, DEFAULT_STICK_ACTIVATE,
-    DEFAULT_STICK_RELEASE, DEFAULT_TOOLTIP_DELAY_SECS, DEFAULT_TOOLTIP_FADE_SECS, DROPDOWN_LIST_Z,
-    TOOLTIP_Z,
+    ScrollView, Slider, StepButton, Stepper, StickNavConfig, Switch, TabBar, TextInput, Tooltip,
+    UiEvent, UiFocus, UiNode, UiSystem, VirtualJoystick, DEFAULT_SLIDER_STEP_FRAC,
+    DEFAULT_STICK_ACTIVATE, DEFAULT_STICK_RELEASE, DEFAULT_TOOLTIP_DELAY_SECS,
+    DEFAULT_TOOLTIP_FADE_SECS, DROPDOWN_LIST_Z, TOOLTIP_Z,
 };
 
 // ── WASM panic hook ───────────────────────────────────────────────────────────

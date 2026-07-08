@@ -4,6 +4,16 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.119.0
+
+**`Switch` — a styled boolean toggle (sliding track + knob).** The switch-look alternative to `CheckBox` (same boolean meaning, a more natural affordance for settings on/off rows): a pill track colored by state with a round knob that slides left (off) / right (on), plus an optional label. Clicking anywhere on the node flips it and emits `UiEvent::SwitchToggled(entity, bool)`; while focused, Enter/Space toggle it and ←/→ set it off/on absolutely (a 2-position-slider feel, more keyboard/gamepad-operable than a checkbox). One entity is the whole widget; render and the knob position share a single geometry source (`track_rect`/`knob_rect`). Additive — no existing widget or event changed.
+
+### Added
+- `engine::ui::Switch` (re-exported at `engine::Switch`): `on` / `label` / `track_width` / `track_height` / `on`·`off`·`knob`·`text` colors / `font_size`; builders `new`/`with_on`/`with_size`/`with_colors`/`with_text_color`/`with_font_size`; helpers `track_color` / `track_rect` / `knob_rect` / `track_radius` / `knob_radius` (pill radius = track height / 2, knob = a circle padded inside the track). `src/ui/switch.rs`.
+- `UiEvent::SwitchToggled(Entity, bool)` — the new on/off state. A click always flips (so every click emits); the ←/→ focus arm sets the state absolutely and emits only when it actually changed.
+- `switch_pass` in the `UiSystem` order (after Stepper, before Dropdown): whole-node click-toggle (CheckBox-style press+release ownership, drag-off cancels) + render of the track, knob, and label. `Switch` is one focus stop (Tab), pointer-opaque in `PointerCapture`, and reflect/clone/serde/editor-add registered like the other widgets.
+- Example `ui_switch` — Sound / Music / Fullscreen switches plus a larger custom-green Vsync, wired to a live on/off readout and a change counter (`HEADLESS_SHOT` capture path).
+
 ## 0.118.0
 
 **`Stepper` — a numeric `-`/`+` spinner widget.** Adds the value-adjustment control the widget suite was missing (quantity fields, discrete settings values): a bounded `f32` `value` in `min..=max` stepped by `step`, like a `Slider` but nudged discretely by flanking `-`/`+` buttons rather than dragged. Clicking a button (or ←/→ while focused) steps the value clamped to the bounds and emits `UiEvent::StepperChanged(entity, f32)` only when it actually changed — a click at a bound is silent. One entity is the whole widget; the node rect splits into a `-` button, a centered value label, and a `+` button from a single geometry source. Additive — no existing widget or event changed.

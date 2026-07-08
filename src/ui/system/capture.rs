@@ -12,6 +12,7 @@ use crate::ui::radio_group::RadioGroup;
 use crate::ui::scroll_view::ScrollView;
 use crate::ui::slider::Slider;
 use crate::ui::stepper::Stepper;
+use crate::ui::switch::Switch;
 use crate::ui::tab_bar::TabBar;
 use crate::ui::text_input::TextInput;
 
@@ -58,6 +59,7 @@ impl PointerCapture {
         self.extend_kind::<TabBar>(world, viewport, 0.0);
         self.extend_kind::<ListBox>(world, viewport, 0.0);
         self.extend_kind::<Stepper>(world, viewport, 0.0);
+        self.extend_kind::<Switch>(world, viewport, 0.0);
         self.extend_kind::<TextInput>(world, viewport, 0.0);
         self.extend_kind::<ScrollView>(world, viewport, 0.0);
         self.extend_kind::<Panel>(world, viewport, PANEL_BG_Z_OFFSET);

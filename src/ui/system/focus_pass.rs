@@ -9,6 +9,7 @@ use crate::ui::list_box::ListBox;
 use crate::ui::radio_group::RadioGroup;
 use crate::ui::slider::Slider;
 use crate::ui::stepper::Stepper;
+use crate::ui::switch::Switch;
 use crate::ui::tab_bar::TabBar;
 use crate::ui::text_input::TextInput;
 
@@ -129,6 +130,11 @@ pub(super) fn run(
                     cb.checked = !cb.checked;
                     let checked = cb.checked;
                     output.events.push(UiEvent::CheckBoxToggled(e, checked));
+                } else if let Some(sw) = world.get_mut::<Switch>(e) {
+                    // A boolean toggle, like a CheckBox: activate flips it.
+                    sw.on = !sw.on;
+                    let on = sw.on;
+                    output.events.push(UiEvent::SwitchToggled(e, on));
                 } else if world.get::<Dropdown>(e).is_some() {
                     let others: Vec<Entity> = world
                         .query::<Dropdown>()
@@ -218,6 +224,14 @@ pub(super) fn run(
                         st.value = nv;
                         output.events.push(UiEvent::StepperChanged(e, nv));
                     }
+                } else if let Some(sw) = world.get_mut::<Switch>(e) {
+                    // ← turns it off, → turns it on (absolute, like a 2-position slider); emit only
+                    // when the state actually changed.
+                    let target = input.nav_right;
+                    if sw.on != target {
+                        sw.on = target;
+                        output.events.push(UiEvent::SwitchToggled(e, target));
+                    }
                 }
             }
             // Up/Down arrows (keyboard only) also step a focused ListBox — the natural keys for a
@@ -260,6 +274,7 @@ fn collect_focusables(world: &World, viewport: &ViewportSize, out: &mut Vec<Enti
     out.extend(world.query::<TabBar>().map(|(e, _)| e));
     out.extend(world.query::<ListBox>().map(|(e, _)| e));
     out.extend(world.query::<Stepper>().map(|(e, _)| e));
+    out.extend(world.query::<Switch>().map(|(e, _)| e));
     out.sort_by_key(|e| e.index());
     out.dedup();
     out.retain(|&e| {
