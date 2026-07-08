@@ -4,6 +4,17 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.118.0
+
+**`Stepper` — a numeric `-`/`+` spinner widget.** Adds the value-adjustment control the widget suite was missing (quantity fields, discrete settings values): a bounded `f32` `value` in `min..=max` stepped by `step`, like a `Slider` but nudged discretely by flanking `-`/`+` buttons rather than dragged. Clicking a button (or ←/→ while focused) steps the value clamped to the bounds and emits `UiEvent::StepperChanged(entity, f32)` only when it actually changed — a click at a bound is silent. One entity is the whole widget; the node rect splits into a `-` button, a centered value label, and a `+` button from a single geometry source. Additive — no existing widget or event changed.
+
+### Added
+- `engine::ui::Stepper` (re-exported at `engine::Stepper`): `value` / `min` / `max` / `step` / `decimals` / `font_size` / `bg`·`button`·`button_hover`·`text`·`border` colors / `corner_radius` / `border`; builders `new`/`with_step`/`with_decimals`/`with_font_size`/`with_colors`/`with_corner_radius`/`with_border`; helpers `clamped_value` (uses `max/min` not `f32::clamp`, so a reflect-edited `min > max` can't panic) / `stepped` / `at_min` / `at_max` / `label` / `button_width` / `zone_at`. `src/ui/stepper.rs`.
+- `engine::ui::StepButton` (`Dec` / `Inc`) — the return of `Stepper::zone_at`, the single geometry source shared by render and click resolution.
+- `UiEvent::StepperChanged(Entity, f32)` — the new value, emitted only when it actually changed (stepping past a bound is silent); an `f32` payload like `SliderChanged`, not an index.
+- `system/stepper_pass.rs`: click-select (CheckBox-style press+release ownership, drag-off cancels) + render, inserted in the `UiSystem` pass order after ListBox and before Dropdown. Registered in `PointerCapture` (pointer-opaque) and as a focus stop (←/→ step the value). No transient state — button hover is recomputed each frame.
+- `examples/ui_stepper.rs` — three steppers (volume 0..100 step 5 / difficulty 1..5 / a custom-styled zoom 0.5..3.0 step 0.25, 2 decimals) wired to a live HUD readout + change counter, with a `HEADLESS_SHOT` capture path.
+
 ## 0.117.0
 
 **`ListBox` — a scrollable, selectable single-column list widget.** Rounds out the widget suite alongside `RadioGroup`/`Dropdown`/`TabBar` with the one common control they were missing: a many-item list that scrolls (inventory / level-select / file / dialogue-choice lists). One entity holds all rows + the single selected index (like `RadioGroup`, but scrollable). The mouse wheel scrolls the list under the pointer; clicking a *visible* row selects it (CheckBox-style press+release ownership, drag-off cancels); it is one focus stop where **↑/↓** or **←/→** step the selection and auto-scroll it into view. Additive — no existing widget or event changed.

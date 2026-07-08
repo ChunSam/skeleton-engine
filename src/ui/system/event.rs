@@ -26,4 +26,7 @@ pub enum UiEvent {
     /// ListBox selection changed. The second field is the new selected row index.
     /// Emitted only when the index actually changed (re-picking the current row is silent).
     ListBoxChanged(Entity, usize),
+    /// Stepper value changed. The second field is the new value.
+    /// Emitted only when the value actually changed (stepping past a bound is silent).
+    StepperChanged(Entity, f32),
 }
