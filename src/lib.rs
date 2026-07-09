@@ -22,6 +22,7 @@ pub mod dialogue;
 pub mod ecs;
 pub mod effect;
 pub mod floating_text;
+pub mod fov;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod gpu_particle;
 pub mod hierarchy;
@@ -129,6 +130,7 @@ pub use floating_text::{
     spawn_floating_text, FloatingText, FloatingTextSystem, DEFAULT_FLOAT_LIFETIME,
     DEFAULT_FLOAT_SIZE, DEFAULT_FLOAT_SPEED,
 };
+pub use fov::FovMap;
 #[cfg(not(target_arch = "wasm32"))]
 pub use gpu_particle::{GpuParticleConfig, GpuParticleEmitter};
 pub use hierarchy::{
