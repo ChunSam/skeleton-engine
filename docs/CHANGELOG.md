@@ -4,6 +4,14 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.120.0
+
+**`FovMap` — grid field of view / fog-of-war via recursive shadowcasting.** A plain owned helper (like `PathGrid`/`InputBuffer` — not an ECS component or system): a game keeps one and recomputes it when the observer moves. `compute(origin, radius)` runs recursive shadowcasting over 8 octants (an opaque cell is itself lit, then casts a shadow over everything behind it; Euclidean `dx²+dy²≤radius²`), clearing the `visible` set each call and accumulating a `revealed` set — the fog-of-war "explored" memory. `line_of_sight(a, b)` is the companion point-to-point Bresenham sight check. Genre-agnostic: roguelike FOV, stealth sight lines, top-down fog-of-war. Additive — a new module and one re-export, no existing API touched.
+
+### Added
+- `engine::FovMap` (`src/fov.rs`): row-major `opaque` / `visible` / `revealed` grids. `new(w, h)` (cell count capped at `MAX_PATH_GRID_CELLS` — over-cap/overflow yields an empty map with a logged `error!`, mirroring `PathGrid`); `from_path_grid` (a `PathGrid`'s non-walkable cell → opaque, coords 1:1); `set_opaque` / `is_opaque` / `is_visible` / `is_revealed` / `clear_visible` / `reset`; `compute(origin, radius)` (recursive shadowcasting, `radius ≤ 0` lights only the origin); `line_of_sight(a, b)` (Bresenham, endpoints excluded so the observer can see the wall it looks at). 9 unit tests + 2 doctests.
+- Example `fov` (`examples/fov.rs`): a playable top-down dungeon — WASD/arrows move an observer, walls cast shadows in real time, cells in sight render bright / explored-but-unseen dim / never-seen black, and gems are revealed only when they fall inside the field of view. `+`/`-` grow/shrink the sight radius. `HEADLESS_SHOT` capture of the starting field of view.
+
 ## 0.119.0
 
 **`Switch` — a styled boolean toggle (sliding track + knob).** The switch-look alternative to `CheckBox` (same boolean meaning, a more natural affordance for settings on/off rows): a pill track colored by state with a round knob that slides left (off) / right (on), plus an optional label. Clicking anywhere on the node flips it and emits `UiEvent::SwitchToggled(entity, bool)`; while focused, Enter/Space toggle it and ←/→ set it off/on absolutely (a 2-position-slider feel, more keyboard/gamepad-operable than a checkbox). One entity is the whole widget; render and the knob position share a single geometry source (`track_rect`/`knob_rect`). Additive — no existing widget or event changed.
