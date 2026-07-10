@@ -45,6 +45,7 @@ pub mod prefab;
 pub mod reflect;
 pub mod renderer;
 pub mod resources;
+pub mod rng;
 /// Generic RON-file registry backing the particle/dialogue/animation-clip registries — also a
 /// fork-friendly extension point for a game's own RON-loaded config type (see [`RonRegistry`]).
 mod ron_registry;
@@ -167,6 +168,7 @@ pub use prefab::{
     break_prefab_instance, spawn_entity_def, spawn_scene_def, EntityDef, Prefab, PrefabInstance,
     SceneDef, SerdeComponentEntry, SerdeComponentRegistry, Tag, SCENE_DEF_VERSION,
 };
+pub use rng::{Rng, WeightedTable};
 pub use skeletal::{
     BoneKeyframe, BoneTrack, SkeletalAnimationSystem, SkeletalAnimator, SkeletalClip,
     SkeletonBuilder,
