@@ -29,6 +29,7 @@
 use glam::IVec2;
 
 use crate::pathfinding::{PathGrid, MAX_PATH_GRID_CELLS};
+use crate::rng::Rng;
 
 /// A single dungeon cell: solid `Wall` or walkable `Floor`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -361,44 +362,6 @@ fn carve_v(map: &mut DungeonMap, y0: i32, y1: i32, x: i32) {
     }
 }
 
-/// A tiny deterministic PRNG (SplitMix64) — kept private so generation depends only on the seed,
-/// never on `rand`'s thread RNG. Same seed → same stream → same dungeon.
-struct Rng {
-    state: u64,
-}
-
-impl Rng {
-    fn new(seed: u64) -> Self {
-        Self { state: seed }
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = self.state;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    }
-
-    /// A value in `[lo, hi)`. Returns `lo` when the range is empty.
-    fn range(&mut self, lo: i32, hi: i32) -> i32 {
-        if hi <= lo {
-            return lo;
-        }
-        lo + (self.next_u64() % (hi - lo) as u64) as i32
-    }
-
-    fn bool(&mut self) -> bool {
-        self.next_u64() & 1 == 1
-    }
-
-    /// `true` with probability `p` (clamped to `0..=1`).
-    fn chance(&mut self, p: f32) -> bool {
-        let unit = (self.next_u64() >> 40) as f32 / (1u64 << 24) as f32;
-        unit < p.clamp(0.0, 1.0)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -554,21 +517,5 @@ mod tests {
         // Overflowing dimensions collapse to an empty map.
         let huge = generate_bsp_dungeon(i32::MAX, 2, 1, &DungeonParams::default());
         assert_eq!((huge.width, huge.height), (0, 0));
-    }
-
-    #[test]
-    fn rng_is_deterministic_and_ranges_are_bounded() {
-        let mut a = Rng::new(123);
-        let mut b = Rng::new(123);
-        for _ in 0..100 {
-            assert_eq!(a.next_u64(), b.next_u64());
-        }
-        let mut r = Rng::new(9);
-        for _ in 0..1000 {
-            let v = r.range(3, 7);
-            assert!((3..7).contains(&v));
-        }
-        // An empty range yields the low bound rather than panicking on `% 0`.
-        assert_eq!(Rng::new(1).range(5, 5), 5);
     }
 }

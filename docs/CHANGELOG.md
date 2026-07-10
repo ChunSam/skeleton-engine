@@ -4,6 +4,18 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.123.0
+
+**Seedable deterministic `Rng` + `WeightedTable` loot/spawn tables.** A public SplitMix64 PRNG whose stream is fixed by its seed — a game stores just a seed to reproduce a run, a procedural level, or a loot sequence, independent of `rand`'s thread RNG. `WeightedTable<T>` draws items by relative weight (the loot-drop / spawn-table primitive), driven by a caller-supplied `Rng` so a table + seed reproduce the same sequence. `mapgen` adopted `Rng` and dropped its own private copy — the generated dungeons are byte-identical (its determinism tests are unchanged), which is exactly the point of a shared RNG. Additive — a new module and re-export; `mapgen`'s refactor is behavior-preserving.
+
+### Added
+- `engine::Rng` (`src/rng.rs`): `new(seed)`, `next_u64` / `next_u32`, `range(lo, hi)` (i32 `[lo, hi)`, empty range → `lo`), `f32_unit()` (`[0, 1)`), `range_f32`, `bool()`, `chance(p)`, `pick(&[T])`, `shuffle(&mut [T])` (Fisher–Yates). A golden-value test pins the stream so the SplitMix64 constants can't silently drift (which would change every seed-derived artifact).
+- `engine::WeightedTable<T>` (`src/rng.rs`): `new()` / `with(item, weight)` / `add` (f32 relative weights; `<= 0` or non-finite ignored), `pick(&mut Rng)` / `pick_index`, `total_weight` / `len` / `is_empty` / `items`. 11 unit tests (stream stability, range/`f32_unit` bounds, `chance` extremes + rate, pick/shuffle permutation, weighted distribution ~9:1, deterministic replay) + 2 doctests.
+- Example `loot_table` (`examples/loot_table.rs`): weighted rarity drops (Common/Uncommon/Rare/Legendary) with a live histogram converging to per-rarity target markers; **Space** draws one, **A** draws 100, **R** replays the identical sequence (determinism), **N** picks a new seed. `HEADLESS_SHOT` pre-rolls 200 draws.
+
+### Changed (internal)
+- `src/mapgen.rs`: the BSP generator now seeds from `engine::Rng` instead of a duplicate private SplitMix64 `struct Rng`. Byte-identical output (same constants + `range`/`bool`/`chance` semantics); mapgen's determinism/connectivity tests pass unchanged (its redundant RNG-internals test was removed — `rng.rs` covers it).
+
 ## 0.122.0
 
 **procgen ↔ FOV composition bridge + the `roguelike` capstone.** `DungeonMap::to_path_grid()` turns a generated dungeon into a `PathGrid` whose walkable cells are exactly its floor cells — the direct bridge to enemy pathfinding (`find_path`) *and*, via `FovMap::from_path_grid`, to field-of-view, so the walls that block movement are exactly the walls that block sight. The `roguelike` example composes this session's two features (seq-1 `FovMap` + seq-2 `generate_bsp_dungeon`) into one playable slice: a seeded BSP dungeon explored under fog-of-war. Additive — one new method plus an example, no existing API touched.
