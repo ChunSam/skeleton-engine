@@ -79,6 +79,32 @@ impl App {
         self.apply_scene_cmd(SceneCmd::Pop);
     }
 
+    /// Transitions to `scene` with a styled cover → swap → reveal animation
+    /// ([`SceneTransition`](crate::SceneTransition)). `App` covers the screen over `half_duration`
+    /// seconds in the given [`style`](crate::TransitionStyle), swaps to `scene` (like
+    /// [`set_scene`](App::set_scene)) *while fully hidden*, then reveals it over another
+    /// `half_duration`. The transition resource is auto-registered as persistent so it survives the
+    /// mid-transition world reset, and is dropped when the reveal finishes.
+    ///
+    /// Native-only visuals (the overlay is not drawn on wasm), but the scene swap still happens on
+    /// every platform. For a bare cover/reveal with no swap, insert a `SceneTransition` resource
+    /// directly. Customize the colour via
+    /// [`SceneTransition::with_color`](crate::SceneTransition::with_color) on a manual insert, or set
+    /// it on the resource after this call.
+    pub fn transition_to_scene(
+        &mut self,
+        scene: Box<dyn Scene>,
+        style: crate::scene_transition::TransitionStyle,
+        half_duration: f32,
+    ) {
+        crate::scene_transition::start_scene_transition(
+            &mut self.world,
+            scene,
+            style,
+            half_duration,
+        );
+    }
+
     fn reconcile_meta(&mut self) {
         use crate::ecs::schedule::SystemConfig;
         if self.system_meta.len() < self.systems.len() {

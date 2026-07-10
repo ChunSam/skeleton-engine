@@ -13,6 +13,7 @@ pub mod render_target;
 pub mod sprite;
 pub mod text;
 pub mod texture;
+pub mod transition;
 pub mod ui;
 pub mod uv;
 

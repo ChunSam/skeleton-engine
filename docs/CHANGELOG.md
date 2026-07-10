@@ -4,6 +4,16 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.124.0
+
+**Styled scene transitions — fade / wipe / iris with automatic scene swapping.** `SceneTransition` is the styled successor to the solid-colour `FadeTransition`: coverage runs 0 → 1 (cover) then 1 → 0 (reveal), so the screen covers, the scene swaps *while hidden*, and the new scene is revealed. `App::transition_to_scene` (from `&mut App`) or `start_scene_transition` (from a system) do the whole cover → swap → reveal in one call; `App` swaps the scene at the fully-covered midpoint and drops the transition when it finishes. Additive — a new module, renderer, and re-exports; `FadeTransition` is untouched.
+
+### Added
+- `engine::SceneTransition` + `TransitionStyle` (`#[non_exhaustive]`: `Fade`, `WipeLeft`/`Right`/`Down`/`Up`, `IrisIn`, `IrisOut`) + `TransitionPhase` (`Out`/`In`/`Done`) (`src/scene_transition.rs`). `new(style, half_duration)` / `with_color`, `update(dt)`, `just_covered`, `is_done`, and `covered_at(x, y, aspect)` (a CPU mirror of the shader geometry for logic/tests). 5 unit tests + 1 doctest.
+- `engine::start_scene_transition(world, scene, style, half_duration)` — the world-level trigger callable from a **system** (the twin of the `&mut App` `App::transition_to_scene`). Both cover the screen, swap the scene while hidden (via an internal `PendingSceneTransition` resource consumed at full cover), then reveal it. `SceneTransition` is auto-registered persistent so the reveal survives the mid-transition world reset. An integration test (`scene_transition_auto_swaps_at_cover_and_clears_when_done`) drives `App::update` headlessly to verify the swap timing.
+- `TransitionRenderer` (`src/renderer/transition.rs`): a native-only full-screen styled-coverage pass, run in the same slot as the fade pass (`app/render/frame.rs`); an all-`vec4` uniform (avoiding the WGSL `vec3` alignment trap) carries `coverage`/`style`/`aspect`/`softness` + colour; the shader mirrors `covered_at` with a soft edge. The swap still happens on wasm; only the overlay is native-only.
+- Example `scene_transition` (`examples/scene_transition.rs`): keys **1**–**7** transition between four full-screen-colour levels, one per style; `HEADLESS_SHOT` freezes a mid-iris still.
+
 ## 0.123.0
 
 **Seedable deterministic `Rng` + `WeightedTable` loot/spawn tables.** A public SplitMix64 PRNG whose stream is fixed by its seed — a game stores just a seed to reproduce a run, a procedural level, or a loot sequence, independent of `rand`'s thread RNG. `WeightedTable<T>` draws items by relative weight (the loot-drop / spawn-table primitive), driven by a caller-supplied `Rng` so a table + seed reproduce the same sequence. `mapgen` adopted `Rng` and dropped its own private copy — the generated dungeons are byte-identical (its determinism tests are unchanged), which is exactly the point of a shared RNG. Additive — a new module and re-export; `mapgen`'s refactor is behavior-preserving.

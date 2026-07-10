@@ -552,6 +552,33 @@ impl App {
             fade.update(dt);
         }
 
+        // 11b. Advance the styled SceneTransition: swap the pending scene at full cover (while
+        // hidden), then drop the resource once the reveal finishes.
+        let (just_covered, is_done) = if let Some(t) =
+            self.world
+                .resource_mut::<crate::scene_transition::SceneTransition>()
+        {
+            t.update(dt);
+            (t.just_covered(), t.is_done())
+        } else {
+            (false, false)
+        };
+        if just_covered {
+            let cmd = self
+                .world
+                .resource_mut::<crate::scene_transition::PendingSceneTransition>()
+                .and_then(|p| p.0.take());
+            if let Some(cmd) = cmd {
+                self.apply_scene_cmd(cmd);
+            }
+        }
+        if is_done {
+            self.world
+                .remove_resource::<crate::scene_transition::SceneTransition>();
+            self.world
+                .remove_resource::<crate::scene_transition::PendingSceneTransition>();
+        }
+
         // 12. Hot reload: receive list of changed files and re-upload their GPU textures.
         let reloaded: Vec<String> = self
             .world

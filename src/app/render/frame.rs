@@ -604,6 +604,36 @@ impl App {
             }
         }
 
+        // Step 5 (pre): Styled scene-transition overlay (fade/wipe/iris) — same slot as the fade.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if self.render.transition_renderer.is_none() {
+                self.render.transition_renderer =
+                    Some(crate::renderer::transition::TransitionRenderer::new(
+                        &gpu.device,
+                        gpu.config.format,
+                    ));
+            }
+            if let (Some(tr), Some(t)) = (
+                &self.render.transition_renderer,
+                self.world
+                    .resource::<crate::scene_transition::SceneTransition>(),
+            ) {
+                if t.coverage > 0.001 {
+                    let aspect = gpu.config.width as f32 / gpu.config.height.max(1) as f32;
+                    let c = t.color;
+                    tr.update(
+                        &gpu.queue,
+                        t.coverage,
+                        t.style.shader_index(),
+                        aspect,
+                        [c.r, c.g, c.b, c.a],
+                    );
+                    tr.run_pass(&mut enc, scene_target);
+                }
+            }
+        }
+
         // In docked mode the surface (final_view) has not been cleared yet — the scene
         // pass wrote to the offscreen texture.  Clear the surface to black so egui has
         // a clean background.  The egui pass uses LoadOp::Load, so this clear persists.
