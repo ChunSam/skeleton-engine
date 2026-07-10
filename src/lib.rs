@@ -60,6 +60,7 @@ pub use save::{
     save_versioned, save_with_key, SaveError, SaveKey, SaveMigrator,
 };
 pub mod scene;
+pub mod scene_transition;
 pub mod scripting;
 pub mod skeletal;
 pub mod steering;
@@ -207,6 +208,9 @@ pub use resources::{
 pub use ron_registry::RonLoadable;
 pub use ron_registry::RonRegistry;
 pub use scene::{Scene, SceneChange, SceneCmd, SystemRegistrar};
+pub use scene_transition::{
+    start_scene_transition, SceneTransition, TransitionPhase, TransitionStyle,
+};
 pub use scripting::{ScriptAsset, ScriptRegistry, ScriptRunner, ScriptingLimits, ScriptingSystem};
 pub use steering::{Arrive, Flee, Seek, SteeringSystem, SteeringVelocity, Wander};
 pub use tilemap::{

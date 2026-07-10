@@ -19,6 +19,10 @@ pub(crate) struct RenderState {
     /// if your game relies on fade transitions for scene changes.
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fade_renderer: Option<crate::renderer::fade::FadeRenderer>,
+    /// Styled scene-transition renderer (fade/wipe/iris) executed as the final scene pass when a
+    /// `SceneTransition` has `coverage > 0`. Native-only, same platform caveat as `fade_renderer`.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) transition_renderer: Option<crate::renderer::transition::TransitionRenderer>,
     /// Intermediate texture the lighting pass renders the scene into first.
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) scene_texture_for_lighting: Option<(

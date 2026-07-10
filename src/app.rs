@@ -246,7 +246,11 @@ impl App {
             event_flushers: Vec::new(),
             event_initializers: Vec::new(),
             world_registrars: Vec::new(),
-            persistent_resources: Vec::new(),
+            // A styled SceneTransition must survive the mid-transition scene Replace so the reveal
+            // half still renders after the swap (see `App::transition_to_scene`).
+            persistent_resources: vec![std::any::TypeId::of::<
+                crate::scene_transition::SceneTransition,
+            >()],
             #[cfg(not(target_arch = "wasm32"))]
             gilrs,
             stepped_this_iteration: false,
@@ -614,6 +618,63 @@ mod tests {
              got: {:?}",
             app.panicked_systems
         );
+    }
+
+    #[test]
+    fn scene_transition_auto_swaps_at_cover_and_clears_when_done() {
+        use crate::scene::SystemRegistrar;
+        use crate::scene_transition::{start_scene_transition, SceneTransition, TransitionStyle};
+
+        // Marker resource identifying the active scene (each scene stamps its id on enter).
+        struct ActiveScene(u32);
+        struct MarkScene(u32);
+        impl Scene for MarkScene {
+            fn on_enter(&mut self, w: &mut World, _s: &mut SystemRegistrar) {
+                w.insert_resource(ActiveScene(self.0));
+            }
+            fn on_exit(&mut self, _w: &mut World) {}
+        }
+
+        let mut app = App::new();
+        app.apply_scene_cmd(crate::scene::SceneCmd::Replace(Box::new(MarkScene(1))));
+        assert_eq!(app.world.resource::<ActiveScene>().unwrap().0, 1);
+
+        // Cover in 0.1 s, reveal in 0.1 s.
+        start_scene_transition(
+            &mut app.world,
+            Box::new(MarkScene(2)),
+            TransitionStyle::Fade,
+            0.1,
+        );
+
+        // Mid-cover: still scene 1, transition active.
+        app.update(0.05);
+        assert_eq!(
+            app.world.resource::<ActiveScene>().unwrap().0,
+            1,
+            "scene must not swap before the cover completes"
+        );
+        assert!(app.world.resource::<SceneTransition>().is_some());
+
+        // Past full cover: swaps to scene 2, and the transition survives the world reset to reveal.
+        app.update(0.06);
+        assert_eq!(
+            app.world.resource::<ActiveScene>().unwrap().0,
+            2,
+            "scene swaps at full cover"
+        );
+        assert!(
+            app.world.resource::<SceneTransition>().is_some(),
+            "the transition is persistent, so the reveal half survives the swap"
+        );
+
+        // Past the reveal: transition removed, scene stays 2.
+        app.update(0.2);
+        assert!(
+            app.world.resource::<SceneTransition>().is_none(),
+            "the transition is dropped once the reveal finishes"
+        );
+        assert_eq!(app.world.resource::<ActiveScene>().unwrap().0, 2);
     }
 
     #[test]
