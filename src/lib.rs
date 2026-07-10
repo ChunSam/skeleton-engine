@@ -31,6 +31,7 @@ pub mod hit_flash;
 pub mod input;
 pub mod input_buffer;
 pub mod locale;
+pub mod mapgen;
 pub mod material;
 pub mod network;
 pub mod nine_slice;
@@ -143,6 +144,7 @@ pub use input::AxisBinding;
 pub use input::{GamepadAxis, GamepadButton, GamepadState, InputMap, InputState, TouchState};
 pub use input_buffer::{InputBuffer, DEFAULT_BUFFER_SECS, DEFAULT_COYOTE_SECS};
 pub use locale::{LocaleBundle, LocaleData, LocaleResource, TextDirection};
+pub use mapgen::{generate_bsp_dungeon, DungeonMap, DungeonParams, Room, Tile};
 pub use material::ShaderMaterial;
 pub use network::{
     NetworkClient, NetworkConfig, NetworkEvent, NetworkSystem, RemoteEntities, SnapshotBuffer,
