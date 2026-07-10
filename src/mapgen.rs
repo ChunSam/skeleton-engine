@@ -7,11 +7,13 @@
 //! always produce the identical [`DungeonMap`], so a game can store just the seed and regenerate the
 //! level, or reproduce a run exactly.
 //!
-//! The result is a plain owned grid (like [`PathGrid`](crate::pathfinding::PathGrid) /
+//! The result is a plain owned grid (like [`PathGrid`] /
 //! [`FovMap`](crate::fov::FovMap) — not an ECS component): read [`is_floor`](DungeonMap::is_floor) /
 //! [`is_wall`](DungeonMap::is_wall) to render or collide, [`rooms`](DungeonMap::rooms) for spawn
-//! placement, and [`to_tilemap_tiles`](DungeonMap::to_tilemap_tiles) to build a
-//! [`Tilemap`](crate::tilemap::Tilemap) / `PathGrid` / `FovMap` from the same layout.
+//! placement, [`to_tilemap_tiles`](DungeonMap::to_tilemap_tiles) to build a
+//! [`Tilemap`](crate::tilemap::Tilemap), and [`to_path_grid`](DungeonMap::to_path_grid) to get a
+//! `PathGrid` for enemy pathfinding *and* — via [`FovMap::from_path_grid`](crate::fov::FovMap::from_path_grid)
+//! — field-of-view, all from the same layout (see the `roguelike` example).
 //!
 //! ```
 //! use engine::{generate_bsp_dungeon, DungeonParams, Tile};
@@ -26,7 +28,7 @@
 
 use glam::IVec2;
 
-use crate::pathfinding::MAX_PATH_GRID_CELLS;
+use crate::pathfinding::{PathGrid, MAX_PATH_GRID_CELLS};
 
 /// A single dungeon cell: solid `Wall` or walkable `Floor`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -157,7 +159,7 @@ impl DungeonMap {
 
     /// Converts the grid to `tiles[y][x]` rows of tile ids (floor → `floor_id`, wall → `wall_id`)
     /// for building a [`Tilemap`](crate::tilemap::Tilemap) — or a
-    /// [`PathGrid`](crate::pathfinding::PathGrid) / [`FovMap`](crate::fov::FovMap) — from the same
+    /// [`PathGrid`] / [`FovMap`](crate::fov::FovMap) — from the same
     /// layout.
     pub fn to_tilemap_tiles(&self, floor_id: u32, wall_id: u32) -> Vec<Vec<u32>> {
         (0..self.height)
@@ -173,6 +175,34 @@ impl DungeonMap {
                     .collect()
             })
             .collect()
+    }
+
+    /// Builds a [`PathGrid`] whose walkable cells are exactly this
+    /// dungeon's [`Tile::Floor`] cells (walls → unwalkable). The `(x, y)` coordinates map 1:1, so it
+    /// is the direct bridge to pathfinding ([`find_path`](crate::pathfinding::find_path) for enemy
+    /// navigation) *and*, via [`FovMap::from_path_grid`](crate::fov::FovMap::from_path_grid), to
+    /// field-of-view — the same walls that block movement block sight.
+    ///
+    /// ```
+    /// use engine::{generate_bsp_dungeon, DungeonParams, FovMap};
+    ///
+    /// let map = generate_bsp_dungeon(48, 32, 7, &DungeonParams::default());
+    /// let nav = map.to_path_grid(); // for enemy pathfinding
+    /// let fov = FovMap::from_path_grid(&nav); // walls block sight
+    /// let spawn = map.first_room_center().unwrap();
+    /// assert!(nav.is_walkable(spawn.x, spawn.y)); // a room center is floor…
+    /// assert!(!fov.is_opaque(spawn.x, spawn.y)); // …and transparent.
+    /// ```
+    pub fn to_path_grid(&self) -> PathGrid {
+        let mut grid = PathGrid::new(self.width, self.height);
+        for y in 0..self.height {
+            for x in 0..self.width {
+                if self.is_wall(x, y) {
+                    grid.set_walkable(x, y, false);
+                }
+            }
+        }
+        grid
     }
 
     fn set_floor(&mut self, x: i32, y: i32) {
@@ -464,6 +494,51 @@ mod tests {
             for x in 0..m.width {
                 let expected = if m.is_floor(x, y) { 1 } else { 0 };
                 assert_eq!(tiles[y as usize][x as usize], expected);
+            }
+        }
+    }
+
+    #[test]
+    fn to_path_grid_walkable_matches_floor() {
+        let m = default_map(11);
+        let g = m.to_path_grid();
+        assert_eq!((g.width, g.height), (m.width, m.height));
+        for y in 0..m.height {
+            for x in 0..m.width {
+                assert_eq!(
+                    g.is_walkable(x, y),
+                    m.is_floor(x, y),
+                    "walkability must mirror floor at ({x},{y})"
+                );
+            }
+        }
+    }
+
+    /// The capstone composition seam: a `FovMap` built straight from a generated dungeon sees the
+    /// spawn room's floor (walls block sight, floor does not).
+    #[test]
+    fn fov_from_dungeon_sees_the_spawn_room() {
+        use crate::fov::FovMap;
+        let m = default_map(2026);
+        let mut fov = FovMap::from_path_grid(&m.to_path_grid());
+        let spawn = m.first_room_center().expect("a room");
+        fov.compute(spawn, 20);
+        assert!(
+            fov.is_visible(spawn.x, spawn.y),
+            "the observer sees its own cell"
+        );
+        for d in [
+            IVec2::new(1, 0),
+            IVec2::new(-1, 0),
+            IVec2::new(0, 1),
+            IVec2::new(0, -1),
+        ] {
+            let n = spawn + d;
+            if m.is_floor(n.x, n.y) {
+                assert!(
+                    fov.is_visible(n.x, n.y),
+                    "an adjacent floor cell {n:?} in the spawn room is in sight"
+                );
             }
         }
     }

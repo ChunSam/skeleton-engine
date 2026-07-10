@@ -4,6 +4,14 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.122.0
+
+**procgen ↔ FOV composition bridge + the `roguelike` capstone.** `DungeonMap::to_path_grid()` turns a generated dungeon into a `PathGrid` whose walkable cells are exactly its floor cells — the direct bridge to enemy pathfinding (`find_path`) *and*, via `FovMap::from_path_grid`, to field-of-view, so the walls that block movement are exactly the walls that block sight. The `roguelike` example composes this session's two features (seq-1 `FovMap` + seq-2 `generate_bsp_dungeon`) into one playable slice: a seeded BSP dungeon explored under fog-of-war. Additive — one new method plus an example, no existing API touched.
+
+### Added
+- `engine::DungeonMap::to_path_grid(&self) -> PathGrid` (`src/mapgen.rs`): walkable = `Tile::Floor`, coords 1:1. Composes with `FovMap::from_path_grid` in one line (`FovMap::from_path_grid(&map.to_path_grid())`) — the same seam feeds `find_path`. 2 unit tests (walkability mirrors floor; a `FovMap` built from a generated dungeon sees the spawn room) + 1 doctest.
+- Example `roguelike` (`examples/roguelike.rs`): the procgen↔FOV capstone. A seeded `generate_bsp_dungeon` explored under `FovMap` fog-of-war — cells in sight render bright, explored-but-unseen dim, never-seen black; rooms tinted warmer than corridors; a gem hides in every non-spawn room, revealed only when seen. WASD/arrows move, **+/-** torch radius, **R** descends to a fresh always-connected dungeon (new seed, blank fog). `HEADLESS_SHOT` capture of the lit spawn room in fog.
+
 ## 0.121.0
 
 **Procedural dungeon generation — BSP rooms + corridors, guaranteed connected and deterministic.** `generate_bsp_dungeon(w, h, seed, &params)` recursively splits the map into partitions, carves a room into each leaf, and connects sibling partitions with L-corridors while unwinding — so every room is reachable from every other. Generation depends only on the `seed` (a private SplitMix64 PRNG, never `rand`'s thread RNG), so the same seed + params always produce the identical `DungeonMap` — a game stores just the seed to regenerate the level or reproduce a run. A plain owned grid like `FovMap`/`PathGrid` (not an ECS type); composes with them via `to_tilemap_tiles`. Additive — a new module and one re-export, no existing API touched.
