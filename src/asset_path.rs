@@ -237,6 +237,25 @@ pub fn candidate_roots() -> Vec<PathBuf> {
     candidates_from(explicit.as_deref(), exe.as_deref(), cwd.as_deref())
 }
 
+/// The resolution itself, against an explicit list of roots.
+///
+/// Split out from [`resolve`] so it can be tested against a temporary directory **without
+/// touching the process-global root** — which a parallel test suite shares, and which a test that
+/// mutated it would silently impose on every other test's asset loads.
+#[cfg(not(target_arch = "wasm32"))]
+fn resolve_in(roots: &[PathBuf], path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        return path.to_path_buf();
+    }
+    for root in roots {
+        let candidate = root.join(path);
+        if candidate.exists() {
+            return candidate;
+        }
+    }
+    path.to_path_buf()
+}
+
 /// Resolves a relative asset path against the engine's asset root; see the [module docs](self).
 ///
 /// An absolute path is returned unchanged. A relative path is returned joined to the first
@@ -244,17 +263,7 @@ pub fn candidate_roots() -> Vec<PathBuf> {
 /// **unchanged**, so the ensuing error names the path the caller actually asked for.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn resolve(path: impl AsRef<Path>) -> PathBuf {
-    let path = path.as_ref();
-    if path.is_absolute() {
-        return path.to_path_buf();
-    }
-    for root in candidate_roots() {
-        let candidate = root.join(path);
-        if candidate.exists() {
-            return candidate;
-        }
-    }
-    path.to_path_buf()
+    resolve_in(&candidate_roots(), path.as_ref())
 }
 
 /// wasm has no filesystem — asset paths are URLs fetched by the host — so resolution is identity.
@@ -370,48 +379,75 @@ mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
-    fn a_relative_path_resolves_against_an_explicit_root_regardless_of_the_working_directory() {
+    fn a_relative_path_resolves_against_a_root_that_is_not_the_working_directory() {
         // The whole point of the module: resolution must not depend on the working directory.
-        // Serialized against the other root-mutating test via a shared lock (both touch the
-        // process-global root).
-        let _guard = root_lock();
-
-        let dir = std::env::temp_dir().join(format!("engine-asset-root-{}", std::process::id()));
+        //
+        // Driven through `resolve_in` rather than `set_asset_root` + `resolve`, because the root
+        // is process-global: a test that pinned it would impose that root on every other test's
+        // asset loads running in parallel, breaking them at a distance.
+        let dir = std::env::temp_dir().join(format!(
+            "engine-asset-root-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
         let nested = dir.join("assets");
         std::fs::create_dir_all(&nested).unwrap();
         let file = nested.join("pixel.png");
         std::fs::write(&file, b"not really a png").unwrap();
 
-        set_asset_root(&dir);
-        let resolved = resolve("assets/pixel.png");
-        clear_asset_root();
+        let resolved = resolve_in(&[dir.clone()], Path::new("assets/pixel.png"));
 
-        assert_eq!(resolved, file);
         std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(resolved, file);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
-    fn failures_are_recorded_and_clearable() {
-        let _guard = root_lock();
-        clear_asset_failures();
+    fn the_first_root_that_holds_the_file_wins_not_merely_the_first_root() {
+        let dir = std::env::temp_dir().join(format!(
+            "engine-asset-order-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let empty = dir.join("empty");
+        let holds = dir.join("holds");
+        std::fs::create_dir_all(&empty).unwrap();
+        std::fs::create_dir_all(&holds).unwrap();
+        let file = holds.join("pixel.png");
+        std::fs::write(&file, b"x").unwrap();
 
-        record_failure("assets/missing.png", "no such file");
+        let resolved = resolve_in(&[empty, holds], Path::new("pixel.png"));
 
-        let failures = asset_failures();
-        assert_eq!(failures.len(), 1);
-        assert_eq!(failures[0].path, "assets/missing.png");
-        assert!(failures[0].error.contains("no such file"));
-
-        clear_asset_failures();
-        assert!(asset_failures().is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(resolved, file);
     }
 
-    /// The root and the failure list are process-global, so the tests that mutate them must not
-    /// run concurrently with each other (cargo test is threaded by default).
     #[cfg(not(target_arch = "wasm32"))]
-    fn root_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: Mutex<()> = Mutex::new(());
-        LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    #[test]
+    fn a_failure_is_recorded_once_per_path_and_can_be_cleared() {
+        // The failure list is process-global and other tests in this binary record into it
+        // concurrently, so assert on THIS path only — never on the list's length.
+        let path = "assets/__unit_test_recorded_failure__.png";
+
+        record_failure(path, "no such file");
+        record_failure(path, "no such file"); // one `load_image` reports from two subsystems
+
+        let mine: Vec<_> = asset_failures()
+            .into_iter()
+            .filter(|f| f.path == path)
+            .collect();
+        assert_eq!(mine.len(), 1, "a path must be recorded at most once");
+        assert!(mine[0].error.contains("no such file"));
+        assert!(
+            mine[0].error.contains("searched:"),
+            "the message must name the roots searched, or it doesn't help anyone: {}",
+            mine[0].error
+        );
+
+        clear_asset_failures();
+        assert!(
+            !asset_failures().iter().any(|f| f.path == path),
+            "clear_asset_failures must drop recorded failures"
+        );
     }
 }
