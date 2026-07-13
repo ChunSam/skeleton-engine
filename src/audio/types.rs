@@ -1,4 +1,4 @@
-use rodio::Sink;
+use rodio::Player;
 
 // ─── Audio effects ────────────────────────────────────────────────────────────
 
@@ -76,7 +76,7 @@ pub enum AudioChannelState {
     Finished,
 }
 
-pub(crate) fn playback_state_from_sink(sink: Option<&Sink>) -> AudioChannelState {
+pub(crate) fn playback_state_from_sink(sink: Option<&Player>) -> AudioChannelState {
     match sink {
         Some(sink) if sink.empty() => AudioChannelState::Finished,
         Some(_) => AudioChannelState::Playing,

@@ -4,6 +4,21 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.125.0
+
+**Fixes the Windows/DX12 build: `rodio` 0.19 → 0.22, which drops the stale `windows` crate out of the dependency graph.** `rodio 0.19` pulled `cpal 0.15.3`, which pins `windows 0.54`. `gpu-allocator` accepts a wide `windows` range (`>=0.53, <=0.62`) and will happily reuse whatever node is already in the graph — so it could resolve onto 0.54 and then hand `wgpu-hal 29` (which is on `windows 0.62`) D3D12 types from the wrong crate version, failing the DX12 backend with a wall of type mismatches. This is invisible on macOS/Linux and only bites when someone packages a Windows release. Bumping `rodio` removes `windows 0.54` entirely, leaving exactly one `windows` version. **No public API change** — `AudioManager`, the `Audio` facade, and the wasm `WebAudio` backend keep their signatures.
+
+### Fixed
+- `rodio` 0.19 → 0.22.2 (`Cargo.toml`). `cpal` 0.15.3 → 0.17.3, which drops `windows 0.54`; the MSVC target now resolves a single `windows` version (0.62.2), so `gpu-allocator` and `wgpu-hal` agree and the DX12 backend compiles.
+- The engine's codec policy (`wav`/`vorbis`/`mp3`, owned engine-side since 0.11.x) is preserved across the bump — those features are now symphonia-backed, and `playback` is enabled explicitly since `rodio` moved `cpal` behind it.
+
+### Added
+- CI job **Build (Windows / DX12)** (`.github/workflows/ci.yml`) — the other jobs are ubuntu/wasm only, so nothing ever compiled the DX12 backend, which is precisely why this conflict could hide. The job builds on `windows-latest` and asserts the real invariant directly: exactly one `windows` crate version on the MSVC target, so a future dependency bump fails with a readable message instead of a wall of D3D12 type mismatches.
+
+### Changed (internal)
+- `src/audio/` migrated to the rodio 0.22 API: `Sink` → `Player` (`Player::connect_new(mixer)`, now infallible — the "failed to create sink" branches are gone), `OutputStream`/`OutputStreamHandle` → a single `MixerDeviceSink` (`DeviceSinkBuilder::open_default_sink`), `Source::current_frame_len` → `current_span_len`, and `channels()`/`sample_rate()` now return `NonZero` newtypes (`ChannelCount`/`SampleRate`).
+- Decoded samples are `f32` end to end in rodio 0.22, so the per-channel effect chain (pitch → low-pass → fade-in) no longer round-trips through `i16` between stages — one less quantization hop, and the `append_decoded` branch tree collapses accordingly. `PannedSource` is now generic over plain `Source`.
+
 ## 0.124.0
 
 **Styled scene transitions — fade / wipe / iris with automatic scene swapping.** `SceneTransition` is the styled successor to the solid-colour `FadeTransition`: coverage runs 0 → 1 (cover) then 1 → 0 (reveal), so the screen covers, the scene swaps *while hidden*, and the new scene is revealed. `App::transition_to_scene` (from `&mut App`) or `start_scene_transition` (from a system) do the whole cover → swap → reveal in one call; `App` swaps the scene at the fully-covered midpoint and drops the transition when it finishes. Additive — a new module, renderer, and re-exports; `FadeTransition` is untouched.

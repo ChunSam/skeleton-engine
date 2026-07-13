@@ -7,7 +7,7 @@ use super::types::Fade;
 
 use rodio::buffer::SamplesBuffer;
 use rodio::source::SineWave;
-use rodio::{Decoder, Sink, Source};
+use rodio::{ChannelCount, Decoder, Player, SampleRate, Source};
 
 use super::source::PannedSource;
 use super::types::{is_finished_state, is_playing_state, playback_state_from_sink};
@@ -19,6 +19,13 @@ use super::{AudioChannelState, AudioManager};
 const TONE_ENVELOPE_FRAC: f32 = 0.25;
 const TONE_ENVELOPE_MAX_SECS: f32 = 0.008;
 const TONE_SAMPLE_RATE: f32 = 48_000.0; // rodio `SineWave` is fixed at 48 kHz mono.
+
+/// `TONE_SAMPLE_RATE` / mono, in the `NonZero` newtypes rodio's buffer constructor takes.
+const TONE_RATE: SampleRate = match SampleRate::new(TONE_SAMPLE_RATE as u32) {
+    Some(r) => r,
+    None => unreachable!(),
+};
+const TONE_CHANNELS: ChannelCount = ChannelCount::MIN; // 1 = mono
 
 /// Synthesizes a mono 48 kHz sine of `freq` for `duration_secs` at `volume`, with a linear
 /// attack/release envelope so the tone does not click on or off. The sine body mirrors rodio's
@@ -51,11 +58,9 @@ fn enveloped_tone_samples(freq: f32, duration_secs: f32, volume: f32) -> Vec<f32
 impl AudioManager {
     /// Initializes the audio device. Returns `None` on failure; the game continues silently.
     pub fn new() -> Option<Self> {
-        use rodio::OutputStream;
-        match OutputStream::try_default() {
-            Ok((_stream, stream_handle)) => Some(Self {
-                _stream,
-                stream_handle,
+        match rodio::DeviceSinkBuilder::open_default_sink() {
+            Ok(stream) => Some(Self {
+                stream,
                 sinks: HashMap::new(),
                 volume_overrides: HashMap::new(),
                 pans: HashMap::new(),
@@ -171,10 +176,7 @@ impl AudioManager {
     pub fn play_tone(&mut self, channel: &str, freq: f32, duration_secs: f32, volume: f32) {
         // Channel reuse: tear down immediately (same as play_internal).
         self.stop_immediate(channel);
-        let sink = match Sink::try_new(&self.stream_handle) {
-            Ok(s) => s,
-            Err(_) => return,
-        };
+        let sink = Player::connect_new(self.stream.mixer());
         // Apply bus/channel volume to the sink (so set_bus_volume can update it immediately).
         sink.set_volume(self.effective_volume(channel));
 
@@ -182,30 +184,29 @@ impl AudioManager {
             .take_duration(Duration::from_secs_f32(duration_secs))
             .amplify(volume);
 
-        // SineWave produces f32 samples, so low_pass/speed/fade_in can be applied directly without conversion.
-        let source: Box<dyn Source<Item = f32> + Send + 'static> =
-            match self.effects.get(channel).cloned() {
-                Some(eff) => {
-                    let pitch = if eff.pitch > 0.0 { eff.pitch } else { 1.0 };
-                    let s = base.speed(pitch);
-                    match (eff.low_pass_hz, eff.attack_secs) {
-                        (Some(hz), a) if a > 0.001 => {
-                            Box::new(s.low_pass(hz).fade_in(Duration::from_secs_f32(a)))
-                        }
-                        (Some(hz), _) => Box::new(s.low_pass(hz)),
-                        (None, a) if a > 0.001 => Box::new(s.fade_in(Duration::from_secs_f32(a))),
-                        (None, _) => Box::new(s),
+        let source: Box<dyn Source + Send + 'static> = match self.effects.get(channel).cloned() {
+            Some(eff) => {
+                let pitch = if eff.pitch > 0.0 { eff.pitch } else { 1.0 };
+                let s = base.speed(pitch);
+                match (eff.low_pass_hz, eff.attack_secs) {
+                    (Some(hz), a) if a > 0.001 => {
+                        Box::new(s.low_pass(hz).fade_in(Duration::from_secs_f32(a)))
                     }
+                    (Some(hz), _) => Box::new(s.low_pass(hz)),
+                    (None, a) if a > 0.001 => Box::new(s.fade_in(Duration::from_secs_f32(a))),
+                    (None, _) => Box::new(s),
                 }
-                // No channel effect: emit the tone with a default de-click envelope (attack +
-                // release) so a plain `play_tone` beep doesn't click on/off. rodio 0.19 has no
-                // source `fade_out`, so the enveloped tone is materialized into a buffer.
-                None => Box::new(SamplesBuffer::new(
-                    1,
-                    TONE_SAMPLE_RATE as u32,
-                    enveloped_tone_samples(freq, duration_secs, volume),
-                )),
-            };
+            }
+            // No channel effect: emit the tone with a default de-click envelope (attack +
+            // release) so a plain `play_tone` beep doesn't click on/off. The envelope is
+            // materialized into a buffer rather than composed from source combinators so that
+            // `enveloped_tone_samples` stays assertable on the CPU (see the golden phase test).
+            None => Box::new(SamplesBuffer::new(
+                TONE_CHANNELS,
+                TONE_RATE,
+                enveloped_tone_samples(freq, duration_secs, volume),
+            )),
+        };
         sink.append(source);
         self.sinks.insert(channel.to_string(), sink);
     }
@@ -306,13 +307,7 @@ impl AudioManager {
         // The new sound must start cleanly without waiting for a release fade.
         self.stop_immediate(channel);
 
-        let sink = match Sink::try_new(&self.stream_handle) {
-            Ok(s) => s,
-            Err(e) => {
-                log::warn!("Failed to create audio sink: {e}");
-                return;
-            }
-        };
+        let sink = Player::connect_new(self.stream.mixer());
 
         let eff_vol = self.effective_volume(channel);
         sink.set_volume(eff_vol);
@@ -350,13 +345,7 @@ impl AudioManager {
         fade_in_secs: Option<f32>,
     ) {
         self.stop_immediate(channel);
-        let sink = match Sink::try_new(&self.stream_handle) {
-            Ok(s) => s,
-            Err(e) => {
-                log::warn!("Failed to create audio sink: {e}");
-                return;
-            }
-        };
+        let sink = Player::connect_new(self.stream.mixer());
         sink.set_volume(self.effective_volume(channel));
         self.append_decoded(channel, sink, bytes, repeat, fade_in_secs);
     }
@@ -368,7 +357,7 @@ impl AudioManager {
     fn append_decoded(
         &mut self,
         channel: &str,
-        sink: Sink,
+        sink: Player,
         bytes: Arc<[u8]>,
         repeat: bool,
         fade_in_secs: Option<f32>,
@@ -383,43 +372,23 @@ impl AudioManager {
         };
 
         // ── Apply effects ─────────────────────────────────────────────────────
-        // Unified as Box<dyn Source<Item=i16> + Send> to reduce type complexity.
+        // Applied in the order speed → low-pass → fade-in. Decoded samples are f32
+        // throughout, so the stages compose directly.
         let effect = self.effects.get(channel).cloned();
-        let effected: Box<dyn Source<Item = i16> + Send + 'static> = if let Some(eff) = effect {
-            if (eff.pitch - 1.0).abs() > 0.001 {
-                let s = source.speed(eff.pitch);
-                if let Some(hz) = eff.low_pass_hz {
-                    let s = s
-                        .convert_samples::<f32>()
-                        .low_pass(hz)
-                        .convert_samples::<i16>();
-                    if eff.attack_secs > 0.001 {
-                        Box::new(s.fade_in(Duration::from_secs_f32(eff.attack_secs)))
-                    } else {
-                        Box::new(s)
-                    }
-                } else if eff.attack_secs > 0.001 {
-                    Box::new(
-                        s.convert_samples::<i16>()
-                            .fade_in(Duration::from_secs_f32(eff.attack_secs)),
-                    )
-                } else {
-                    Box::new(s.convert_samples::<i16>())
-                }
-            } else if let Some(hz) = eff.low_pass_hz {
-                let s = source
-                    .convert_samples::<f32>()
-                    .low_pass(hz)
-                    .convert_samples::<i16>();
-                if eff.attack_secs > 0.001 {
-                    Box::new(s.fade_in(Duration::from_secs_f32(eff.attack_secs)))
-                } else {
-                    Box::new(s)
-                }
-            } else if eff.attack_secs > 0.001 {
-                Box::new(source.fade_in(Duration::from_secs_f32(eff.attack_secs)))
+        let effected: Box<dyn Source + Send + 'static> = if let Some(eff) = effect {
+            let pitched: Box<dyn Source + Send + 'static> = if (eff.pitch - 1.0).abs() > 0.001 {
+                Box::new(source.speed(eff.pitch))
             } else {
                 Box::new(source)
+            };
+            let filtered: Box<dyn Source + Send + 'static> = match eff.low_pass_hz {
+                Some(hz) => Box::new(pitched.low_pass(hz)),
+                None => pitched,
+            };
+            if eff.attack_secs > 0.001 {
+                Box::new(filtered.fade_in(Duration::from_secs_f32(eff.attack_secs)))
+            } else {
+                filtered
             }
         } else {
             Box::new(source)
@@ -429,7 +398,7 @@ impl AudioManager {
         // BufReader would be more efficient without pan or fade-in, but we unify
         // on the Cursor path here (bytes are already in memory, so the cost is identical).
         if pan.abs() > 0.001 {
-            let panned = PannedSource::new(effected.convert_samples::<f32>(), pan);
+            let panned = PannedSource::new(effected, pan);
             if let Some(fade_dur) = fade_in_secs {
                 let faded = panned.fade_in(Duration::from_secs_f32(fade_dur));
                 if repeat {

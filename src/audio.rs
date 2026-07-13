@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use rodio::{OutputStream, OutputStreamHandle, Sink};
+use rodio::{MixerDeviceSink, Player};
 
 mod bus;
 mod ducking;
@@ -69,9 +69,10 @@ pub use types::{AudioChannelState, AudioEffect};
 /// am.set_bus_volume("music", 0.5);  // halve the music bus volume
 /// ```
 pub struct AudioManager {
-    _stream: OutputStream,
-    stream_handle: OutputStreamHandle,
-    sinks: HashMap<String, Sink>,
+    /// Output device sink. Held both to keep the device open and to hand each channel's
+    /// `Player` a `mixer()` to connect to.
+    stream: MixerDeviceSink,
+    sinks: HashMap<String, Player>,
     /// Per-channel base volume (before multiplying by bus volume).
     volume_overrides: HashMap<String, f32>,
     /// Per-channel stereo pan.

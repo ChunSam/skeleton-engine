@@ -151,6 +151,50 @@ jobs:
       - name: cargo clippy (wasm, lib only)
         run: cargo clippy --target wasm32-unknown-unknown --lib -- -D warnings
 
+  # ── Windows 빌드 ──────────────────────────────────────────────────────────
+  # The other jobs are ubuntu/wasm only, so nothing here ever compiled the DX12
+  # backend. That let a dependency conflict hide: an audio stack pulling an older
+  # `windows` crate than wgpu-hal's makes `gpu-allocator` hand DX12 types from the
+  # wrong version and wgpu-hal fails to build. It is invisible on macOS/Linux and
+  # only surfaces when someone packages a Windows release.
+  windows:
+    name: Build (Windows / DX12)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.95
+        uses: dtolnay/rust-toolchain@1.95.0
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-msvc-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-msvc-
+
+      # A single `windows` version across the graph is the actual invariant; assert it
+      # directly so a future dependency bump fails here with a readable message rather
+      # than as a wall of D3D12 type mismatches inside wgpu-hal.
+      - name: One `windows` crate version on the MSVC target
+        shell: bash
+        run: |
+          # `cargo tree -i` exits non-zero when the spec is ambiguous (i.e. exactly the
+          # failure we are testing for), so swallow the status and judge by the output.
+          versions=$(cargo tree --target x86_64-pc-windows-msvc -i windows 2>&1 \
+            | grep -oE '^windows v[0-9.]+|windows@[0-9.]+' | sort -u || true)
+          echo "$versions"
+          if [ "$(printf '%s\n' "$versions" | grep -c .)" -ne 1 ]; then
+            echo "::error::multiple 'windows' crate versions on the MSVC target — DX12 will not compile"
+            exit 1
+          fi
+
+      - name: cargo build (lib + bins)
+        run: cargo build
+
   # ── 문서 빌드 ─────────────────────────────────────────────────────────────
   docs:
     name: Rustdoc
