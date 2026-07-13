@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name        = "skeleton-engine"
-version     = "0.124.0"
+version     = "0.125.0"
 edition     = "2021"
 description = "Lightweight 2D game engine — wgpu rendering, custom ECS, rapier2d physics"
 repository  = "https://github.com/ChunSam/skeleton-engine"
@@ -185,7 +185,7 @@ ab_glyph = "0.2" # egui's rasterizer — used to assert the bundled Korean subse
 # ── 네이티브 전용 (OS API 의존) ──────────────────────────────────────────────
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rapier2d    = { version = "0.22", features = ["default"] }
-rodio       = { version = "0.19", default-features = false, features = ["wav", "vorbis", "mp3"] }
+rodio       = { version = "0.22", default-features = false, features = ["playback", "wav", "vorbis", "mp3"] }
 dirs        = "5"
 gilrs       = "0.11"
 notify      = "6"

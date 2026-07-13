@@ -1,10 +1,10 @@
 use std::time::Duration;
 
-use rodio::Source;
+use rodio::{ChannelCount, Sample, SampleRate, Source};
 
 // ─── Stereo pan source wrapper ────────────────────────────────────────────────
 
-pub(super) struct PannedSource<S: Source<Item = f32>> {
+pub(super) struct PannedSource<S: Source> {
     pub(super) inner: S,
     pub(super) left_vol: f32,
     pub(super) right_vol: f32,
@@ -12,9 +12,9 @@ pub(super) struct PannedSource<S: Source<Item = f32>> {
     pub(super) total_channels: u16,
 }
 
-impl<S: Source<Item = f32>> PannedSource<S> {
+impl<S: Source> PannedSource<S> {
     pub(super) fn new(inner: S, pan: f32) -> Self {
-        let total_channels = inner.channels();
+        let total_channels = inner.channels().get();
         Self {
             left_vol: (1.0 - pan).clamp(0.0, 1.0),
             right_vol: (1.0 + pan).clamp(0.0, 1.0),
@@ -25,7 +25,7 @@ impl<S: Source<Item = f32>> PannedSource<S> {
     }
 }
 
-impl<S: Source<Item = f32> + Clone> Clone for PannedSource<S> {
+impl<S: Source + Clone> Clone for PannedSource<S> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -37,9 +37,9 @@ impl<S: Source<Item = f32> + Clone> Clone for PannedSource<S> {
     }
 }
 
-impl<S: Source<Item = f32>> Iterator for PannedSource<S> {
-    type Item = f32;
-    fn next(&mut self) -> Option<f32> {
+impl<S: Source> Iterator for PannedSource<S> {
+    type Item = Sample;
+    fn next(&mut self) -> Option<Sample> {
         let sample = self.inner.next()?;
         let channels = self.total_channels;
         let vol = if channels < 2 {
@@ -54,14 +54,14 @@ impl<S: Source<Item = f32>> Iterator for PannedSource<S> {
     }
 }
 
-impl<S: Source<Item = f32>> Source for PannedSource<S> {
-    fn current_frame_len(&self) -> Option<usize> {
-        self.inner.current_frame_len()
+impl<S: Source> Source for PannedSource<S> {
+    fn current_span_len(&self) -> Option<usize> {
+        self.inner.current_span_len()
     }
-    fn channels(&self) -> u16 {
+    fn channels(&self) -> ChannelCount {
         self.inner.channels()
     }
-    fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> SampleRate {
         self.inner.sample_rate()
     }
     fn total_duration(&self) -> Option<Duration> {
