@@ -2,6 +2,7 @@ pub mod anim_effect;
 pub mod animation;
 pub mod app;
 pub mod asset;
+pub mod asset_path;
 pub mod atlas;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod audio;
@@ -98,6 +99,7 @@ pub use asset::HotReloadable;
 pub use asset::{
     AssetId, AssetLoadError, AssetLoadState, AssetServer, Handle, ImageAsset, ImageEntry,
 };
+pub use asset_path::AssetFailure;
 // ScriptAsset re-exported from scripting (canonical location after K-refactor).
 // Also bridged below via `pub use scripting::ScriptAsset` for source-compat.
 pub use anim_effect::{AnimEffectBindings, AnimEffectError, AnimEffectRegistry, AnimEffectSystem};

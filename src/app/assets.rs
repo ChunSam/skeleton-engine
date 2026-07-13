@@ -71,6 +71,41 @@ impl App {
         }
     }
 
+    /// Pins asset resolution to one explicit root directory.
+    ///
+    /// By default the engine finds relative asset paths on its own — next to the executable, in a
+    /// macOS bundle's `Contents/Resources`, or in the working directory — so a packaged build works
+    /// however it is launched. Call this only to override that; see
+    /// [`asset_path`](crate::asset_path) for the search order.
+    pub fn set_asset_root(&mut self, root: impl Into<std::path::PathBuf>) {
+        crate::asset_path::set_asset_root(root);
+    }
+
+    /// Makes a failed asset load panic instead of falling back to a magenta placeholder.
+    ///
+    /// Off by default (a released game should degrade, not die). Turn it on in a dev build so a
+    /// missing texture stops at the load rather than painting the window magenta.
+    pub fn set_strict_assets(&mut self, strict: bool) {
+        crate::asset_path::set_strict_assets(strict);
+    }
+
+    /// Every asset the engine failed to load, in load order.
+    ///
+    /// The engine substitutes a placeholder and keeps running, which is easy to miss — poll this
+    /// after loading to log a diagnostic, show a warning, or refuse to start.
+    ///
+    /// ```rust,no_run
+    /// # use engine::App;
+    /// # let mut app = App::new();
+    /// app.load_image("assets/hero.png");
+    /// for failure in app.asset_failures() {
+    ///     eprintln!("missing asset: {} — {}", failure.path, failure.error);
+    /// }
+    /// ```
+    pub fn asset_failures(&self) -> Vec<crate::AssetFailure> {
+        crate::asset_path::asset_failures()
+    }
+
     pub fn load_image(&mut self, path: impl Into<String>) -> Handle<ImageAsset> {
         let path = path.into();
         self.pending_textures.push(path.clone());

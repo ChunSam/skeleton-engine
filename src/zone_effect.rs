@@ -145,7 +145,7 @@ impl ZoneEffectRegistry {
 impl crate::ron_registry::RonLoadable for ZoneEffectBindings {
     type Err = ZoneEffectError;
     fn load_ron(path: &str) -> Result<Self, Self::Err> {
-        let text = std::fs::read_to_string(path)?;
+        let text = std::fs::read_to_string(crate::asset_path::resolve(path))?;
         Self::from_ron_str(&text)
     }
 }

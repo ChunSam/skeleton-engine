@@ -554,7 +554,8 @@ pub(super) fn read_cached_bytes(
     if let Some(bytes) = cache.get(path) {
         return Some(Arc::clone(bytes));
     }
-    match std::fs::read(path) {
+    // Resolved only for the read; the cache stays keyed by the caller's path.
+    match std::fs::read(crate::asset_path::resolve(path)) {
         Ok(b) => {
             let arc: Arc<[u8]> = Arc::from(b.into_boxed_slice());
             cache.insert(path.to_string(), Arc::clone(&arc));

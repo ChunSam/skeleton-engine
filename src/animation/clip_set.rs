@@ -132,7 +132,7 @@ impl AnimationClipSet {
     /// Load a clip set from a file path (native only).
     #[cfg(not(target_arch = "wasm32"))]
     pub fn load(path: &str) -> Result<Self, ClipSetError> {
-        let text = std::fs::read_to_string(path)?;
+        let text = std::fs::read_to_string(crate::asset_path::resolve(path))?;
         Self::from_ron_str(&text)
     }
 

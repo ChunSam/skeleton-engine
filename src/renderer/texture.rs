@@ -53,7 +53,11 @@ impl Texture {
         format: wgpu::TextureFormat,
     ) -> Self {
         Self::try_from_path_with_format(device, queue, layout, path, format).unwrap_or_else(|e| {
-            log::warn!("texture load failed ({path}): {e}, using magenta fallback");
+            // A failed texture was the engine's loudest silent failure: the magenta 1×1 is
+            // substituted, nothing aborts, and a full-screen textured quad turns the whole window
+            // magenta. Record it so `asset_path::asset_failures()` surfaces it and strict mode can
+            // stop here, instead of leaving the player staring at a magenta screen.
+            crate::asset_path::record_failure(path, &e);
             // magenta 1×1: makes missing textures visually identifiable at a glance
             Self::from_rgba_with_format(
                 device,
@@ -93,7 +97,8 @@ impl Texture {
         path: &str,
         format: wgpu::TextureFormat,
     ) -> Result<Self, TextureError> {
-        let bytes = std::fs::read(path).map_err(TextureError::Io)?;
+        // Resolved only here, at the filesystem edge — `path` stays the texture's cache key.
+        let bytes = std::fs::read(crate::asset_path::resolve(path)).map_err(TextureError::Io)?;
         let img = image::load_from_memory(&bytes).map_err(TextureError::Decode)?;
         let rgba = img.to_rgba8();
         let (w, h) = rgba.dimensions();
