@@ -6,7 +6,7 @@ use super::asset::ScriptAsset;
 /// On wasm: file I/O is unsupported; logs a warning and returns an empty script.
 pub(super) fn compile_script_file(path: &str) -> ScriptAsset {
     #[cfg(not(target_arch = "wasm32"))]
-    let source = match std::fs::read_to_string(path) {
+    let source = match std::fs::read_to_string(crate::asset_path::resolve(path)) {
         Ok(s) => s,
         Err(e) => {
             log::error!("failed to read script file '{path}': {e}");

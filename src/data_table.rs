@@ -136,7 +136,7 @@ impl DataTable {
     /// Load a data table from `path` on disk.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn load(path: &str) -> Result<Self, SaveError> {
-        let text = std::fs::read_to_string(path)?;
+        let text = std::fs::read_to_string(crate::asset_path::resolve(path))?;
         let mut table = Self::parse(&text)?;
         table.path = path.to_string();
         Ok(table)

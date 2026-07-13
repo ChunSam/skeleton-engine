@@ -141,7 +141,9 @@ mod tests {
         impl RonLoadable for V {
             type Err = std::io::Error;
             fn load_ron(path: &str) -> Result<Self, Self::Err> {
-                Ok(V(std::fs::read_to_string(path)?))
+                Ok(V(std::fs::read_to_string(crate::asset_path::resolve(
+                    path,
+                ))?))
             }
         }
 

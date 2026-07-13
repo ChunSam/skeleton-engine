@@ -124,7 +124,8 @@ impl AssetServer {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) fn decode_image_with_state(path: &str) -> (ImageAsset, AssetLoadState) {
-    match std::fs::read(path) {
+    // Resolved only for the read; `path` remains the asset's key and handle path.
+    match std::fs::read(crate::asset_path::resolve(path)) {
         Ok(bytes) => match image::load_from_memory(&bytes) {
             Ok(img) => {
                 let rgba = img.to_rgba8();
@@ -140,13 +141,13 @@ pub(super) fn decode_image_with_state(path: &str) -> (ImageAsset, AssetLoadState
             }
             Err(e) => {
                 let msg = format!("image decode failed '{path}': {e}");
-                log::error!("{msg}");
+                crate::asset_path::record_failure(path, format!("image decode failed: {e}"));
                 (magenta_fallback(), AssetLoadState::Failed(msg))
             }
         },
         Err(e) => {
             let msg = format!("image file read failed '{path}': {e}");
-            log::error!("{msg}");
+            crate::asset_path::record_failure(path, format!("image file read failed: {e}"));
             (magenta_fallback(), AssetLoadState::Failed(msg))
         }
     }
