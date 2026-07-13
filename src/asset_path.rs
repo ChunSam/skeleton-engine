@@ -395,7 +395,7 @@ mod tests {
         let file = nested.join("pixel.png");
         std::fs::write(&file, b"not really a png").unwrap();
 
-        let resolved = resolve_in(&[dir.clone()], Path::new("assets/pixel.png"));
+        let resolved = resolve_in(std::slice::from_ref(&dir), Path::new("assets/pixel.png"));
 
         std::fs::remove_dir_all(&dir).ok();
         assert_eq!(resolved, file);
