@@ -20,8 +20,11 @@ impl App {
     /// not yet present. On native builds the path is also registered with the
     /// `AssetServer` file watcher so that disk changes are hot-reloaded.
     ///
-    /// Errors (file not found, parse failure) are logged via `log::warn!` and
-    /// silently dropped — the registry will simply not contain the table.
+    /// A failure (file not found, parse error) is reported as an asset failure: logged at
+    /// `error!` with the roots searched, and listed by [`asset_failures`](Self::asset_failures)
+    /// so a game can refuse to start rather than boot on an empty table. With
+    /// [`set_strict_assets(true)`](Self::set_strict_assets) it panics at the load instead. The
+    /// registry itself is left without the table either way.
     ///
     /// This method is a no-op on wasm (file I/O is unsupported there).
     pub fn load_data_table(&mut self, name: impl Into<String>, path: impl Into<String>) {
@@ -47,8 +50,8 @@ impl App {
                 .world
                 .resource_mut::<crate::data_table::DataTableRegistry>()
             {
-                if let Err(e) = reg.load(name, &path) {
-                    log::warn!("load_data_table: failed to load '{path}': {e}");
+                if let Err(e) = reg.load(name.clone(), &path) {
+                    crate::asset_path::record_failure(&path, format!("data table '{name}': {e}"));
                     return;
                 }
             }
@@ -71,8 +74,10 @@ impl App {
     /// if one is not yet present. On native builds the path is also registered with the
     /// `AssetServer` file watcher so that disk changes are hot-reloaded.
     ///
-    /// Errors (file not found, parse failure) are logged via `log::warn!` and silently
-    /// dropped — the registry will simply not contain the set.
+    /// A failure (file not found, parse error) is reported as an asset failure — `error!` plus
+    /// [`asset_failures`](Self::asset_failures), or a panic under
+    /// [`set_strict_assets`](Self::set_strict_assets). The registry will simply not contain
+    /// the set.
     ///
     /// This method is a no-op on wasm (file I/O is unsupported there).
     pub fn load_animation_clips(&mut self, name: impl Into<String>, path: impl Into<String>) {
@@ -90,8 +95,11 @@ impl App {
         #[cfg(not(target_arch = "wasm32"))]
         {
             if let Some(reg) = self.world.resource_mut::<AnimationClipRegistry>() {
-                if let Err(e) = reg.load(name, &path) {
-                    log::warn!("load_animation_clips: failed to load '{path}': {e}");
+                if let Err(e) = reg.load(name.clone(), &path) {
+                    crate::asset_path::record_failure(
+                        &path,
+                        format!("animation clip set '{name}': {e}"),
+                    );
                     return;
                 }
             }
@@ -113,8 +121,10 @@ impl App {
     /// is not yet present. On native builds the path is also registered with the
     /// `AssetServer` file watcher so that disk changes are hot-reloaded.
     ///
-    /// Errors (file not found, parse failure) are logged via `log::warn!` and
-    /// silently dropped — the registry will simply not contain the config set.
+    /// A failure (file not found, parse error) is reported as an asset failure — `error!` plus
+    /// [`asset_failures`](Self::asset_failures), or a panic under
+    /// [`set_strict_assets`](Self::set_strict_assets). The registry will simply not contain
+    /// the config set.
     ///
     /// This method is a no-op on wasm (file I/O is unsupported there).
     pub fn load_particle_configs(&mut self, name: impl Into<String>, path: impl Into<String>) {
@@ -139,8 +149,11 @@ impl App {
                 .world
                 .resource_mut::<crate::particle::ParticleConfigRegistry>()
             {
-                if let Err(e) = reg.load(name, &path) {
-                    log::warn!("load_particle_configs: failed to load '{path}': {e}");
+                if let Err(e) = reg.load(name.clone(), &path) {
+                    crate::asset_path::record_failure(
+                        &path,
+                        format!("particle config set '{name}': {e}"),
+                    );
                     return;
                 }
             }
@@ -164,8 +177,10 @@ impl App {
     /// watcher so that disk changes are hot-reloaded. Build a [`DialogueBox`](crate::DialogueBox)
     /// from a loaded tree via [`DialogueRegistry::box_of`](crate::DialogueRegistry::box_of).
     ///
-    /// Errors (file not found, parse failure) are logged via `log::warn!` and silently
-    /// dropped — the registry will simply not contain the tree.
+    /// A failure (file not found, parse error) is reported as an asset failure — `error!` plus
+    /// [`asset_failures`](Self::asset_failures), or a panic under
+    /// [`set_strict_assets`](Self::set_strict_assets). The registry will simply not contain
+    /// the tree.
     ///
     /// This method is a no-op on wasm (file I/O is unsupported there).
     pub fn load_dialogue(&mut self, name: impl Into<String>, path: impl Into<String>) {
@@ -184,8 +199,11 @@ impl App {
         #[cfg(not(target_arch = "wasm32"))]
         {
             if let Some(reg) = self.world.resource_mut::<DialogueRegistry>() {
-                if let Err(e) = reg.load(name, &path) {
-                    log::warn!("load_dialogue: failed to load '{path}': {e}");
+                if let Err(e) = reg.load(name.clone(), &path) {
+                    crate::asset_path::record_failure(
+                        &path,
+                        format!("dialogue tree '{name}': {e}"),
+                    );
                     return;
                 }
             }
@@ -208,9 +226,11 @@ impl App {
     /// disk changes are hot-reloaded. Spawn the loaded zones with
     /// [`spawn_trigger_zones`](Self::spawn_trigger_zones).
     ///
-    /// Errors (file not found, parse failure) are logged via `log::warn!` and silently dropped — the
-    /// registry will simply not contain the set. This method is a no-op on wasm (file I/O is
-    /// unsupported there; parse with [`TriggerZoneSet::from_ron_str`](crate::TriggerZoneSet::from_ron_str)
+    /// A failure (file not found, parse error) is reported as an asset failure — `error!` plus
+    /// [`asset_failures`](Self::asset_failures), or a panic under
+    /// [`set_strict_assets`](Self::set_strict_assets). The registry will simply not contain the
+    /// set. This method is a no-op on wasm (file I/O is unsupported there; parse with
+    /// [`TriggerZoneSet::from_ron_str`](crate::TriggerZoneSet::from_ron_str)
     /// and [`TriggerZoneRegistry::insert`](crate::TriggerZoneRegistry::insert) instead).
     pub fn load_trigger_zones(&mut self, name: impl Into<String>, path: impl Into<String>) {
         use crate::trigger_zone::TriggerZoneRegistry;
@@ -227,8 +247,11 @@ impl App {
         #[cfg(not(target_arch = "wasm32"))]
         {
             if let Some(reg) = self.world.resource_mut::<TriggerZoneRegistry>() {
-                if let Err(e) = reg.load(name, &path) {
-                    log::warn!("load_trigger_zones: failed to load '{path}': {e}");
+                if let Err(e) = reg.load(name.clone(), &path) {
+                    crate::asset_path::record_failure(
+                        &path,
+                        format!("trigger-zone set '{name}': {e}"),
+                    );
                     return;
                 }
             }
@@ -270,9 +293,10 @@ impl App {
     /// [`ZoneEffectSystem::new(name)`](crate::ZoneEffectSystem) added after
     /// [`TriggerZoneSystem`](crate::TriggerZoneSystem).
     ///
-    /// Errors (file not found, parse failure) are logged via `log::warn!` and silently dropped — the
-    /// registry will simply not contain the table. This method is a no-op on wasm (file I/O is
-    /// unsupported there; parse with
+    /// A failure (file not found, parse error) is reported as an asset failure — `error!` plus
+    /// [`asset_failures`](Self::asset_failures), or a panic under
+    /// [`set_strict_assets`](Self::set_strict_assets). The registry will simply not contain the
+    /// table. This method is a no-op on wasm (file I/O is unsupported there; parse with
     /// [`ZoneEffectBindings::from_ron_str`](crate::ZoneEffectBindings::from_ron_str) and
     /// [`ZoneEffectRegistry::insert`](crate::ZoneEffectRegistry::insert) instead).
     pub fn load_zone_effects(&mut self, name: impl Into<String>, path: impl Into<String>) {
@@ -290,8 +314,11 @@ impl App {
         #[cfg(not(target_arch = "wasm32"))]
         {
             if let Some(reg) = self.world.resource_mut::<ZoneEffectRegistry>() {
-                if let Err(e) = reg.load(name, &path) {
-                    log::warn!("load_zone_effects: failed to load '{path}': {e}");
+                if let Err(e) = reg.load(name.clone(), &path) {
+                    crate::asset_path::record_failure(
+                        &path,
+                        format!("zone-effect table '{name}': {e}"),
+                    );
                     return;
                 }
             }
@@ -314,9 +341,10 @@ impl App {
     /// [`AnimEffectSystem::new(name)`](crate::AnimEffectSystem) added after
     /// [`AnimationSystem`](crate::animation::AnimationSystem).
     ///
-    /// Errors (file not found, parse failure) are logged via `log::warn!` and silently dropped — the
-    /// registry will simply not contain the table. This method is a no-op on wasm (file I/O is
-    /// unsupported there; parse with
+    /// A failure (file not found, parse error) is reported as an asset failure — `error!` plus
+    /// [`asset_failures`](Self::asset_failures), or a panic under
+    /// [`set_strict_assets`](Self::set_strict_assets). The registry will simply not contain the
+    /// table. This method is a no-op on wasm (file I/O is unsupported there; parse with
     /// [`AnimEffectBindings::from_ron_str`](crate::AnimEffectBindings::from_ron_str) and
     /// [`AnimEffectRegistry::insert`](crate::AnimEffectRegistry::insert) instead).
     pub fn load_anim_effects(&mut self, name: impl Into<String>, path: impl Into<String>) {
@@ -334,8 +362,11 @@ impl App {
         #[cfg(not(target_arch = "wasm32"))]
         {
             if let Some(reg) = self.world.resource_mut::<AnimEffectRegistry>() {
-                if let Err(e) = reg.load(name, &path) {
-                    log::warn!("load_anim_effects: failed to load '{path}': {e}");
+                if let Err(e) = reg.load(name.clone(), &path) {
+                    crate::asset_path::record_failure(
+                        &path,
+                        format!("anim-effect table '{name}': {e}"),
+                    );
                     return;
                 }
             }
@@ -348,5 +379,80 @@ impl App {
         {
             let _ = (name, path);
         }
+    }
+}
+
+/// The loud-failure contract these loaders share: a table that cannot be read or parsed is
+/// reported, while one that is *legitimately* empty is not.
+///
+/// Both tests key their assertions on a **path unique to the test**, never on the length of
+/// `asset_failures()` — that list is process-global and shared with every other test in this
+/// binary (see the caveats in [`crate::asset_path`]).
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use crate::app::App;
+
+    /// A missing data table used to `warn!` and register nothing, so the game booted on an empty
+    /// table with no way to tell that apart from a table that is empty on purpose. It is now an
+    /// asset failure.
+    #[test]
+    fn a_missing_data_table_is_recorded_as_an_asset_failure() {
+        let missing = "examples/assets/__missing_items_table__.ron";
+        assert!(
+            !std::path::Path::new(missing).exists(),
+            "precondition: {missing} must not exist, or this test proves nothing"
+        );
+
+        let mut app = App::new();
+        app.load_data_table("items", missing);
+
+        let failure = app
+            .asset_failures()
+            .into_iter()
+            .find(|f| f.path == missing)
+            .unwrap_or_else(|| {
+                panic!("a missing data table must be reported via asset_failures(), got nothing")
+            });
+        assert!(
+            failure.error.contains("items"),
+            "the failure should name the table it was loading: {}",
+            failure.error
+        );
+        assert!(
+            app.world
+                .resource::<crate::data_table::DataTableRegistry>()
+                .expect("registry")
+                .get("items")
+                .is_none(),
+            "a failed load must not leave an empty table behind under the name"
+        );
+    }
+
+    /// The other half of the contract: an *intentionally* empty table parses fine, so it must
+    /// register (with zero rows) and must NOT be reported as a failure.
+    #[test]
+    fn an_intentionally_empty_data_table_is_not_a_failure() {
+        // Absolute path: `resolve` passes it through, so this does not depend on the working
+        // directory (which another integration test moves).
+        let path = std::env::temp_dir().join("skeleton_engine_empty_table_test.ron");
+        std::fs::write(&path, "[]").expect("write fixture");
+        let path = path.display().to_string();
+
+        let mut app = App::new();
+        app.load_data_table("empty", &path);
+
+        assert!(
+            !app.asset_failures().iter().any(|f| f.path == path),
+            "a valid, empty table must not be reported as an asset failure"
+        );
+        let table = app
+            .world
+            .resource::<crate::data_table::DataTableRegistry>()
+            .expect("registry")
+            .get("empty")
+            .expect("an empty table still registers");
+        assert!(table.rows.is_empty());
+
+        let _ = std::fs::remove_file(&path);
     }
 }

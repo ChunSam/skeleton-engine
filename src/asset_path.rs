@@ -35,6 +35,26 @@
 //! [`set_asset_root`] overrides the search with a single explicit root — useful for a dev build,
 //! a test, or a game that stores its content somewhere unusual.
 //!
+//! # One failure list, for every kind of asset
+//!
+//! Resolution is only half the fix. A load that still fails — a missing file, a RON syntax error —
+//! must be *noticeable*, and the fallback each subsystem picks is easy to miss: a magenta texture,
+//! silence, an **empty data table**. A downstream game shipped a packaged build whose 19 data
+//! tables all resolved to nothing; every table registered empty, so the game booted "correctly"
+//! with an empty shop and no dungeons, and it took a player's bug report to find. A silent empty
+//! table is indistinguishable from a legitimately empty one.
+//!
+//! So every path-based loader — textures, images, data tables, animation clip sets, particle
+//! configs, dialogue trees, trigger-zone sets, zone- and anim-effect tables, Rhai scripts, audio
+//! clips — reports its failures the same way: logged at `error!` **with the roots it searched**,
+//! and appended to [`asset_failures`]. That list is the hook: assert on it at boot and refuse to
+//! start, or draw it in a diagnostic overlay. [`set_strict_assets`] turns any such failure into a
+//! panic at the load instead.
+//!
+//! Two things are deliberately **not** failures here: a *hot-reload* that fails (the file loaded
+//! once, and a half-saved edit should not kill a strict dev build — those still `warn!`), and an
+//! intentionally empty asset that parses fine.
+//!
 //! # What it deliberately does not touch
 //!
 //! Resolution happens **only at the point of reading the file**. An asset's cache key and its
