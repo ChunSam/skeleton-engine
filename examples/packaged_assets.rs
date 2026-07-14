@@ -14,9 +14,15 @@
 //! - It loads `examples/assets/…` by a **relative** path. If the sprite below renders (rather than
 //!   magenta), resolution worked — **run this binary from any directory and it still does**:
 //!   `cd / && /path/to/target/debug/examples/packaged_assets`
-//! - It also loads one deliberately **missing** texture, so you can see the other half of the fix:
-//!   the failure is now *reported* (`App::asset_failures()`) instead of silently swallowed. That
-//!   is the panel on the right — the engine names the file **and the roots it searched**.
+//! - It also loads one deliberately **missing** texture and one deliberately **missing data
+//!   table**, so you can see the other half of the fix: the failure is now *reported*
+//!   (`App::asset_failures()`) instead of silently swallowed. That is the panel on the right — the
+//!   engine names the file **and the roots it searched**.
+//!
+//! The data table is the case that is easiest to ship by accident. A texture that fails to load is
+//! at least *visible* (a magenta quad); a data table that fails to load registers **empty**, and a
+//! game reading it runs perfectly happily with no items, no enemies, no levels — a content bug
+//! three screens away from its cause. Both now land in the same list.
 //!
 //! `App::set_strict_assets(true)` turns a missing asset into a panic at the load instead.
 //!
@@ -35,6 +41,11 @@ const WIN_H: u32 = 460;
 const REAL_TEXTURE: &str = "examples/assets/hex_tiles.png";
 /// Deliberately absent, to demonstrate that a failed load is now surfaced rather than swallowed.
 const MISSING_TEXTURE: &str = "examples/assets/__deliberately_missing__.png";
+/// A real data table, also loaded by a relative path — the game content half of the fix.
+const REAL_TABLE: &str = "examples/games/stat_editor_game/items.ron";
+/// Deliberately absent. This is the failure that used to be *invisible*: the table registers
+/// empty and the game boots with no content, saying nothing.
+const MISSING_TABLE: &str = "examples/assets/__deliberately_missing__.ron";
 
 struct Hud;
 
@@ -54,6 +65,11 @@ impl System for Hud {
             .unwrap_or_else(|_| "<unknown>".into());
         let roots = engine::asset_path::candidate_roots();
         let failures = engine::asset_path::asset_failures();
+        // Read the row count out before borrowing the TextQueue mutably.
+        let item_rows = world
+            .resource::<engine::DataTableRegistry>()
+            .and_then(|reg| reg.get("items"))
+            .map_or(0, |t| t.rows.len());
 
         let Some(tq) = world.resource_mut::<TextQueue>() else {
             return;
@@ -79,17 +95,25 @@ impl System for Hud {
             13.0,
             Color::rgb(0.5, 0.85, 0.55),
         ));
+        // A data table that loaded is proved by its rows: 0 rows is exactly what the silent
+        // failure used to look like.
+        tq.push(DrawText::new(
+            format!("loaded:  items.ron  ({item_rows} rows)"),
+            Vec2::new(28.0, 90.0),
+            13.0,
+            Color::rgb(0.5, 0.85, 0.55),
+        ));
 
         tq.push(DrawText::new(
             "roots searched, in order:",
-            Vec2::new(28.0, 106.0),
+            Vec2::new(28.0, 124.0),
             13.0,
             dim,
         ));
         for (i, root) in roots.iter().take(5).enumerate() {
             tq.push(DrawText::new(
                 format!("{}. {}", i + 1, root.display()),
-                Vec2::new(40.0, 128.0 + i as f32 * 18.0),
+                Vec2::new(40.0, 146.0 + i as f32 * 18.0),
                 12.0,
                 dim,
             ));
@@ -111,7 +135,7 @@ impl System for Hud {
                 dim,
             ));
         }
-        for (i, f) in failures.iter().take(3).enumerate() {
+        for (i, f) in failures.iter().take(4).enumerate() {
             let y = 130.0 + i as f32 * 40.0;
             tq.push(DrawText::new(
                 &f.path,
@@ -147,6 +171,11 @@ fn main() {
     let real = app.load_image(REAL_TEXTURE);
     let _missing = app.load_image(MISSING_TEXTURE);
 
+    // The game-content half. Both go through the same asset root; the missing one now reports
+    // itself instead of quietly registering an empty table.
+    app.load_data_table("items", REAL_TABLE);
+    app.load_data_table("dungeons", MISSING_TABLE);
+
     let sprite = app.world.spawn();
     app.world.add_component(
         sprite,
@@ -172,22 +201,47 @@ fn main() {
         app.save_screenshot_headless(frames, &out)
             .expect("headless screenshot");
 
-        // The acceptance test: the REAL texture must have resolved, no matter where we were
-        // launched from. (The deliberately-missing one is expected to fail and is ignored.)
-        let real_failed = app.asset_failures().iter().any(|f| f.path == REAL_TEXTURE);
-        if real_failed {
+        // The acceptance test, in three parts. (1) The real texture and the real data table must
+        // have resolved, no matter where we were launched from. (2) The real table must actually
+        // carry rows — an empty table is precisely what the silent failure looked like. (3) The
+        // missing table must be *reported*, which is the part that used to be invisible.
+        let failures = app.asset_failures();
+        let failed = |p: &str| failures.iter().any(|f| f.path == p);
+
+        let item_rows = app
+            .world
+            .resource::<engine::DataTableRegistry>()
+            .and_then(|reg| reg.get("items"))
+            .map_or(0, |t| t.rows.len());
+
+        let mut problems: Vec<String> = Vec::new();
+        if failed(REAL_TEXTURE) {
+            problems.push(format!("'{REAL_TEXTURE}' did not resolve"));
+        }
+        if failed(REAL_TABLE) {
+            problems.push(format!("'{REAL_TABLE}' did not resolve"));
+        }
+        if item_rows == 0 {
+            problems.push("the 'items' table loaded no rows".into());
+        }
+        if !failed(MISSING_TABLE) {
+            problems.push(format!(
+                "'{MISSING_TABLE}' is missing but was NOT reported — a failed data table must \
+                 never be silent"
+            ));
+        }
+
+        if !problems.is_empty() {
             eprintln!(
-                "FAIL: '{REAL_TEXTURE}' did not resolve from working dir {:?}",
-                std::env::current_dir()
+                "FAIL (working dir {:?}):\n  - {}",
+                std::env::current_dir(),
+                problems.join("\n  - ")
             );
             std::process::exit(1);
         }
         println!(
-            "OK: '{REAL_TEXTURE}' resolved; failures = {:?}",
-            app.asset_failures()
-                .iter()
-                .map(|f| &f.path)
-                .collect::<Vec<_>>()
+            "OK: texture + data table ({item_rows} rows) resolved; reported failures = {:?}",
+            failures.iter().map(|f| &f.path).collect::<Vec<_>>()
         );
         return;
     }

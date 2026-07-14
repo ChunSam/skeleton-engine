@@ -562,7 +562,7 @@ pub(super) fn read_cached_bytes(
             Some(arc)
         }
         Err(e) => {
-            log::warn!("Cannot open audio file '{path}': {e}");
+            crate::asset_path::record_failure(path, format!("audio file read failed: {e}"));
             None
         }
     }

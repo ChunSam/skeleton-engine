@@ -9,7 +9,7 @@ pub(super) fn compile_script_file(path: &str) -> ScriptAsset {
     let source = match std::fs::read_to_string(crate::asset_path::resolve(path)) {
         Ok(s) => s,
         Err(e) => {
-            log::error!("failed to read script file '{path}': {e}");
+            crate::asset_path::record_failure(path, format!("script read failed: {e}"));
             String::new()
         }
     };
@@ -24,7 +24,9 @@ pub(super) fn compile_script_file(path: &str) -> ScriptAsset {
     };
     let engine = rhai::Engine::new();
     let ast = engine.compile(&source).unwrap_or_else(|e| {
-        log::error!("script compile failed '{path}': {e}");
+        // A script that reads but won't compile is just as silent as a missing one: the entity
+        // keeps running with an empty AST. Report it through the same channel.
+        crate::asset_path::record_failure(path, format!("script compile failed: {e}"));
         engine.compile("").unwrap()
     });
     ScriptAsset {

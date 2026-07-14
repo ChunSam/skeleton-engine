@@ -4,6 +4,20 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.127.0
+
+**A data table that fails to load is no longer silent.** 0.126.0 taught the engine *where* to look for a relative asset; this closes the other half — what happens when it still isn't there. Only the image loaders reported failures; every other path-based loader `warn!`d and registered nothing, which is indistinguishable from success for a caller: a downstream game shipped a packaged Windows build whose 19 data tables all resolved to nothing, so every table registered **empty** and the game booted "correctly" with an empty shop and no dungeons. It took a player's bug report to find, because the symptom (empty content) surfaces screens away from the cause (the loader). Every path-based loader now reports through the one channel `asset_failures()`. Additive: no signature changed, and a load that succeeds behaves exactly as before.
+
+### Changed
+- `App::load_data_table` / `load_animation_clips` / `load_particle_configs` / `load_dialogue` / `load_trigger_zones` / `load_zone_effects` / `load_anim_effects` now report a failed load (missing file, RON parse error) as an **asset failure**: an `error!` naming the file, the reason, **and the roots searched**, plus an entry in `asset_path::asset_failures()` / `App::asset_failures()`. Under `set_strict_assets(true)` the load panics instead. Previously each logged a `warn!` and returned, leaving the registry silently without the table. The failure message names the registry key too (`data table 'items': …`), since that is what the game's own code will look up.
+- Rhai script loading reports both a failed **read** and a failed **compile** the same way (a script that won't compile silently became an empty AST), and `AudioManager`'s file read reports a missing clip instead of `warn!`ing.
+- A *hot-reload* failure deliberately stays a `warn!` — the file loaded once, and a half-saved edit should not kill a strict dev build. An intentionally empty asset that parses fine is likewise not a failure (test-pinned).
+
+### Added
+- Example `packaged_assets` now loads a real **and** a deliberately missing data table beside its textures, so the panel shows the failure that used to be invisible. In `HEADLESS_SHOT` mode it is a real acceptance test: it exits non-zero unless the real texture and table resolve, the table carries rows, **and** the missing table is reported.
+- `scripts/packaged_assets_smoke.sh` — builds that example and runs it from `/`, which is what a shipped build's working directory looks like (running it from the checkout is the case that always worked, so it proves nothing).
+- Two unit tests in `src/app/editor/loading.rs`: a missing data table is recorded and does not leave an empty table behind; an intentionally empty (but valid) table registers with zero rows and is **not** a failure. Both key on a path unique to the test — `asset_failures()` is process-global, so never assert on its length.
+
 ## 0.126.0
 
 **Asset roots: a packaged build no longer renders a magenta screen when launched from the "wrong" directory.** Every asset API is path-based, and a relative path was read straight through `std::fs` — which resolves against the **process working directory**. A shipped executable therefore only worked when launched from one specific place: double-clicked in a file manager, started from a shortcut, or run as `cd /elsewhere && game.exe`, *every* texture load failed, the renderer substituted its magenta 1x1 fallback, and — since a title screen is usually one full-screen textured quad — the whole window turned magenta, explained by nothing but a `warn!`. The engine now resolves relative paths against an asset root it determines itself, and a failed load is *reported* instead of swallowed. Additive: a new module plus re-exports; no existing example needed a change.
