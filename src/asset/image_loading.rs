@@ -50,9 +50,15 @@ impl AssetServer {
             self.image_load_states.get(&id),
             Some(AssetLoadState::Loaded)
         ) {
+            // Watch the resolved file (the one that exists under the asset root), and map its key
+            // back to the logical image key so a change reloads under `path_to_id`'s key. In a
+            // packaged / foreign-cwd layout the logical path is not watchable; the resolved one is.
+            let resolved = crate::asset_path::resolve(&*key);
             if let Some(ref mut w) = self._watcher {
-                let _ = w.watch(path.as_ref(), RecursiveMode::NonRecursive);
+                let _ = w.watch(&resolved, RecursiveMode::NonRecursive);
             }
+            self.watched_resolved_to_logical
+                .insert(asset_key(&resolved), Arc::clone(&key));
         }
         Handle {
             id,
