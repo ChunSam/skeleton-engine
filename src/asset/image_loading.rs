@@ -61,6 +61,44 @@ impl AssetServer {
         }
     }
 
+    /// Registers an image already in memory under `key`, returning a handle — **no file is read**.
+    ///
+    /// For art embedded at compile time with `include_bytes!` (a single-file / jam build) or an
+    /// image produced at runtime. The `key` is used **verbatim** as both the cache key and the
+    /// handle path, so a [`Sprite::with_handle`](crate::Sprite::with_handle) — or a
+    /// [`Sprite::textured(key)`](crate::Sprite::textured) naming the same string — renders it
+    /// exactly like a path-loaded image. It is a *logical identifier*, not a path: it is never
+    /// resolved against the asset root or canonicalized, so it cannot collide with a real file and
+    /// needs no `assets/` on disk. Loading the same `key` again returns the cached handle (the
+    /// bytes are ignored on a hit).
+    ///
+    /// Cross-platform: unlike [`load_image`](Self::load_image), which fetches asynchronously on
+    /// wasm, this decodes synchronously on every target because the bytes are already present —
+    /// which is what makes `include_bytes!` art work in a single-file wasm build.
+    ///
+    /// On a decode failure (corrupt bytes) a magenta 1×1 fallback is stored and the failure is
+    /// recorded via [`asset_failures`](crate::asset_path::asset_failures), exactly like a path load.
+    pub fn load_image_bytes(&mut self, key: impl Into<String>, bytes: &[u8]) -> Handle<ImageAsset> {
+        let key: Arc<str> = Arc::from(key.into());
+        if let Some(&id) = self.path_to_id.get(&key) {
+            return Handle {
+                id,
+                path: key,
+                _marker: PhantomData,
+            };
+        }
+        let id = alloc_id();
+        self.path_to_id.insert(Arc::clone(&key), id);
+        let (asset, state) = decode_bytes_with_state(&key, bytes);
+        self.images.insert(id, asset);
+        self.image_load_states.insert(id, state);
+        Handle {
+            id,
+            path: key,
+            _marker: PhantomData,
+        }
+    }
+
     /// Returns the load state for a handle.
     ///
     /// Returns `AssetLoadState::Failed` for an unknown handle.
@@ -148,6 +186,31 @@ pub(super) fn decode_image_with_state(path: &str) -> (ImageAsset, AssetLoadState
         Err(e) => {
             let msg = format!("image file read failed '{path}': {e}");
             crate::asset_path::record_failure(path, format!("image file read failed: {e}"));
+            (magenta_fallback(), AssetLoadState::Failed(msg))
+        }
+    }
+}
+
+/// Decodes image `bytes` that are already in memory (an `include_bytes!` asset, or one generated
+/// at runtime). Nothing is read from disk, so this is cross-platform; `key` is only used to name a
+/// decode failure. Mirrors [`decode_image_with_state`] minus the filesystem read.
+pub(super) fn decode_bytes_with_state(key: &str, bytes: &[u8]) -> (ImageAsset, AssetLoadState) {
+    match image::load_from_memory(bytes) {
+        Ok(img) => {
+            let rgba = img.to_rgba8();
+            let (w, h) = rgba.dimensions();
+            (
+                ImageAsset {
+                    data: Arc::new(rgba.into_raw()),
+                    width: w,
+                    height: h,
+                },
+                AssetLoadState::Loaded,
+            )
+        }
+        Err(e) => {
+            let msg = format!("embedded image decode failed '{key}': {e}");
+            crate::asset_path::record_failure(key, format!("embedded image decode failed: {e}"));
             (magenta_fallback(), AssetLoadState::Failed(msg))
         }
     }

@@ -115,6 +115,38 @@ impl App {
             .load_image(&path)
     }
 
+    /// Registers an image already in memory (e.g. `include_bytes!("hero.png")`) under `key` and
+    /// returns a handle — **no file is read**.
+    ///
+    /// For a single-file / jam build that embeds its art at compile time, or a runtime-generated
+    /// image. The `key` is used **verbatim** as both the cache key and the handle path, so a
+    /// [`Sprite::with_handle(handle)`](crate::Sprite::with_handle) — or a
+    /// [`Sprite::textured(key)`](crate::Sprite::textured) naming the same string — renders it
+    /// exactly like a path-loaded image. The `key` is a *logical identifier*, never resolved
+    /// against the [asset root](crate::asset_path); it needs no `assets/` on disk and cannot
+    /// collide with a real file.
+    ///
+    /// Cross-platform, including wasm — where `include_bytes!` sidesteps the async fetch that
+    /// [`load_image`](Self::load_image) needs. Unlike `load_image`, this queues **no** filesystem
+    /// read; the decoded image is uploaded to the GPU by the same per-frame path as async loads.
+    /// A corrupt-bytes decode failure is reported via
+    /// [`asset_failures`](Self::asset_failures), exactly like a missing file.
+    ///
+    /// ```rust,no_run
+    /// # use engine::App;
+    /// # let mut app = App::new();
+    /// static HERO_PNG: &[u8] = &[]; // include_bytes!("assets/hero.png")
+    /// let hero = app.load_image_bytes("hero", HERO_PNG);
+    /// // spawn a sprite with `engine::Sprite::with_handle(hero)`
+    /// # let _ = hero;
+    /// ```
+    pub fn load_image_bytes(&mut self, key: impl Into<String>, bytes: &[u8]) -> Handle<ImageAsset> {
+        self.world
+            .resource_mut::<AssetServer>()
+            .expect("AssetServer resource missing")
+            .load_image_bytes(key, bytes)
+    }
+
     /// Loads an image as a GPU texture with a caller-chosen pixel `format`, instead of the
     /// default `Rgba8UnormSrgb`.
     ///
