@@ -227,6 +227,16 @@ pub struct AssetServer {
     /// to include non-image asset changes in the returned Vec.
     #[cfg(not(target_arch = "wasm32"))]
     watched_paths: std::collections::HashSet<std::sync::Arc<str>>,
+    /// Maps the key of the *resolved* file the OS watcher fires on back to the *logical* dispatch
+    /// key (`asset_key(logical)`), so a change under an asset root (a packaged / foreign-cwd
+    /// layout, where `resolve(logical) != logical`) reloads under the key the caches and
+    /// registries actually stored. Keyed by `asset_key(resolve(logical))`. Native only.
+    ///
+    /// In the dev-from-repo-root case `resolve(logical)` canonicalizes to the same path as
+    /// `asset_key(logical)`, so entries are identity and dispatch is byte-identical.
+    #[cfg(not(target_arch = "wasm32"))]
+    watched_resolved_to_logical:
+        std::collections::HashMap<std::sync::Arc<str>, std::sync::Arc<str>>,
     // Channel for async loading (native only)
     #[cfg(not(target_arch = "wasm32"))]
     async_tx: std::sync::mpsc::SyncSender<async_loading::AsyncImageResult>,
@@ -281,6 +291,7 @@ impl AssetServer {
                 reload_rx,
                 _watcher: watcher,
                 watched_paths: std::collections::HashSet::new(),
+                watched_resolved_to_logical: std::collections::HashMap::new(),
                 async_tx,
                 async_rx,
             }

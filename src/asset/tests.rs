@@ -140,6 +140,79 @@ fn load_image_bytes_registers_a_decoded_image_under_the_verbatim_key() {
     assert_eq!(again.id(), handle.id());
 }
 
+/// `logical_for_changed` translates a path the OS watcher fired on (the *resolved* file) back to
+/// the *logical* dispatch key that the image cache / `watched_paths` / RON registries stored — the
+/// packaged / foreign-cwd case, where the resolved file and the logical path genuinely differ.
+///
+/// Driven with a hand-populated reverse map holding a **non-identity** entry, so the pure
+/// translation is exercised without pinning the process-global asset root (which a parallel test
+/// suite shares — the seq-1/2 rule). Fails if `logical_for_changed` ignored the map.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn logical_for_changed_translates_a_resolved_path_back_to_the_logical_key() {
+    let mut server = AssetServer::new();
+    // What the watcher reports (an absolute file next to a packaged exe) → what the caches stored
+    // (the caller's relative logical key). `asset_key` of a nonexistent path is its raw string, so
+    // both are stable without touching the filesystem.
+    let resolved = std::path::Path::new("/opt/game-that-does-not-exist/assets/data/items.ron");
+    let resolved_key = asset_key(resolved);
+    let logical: Arc<str> = "assets/data/items.ron".into();
+    server
+        .watched_resolved_to_logical
+        .insert(Arc::clone(&resolved_key), Arc::clone(&logical));
+
+    // A change on the resolved file dispatches under the logical key.
+    assert_eq!(
+        server.logical_for_changed(resolved),
+        logical,
+        "a mapped resolved path must translate to its logical dispatch key"
+    );
+
+    // An unmapped path falls back to `asset_key(path)` — the historical dev-from-repo-root behavior,
+    // kept byte-identical for any file not registered through the resolved→logical map.
+    let unmapped = std::path::Path::new("some/unwatched/path.ron");
+    assert_eq!(
+        server.logical_for_changed(unmapped),
+        asset_key(unmapped),
+        "an unmapped path must fall back to asset_key(path)"
+    );
+}
+
+/// A successful `watch_path` must record a resolved→logical map entry, or `poll_reloads` has no way
+/// to translate the watcher event back to the dispatch key and hot-reload under an asset root never
+/// fires. Uses an absolute temp file (so the entry is an identity — `resolve` passes an absolute
+/// path through); what's asserted is that the entry is *registered at all*. Fails if Phase 2's
+/// reverse-map insertion is removed (the map stays empty).
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn watch_path_registers_a_resolved_to_logical_map_entry() {
+    // Unique temp path (never under cwd) — asset_key / the map are process-global-safe when keyed
+    // on a path unique to this test.
+    let dir = std::env::temp_dir().join(format!(
+        "engine-hot-reload-watch-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("table.ron");
+    std::fs::write(&file, b"[]").unwrap();
+    let logical = file.to_string_lossy().to_string();
+
+    let mut server = AssetServer::new();
+    server.watch_path(&logical);
+
+    // The watcher fires on `resolve(logical)`; its key must map back to the logical dispatch key.
+    let resolved_key = asset_key(crate::asset_path::resolve(&logical));
+    let logical_key = asset_key(std::path::Path::new(&logical));
+    assert_eq!(
+        server.watched_resolved_to_logical.get(&resolved_key),
+        Some(&logical_key),
+        "watch_path must register a resolved→logical entry"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// A corrupt embed (a bad `include_bytes!`) is just as invisible as a missing file if it is
 /// swallowed, so it must be reported through the shared failure channel.
 #[test]
