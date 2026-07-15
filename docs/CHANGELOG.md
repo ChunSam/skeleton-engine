@@ -4,6 +4,14 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.129.1
+
+**The enabled audio codecs (`wav` / `vorbis` / `mp3`) now have decode-time test coverage.** After the rodio 0.19 → 0.22 swap moved decoding onto symphonia, nothing in the engine exercised those features end to end — an `.ogg`/vorbis stream in particular was decoded by nothing, so a dropped feature or a symphonia regression could have shipped silently. This adds three committed, synthesized (public-domain / CC0) fixtures and a decode test that pins each codec. Decoding needs no audio output device, so the test runs on CI's headless machine, unlike the playback path. No public API change; test-only.
+
+### Added
+- `codec_decode_tests` in `src/audio/playback.rs` — decodes `src/audio/fixtures/{tone.wav,tone.ogg,tone.mp3}` through `rodio::Decoder` and asserts each yields the expected sine (sample rate, channel count, non-empty stream). `Decoder::new` only recognizes a container whose codec feature is compiled in, so a red test means the engine lost a codec it promises. Proven non-vacuous: removing the `vorbis` feature reds the `.ogg` test.
+- Test fixtures `src/audio/fixtures/{tone.wav,tone.ogg,tone.mp3}` + `README.md` — the same ~0.15 s, 22 050 Hz mono, 440 Hz sine synthesized from scratch (no third-party audio, so CC0-safe to commit), encoded to each codec. The README documents provenance and a regeneration recipe.
+
 ## 0.129.0
 
 **Hot-reload now fires for an asset whose file is resolved under an asset root that is not the working directory — the packaged / foreign-cwd layout.** Since v0.126.0 a relative asset path is read via `asset_path::resolve` (searching the executable's directory and ancestors, not just the cwd), but the `notify` filesystem watcher still registered the caller's *logical* path. In a packaged build that path does not exist relative to the launch directory, and `notify` cannot watch a nonexistent path — so the watch silently failed and an edit never triggered a reload. This was the one EW-008 acceptance clause the engine did not meet (disclosed to the downstream game rather than silently claimed). The watcher now watches `resolve(logical)` (the file that actually exists) and translates each event back to the logical dispatch key before dispatch, so images re-decode and RON registries reload by the key they stored. Asset **identity is untouched** — cache keys and `Handle::path()` stay logical, per the same constraint that prevents the 2026-05-29 white-sprite cache-key bug. Dev-from-repo-root behavior is byte-identical (the resolved→logical map is an identity there). No public API change.
