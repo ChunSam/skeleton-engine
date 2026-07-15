@@ -602,3 +602,58 @@ mod tone_envelope_tests {
         assert!(enveloped_tone_samples(440.0, 0.0, 1.0).is_empty());
     }
 }
+
+/// Decode-time coverage for the audio codecs the engine turns on in `Cargo.toml`
+/// (`rodio` features `wav` / `vorbis` / `mp3`). Each fixture is the same ~0.15 s, 22 050 Hz mono
+/// 440 Hz sine we synthesized (public domain — see `fixtures/README.md`), encoded to the codec under
+/// test. Decoding needs no audio output device, unlike the playback path (which opens a `Player`),
+/// so these run on CI's headless machine.
+///
+/// Why this exists: after the rodio 0.19 → 0.22 swap moved decoding onto symphonia, the enabled
+/// codec features had **no** test exercising them end to end — an `.ogg`/vorbis stream in particular
+/// was decoded by nothing in the engine, so a dropped `vorbis` feature (or a symphonia regression)
+/// would have shipped silently. `Decoder::new` probes the container and only succeeds when the
+/// matching feature is compiled in, so a red test here means a codec the engine promises is gone.
+#[cfg(test)]
+mod codec_decode_tests {
+    use rodio::{Decoder, Source};
+    use std::io::Cursor;
+
+    // Synthesized fixtures (see `fixtures/README.md`), under `src/**` so they ship with the crate.
+    const WAV: &[u8] = include_bytes!("fixtures/tone.wav");
+    const OGG: &[u8] = include_bytes!("fixtures/tone.ogg");
+    const MP3: &[u8] = include_bytes!("fixtures/tone.mp3");
+
+    /// Decode a whole fixture through rodio and assert it yields the real sine — not just a valid
+    /// header. `bytes` is `'static` (from `include_bytes!`), so `Cursor` satisfies `Decoder::new`'s
+    /// `Read + Seek + Send + Sync + 'static` bound directly.
+    fn assert_decodes(name: &str, bytes: &'static [u8]) {
+        let decoder = Decoder::new(Cursor::new(bytes)).unwrap_or_else(|e| {
+            panic!("{name} must decode — is its rodio codec feature still enabled? {e}")
+        });
+        assert_eq!(decoder.sample_rate().get(), 22_050, "{name}: sample rate");
+        assert_eq!(decoder.channels().get(), 1, "{name}: channels (mono)");
+        // Pull the entire stream; the source is ~3307 PCM samples (lossy codecs add padding, never
+        // trim below this), so a low floor stays robust while still rejecting an empty decode.
+        let samples = decoder.count();
+        assert!(
+            samples > 1000,
+            "{name}: expected a decoded sine (~3307 samples), got {samples}"
+        );
+    }
+
+    #[test]
+    fn wav_fixture_decodes() {
+        assert_decodes("wav", WAV);
+    }
+
+    #[test]
+    fn vorbis_ogg_fixture_decodes() {
+        assert_decodes("ogg/vorbis", OGG);
+    }
+
+    #[test]
+    fn mp3_fixture_decodes() {
+        assert_decodes("mp3", MP3);
+    }
+}
