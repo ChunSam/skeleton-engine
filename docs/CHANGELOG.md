@@ -4,6 +4,15 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.130.0
+
+**A second procedural-map generator — cellular-automata caves — alongside the BSP dungeon.** `generate_cellular_cave(width, height, seed, &CaveParams)` grows an organic cavern: it seeds the interior with random rock, runs a few cellular-automata smoothing passes (the classic 4-5 birth/survival rule, where an existing wall survives with one fewer neighbor than a new one needs), then keeps only the largest connected cavern — filling every smaller pocket — so, like the BSP dungeon, the result is **guaranteed connected**. It is deterministic (same seed + params → identical map), seeded by the shared `engine::Rng`, and returns the *same* `DungeonMap` type as `generate_bsp_dungeon`, so `to_path_grid` / `to_tilemap_tiles` / `FovMap::from_path_grid` compose with either generator. Purely additive: no existing type or signature changed.
+
+### Added
+- `generate_cellular_cave(width: i32, height: i32, seed: u64, &CaveParams) -> DungeonMap` and `CaveParams { initial_wall_prob, steps, wall_threshold }` (`src/mapgen.rs`, re-exported from `src/lib.rs`). Random-rock fill → CA smoothing (`cave_smooth`, the hysteretic 4-5 rule) → `keep_largest_cavern` (4-connectivity flood fill, keeps the biggest region, fills the rest with wall, and records a single 1×1 `Room` at the cavern's most-central cell so `first_room_center` is a valid spawn). Cell count capped at `MAX_PATH_GRID_CELLS`; degenerate/oversized dimensions collapse to an empty map, mirroring `generate_bsp_dungeon` / `PathGrid` / `FovMap`.
+- Example `examples/cave_generation.rs` — renders an organic cave (floor cells touching rock tinted darker to accent the cavern outline), WASD/arrows to walk (rock blocks), R to regenerate a fresh connected cave from the next seed. Under `HEADLESS_SHOT` it self-checks single-cavern connectivity (flood-fill from spawn reaches every floor cell) before capturing the screenshot, exiting non-zero on failure.
+- 8 unit tests in `src/mapgen.rs` (determinism, border-is-wall, single-connected-cavern across seeds, central-floor spawn, `to_path_grid`/`FovMap` composition, `steps: 0` still connected, degenerate sizes safe) plus a cave clause in the module doctest.
+
 ## 0.129.1
 
 **The enabled audio codecs (`wav` / `vorbis` / `mp3`) now have decode-time test coverage.** After the rodio 0.19 → 0.22 swap moved decoding onto symphonia, nothing in the engine exercised those features end to end — an `.ogg`/vorbis stream in particular was decoded by nothing, so a dropped feature or a symphonia regression could have shipped silently. This adds three committed, synthesized (public-domain / CC0) fixtures and a decode test that pins each codec. Decoding needs no audio output device, so the test runs on CI's headless machine, unlike the playback path. No public API change; test-only.

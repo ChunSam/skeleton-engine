@@ -1,4 +1,6 @@
-//! Procedural dungeon generation — BSP (binary space partition) rooms + corridors.
+//! Procedural map generation — two deterministic generators over a shared [`DungeonMap`] grid:
+//! **BSP rooms + corridors** ([`generate_bsp_dungeon`]) and **cellular-automata caves**
+//! ([`generate_cellular_cave`]).
 //!
 //! [`generate_bsp_dungeon`] carves a roomy dungeon into a grid: it recursively splits the map into
 //! partitions, cuts a room into each leaf, and connects sibling partitions with L-shaped corridors
@@ -6,6 +8,15 @@
 //! reachable from every other). Generation is **deterministic**: the same `seed` + [`DungeonParams`]
 //! always produce the identical [`DungeonMap`], so a game can store just the seed and regenerate the
 //! level, or reproduce a run exactly.
+//!
+//! [`generate_cellular_cave`] grows an **organic cave** instead: it seeds the interior with random
+//! rock, runs a few cellular-automata smoothing passes (the classic "4-5 rule"), then keeps only the
+//! largest connected cavern — filling every smaller pocket with wall — so, like the BSP dungeon, the
+//! result is **guaranteed connected**. It is deterministic and seeded the same way, and returns the
+//! same [`DungeonMap`] type, so everything below (`to_path_grid` / `to_tilemap_tiles` /
+//! `FovMap::from_path_grid`) composes with either generator. A cave records a single 1×1 [`Room`] at
+//! the cavern's most-central cell, so [`first_room_center`](DungeonMap::first_room_center) is a valid
+//! spawn for both.
 //!
 //! The result is a plain owned grid (like [`PathGrid`] /
 //! [`FovMap`](crate::fov::FovMap) — not an ECS component): read [`is_floor`](DungeonMap::is_floor) /
@@ -16,7 +27,7 @@
 //! — field-of-view, all from the same layout (see the `roguelike` example).
 //!
 //! ```
-//! use engine::{generate_bsp_dungeon, DungeonParams, Tile};
+//! use engine::{generate_bsp_dungeon, generate_cellular_cave, CaveParams, DungeonParams, Tile};
 //!
 //! let a = generate_bsp_dungeon(48, 32, 1234, &DungeonParams::default());
 //! let b = generate_bsp_dungeon(48, 32, 1234, &DungeonParams::default());
@@ -24,7 +35,15 @@
 //! assert!(!a.rooms.is_empty());
 //! // The border is always solid wall.
 //! assert_eq!(a.tile(0, 0), Tile::Wall);
+//!
+//! // The cave generator is deterministic too, and its spawn cell is walkable floor.
+//! let cave = generate_cellular_cave(48, 32, 1234, &CaveParams::default());
+//! assert_eq!(cave, generate_cellular_cave(48, 32, 1234, &CaveParams::default()));
+//! let spawn = cave.first_room_center().unwrap();
+//! assert!(cave.is_floor(spawn.x, spawn.y));
 //! ```
+
+use std::collections::VecDeque;
 
 use glam::IVec2;
 
@@ -89,6 +108,33 @@ impl Default for DungeonParams {
             min_room: 4,
             room_margin: 1,
             max_depth: 5,
+        }
+    }
+}
+
+/// Tunables for [`generate_cellular_cave`]. [`Default`] (45% initial rock, 4 smoothing passes, the
+/// classic "5" rule) suits a ~48×32 – 64×48 cave.
+#[derive(Clone, Debug)]
+pub struct CaveParams {
+    /// Probability each interior cell **starts** as wall in the initial random fill (before
+    /// smoothing), clamped to `0.0..=1.0`. The classic value is `0.45`; higher = more rock and
+    /// smaller caverns, lower = more open.
+    pub initial_wall_prob: f32,
+    /// Number of cellular-automata smoothing passes. More passes = smoother, blobbier caverns with
+    /// fewer stray specks. `0` leaves the raw random fill (then keep-largest still runs).
+    pub steps: u32,
+    /// Birth threshold: a **floor** cell turns to wall in a smoothing pass when at least this many
+    /// of its 8 (Moore) neighbors are wall; an **existing wall** survives with one fewer
+    /// (`wall_threshold - 1`). Out-of-bounds counts as wall. The classic "4-5 rule" uses `5`.
+    pub wall_threshold: u32,
+}
+
+impl Default for CaveParams {
+    fn default() -> Self {
+        Self {
+            initial_wall_prob: 0.45,
+            steps: 4,
+            wall_threshold: 5,
         }
     }
 }
@@ -362,6 +408,160 @@ fn carve_v(map: &mut DungeonMap, y0: i32, y1: i32, x: i32) {
     }
 }
 
+/// Generates an organic cave of `width × height` cells from `seed` and `params`, via cellular
+/// automata.
+///
+/// The interior is seeded with random rock, smoothed with a few CA passes (the "4-5 rule"), then
+/// reduced to its **largest connected cavern** — every smaller pocket is filled in — so the result
+/// is **guaranteed connected**, just like [`generate_bsp_dungeon`]. Deterministic: the same
+/// `(width, height, seed, params)` always returns the identical [`DungeonMap`]. The outer border is
+/// always wall, and a single 1×1 [`Room`] is recorded at the cavern's most-central cell so
+/// [`first_room_center`](DungeonMap::first_room_center) is a valid spawn. See the [module docs](self).
+pub fn generate_cellular_cave(
+    width: i32,
+    height: i32,
+    seed: u64,
+    params: &CaveParams,
+) -> DungeonMap {
+    let mut map = DungeonMap::new_walls(width, height);
+    // Need a 1-cell wall border around at least one interior cell.
+    if map.width < 3 || map.height < 3 {
+        return map;
+    }
+    // 1. Random fill — each interior cell is floor unless it rolls rock. Border stays wall.
+    //    (This is the ONLY step that draws from `rng`, so determinism holds.)
+    let mut rng = Rng::new(seed);
+    let wall_prob = params.initial_wall_prob.clamp(0.0, 1.0);
+    for y in 1..map.height - 1 {
+        for x in 1..map.width - 1 {
+            if !rng.chance(wall_prob) {
+                map.set_floor(x, y);
+            }
+        }
+    }
+    // 2. Cellular-automata smoothing — grow walls into crowded cells, open sparse ones.
+    for _ in 0..params.steps {
+        cave_smooth(&mut map, params.wall_threshold);
+    }
+    // 3. Keep only the largest connected cavern → guaranteed connected + records the spawn room.
+    keep_largest_cavern(&mut map);
+    map
+}
+
+/// One cellular-automata pass (the classic "4-5 rule" with hysteresis): a **floor** cell turns to
+/// wall when at least `wall_threshold` of its 8 Moore neighbors are wall; an **existing wall**
+/// survives with one fewer (`wall_threshold - 1`). Out-of-bounds counts as wall; the border is left
+/// solid. The sticky-wall rule keeps caverns structured instead of dilating them to open blobs.
+fn cave_smooth(map: &mut DungeonMap, wall_threshold: u32) {
+    let (w, h) = (map.width, map.height);
+    // Read from a snapshot so every cell sees the same previous generation; out-of-bounds = wall.
+    let prev = map.tiles.clone();
+    let is_wall_at = |x: i32, y: i32| -> bool {
+        if x < 0 || y < 0 || x >= w || y >= h {
+            return true;
+        }
+        prev[(y * w + x) as usize] == Tile::Wall
+    };
+    let survive = wall_threshold.saturating_sub(1);
+    for y in 1..h - 1 {
+        for x in 1..w - 1 {
+            let mut walls = 0u32;
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    if (dx, dy) != (0, 0) && is_wall_at(x + dx, y + dy) {
+                        walls += 1;
+                    }
+                }
+            }
+            let i = (y * w + x) as usize;
+            let threshold = if prev[i] == Tile::Wall {
+                survive
+            } else {
+                wall_threshold
+            };
+            map.tiles[i] = if walls >= threshold {
+                Tile::Wall
+            } else {
+                Tile::Floor
+            };
+        }
+    }
+}
+
+/// Finds every connected floor region (4-connectivity), keeps the largest, fills the rest with wall,
+/// and records a single 1×1 [`Room`] at the kept cavern's most-central cell (the floor cell nearest
+/// its centroid). A map with no floor at all is left as solid wall with no room.
+fn keep_largest_cavern(map: &mut DungeonMap) {
+    let (w, h) = (map.width, map.height);
+    let n = (w * h) as usize;
+    let mut region = vec![u32::MAX; n]; // region id per cell; MAX = wall or not-yet-visited
+    let mut regions: Vec<Vec<usize>> = Vec::new(); // flat cell indices per region
+
+    for y in 0..h {
+        for x in 0..w {
+            let start = (y * w + x) as usize;
+            if map.tiles[start] != Tile::Floor || region[start] != u32::MAX {
+                continue;
+            }
+            let id = regions.len() as u32;
+            let mut cells = Vec::new();
+            let mut queue = VecDeque::new();
+            region[start] = id;
+            queue.push_back((x, y));
+            while let Some((cx, cy)) = queue.pop_front() {
+                cells.push((cy * w + cx) as usize);
+                for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                    let (nx, ny) = (cx + dx, cy + dy);
+                    if let Some(ni) = map.index(nx, ny) {
+                        if map.tiles[ni] == Tile::Floor && region[ni] == u32::MAX {
+                            region[ni] = id;
+                            queue.push_back((nx, ny));
+                        }
+                    }
+                }
+            }
+            regions.push(cells);
+        }
+    }
+
+    // Largest region wins; ties break toward the later id (deterministic via `max_by_key`).
+    let Some(best_id) = (0..regions.len()).max_by_key(|&i| regions[i].len()) else {
+        return; // no floor anywhere — leave the map solid, no spawn room
+    };
+
+    // Fill every cell not in the winning cavern.
+    for (i, r) in region.iter().enumerate() {
+        if map.tiles[i] == Tile::Floor && *r != best_id as u32 {
+            map.tiles[i] = Tile::Wall;
+        }
+    }
+
+    // Spawn = the kept cavern's floor cell nearest its centroid (a roomy, central start).
+    let cells = &regions[best_id];
+    let count = cells.len() as i64;
+    let (mut sx, mut sy) = (0i64, 0i64);
+    for &i in cells {
+        sx += (i as i32 % w) as i64;
+        sy += (i as i32 / w) as i64;
+    }
+    let (cx, cy) = ((sx / count) as i32, (sy / count) as i32);
+    let spawn = cells
+        .iter()
+        .min_by_key(|&&i| {
+            let (px, py) = (i as i32 % w, i as i32 / w);
+            let (dx, dy) = ((px - cx) as i64, (py - cy) as i64);
+            dx * dx + dy * dy
+        })
+        .copied()
+        .expect("the winning region has at least one cell");
+    map.rooms.push(Room {
+        x: spawn as i32 % w,
+        y: spawn as i32 / w,
+        w: 1,
+        h: 1,
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -516,6 +716,148 @@ mod tests {
         }
         // Overflowing dimensions collapse to an empty map.
         let huge = generate_bsp_dungeon(i32::MAX, 2, 1, &DungeonParams::default());
+        assert_eq!((huge.width, huge.height), (0, 0));
+    }
+
+    // ── Cellular-automata caves ──────────────────────────────────────────────
+
+    fn default_cave(seed: u64) -> DungeonMap {
+        generate_cellular_cave(64, 44, seed, &CaveParams::default())
+    }
+
+    /// Every floor cell reachable from `map`'s spawn via 4-connectivity, as a boolean grid.
+    fn flood_from_spawn(map: &DungeonMap) -> Vec<bool> {
+        let mut seen = vec![false; (map.width * map.height) as usize];
+        let Some(spawn) = map.first_room_center() else {
+            return seen;
+        };
+        let idx = |x: i32, y: i32| (y * map.width + x) as usize;
+        let mut q = VecDeque::new();
+        seen[idx(spawn.x, spawn.y)] = true;
+        q.push_back(spawn);
+        while let Some(p) = q.pop_front() {
+            for d in [
+                IVec2::new(1, 0),
+                IVec2::new(-1, 0),
+                IVec2::new(0, 1),
+                IVec2::new(0, -1),
+            ] {
+                let n = p + d;
+                if map.is_floor(n.x, n.y) && !seen[idx(n.x, n.y)] {
+                    seen[idx(n.x, n.y)] = true;
+                    q.push_back(n);
+                }
+            }
+        }
+        seen
+    }
+
+    #[test]
+    fn cave_same_seed_is_identical() {
+        assert_eq!(default_cave(42), default_cave(42));
+    }
+
+    #[test]
+    fn cave_different_seeds_differ() {
+        assert_ne!(default_cave(1), default_cave(2));
+    }
+
+    #[test]
+    fn cave_border_is_all_wall() {
+        let m = default_cave(7);
+        for x in 0..m.width {
+            assert_eq!(m.tile(x, 0), Tile::Wall);
+            assert_eq!(m.tile(x, m.height - 1), Tile::Wall);
+        }
+        for y in 0..m.height {
+            assert_eq!(m.tile(0, y), Tile::Wall);
+            assert_eq!(m.tile(m.width - 1, y), Tile::Wall);
+        }
+    }
+
+    #[test]
+    fn cave_spawn_is_central_floor() {
+        let m = default_cave(2026);
+        let spawn = m.first_room_center().expect("a cave has a spawn room");
+        assert!(m.is_floor(spawn.x, spawn.y), "spawn cell must be floor");
+        // Exactly one synthetic 1×1 spawn room is recorded.
+        assert_eq!(m.rooms.len(), 1);
+        assert_eq!((m.rooms[0].w, m.rooms[0].h), (1, 1));
+    }
+
+    /// The defining cave invariant: after keep-largest, EVERY floor cell is reachable from the
+    /// spawn — the cavern is a single connected region (mirrors BSP's `all_rooms_are_connected`).
+    #[test]
+    fn cave_is_a_single_connected_cavern() {
+        for seed in [1, 7, 42, 99, 2026] {
+            let m = default_cave(seed);
+            let seen = flood_from_spawn(&m);
+            let mut floor = 0;
+            for y in 0..m.height {
+                for x in 0..m.width {
+                    if m.is_floor(x, y) {
+                        floor += 1;
+                        assert!(
+                            seen[(y * m.width + x) as usize],
+                            "seed {seed}: floor cell ({x},{y}) is unreachable from spawn — \
+                             the cavern is disconnected"
+                        );
+                    }
+                }
+            }
+            assert!(floor > 0, "seed {seed}: a 64×44 cave should carve floor");
+        }
+    }
+
+    /// A cave is a `DungeonMap`, so it feeds `to_path_grid` (walkable == floor) and, through it,
+    /// `FovMap` — the same composition seam the BSP dungeon uses.
+    #[test]
+    fn cave_composes_with_path_grid_and_fov() {
+        use crate::fov::FovMap;
+        let m = default_cave(2026);
+        let nav = m.to_path_grid();
+        assert_eq!((nav.width, nav.height), (m.width, m.height));
+        for y in 0..m.height {
+            for x in 0..m.width {
+                assert_eq!(nav.is_walkable(x, y), m.is_floor(x, y));
+            }
+        }
+        let mut fov = FovMap::from_path_grid(&nav);
+        let spawn = m.first_room_center().expect("a spawn");
+        fov.compute(spawn, 20);
+        assert!(
+            fov.is_visible(spawn.x, spawn.y),
+            "the observer sees its cell"
+        );
+    }
+
+    #[test]
+    fn cave_steps_zero_is_still_connected() {
+        // With no smoothing passes the keep-largest pass alone must still leave one connected region.
+        let params = CaveParams {
+            steps: 0,
+            ..CaveParams::default()
+        };
+        let m = generate_cellular_cave(48, 32, 3, &params);
+        let seen = flood_from_spawn(&m);
+        for y in 0..m.height {
+            for x in 0..m.width {
+                if m.is_floor(x, y) {
+                    assert!(seen[(y * m.width + x) as usize]);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cave_degenerate_sizes_are_safe() {
+        for (w, h) in [(0, 0), (2, 2), (-4, 10), (1, 50)] {
+            let m = generate_cellular_cave(w, h, 1, &CaveParams::default());
+            assert!(m.rooms.is_empty());
+            assert!(!m.is_floor(0, 0));
+            assert!(m.first_room_center().is_none());
+        }
+        let huge = generate_cellular_cave(i32::MAX, 2, 1, &CaveParams::default());
         assert_eq!((huge.width, huge.height), (0, 0));
     }
 }
