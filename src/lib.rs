@@ -148,7 +148,9 @@ pub use input::AxisBinding;
 pub use input::{GamepadAxis, GamepadButton, GamepadState, InputMap, InputState, TouchState};
 pub use input_buffer::{InputBuffer, DEFAULT_BUFFER_SECS, DEFAULT_COYOTE_SECS};
 pub use locale::{LocaleBundle, LocaleData, LocaleResource, TextDirection};
-pub use mapgen::{generate_bsp_dungeon, DungeonMap, DungeonParams, Room, Tile};
+pub use mapgen::{
+    generate_bsp_dungeon, generate_cellular_cave, CaveParams, DungeonMap, DungeonParams, Room, Tile,
+};
 pub use material::ShaderMaterial;
 pub use network::{
     NetworkClient, NetworkConfig, NetworkEvent, NetworkSystem, RemoteEntities, SnapshotBuffer,
