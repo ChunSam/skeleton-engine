@@ -1,6 +1,6 @@
-//! Procedural map generation — two deterministic generators over a shared [`DungeonMap`] grid:
-//! **BSP rooms + corridors** ([`generate_bsp_dungeon`]) and **cellular-automata caves**
-//! ([`generate_cellular_cave`]).
+//! Procedural map generation — three deterministic generators over a shared [`DungeonMap`] grid:
+//! **BSP rooms + corridors** ([`generate_bsp_dungeon`]), **cellular-automata caves**
+//! ([`generate_cellular_cave`]), and **perfect mazes** ([`generate_maze`]).
 //!
 //! [`generate_bsp_dungeon`] carves a roomy dungeon into a grid: it recursively splits the map into
 //! partitions, cuts a room into each leaf, and connects sibling partitions with L-shaped corridors
@@ -18,6 +18,15 @@
 //! the cavern's most-central cell, so [`first_room_center`](DungeonMap::first_room_center) is a valid
 //! spawn for both.
 //!
+//! [`generate_maze`] carves a **perfect maze**: a recursive-backtracker (depth-first) walk over the
+//! odd-coordinate *junction* cells knocks out the wall between each junction and a random unvisited
+//! neighbor, building a **spanning tree** over the junction graph — so there is exactly one path
+//! between any two cells, and the maze is **guaranteed connected by construction** (no keep-largest
+//! pass needed). Deterministic and seeded the same way. [`MazeParams`]`::braid_chance` optionally
+//! *braids* the maze afterward — reopening some dead-end walls into loops (`0.0` = a pure perfect
+//! maze); braiding only removes walls, so connectivity is preserved. A maze records a single 1×1
+//! [`Room`] at its start junction `(1, 1)`, so `first_room_center` is a valid spawn here too.
+//!
 //! The result is a plain owned grid (like [`PathGrid`] /
 //! [`FovMap`](crate::fov::FovMap) — not an ECS component): read [`is_floor`](DungeonMap::is_floor) /
 //! [`is_wall`](DungeonMap::is_wall) to render or collide, [`rooms`](DungeonMap::rooms) for spawn
@@ -27,7 +36,10 @@
 //! — field-of-view, all from the same layout (see the `roguelike` example).
 //!
 //! ```
-//! use engine::{generate_bsp_dungeon, generate_cellular_cave, CaveParams, DungeonParams, Tile};
+//! use engine::{
+//!     generate_bsp_dungeon, generate_cellular_cave, generate_maze, CaveParams, DungeonParams,
+//!     MazeParams, Tile,
+//! };
 //!
 //! let a = generate_bsp_dungeon(48, 32, 1234, &DungeonParams::default());
 //! let b = generate_bsp_dungeon(48, 32, 1234, &DungeonParams::default());
@@ -41,6 +53,11 @@
 //! assert_eq!(cave, generate_cellular_cave(48, 32, 1234, &CaveParams::default()));
 //! let spawn = cave.first_room_center().unwrap();
 //! assert!(cave.is_floor(spawn.x, spawn.y));
+//!
+//! // So is the maze — and its start junction (1, 1) is always floor.
+//! let maze = generate_maze(41, 27, 1234, &MazeParams::default());
+//! assert_eq!(maze, generate_maze(41, 27, 1234, &MazeParams::default()));
+//! assert!(maze.is_floor(1, 1));
 //! ```
 
 use std::collections::VecDeque;
@@ -136,6 +153,23 @@ impl Default for CaveParams {
             steps: 4,
             wall_threshold: 5,
         }
+    }
+}
+
+/// Tunables for [`generate_maze`]. [`Default`] (`braid_chance: 0.0`) is a pure perfect maze.
+#[derive(Clone, Debug)]
+pub struct MazeParams {
+    /// After carving the perfect maze, the fraction of **dead-end** junctions (in `0.0..=1.0`) whose
+    /// closing wall is reopened into a loop — *braiding*. `0.0` (default) leaves the perfect maze
+    /// untouched (exactly one path between any two cells, maximal dead ends); higher values thin the
+    /// dead ends and add flowing loops. Braiding only ever *removes* walls, so the maze stays
+    /// connected at any value.
+    pub braid_chance: f32,
+}
+
+impl Default for MazeParams {
+    fn default() -> Self {
+        Self { braid_chance: 0.0 }
     }
 }
 
@@ -562,6 +596,109 @@ fn keep_largest_cavern(map: &mut DungeonMap) {
     });
 }
 
+/// Generates a **perfect maze** of `width × height` cells from `seed` and `params`.
+///
+/// A recursive-backtracker (depth-first) walk over the odd-coordinate *junction* cells builds a
+/// spanning tree over the junction graph — knocking out the wall between each junction and a random
+/// unvisited neighbor — so every cell is reachable and, for a pure perfect maze
+/// (`braid_chance == 0.0`), exactly one path connects any two cells. Connectivity is thus
+/// **guaranteed by construction** (no keep-largest pass, unlike the cave). Deterministic: the same
+/// `(width, height, seed, params)` always returns the identical [`DungeonMap`]. The outer border is
+/// always wall, and a single 1×1 [`Room`] is recorded at the start junction `(1, 1)` so
+/// [`first_room_center`](DungeonMap::first_room_center) is a valid spawn. See the [module docs](self).
+pub fn generate_maze(width: i32, height: i32, seed: u64, params: &MazeParams) -> DungeonMap {
+    let mut map = DungeonMap::new_walls(width, height);
+    // Need a 1-cell wall border around at least the one junction cell at (1, 1).
+    if map.width < 3 || map.height < 3 {
+        return map;
+    }
+    // Junction cells sit on odd coordinates; there are `jw × jh` of them, junction (jx, jy) at the
+    // grid cell (1 + 2·jx, 1 + 2·jy). Passages knock out the wall cell BETWEEN two junctions.
+    let jw = (map.width - 1) / 2;
+    let jh = (map.height - 1) / 2;
+    let mut rng = Rng::new(seed);
+
+    // Recursive backtracker with an EXPLICIT stack: a maze can nest as deep as every junction, so
+    // real recursion would risk a stack overflow on a large map.
+    let mut visited = vec![false; (jw * jh) as usize];
+    let jidx = |jx: i32, jy: i32| (jy * jw + jx) as usize;
+    let mut stack: Vec<(i32, i32)> = Vec::new();
+    visited[jidx(0, 0)] = true;
+    map.set_floor(1, 1); // the start junction
+    stack.push((0, 0));
+    while let Some(&(jx, jy)) = stack.last() {
+        // Visit the four neighbors in a random (but fixed-length, so deterministic) order and step
+        // to the first unvisited one; backtrack when a junction has none left.
+        let mut dirs = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+        rng.shuffle(&mut dirs);
+        let mut advanced = false;
+        for (dx, dy) in dirs {
+            let (nx, ny) = (jx + dx, jy + dy);
+            if nx >= 0 && ny >= 0 && nx < jw && ny < jh && !visited[jidx(nx, ny)] {
+                let (cx, cy) = (1 + jx * 2, 1 + jy * 2);
+                map.set_floor(cx + dx, cy + dy); // the wall between the two junctions
+                map.set_floor(cx + dx * 2, cy + dy * 2); // the neighbor junction itself
+                visited[jidx(nx, ny)] = true;
+                stack.push((nx, ny));
+                advanced = true;
+                break;
+            }
+        }
+        if !advanced {
+            stack.pop();
+        }
+    }
+
+    if params.braid_chance > 0.0 {
+        braid_dead_ends(
+            &mut map,
+            &mut rng,
+            params.braid_chance.clamp(0.0, 1.0),
+            jw,
+            jh,
+        );
+    }
+    map.rooms.push(Room {
+        x: 1,
+        y: 1,
+        w: 1,
+        h: 1,
+    });
+    map
+}
+
+/// *Braids* the finished maze: each dead-end junction (a floor junction with exactly one open
+/// passage), visited in row-major order, has probability `chance` of a still-closed wall toward an
+/// in-bounds neighbor junction being reopened — turning the dead end into a loop. Reopening only
+/// ever *removes* walls, so the maze stays connected; and a reopened wall always sits between two
+/// valid interior junctions, so the border is never breached.
+fn braid_dead_ends(map: &mut DungeonMap, rng: &mut Rng, chance: f32, jw: i32, jh: i32) {
+    let dirs = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+    for jy in 0..jh {
+        for jx in 0..jw {
+            let (cx, cy) = (1 + jx * 2, 1 + jy * 2);
+            let open = dirs
+                .iter()
+                .filter(|&&(dx, dy)| map.is_floor(cx + dx, cy + dy))
+                .count();
+            // Short-circuits so `chance` is only drawn at an actual dead end (still deterministic:
+            // the maze and this traversal are both fixed for a given seed).
+            if open != 1 || !rng.chance(chance) {
+                continue;
+            }
+            let mut choices = dirs;
+            rng.shuffle(&mut choices);
+            for (dx, dy) in choices {
+                let (nx, ny) = (jx + dx, jy + dy);
+                if nx >= 0 && ny >= 0 && nx < jw && ny < jh && map.is_wall(cx + dx, cy + dy) {
+                    map.set_floor(cx + dx, cy + dy);
+                    break;
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -858,6 +995,146 @@ mod tests {
             assert!(m.first_room_center().is_none());
         }
         let huge = generate_cellular_cave(i32::MAX, 2, 1, &CaveParams::default());
+        assert_eq!((huge.width, huge.height), (0, 0));
+    }
+
+    // ── Perfect mazes ────────────────────────────────────────────────────────
+
+    fn default_maze(seed: u64) -> DungeonMap {
+        generate_maze(41, 27, seed, &MazeParams::default())
+    }
+
+    fn floor_count(m: &DungeonMap) -> usize {
+        (0..m.height)
+            .flat_map(|y| (0..m.width).map(move |x| (x, y)))
+            .filter(|&(x, y)| m.is_floor(x, y))
+            .count()
+    }
+
+    #[test]
+    fn maze_same_seed_is_identical() {
+        assert_eq!(default_maze(42), default_maze(42));
+    }
+
+    #[test]
+    fn maze_different_seeds_differ() {
+        assert_ne!(default_maze(1), default_maze(2));
+    }
+
+    #[test]
+    fn maze_border_is_all_wall() {
+        let m = default_maze(7);
+        for x in 0..m.width {
+            assert_eq!(m.tile(x, 0), Tile::Wall);
+            assert_eq!(m.tile(x, m.height - 1), Tile::Wall);
+        }
+        for y in 0..m.height {
+            assert_eq!(m.tile(0, y), Tile::Wall);
+            assert_eq!(m.tile(m.width - 1, y), Tile::Wall);
+        }
+    }
+
+    #[test]
+    fn maze_spawn_is_the_start_junction() {
+        let m = default_maze(2026);
+        let spawn = m.first_room_center().expect("a maze has a spawn room");
+        assert_eq!(
+            spawn,
+            IVec2::new(1, 1),
+            "spawn is the start junction (1, 1)"
+        );
+        assert!(m.is_floor(spawn.x, spawn.y), "the start junction is floor");
+        assert_eq!(m.rooms.len(), 1);
+        assert_eq!((m.rooms[0].w, m.rooms[0].h), (1, 1));
+    }
+
+    /// The defining maze invariant: EVERY floor cell is reachable from the spawn — one connected
+    /// region — since the backtracker builds a spanning tree over the junctions by construction.
+    #[test]
+    fn maze_is_a_single_connected_region() {
+        for seed in [1, 7, 42, 99, 2026] {
+            let m = default_maze(seed);
+            let seen = flood_from_spawn(&m);
+            let mut floor = 0;
+            for y in 0..m.height {
+                for x in 0..m.width {
+                    if m.is_floor(x, y) {
+                        floor += 1;
+                        assert!(
+                            seen[(y * m.width + x) as usize],
+                            "seed {seed}: floor cell ({x},{y}) is unreachable — maze is disconnected"
+                        );
+                    }
+                }
+            }
+            assert!(floor > 0, "seed {seed}: a 41×27 maze should carve floor");
+        }
+    }
+
+    /// A pure perfect maze is a spanning tree over `jw·jh` junctions: `J` junction cells plus the
+    /// `J−1` carved passage cells = exactly `2J − 1` floor cells. Matching that number proves the
+    /// maze is both connected (all `J` visited) and acyclic (no extra passages).
+    #[test]
+    fn maze_perfect_floor_count_is_a_spanning_tree() {
+        let m = default_maze(2026);
+        let jw = (m.width - 1) / 2;
+        let jh = (m.height - 1) / 2;
+        assert_eq!(floor_count(&m), (2 * jw * jh - 1) as usize);
+    }
+
+    /// Braiding only opens walls, so it adds floor cells and can never disconnect the maze.
+    #[test]
+    fn maze_braided_is_connected_and_has_more_floor() {
+        let perfect = default_maze(7);
+        let braided = generate_maze(41, 27, 7, &MazeParams { braid_chance: 1.0 });
+        assert!(
+            floor_count(&braided) > floor_count(&perfect),
+            "braiding should reopen dead-end walls into loops"
+        );
+        let seen = flood_from_spawn(&braided);
+        for y in 0..braided.height {
+            for x in 0..braided.width {
+                if braided.is_floor(x, y) {
+                    assert!(
+                        seen[(y * braided.width + x) as usize],
+                        "a braided maze must stay connected"
+                    );
+                }
+            }
+        }
+    }
+
+    /// A maze is a `DungeonMap`, so it feeds `to_path_grid` (walkable == floor) and, through it,
+    /// `FovMap` — the same composition seam the BSP dungeon and the cave use.
+    #[test]
+    fn maze_composes_with_path_grid_and_fov() {
+        use crate::fov::FovMap;
+        let m = default_maze(2026);
+        let nav = m.to_path_grid();
+        assert_eq!((nav.width, nav.height), (m.width, m.height));
+        for y in 0..m.height {
+            for x in 0..m.width {
+                assert_eq!(nav.is_walkable(x, y), m.is_floor(x, y));
+            }
+        }
+        let mut fov = FovMap::from_path_grid(&nav);
+        let spawn = m.first_room_center().expect("a spawn");
+        fov.compute(spawn, 20);
+        assert!(
+            fov.is_visible(spawn.x, spawn.y),
+            "the observer sees its cell"
+        );
+    }
+
+    #[test]
+    fn maze_degenerate_sizes_are_safe() {
+        for (w, h) in [(0, 0), (2, 2), (-4, 10), (1, 50)] {
+            let m = generate_maze(w, h, 1, &MazeParams::default());
+            assert!(m.rooms.is_empty());
+            assert!(!m.is_floor(0, 0));
+            assert!(m.first_room_center().is_none());
+        }
+        let huge = generate_maze(i32::MAX, 2, 1, &MazeParams::default());
         assert_eq!((huge.width, huge.height), (0, 0));
     }
 }
