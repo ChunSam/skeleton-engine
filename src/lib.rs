@@ -31,6 +31,7 @@ pub mod history;
 pub mod hit_flash;
 pub mod input;
 pub mod input_buffer;
+pub mod input_script;
 pub mod locale;
 pub mod mapgen;
 pub mod material;
@@ -148,6 +149,10 @@ pub use hit_flash::{HitFlash, HitFlashSystem};
 pub use input::AxisBinding;
 pub use input::{GamepadAxis, GamepadButton, GamepadState, InputMap, InputState, TouchState};
 pub use input_buffer::{InputBuffer, DEFAULT_BUFFER_SECS, DEFAULT_COYOTE_SECS};
+pub use input_script::{
+    key_from_name, key_names, mouse_button_from_name, InputAction, InputScript, InputScriptError,
+    ScriptedInput,
+};
 pub use locale::{LocaleBundle, LocaleData, LocaleResource, TextDirection};
 pub use mapgen::{
     generate_bsp_dungeon, generate_cellular_cave, generate_maze, CaveParams, DungeonMap,

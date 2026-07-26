@@ -610,6 +610,25 @@ impl App {
     /// Starts the event loop. Blocks until the window is closed.
     #[allow(unused_mut)]
     pub fn run(mut self) {
+        // Automated-verification hooks, read before the window exists so a game needs no code
+        // change to be driven and photographed. See `crate::input_script`.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.apply_input_script_env();
+            if let Some(captures) = crate::input_script::capture_plan_from_env() {
+                match self.capture_frames_headless(&captures) {
+                    Ok(paths) => {
+                        for p in paths {
+                            println!("ENGINE_CAPTURE wrote {}", p.display());
+                        }
+                    }
+                    Err(err) => log::error!("ENGINE_CAPTURE failed: {err}"),
+                }
+                // Capture is a complete run on its own — never also open a window.
+                return;
+            }
+        }
+
         let event_loop = match EventLoop::new() {
             Ok(event_loop) => event_loop,
             Err(err) => {
