@@ -1,0 +1,27 @@
+// Input script for `examples/scripted_capture.rs` — drives the app through all three screens
+// without a human. Frames count from 0; see `engine::input_script` for the format.
+//
+//   ENGINE_INPUT=examples/scripted_capture.ron \
+//   ENGINE_CAPTURE=8:/tmp/menu.png,28:/tmp/shop.png,52:/tmp/detail.png \
+//   cargo run --example scripted_capture
+//
+// Key names are winit `KeyCode` variant names ("KeyA", "Digit2", "Space", "Escape", …);
+// mouse buttons are "Left" / "Right" / "Middle".
+(
+    events: [
+        // Frame 0-9 — the menu is on screen; capture it before anything is pressed.
+        // Frame 15: open the shop (the same key a player would press).
+        (frame: 15, action: KeyPress("Digit2")),
+
+        // Frame 40: point well inside the third cell and click it — a real press position, so
+        // the example's hit-test runs exactly as it does under a mouse. Coordinates are the same
+        // logical pixels `InputState::cursor()` reports, so aim at a cell's middle: a cell edge
+        // is exclusive and would land in the gap.
+        (frame: 40, action: MouseMove(690.0, 185.0)),
+        (frame: 41, action: Click("Left")),
+
+        // Frame 70: leave. In a windowed run this closes the app; under ENGINE_CAPTURE the run
+        // simply ends at the last captured frame.
+        (frame: 70, action: Quit),
+    ],
+)

@@ -148,6 +148,11 @@ impl App {
     pub(super) fn update(&mut self, dt: f32) {
         self.world.clear_change_tracking();
 
+        // 0. Scripted input playback — injected BEFORE the systems run and after last frame's
+        // `input.flush()`, so a scripted press reads as `just_pressed` within its own frame,
+        // exactly like a real one. No-op unless a script is installed.
+        self.apply_input_script_frame();
+
         // 1. Viewport + scale-factor computation
         if self.gpu.is_some() {
             self.compute_viewport();

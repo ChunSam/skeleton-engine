@@ -62,10 +62,82 @@ impl App {
         path: impl AsRef<Path>,
     ) -> Result<(), String> {
         let (w, h, pixels) = self.screenshot_headless(frames);
-        let img = image::RgbaImage::from_raw(w, h, pixels)
-            .ok_or_else(|| "read-back produced an unexpected byte count".to_string())?;
-        img.save(path.as_ref()).map_err(|e| e.to_string())
+        save_rgba_png(w, h, pixels, path.as_ref())
     }
+
+    /// Runs headlessly and writes a PNG at **each** listed frame — a whole verification pass in
+    /// one run.
+    ///
+    /// `captures` are `(frame, path)` pairs; frame numbers count from 0 and may be given in any
+    /// order. The run lasts until the highest listed frame, so pairing this with an
+    /// [`InputScript`](crate::InputScript) lets a game drive itself through several screens and
+    /// photograph each one — with **no window, no display and no OS automation permissions**.
+    ///
+    /// This is what the `ENGINE_CAPTURE=<frame>:<path>[,…]` environment variable calls, so a game
+    /// gets the whole flow without writing any code (see [`App::run`](Self::run)).
+    ///
+    /// Returns the paths written, or the first error. Native-only.
+    ///
+    /// ```no_run
+    /// # use engine::{App, InputScript};
+    /// # let mut app = App::new();
+    /// app.set_input_script(InputScript::load("assets/scripts/shop.ron").unwrap());
+    /// app.capture_frames_headless(&[(60, "/tmp/menu.png"), (150, "/tmp/shop.png")])
+    ///     .unwrap();
+    /// ```
+    ///
+    /// # Panics
+    /// Panics if headless GPU initialization fails (no usable adapter).
+    pub fn capture_frames_headless(
+        &mut self,
+        captures: &[(u32, impl AsRef<Path>)],
+    ) -> Result<Vec<std::path::PathBuf>, String> {
+        if captures.is_empty() {
+            return Ok(Vec::new());
+        }
+        let (w, h) = self
+            .world
+            .resource::<WindowConfig>()
+            .map(|c| (c.width, c.height))
+            .unwrap_or((1280, 720));
+
+        let gpu = pollster::block_on(GpuContext::new_headless(w, h))
+            .expect("headless GPU initialization failed");
+        // The render path reads ViewportSize for projection/letterbox; match the render size.
+        self.world.insert_resource(ViewportSize::new(w, h));
+        self.init_gpu_renderers(&gpu);
+        self.gpu = Some(gpu);
+
+        // Frame `n` is captured after n+1 updates, so the frame a script acts on is the frame
+        // photographed — `(frame: 10, KeyPress)` + a capture at 10 shows the pressed state.
+        let last = captures.iter().map(|(f, _)| *f).max().unwrap_or(0);
+        let dt = 1.0 / 60.0;
+        let mut written = Vec::with_capacity(captures.len());
+        for frame in 0..=last {
+            self.update(dt);
+            // Headless render targets the offscreen texture and never presents, so it cannot
+            // fail with a surface error (the Err arm is windowed-only).
+            let _ = self.render();
+            for (at, path) in captures.iter().filter(|(at, _)| *at == frame) {
+                let (cw, ch, pixels) = self
+                    .gpu
+                    .as_ref()
+                    .expect("headless gpu present")
+                    .read_headless_rgba();
+                save_rgba_png(cw, ch, pixels, path.as_ref())
+                    .map_err(|e| format!("frame {at}: {e}"))?;
+                written.push(path.as_ref().to_path_buf());
+            }
+        }
+        Ok(written)
+    }
+}
+
+/// Write tightly-packed RGBA8 bytes to a PNG, so callers need no `image` dependency.
+fn save_rgba_png(w: u32, h: u32, pixels: Vec<u8>, path: &Path) -> Result<(), String> {
+    let img = image::RgbaImage::from_raw(w, h, pixels)
+        .ok_or_else(|| "read-back produced an unexpected byte count".to_string())?;
+    img.save(path).map_err(|e| e.to_string())
 }
 
 // ── Headless EDITOR screenshot (no window, drives egui manually) ────────────────
