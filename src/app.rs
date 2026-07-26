@@ -51,8 +51,8 @@ use crate::{
     reflect::ReflectValue,
     renderer::{GpuContext, SpriteRenderer, TextRenderer},
     resources::{
-        DesignResolution, DisplayScaleFactor, FontData, Letterbox, LoadProgress, ViewportSize,
-        WindowConfig, WindowMode, WindowOptions,
+        DesignResolution, DisplayScaleFactor, Letterbox, LoadProgress, ViewportSize, WindowConfig,
+        WindowMode, WindowOptions,
     },
     scene::{Scene, SceneChange, SceneCmd},
 };
@@ -289,6 +289,11 @@ impl App {
             .push(crate::ecs::schedule::SystemConfig::new().label(HierarchySystem::LABEL));
         app.builtin_tail_count = 1;
         app.schedule_dirty = true;
+
+        // The text measurer is lazily built (its FontSystem scans system fonts), but once a
+        // game has paid for it a scene change must not throw it away and re-pay on the next
+        // measurement. Registering the type is free when the resource never exists.
+        app.register_persistent::<crate::text_measure::TextMeasurer>();
 
         app
     }

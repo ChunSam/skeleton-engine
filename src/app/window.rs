@@ -685,27 +685,10 @@ impl App {
                 gpu.adapter.clone(),
                 gpu.config.format,
             ));
-        let font_bytes = self
-            .world
-            .resource::<FontData>()
-            .map(|f| f.0.clone())
-            .unwrap_or_default();
-        // WASM: the browser sandbox has no system fonts, so cosmic-text would panic when it
-        // shapes text against an empty font db. Fall back to the engine's embedded default font
-        // when the game supplies no `FontData`, so `DrawText`/HUD text renders out of the box.
-        // Native loads system fonts inside `FontSystem::new()` and does not embed the default.
-        #[cfg(target_arch = "wasm32")]
-        let font_bytes = if font_bytes.is_empty() {
-            crate::renderer::DEFAULT_FONT.to_vec()
-        } else {
-            font_bytes
-        };
-        // Additional fonts (multi-script coverage, e.g. an RTL-script font) loaded alongside FontData.
-        let extra_fonts = self
-            .world
-            .resource::<crate::resources::ExtraFonts>()
-            .map(|f| f.0.clone())
-            .unwrap_or_default();
+        // `FontData` + the multi-script `ExtraFonts` blobs, with the wasm default-font fallback.
+        // Shared with `TextMeasurer`'s construction so a measurement is taken against exactly
+        // the font stack this renderer draws with.
+        let (font_bytes, extra_fonts) = crate::text_measure::font_blobs(&self.world);
         let text_renderer = Some(TextRenderer::new(
             &gpu.device,
             &gpu.queue,

@@ -18,3 +18,4 @@ mod tests;
 pub(crate) use layering::interleave_runs;
 pub use queue::{DrawText, TextAlign, TextAnchor, TextQueue};
 pub use renderer::TextRenderer;
+pub(crate) use renderer::{build_font_system, shape_text, ShapeSpec, LINE_HEIGHT_FACTOR};

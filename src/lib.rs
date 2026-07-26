@@ -65,6 +65,7 @@ pub mod scene_transition;
 pub mod scripting;
 pub mod skeletal;
 pub mod steering;
+pub mod text_measure;
 pub mod tilemap;
 pub mod timeline;
 pub mod timer;
@@ -218,6 +219,7 @@ pub use scene_transition::{
 };
 pub use scripting::{ScriptAsset, ScriptRegistry, ScriptRunner, ScriptingLimits, ScriptingSystem};
 pub use steering::{Arrive, Flee, Seek, SteeringSystem, SteeringVelocity, Wander};
+pub use text_measure::{measure_text, measure_text_wrapped, text_measurer, TextMeasurer};
 pub use tilemap::{
     compute_tile_mask, compute_tile_mask_typed, AnimatedTileCell, AnimatedTileSystem, AutotileMode,
     Neighborhood, TerrainRule, TileAnimation, TileAnimationSet, Tilemap, TilemapAtlas,
