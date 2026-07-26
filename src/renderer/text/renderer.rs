@@ -73,7 +73,7 @@ pub struct TextRenderer {
 /// Build a cosmic-text [`FontSystem`] loading `font_data` (if non-empty) plus every blob in
 /// `extra_fonts` (multi-script coverage). Extracted from [`TextRenderer::new`] so font loading is
 /// unit-testable without a GPU device.
-pub(super) fn build_font_system(font_data: &[u8], extra_fonts: &[Vec<u8>]) -> FontSystem {
+pub(crate) fn build_font_system(font_data: &[u8], extra_fonts: &[Vec<u8>]) -> FontSystem {
     let mut font_system = FontSystem::new();
     if !font_data.is_empty() {
         font_system.db_mut().load_font_data(font_data.to_vec());
@@ -407,8 +407,7 @@ impl TextRenderer {
                     buffer
                 } else {
                     // Cache miss (or rich text): build and shape from scratch.
-                    let metrics = Metrics::new(size, size * 1.2); // line_height = 1.2× size
-                    let mut buf = Buffer::new(&mut self.font_system, metrics);
+                    //
                     // Single-line (TextInput): expand to unlimited width + no wrap, then
                     // scroll horizontally below. Otherwise wrap at the bounds width.
                     //
@@ -428,52 +427,27 @@ impl TextRenderer {
                             position.x,
                         ))
                     };
-                    buf.set_size(
+                    shape_text(
                         &mut self.font_system,
-                        width,
-                        Some(layout_buffer_height(
-                            d.anchor,
-                            bounds.map(|b| b.y),
-                            h as f32,
-                            position.y,
-                        )),
-                    );
-                    buf.set_wrap(
-                        &mut self.font_system,
-                        if single_line.is_some() {
-                            Wrap::None
-                        } else {
-                            Wrap::WordOrGlyph
+                        &ShapeSpec {
+                            text: &d.text,
+                            size,
+                            width,
+                            height: Some(layout_buffer_height(
+                                d.anchor,
+                                bounds.map(|b| b.y),
+                                h as f32,
+                                position.y,
+                            )),
+                            wrap: if single_line.is_some() {
+                                Wrap::None
+                            } else {
+                                Wrap::WordOrGlyph
+                            },
+                            align: d.align.to_glyphon(),
+                            rich: d.rich,
                         },
-                    );
-                    let default_attrs = Attrs::new().family(Family::SansSerif);
-                    if d.rich {
-                        let rich = parse_rich_text(&d.text, &default_attrs);
-                        let spans: Vec<(&str, Attrs<'_>)> = rich
-                            .iter()
-                            .map(|(s, attrs)| (s.as_str(), attrs.clone()))
-                            .collect();
-                        buf.set_rich_text(
-                            &mut self.font_system,
-                            spans,
-                            &default_attrs,
-                            Shaping::Advanced,
-                            None,
-                        );
-                    } else {
-                        buf.set_text(
-                            &mut self.font_system,
-                            &d.text,
-                            &default_attrs,
-                            Shaping::Advanced,
-                            None,
-                        );
-                    }
-                    for line in &mut buf.lines {
-                        line.set_align(d.align.to_glyphon());
-                    }
-                    buf.shape_until_scroll(&mut self.font_system, false);
-                    buf
+                    )
                 };
 
                 // ── Post-shaping: scroll + anchor (always recomputed, cheap) ─
@@ -503,7 +477,10 @@ impl TextRenderer {
                     TextAnchor::TopLeft => Vec2::ZERO,
                     TextAnchor::Center => {
                         let lines = buf.layout_runs().count() as f32;
-                        Vec2::new(shaped_center_x(&buf), lines * size * 1.2 * 0.5)
+                        Vec2::new(
+                            shaped_center_x(&buf),
+                            lines * size * LINE_HEIGHT_FACTOR * 0.5,
+                        )
                     }
                 };
                 let mut scaled = d;
@@ -514,6 +491,67 @@ impl TextRenderer {
             })
             .collect()
     }
+}
+
+/// Line height as a multiple of the font size, shared by every text path.
+///
+/// The renderer shapes with `Metrics::new(size, size * LINE_HEIGHT_FACTOR)`, the
+/// [`TextAnchor::Center`] offset divides by it, and
+/// [`TextMeasurer`](crate::TextMeasurer) reports heights in terms of it — so the three
+/// cannot drift apart.
+pub(crate) const LINE_HEIGHT_FACTOR: f32 = 1.2;
+
+/// Everything that affects how a string is shaped into a [`Buffer`].
+///
+/// Extracted so the GPU renderer and the CPU-only [`TextMeasurer`](crate::TextMeasurer)
+/// shape through **one** code path: a measurement can only match the rendered result if it
+/// uses the same metrics, wrap mode, attrs and [`Shaping`] level, and the compiler now
+/// enforces that by construction rather than by two call sites agreeing.
+pub(crate) struct ShapeSpec<'a> {
+    pub text: &'a str,
+    /// Font size in the buffer's own pixel space (the renderer passes the display-scaled size).
+    pub size: f32,
+    /// Layout width; `None` = unlimited (no wrapping possible).
+    pub width: Option<f32>,
+    /// Layout height; `None` = unlimited.
+    pub height: Option<f32>,
+    pub wrap: Wrap,
+    /// Per-line alignment; `None` = glyphon's default (script-derived, i.e. `TextAlign::Auto`).
+    pub align: Option<glyphon::cosmic_text::Align>,
+    /// Parse `[color=…]`/`[b]`/`[i]` markup instead of shaping the literal string.
+    pub rich: bool,
+}
+
+/// Shape `spec` into a laid-out [`Buffer`] using `font_system`'s font stack.
+///
+/// The single shaping entry point for the whole engine — see [`ShapeSpec`].
+pub(crate) fn shape_text(font_system: &mut FontSystem, spec: &ShapeSpec<'_>) -> Buffer {
+    let metrics = Metrics::new(spec.size, spec.size * LINE_HEIGHT_FACTOR);
+    let mut buf = Buffer::new(font_system, metrics);
+    buf.set_size(font_system, spec.width, spec.height);
+    buf.set_wrap(font_system, spec.wrap);
+    let default_attrs = Attrs::new().family(Family::SansSerif);
+    if spec.rich {
+        let rich = parse_rich_text(spec.text, &default_attrs);
+        let spans: Vec<(&str, Attrs<'_>)> = rich
+            .iter()
+            .map(|(s, attrs)| (s.as_str(), attrs.clone()))
+            .collect();
+        buf.set_rich_text(font_system, spans, &default_attrs, Shaping::Advanced, None);
+    } else {
+        buf.set_text(
+            font_system,
+            spec.text,
+            &default_attrs,
+            Shaping::Advanced,
+            None,
+        );
+    }
+    for line in &mut buf.lines {
+        line.set_align(spec.align);
+    }
+    buf.shape_until_scroll(font_system, false);
+    buf
 }
 
 /// Horizontal center of shaped text within its layout buffer, in buffer-local pixels.
