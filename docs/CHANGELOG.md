@@ -4,6 +4,18 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.133.0
+
+**A `DataTable`'s column schema is now the union of every row's keys, so a column that only some rows carry is no longer silently discarded.** `DataTable::parse` derived `columns` from row 0 alone: a column that first appeared on a later row was dropped with only a `log::warn!` — invisible in a normal run, while the symptom ("the feature just doesn't apply to some rows") surfaced far from the cause. That made every optional column carry an implicit "MUST also be present on row 0" rule, enforced by header comments in the RON files and re-learned by each new contributor. The schema is now collected across all rows (still sorted alphabetically, so a row-0-complete table parses exactly as before) and the fill mechanism is unchanged: a row that omits a column gets `ron::Value::Unit`, as rows missing a row-0 column always did. Nothing can be discarded anymore, so the extra-column warning is retired. Closes dungeon-merchant **EW-010**.
+
+### Fixed
+- `DataTable::parse` (`src/data_table.rs`) collects `columns` from the **union** of every row's keys instead of row 0's alone, so a late-appearing column joins the schema and keeps its authored values. Rows that omit it are filled with `ron::Value::Unit`, exactly as before. A table whose row 0 already lists every column parses identically to the previous behavior.
+- The `data_table: row {idx} has extra column '{key}' not in schema; value discarded` warning is removed — with a union schema no row can carry a column outside it, so the condition is unreachable.
+- `DataTable::add_row` seeds each new cell from the first row that actually carries a value for that column, rather than from row 0. With a union schema an optional column is `Unit` on every row that omits it, so reading only row 0 would type a late-appearing column as `Unit` and seed the new row with nothing.
+
+### Added
+- 3 unit tests in `src/data_table.rs`: a column present only on the last row joins the schema and keeps its value while the other rows hold `Unit`; a row-0-complete table parses unchanged with no `Unit` cells; `add_row` types a late-appearing column from the row that has it.
+
 ## 0.132.0
 
 **Text can now be measured before it is drawn, so a panel can be sized to fit it exactly.** Text-fitted UI — a tooltip, a name chip, a speech bubble — has to be as wide as its string, but the width is only known after shaping, so games fall back to a `chars × px` guess. That guess breaks the moment scripts mix: at 15 px a Hangul glyph advances ≈ 15 px while a digit advances ≈ 8 px, so `"사슬갑옷"` and `"200g"` — both four characters — differ by nearly 2×; the guess then gets padded until it stops clipping and every panel is loose forever after. `TextMeasurer` shapes a string through the renderer's **own** code path and reports the real extent. Exactness is structural rather than coincidental: the GPU renderer and the measurer now shape through one extracted `shape_text(font_system, &ShapeSpec)` helper (same `Metrics`, `Shaping::Advanced`, attrs and wrap mode) and load one font stack through the shared `font_blobs(world)` (`FontData` + `ExtraFonts` + the wasm default-font fallback), so a measurement cannot drift from what is rendered. Purely additive: no existing type or signature changed. Closes dungeon-merchant **EW-009**.

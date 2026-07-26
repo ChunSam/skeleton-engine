@@ -15,7 +15,7 @@
 //! **Note:** comments and custom formatting are NOT preserved on save; the file is
 //! always rewritten by `to_ron_string`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::save::SaveError;
 
@@ -26,10 +26,10 @@ use crate::save::SaveError;
 /// Rows are stored as ordered `(column, value)` pairs so that the original
 /// column order is preserved across load/save cycles. Because the engine uses
 /// ron 0.8 **without** the `indexmap` feature the internal `ron::Map` uses
-/// `BTreeMap` (sorted keys), so column order is taken from the first row but
-/// sorted alphabetically — that is the canonical column order throughout.
+/// `BTreeMap` (sorted keys), so columns are collected from every row and sorted
+/// alphabetically — that is the canonical column order throughout.
 pub struct DataTable {
-    /// Column names in alphabetical order (derived from the first row at parse time).
+    /// Column names in alphabetical order (the union of every row's keys at parse time).
     pub columns: Vec<String>,
     /// Cell data: one `Vec<(col, value)>` per row, same order as `columns`.
     pub rows: Vec<Vec<(String, ron::Value)>>,
@@ -44,9 +44,10 @@ impl DataTable {
     ///
     /// The RON text must be a sequence (`[…]`) whose elements are either maps
     /// (`{key: val, …}`) or anonymous structs (`(key: val, …)`).
-    /// Column order is taken from the first row and sorted alphabetically (because
-    /// ron 0.8 without `indexmap` uses `BTreeMap` which sorts keys).
-    /// Subsequent rows that are missing a column get `ron::Value::Unit`.
+    /// The column schema is the **union of every row's keys**, sorted alphabetically
+    /// (ron 0.8 without `indexmap` uses `BTreeMap`, which sorts keys anyway) — so a column
+    /// that only some rows carry is part of the table rather than silently dropped. Rows
+    /// missing a column get `ron::Value::Unit`.
     ///
     /// Prefer [`std::str::FromStr`] (`"…".parse::<DataTable>()`) for idiomatic usage.
     /// This method is kept for convenience and explicit error type use.
@@ -97,33 +98,46 @@ impl DataTable {
             }
         };
 
-        // Build columns from the first row (BTreeMap = alphabetical sort already).
-        let first_pairs = extract_pairs(rows_raw[0].clone())?;
-        let mut columns: Vec<String> = first_pairs.iter().map(|(c, _)| c.clone()).collect();
-        columns.sort();
+        // Extract every row's pairs once, then derive the schema from the UNION of all rows.
+        //
+        // The schema used to come from row 0 alone, so a column that first appeared on a later
+        // row was discarded with only a `warn!` — invisible in a normal run, and the symptom
+        // ("the feature just doesn't apply to some rows") shows up far from the cause. It made
+        // every optional column carry a "MUST also be present on row 0" rule, enforced by
+        // comments in the RON files and re-learned by every contributor. With the union there
+        // is no such rule and nothing to discard.
+        let all_pairs = rows_raw
+            .into_iter()
+            .map(extract_pairs)
+            .collect::<Result<Vec<_>, _>>()?;
 
-        // Build all rows in column order.
-        let mut rows: Vec<Vec<(String, ron::Value)>> = Vec::with_capacity(rows_raw.len());
-        for (idx, raw) in rows_raw.into_iter().enumerate() {
-            let pairs = extract_pairs(raw)?;
-            let pair_map: HashMap<String, ron::Value> = pairs.into_iter().collect();
-            // Warn about keys present in this row but absent from the schema (row 0).
-            for key in pair_map.keys() {
-                if !columns.contains(key) {
-                    log::warn!(
-                        "data_table: row {idx} has extra column '{key}' not in schema; value discarded"
-                    );
+        let mut columns: Vec<String> = Vec::new();
+        let mut seen: HashSet<&str> = HashSet::new();
+        for pairs in &all_pairs {
+            for (col, _) in pairs {
+                if seen.insert(col.as_str()) {
+                    columns.push(col.clone());
                 }
             }
-            let row: Vec<(String, ron::Value)> = columns
-                .iter()
-                .map(|col| {
-                    let v = pair_map.get(col).cloned().unwrap_or(ron::Value::Unit);
-                    (col.clone(), v)
-                })
-                .collect();
-            rows.push(row);
         }
+        // Alphabetical, as before: ron 0.8 without `indexmap` uses a BTreeMap, so per-row order
+        // is already sorted and the canonical column order stays deterministic.
+        columns.sort();
+
+        // Build all rows in column order; a cell a row does not carry is `Unit`.
+        let rows: Vec<Vec<(String, ron::Value)>> = all_pairs
+            .into_iter()
+            .map(|pairs| {
+                let pair_map: HashMap<String, ron::Value> = pairs.into_iter().collect();
+                columns
+                    .iter()
+                    .map(|col| {
+                        let v = pair_map.get(col).cloned().unwrap_or(ron::Value::Unit);
+                        (col.clone(), v)
+                    })
+                    .collect()
+            })
+            .collect();
 
         Ok(DataTable {
             columns,
@@ -197,9 +211,15 @@ impl DataTable {
             .map(|(_, v)| v)
     }
 
-    /// Return a zeroed/empty default value matching the type of the value at `(0, col)`.
+    /// Return a zeroed/empty default value matching the type `col` holds in this table.
+    ///
+    /// Scans for the first row that actually carries a value: with a union schema an optional
+    /// column is `Unit` on every row that omits it, so looking only at row 0 would type a
+    /// late-appearing column as `Unit` and `add_row` would seed it with nothing.
     fn default_value_for_col(&self, col: &str) -> ron::Value {
-        self.get(0, col)
+        (0..self.rows.len())
+            .filter_map(|r| self.get(r, col))
+            .find(|v| !matches!(v, ron::Value::Unit))
             .map(default_ron_value)
             .unwrap_or(ron::Value::Unit)
     }
@@ -391,6 +411,65 @@ mod tests {
         assert!(
             matches!(speed, ron::Value::Number(ron::Number::Float(_))),
             "expected Float, got {speed:?}"
+        );
+    }
+
+    /// A column that first appears on a LATER row must join the schema, not be discarded.
+    /// Row-0-only schema derivation silently dropped it, which is the whole of EW-010.
+    #[test]
+    fn schema_is_the_union_of_all_rows() {
+        const LATE_COLUMN: &str = r#"[
+    (name: "Goblin", hp: 30),
+    (name: "Orc",    hp: 80),
+    (name: "Idol",   hp: 10, icon: "idol.png"),
+]"#;
+        let table = DataTable::parse(LATE_COLUMN).expect("parse");
+        assert_eq!(table.columns, vec!["hp", "icon", "name"]);
+        let icon = table
+            .get(2, "icon")
+            .expect("icon cell on the row that has it");
+        assert!(
+            matches!(icon, ron::Value::String(s) if s == "idol.png"),
+            "expected the authored value, got {icon:?}"
+        );
+        // Rows that omit it are filled, so every row is still schema-shaped.
+        for row in 0..2 {
+            assert!(
+                matches!(table.get(row, "icon"), Some(ron::Value::Unit)),
+                "row {row} should carry a Unit placeholder for the absent column"
+            );
+        }
+    }
+
+    /// The union must not disturb a table whose row 0 already lists every column.
+    #[test]
+    fn row_zero_complete_table_parses_unchanged() {
+        let table = DataTable::parse(SAMPLE).expect("parse");
+        assert_eq!(table.columns, vec!["hp", "name", "speed"]);
+        for row in 0..table.rows.len() {
+            for col in &table.columns {
+                assert!(
+                    !matches!(table.get(row, col), Some(ron::Value::Unit)),
+                    "({row}, {col}) should hold a real value"
+                );
+            }
+        }
+    }
+
+    /// `add_row` seeds each cell from the column's type. For a late-appearing column that
+    /// type lives on a later row — row 0 only has the `Unit` placeholder.
+    #[test]
+    fn add_row_types_a_late_column_from_the_row_that_has_it() {
+        const LATE_COLUMN: &str = r#"[
+    (name: "Goblin", hp: 30),
+    (name: "Idol",   hp: 10, count: 7),
+]"#;
+        let mut table = DataTable::parse(LATE_COLUMN).expect("parse");
+        table.add_row();
+        let seeded = table.get(2, "count").expect("count cell on the new row");
+        assert!(
+            matches!(seeded, ron::Value::Number(ron::Number::Integer(0))),
+            "expected an integer zero seeded from row 1's type, got {seeded:?}"
         );
     }
 
