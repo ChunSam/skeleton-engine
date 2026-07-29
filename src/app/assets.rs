@@ -197,6 +197,46 @@ impl App {
             .load_atlas(&path, cols, rows)
     }
 
+    /// Registers a texture atlas whose sprite sheet is already in memory (e.g.
+    /// `include_bytes!("tiles.png")`) under `key` and returns a handle — **no file is read**.
+    ///
+    /// The byte-source twin of [`load_atlas`](Self::load_atlas); it completes for atlases what
+    /// [`load_image_bytes`](Self::load_image_bytes) does for single images, so a single-file / jam
+    /// build can bake its whole sprite sheet into the binary. The grid is the same uniform
+    /// `cols × rows` layout.
+    ///
+    /// The `key` is used **verbatim** as the atlas cache key, the handle path and the renderer's
+    /// texture key, so an [`AtlasSprite`](crate::AtlasSprite) on the returned handle renders exactly
+    /// like a path-loaded atlas. It is a *logical identifier*, never resolved against the
+    /// [asset root](crate::asset_path); it needs no file on disk and cannot collide with one.
+    ///
+    /// Cross-platform, including wasm — where `include_bytes!` sidesteps the async fetch a path load
+    /// needs. Unlike `load_atlas`, this queues **no** filesystem read; the decoded sheet is uploaded
+    /// to the GPU by the same per-frame path as async loads. Corrupt bytes are reported via
+    /// [`asset_failures`](Self::asset_failures), exactly like a missing file.
+    ///
+    /// ```rust,no_run
+    /// # use engine::{App, AtlasSprite, Transform};
+    /// # let mut app = App::new();
+    /// static TILES_PNG: &[u8] = &[]; // include_bytes!("assets/tiles.png")
+    /// let tiles = app.load_atlas_bytes("tiles", TILES_PNG, 4, 4);
+    /// let e = app.world.spawn();
+    /// app.world.add_component(e, Transform::default());
+    /// app.world.add_component(e, AtlasSprite::new(tiles, 5));
+    /// ```
+    pub fn load_atlas_bytes(
+        &mut self,
+        key: impl Into<String>,
+        bytes: &[u8],
+        cols: u32,
+        rows: u32,
+    ) -> Handle<crate::atlas::TextureAtlas> {
+        self.world
+            .resource_mut::<AssetServer>()
+            .expect("AssetServer missing")
+            .load_atlas_bytes(key, bytes, cols, rows)
+    }
+
     pub fn load_script(
         &mut self,
         path: impl AsRef<std::path::Path>,
