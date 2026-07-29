@@ -130,6 +130,24 @@ also asserts no image file exists in the served directory, so a non-blank frame 
 come from a fetch. **Eyeball the saved screenshot** for anything positional; no byte count
 catches a wrong tile or a mis-centered label.
 
+### Which smokes actually prove their claim, and which need your eyes
+
+Nine of the fourteen assert something specific — a page verdict (`*_CHECK: PASS`), a pixel
+ratio, a reported failure. **Five are byte-size-only**, so a green run means "a frame drew",
+not "the right frame drew". For those, `SMOKE_KEEP=1` and *look*:
+
+| Byte-size only — eyeball it | What only the screenshot can tell you |
+|---|---|
+| `centered_text_smoke.sh` | each label's center actually sits on its guide line (EW-001) |
+| `game_feel_web_smoke.sh` | player, three dummies, platform gap and HUD are all present |
+| `hdr_web_smoke.sh` | HDR keeps core-vs-mid distinct where LDR collapses them to flat grey |
+| `wasm_smoke.sh` | the HUD says "Player #1" — i.e. the WebSocket handshake really happened |
+| `embedded_atlas_smoke.sh` | the 12 tiles are the right tiles (its no-image-served check is structural, but grid maths are not covered) |
+
+Sweeping all fourteen takes about fifteen minutes and is worth doing after any change to
+the render path, the asset path, or a `web/build.sh` — they are the only checks that run
+engine code in a browser at all.
+
 ### Anything CI cannot exercise
 
 A windowed playtest, audio playback, hot-reload, or a gamepad. Get the real-behavior
