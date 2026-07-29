@@ -1054,3 +1054,71 @@ fn ticking_update_with_no_analyzed_channels_is_harmless_when_device_exists() {
     audio.update(1.0 / 60.0);
     assert!(audio.levels("anything").is_silent());
 }
+
+#[test]
+fn spectrum_is_off_until_asked_for_when_device_exists() {
+    let Some(mut audio) = AudioManager::new() else {
+        return;
+    };
+    // Levels-only analysis must run NO transform — that is the reason the two are separate.
+    audio.enable_analysis("ch");
+    let mut bands = [1.0f32; 8]; // pre-filled so a no-op write would be visible
+    audio.bands("ch", &mut bands);
+    assert_eq!(bands, [0.0; 8], "a levels-only channel reports no spectrum");
+}
+
+#[test]
+fn enable_spectrum_implies_analysis_when_device_exists() {
+    let Some(mut audio) = AudioManager::new() else {
+        return;
+    };
+    audio.enable_spectrum("ch");
+    assert!(
+        audio.is_analysis_enabled("ch"),
+        "enabling a spectrum must also enable levels"
+    );
+}
+
+#[test]
+fn bands_fills_the_callers_length_whatever_it_is_when_device_exists() {
+    let Some(mut audio) = AudioManager::new() else {
+        return;
+    };
+    audio.enable_spectrum("ch");
+    // The API promise: the caller picks the band count, and neither backend's FFT size leaks.
+    for n in [1usize, 4, 32, 64] {
+        let mut bands = vec![9.0; n];
+        audio.bands("ch", &mut bands);
+        assert_eq!(bands.len(), n);
+        assert!(
+            bands.iter().all(|b| (0.0..=1.0).contains(b)),
+            "n={n} produced out-of-range values: {bands:?}"
+        );
+    }
+}
+
+#[test]
+fn bands_on_an_unknown_channel_is_silence_not_a_panic_when_device_exists() {
+    let Some(audio) = AudioManager::new() else {
+        return;
+    };
+    let mut bands = [0.5f32; 4];
+    audio.bands("never-played", &mut bands);
+    assert_eq!(bands, [0.0; 4]);
+}
+
+#[test]
+fn disable_spectrum_keeps_levels_running_when_device_exists() {
+    let Some(mut audio) = AudioManager::new() else {
+        return;
+    };
+    audio.enable_spectrum("ch");
+    audio.disable_spectrum("ch");
+    let mut bands = [1.0f32; 4];
+    audio.bands("ch", &mut bands);
+    assert_eq!(bands, [0.0; 4], "spectrum is off");
+    assert!(
+        audio.is_analysis_enabled("ch"),
+        "but levels analysis survives"
+    );
+}

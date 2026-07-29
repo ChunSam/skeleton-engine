@@ -59,7 +59,9 @@ use glam::Vec2;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{spawn_local, JsFuture};
 
-use crate::audio_analysis::{smooth_toward, AudioLevels};
+use crate::audio_analysis::{
+    log_band_range, resample_bands, smooth_toward, AudioLevels, MAX_DB, MIN_DB, SPECTRUM_BANDS,
+};
 
 /// FFT size of each analysis node. Must be a power of two; 1024 matches the native tap's window
 /// so both backends average over a comparable slice of audio (~21 ms at 48 kHz).
@@ -142,6 +144,12 @@ struct AnalyserState {
     buf: Vec<f32>,
     rms: f32,
     peak: f32,
+    /// Whether a spectrum was requested for this channel (the frequency read is skipped otherwise).
+    spectrum: bool,
+    /// Scratch for the browser's frequency data, one byte per bin (`fft_size / 2`).
+    freq_buf: Vec<u8>,
+    /// Smoothed log-spaced bands, in the shared internal resolution.
+    bands: [f32; SPECTRUM_BANDS],
 }
 
 /// The currently-playing looping music: its buffer source and the per-music gain node it routes
@@ -221,7 +229,13 @@ impl WebAudio {
         // `smooth_toward`, so native and web match. Letting the node smooth too would apply a
         // second, different curve on web only.
         node.set_smoothing_time_constant(0.0);
+        // Pin the dB window to the shared constants. These happen to be the Web Audio defaults,
+        // but setting them explicitly is what guarantees a band here means what it means on
+        // native — a browser changing its defaults must not silently desync the two.
+        node.set_min_decibels(MIN_DB as f64);
+        node.set_max_decibels(MAX_DB as f64);
         let buf = vec![0.0; node.fft_size() as usize];
+        let freq_buf = vec![0u8; node.frequency_bin_count() as usize];
         map.insert(
             channel.to_string(),
             AnalyserState {
@@ -229,8 +243,43 @@ impl WebAudio {
                 buf,
                 rms: 0.0,
                 peak: 0.0,
+                spectrum: false,
+                freq_buf,
+                bands: [0.0; SPECTRUM_BANDS],
             },
         );
+    }
+
+    /// Starts measuring `channel`'s **frequency spectrum** as well as its levels, so
+    /// [`bands`](Self::bands) reports it. Implies [`enable_analysis`](Self::enable_analysis).
+    ///
+    /// Mirrors the native
+    /// [`AudioManager::enable_spectrum`](crate::audio::AudioManager::enable_spectrum).
+    pub fn enable_spectrum(&self, channel: &str) {
+        self.enable_analysis(channel);
+        if let Some(state) = self.analysers.borrow_mut().get_mut(channel) {
+            state.spectrum = true;
+        }
+    }
+
+    /// Stops reporting a spectrum for `channel`, leaving its levels running.
+    pub fn disable_spectrum(&self, channel: &str) {
+        if let Some(state) = self.analysers.borrow_mut().get_mut(channel) {
+            state.spectrum = false;
+            state.bands = [0.0; SPECTRUM_BANDS];
+        }
+    }
+
+    /// Writes `channel`'s current smoothed spectrum into `out` as `out.len()` log-spaced bands.
+    ///
+    /// See the native
+    /// [`AudioManager::bands`](crate::audio::AudioManager::bands) for the full contract — notably
+    /// that cross-platform values are *equivalent, not identical*.
+    pub fn bands(&self, channel: &str, out: &mut [f32]) {
+        match self.analysers.borrow().get(channel) {
+            Some(s) if s.spectrum => resample_bands(&s.bands, out),
+            _ => out.fill(0.0),
+        }
     }
 
     /// Stops measuring `channel` and unhooks its analyser from the graph.
@@ -292,6 +341,27 @@ impl WebAudio {
             let rms = (sum_sq / state.buf.len().max(1) as f32).sqrt();
             state.rms = smooth_toward(state.rms, rms.min(1.0), release, dt);
             state.peak = smooth_toward(state.peak, peak.min(1.0), release, dt);
+
+            if state.spectrum {
+                // The browser already did the FFT and normalized each bin to 0..=255 across the
+                // dB window we pinned in `enable_analysis` — so dividing by 255 lands on the same
+                // 0..=1 scale the native side reaches via `normalized_db`.
+                state.node.get_byte_frequency_data(&mut state.freq_buf);
+                let usable = state.freq_buf.len();
+                for (b, slot) in state.bands.iter_mut().enumerate() {
+                    let (start, end) = log_band_range(b, SPECTRUM_BANDS, usable);
+                    // Peak within the band, matching the native fold — a mean would average a
+                    // narrow tone inside a wide high band into invisibility.
+                    let mut bin_peak = 0u8;
+                    for k in start..end {
+                        if state.freq_buf[k] > bin_peak {
+                            bin_peak = state.freq_buf[k];
+                        }
+                    }
+                    let target = bin_peak as f32 / 255.0;
+                    *slot = smooth_toward(*slot, target, release, dt);
+                }
+            }
         }
     }
 

@@ -9,6 +9,7 @@ mod effects;
 mod playback;
 mod positional;
 mod source;
+mod spectrum;
 mod types;
 
 /// Minimum duration (seconds) a fade is clamped to, so the scheduler always gets at least one tick

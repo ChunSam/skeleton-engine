@@ -20,13 +20,19 @@
 //! as *not producing* and decays that channel toward silence.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use rodio::{ChannelCount, Sample, SampleRate, Source};
 
-use crate::audio_analysis::{smooth_toward, AudioLevels, DEFAULT_ANALYSIS_SMOOTHING};
+use crate::audio_analysis::{
+    resample_bands, smooth_toward, AudioLevels, DEFAULT_ANALYSIS_SMOOTHING, SPECTRUM_BANDS,
+};
+
+/// Mono frames per spectrum transform. A power of two (required by the radix-2 FFT); 1024 frames
+/// is ~21 ms at 48 kHz, giving a fresh spectrum several times per rendered frame.
+pub(crate) const SPECTRUM_FFT_SIZE: usize = 1024;
 
 use super::AudioManager;
 
@@ -39,7 +45,7 @@ pub(crate) const ANALYSIS_WINDOW: u32 = 1024;
 // ─── Lock-free publication slot ───────────────────────────────────────────────
 
 /// The audio thread's side of the meter: two `f32`s (stored as bits) plus a sequence counter.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct LevelSlot {
     /// Last published RMS, as `f32::to_bits`.
     rms: AtomicU32,
@@ -47,6 +53,49 @@ pub(crate) struct LevelSlot {
     peak: AtomicU32,
     /// Incremented on every publish. A reader uses it to tell "still producing" from "stopped".
     seq: AtomicU64,
+    /// Last published log-spaced spectrum, each as `f32::to_bits`. All zero unless spectrum
+    /// analysis is on for this channel.
+    bands: [AtomicU32; SPECTRUM_BANDS],
+    /// Whether the tap should run an FFT. Read by the audio thread every window, set by the game
+    /// thread, so a game that only wants `levels()` never pays for a transform.
+    spectrum_on: AtomicBool,
+}
+
+impl Default for LevelSlot {
+    fn default() -> Self {
+        Self {
+            rms: AtomicU32::new(0),
+            peak: AtomicU32::new(0),
+            seq: AtomicU64::new(0),
+            bands: std::array::from_fn(|_| AtomicU32::new(0)),
+            spectrum_on: AtomicBool::new(false),
+        }
+    }
+}
+
+impl LevelSlot {
+    /// Publishes one window's spectrum. Called on the **playback thread**; never blocks.
+    fn publish_bands(&self, bands: &[f32]) {
+        for (slot, v) in self.bands.iter().zip(bands) {
+            slot.store(v.to_bits(), Ordering::Relaxed);
+        }
+    }
+
+    /// Reads the last published spectrum into `out` (length [`SPECTRUM_BANDS`]).
+    pub(crate) fn read_bands(&self, out: &mut [f32; SPECTRUM_BANDS]) {
+        for (dst, slot) in out.iter_mut().zip(&self.bands) {
+            *dst = f32::from_bits(slot.load(Ordering::Relaxed));
+        }
+    }
+
+    /// Turns the audio thread's FFT on or off for this channel.
+    pub(crate) fn set_spectrum(&self, on: bool) {
+        self.spectrum_on.store(on, Ordering::Relaxed);
+    }
+
+    fn wants_spectrum(&self) -> bool {
+        self.spectrum_on.load(Ordering::Relaxed)
+    }
 }
 
 impl LevelSlot {
@@ -80,17 +129,66 @@ pub(crate) struct LevelTap<S: Source> {
     sum_sq: f32,
     peak: f32,
     count: u32,
+    // ── Spectrum state (only touched while the channel wants a spectrum) ──────
+    /// Interleaved-channel count, so frames can be downmixed to mono.
+    channels: u16,
+    /// Accumulator for the current frame's channels, and how many have arrived.
+    frame_acc: f32,
+    frame_ch: u16,
+    /// Mono frames collected toward the next transform.
+    spec_buf: Vec<f32>,
+    /// Caller-owned FFT scratch — the transform runs on the audio thread and must not allocate.
+    scratch_re: Vec<f32>,
+    scratch_im: Vec<f32>,
+    band_buf: Vec<f32>,
 }
 
 impl<S: Source> LevelTap<S> {
     pub(crate) fn new(inner: S, slot: Arc<LevelSlot>) -> Self {
+        let channels = inner.channels().get().max(1);
         Self {
             inner,
             slot,
             sum_sq: 0.0,
             peak: 0.0,
             count: 0,
+            channels,
+            frame_acc: 0.0,
+            frame_ch: 0,
+            // Allocated once, here on the game thread — never inside `next`.
+            spec_buf: Vec::with_capacity(SPECTRUM_FFT_SIZE),
+            scratch_re: vec![0.0; SPECTRUM_FFT_SIZE],
+            scratch_im: vec![0.0; SPECTRUM_FFT_SIZE],
+            band_buf: vec![0.0; SPECTRUM_BANDS],
         }
+    }
+
+    /// Feeds one interleaved sample into the spectrum path, downmixing to mono and running a
+    /// transform once a full buffer of frames has arrived.
+    ///
+    /// Mono downmix matters: an FFT over raw *interleaved* stereo alternates L and R samples,
+    /// which is not the signal and produces a mirrored, meaningless spectrum.
+    fn feed_spectrum(&mut self, sample: f32) {
+        self.frame_acc += sample;
+        self.frame_ch += 1;
+        if self.frame_ch < self.channels {
+            return;
+        }
+        let mono = self.frame_acc / self.channels as f32;
+        self.frame_acc = 0.0;
+        self.frame_ch = 0;
+        self.spec_buf.push(mono);
+        if self.spec_buf.len() < SPECTRUM_FFT_SIZE {
+            return;
+        }
+        crate::audio::spectrum::spectrum_into(
+            &self.spec_buf,
+            &mut self.scratch_re,
+            &mut self.scratch_im,
+            &mut self.band_buf,
+        );
+        self.slot.publish_bands(&self.band_buf);
+        self.spec_buf.clear();
     }
 }
 
@@ -99,6 +197,11 @@ impl<S: Source> Iterator for LevelTap<S> {
 
     fn next(&mut self) -> Option<Sample> {
         let sample = self.inner.next()?;
+        // Gated so a channel that only wants `levels()` never pays for a transform. Checked per
+        // sample because the game can toggle it at any time, but it is one relaxed atomic load.
+        if self.slot.wants_spectrum() {
+            self.feed_spectrum(sample);
+        }
         self.sum_sq += sample * sample;
         let magnitude = sample.abs();
         if magnitude > self.peak {
@@ -143,6 +246,11 @@ pub(crate) struct AnalysisChannel {
     rms: f32,
     peak: f32,
     last_seq: u64,
+    /// Smoothed spectrum, in the backend's internal band count. `bands()` resamples it to whatever
+    /// length the caller asks for.
+    bands: [f32; SPECTRUM_BANDS],
+    /// Whether a spectrum was requested for this channel.
+    spectrum: bool,
 }
 
 impl AnalysisChannel {
@@ -152,6 +260,8 @@ impl AnalysisChannel {
             rms: 0.0,
             peak: 0.0,
             last_seq: 0,
+            bands: [0.0; SPECTRUM_BANDS],
+            spectrum: false,
         }
     }
 }
@@ -204,6 +314,54 @@ impl AudioManager {
             .unwrap_or(AudioLevels::SILENT)
     }
 
+    /// Starts measuring `channel`'s **frequency spectrum** as well as its levels, so
+    /// [`bands`](Self::bands) reports it. Implies [`enable_analysis`](Self::enable_analysis).
+    ///
+    /// Separate from `enable_analysis` because a spectrum costs an FFT per window on the playback
+    /// thread, and most uses (a pulse, a kick flash) only need [`levels`](Self::levels). A channel
+    /// with levels-only analysis runs no transform at all.
+    ///
+    /// Like `enable_analysis`, this takes effect on the next `play_*` for a channel that is not
+    /// already analyzed; for one that is, the transform starts on the next window.
+    pub fn enable_spectrum(&mut self, channel: &str) {
+        let ch = self
+            .analysis
+            .entry(channel.to_string())
+            .or_insert_with(AnalysisChannel::new);
+        ch.spectrum = true;
+        ch.slot.set_spectrum(true);
+    }
+
+    /// Stops computing a spectrum for `channel`, leaving its levels running.
+    pub fn disable_spectrum(&mut self, channel: &str) {
+        if let Some(ch) = self.analysis.get_mut(channel) {
+            ch.spectrum = false;
+            ch.slot.set_spectrum(false);
+            ch.bands = [0.0; SPECTRUM_BANDS];
+        }
+    }
+
+    /// Writes `channel`'s current smoothed spectrum into `out`, as `out.len()` log-spaced bands
+    /// from low frequency to high, each `0.0..=1.0`.
+    ///
+    /// **You choose the band count** — `out.len()` is resampled from the backend's internal
+    /// resolution, which is what keeps the two platforms' different FFT sizes out of the API.
+    /// Fills zeros for a channel with no spectrum enabled, or one that is silent.
+    ///
+    /// Values are normalized over a decibel window (not linear magnitude), because hearing is
+    /// logarithmic: a linear bar spends nearly all its travel in the top of the range.
+    ///
+    /// ⚠️ **Cross-platform values are equivalent, not identical.** Native runs its own FFT while
+    /// wasm reads a Web Audio `AnalyserNode`; the two use the same dB window and band spacing and
+    /// track each other closely, but they are not bit-for-bit equal. Drive visuals with them, not
+    /// checksums.
+    pub fn bands(&self, channel: &str, out: &mut [f32]) {
+        match self.analysis.get(channel) {
+            Some(ch) if ch.spectrum => resample_bands(&ch.bands, out),
+            _ => out.fill(0.0),
+        }
+    }
+
     /// Sets the meter's release time in seconds — how long a level takes to fall.
     ///
     /// A rise is always instant, so a transient is never visually late; this controls only the
@@ -243,6 +401,7 @@ impl AudioManager {
     /// reading — otherwise a stopped sound leaves its bar pinned at full height.
     pub(super) fn tick_analysis(&mut self, dt: f32) {
         let release = self.analysis_smoothing;
+        let mut raw_bands = [0.0f32; SPECTRUM_BANDS];
         for channel in self.analysis.values_mut() {
             let (rms, peak, seq) = channel.slot.read();
             let producing = seq != channel.last_seq;
@@ -250,6 +409,19 @@ impl AudioManager {
             let (target_rms, target_peak) = if producing { (rms, peak) } else { (0.0, 0.0) };
             channel.rms = smooth_toward(channel.rms, target_rms, release, dt);
             channel.peak = smooth_toward(channel.peak, target_peak, release, dt);
+
+            if channel.spectrum {
+                // Same staleness rule as the levels: a stopped channel's bars must fall, not
+                // freeze at the last spectrum the tap managed to publish.
+                if producing {
+                    channel.slot.read_bands(&mut raw_bands);
+                } else {
+                    raw_bands = [0.0; SPECTRUM_BANDS];
+                }
+                for (smoothed, target) in channel.bands.iter_mut().zip(raw_bands) {
+                    *smoothed = smooth_toward(*smoothed, target, release, dt);
+                }
+            }
         }
     }
 }

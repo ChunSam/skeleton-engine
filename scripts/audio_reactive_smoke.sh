@@ -9,9 +9,14 @@
 # wasm, serves it, runs it in headless Chrome, and asserts the meter ACTUALLY MOVES
 # there.
 #
+# It checks BOTH halves of the feature: that `Audio::levels` moves, and that
+# `Audio::bands` returns a spectrum whose energy sits in the LOW bands for the 110 Hz
+# kick — the shape assertion, which a mirrored or mis-scaled fold of the browser's FFT
+# would fail even though a "spectrum is non-zero" check passed.
+#
 # How the verdict travels: the example's wasm-only `WebSelfCheck` system watches
-# `Audio::levels(BEAT_CHANNEL)` and stamps `AR_CHECK: PASS rms=<n>` (or a FAIL with the
-# reason) into the document title. Chrome runs with --remote-debugging-port, whose
+# `Audio::levels(BEAT_CHANNEL)` and stamps `AR_CHECK: PASS rms=<n> bands low=<n> high=<n>`
+# (or a FAIL with the reason) into the document title. Chrome runs with --remote-debugging-port, whose
 # /json endpoint lists each tab's LIVE title, and we poll it. Same mechanism as
 # scripts/wasm_audio_smoke.sh.
 #
@@ -118,8 +123,9 @@ pkill -f "$PROFILE" 2>/dev/null || true
 echo ">>> [4/4] checking the verdict..."
 if [[ "$verdict" == "AR_CHECK: PASS"* ]]; then
   echo ">>> AUDIO REACTIVE SMOKE: PASS — $verdict"
-  echo "    (a Web Audio AnalyserNode reported a live non-zero level for the playing tone,"
-  echo "     through the same Audio::levels call the native rodio tap serves)"
+  echo "    (a Web Audio AnalyserNode reported a live non-zero level AND a low-biased spectrum"
+  echo "     for the 110 Hz tone, through the same Audio::levels / Audio::bands calls the native"
+  echo "     rodio tap + hand-written FFT serve)"
   exit 0
 fi
 

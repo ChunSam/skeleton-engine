@@ -499,6 +499,61 @@ impl Audio {
         self.inner.levels(channel)
     }
 
+    /// Starts measuring `channel`'s **frequency spectrum** as well as its levels, so
+    /// [`bands`](Self::bands) reports it. Implies [`enable_analysis`](Self::enable_analysis).
+    ///
+    /// Kept separate from `enable_analysis` because a spectrum costs an FFT per window on native,
+    /// while most uses — a pulse, a kick flash — only need [`levels`](Self::levels). A channel
+    /// with levels-only analysis runs no transform at all.
+    pub fn enable_spectrum(&mut self, channel: &str) {
+        self.inner.enable_spectrum(channel);
+    }
+
+    /// Stops reporting a spectrum for `channel`, leaving its levels running.
+    pub fn disable_spectrum(&mut self, channel: &str) {
+        self.inner.disable_spectrum(channel);
+    }
+
+    /// Writes `channel`'s current smoothed spectrum into `out` — `out.len()` log-spaced bands from
+    /// low frequency to high, each `0.0..=1.0`. The classic spectrum-analyzer bar display.
+    ///
+    /// **You choose the band count.** `out.len()` is resampled from the backend's internal
+    /// resolution, so a 8-bar HUD and a 64-bar visualizer both work and neither platform's FFT
+    /// size leaks into your code. Fills zeros for a channel with no spectrum enabled or one that
+    /// is silent.
+    ///
+    /// Bands are spaced logarithmically and normalized over a decibel window, because pitch and
+    /// loudness are both perceived logarithmically — linear bands and linear magnitudes both give
+    /// a display that looks dead.
+    ///
+    /// ⚠️ **Cross-platform values are equivalent, not identical.** Native runs its own FFT; wasm
+    /// reads a Web Audio `AnalyserNode`. Both use the same dB window and the same band edges and
+    /// track each other closely, but they are not bit-for-bit equal — drive visuals with them,
+    /// not equality checks.
+    ///
+    /// # Resolution
+    ///
+    /// The transform is 1024 points, so at 44.1 kHz each FFT bin spans about 43 Hz. Because the
+    /// bands are log-spaced, the lowest few cover only one or two bins and therefore **move
+    /// together** — a bass note lights several bottom bars at once. That is the frequency
+    /// resolution of the transform, not a display artifact, and asking for more bands does not
+    /// create detail that is not there.
+    ///
+    /// ```rust,no_run
+    /// # use engine::Audio;
+    /// # let mut audio = Audio::new().unwrap();
+    /// audio.enable_spectrum(Audio::MUSIC_CHANNEL);
+    /// let mut bars = [0.0f32; 24];
+    /// audio.bands(Audio::MUSIC_CHANNEL, &mut bars);
+    /// for (i, b) in bars.iter().enumerate() {
+    ///     let _height = b * 100.0;   // draw bar i
+    ///     let _ = i;
+    /// }
+    /// ```
+    pub fn bands(&self, channel: &str, out: &mut [f32]) {
+        self.inner.bands(channel, out);
+    }
+
     /// Sets how long a meter takes to fall, in seconds (default
     /// [`DEFAULT_ANALYSIS_SMOOTHING`](crate::DEFAULT_ANALYSIS_SMOOTHING)).
     ///

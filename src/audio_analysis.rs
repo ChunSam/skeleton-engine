@@ -70,6 +70,85 @@ impl AudioLevels {
     }
 }
 
+// ─── Spectrum ─────────────────────────────────────────────────────────────────
+
+/// Number of log-spaced frequency bands each backend publishes internally.
+///
+/// `bands()` resamples this to whatever length the caller asks for, which is what lets the two
+/// backends use different FFT sizes without the API leaking either one.
+pub(crate) const SPECTRUM_BANDS: usize = 32;
+
+/// Lower edge of the decibel window mapped to `0.0`.
+///
+/// Deliberately **Web Audio's `AnalyserNode` default** (`minDecibels = -100`). The wasm backend
+/// gets its normalization from the browser, so the native side matching these two constants is the
+/// only reason a band value means the same thing on both platforms.
+pub(crate) const MIN_DB: f32 = -100.0;
+/// Upper edge of the decibel window mapped to `1.0` — Web Audio's `maxDecibels = -30` default.
+pub(crate) const MAX_DB: f32 = -30.0;
+
+/// Maps a linear FFT magnitude to `0.0..=1.0` across the [`MIN_DB`]–[`MAX_DB`] window.
+///
+/// Decibels rather than raw magnitude because hearing is logarithmic: a linear bar spends almost
+/// all its travel in the top 10% of the range and looks dead everywhere else.
+///
+/// **Native only** — this is the one part of the spectrum path the two backends genuinely do not
+/// share, because a Web Audio `AnalyserNode` performs the same conversion itself and hands back
+/// bytes already normalized over the window. The *constants* are still shared, which is what makes
+/// the two results comparable.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn normalized_db(magnitude: f32) -> f32 {
+    if magnitude <= 0.0 {
+        return 0.0;
+    }
+    let db = 20.0 * magnitude.log10();
+    ((db - MIN_DB) / (MAX_DB - MIN_DB)).clamp(0.0, 1.0)
+}
+
+/// Half-open FFT-bin range `[start, end)` covered by log-spaced band `band` of `n_bands`, over
+/// `usable_bins` bins.
+///
+/// **Both backends call this**, so their bands cover the same frequencies even though one folds
+/// complex magnitudes from its own FFT and the other folds bytes from a browser's. Without a
+/// single definition here, "band 7" would quietly mean two different frequency ranges.
+///
+/// Bin 0 is DC and carries no pitch, so ranges start at 1. Every band is at least one bin wide.
+pub(crate) fn log_band_range(band: usize, n_bands: usize, usable_bins: usize) -> (usize, usize) {
+    if n_bands == 0 || usable_bins < 2 {
+        return (1, 1);
+    }
+    let hi = usable_bins as f32;
+    // edge(b) = 1 * hi^(b / n_bands) — geometric spacing from bin 1 to the top bin.
+    let edge = |b: usize| hi.powf(b as f32 / n_bands as f32);
+    let start = (edge(band) as usize).clamp(1, usable_bins - 1);
+    let end = ((edge(band + 1) as usize).max(start + 1)).min(usable_bins);
+    (start, end)
+}
+
+/// Resamples `src` bands into `out`, averaging the source bands that fall in each output slot.
+///
+/// Averaging rather than point-sampling so that asking for fewer bands than the backend publishes
+/// cannot drop a spike entirely — a 4-bar display should still react to a kick. An empty `out` is
+/// a no-op; an `out` longer than `src` stretches (each output slot maps to one source band).
+pub(crate) fn resample_bands(src: &[f32], out: &mut [f32]) {
+    if out.is_empty() {
+        return;
+    }
+    if src.is_empty() {
+        out.fill(0.0);
+        return;
+    }
+    let n_out = out.len();
+    let n_src = src.len();
+    for (i, slot) in out.iter_mut().enumerate() {
+        // Half-open source range [lo, hi) for output slot i, always at least one band wide.
+        let lo = i * n_src / n_out;
+        let hi = (((i + 1) * n_src).div_ceil(n_out)).max(lo + 1).min(n_src);
+        let span = &src[lo..hi];
+        *slot = span.iter().sum::<f32>() / span.len() as f32;
+    }
+}
+
 /// Advances one smoothed meter value toward `target`: **instant attack, timed release**.
 ///
 /// A rise is applied immediately, so a transient is never missed or visually delayed — the thing
@@ -135,6 +214,124 @@ mod tests {
         let v = smooth_toward(1.0, 0.0, 0.15, 10.0);
         assert_eq!(v, 0.0);
         assert!(v >= 0.0);
+    }
+
+    // ── Spectrum policy ───────────────────────────────────────────────────────
+
+    #[test]
+    fn the_db_window_matches_web_audios_defaults() {
+        // This is the whole reason a native band and a web band mean the same thing: the native
+        // side normalizes over exactly the window the browser's AnalyserNode uses. If someone
+        // "tunes" these, the two platforms silently diverge.
+        assert_eq!(MIN_DB, -100.0, "AnalyserNode.minDecibels default");
+        assert_eq!(MAX_DB, -30.0, "AnalyserNode.maxDecibels default");
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn normalized_db_maps_the_window_to_the_unit_range() {
+        assert_eq!(normalized_db(0.0), 0.0, "silence");
+        // -100 dB is the bottom of the window, -30 dB the top.
+        let bottom = 10f32.powf(MIN_DB / 20.0);
+        let top = 10f32.powf(MAX_DB / 20.0);
+        assert!(
+            normalized_db(bottom).abs() < 1e-3,
+            "{}",
+            normalized_db(bottom)
+        );
+        assert!(
+            (normalized_db(top) - 1.0).abs() < 1e-3,
+            "{}",
+            normalized_db(top)
+        );
+        // Halfway in dB is halfway in the output — the mapping is linear in decibels.
+        let mid = 10f32.powf((MIN_DB + MAX_DB) / 2.0 / 20.0);
+        assert!(
+            (normalized_db(mid) - 0.5).abs() < 1e-3,
+            "{}",
+            normalized_db(mid)
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn normalized_db_clamps_rather_than_escaping_the_unit_range() {
+        assert_eq!(normalized_db(100.0), 1.0, "over-loud must not exceed 1.0");
+        assert_eq!(normalized_db(1e-12), 0.0, "inaudible must not go below 0.0");
+    }
+
+    #[test]
+    fn log_bands_are_ordered_contiguous_and_never_empty() {
+        let (n_bands, bins) = (SPECTRUM_BANDS, 512);
+        let mut prev_end = 1;
+        for b in 0..n_bands {
+            let (start, end) = log_band_range(b, n_bands, bins);
+            assert!(end > start, "band {b} is empty: {start}..{end}");
+            assert!(start >= 1, "band {b} must skip the DC bin");
+            assert!(
+                end <= bins,
+                "band {b} runs past the spectrum: {end} > {bins}"
+            );
+            assert!(start >= prev_end - 1, "band {b} goes backwards");
+            prev_end = end;
+        }
+    }
+
+    #[test]
+    fn log_bands_get_wider_toward_high_frequencies() {
+        // The point of log spacing: an octave near the top spans many more bins than one near the
+        // bottom, so the bass does not collapse into a single bar.
+        let (lo_s, lo_e) = log_band_range(1, SPECTRUM_BANDS, 512);
+        let (hi_s, hi_e) = log_band_range(SPECTRUM_BANDS - 1, SPECTRUM_BANDS, 512);
+        assert!(
+            (hi_e - hi_s) > (lo_e - lo_s),
+            "high band {}..{} should be wider than low band {}..{}",
+            hi_s,
+            hi_e,
+            lo_s,
+            lo_e
+        );
+    }
+
+    #[test]
+    fn log_bands_degenerate_safely() {
+        assert_eq!(log_band_range(0, 0, 512), (1, 1));
+        assert_eq!(log_band_range(0, 8, 1), (1, 1));
+        assert_eq!(log_band_range(0, 8, 0), (1, 1));
+    }
+
+    #[test]
+    fn resampling_preserves_a_flat_spectrum_at_any_output_length() {
+        let src = [0.5f32; SPECTRUM_BANDS];
+        for n in [1usize, 4, 8, 32, 64] {
+            let mut out = vec![0.0; n];
+            resample_bands(&src, &mut out);
+            assert!(
+                out.iter().all(|v| (v - 0.5).abs() < 1e-6),
+                "n={n} gave {out:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn resampling_down_averages_rather_than_dropping_a_spike() {
+        // A 4-bar display must still react to a kick that lands in one source band; point
+        // sampling would miss it entirely most of the time.
+        let mut src = [0.0f32; SPECTRUM_BANDS];
+        src[1] = 1.0;
+        let mut out = [0.0f32; 4];
+        resample_bands(&src, &mut out);
+        assert!(out[0] > 0.0, "the spike must survive downsampling: {out:?}");
+        assert_eq!(&out[1..], &[0.0, 0.0, 0.0], "and not smear everywhere");
+    }
+
+    #[test]
+    fn resampling_handles_empty_input_and_output() {
+        let mut out = [1.0f32; 4];
+        resample_bands(&[], &mut out);
+        assert_eq!(out, [0.0; 4], "no source data reads as silence");
+        let mut none: [f32; 0] = [];
+        resample_bands(&[0.5; SPECTRUM_BANDS], &mut none); // must not panic
     }
 
     #[test]

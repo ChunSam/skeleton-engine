@@ -31,12 +31,14 @@ cargo install wasm-bindgen-cli --version <ver>   # MUST match the wasm-bindgen c
   `src/audio_wasm.rs`.
 - **Audio-reactive check — `./scripts/audio_reactive_smoke.sh`** builds the `audio_reactive`
   example to wasm, runs it headless with `--autoplay-policy=no-user-gesture-required`, and asserts
-  that **`Audio::levels` reports a live non-zero level** for a playing tone (verdict
-  `AR_CHECK: PASS rms=<n>` read from the page title over the DevTools endpoint). This one matters
-  more than most: the wasm half of level analysis is a Web Audio `AnalyserNode` and shares almost
-  no code with the native rodio `Source` tap the unit tests cover, so a wasm *build* proves very
-  little about it. Run after touching level analysis in `src/audio_wasm.rs` or
-  `src/audio_analysis.rs`.
+  that **`Audio::levels` reports a live non-zero level** for a playing tone **and that
+  `Audio::bands` returns a low-biased spectrum** for the 110 Hz kick (verdict
+  `AR_CHECK: PASS rms=<n> bands low=<n> high=<n>` read from the page title over the DevTools
+  endpoint). This one matters more than most: on wasm both come from a Web Audio `AnalyserNode`
+  and share almost no code with the native rodio `Source` tap and hand-written FFT the unit tests
+  cover, so a wasm *build* proves very little about them. The spectrum check is a **shape**
+  assertion, not just non-zero — a mirrored or mis-scaled band fold fails it. Run after touching
+  analysis in `src/audio_wasm.rs`, `src/audio_analysis.rs` or `src/audio/spectrum.rs`.
 - **Centered-text check — `./scripts/centered_text_smoke.sh`** builds the `centered_text` example
   to wasm, serves it (`?autostart=1`), renders one headless DPR=2 frame, and asserts a **non-blank
   frame** (no server/network — pure render), saving the screenshot to eyeball the **EW-001**
