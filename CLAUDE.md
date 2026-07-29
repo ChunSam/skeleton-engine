@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.6.234 | package `skeleton-engine` v0.137.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
+> Version v1.6.235 | package `skeleton-engine` v0.137.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example ships to the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`  
 > **Versioning: pre-1.0 (0.x)** — MINOR = any release (incl. breaking), PATCH = bugfix; 1.0.0 later. (Reset from 10.7.0, 2026-06-17, pre-publish — see CHANGELOG 0.11.0.)
@@ -156,7 +156,10 @@ Detailed in **`docs/PATTERNS.md`**:
   (a new render pass keys its pipeline by *target* format, not `gpu.config.format`, so it
   survives an offscreen/HDR RT — else it silently vanishes; sprite/UI/material/GPU-particle),
   UI system order (`LayoutSystem` before `UiSystem`), animation state-machine order
-  (`StateMachineSystem` after `AnimationSystem`), `PhysicsWorld` encapsulation accessors.
+  (`StateMachineSystem` after `AnimationSystem`), `PhysicsWorld` encapsulation accessors,
+  **shared policy for cfg-split backends** (a value both derive lives in ONE un-gated module —
+  duplicated policy compiles and silently diverges), **real-time audio-thread producers**
+  (no lock/alloc in `Source::next`; a stoppable producer needs a liveness counter or it freezes).
 - **Task recipes** — adding a component / system / resource / event, and scene transitions.
 
 ---
