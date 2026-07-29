@@ -4,6 +4,25 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.136.0
+
+**Audio-reactive hooks: a channel's live loudness is now readable from game code, on native and on the web, through one call.** `Audio::levels(channel)` returns `AudioLevels { rms, peak }` — the input a music visualizer, a beat-reactive spawn or a mouth flap needs, and something the engine previously exposed no way to obtain at all. The two backends could hardly be less alike (a rodio `Source` tap on the playback thread vs a Web Audio `AnalyserNode`), so the meter's smoothing policy lives in one un-gated module both call, the same trick `audio_spatial` uses to keep positional audio from drifting between builds. Purely additive: no existing type or signature changed, and a channel without analysis enabled builds exactly the audio graph it did before.
+
+Two deliberate semantics, both demonstrated by the example rather than only documented:
+
+- **Measured pre-volume.** Levels are taken after a sound's own effects but *before* channel volume, bus volume, ducking and the master gain — so they describe *the sound*, not *what the player hears*, and a beat-reactive visual keeps working when the player mutes. On native this falls out structurally: volume lives on the rodio sink (`sink.set_volume`), not in the source chain, so any tap in that chain is pre-volume by construction.
+- **Instant attack, timed release.** A meter rises the frame a transient lands (so a hit never looks late) and falls over `DEFAULT_ANALYSIS_SMOOTHING` (0.15 s), which is what keeps it from strobing at frame rate.
+
+### Added
+- **`AudioLevels { rms, peak }`** and **`DEFAULT_ANALYSIS_SMOOTHING`** in the new un-gated `src/audio_analysis.rs`, alongside the shared `smooth_toward` meter policy and `MUSIC_CHANNEL` (one definition of the facade's music-channel name, because both backends need the same string).
+- **`Audio::enable_analysis` / `disable_analysis` / `is_analysis_enabled` / `levels` / `set_analysis_smoothing` / `analysis_smoothing`**, plus **`Audio::MUSIC_CHANNEL`** for metering `play_music`. The same surface exists on `AudioManager` (native) and `WebAudio` (wasm) for games using a backend directly.
+- **Native** (`src/audio/analysis.rs`): `LevelTap<S: Source>`, a pass-through source wrapper modelled on the existing `PannedSource`, publishing RMS and peak per 1024-sample window into a lock-free `LevelSlot` of atomics — the tap runs on rodio's playback thread, where taking a lock is not an option. A monotonic sequence counter lets `update` distinguish "still producing" from "stopped", so a channel that ends **decays to silence** instead of freezing its meter at the last value it saw.
+- **WASM** (`src/audio_wasm.rs`): a parallel-tapped `AnalyserNode` per analyzed channel, sampled with `get_float_time_domain_data`. No staleness counter is needed there — an analyser reads the live graph, so silence decays on its own. Enables the `AnalyserNode` web-sys feature.
+- Example **`audio_reactive`** (native + web, same code): an rms-driven pulse, a peak-driven kick flash and two meters. `M` mutes the master and the pulse keeps going — the pre-volume decision, made visible; `S` cycles the release time to show why the default is not 0. Ships with `examples/audio_reactive/web/` and **`scripts/audio_reactive_smoke.sh`**, which asserts in headless Chrome that the meter actually moves on the web — the wasm half shares almost no code with the native path, so compiling it proves very little.
+
+### Changed
+- **`Audio::update` is no longer a no-op on wasm.** It now samples the level meters (Web Audio still drives volumes, ramps and ducks itself). `AudioFacadeSystem` already called it every frame, so no game code changes; a page that never enables analysis is unaffected.
+
 ## 0.135.2
 
 **Every bundled shell script is executable again — 26 of the repo's 31 were committed without the executable bit, so running them the way their own docs say fails on a fresh clone.** Each script documents its usage as `scripts/foo.sh …`, which needs the bit; without it the shell answers "Permission denied". Three web render smokes were broken twice over, because they also execute the example's `web/build.sh` directly. Tooling only — no source, no API, no runtime behavior changed.

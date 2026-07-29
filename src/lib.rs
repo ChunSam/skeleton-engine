@@ -6,6 +6,8 @@ pub mod asset_path;
 pub mod atlas;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod audio;
+/// Shared audio-level analysis types and smoothing policy (`AudioLevels`), on all targets.
+pub mod audio_analysis;
 /// Cross-platform audio facade (`Audio`) over the native `AudioManager` / wasm `WebAudio` backends.
 pub mod audio_facade;
 pub(crate) mod audio_spatial;
@@ -108,6 +110,7 @@ pub use anim_effect::{AnimEffectBindings, AnimEffectError, AnimEffectRegistry, A
 pub use atlas::{AtlasSprite, TextureAtlas};
 #[cfg(not(target_arch = "wasm32"))]
 pub use audio::{AudioChannelState, AudioEffect, AudioManager, AudioSystem, BusDuck, Sidechain};
+pub use audio_analysis::{AudioLevels, DEFAULT_ANALYSIS_SMOOTHING};
 pub use audio_facade::{Audio, AudioFacadeSystem};
 #[cfg(target_arch = "wasm32")]
 pub use audio_wasm::{Sfx, WebAudio};

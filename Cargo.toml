@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name        = "skeleton-engine"
-version     = "0.135.2"
+version     = "0.136.0"
 edition     = "2021"
 description = "Lightweight 2D game engine — wgpu rendering, custom ECS, rapier2d physics"
 repository  = "https://github.com/ChunSam/skeleton-engine"
@@ -44,6 +44,10 @@ path = "examples/audio_facade/audio_facade.rs"
 [[example]]
 name = "centered_text"
 path = "examples/centered_text/centered_text.rs"
+
+[[example]]
+name = "audio_reactive"
+path = "examples/audio_reactive/audio_reactive.rs"
 
 [[example]]
 name = "embedded_atlas"
@@ -225,6 +229,7 @@ web-sys               = { version = "0.3", features = [
     "AudioBufferSourceNode", "AudioNode", "AudioDestinationNode", "GainNode", "AudioParam",
     "StereoPannerNode", "OscillatorNode", "OscillatorType",
     "BiquadFilterNode", "BiquadFilterType",
+    "AnalyserNode",
 ] }
 console_error_panic_hook = "0.1"
 getrandom             = { version = "0.2", features = ["js"] }

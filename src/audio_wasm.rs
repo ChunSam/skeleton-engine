@@ -14,8 +14,10 @@
 //! A **bus** is a `duck → volume → master` [`GainNode`](web_sys::GainNode) chain sitting between
 //! sounds and the master gain: route sounds to a bus by name and control them together with
 //! [`set_bus_volume`] (and dip them with [`duck_bus`]) — the wasm analogue of the native
-//! [`AudioManager`](crate::audio::AudioManager) bus mixer. Web Audio is a node graph, so this needs
-//! no per-frame `update()` tick.
+//! [`AudioManager`](crate::audio::AudioManager) bus mixer. Web Audio is a node graph, so volumes,
+//! ramps and ducks need no per-frame tick. [`update`](WebAudio::update) exists only to sample the
+//! **level meters** ([`enable_analysis`](WebAudio::enable_analysis)); a page that never analyzes
+//! anything need not call it.
 //!
 //! [`play_sfx`]: WebAudio::play_sfx
 //! [`play_on_bus`]: WebAudio::play_on_bus
@@ -56,6 +58,12 @@ use std::rc::Rc;
 use glam::Vec2;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{spawn_local, JsFuture};
+
+use crate::audio_analysis::{smooth_toward, AudioLevels};
+
+/// FFT size of each analysis node. Must be a power of two; 1024 matches the native tap's window
+/// so both backends average over a comparable slice of audio (~21 ms at 48 kHz).
+const ANALYSER_FFT_SIZE: u32 = 1024;
 
 /// A Web Audio SFX + music player for wasm builds.
 ///
@@ -104,6 +112,13 @@ pub struct WebAudio {
     /// [`play_at_on_channel`]: WebAudio::play_at_on_channel
     /// [`update_position`]: WebAudio::update_position
     spatial_channels: Rc<RefCell<HashMap<String, Sfx>>>,
+    /// Channels being level-analyzed (see [`enable_analysis`](WebAudio::enable_analysis)), keyed by
+    /// channel name. An entry exists only while analysis is on; a play path connects the sound's
+    /// own gain node to the matching analyser, so an unanalyzed channel builds the same graph it
+    /// always did.
+    analysers: Rc<RefCell<HashMap<String, AnalyserState>>>,
+    /// Meter release time in seconds, shared by every analyzed channel.
+    analysis_smoothing: Rc<Cell<f32>>,
 }
 
 /// One synthesized tone playing (or scheduled) on a named channel: the oscillator (kept so a replay
@@ -112,6 +127,21 @@ pub struct WebAudio {
 struct ToneVoice {
     osc: web_sys::OscillatorNode,
     stop_time: f64,
+}
+
+/// One analyzed channel: the `AnalyserNode` that watches it, a scratch buffer for the time-domain
+/// read, and the smoothed values [`WebAudio::levels`] reports.
+///
+/// Unlike the native tap, an `AnalyserNode` reads the *live* graph — when nothing is playing it
+/// simply reads silence, so a stopped channel decays on its own with no staleness detection
+/// needed. (The native tap only runs while rodio pulls samples, which is why that side carries a
+/// sequence counter.)
+struct AnalyserState {
+    node: web_sys::AnalyserNode,
+    /// Scratch buffer sized to the analyser's FFT size; reused every frame to avoid allocating.
+    buf: Vec<f32>,
+    rms: f32,
+    peak: f32,
 }
 
 /// The currently-playing looping music: its buffer source and the per-music gain node it routes
@@ -150,6 +180,10 @@ impl WebAudio {
             tone_channels: Rc::new(RefCell::new(HashMap::new())),
             tone_lowpass: Rc::new(RefCell::new(HashMap::new())),
             spatial_channels: Rc::new(RefCell::new(HashMap::new())),
+            analysers: Rc::new(RefCell::new(HashMap::new())),
+            analysis_smoothing: Rc::new(Cell::new(
+                crate::audio_analysis::DEFAULT_ANALYSIS_SMOOTHING,
+            )),
         })
     }
 
@@ -161,6 +195,113 @@ impl WebAudio {
     /// The current master volume.
     pub fn volume(&self) -> f32 {
         self.master.gain().value()
+    }
+
+    // ── Level analysis ────────────────────────────────────────────────────────
+
+    /// Starts measuring `channel`'s loudness, so [`levels`](Self::levels) reports it.
+    ///
+    /// **Takes effect on the next play on that channel** — the analyser is wired into the graph
+    /// when the sound is built, and a node already playing is not rewired. Enable it during setup.
+    /// Matches the native
+    /// [`AudioManager::enable_analysis`](crate::audio::AudioManager::enable_analysis) semantics.
+    ///
+    /// Pass [`MUSIC_CHANNEL`](crate::audio_analysis::MUSIC_CHANNEL) to meter the music channel.
+    /// A channel with analysis off builds exactly the graph it did before.
+    pub fn enable_analysis(&self, channel: &str) {
+        let mut map = self.analysers.borrow_mut();
+        if map.contains_key(channel) {
+            return; // keep the existing reading rather than resetting it
+        }
+        let Ok(node) = self.ctx.create_analyser() else {
+            return;
+        };
+        node.set_fft_size(ANALYSER_FFT_SIZE);
+        // The node's own smoothing is left off: meter behaviour belongs to the shared
+        // `smooth_toward`, so native and web match. Letting the node smooth too would apply a
+        // second, different curve on web only.
+        node.set_smoothing_time_constant(0.0);
+        let buf = vec![0.0; node.fft_size() as usize];
+        map.insert(
+            channel.to_string(),
+            AnalyserState {
+                node,
+                buf,
+                rms: 0.0,
+                peak: 0.0,
+            },
+        );
+    }
+
+    /// Stops measuring `channel` and unhooks its analyser from the graph.
+    pub fn disable_analysis(&self, channel: &str) {
+        if let Some(state) = self.analysers.borrow_mut().remove(channel) {
+            let _ = state.node.disconnect();
+        }
+    }
+
+    /// Returns whether `channel` is being analyzed.
+    pub fn is_analysis_enabled(&self, channel: &str) -> bool {
+        self.analysers.borrow().contains_key(channel)
+    }
+
+    /// Returns `channel`'s current smoothed loudness, or
+    /// [`SILENT`](crate::AudioLevels::SILENT) if it is not analyzed.
+    ///
+    /// Values advance in [`update`](Self::update), so call that every frame (`AudioFacadeSystem`
+    /// does).
+    pub fn levels(&self, channel: &str) -> AudioLevels {
+        self.analysers
+            .borrow()
+            .get(channel)
+            .map(|s| AudioLevels {
+                rms: s.rms,
+                peak: s.peak,
+            })
+            .unwrap_or(AudioLevels::SILENT)
+    }
+
+    /// Sets the meter's release time in seconds — how long a level takes to fall. A rise is always
+    /// instant. `0.0` disables smoothing. Applies to every analyzed channel.
+    pub fn set_analysis_smoothing(&self, release_secs: f32) {
+        self.analysis_smoothing.set(release_secs.max(0.0));
+    }
+
+    /// Returns the meter release time in seconds.
+    pub fn analysis_smoothing(&self) -> f32 {
+        self.analysis_smoothing.get()
+    }
+
+    /// Samples every analyser and advances its smoothed levels. Call once per frame.
+    ///
+    /// Unlike the native side there is no staleness check: an `AnalyserNode` reads the live graph,
+    /// so a stopped channel reads silence and decays on its own.
+    pub fn update(&self, dt: f32) {
+        let release = self.analysis_smoothing.get();
+        for state in self.analysers.borrow_mut().values_mut() {
+            state.node.get_float_time_domain_data(&mut state.buf);
+            let mut sum_sq = 0.0f32;
+            let mut peak = 0.0f32;
+            for &sample in state.buf.iter() {
+                sum_sq += sample * sample;
+                let magnitude = sample.abs();
+                if magnitude > peak {
+                    peak = magnitude;
+                }
+            }
+            let rms = (sum_sq / state.buf.len().max(1) as f32).sqrt();
+            state.rms = smooth_toward(state.rms, rms.min(1.0), release, dt);
+            state.peak = smooth_toward(state.peak, peak.min(1.0), release, dt);
+        }
+    }
+
+    /// Connects `node` to `channel`'s analyser when analysis is enabled for it; otherwise does
+    /// nothing. Called from the play paths *after* the sound's own gain node, so the measurement
+    /// is pre-bus/pre-master — matching the native tap's position.
+    fn tap(&self, channel: &str, node: &web_sys::AudioNode) {
+        if let Some(state) = self.analysers.borrow().get(channel) {
+            let _ = node.connect_with_audio_node(&state.node);
+        }
     }
 
     /// Whether the audio context is currently running (i.e. audio is unlocked and not
@@ -391,6 +532,10 @@ impl WebAudio {
         {
             return;
         }
+        // Meter the tone's own envelope when this channel is analyzed (no-op otherwise). Taken
+        // after the tone's gain but before `dest` (a bus or the master), so bus volume, ducking
+        // and master volume are excluded — the same point the native tap sits at.
+        self.tap(channel, &gain);
         let now = self.ctx.current_time();
         let edge = (dur * 0.25).min(0.008);
         let g = gain.gain();
@@ -724,6 +869,9 @@ impl WebAudio {
         let ctx = self.ctx.clone();
         let master = self.master.clone();
         let music = self.music.clone();
+        // Music starts only after an async decode, so the analyser must be looked up inside the
+        // closure — by then `enable_analysis(MUSIC_CHANNEL)` may have been called (or not).
+        let analysers = self.analysers.clone();
         let promise = match ctx.decode_audio_data(&buffer) {
             Ok(p) => p,
             Err(_) => return,
@@ -747,6 +895,11 @@ impl WebAudio {
             };
             if gain.connect_with_audio_node(&master).is_err() {
                 return;
+            }
+            // Meter the music when it is analyzed. Taken after the per-music gain (so a
+            // crossfade ramp is included, matching the native fade) but before the master.
+            if let Some(state) = analysers.borrow().get(crate::audio_analysis::MUSIC_CHANNEL) {
+                let _ = gain.connect_with_audio_node(&state.node);
             }
             let Ok(src) = ctx.create_buffer_source() else {
                 return;

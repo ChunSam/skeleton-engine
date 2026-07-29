@@ -71,6 +71,8 @@ impl AudioManager {
                 file_cache: HashMap::new(),
                 bus_ducks: HashMap::new(),
                 sidechains: Vec::new(),
+                analysis: super::analysis::new_analysis_map(),
+                analysis_smoothing: super::analysis::DEFAULT_SMOOTHING,
             }),
             Err(e) => {
                 log::warn!("Audio initialization failed (running without audio): {e}");
@@ -207,17 +209,27 @@ impl AudioManager {
                 enveloped_tone_samples(freq, duration_secs, volume),
             )),
         };
+        // Measure the tone's own envelope when this channel is analyzed. A no-op (returns the
+        // same box) otherwise, so the unanalyzed path is unchanged.
+        let source = self.tapped(channel, source);
         sink.append(source);
         self.sinks.insert(channel.to_string(), sink);
     }
 
-    /// Advances all active fades and duck/sidechain animations. Called every frame by the system.
+    /// Advances all active fades, duck/sidechain animations and level meters. Called every frame
+    /// by the system.
     ///
-    /// Must be called when using `fade_out` / `fade_volume` / `duck_bus` / `set_sidechain`.
+    /// Must be called when using `fade_out` / `fade_volume` / `duck_bus` / `set_sidechain` /
+    /// `enable_analysis`.
     pub fn update(&mut self, dt: f32) {
         // ── Sidechain evaluation + duck progression ───────────────────────────
         self.evaluate_sidechains();
         self.progress_ducks(dt);
+
+        // ── Level meters ──────────────────────────────────────────────────────
+        // Smooths each analyzed channel and decays the ones that stopped producing, so a meter
+        // never freezes at its last value. No-op when nothing is analyzed.
+        self.tick_analysis(dt);
 
         // ── Fade progression ──────────────────────────────────────────────────
         // Collect channel keys once; use `smallvec`-style stack buffer to avoid a
@@ -393,6 +405,12 @@ impl AudioManager {
         } else {
             Box::new(source)
         };
+
+        // ── Level analysis tap ────────────────────────────────────────────────
+        // Inserted after the sound's own effects but before pan and (on the sink) volume, so it
+        // measures the pre-volume envelope described on `AudioLevels`. Returns the same box
+        // untouched when this channel is not analyzed.
+        let effected = self.tapped(channel, effected);
 
         // ── Apply pan / fade-in / repeat ──────────────────────────────────────
         // BufReader would be more efficient without pan or fade-in, but we unify

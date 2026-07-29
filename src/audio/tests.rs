@@ -984,3 +984,73 @@ fn sidechain_gain_clamp_and_attack_release_secs_clamp() {
         "release_secs must be clamped to >= 0.001"
     );
 }
+
+// ─── Level analysis ───────────────────────────────────────────────────────────
+
+#[test]
+fn an_unanalyzed_channel_reads_silent_when_device_exists() {
+    let Some(audio) = AudioManager::new() else {
+        return;
+    };
+    // The default for every channel: analysis is opt-in, so nothing is measured until asked.
+    assert!(!audio.is_analysis_enabled("nope"));
+    assert!(audio.levels("nope").is_silent());
+}
+
+#[test]
+fn enable_analysis_is_reported_and_starts_silent_when_device_exists() {
+    let Some(mut audio) = AudioManager::new() else {
+        return;
+    };
+    audio.enable_analysis("ch");
+    assert!(audio.is_analysis_enabled("ch"));
+    // Enabled but never played: still silent, not stale garbage.
+    assert!(audio.levels("ch").is_silent());
+}
+
+#[test]
+fn enabling_twice_is_idempotent_when_device_exists() {
+    let Some(mut audio) = AudioManager::new() else {
+        return;
+    };
+    audio.enable_analysis("ch");
+    audio.enable_analysis("ch");
+    assert!(audio.is_analysis_enabled("ch"));
+}
+
+#[test]
+fn disable_analysis_stops_reporting_when_device_exists() {
+    let Some(mut audio) = AudioManager::new() else {
+        return;
+    };
+    audio.enable_analysis("ch");
+    audio.disable_analysis("ch");
+    assert!(!audio.is_analysis_enabled("ch"));
+    assert!(audio.levels("ch").is_silent());
+}
+
+#[test]
+fn analysis_smoothing_defaults_and_never_goes_negative_when_device_exists() {
+    let Some(mut audio) = AudioManager::new() else {
+        return;
+    };
+    assert_eq!(
+        audio.analysis_smoothing(),
+        crate::audio_analysis::DEFAULT_ANALYSIS_SMOOTHING
+    );
+    audio.set_analysis_smoothing(0.4);
+    assert_eq!(audio.analysis_smoothing(), 0.4);
+    // A negative release would invert the decay; it is clamped instead.
+    audio.set_analysis_smoothing(-1.0);
+    assert_eq!(audio.analysis_smoothing(), 0.0);
+}
+
+#[test]
+fn ticking_update_with_no_analyzed_channels_is_harmless_when_device_exists() {
+    let Some(mut audio) = AudioManager::new() else {
+        return;
+    };
+    // The common case for every existing game: analysis off, `update` still called every frame.
+    audio.update(1.0 / 60.0);
+    assert!(audio.levels("anything").is_silent());
+}
