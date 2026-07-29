@@ -4,6 +4,14 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.135.2
+
+**Every bundled shell script is executable again — 26 of the repo's 31 were committed without the executable bit, so running them the way their own docs say fails on a fresh clone.** Each script documents its usage as `scripts/foo.sh …`, which needs the bit; without it the shell answers "Permission denied". Three web render smokes were broken twice over, because they also execute the example's `web/build.sh` directly. Tooling only — no source, no API, no runtime behavior changed.
+
+### Fixed
+- `git update-index --chmod=+x` on all 16 `scripts/*.sh` and all 15 bundled `examples/**/build.sh` (31 files; only `verify.sh`, `wasm_audio_smoke.sh`, `wasm_save_smoke.sh` and two `build.sh` had the bit). This had gone unnoticed because the repo sets `core.fileMode = false`, so a local `chmod +x` makes a script work for the person who ran it while git records nothing — which is also how the 0.135.1 `embedded_atlas` smoke and its `build.sh` shipped without the bit.
+- Directly affected: `scripts/centered_text_smoke.sh`, `scripts/game_feel_web_smoke.sh`, `scripts/hdr_web_smoke.sh` and `scripts/embedded_atlas_smoke.sh` now run instead of dying before doing any work. (`bloom_web_smoke.sh` and `render_format_query_smoke.sh` invoke their `build.sh` via `bash …` and were unaffected.)
+
 ## 0.135.1
 
 **The byte-source asset examples now actually run on the web, instead of merely compiling for it.** 0.135.0 claimed `load_atlas_bytes` works on wasm and verified only that the example *builds* for `wasm32` — which would not have caught a sheet that decoded but never reached the GPU. `embedded_atlas` now ships a browser harness and a render smoke that proves the claim end to end, and `embedded_image` — which had been silently unbuildable for wasm since it was added — builds again. No library code changed; this is examples and tooling only, so no public API is affected.
