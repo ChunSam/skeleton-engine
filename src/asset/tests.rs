@@ -234,3 +234,119 @@ fn load_image_bytes_reports_a_corrupt_embed_as_a_failure() {
         "a corrupt embed must be recorded in asset_failures()"
     );
 }
+
+/// Encodes a `w × h` PNG in memory so an atlas test reads nothing from disk.
+fn png_bytes(w: u32, h: u32) -> Vec<u8> {
+    let raw: Vec<u8> = (0..w * h)
+        .flat_map(|i| [(i % 251) as u8, (i % 253) as u8, (i % 247) as u8, 255])
+        .collect();
+    let img = image::RgbaImage::from_raw(w, h, raw).unwrap();
+    let mut png: Vec<u8> = Vec::new();
+    image::DynamicImage::ImageRgba8(img)
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    png
+}
+
+/// The identity invariant for a byte-sourced atlas: the atlas handle path, the atlas's
+/// `texture_path()` (what an `AtlasSprite` renders by) and the key the renderer actually uploads
+/// under (`image_assets_for_gpu`) must all be the caller's key **verbatim**.
+///
+/// This is the invariant that keeps a byte-sourced atlas from rendering white — the 2026-05-29
+/// texture-cache-key bug, where the handle path was canonical and the GPU key relative. Nothing in
+/// the type system enforces it, and the failure is silent at compile time, so it is pinned here.
+#[test]
+fn load_atlas_bytes_keys_the_atlas_image_and_render_key_identically() {
+    let png = png_bytes(8, 6);
+    let mut server = AssetServer::new();
+    // Names no file — the whole point of a byte-sourced atlas.
+    let key = "embedded/__unit_test_atlas__";
+    let handle = server.load_atlas_bytes(key, &png, 4, 3);
+
+    // 1. The atlas handle path is the key verbatim (no canonicalization).
+    assert_eq!(handle.path(), key);
+
+    let atlas = server.get_atlas(&handle).expect("atlas registered");
+    // 2. What an `AtlasSprite` renders by is the same string.
+    assert_eq!(atlas.texture_path(), key);
+    assert_eq!((atlas.cols, atlas.rows), (4, 3));
+
+    // 3. The underlying image decoded, and is uploaded to the GPU under that same string —
+    //    `image_assets_for_gpu` is exactly what feeds the renderer's texture cache.
+    let img = server.get_image(&atlas.handle).expect("image registered");
+    assert_eq!((img.width, img.height), (8, 6));
+    assert!(
+        server.image_assets_for_gpu().iter().any(|(k, _)| k == key),
+        "the renderer must upload the embedded sheet under the caller's key verbatim"
+    );
+
+    // Loading the same key again returns the cached handle (bytes ignored on a hit).
+    let again = server.load_atlas_bytes(key, b"", 4, 3);
+    assert_eq!(again.id(), handle.id());
+}
+
+/// A byte-sourced atlas must be geometrically indistinguishable from a path-loaded one: same
+/// `cols × rows` grid, same UVs for every tile. Driven as a real A/B against `load_atlas` on a
+/// temp file, so this fails if the byte path ever grows its own grid maths.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn load_atlas_bytes_tiles_the_grid_exactly_like_a_path_loaded_atlas() {
+    let png = png_bytes(8, 6);
+
+    // Unique temp file (never under cwd) — `asset_key` / the failure list are process-global.
+    let dir = std::env::temp_dir().join(format!(
+        "engine-atlas-bytes-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("sheet.png");
+    std::fs::write(&file, &png).unwrap();
+
+    let mut server = AssetServer::new();
+    let from_path = server.load_atlas(&file, 4, 3);
+    let from_bytes = server.load_atlas_bytes("embedded/__unit_test_atlas_ab__", &png, 4, 3);
+
+    let a = server.get_atlas(&from_path).expect("path atlas");
+    let b = server.get_atlas(&from_bytes).expect("byte atlas");
+
+    assert_eq!((a.cols, a.rows), (b.cols, b.rows));
+    for index in 0..12 {
+        assert_eq!(
+            a.uv_rect(index),
+            b.uv_rect(index),
+            "tile {index} must have identical UVs whether the sheet came from a file or bytes"
+        );
+    }
+    // The two are separate assets keyed by their own identities — the path one canonicalized,
+    // the byte one verbatim — and neither borrowed the other's key.
+    assert_ne!(a.texture_path(), b.texture_path());
+    assert_eq!(b.texture_path(), "embedded/__unit_test_atlas_ab__");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// A corrupt embedded sheet must be reported, not swallowed — the EW-007 rule, which applies to a
+/// bad `include_bytes!` exactly as it does to a missing file. The atlas still registers (tiling the
+/// magenta fallback) so the grid API stays usable rather than panicking.
+#[test]
+fn load_atlas_bytes_reports_a_corrupt_embed_as_a_failure() {
+    let mut server = AssetServer::new();
+    // Unique key: the failure list is process-global, so assert on THIS key, never on length.
+    let key = "embedded/__unit_test_corrupt_atlas__";
+    let handle = server.load_atlas_bytes(key, b"definitely not a png", 4, 3);
+
+    let atlas = server
+        .get_atlas(&handle)
+        .expect("atlas registers even on a bad decode");
+    assert!(matches!(
+        server.load_state(&atlas.handle),
+        AssetLoadState::Failed(_)
+    ));
+    assert!(
+        crate::asset_path::asset_failures()
+            .iter()
+            .any(|f| f.path == key),
+        "a corrupt embedded sheet must be recorded in asset_failures()"
+    );
+}
