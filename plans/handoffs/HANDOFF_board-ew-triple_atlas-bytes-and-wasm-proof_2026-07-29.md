@@ -1,7 +1,7 @@
 # Shipped: byte-source atlas parity, then the three follow-ups that verifying it uncovered (v0.135.0 → v0.135.2)
 
 **Date:** 2026-07-29
-**Status:** COMPLETED (PRs #376, #377, #378, #379 all merged; `main @ af4573a`, v0.135.2, clean + green)
+**Status:** COMPLETED (PRs #376–#380 all merged; `main @ e481873`, v0.135.2, clean + green)
 **Bead(s):** none (no `bd` in this repo)
 **Epic:** none
 **Chain:** `board-ew-triple` seq `2`
@@ -43,8 +43,8 @@ The through-line of the last three PRs is the same: **each one exists because ve
 
 ## Where We Are
 
-- **`main @ af4573a`, package v0.135.2, CLAUDE.md header v1.6.232, clean tree, all gates green.** Local `main` == `origin/main`.
-- **Four PRs merged, serially, each with its own bump:** **#376 `aa47d7e` v0.135.0** (MINOR), **#377 `660a9e5` v0.135.1** (PATCH), **#378 `d717e9d` v0.135.2** (PATCH), **#379 `af4573a`** (docs-only, no package bump).
+- **`main @ e481873`, package v0.135.2, CLAUDE.md header v1.6.232, clean tree, all gates green.** Local `main` == `origin/main`.
+- **Five PRs merged, serially, each with its own bump:** **#376 `aa47d7e` v0.135.0** (MINOR), **#377 `660a9e5` v0.135.1** (PATCH), **#378 `d717e9d` v0.135.2** (PATCH), **#379 `af4573a`** (docs-only), **#380 `e481873`** (this handoff, docs-only).
 - **Lib tests 1294 → 1297 (+3)**, all in `src/asset/tests.rs`. All passed on their first run.
 - **The board is empty on both channels.** `dungeon-merchant` has zero active requests (next free **EW-012**); `rust-survivors` is `_None._`. Re-checked mid-session after the first merge — still empty.
 - **EW-009/010/011 are all `Verified` and archived** by the game on 2026-07-27, with no problem reports.
@@ -544,3 +544,15 @@ scripts/embedded_atlas_smoke.sh            # optional; needs Chrome + wasm-bindg
 #    Menu: a 4th procgen mode, audio-reactive hooks, a 2nd capstone game.
 #    Windowed capture is OFF the menu — the game declined it on 2026-07-27.
 ```
+
+---
+
+## Session Closed
+
+**Closed at:** 2026-07-29
+**Commit:** `e481873` (this handoff's own merge — the session's true tip)
+**Code shipped:** #376 `aa47d7e` v0.135.0 · #377 `660a9e5` v0.135.1 · #378 `d717e9d` v0.135.2 · #379 `af4573a` docs — all merged, all 6/6 green.
+**Board:** untouched — nothing this session served a board request, and the game has no use for an atlas API (it renders exclusively through `UiQueue`/`TextQueue`). Still empty on both channels; next free **EW-012**.
+**Memory:** `engine-current-state` at **seq 199**, with the `core.fileMode` and stale-`.exit` gotchas recorded in the live-gotchas line.
+**No PLAN file written:** the board is empty and the menu is open, so a next-phase plan would be speculative. The next session's first action is the board gate, then ASK — see "Where We're Going".
+**Session status:** Handed off to next session.
