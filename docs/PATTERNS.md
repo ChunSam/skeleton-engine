@@ -224,6 +224,52 @@ add_dynamic_circle() / add_dynamic_box() / add_static_box()
 remove_body()
 ```
 
+### Shared policy for cfg-split backends (drift prevention)
+
+When the native and wasm backends each compute the **same derived value**, put the *formula* in
+an **un-gated module both call**. The implementations may diverge — device access, node graphs,
+threading — but the **policy must be single**. If it is duplicated, both sides compile and the two
+platforms silently behave differently, which no test catches unless someone thought to write a
+cross-platform one.
+
+Three instances, all in audio:
+
+| Module | Shared |
+|---|---|
+| `src/audio_spatial.rs` | `spatial_params` — distance falloff + stereo pan |
+| `src/audio_analysis.rs` | `smooth_toward` — the meter's attack/release policy |
+| `src/audio_analysis.rs` | `log_band_range`, `MIN_DB`/`MAX_DB` — spectrum band edges + dB window |
+
+`audio_spatial` states the reason in its own header: *"a single canonical implementation so the
+two builds can't drift."*
+
+**The sharper move, when one platform already owns the constant:** `MIN_DB`/`MAX_DB` are not
+tuned values — they are **Web Audio's `AnalyserNode` defaults** (−100/−30 dB), and the wasm
+backend **sets them explicitly on the node** rather than relying on the default. Matching the
+other platform's constant makes the two comparable; re-setting it explicitly means a browser
+changing its default cannot silently desync them.
+
+**Consequence for the `Audio` facade:** if both backends name a method identically with the same
+signature, the facade forwards with a bare `self.inner.x(...)` and needs **no `cfg` at all** —
+v0.136.0 added seven facade methods with zero `cfg` lines and *deleted* an existing pair. Agree on
+the name before writing either implementation; a naming mismatch breeds `cfg` in the facade.
+
+### Real-time (audio-thread) producers
+
+Code inside a rodio `Source::next()` runs on the **playback thread**, not the game thread.
+
+1. **No locks, no allocation.** Allocate scratch buffers in the constructor (game thread) and
+   publish results through atomics — e.g. `f32::to_bits()` into an `AtomicU32`. A mutex in an
+   audio callback is a dropout.
+2. **A producer that can stop needs a liveness signal.** Otherwise the consumer cannot tell
+   "value unchanged" from "producer dead". Concretely: a level meter whose source ended **freezes
+   at its last value**, which reads on screen as a stuck bar rather than as silence. The fix is a
+   monotonic sequence counter — unchanged since the previous tick means *not producing*, so decay
+   toward zero (`LevelSlot::seq` / `tick_analysis`).
+3. **This is a native-only concern, and say so.** A Web Audio `AnalyserNode` reads the live graph,
+   so silence decays on its own and needs no counter. Record the asymmetry, or the next person
+   either adds a redundant counter on wasm or deletes the necessary one on native.
+
 ---
 
 ## Common task patterns
