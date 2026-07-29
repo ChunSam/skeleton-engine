@@ -21,8 +21,8 @@
 //! the example exits non-zero unless the embedded image decoded to 32×32 (and was not reported as a
 //! failure) *and* the corrupt embed was reported — so it doubles as a runnable acceptance test.
 use engine::{
-    App, AssetServer, Camera, Color, DrawText, ShouldQuit, Sprite, System, TextQueue, Transform,
-    Vec2, WindowConfig, World,
+    App, Camera, Color, DrawText, ShouldQuit, Sprite, System, TextQueue, Transform, Vec2,
+    WindowConfig, World,
 };
 
 const WIN_W: u32 = 720;
@@ -153,59 +153,77 @@ fn main() {
 
     app.add_system(Hud);
 
+    // The acceptance test is native-only (headless capture needs a GPU adapter), but the FEATURE is
+    // cross-platform: gating it keeps this example buildable for wasm32, which is the single-file
+    // build `load_image_bytes` exists for.
+    #[cfg(not(target_arch = "wasm32"))]
     if let Ok(out) = std::env::var("HEADLESS_SHOT") {
-        let frames = std::env::var("HEADLESS_FRAMES")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(4);
-        app.save_screenshot_headless(frames, &out)
-            .expect("headless screenshot");
-
-        // The acceptance test, in three parts. (1) The embedded image must have decoded to its real
-        // 32×32 size — a byte load that silently did nothing would leave no image. (2) A valid embed
-        // must NOT be an asset failure. (3) The corrupt embed MUST be reported — a bad `include_bytes!`
-        // is exactly as invisible as a missing file if it is swallowed.
-        let dims = app
-            .world
-            .resource::<AssetServer>()
-            .and_then(|a| a.get_image(&hero).map(|img| (img.width, img.height)));
-        let failures = app.asset_failures();
-        let reported = |k: &str| failures.iter().any(|f| f.path == k);
-
-        let mut problems: Vec<String> = Vec::new();
-        match dims {
-            Some((32, 32)) => {}
-            other => problems.push(format!(
-                "embedded image should decode to 32x32, got {other:?}"
-            )),
+        if run_acceptance_test(&mut app, &hero, &out) {
+            return;
         }
-        if reported(PLAYER_KEY) {
-            problems.push(format!(
-                "a valid embed '{PLAYER_KEY}' must not be a failure"
-            ));
-        }
-        if !reported(CORRUPT_KEY) {
-            problems.push(format!(
-                "corrupt embed '{CORRUPT_KEY}' is invalid but was NOT reported — a bad \
-                 include_bytes! must never be silent"
-            ));
-        }
-
-        if !problems.is_empty() {
-            eprintln!(
-                "FAIL (working dir {:?}):\n  - {}",
-                std::env::current_dir(),
-                problems.join("\n  - ")
-            );
-            std::process::exit(1);
-        }
-        println!(
-            "OK: embedded 32x32 image decoded from include_bytes! with no external file; \
-             corrupt embed reported. failures = {:?}",
-            failures.iter().map(|f| &f.path).collect::<Vec<_>>()
-        );
-        return;
+        std::process::exit(1);
     }
 
     app.run();
+}
+
+/// Headless acceptance test — returns `true` when every claim this example makes holds.
+///
+/// Three parts. (1) The embedded image must have decoded to its real 32×32 size — a byte load that
+/// silently did nothing would leave no image. (2) A valid embed must NOT be an asset failure.
+/// (3) The corrupt embed MUST be reported — a bad `include_bytes!` is exactly as invisible as a
+/// missing file if it is swallowed.
+#[cfg(not(target_arch = "wasm32"))]
+fn run_acceptance_test(
+    app: &mut App,
+    hero: &engine::Handle<engine::ImageAsset>,
+    out: &str,
+) -> bool {
+    let frames = std::env::var("HEADLESS_FRAMES")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(4);
+    app.save_screenshot_headless(frames, out)
+        .expect("headless screenshot");
+
+    let dims = app
+        .world
+        .resource::<engine::AssetServer>()
+        .and_then(|a| a.get_image(hero).map(|img| (img.width, img.height)));
+    let failures = app.asset_failures();
+    let reported = |k: &str| failures.iter().any(|f| f.path == k);
+
+    let mut problems: Vec<String> = Vec::new();
+    match dims {
+        Some((32, 32)) => {}
+        other => problems.push(format!(
+            "embedded image should decode to 32x32, got {other:?}"
+        )),
+    }
+    if reported(PLAYER_KEY) {
+        problems.push(format!(
+            "a valid embed '{PLAYER_KEY}' must not be a failure"
+        ));
+    }
+    if !reported(CORRUPT_KEY) {
+        problems.push(format!(
+            "corrupt embed '{CORRUPT_KEY}' is invalid but was NOT reported — a bad \
+             include_bytes! must never be silent"
+        ));
+    }
+
+    if !problems.is_empty() {
+        eprintln!(
+            "FAIL (working dir {:?}):\n  - {}",
+            std::env::current_dir(),
+            problems.join("\n  - ")
+        );
+        return false;
+    }
+    println!(
+        "OK: embedded 32x32 image decoded from include_bytes! with no external file; \
+         corrupt embed reported. failures = {:?}",
+        failures.iter().map(|f| &f.path).collect::<Vec<_>>()
+    );
+    true
 }

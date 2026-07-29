@@ -26,12 +26,18 @@ use engine::{
     WindowConfig, World,
 };
 
+#[cfg(target_arch = "wasm32")]
+use engine::wasm_bindgen;
+
 const WIN_W: u32 = 820;
 const WIN_H: u32 = 470;
 
 /// The whole point: the sheet's pixels live in the binary, not in a file on disk. `include_bytes!`
 /// resolves relative to THIS source file — a 256×192 PNG holding a 4×3 grid of 64px cells.
-static SHEET_PNG: &[u8] = include_bytes!("assets/blend_locomotion.png");
+static SHEET_PNG: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/examples/assets/blend_locomotion.png"
+));
 /// The logical key. It names no file; it is just the identity the atlas renders by.
 const SHEET_KEY: &str = "embedded/locomotion";
 const COLS: u32 = 4;
@@ -163,7 +169,9 @@ impl System for Hud {
     }
 }
 
-fn main() {
+/// Builds the demo — shared by the native and wasm entry points, so the browser runs exactly what
+/// `cargo run` does. Returns the atlas handle too, for the native acceptance test to inspect.
+fn build_app() -> (App, engine::Handle<engine::TextureAtlas>) {
     let mut app = App::new();
     app.world.insert_resource(WindowConfig {
         title: "Embedded atlas — include_bytes!".into(),
@@ -199,9 +207,16 @@ fn main() {
 
     app.add_system(Hud);
 
+    (app, sheet)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn main() {
+    let (mut app, sheet) = build_app();
+
     // The acceptance test is native-only (headless capture needs a GPU adapter), but the FEATURE is
-    // cross-platform: this example builds for wasm32, which is the single-file build it exists for.
-    #[cfg(not(target_arch = "wasm32"))]
+    // cross-platform: this example also builds and RUNS on wasm32 (see `web/`), which is the
+    // single-file build `load_atlas_bytes` exists for.
     if let Ok(out) = std::env::var("HEADLESS_SHOT") {
         if run_acceptance_test(&mut app, &sheet, &out) {
             return;
@@ -211,6 +226,22 @@ fn main() {
 
     app.run();
 }
+
+/// WASM entry point — `examples/embedded_atlas/web/index.html` calls this after `init()` (and on the
+/// "Start" click; winit wants a user gesture before grabbing the canvas).
+///
+/// This is the demo that matters for the feature: the sheet is inside the `.wasm` module itself, so
+/// the page renders all 12 tiles with **no image fetch at all** — the thing a path-loaded atlas
+/// cannot do on the web without async plumbing.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn run_embedded_atlas() {
+    let (app, _sheet) = build_app();
+    app.run();
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {}
 
 /// Headless acceptance test — returns `true` when every claim this example makes holds.
 ///

@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name        = "skeleton-engine"
-version     = "0.135.0"
+version     = "0.135.1"
 edition     = "2021"
 description = "Lightweight 2D game engine — wgpu rendering, custom ECS, rapier2d physics"
 repository  = "https://github.com/ChunSam/skeleton-engine"
@@ -44,6 +44,10 @@ path = "examples/audio_facade/audio_facade.rs"
 [[example]]
 name = "centered_text"
 path = "examples/centered_text/centered_text.rs"
+
+[[example]]
+name = "embedded_atlas"
+path = "examples/embedded_atlas/embedded_atlas.rs"
 
 [[example]]
 name = "game_feel"
