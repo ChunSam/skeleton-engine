@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.6.231 | package `skeleton-engine` v0.135.2, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
+> Version v1.6.232 | package `skeleton-engine` v0.135.2, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example ships to the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`  
 > **Versioning: pre-1.0 (0.x)** — MINOR = any release (incl. breaking), PATCH = bugfix; 1.0.0 later. (Reset from 10.7.0, 2026-06-17, pre-publish — see CHANGELOG 0.11.0.)
@@ -24,7 +24,7 @@ A code/refactor change is **not done** until the **CI-equivalent** checks pass
 ```bash
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
-cargo build --target wasm32-unknown-unknown   # lib+bins — see wasm gotcha
+cargo build --target wasm32-unknown-unknown   # lib+bins only — NOT --all-targets
 cargo clippy --target wasm32-unknown-unknown --lib -- -D warnings  # wasm-only lints
 cargo test --all-targets
 cargo test --doc                                # --all-targets skips doctests
@@ -33,42 +33,29 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps  # CI fails docs on broken intra-
 
 Or run all of them in order via `./scripts/verify.sh`.
 
-- **Read the gate's exit code, don't pipe it:** `./scripts/verify.sh | tail` (or any
-  trailing pipe) reports `tail`'s `0` and **hides** a real `fmt --check`/`clippy` failure
-  (bit twice). Capture it: `./scripts/verify.sh > /tmp/verify.log 2>&1; echo $?` (or
-  `VERIFY_EXIT=$?`) is the authoritative verdict.
-  - **zsh: `$pipestatus`, not `${PIPESTATUS[0]}`.** The shell here is **zsh**, where the
-    pipe-status array is `$pipestatus` and is **1-indexed** — bash-style `${PIPESTATUS[0]}`
-    is always the empty string (a whole session of `echo "X_EXIT=${PIPESTATUS[0]}"` silently
-    printed `X_EXIT=`). Read a gate's code from a **non-piped** command
-    (`cmd > /tmp/x.log 2>&1; echo $?`) or from a `run_in_background` task's completion
-    notification (which reports the real code); if you must index a pipe, use `${pipestatus[1]}`.
-- **WASM gotcha:** do *not* gate on `--target wasm32 --all-targets` — it fails on the
-  native-only examples (`platformer_game`/`mp_server`/`gpu_particles`, which pull in
-  `rapier2d`/`tungstenite`/`GpuParticleEmitter`). The lib+bins build above (or `--lib`)
-  is the real wasm gate.
-- **CI is ubuntu only** — `#[cfg(target_os = "macos")]`/`"windows"` code (+ OS-only deps like
-  `objc2-game-controller`) is never compiled/run on CI, so **green CI alone doesn't verify an
-  OS-gated change** (the macOS gamepad backend was merged on green CI **+** a hardware pad check).
-  Build **both** cfg branches locally (`-D warnings`, esp. `dead_code`); one OS misses the other's lints.
+- **Read the gate's exit code, don't pipe it:** `./scripts/verify.sh > /tmp/verify.log 2>&1;
+  echo "VERIFY_EXIT=$?"` is the authoritative verdict. A trailing `| tail` reports the pipe's
+  `0` and **hides** a real failure; `;` does not stop on failure (so a chained `git commit`
+  runs anyway); a `run_in_background` notification reports the trailing `echo`, not the gate;
+  a **stale `.exit` file from a previous session** makes an `until [ -f … ]` waiter return an
+  old code instantly. In zsh the pipe-status array is **`$pipestatus`, 1-indexed** —
+  `${PIPESTATUS[0]}` is always empty. All six traps, with the sessions they cost:
+  **`docs/VERIFICATION.md`**.
 - **Don't narrow the bar:** a prior "done" on only `fmt --check` + `test --lib` shipped the wasm-build + clippy regressions the full gate list above catches.
-- **Optional wasm smoke checks** (non-CI; Chrome + `wasm-bindgen-cli`): `wasm_smoke.sh` /
-  `wasm_save_smoke.sh` / `wasm_audio_smoke.sh` / `centered_text_smoke.sh` — each builds an example to
-  wasm and runs it headless. See **`docs/WASM_SMOKES.md`**.
-- **GPU render tests run on CI** (the `render` job): Mesa **lavapipe** (software Vulkan) renders
-  `tests/render.rs` headlessly on the GPU-less ubuntu runner, asserting renderer-tolerant invariants
-  (sprite/text/lighting/letterbox). `SKELETON_REQUIRE_GPU=1` = hard-fail on no adapter (else skips
-  cleanly; runs under `verify.sh` where a GPU exists). See **`docs/RENDER_TESTING.md`**.
+- **The gate has three blind spots** — the wasm step is **lib+bins, never examples** (build a
+  touched example explicitly: `cargo build --example <name> --target wasm32-unknown-unknown`);
+  **CI is ubuntu only**, so an OS-gated change needs a local build on that OS + a real check;
+  and **compiling for wasm is not running on wasm**. Details + the local render smokes (Chrome,
+  non-CI) and the lavapipe `render` job: **`docs/VERIFICATION.md`**,
+  `docs/WASM_SMOKES.md`, `docs/RENDER_TESTING.md`.
 
 ---
 
 ## Project direction (read `docs/VISION.md`)
 
-This engine is a **skeleton**: a hackable, MIT-licensed, genre-agnostic 2D engine meant
-to be forked and extended. Priorities — (1) open-source skeleton others can fork,
-(2) personal foundation for 2D games, (3) learning vehicle.
-
-When doing feature work, follow the core loop from `docs/VISION.md`:
+A hackable, MIT-licensed, genre-agnostic 2D engine meant to be forked and extended.
+Priorities — (1) open-source skeleton others can fork, (2) personal foundation for 2D
+games, (3) learning vehicle. Feature work follows the core loop from `docs/VISION.md`:
 
 - **A new feature is not done until a small, playable example game in `examples/`
   exercises it in real play.** The example is the acceptance test.
@@ -182,15 +169,14 @@ efficient-exploration order, and subagent-prompt principles → **`docs/AGENT_NO
 
 ## Documentation rules
 
-- **Language**: Write doc prose in **English** to minimize token cost (≈ ⅓ the tokens of
-  Korean). Code, file paths, identifier tables, and API names stay as written.
-- **Exceptions kept in Korean**: the beginner glossary (`docs/ENGINE_TERMS_FOR_BEGINNERS.md`)
-  and personal/gitignored one-off prompt or plan docs.
-- New `docs/HANDOFF.md` entries are written in English.
-- **Length**: keep `CLAUDE.md` / `AGENTS.md` ≤200 lines. Prefer concision, but **do not
-  drop needed content to hit the limit** — when trimming would risk losing information,
-  move the detail into a new `docs/*.md` (e.g. `docs/PATTERNS.md`, `docs/SUBSYSTEM.md`)
-  and leave a one-line reference here.
+- **Language**: doc prose (incl. new `docs/HANDOFF.md` entries) in **English** — ≈⅓ the tokens
+  of Korean; code, paths, identifier tables and API names stay as written. Korean is kept only
+  for the beginner glossary (`docs/ENGINE_TERMS_FOR_BEGINNERS.md`) and personal/gitignored
+  one-off prompt or plan docs.
+- **Length**: keep `CLAUDE.md` / `AGENTS.md` **≤200 lines**. Prefer concision, but **never drop
+  needed content to hit the limit** — move the detail into a `docs/*.md` and leave a one-line
+  pointer here (how `docs/PATTERNS.md`, `docs/AGENT_NOTES.md` and `docs/VERIFICATION.md` were
+  split out). The **module map is the growth driver** — extend an existing row before adding one.
 
 ---
 
@@ -200,6 +186,7 @@ efficient-exploration order, and subagent-prompt principles → **`docs/AGENT_NO
 |------|------|
 | `CLAUDE.md` (this file) | Agent quick reference — module map, task checklists |
 | `docs/PATTERNS.md` | Core architecture patterns + task recipes (extracted from this file) |
+| `docs/VERIFICATION.md` | Why behind the verify gate — its 6 exit-code traps and its 3 blind spots (extracted from this file) |
 | `docs/AGENT_NOTES.md` | Agent working heuristics — context-management split, exploration order, subagent-prompt principles (extracted from this file) |
 | `docs/MACOS_FFI.md` | How to add an objc2 Apple-framework binding (version-pin, discover the API from registry source, feature flags) — e.g. the macOS GameController gamepad backend |
 | `docs/RENDER_TESTING.md` | CI-verifying the GPU render path — `tests/render.rs` + the lavapipe `render` job |
