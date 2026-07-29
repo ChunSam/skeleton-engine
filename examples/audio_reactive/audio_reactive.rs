@@ -1,11 +1,18 @@
 //! Audio-reactive hooks — drive visuals from what the audio is actually doing.
 //!
 //! [`Audio::levels`](engine::Audio::levels) reports a named channel's live loudness as
-//! [`AudioLevels`](engine::AudioLevels) (`rms` = perceived loudness, `peak` = transient level).
-//! This example turns that into the three things games actually build with it: a **pulse** scaled
-//! by `rms`, a **kick flash** fired when `peak` crosses a threshold, and **meter bars** showing
-//! both. Everything is synthesized in memory, so there is no audio asset and native and web behave
-//! identically — the whole [`run`] function carries **zero `cfg` guards**.
+//! [`AudioLevels`](engine::AudioLevels) (`rms` = perceived loudness, `peak` = transient level), and
+//! [`Audio::bands`](engine::Audio::bands) reports its frequency spectrum. This example turns those
+//! into the four things games actually build with them: a **pulse** scaled by `rms`, a **kick
+//! flash** fired when `peak` crosses a threshold, **meter bars** showing both, and a **spectrum
+//! analyzer** along the bottom. Everything is synthesized in memory, so there is no audio asset and
+//! native and web behave identically — the whole [`run`] function carries **zero `cfg` guards**,
+//! even though the spectrum comes from a hand-written FFT on native and a Web Audio `AnalyserNode`
+//! in the browser.
+//!
+//! Watch the spectrum while the beat plays: the low kick lights bars on the left, the higher
+//! off-beat blip lights bars toward the middle. Band count is the caller's choice — this asks for
+//! 28 via the length of the slice it passes.
 //!
 //! Two keys exist to demonstrate the design decisions behind the API, and they are the point of
 //! the example:
@@ -95,6 +102,17 @@ const PEAK_BAR_Y: f32 = RMS_BAR_Y + BAR_GAP;
 const LABEL_DY: f32 = -19.0;
 const LABEL_SIZE: f32 = 13.0;
 
+// ── Spectrum layout ───────────────────────────────────────────────────────────
+/// How many bands to ask for. Nothing in the engine constrains this — `bands()` resamples the
+/// backend's internal resolution to whatever length you pass, so a HUD can ask for 8 and a
+/// visualizer for 64. 28 just fits the window nicely.
+const SPECTRUM_BARS: usize = 28;
+const SPEC_X: f32 = 24.0;
+const SPEC_BOTTOM: f32 = 452.0;
+const SPEC_HEIGHT: f32 = 66.0;
+const SPEC_BAR_W: f32 = 24.0;
+const SPEC_BAR_GAP: f32 = 4.0;
+
 /// The demo system: plays a beat on one analyzed channel and draws everything from its levels.
 struct AudioReactive {
     /// Auto-beat on/off.
@@ -113,6 +131,9 @@ struct AudioReactive {
     release_idx: usize,
     /// Highest `rms` seen, so a run leaves evidence it measured something.
     max_rms: f32,
+    /// Scratch the spectrum is read into each frame — `bands()` writes into a caller-owned slice,
+    /// so nothing allocates per frame.
+    spectrum: [f32; SPECTRUM_BARS],
 }
 
 impl Default for AudioReactive {
@@ -126,6 +147,7 @@ impl Default for AudioReactive {
             kicks: 0,
             release_idx: 1, // the default release
             max_rms: 0.0,
+            spectrum: [0.0; SPECTRUM_BARS],
         }
     }
 }
@@ -199,7 +221,8 @@ impl System for AudioReactive {
                     self.play_step(audio, step);
                 }
             }
-            // Read the meter. `AudioFacadeSystem` has already ticked `update` this frame.
+            // Read the meters. `AudioFacadeSystem` has already ticked `update` this frame.
+            audio.bands(BEAT_CHANNEL, &mut self.spectrum);
             audio.levels(BEAT_CHANNEL)
         };
 
@@ -269,6 +292,30 @@ impl System for AudioReactive {
                 BAR_H,
                 [1.0, 1.0, 1.0, 0.75],
             ));
+
+            // Spectrum: one bar per band, low frequency on the left. Bars grow upward, so each
+            // one's y is derived from its height rather than being a second magic number.
+            for (i, level) in self.spectrum.iter().enumerate() {
+                let x = SPEC_X + i as f32 * (SPEC_BAR_W + SPEC_BAR_GAP);
+                // Track, so an empty band still reads as "a band with nothing in it".
+                uq.push(DrawRect::new(
+                    x,
+                    SPEC_BOTTOM - SPEC_HEIGHT,
+                    SPEC_BAR_W,
+                    SPEC_HEIGHT,
+                    [0.14, 0.15, 0.19, 1.0],
+                ));
+                let h = (SPEC_HEIGHT * level.clamp(0.0, 1.0)).max(1.0);
+                // Hue shifts across the spectrum so low and high bands are distinguishable.
+                let t = i as f32 / (SPECTRUM_BARS.max(2) - 1) as f32;
+                uq.push(DrawRect::new(
+                    x,
+                    SPEC_BOTTOM - h,
+                    SPEC_BAR_W,
+                    h,
+                    [0.35 + t * 0.6, 0.85 - t * 0.35, 1.0 - t * 0.5, 1.0],
+                ));
+            }
         }
 
         if let Some(tq) = world.resource_mut::<TextQueue>() {
@@ -333,13 +380,15 @@ impl System for AudioReactive {
                     RELEASES[self.release_idx],
                     self.kicks,
                 ),
-                Vec2::new(x, 340.0),
+                Vec2::new(x, 336.0),
                 15.0,
                 VALUE,
             ));
             tq.push(DrawText::new(
-                "pulse = rms · top band = a peak transient · white tick = the kick threshold",
-                Vec2::new(x, 372.0),
+                format!(
+                    "pulse = rms · top band = a peak transient · white tick = kick threshold · {SPECTRUM_BARS} spectrum bars below (low → high)"
+                ),
+                Vec2::new(x, 360.0),
                 13.0,
                 LEGEND,
             ));
@@ -364,6 +413,8 @@ struct WebSelfCheck {
     frames: u32,
     max_rms: f32,
     done: bool,
+    /// Spectrum captured at the loudest moment seen so far.
+    bands: [f32; SPECTRUM_BARS],
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -386,10 +437,28 @@ impl System for WebSelfCheck {
         let rms = audio.levels(BEAT_CHANNEL).rms;
         if rms > self.max_rms {
             self.max_rms = rms;
+            audio.bands(BEAT_CHANNEL, &mut self.bands);
         }
         // A level well clear of zero means the analyser really is reading the playing tone.
         if self.max_rms > 0.02 {
-            stamp(&format!("AR_CHECK: PASS rms={:.3}", self.max_rms));
+            // Also confirm the browser's spectrum reached us and is low-biased for the 110 Hz
+            // kick — the same shape assertion the native self-test makes, so a wasm-only
+            // regression in the AnalyserNode fold cannot pass unnoticed.
+            let half = SPECTRUM_BARS / 2;
+            let low: f32 = self.bands[..half].iter().sum();
+            let high: f32 = self.bands[half..].iter().sum();
+            if low <= 0.0 && high <= 0.0 {
+                stamp("AR_CHECK: FAIL: levels moved but the spectrum was empty");
+            } else if low <= high {
+                stamp(&format!(
+                    "AR_CHECK: FAIL: spectrum not low-biased (low {low:.2} high {high:.2})"
+                ));
+            } else {
+                stamp(&format!(
+                    "AR_CHECK: PASS rms={:.3} bands low={low:.2} high={high:.2}",
+                    self.max_rms
+                ));
+            }
             self.done = true;
         } else if self.frames > 900 {
             stamp(&format!(
@@ -430,7 +499,9 @@ fn build_app() -> App {
     if let Some(mut audio) = Audio::new() {
         // Opt in BEFORE the first play on this channel — the meter is wired into the sound when it
         // starts, so enabling it mid-sound would not take effect until the next play.
-        audio.enable_analysis(BEAT_CHANNEL);
+        // `enable_spectrum` implies `enable_analysis`; a demo that only wanted the pulse would
+        // call the latter and skip the per-window FFT entirely.
+        audio.enable_spectrum(BEAT_CHANNEL);
         app.world.insert_resource(audio);
     }
     app.add_system(AudioFacadeSystem); // ticks the meters (and native fades/ducks)
@@ -462,7 +533,7 @@ fn main() {
 /// actually reproduces a game's frame cadence here.
 ///
 /// Exit codes: `0` = pass (or skipped, no device) · `1` = the meter never moved · `2` = it never
-/// decayed.
+/// decayed · `3` = the spectrum stayed empty · `4` = the spectrum put a low tone in a high band.
 #[cfg(not(target_arch = "wasm32"))]
 fn self_test() -> i32 {
     use std::time::{Duration, Instant};
@@ -472,7 +543,7 @@ fn self_test() -> i32 {
         println!("SKIP: no audio device available — nothing to measure");
         return 0;
     };
-    audio.enable_analysis(BEAT_CHANNEL);
+    audio.enable_spectrum(BEAT_CHANNEL);
     assert!(audio.is_analysis_enabled(BEAT_CHANNEL));
     assert!(
         audio.levels(BEAT_CHANNEL).is_silent(),
@@ -484,14 +555,27 @@ fn self_test() -> i32 {
 
     let tick = Duration::from_millis(16);
     let mut peak_seen: f32 = 0.0;
-    let rise_deadline = Instant::now() + Duration::from_millis(1500);
+    let mut bands = [0.0f32; SPECTRUM_BARS];
+    let mut loudest_band = usize::MAX;
+    // Sample across the whole tone and keep the LOUDEST moment's spectrum, rather than the first
+    // frame that crosses a threshold — that would catch the attack ramp, where every band is still
+    // climbing and the shape is not yet meaningful.
+    let rise_deadline = Instant::now() + Duration::from_millis(1200);
+    let mut scratch = [0.0f32; SPECTRUM_BARS];
     while Instant::now() < rise_deadline {
         std::thread::sleep(tick);
         audio.update(tick.as_secs_f32());
         let l = audio.levels(BEAT_CHANNEL);
-        peak_seen = peak_seen.max(l.rms);
-        if peak_seen > 0.05 {
-            break;
+        if l.rms > peak_seen {
+            peak_seen = l.rms;
+            audio.bands(BEAT_CHANNEL, &mut scratch);
+            bands = scratch;
+            loudest_band = bands
+                .iter()
+                .enumerate()
+                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                .map(|(i, _)| i)
+                .unwrap_or(usize::MAX);
         }
     }
     if peak_seen <= 0.05 {
@@ -499,6 +583,32 @@ fn self_test() -> i32 {
         return 1;
     }
     println!("OK: meter rose to rms {peak_seen:.3} while the tone played");
+
+    // The spectrum must not only be non-zero, it must put the energy in the right PLACE: the beat
+    // tone is 110 Hz, near the bottom of the audible range, so it belongs in a low band. A
+    // transform that ran but was scaled or mirrored wrong would still light up *some* band.
+    if loudest_band == usize::MAX || bands.iter().all(|b| *b <= 0.0) {
+        eprintln!("FAIL: levels moved but the spectrum stayed empty ({bands:?})");
+        return 3;
+    }
+    // Compare total energy in the low half against the high half rather than looking at a single
+    // argmax: at this transform size a 110 Hz tone saturates several of the lowest bands at once
+    // (each bin is ~43 Hz, so the bottom bands share bins), and which of the tied bands "wins" is
+    // an implementation detail. The half-vs-half ratio is not.
+    let half = SPECTRUM_BARS / 2;
+    let low: f32 = bands[..half].iter().sum();
+    let high: f32 = bands[half..].iter().sum();
+    if low <= high * 3.0 {
+        eprintln!(
+            "FAIL: a {KICK_HZ} Hz tone should put its energy in the LOW bands, but low={low:.2} \
+             high={high:.2} ({bands:?})"
+        );
+        return 4;
+    }
+    println!(
+        "OK: spectrum energy is low-biased as a {KICK_HZ} Hz tone requires \
+         (low {low:.2} vs high {high:.2}, peak band {loudest_band}/{SPECTRUM_BARS})"
+    );
 
     // Let the tone finish, then confirm the meter falls back to silence instead of freezing at its
     // last value — the failure mode a stopped channel would otherwise show as a stuck bar.

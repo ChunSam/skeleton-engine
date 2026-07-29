@@ -4,6 +4,25 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.137.0
+
+**The second half of the audio-reactive story: `Audio::bands` reports a channel's frequency spectrum, so a game can build an actual analyzer display and not just a pulse.** `bands(channel, &mut out)` writes `out.len()` log-spaced bands from low frequency to high, each `0.0..=1.0` — **the caller chooses the band count**, which is what keeps each platform's very different FFT out of the API. Purely additive; `levels()` and everything from 0.136.0 are untouched.
+
+The two backends are further apart here than anywhere else in the engine: wasm gets a transform for free from a Web Audio `AnalyserNode`, while native has none available at all — rodio does not analyze and no dependency in the tree provides an FFT. Rather than take on a DSP crate for one 1024-point transform, `src/audio/spectrum.rs` is a plain iterative radix-2 Cooley–Tukey implementation, in the same spirit as the hand-written SplitMix64 in `Rng` and the shadowcasting in `FovMap`. That is defensible because an FFT is one of the few pieces of DSP that can be checked *exactly* rather than by eyeball, and the tests do exactly that: energy lands in the bin matching a known sine, Parseval's theorem holds, DC lands in bin 0 alone.
+
+**Comparability across the two is engineered rather than hoped for.** `MIN_DB`/`MAX_DB` are pinned to Web Audio's own `AnalyserNode` defaults (−100/−30 dB) and set explicitly on the node, so a browser changing its defaults cannot silently desync the platforms; and both backends fold FFT bins into bands through one shared `log_band_range`, so "band 7" covers the same frequencies on both. Values are nonetheless **equivalent, not bit-identical**, and the docs say so — drive visuals with them, not equality checks.
+
+### Added
+- **`Audio::enable_spectrum` / `disable_spectrum` / `bands`**, mirrored on `AudioManager` (native) and `WebAudio` (wasm). Spectrum is a **separate opt-in** from `enable_analysis`: it costs an FFT per window on native, while a pulse or a kick flash only needs `levels`. A levels-only channel runs no transform at all.
+- **`src/audio/spectrum.rs`** — Hann window, in-place radix-2 FFT, and the log-spaced band fold. A non-power-of-two length is left untouched rather than transformed incorrectly, since a silently wrong spectrum is worse than none.
+- **`log_band_range`, `normalized_db`, `resample_bands`, `SPECTRUM_BANDS`, `MIN_DB`, `MAX_DB`** in the shared `src/audio_analysis.rs` — the band spacing and decibel window both backends agree on.
+- The `audio_reactive` example gains a 28-bar spectrum analyzer, and **both** its self-checks (native and the headless-Chrome one) now assert the spectrum's *shape* — low-half versus high-half energy for the 110 Hz kick — rather than merely that it is non-zero. That is deliberately tie-independent: at this transform size the tone saturates several of the lowest bands at once, so which one "wins" an argmax is an implementation detail.
+
+### Notes
+- Bands are spaced logarithmically and normalized over a decibel window because pitch and loudness are both perceived logarithmically; linear spacing or linear magnitude both produce a display that looks dead.
+- Frequency resolution is bounded by the transform: 1024 points at 44.1 kHz is ~43 Hz per bin, so the lowest log-spaced bands cover only a bin or two and **move together**. That is the physics of the transform, not a display artifact, and asking for more bands does not manufacture detail that is not there. Documented on `bands()`.
+- The native transform runs on the playback thread, over **mono-downmixed** frames. An FFT over raw interleaved stereo alternates left and right samples and does not describe the signal at all.
+
 ## 0.136.0
 
 **Audio-reactive hooks: a channel's live loudness is now readable from game code, on native and on the web, through one call.** `Audio::levels(channel)` returns `AudioLevels { rms, peak }` — the input a music visualizer, a beat-reactive spawn or a mouth flap needs, and something the engine previously exposed no way to obtain at all. The two backends could hardly be less alike (a rodio `Source` tap on the playback thread vs a Web Audio `AnalyserNode`), so the meter's smoothing policy lives in one un-gated module both call, the same trick `audio_spatial` uses to keep positional audio from drifting between builds. Purely additive: no existing type or signature changed, and a channel without analysis enabled builds exactly the audio graph it did before.
