@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Audio Reactive (Audio::levels) — skeleton-engine (wasm)</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0d0d0d;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      gap: 12px;
+      font-family: system-ui, sans-serif;
+      color: #888;
+    }
+    #game-canvas { display: block; border: 1px solid #333; background: #0d1220; }
+    #start {
+      padding: 8px 20px;
+      font: inherit;
+      color: #b0d0ff;
+      background: #1a2740;
+      border: 1px solid #3a557f;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    #start:hover { background: #223556; }
+    #start:disabled { opacity: 0.5; cursor: default; }
+    #status { font-size: 13px; max-width: 820px; text-align: center; line-height: 1.5; }
+    #status code { color: #b0d0ff; }
+  </style>
+</head>
+<body>
+  <canvas id="game-canvas" width="820" height="470" tabindex="0"></canvas>
+  <button id="start" disabled>Loading WASM…</button>
+  <p id="status">
+    The pulse and the meters are driven by <code>Audio::levels</code> &mdash; the same game code that runs
+    natively through a rodio <code>Source</code> tap, here reading a Web Audio <code>AnalyserNode</code>.
+    Press <strong>A</strong> for the auto beat, <strong>Space</strong> for one hit.
+    Press <strong>M</strong> to mute: the sound stops but <em>the pulse keeps going</em>, because levels are
+    measured <strong>pre-volume</strong>. Press <strong>S</strong> to cycle the meter release time.
+  </p>
+  <script type="module">
+    import init, { run_audio_reactive } from "./pkg/audio_reactive.js";
+    const startBtn = document.getElementById("start");
+    const status = document.getElementById("status");
+    try {
+      await init();
+      const start = () => {
+        startBtn.disabled = true;
+        startBtn.textContent = "Running";
+        run_audio_reactive();
+        // winit needs keyboard focus on the canvas to receive key presses.
+        document.getElementById("game-canvas").focus();
+      };
+      startBtn.textContent = "Start";
+      startBtn.disabled = false;
+      startBtn.addEventListener("click", start);
+      // A headless render smoke can load `?autostart=1` to render without a click; humans click Start.
+      if (new URLSearchParams(location.search).has("autostart")) start();
+    } catch (e) {
+      status.textContent = "Error: " + e;
+      console.error(e);
+    }
+  </script>
+</body>
+</html>

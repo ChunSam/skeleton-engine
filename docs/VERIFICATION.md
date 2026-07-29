@@ -119,6 +119,7 @@ are `rustup target add wasm32-unknown-unknown`, a matching `wasm-bindgen-cli`, a
 | `scripts/wasm_audio_smoke.sh` | the `web_audio` surface incl. buses/ducking/positional |
 | `scripts/centered_text_smoke.sh` | non-blank render at DPR=2 (EW-001 centering — eyeball it) |
 | `scripts/embedded_atlas_smoke.sh` | no image is served beside the page **and** the frame is non-blank |
+| `scripts/audio_reactive_smoke.sh` | `Audio::levels` reports a live non-zero level in a browser (the wasm `AnalyserNode` half shares almost no code with the native tap) |
 | `scripts/game_feel_web_smoke.sh`, `bloom_web_smoke.sh`, `hdr_web_smoke.sh`, `render_format_query_smoke.sh` | their example renders on the web |
 
 See **`docs/WASM_SMOKES.md`** for the full list and how to add one.

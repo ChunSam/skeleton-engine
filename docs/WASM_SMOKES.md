@@ -29,6 +29,14 @@ cargo install wasm-bindgen-cli --version <ver>   # MUST match the wasm-bindgen c
   virtual-time — audio state transitions race a virtual clock). Acoustic output is **not**
   auto-checked (no audio capture) — open the page to actually hear it. Run after touching
   `src/audio_wasm.rs`.
+- **Audio-reactive check — `./scripts/audio_reactive_smoke.sh`** builds the `audio_reactive`
+  example to wasm, runs it headless with `--autoplay-policy=no-user-gesture-required`, and asserts
+  that **`Audio::levels` reports a live non-zero level** for a playing tone (verdict
+  `AR_CHECK: PASS rms=<n>` read from the page title over the DevTools endpoint). This one matters
+  more than most: the wasm half of level analysis is a Web Audio `AnalyserNode` and shares almost
+  no code with the native rodio `Source` tap the unit tests cover, so a wasm *build* proves very
+  little about it. Run after touching level analysis in `src/audio_wasm.rs` or
+  `src/audio_analysis.rs`.
 - **Centered-text check — `./scripts/centered_text_smoke.sh`** builds the `centered_text` example
   to wasm, serves it (`?autostart=1`), renders one headless DPR=2 frame, and asserts a **non-blank
   frame** (no server/network — pure render), saving the screenshot to eyeball the **EW-001**

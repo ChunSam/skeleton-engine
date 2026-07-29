@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use rodio::{MixerDeviceSink, Player};
 
+mod analysis;
 mod bus;
 mod ducking;
 mod effects;
@@ -92,6 +93,11 @@ pub struct AudioManager {
     bus_ducks: HashMap<String, ducking::BusDuck>,
     /// Automatic sidechain rules (at most one per `ducked_bus`).
     sidechains: Vec<ducking::Sidechain>,
+    /// Channels being level-analyzed (see `enable_analysis`). Absent = no tap is inserted and the
+    /// source chain is unchanged, so analysis costs nothing until asked for.
+    analysis: HashMap<String, analysis::AnalysisChannel>,
+    /// Meter release time in seconds, shared by every analyzed channel.
+    analysis_smoothing: f32,
 }
 
 // ─── AudioSystem ──────────────────────────────────────────────────────────────

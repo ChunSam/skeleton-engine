@@ -75,9 +75,11 @@ use crate::audio_wasm::WebAudio;
 #[cfg(not(target_arch = "wasm32"))]
 const MASTER_BUS: &str = "master";
 
-/// Native: the single channel name the facade plays looping music on.
+/// Native: the single channel name the facade plays looping music on. Defined in
+/// [`audio_analysis`](crate::audio_analysis) because the wasm backend needs the same string as its
+/// music-analyser key — one definition, so the two backends cannot disagree.
 #[cfg(not(target_arch = "wasm32"))]
-const MUSIC_CHANNEL: &str = "__facade_music";
+use crate::audio_analysis::MUSIC_CHANNEL;
 
 /// Native: number of round-robin SFX voices. A fixed ring bounds the native sink count — a new
 /// one-shot reuses (and cuts) the oldest voice when the ring wraps, so fire-and-forget
@@ -422,20 +424,94 @@ impl Audio {
         }
     }
 
-    /// Advances time-based audio. On **native** this ticks fades and bus ducks
+    /// Advances time-based audio. On **native** this ticks fades, bus ducks and level meters
     /// (`AudioManager::update`) and **must** be called every
     /// frame for [`crossfade_music`](Self::crossfade_music)/[`duck_bus`](Self::duck_bus) to progress
     /// — add [`AudioFacadeSystem`] (or call this yourself). On **web** the Web Audio clock drives the
-    /// ramps, so this is a no-op.
+    /// ramps, so only the level meters need ticking here.
     pub fn update(&mut self, dt: f32) {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.inner.update(dt);
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            let _ = dt;
-        }
+        self.inner.update(dt);
+    }
+
+    // ── Level analysis (audio-reactive hooks) ─────────────────────────────────
+
+    /// The channel [`play_music`](Self::play_music) uses — pass it to
+    /// [`enable_analysis`](Self::enable_analysis) to meter the music track.
+    ///
+    /// ```rust,no_run
+    /// # use engine::Audio;
+    /// # let mut audio = Audio::new().unwrap();
+    /// audio.enable_analysis(Audio::MUSIC_CHANNEL);
+    /// ```
+    pub const MUSIC_CHANNEL: &'static str = crate::audio_analysis::MUSIC_CHANNEL;
+
+    /// Starts measuring `channel`'s loudness so [`levels`](Self::levels) reports it — the hook a
+    /// music visualizer, a beat-reactive effect or a talking-head mouth flap reads.
+    ///
+    /// **Enable during setup, before the first play on that channel.** The meter is wired into the
+    /// sound when it starts, and a sound already playing is not rewired (the same "applies on the
+    /// next play" rule as the native `set_effect`). Enabling an already-analyzed channel keeps its
+    /// current reading.
+    ///
+    /// Analysis is **opt-in and costs nothing until asked for**: an unanalyzed channel builds
+    /// exactly the audio graph it did before.
+    ///
+    /// # Which channels can be metered
+    ///
+    /// Any channel with a stable name: [`MUSIC_CHANNEL`](Self::MUSIC_CHANNEL), and the named
+    /// channels from [`play_tone_on_channel`](Self::play_tone_on_channel) /
+    /// [`play_at_on_channel`](Self::play_at_on_channel). **Not** [`play_sfx`](Self::play_sfx) —
+    /// on native it round-robins anonymous voices, so a one-shot has no name to address.
+    pub fn enable_analysis(&mut self, channel: &str) {
+        self.inner.enable_analysis(channel);
+    }
+
+    /// Stops measuring `channel`. [`levels`](Self::levels) reports
+    /// [`SILENT`](crate::AudioLevels::SILENT) immediately afterwards.
+    pub fn disable_analysis(&mut self, channel: &str) {
+        self.inner.disable_analysis(channel);
+    }
+
+    /// Returns whether `channel` is being analyzed.
+    pub fn is_analysis_enabled(&self, channel: &str) -> bool {
+        self.inner.is_analysis_enabled(channel)
+    }
+
+    /// Returns `channel`'s current smoothed loudness — see [`AudioLevels`](crate::AudioLevels) for
+    /// exactly what is measured (the **pre-volume** envelope, so a visual keeps reacting at
+    /// volume 0).
+    ///
+    /// Reports [`SILENT`](crate::AudioLevels::SILENT) for a channel that is not analyzed, never
+    /// played, or has stopped. Requires [`update`](Self::update) each frame, which
+    /// [`AudioFacadeSystem`] does.
+    ///
+    /// ```rust,no_run
+    /// # use engine::Audio;
+    /// # let mut audio = Audio::new().unwrap();
+    /// # let sprite_scale = &mut 1.0_f32;
+    /// let level = audio.levels(Audio::MUSIC_CHANNEL);
+    /// *sprite_scale = 1.0 + level.rms * 0.5;   // pulse with the music
+    /// if level.peak > 0.8 {
+    ///     // a transient just landed — shake, flash, spawn
+    /// }
+    /// ```
+    pub fn levels(&self, channel: &str) -> crate::AudioLevels {
+        self.inner.levels(channel)
+    }
+
+    /// Sets how long a meter takes to fall, in seconds (default
+    /// [`DEFAULT_ANALYSIS_SMOOTHING`](crate::DEFAULT_ANALYSIS_SMOOTHING)).
+    ///
+    /// A rise is always instant, so a transient is never delayed; this controls only the decay,
+    /// which is what keeps a meter from strobing. `0.0` disables smoothing. Applies to every
+    /// analyzed channel, on both backends.
+    pub fn set_analysis_smoothing(&mut self, release_secs: f32) {
+        self.inner.set_analysis_smoothing(release_secs);
+    }
+
+    /// Returns the meter release time in seconds.
+    pub fn analysis_smoothing(&self) -> f32 {
+        self.inner.analysis_smoothing()
     }
 }
 
