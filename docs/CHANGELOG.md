@@ -4,6 +4,24 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.139.0
+
+**Audio-reactive game feel adopted in `examples/games/survivor` — the first consumer of `levels()` that was not written by the API's designer, which is the point.** `audio_reactive` and `beat_crawler` both shipped in the same sessions that built the metering API, so neither could tell us whether the API survives contact with older code. `survivor` is older, denser, and already used the `Audio` facade. Its kill tone now rides a named, metered channel whose volume follows a decaying kill combo, and the *measured* envelope — not a second hardcoded constant — sets the `Camera::shake` amplitude and a player pulse. There is one intensity knob, so the sound and the picture cannot drift apart.
+
+The adoption is small (one example file), but it produced four findings that generalize, and a public-doc correction it exposed. **No public API change** — the only library edits are doc comments.
+
+### Changed
+- **`examples/games/survivor/survivor.rs`** — the kill tone moves from `play_tone_on_bus` to `play_tone_on_channel` on a named `"kill"` channel with `enable_analysis`; a new `AudioFeel` resource and `AudioFeelSystem` read `levels("kill").peak` each frame and drive `Camera::shake` (2.4–7.0 px measured) plus a player pulse (3.4–9.6 px measured). A HUD row reports the metered value and which feedback path is live. The rapid-fire bullet tone and the death tone are deliberately left on the anonymous ring.
+
+### Fixed
+- **`Audio::enable_analysis` documented only `play_sfx` as unmeterable**, but `play_sfx_on_bus`, `play_tone` and `play_tone_on_bus` all round-robin the *same* ring of 16 anonymous voices on native and are equally unmeterable. `play_tone_on_bus` did not mention the ring at all. Both docs now state it, and that moving a sound to a named channel is a trade-off rather than a free rename.
+
+### Notes for anyone building on it
+- **Meterability and overlap are mutually exclusive today.** Only a stable channel name can be metered, and a replay on a named channel *cuts* the sound already there, where the anonymous ring lets consecutive one-shots overlap. That is a per-sound decision, not a global one: `survivor` meters its kill tone and keeps its bullet tone (fired every 0.14 s) on the ring.
+- **Arm/re-arm does not survive a continuous stream.** Detecting an event by latching a rising edge and re-arming below a lower threshold — the `beat_crawler` kick detector — fired **once in 300 frames** here, because under a stream of kills the metered envelope never falls back below the re-arm threshold; the screen went still exactly when the action was hottest. A retrigger *cooldown* fired 25 times over the same run. Arm/re-arm is for discrete events separated by silence; a sustained level needs a cooldown.
+- **Metering only pays when the sound carries information the game does not already hold.** The first cut keyed the tone's volume to kills-*this-frame*. Measured, that was 1 kill in 40 of 40 kill frames — survivor fires one bullet per cooldown and a bullet kills at most one enemy — so the tone had exactly one amplitude (peak pinned at 0.230) and reading it back recovered a constant: a round-trip. Re-keyed to a decaying combo the same meter spans 0.23–0.60 (p50 0.33). The win comes from audio the game does **not** author, which is why `beat_crawler` meters a soundtrack no gameplay code can see.
+- **A meter-driven effect needs a watchdog**, the same conclusion `BEAT_WATCHDOG` reached independently — so it generalizes rather than being specific to a turn clock. With no audio device (headless, muted, web before the first gesture) the meter never moves and the feel would silently vanish; after 0.6 s of scored-but-unheard kills `survivor` drives the feel from the combo directly and says so in the HUD. Verified by disabling `enable_analysis` and confirming the fallback engages.
+
 ## 0.138.0
 
 **A second capstone game: `beat_crawler`, a dungeon crawler whose turn clock is the music itself.** Where `roguelike` composed two features (procgen + fog-of-war), this one exists to exercise the engine's recently grown surface *in real play* — the place `docs/VISION.md` expects API awkwardness to actually surface, and which single-purpose demos cannot reach.

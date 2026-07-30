@@ -190,6 +190,11 @@ impl Audio {
     /// [`set_bus_volume`](Self::set_bus_volume) / [`duck_bus`](Self::duck_bus) scale it as a group.
     /// On native a bus-routed tone is **not** affected by [`set_master_volume`](Self::set_master_volume)
     /// (see the [module docs](crate::audio_facade) — native buses don't nest); on web it is.
+    ///
+    /// Like [`play_tone`](Self::play_tone) this rides the shared round-robin voice ring, so
+    /// consecutive tones overlap — and so it **cannot be metered**
+    /// ([`enable_analysis`](Self::enable_analysis) needs a stable channel name; use
+    /// [`play_tone_on_channel`](Self::play_tone_on_channel) for that).
     pub fn play_tone_on_bus(&mut self, freq: f32, dur: f32, vol: f32, bus: &str) {
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -460,8 +465,16 @@ impl Audio {
     ///
     /// Any channel with a stable name: [`MUSIC_CHANNEL`](Self::MUSIC_CHANNEL), and the named
     /// channels from [`play_tone_on_channel`](Self::play_tone_on_channel) /
-    /// [`play_at_on_channel`](Self::play_at_on_channel). **Not** [`play_sfx`](Self::play_sfx) —
-    /// on native it round-robins anonymous voices, so a one-shot has no name to address.
+    /// [`play_at_on_channel`](Self::play_at_on_channel).
+    ///
+    /// **Not** the fire-and-forget one-shots — [`play_sfx`](Self::play_sfx),
+    /// [`play_sfx_on_bus`](Self::play_sfx_on_bus), [`play_tone`](Self::play_tone) and
+    /// [`play_tone_on_bus`](Self::play_tone_on_bus) *all* round-robin the same ring of 16 anonymous
+    /// voices on native, so none of them has a name to address. Moving a sound onto a named channel
+    /// to meter it is a real trade-off, not a free rename: a replay on a named channel **cuts** the
+    /// sound already there, where the anonymous ring lets consecutive one-shots overlap. Pick per
+    /// sound — `examples/games/survivor` meters its kill tone and deliberately leaves its
+    /// rapid-fire bullet tone on the ring.
     pub fn enable_analysis(&mut self, channel: &str) {
         self.inner.enable_analysis(channel);
     }
