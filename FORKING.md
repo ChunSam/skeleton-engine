@@ -21,7 +21,8 @@ engine code directly under `src/`, and grow it into your own engine. There is no
 |------|------|
 | `src/` | the engine itself — edit it freely; this is the point |
 | `src/lib.rs` | the public API re-export list (the fastest map of what exists) |
-| `CLAUDE.md` | module map: "where do I find X?" table for every subsystem |
+| `docs/MODULE_MAP.md` | module map: "where do I find X?" table for every subsystem (grep it) |
+| `CLAUDE.md` | agent quick reference: conventions, the verify gate, task checklists |
 | `examples/*.rs` | small single-file examples (auto-discovered by cargo) |
 | `examples/games/<name>/` | full example games (registered via `[[example]]` in `Cargo.toml`) |
 | `examples/assets/` | shared example assets (PNGs, etc.) |
@@ -122,7 +123,8 @@ Run it as-is; a non-zero exit means something is broken. After WASM-affecting ch
 ## Where to read more
 
 - **`src/lib.rs`** — the public surface, at a glance.
-- **`CLAUDE.md`** — the "where is X?" module map.
+- **`docs/MODULE_MAP.md`** — the "where is X?" module map (72 rows; grep it rather than reading it whole).
+- **`CLAUDE.md`** — project conventions and the verify gate.
 - **`docs/VISION.md`** — why the engine exists and how features get accepted (every feature
   is validated by a small playable example).
 - **`docs/PATTERNS.md`** — architecture patterns and task recipes.
