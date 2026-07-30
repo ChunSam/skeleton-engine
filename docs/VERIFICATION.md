@@ -40,6 +40,29 @@ A `run_in_background` call of `./scripts/verify.sh > log 2>&1; echo $? > exit` r
 trailing `echo`'s status (always 0) in its completion summary. **Read the `.exit` file**,
 never the notification's "exit code 0".
 
+This is the most-repeated trap in the project's history: it fired **twice on 2026-07-29**
+(the notification said `0` while the file held `1`, then `101`) and **again on 2026-07-30**
+(said `0`, file held `1` — a `cargo fmt` reflow). Writing it down has not been enough, so
+here is the whole procedure as one copy-paste block. It closes Traps 4 **and** 5 together:
+
+```bash
+# 1. remove first, or an `until [ -f … ]` waiter matches a file from days ago (Trap 5)
+rm -f /tmp/v.exit /tmp/v.log
+# 2. run non-piped; write the gate's OWN status to the file
+(./scripts/verify.sh > /tmp/v.log 2>&1; echo $? > /tmp/v.exit) &
+# 3. wait for the file, then read it — NOT the completion notification (Trap 4)
+until [ -f /tmp/v.exit ]; do sleep 20; done
+echo "EXIT=$(cat /tmp/v.exit)"; ls -l /tmp/v.exit; date '+now %H:%M:%S'   # mtime must be fresh
+# 4. corroborate: the counts should match the tree you expect
+echo "ok groups: $(grep -c 'test result: ok' /tmp/v.log)"
+grep -E 'running [0-9]+ tests' /tmp/v.log | head -1
+```
+
+**Corroborate, don't just trust the number.** A green run should report roughly the expected
+`ok`-group and lib-test counts for the tree (152 groups / 1339 lib tests at v0.138.0; adding
+an example target adds a group, adding a test adds a test). A count that moved when your
+change should not have moved it is worth a look even when the exit code is `0`.
+
 ### Trap 5 — a stale `.exit` file from a previous session
 
 An `until [ -f /tmp/verify.exit ]; do …; done` waiter matches a **leftover file from days
