@@ -4,6 +4,23 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.138.0
+
+**A second capstone game: `beat_crawler`, a dungeon crawler whose turn clock is the music itself.** Where `roguelike` composed two features (procgen + fog-of-war), this one exists to exercise the engine's recently grown surface *in real play* — the place `docs/VISION.md` expects API awkwardness to actually surface, and which single-purpose demos cannot reach.
+
+**The composition is structural, not decorative.** The soundtrack plays a repeating 16-step pattern of 110 Hz **kicks** and 880 Hz **blips**; only the kicks are turns, and the game finds them by summing the low bands of `Audio::bands()`. An amplitude meter could not do this — the blips are just as loud, and each would fire a phantom turn — so the rhythm is discriminated by *frequency*, which is precisely the capability `bands()` added in 0.137.0 and which `levels()` does not have. The pattern constant is read only by the audio scheduler: no gameplay code sees it, so editing the groove changes the game's turn structure because the game learns the rhythm by listening.
+
+Around that: `generate_bsp_dungeon` on odd depths and `generate_cellular_cave` on even (both produce a `DungeonMap`, so swapping generator is one line), a per-depth `Rng` seed, `FovMap` fog-of-war that also gates the AI so an unseen monster does not act, `find_path` enemy pathing on the beat, and `HitFlash` / `FloatingText` / `Camera::shake` / `ProgressBar` for feedback.
+
+### Added
+- **`examples/games/beat_crawler/`** (`cargo run --example beat_crawler_game`) — descend, move on the beat, bump monsters to attack, find the stair. Pressing in time with the beat doubles damage. `BEAT_CRAWLER_SELFTEST=1` runs a headless acceptance test; `ENGINE_CAPTURE` photographs it with no window.
+
+### Notes for anyone building on it
+- **Enemy and stair placement is BFS distance from the spawn, not the room list.** `generate_cellular_cave` records only a single 1×1 room, so room-based placement silently degenerates on even depths. Putting the stair at the farthest reachable cell also makes every level solvable by construction, for either generator.
+- **A `bands()`-driven clock needs a watchdog.** Turns are keyed to wall-clock audio, so anything that silences output — a muted OS, a busy device, an `AudioContext` that never unlocks on the web — would otherwise leave the dungeon frozen with no explanation. After 1.2 s of scheduled-but-unheard kicks the game falls back to the schedule and says so in the HUD. This is a real robustness requirement of audio-driven gameplay, not a test affordance.
+- **`HitFlash` owns `Sprite.color` while it runs.** The per-frame fog repaint therefore skips any entity currently carrying one; a game that also drove the color every frame would fight it.
+- The game calls `register_persistent::<Audio>()` (precedent: `settings_menu`), since the `World` reset on the first scene enter would otherwise drop the audio device and with it the turn clock. `WindowConfig` no longer needs this as of 0.137.1.
+
 ## 0.137.1
 
 **Fixes a bug that had been routed around twice instead of fixed: `WindowConfig` did not survive a scene change.** `App::set_scene` resets the `World`, and every resource that is not registered persistent goes with it — including `WindowConfig`, which a game inserts once during setup and never again. It was therefore silently replaced by `WindowConfig::default()` on the **first** scene enter, so any `Scene`-based game lost its `clear_color` (which is read per frame) and `save_screenshot_headless` / `ENGINE_CAPTURE` captured at the default 1280x720 rather than the game's own window size. 20 of the shipped examples set both `WindowConfig` and a scene, and were all affected.
