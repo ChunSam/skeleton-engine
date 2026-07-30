@@ -254,6 +254,13 @@ signature, the facade forwards with a bare `self.inner.x(...)` and needs **no `c
 v0.136.0 added seven facade methods with zero `cfg` lines and *deleted* an existing pair. Agree on
 the name before writing either implementation; a naming mismatch breeds `cfg` in the facade.
 
+**Footnote — reaching for a new `web_sys` type costs a `Cargo.toml` edit.** `web-sys` gates every
+DOM type behind its own feature, so a first use of one fails with `E0425: cannot find type`
+until it is added to the `web-sys` `features` list. Easy to forget because it comes up so
+rarely — `git log -S'web-sys' -- Cargo.toml` shows only **two** such edits in the project's
+history (the latest added `"AnalyserNode"` for the spectrum). The wasm **lib** build in the gate
+does catch it, so this costs a cycle rather than shipping a bug.
+
 ### Real-time (audio-thread) producers
 
 Code inside a rodio `Source::next()` runs on the **playback thread**, not the game thread.
