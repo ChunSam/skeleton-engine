@@ -277,6 +277,55 @@ Code inside a rodio `Source::next()` runs on the **playback thread**, not the ga
    so silence decays on its own and needs no counter. Record the asymmetry, or the next person
    either adds a redundant counter on wasm or deletes the necessary one on native.
 
+### Surviving a scene reset (resource persistence)
+
+`App::set_scene` / `SceneCmd::Replace` **rebuild the `World` from scratch** (`App::reload_scene`).
+Every resource is dropped and re-created from engine defaults unless its type was registered with
+`App::register_persistent::<T>()`. Component data on entities goes too — that is the point of a
+scene swap — but *resources* are where this surprises people, because a resource is usually
+**set-up state a game inserts once before `run()` and never thinks about again**.
+
+**The failure mode is silence, not a crash.** A dropped resource is replaced by the engine default
+(or simply absent), so the game keeps running with the wrong value. `WindowConfig` did this for a
+long time: every `Scene`-based game lost its `clear_color` and every headless capture came out at
+the default 1280×720 (fixed in v0.137.1 — see the CHANGELOG).
+
+**Registered automatically by the engine** (a game never does these):
+
+| Type | Why |
+|---|---|
+| `WindowConfig` | set-up config, inserted once before `run()` (v0.137.1) |
+| `SceneTransition` | must outlive the *mid-transition* swap or the reveal half never renders |
+| `TextMeasurer` | lazily built after a one-time system-font scan; re-paying it per scene is waste |
+| `InputScript` | a scripted run must not be cancelled by a scene change |
+| the 7 RON registries | `DataTable` / `AnimationClip` / `ParticleConfig` / `Dialogue` / `TriggerZone` / `ZoneEffect` / `AnimEffect` |
+
+(`DebugUi` is also carried across, by hand inside `reload_scene` rather than through the registry.)
+
+**Everything a game inserts itself is the game's responsibility**, and the one that bites is
+**`Audio`**: lose it and the device handle goes with it, so music stops and any audio-driven logic
+stops with it — silently. Register it at setup:
+
+```rust
+app.register_persistent::<Audio>();   // precedent: examples/games/settings_menu
+```
+
+`examples/games/beat_crawler` needs this for a sharper reason than most: its **turn clock** is
+`Audio::bands()`, so dropping the resource would not merely mute the game — it would stop the
+world from taking turns at all.
+
+> **Known rough edge, deliberately not fixed (2026-07-30).** "Forget one line and audio silently
+> dies" is the same class of footgun `WindowConfig` was. It was left game-side because `Audio` is
+> inserted *by the game*, not the engine, and auto-persisting everything a game happens to insert
+> would empty the mechanism of meaning. **Revisit if any of these fire:** a third game hits it, a
+> bug report traces to it, or another engine-inserted config type turns out to be dropped the way
+> `WindowConfig` was. The fix, if it comes, is one line in `App::new` plus a regression test — the
+> same shape as v0.137.1.
+
+**When adding a resource, ask which kind it is:** *scene state* (dies with the scene — correct) or
+*session state* (config, device handles, caches, cross-scene progress — must be registered). If it
+is session state, register it in the same commit that introduces it.
+
 ---
 
 ## Common task patterns
