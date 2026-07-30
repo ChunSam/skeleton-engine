@@ -295,6 +295,15 @@ impl App {
         // measurement. Registering the type is free when the resource never exists.
         app.register_persistent::<crate::text_measure::TextMeasurer>();
 
+        // `WindowConfig` is set-up configuration, not scene state: a game inserts it once before
+        // `run()` and never again. Without this it was wiped by the `World` reset on the FIRST
+        // scene enter and silently replaced by `WindowConfig::default()`, so any `Scene`-based
+        // game lost its `clear_color` (read per frame) and `save_screenshot_headless` /
+        // `ENGINE_CAPTURE` captured at the default 1280x720 instead of the game's own size.
+        // The engine had already routed around this twice rather than fixing it — see the
+        // `WASM_LOGICAL_SIZE` comment above and `schedule.rs`'s "unlike WindowConfig".
+        app.register_persistent::<crate::resources::WindowConfig>();
+
         app
     }
 
@@ -386,6 +395,38 @@ mod tests {
         fn name(&self) -> &'static str {
             "panic"
         }
+    }
+
+    /// A game inserts `WindowConfig` once before `run()`; the `World` reset on the first scene
+    /// enter must not replace it with the default. Regression: it used to, so every `Scene`-based
+    /// game lost its `clear_color` and headless capture used 1280x720 instead of the game's size.
+    #[test]
+    fn window_config_survives_a_scene_reset() {
+        let mut app = App::new();
+        app.world.insert_resource(WindowConfig {
+            title: "beat crawler".to_string(),
+            width: 864,
+            height: 648,
+            clear_color: [0.03, 0.03, 0.05, 1.0],
+        });
+
+        app.reload_scene();
+
+        let cfg = app
+            .world
+            .resource::<WindowConfig>()
+            .expect("WindowConfig must exist after a scene reset");
+        assert_eq!(
+            (cfg.width, cfg.height),
+            (864, 648),
+            "scene reset reverted WindowConfig to its default size"
+        );
+        assert_eq!(cfg.title, "beat crawler");
+        assert_eq!(
+            cfg.clear_color,
+            [0.03, 0.03, 0.05, 1.0],
+            "scene reset reverted the game's clear color"
+        );
     }
 
     fn app_with_counter() -> App {

@@ -4,6 +4,16 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.137.1
+
+**Fixes a bug that had been routed around twice instead of fixed: `WindowConfig` did not survive a scene change.** `App::set_scene` resets the `World`, and every resource that is not registered persistent goes with it — including `WindowConfig`, which a game inserts once during setup and never again. It was therefore silently replaced by `WindowConfig::default()` on the **first** scene enter, so any `Scene`-based game lost its `clear_color` (which is read per frame) and `save_screenshot_headless` / `ENGINE_CAPTURE` captured at the default 1280x720 rather than the game's own window size. 20 of the shipped examples set both `WindowConfig` and a scene, and were all affected.
+
+The engine already knew: `src/app.rs` grew a wasm `WASM_LOGICAL_SIZE` thread-local explicitly "because a scene transition (`World` reset) can revert `WindowConfig` to its default", and `schedule.rs` notes the canvas size is "stable across scene resets, unlike `WindowConfig`". Both are workarounds for this; the cause is now fixed instead.
+
+### Fixed
+- **`WindowConfig` is auto-registered persistent in `App::new`**, so it survives the `World` reset on a scene change — the same treatment `TextMeasurer` already had. A game that deliberately varies `WindowConfig` per scene now keeps its change instead of having it reverted, which is the expected behavior in both directions. No API change; the wasm workarounds are left in place as they are still correct.
+- Regression test `app::tests::window_config_survives_a_scene_reset` asserts size, title and clear color all survive `reload_scene` (it fails on the previous behavior).
+
 ## 0.137.0
 
 **The second half of the audio-reactive story: `Audio::bands` reports a channel's frequency spectrum, so a game can build an actual analyzer display and not just a pulse.** `bands(channel, &mut out)` writes `out.len()` log-spaced bands from low frequency to high, each `0.0..=1.0` — **the caller chooses the band count**, which is what keeps each platform's very different FFT out of the API. Purely additive; `levels()` and everything from 0.136.0 are untouched.
