@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.6.238 | package `skeleton-engine` v0.138.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
+> Version v1.6.239 | package `skeleton-engine` v0.138.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example ships to the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > **Where is X? → `docs/MODULE_MAP.md`** (grep it) | Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`  
 > **Versioning: pre-1.0 (0.x)** — MINOR = any release (incl. breaking), PATCH = bugfix; 1.0.0 later. (Reset from 10.7.0, 2026-06-17, pre-publish — see CHANGELOG 0.11.0.)
@@ -87,7 +87,12 @@ Detailed in **`docs/PATTERNS.md`**:
   (`StateMachineSystem` after `AnimationSystem`), `PhysicsWorld` encapsulation accessors,
   **shared policy for cfg-split backends** (a value both derive lives in ONE un-gated module —
   duplicated policy compiles and silently diverges), **real-time audio-thread producers**
-  (no lock/alloc in `Source::next`; a stoppable producer needs a liveness counter or it freezes).
+  (no lock/alloc in `Source::next`; a stoppable producer needs a liveness counter or it freezes),
+  **surviving a scene reset** (a scene swap rebuilds the `World`; a resource not registered via
+  `register_persistent` is silently replaced by the engine default — `WindowConfig`/`SceneTransition`/
+  `TextMeasurer`/`InputScript`/the 7 RON registries are automatic, **but `Audio` and anything else a
+  game inserts is the game's job**; lose `Audio` and the device dies quietly. Includes the standing
+  decision to leave that game-side and what would reopen it).
 - **Task recipes** — adding a component / system / resource / event, and scene transitions.
 
 ---
