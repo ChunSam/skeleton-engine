@@ -14,6 +14,35 @@
 //! target-gated best-effort audio. New: 8-way *aimed* fire (twin-stick), seeker
 //! enemies, the GPU thruster, and the perf HUD.
 //!
+//! **Audio-reactive game feel** (`Audio::enable_analysis` / `levels`): the kill tone's *measured*
+//! envelope — not a second hardcoded constant — sets the camera-shake amplitude and the player's
+//! pulse. The tone's volume rides a decaying kill **combo**, so chaining kills makes the feedback
+//! louder *and* punchier together, and the two cannot drift apart because there is only one knob.
+//! Four things this cost, all worth knowing before copying the pattern:
+//!
+//! - **Only a *named* channel can be metered.** `play_sfx`, `play_sfx_on_bus`, `play_tone` and
+//!   `play_tone_on_bus` all round-robin 16 anonymous voices, so they have no stable name to
+//!   address — the kill tone had to move to `play_tone_on_channel`. The trade-off is real: a
+//!   replay on a named channel *cuts* the previous tone, where the anonymous ring lets
+//!   consecutive one-shots overlap. Meterability and overlap are mutually exclusive today.
+//! - **A meter-driven effect needs a watchdog.** With no audio device (headless, muted, or web
+//!   before the first gesture) the meter never moves and the game would silently lose all of its
+//!   punch. After `FEEL_WATCHDOG` seconds of scored-but-unheard kills it falls back to driving the
+//!   feel from the combo directly and says so in the HUD — the same lesson `beat_crawler`'s beat
+//!   clock learned, which evidently generalizes.
+//! - **Arm/re-arm does not survive a continuous stream.** Detecting a kill by latching a rising
+//!   edge and re-arming below a lower threshold — the `beat_crawler` kick detector — fired **once
+//!   in 300 frames** here, because under a stream of kills the metered envelope never falls back
+//!   below the re-arm threshold, so the screen went still exactly when the action was hottest.
+//!   A retrigger *cooldown* (`SHAKE_SECS`) fires 25 times over the same run. Arm/re-arm is for
+//!   discrete events separated by silence; a sustained level needs a cooldown.
+//! - **Metering only pays if the sound carries information the game does not already have.** The
+//!   first cut keyed the tone to kills-*this-frame*; measured, that was 1 in 40 of 40 kill frames,
+//!   so the tone had a single amplitude and reading it back recovered a constant. Keyed to the
+//!   combo the same meter spans 0.23–0.60 (p50 0.33). If a game authors its audio straight from
+//!   state it already holds, metering is a round-trip — the win comes from audio the game does
+//!   *not* author, which is why `beat_crawler` meters a soundtrack no gameplay code can see.
+//!
 //! Controls: WASD/move · Arrow keys aim **and** fire (hold) · R restart · Esc quit.
 //! Perf-debug keys: `G` toggles invulnerability and `B` spawns +50 enemies, so the
 //! ~100-200 enemy perf target (and the HUD `frame_ms`/`steer` readouts) can be
@@ -66,6 +95,56 @@ const MAX_ENEMIES: usize = 600;
 /// Brief spawn-grace invulnerability after (re)start so an enemy spawning on the
 /// player doesn't instantly end a single-life run.
 const START_GRACE: f32 = 1.0;
+
+// ─── Audio-reactive feedback tuning ───────────────────────────────────────────
+//
+// The kill tone is the single source of truth for "how big was that": its volume rides a decaying
+// kill combo, and the shake + pulse are read back off its *metered* envelope. See the module docs
+// for the four constraints this ran into (named-channel-only metering, the watchdog, the
+// cooldown-not-arm/re-arm retrigger, and the round-trip that made a per-frame kill count useless
+// to meter).
+
+/// The kill tone rides a **named** channel, because only a named channel can be metered —
+/// `play_tone_on_bus` round-robins anonymous voices and has no stable name to address.
+const KILL_CHANNEL: &str = "kill";
+/// Kill-tone amplitude: base + a bonus per *combo* kill, clamped. The ONE knob — raising it raises
+/// the shake and the pulse with it, since both are read back off this tone's measured envelope.
+///
+/// It is keyed to a decaying combo rather than to "kills in this frame" for a measured reason:
+/// survivor fires one bullet every `FIRE_COOLDOWN` and a bullet kills at most one enemy, so
+/// kills-per-frame is **1 in every observed case** (40/40 kill frames over a 400-frame run). Keyed
+/// that way the tone had exactly one amplitude, 0.230, and metering it recovered a constant — a
+/// round-trip that told the game nothing it did not already know. A combo actually varies.
+const KILL_VOL_BASE: f32 = 0.16;
+const KILL_VOL_PER_KILL: f32 = 0.07;
+const KILL_VOL_MAX: f32 = 0.60;
+/// Kills leak out of the combo at this rate per second, so the tone tracks how hot the action is
+/// now rather than the lifetime total.
+const COMBO_DECAY: f32 = 1.8;
+/// Floor under the mapped drive so a lone kill still registers. Measured: without it a single kill
+/// maps to ~0.16 of the range, moving the camera ~1 px — which reads as nothing at all.
+const DRIVE_FLOOR: f32 = 0.35;
+/// Thresholds on the metered peak: `ON` is loud enough to be worth a shake, `OFF` is "the meter is
+/// effectively idle" (it gates the pulse and feeds the watchdog). They are deliberately apart
+/// because the meter decays over the engine's smoothing release rather than snapping to zero.
+const KILL_PEAK_ON: f32 = 0.10;
+const KILL_PEAK_OFF: f32 = 0.05;
+/// Camera-shake amplitude (px) at a full-scale metered kill, and how long it runs. The observed
+/// drive range puts real shakes at **2.4–7.0 px**.
+const SHAKE_MAX_PX: f32 = 7.0;
+const SHAKE_SECS: f32 = 0.16;
+/// Player pulse as a fraction of its base size, driven continuously off the same meter. Sized from
+/// measurement, not theory: at 0.10 a lone kill moved the 32 px sprite by one pixel and read as
+/// nothing. At 0.30 the observed drive range (0.35–1.00) spans **3.4–9.6 px**.
+const PULSE_MAX: f32 = 0.30;
+/// Kills scored with a meter that never moves for this long ⇒ nothing is audible (no device,
+/// muted, or web before the first gesture). Fall back to driving the feel from the combo so the
+/// game does not silently lose all its punch.
+const FEEL_WATCHDOG: f32 = 0.6;
+
+/// Top HUD row. Every other HUD row is an offset from this rather than an independent magic
+/// number — `beat_crawler` shipped a capture with two rows drawn on top of each other that way.
+const HUD_TOP: f32 = 8.0;
 
 // Collision layers — disjoint bits so `query_aabb(mask)` filters cleanly.
 const LAYER_PLAYER: u32 = 1 << 0;
@@ -207,6 +286,41 @@ struct Survivor {
     god: bool,
 }
 
+/// Audio-reactive feedback state. The kill tone's **measured** envelope drives the camera shake
+/// and the player pulse, so the sound and the picture cannot drift apart — there is no second
+/// constant to keep in sync with the tone's volume.
+struct AudioFeel {
+    /// Last metered peak of [`KILL_CHANNEL`], already smoothed by the engine.
+    peak: f32,
+    /// Kills scored this frame — set by `CollisionSystem`, consumed by `AudioFeelSystem`.
+    pending_kills: u32,
+    /// Decaying kill combo. This is what gives the kill tone a dynamic range worth metering.
+    combo: f32,
+    /// Seconds since the last shake was triggered — a retrigger cooldown, *not* a rising-edge
+    /// latch. Measured why: under a kill stream the metered envelope never falls back below the
+    /// re-arm threshold, so an arm/re-arm latch fired **once in 300 frames** and the screen went
+    /// still exactly when the action was hottest. Arm/re-arm is right for *discrete* events
+    /// separated by silence (`beat_crawler`'s kicks); a continuous stream needs a cooldown.
+    since_shake: f32,
+    /// Whether the meter is actually reporting. Cleared for good by the watchdog.
+    metered: bool,
+    /// Time accumulated since a kill was scored without the meter responding.
+    unheard: f32,
+}
+
+impl Default for AudioFeel {
+    fn default() -> Self {
+        Self {
+            peak: 0.0,
+            pending_kills: 0,
+            combo: 0.0,
+            since_shake: 0.0,
+            metered: true,
+            unheard: 0.0,
+        }
+    }
+}
+
 // ─── Entry point ───────────────────────────────────────────────────────────────
 
 fn main() {
@@ -230,9 +344,14 @@ fn main() {
     // on web too. Tones route through the "sfx" bus (see `play_tone`); set its group volume here.
     if let Some(mut audio) = Audio::new() {
         audio.set_bus_volume("sfx", 0.6);
+        // Meter the kill channel so its envelope can drive the shake + pulse. This MUST happen
+        // before the first play on that channel — the meter is wired in when the sound starts and
+        // a sound already playing is never rewired.
+        audio.enable_analysis(KILL_CHANNEL);
         app.world.insert_resource(audio);
     }
     app.add_system(AudioFacadeSystem); // ticks native fades/ducks; no-op on web
+    app.world.insert_resource(AudioFeel::default());
 
     // Player ship at arena center.
     let player = app.world.spawn();
@@ -302,9 +421,10 @@ fn main() {
     });
 
     // System order: rebuild grid → input/move/fire → bullets → spawn → aim seek →
-    // engine steering (enemies move) → thruster sync → collisions → particles →
-    // HUD. `SeekSystem` must precede the engine `SteeringSystem`; `CollisionSystem`
-    // reads the grid built first this frame.
+    // engine steering (enemies move) → thruster sync → collisions → audio feel →
+    // particles → HUD. `SeekSystem` must precede the engine `SteeringSystem`;
+    // `CollisionSystem` reads the grid built first this frame; `AudioFeelSystem`
+    // follows it so a kill's tone is already playing when its meter is read.
     app.add_system(CollisionGridSystem::new(64.0));
     app.add_system(PlayerSystem);
     app.add_system(BulletSystem);
@@ -313,6 +433,7 @@ fn main() {
     app.add_system(SteeringSystem::default());
     app.add_system(ThrusterSystem);
     app.add_system(CollisionSystem);
+    app.add_system(AudioFeelSystem);
     app.add_system(ParticleSystem);
     app.add_system(HudSystem);
 
@@ -817,7 +938,19 @@ impl System for CollisionSystem {
             if let Some(s) = world.resource_mut::<Survivor>() {
                 s.kills += score_gain;
             }
-            play_tone(world, 150.0, 0.14, 0.28);
+            // Bank the kills into the combo first, then let the combo set the tone's amplitude:
+            // punchier the faster you are chaining kills. This is the only intensity knob in the
+            // frame — `AudioFeelSystem` reads this tone's metered envelope back out and drives the
+            // shake and pulse from it, so the picture follows the sound by construction.
+            let combo = if let Some(feel) = world.resource_mut::<AudioFeel>() {
+                feel.pending_kills += score_gain;
+                feel.combo += score_gain as f32;
+                feel.combo
+            } else {
+                score_gain as f32
+            };
+            let vol = (KILL_VOL_BASE + KILL_VOL_PER_KILL * combo).min(KILL_VOL_MAX);
+            play_tone_named(world, KILL_CHANNEL, 150.0, 0.14, vol);
         }
 
         // Apply enemy→player contact: single life — explode and end the run.
@@ -866,6 +999,94 @@ fn spawn_explosion(world: &mut World, pos: Vec2, color: impl Into<Color>) {
     world.add_component(e, ParticleBurst { remaining: 16 });
 }
 
+/// Maps a kill-tone amplitude — metered, or predicted by the silent fallback — onto the 0..1 feel
+/// drive. The span is the tone's *real* amplitude range rather than 0..1, because the tone is never
+/// quieter than [`KILL_VOL_BASE`]; the floor keeps a lone kill perceptible.
+fn drive_from_amplitude(amp: f32) -> f32 {
+    let t = ((amp - KILL_VOL_BASE) / (KILL_VOL_MAX - KILL_VOL_BASE)).clamp(0.0, 1.0);
+    DRIVE_FLOOR + (1.0 - DRIVE_FLOOR) * t
+}
+
+/// Turns the kill channel's meter into game feel: a shake on each kill *event*, plus a continuous
+/// pulse on the player. Ordered after `CollisionSystem` (which scores the kills and plays the tone)
+/// and after `AudioFacadeSystem`, which samples the meters for the frame.
+struct AudioFeelSystem;
+impl System for AudioFeelSystem {
+    fn run(&mut self, world: &mut World, dt: f32) {
+        let peak = world
+            .resource::<Audio>()
+            .map(|a| a.levels(KILL_CHANNEL).peak)
+            .unwrap_or(0.0);
+
+        let Some(feel) = world.resource_mut::<AudioFeel>() else {
+            return;
+        };
+        feel.peak = peak;
+        let kills = std::mem::take(&mut feel.pending_kills);
+        feel.combo = (feel.combo - COMBO_DECAY * dt).max(0.0);
+
+        // Watchdog: kills keep landing but the meter stays flat ⇒ nothing is audible.
+        if feel.metered {
+            if peak > KILL_PEAK_OFF {
+                feel.unheard = 0.0;
+            } else if kills > 0 || feel.unheard > 0.0 {
+                feel.unheard += dt;
+                if feel.unheard > FEEL_WATCHDOG {
+                    feel.metered = false;
+                }
+            }
+        }
+
+        // One shake per kill event. The metered path arms/re-arms on the envelope so the smoothing
+        // tail can't re-fire it; the fallback fires straight off the kill count, using the same
+        // curve the tone's volume would have taken.
+        feel.since_shake += dt;
+        let ready = feel.since_shake >= SHAKE_SECS;
+        let (fire, drive) = if feel.metered {
+            if ready && peak >= KILL_PEAK_ON {
+                (true, drive_from_amplitude(peak))
+            } else {
+                (false, 0.0)
+            }
+        } else if kills > 0 && ready {
+            // Silent fallback: predict the amplitude the tone would have had and map it the same
+            // way, so the feel is continuous across the watchdog flipping.
+            let vol = (KILL_VOL_BASE + KILL_VOL_PER_KILL * feel.combo).min(KILL_VOL_MAX);
+            (true, drive_from_amplitude(vol))
+        } else {
+            (false, 0.0)
+        };
+        if fire {
+            feel.since_shake = 0.0;
+        }
+        // Gate the pulse on the meter actually reading something — `drive_from_amplitude` floors at
+        // `DRIVE_FLOOR`, so an ungated silent frame would leave the player permanently inflated.
+        let pulse = if feel.metered && peak > KILL_PEAK_OFF {
+            drive_from_amplitude(peak)
+        } else {
+            0.0
+        };
+
+        if fire {
+            if let Some(cam) = world.resource_mut::<Camera>() {
+                cam.shake(SHAKE_MAX_PX * drive, SHAKE_SECS);
+            }
+        }
+        // Always rebuild the pulse from the constant base size, so repeated frames cannot
+        // accumulate a drifting scale.
+        let player = world.resource::<Survivor>().map(|s| s.player);
+        if let Some(player) = player {
+            if let Some(t) = world.get_mut::<Transform>(player) {
+                t.scale = Vec2::splat(PLAYER_HALF * 2.0 * (1.0 + PULSE_MAX * pulse));
+            }
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "AudioFeelSystem"
+    }
+}
+
 struct HudSystem;
 impl System for HudSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
@@ -893,15 +1114,45 @@ impl System for HudSystem {
             })
             .unwrap_or((0.0, 0.0));
 
+        // Which feedback path is live, and what the meter reads — so a capture can tell an
+        // audio-driven shake from the silent fallback instead of guessing.
+        let feel = world
+            .resource::<AudioFeel>()
+            .map(|f| (f.peak, f.metered, f.combo))
+            .unwrap_or((0.0, false, 0.0));
+
         if let Some(tq) = world.resource_mut::<TextQueue>() {
             let god_tag = if god { "   [GOD]" } else { "" };
             tq.push(DrawText::new(
                 format!(
                     "Time {elapsed:5.1}s   Kills {kills}   Enemies {enemies}   frame {frame_ms:4.1}ms   steer {steer_ms:4.2}ms{god_tag}"
                 ),
-                Vec2::new(10.0, 8.0),
+                Vec2::new(10.0, HUD_TOP),
                 20.0,
                 [235, 245, 255, 240],
+            ));
+            let (feel_line, feel_color) = if feel.1 {
+                (
+                    format!(
+                        "combo {:4.1}   kill meter {:4.2}  → shake/pulse (audio-driven)",
+                        feel.2, feel.0
+                    ),
+                    [150, 220, 255, 210],
+                )
+            } else {
+                (
+                    format!(
+                        "combo {:4.1}   kill meter  --   → shake from combo (nothing audible)",
+                        feel.2
+                    ),
+                    [230, 190, 130, 210],
+                )
+            };
+            tq.push(DrawText::new(
+                feel_line,
+                Vec2::new(10.0, HUD_TOP + 22.0),
+                16.0,
+                feel_color,
             ));
             tq.push(DrawText::new(
                 "Move: WASD   Aim/Fire: Arrows (hold)   R: restart   Esc: quit",
@@ -965,6 +1216,15 @@ fn restart_game(world: &mut World) {
         s.fire_timer.reset();
         s.spawn_timer = Timer::repeating(spawn_interval(0.0));
     }
+    // Reset the feedback latch, but keep `metered`: a device that was silent last run is still
+    // silent, and re-arming the watchdog would just replay the same 0.6 s of wrong feel.
+    if let Some(feel) = world.resource_mut::<AudioFeel>() {
+        let metered = feel.metered;
+        *feel = AudioFeel {
+            metered,
+            ..AudioFeel::default()
+        };
+    }
 
     // Pool sanity: every pooled bullet was returned, never leaked.
     if let Some(pool) = world.resource::<Pool>() {
@@ -979,5 +1239,21 @@ fn restart_game(world: &mut World) {
 fn play_tone(world: &mut World, freq: f32, dur: f32, vol: f32) {
     if let Some(audio) = world.resource_mut::<Audio>() {
         audio.play_tone_on_bus(freq, dur, vol, "sfx");
+    }
+}
+
+/// Like [`play_tone`], but on a caller-named channel — which is the whole reason it exists, because
+/// **only a named channel can be metered**. `play_sfx` / `play_sfx_on_bus` / `play_tone` /
+/// `play_tone_on_bus` all round-robin 16 anonymous voices, so there is no stable name for
+/// `Audio::enable_analysis` to address.
+///
+/// The trade-off is real and worth knowing before copying this: a replay on a named channel
+/// **cuts** the sound already on it, where the anonymous ring lets consecutive one-shots overlap.
+/// The kill tone can afford that (it fires at most once per frame and re-triggering it with a
+/// fresh amplitude is exactly the intent); the bullet tone, fired every 0.14 s, cannot — which is
+/// why it stays on `play_tone`.
+fn play_tone_named(world: &mut World, channel: &str, freq: f32, dur: f32, vol: f32) {
+    if let Some(audio) = world.resource_mut::<Audio>() {
+        audio.play_tone_on_channel(channel, freq, dur, vol, "sfx");
     }
 }
