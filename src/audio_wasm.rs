@@ -756,6 +756,24 @@ impl WebAudio {
         self.play_sfx_to(bytes, &dest)
     }
 
+    /// Plays `bytes` as a **metered one-shot** routed through the named mixer `bus`: it overlaps
+    /// consecutive plays and every voice publishes into the shared meter named `meter`. The clip
+    /// counterpart of [`play_tone_metered`](Self::play_tone_metered).
+    ///
+    /// Like the tone path, the web backend needs no voice pool — [`play_sfx_to`](Self::play_sfx_to)
+    /// already builds a fresh per-source gain node per call, so clips never cut each other; the
+    /// only missing piece was routing each one into `meter`'s analyser. Connecting several sources
+    /// to one `AnalyserNode` makes Web Audio **mix** them, which is the same "sum of the sounding
+    /// voices" contract the native backend computes by hand (see `sum_levels` in `audio_analysis`).
+    ///
+    /// The [`Sfx`] handle is deliberately dropped: a metered one-shot is fire-and-forget by
+    /// definition, and keeping the handle would imply a per-sound control the native ring cannot
+    /// offer. Use [`play_sfx_on_bus`](Self::play_sfx_on_bus) when you want the handle.
+    pub fn play_sfx_metered(&self, meter: &str, bytes: &[u8], bus: &str) {
+        let dest = self.bus_input(bus).unwrap_or_else(|| self.master.clone());
+        let _ = self.play_sfx_to_opts(bytes, &dest, false, Some(meter));
+    }
+
     /// Plays `bytes` as a **positional** one-shot SFX at `source` in 2D space, heard from
     /// `listener`, and returns the [`Sfx`] handle. Volume falls off linearly with distance (silent
     /// at `max_dist`) and stereo pan follows the x-offset — the wasm analogue of the native
@@ -805,13 +823,19 @@ impl WebAudio {
     /// before the clip decodes; if node creation/wiring fails, the bare source routes straight to
     /// `dest` (no per-source control) so playback still happens.
     fn play_sfx_to(&self, bytes: &[u8], dest: &web_sys::GainNode) -> Sfx {
-        self.play_sfx_to_opts(bytes, dest, false)
+        self.play_sfx_to_opts(bytes, dest, false, None)
     }
 
     /// [`play_sfx_to`](Self::play_sfx_to) with a `repeat` flag — when `true`, the buffer source
     /// loops (`set_loop(true)`), used by the tracked positional channels
     /// ([`play_at_on_channel`](Self::play_at_on_channel)) which sustain while their position updates.
-    fn play_sfx_to_opts(&self, bytes: &[u8], dest: &web_sys::GainNode, repeat: bool) -> Sfx {
+    fn play_sfx_to_opts(
+        &self,
+        bytes: &[u8],
+        dest: &web_sys::GainNode,
+        repeat: bool,
+        meter: Option<&str>,
+    ) -> Sfx {
         let (gain, panner) = match (self.ctx.create_gain(), self.ctx.create_stereo_panner()) {
             (Ok(g), Ok(p)) => {
                 let wired = p.connect_with_audio_node(&g).is_ok()
@@ -824,6 +848,14 @@ impl WebAudio {
             }
             _ => (None, None),
         };
+        // Metered one-shot: also feed this voice's per-source gain into the meter's analyser —
+        // after the sound's own gain, before `dest`, exactly where the tone path taps. Every live
+        // voice connects to the same analyser and the browser mixes them, which IS the sum
+        // contract `sum_levels` states for both backends. Nothing to tap in the degraded path
+        // where node creation failed, the same way that path also loses per-source control.
+        if let (Some(meter), Some(gain)) = (meter, gain.as_ref()) {
+            self.tap(meter, gain);
+        }
         let sfx = Sfx {
             gain,
             panner,
@@ -891,7 +923,7 @@ impl WebAudio {
             prev.stop();
         }
         let dest = self.bus_input(bus).unwrap_or_else(|| self.master.clone());
-        let sfx = self.play_sfx_to_opts(bytes, &dest, true);
+        let sfx = self.play_sfx_to_opts(bytes, &dest, true, None);
         sfx.update_position(source, listener, max_dist);
         self.spatial_channels
             .borrow_mut()

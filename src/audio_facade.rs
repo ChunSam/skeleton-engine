@@ -283,6 +283,51 @@ impl Audio {
         }
     }
 
+    /// Plays clip `bytes` as a one-shot that **overlaps** consecutive plays *and* is metered:
+    /// `levels(meter)` reports it. Routed through the named mixer `bus`. The clip counterpart of
+    /// [`play_tone_metered`](Self::play_tone_metered), with the same semantics and the same limits.
+    ///
+    /// [`play_sfx`](Self::play_sfx) / [`play_sfx_on_bus`](Self::play_sfx_on_bus) already overlap —
+    /// they round-robin a ring of anonymous voices on native — but that ring has no name for
+    /// [`enable_analysis`](Self::enable_analysis) to address. Moving a clip onto a named channel to
+    /// meter it costs the overlap, because a replay there **cuts** what the channel was already
+    /// playing. This gives both:
+    ///
+    /// ```rust,no_run
+    /// # use engine::Audio;
+    /// # let mut audio = Audio::new().unwrap();
+    /// # let clip: &[u8] = &[];
+    /// audio.enable_analysis("impact");
+    /// audio.play_sfx_metered("impact", clip, "sfx");   // ×3 in one frame …
+    /// audio.play_sfx_metered("impact", clip, "sfx");   // … none of them cutting
+    /// audio.play_sfx_metered("impact", clip, "sfx");   // … and all three metered
+    /// ```
+    ///
+    /// # What `levels` reports
+    ///
+    /// The **sum** of the voices currently sounding, clamped to full scale — identical to
+    /// [`play_tone_metered`](Self::play_tone_metered), and stated once for both backends in
+    /// `sum_levels`. ⚠️ **Any constant normalised against a single voice's maximum is wrong here**,
+    /// and it shows up as a feel regression rather than an error — see the note on
+    /// [`play_tone_metered`](Self::play_tone_metered).
+    ///
+    /// # Limits worth knowing
+    ///
+    /// Exactly those of [`play_tone_metered`](Self::play_tone_metered): `meter` is a meter name and
+    /// not a channel (so [`stop_channel`](Self::stop_channel) / [`set_low_pass`](Self::set_low_pass)
+    /// / [`is_channel_playing`](Self::is_channel_playing) do not address it), eight voices per name
+    /// before the ring wraps and reuses its oldest, and [`bands`](Self::bands) reports zeros.
+    pub fn play_sfx_metered(&mut self, meter: &str, bytes: &[u8], bus: &str) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.inner.play_sfx_poly(meter, bytes, bus);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.inner.play_sfx_metered(meter, bytes, bus);
+        }
+    }
+
     /// Whether the named tone `channel` still has audio playing — re-arm a sustained
     /// [`play_tone_on_channel`](Self::play_tone_on_channel) when this turns `false`. Mirrors the
     /// native [`AudioManager::is_playing`](crate::audio::AudioManager::is_playing) / a tracked Web
@@ -515,20 +560,20 @@ impl Audio {
     /// Any channel with a stable name: [`MUSIC_CHANNEL`](Self::MUSIC_CHANNEL), and the named
     /// channels from [`play_tone_on_channel`](Self::play_tone_on_channel) /
     /// [`play_at_on_channel`](Self::play_at_on_channel) — plus the meter name of a metered one-shot
-    /// ([`play_tone_metered`](Self::play_tone_metered)).
+    /// ([`play_tone_metered`](Self::play_tone_metered) / [`play_sfx_metered`](Self::play_sfx_metered)).
     ///
     /// **Not** the fire-and-forget one-shots — [`play_sfx`](Self::play_sfx),
     /// [`play_sfx_on_bus`](Self::play_sfx_on_bus), [`play_tone`](Self::play_tone) and
     /// [`play_tone_on_bus`](Self::play_tone_on_bus) *all* round-robin the same ring of 16 anonymous
     /// voices on native, so none of them has a name to address.
     ///
-    /// Moving a *tone* onto a named channel to meter it used to be a real trade-off rather than a
+    /// Moving a one-shot onto a named channel to meter it used to be a real trade-off rather than a
     /// free rename — a replay on a named channel **cuts** the sound already there, where the
-    /// anonymous ring lets consecutive one-shots overlap.
-    /// [`play_tone_metered`](Self::play_tone_metered) removes that choice: it overlaps *and* is
-    /// metered. Reach for it when a sound repeats faster than it decays; a named channel is still
-    /// the right answer when you also need to stop, filter or query the sound. Clips
-    /// ([`play_sfx`](Self::play_sfx)) still face the original trade-off.
+    /// anonymous ring lets consecutive one-shots overlap. The metered one-shots remove that choice:
+    /// they overlap *and* are metered, [`play_tone_metered`](Self::play_tone_metered) for tones and
+    /// [`play_sfx_metered`](Self::play_sfx_metered) for clips. Reach for them when a sound repeats
+    /// faster than it decays; a named channel is still the right answer when you also need to stop,
+    /// filter or query the sound.
     pub fn enable_analysis(&mut self, channel: &str) {
         self.inner.enable_analysis(channel);
     }
@@ -562,6 +607,16 @@ impl Audio {
     ///     // a transient just landed — shake, flash, spawn
     /// }
     /// ```
+    ///
+    /// # ⚠️ A headless capture cannot photograph a meter
+    ///
+    /// `ENGINE_CAPTURE` advances the game with a **fixed `1/60` dt as fast as the CPU allows**,
+    /// while the audio thread publishes in real time (about every 21 ms). Game time therefore runs
+    /// far ahead of the sound: the smoothing release drains within a few milliseconds of wall clock
+    /// and the captured frame almost always reads `0.0` even though the sound is playing correctly.
+    /// This is the same reason `examples/games/beat_crawler` shows "schedule (nothing heard)" in a
+    /// capture. **Verify metering in real time** — a windowed run, or a headless loop paced off
+    /// `Instant` — never from a captured PNG.
     pub fn levels(&self, channel: &str) -> crate::AudioLevels {
         self.inner.levels(channel)
     }
