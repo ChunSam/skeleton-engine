@@ -568,6 +568,47 @@ mod tests {
     }
 
     #[test]
+    fn a_tap_outside_repeat_keeps_publishing_on_every_pass() {
+        // Regression for a looping sound's meter going dead after one pass. `repeat_infinite`
+        // buffers its input and replays that buffer, so a tap wrapped INSIDE it is polled exactly
+        // once: `play_music` metered its first pass and then read silence over an audible,
+        // still-looping track. `append_decoded` therefore repeats first and taps second. This is
+        // source composition, not playback, so it needs no device.
+        let one_window: Vec<f32> = vec![1.0; ANALYSIS_WINDOW as usize];
+        let passes = 3u64;
+        let pull = |src: &mut dyn Iterator<Item = f32>| {
+            for _ in 0..ANALYSIS_WINDOW as u64 * passes {
+                src.next().expect("a repeating source never ends");
+            }
+        };
+
+        // The shipped order: repeat first, so the tap is on the outside.
+        let outside = Arc::new(LevelSlot::default());
+        let buffer = SamplesBuffer::new(TEST_CHANNELS, TEST_RATE, one_window.clone());
+        pull(&mut LevelTap::new(
+            buffer.repeat_infinite(),
+            Arc::clone(&outside),
+        ));
+        assert_eq!(
+            outside.read().2,
+            passes,
+            "a tap outside repeat must publish once per pass"
+        );
+
+        // The order that shipped before the fix, kept as the contrast that gives the assertion
+        // above its meaning — and as a tripwire if rodio ever stops buffering `Repeat`.
+        let inside = Arc::new(LevelSlot::default());
+        let buffer = SamplesBuffer::new(TEST_CHANNELS, TEST_RATE, one_window);
+        pull(&mut LevelTap::new(buffer, Arc::clone(&inside)).repeat_infinite());
+        assert_eq!(
+            inside.read().2,
+            1,
+            "tapping inside repeat is expected to publish only the first pass — if this now \
+             publishes more, rodio's Repeat no longer buffers and append_decoded's comment is stale"
+        );
+    }
+
+    #[test]
     fn a_full_scale_square_wave_measures_rms_and_peak_of_one() {
         // Every sample is ±1.0, so RMS == peak == 1.0 exactly. Device-free: this is the
         // measurement math, not playback.

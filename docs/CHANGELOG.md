@@ -4,6 +4,22 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.141.2
+
+**Metering a looping sound went dead after its first pass.** `levels()` and `bands()` reported a live signal for one play-through of a looped source and then flat zeros forever — while the sound kept playing, audibly, with `is_channel_playing` still `true`. This hit `play_music` (whose whole point is that `Audio::MUSIC_CHANNEL` is meterable) and `play_at_on_channel`. Any game driving visuals or logic off a looping track saw the effect run for a few seconds and then quietly stop.
+
+The cause is a composition order. `repeat_infinite()` wraps its input in rodio's `Buffered` and **clones that buffer for every pass after the first**, so anything inside it is polled exactly once no matter how long the sound loops. The analysis tap was inside. `append_decoded` now repeats first and taps second, which puts the tap outside the buffer where it sees every pass — and still before pan and sink volume, so the pre-volume semantics documented on `AudioLevels` are unchanged.
+
+Found by giving `examples/games/beat_crawler` a real looping soundtrack instead of scheduled tones: the meter was live for one 2.56 s bar and then read `0.0000` for the rest of the run.
+
+### Fixed
+- **`AudioManager::append_decoded` applies `repeat_infinite` before the level tap, not after.** Metering a looped sound now works for its entire lifetime.
+- **A fade-in on a looping sound no longer repeats on every pass.** Same root cause — `fade_in` was also baked into the buffer, so `crossfade_music` re-faded the track in at the top of every loop instead of once. Pan and fade now both sit outside the repeat.
+
+### Notes
+- Regression test `a_tap_outside_repeat_keeps_publishing_on_every_pass` (`src/audio/analysis.rs`) is device-free: it composes the same source chain and asserts the tap publishes once per pass, plus the contrast case (tapping inside repeat publishes only the first pass) as a tripwire if rodio ever stops buffering `Repeat`.
+- **CI cannot catch this class of bug.** Verified on a real device: before the fix the meter read `0.0000` from 2.6 s onward across an 8 s run; after it, `rms` 0.08–0.38 sustained through every pass.
+
 ## 0.141.1
 
 **`Audio` now survives a scene reset without the game asking.** `App::new` registers it as persistent, so inserting the resource is enough — the two examples that were hand-rolling `register_persistent::<Audio>()` (`settings_menu`, `beat_crawler`) no longer do. This closes a decision that had been deferred rather than taken, and whose stated reopen trigger fired in 0.139.1.
