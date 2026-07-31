@@ -20,11 +20,17 @@
 //! louder *and* punchier together, and the two cannot drift apart because there is only one knob.
 //! Four things this cost, all worth knowing before copying the pattern:
 //!
-//! - **Only a *named* channel can be metered.** `play_sfx`, `play_sfx_on_bus`, `play_tone` and
-//!   `play_tone_on_bus` all round-robin 16 anonymous voices, so they have no stable name to
-//!   address — the kill tone had to move to `play_tone_on_channel`. The trade-off is real: a
-//!   replay on a named channel *cuts* the previous tone, where the anonymous ring lets
-//!   consecutive one-shots overlap. Meterability and overlap are mutually exclusive today.
+//! - **Metering a one-shot used to cost overlap — this game is what proved it, and what got it
+//!   fixed.** `play_sfx`, `play_sfx_on_bus`, `play_tone` and `play_tone_on_bus` round-robin
+//!   anonymous voices with no stable name for `enable_analysis` to address, so the kill tone first
+//!   moved to `play_tone_on_channel` — which opens with a `stop_immediate`. Measured on a real
+//!   device, **22 of 25 replays cut a tone that was still sounding**. Engine v0.140.0 added
+//!   `Audio::play_tone_metered`, which overlaps *and* meters, and the kill tone now uses it:
+//!   the measured peak went from **pinned at 0.6000** (the single-voice ceiling, 0 frames above it
+//!   in 301) to **1.0000 with 61 frames above 0.60**, because `levels()` sums the sounding voices.
+//!   That change of range is not free: `drive_from_amplitude` had to be re-based on the *summed*
+//!   ceiling (`KILL_PEAK_FULL`), or a fifth of the run would sit at full shake. Adopting a
+//!   polyphonic meter means re-checking anything that normalises against a single voice's maximum.
 //! - **A meter-driven effect needs a watchdog.** With no audio device (headless, muted, or web
 //!   before the first gesture) the meter never moves and the game would silently lose all of its
 //!   punch. After `FEEL_WATCHDOG` seconds of scored-but-unheard kills it falls back to driving the
@@ -104,9 +110,23 @@ const START_GRACE: f32 = 1.0;
 // cooldown-not-arm/re-arm retrigger, and the round-trip that made a per-frame kill count useless
 // to meter).
 
-/// The kill tone rides a **named** channel, because only a named channel can be metered —
-/// `play_tone_on_bus` round-robins anonymous voices and has no stable name to address.
-const KILL_CHANNEL: &str = "kill";
+/// The kill tone's **meter name** (engine v0.140.0's `Audio::play_tone_metered`).
+///
+/// Not a channel: it names the meter, and the engine rotates a private ring of voices behind it.
+/// That is what lets the tone be measured *and* still ring out when two kills land close together.
+/// It used to be a real `play_tone_on_channel` channel, which cut the previous tone on every
+/// replay — measured at **22 of 25 replays** cutting a still-sounding tone in a 300-frame run.
+const KILL_METER: &str = "kill";
+/// Top of the *metered* range, which is **not** `KILL_VOL_MAX`.
+///
+/// `KILL_VOL_MAX` is one voice's ceiling. Since the kill tone became a metered one-shot the meter
+/// reports the **sum** of the voices sounding at once, so a burst reads past that ceiling — the
+/// engine clamps the sum at full scale, which is why this is 1.0. Mapping the drive against
+/// `KILL_VOL_MAX` instead would peg it at maximum on every overlap: measured on a 300-frame run,
+/// 61 of 301 frames read above 0.60, so a fifth of the run would have been stuck at full shake.
+/// Keying to the summed ceiling keeps a single kill in the middle of the range and reserves the top
+/// for several kills landing together — which is the thing worth seeing.
+const KILL_PEAK_FULL: f32 = 1.0;
 /// Kill-tone amplitude: base + a bonus per *combo* kill, clamped. The ONE knob — raising it raises
 /// the shake and the pulse with it, since both are read back off this tone's measured envelope.
 ///
@@ -290,7 +310,7 @@ struct Survivor {
 /// and the player pulse, so the sound and the picture cannot drift apart — there is no second
 /// constant to keep in sync with the tone's volume.
 struct AudioFeel {
-    /// Last metered peak of [`KILL_CHANNEL`], already smoothed by the engine.
+    /// Last metered peak of [`KILL_METER`], already smoothed by the engine.
     peak: f32,
     /// Kills scored this frame — set by `CollisionSystem`, consumed by `AudioFeelSystem`.
     pending_kills: u32,
@@ -347,7 +367,7 @@ fn main() {
         // Meter the kill channel so its envelope can drive the shake + pulse. This MUST happen
         // before the first play on that channel — the meter is wired in when the sound starts and
         // a sound already playing is never rewired.
-        audio.enable_analysis(KILL_CHANNEL);
+        audio.enable_analysis(KILL_METER);
         app.world.insert_resource(audio);
     }
     app.add_system(AudioFacadeSystem); // ticks native fades/ducks; no-op on web
@@ -950,7 +970,7 @@ impl System for CollisionSystem {
                 score_gain as f32
             };
             let vol = (KILL_VOL_BASE + KILL_VOL_PER_KILL * combo).min(KILL_VOL_MAX);
-            play_tone_named(world, KILL_CHANNEL, 150.0, 0.14, vol);
+            play_metered_tone(world, KILL_METER, 150.0, 0.14, vol);
         }
 
         // Apply enemy→player contact: single life — explode and end the run.
@@ -1003,7 +1023,7 @@ fn spawn_explosion(world: &mut World, pos: Vec2, color: impl Into<Color>) {
 /// drive. The span is the tone's *real* amplitude range rather than 0..1, because the tone is never
 /// quieter than [`KILL_VOL_BASE`]; the floor keeps a lone kill perceptible.
 fn drive_from_amplitude(amp: f32) -> f32 {
-    let t = ((amp - KILL_VOL_BASE) / (KILL_VOL_MAX - KILL_VOL_BASE)).clamp(0.0, 1.0);
+    let t = ((amp - KILL_VOL_BASE) / (KILL_PEAK_FULL - KILL_VOL_BASE)).clamp(0.0, 1.0);
     DRIVE_FLOOR + (1.0 - DRIVE_FLOOR) * t
 }
 
@@ -1015,7 +1035,7 @@ impl System for AudioFeelSystem {
     fn run(&mut self, world: &mut World, dt: f32) {
         let peak = world
             .resource::<Audio>()
-            .map(|a| a.levels(KILL_CHANNEL).peak)
+            .map(|a| a.levels(KILL_METER).peak)
             .unwrap_or(0.0);
 
         let Some(feel) = world.resource_mut::<AudioFeel>() else {
@@ -1242,18 +1262,19 @@ fn play_tone(world: &mut World, freq: f32, dur: f32, vol: f32) {
     }
 }
 
-/// Like [`play_tone`], but on a caller-named channel — which is the whole reason it exists, because
-/// **only a named channel can be metered**. `play_sfx` / `play_sfx_on_bus` / `play_tone` /
-/// `play_tone_on_bus` all round-robin 16 anonymous voices, so there is no stable name for
-/// `Audio::enable_analysis` to address.
+/// Like [`play_tone`], but metered: `Audio::levels(meter)` reports it, and unlike a named channel
+/// it does **not** cut its own previous play.
 ///
-/// The trade-off is real and worth knowing before copying this: a replay on a named channel
-/// **cuts** the sound already on it, where the anonymous ring lets consecutive one-shots overlap.
-/// The kill tone can afford that (it fires at most once per frame and re-triggering it with a
-/// fresh amplitude is exactly the intent); the bullet tone, fired every 0.14 s, cannot — which is
-/// why it stays on `play_tone`.
-fn play_tone_named(world: &mut World, channel: &str, freq: f32, dur: f32, vol: f32) {
+/// This is the whole reason `play_tone_metered` exists. `play_sfx` / `play_sfx_on_bus` /
+/// `play_tone` / `play_tone_on_bus` round-robin anonymous voices with no stable name for
+/// `enable_analysis` to address, while `play_tone_on_channel` has a name but opens with a
+/// `stop_immediate`. This game is what proved that mattered: with the tone on a named channel,
+/// **22 of 25** replays in a 300-frame run cut a tone that was still sounding.
+///
+/// While two kills overlap, `levels(meter).peak` reports their **sum** — so a burst reads louder
+/// than a single kill, which is exactly the signal the shake and pulse want.
+fn play_metered_tone(world: &mut World, meter: &str, freq: f32, dur: f32, vol: f32) {
     if let Some(audio) = world.resource_mut::<Audio>() {
-        audio.play_tone_on_channel(channel, freq, dur, vol, "sfx");
+        audio.play_tone_metered(meter, freq, dur, vol, "sfx");
     }
 }

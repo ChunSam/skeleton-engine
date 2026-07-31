@@ -4,6 +4,25 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.141.0
+
+**`examples/games/survivor` adopts `play_tone_metered`, which retires the workaround it was the reason for.** This is 0.140.0's acceptance test in the `docs/VISION.md` sense — the feature is not done until an example exercises it in real play — and it closes a loop that opened two releases ago: the game hit the constraint, the constraint became an API, the game now uses the API.
+
+It also corrected a claim this example was itself making.
+
+### Changed
+- **The kill tone moves from `play_tone_on_channel` to `play_tone_metered`.** `KILL_CHANNEL` becomes `KILL_METER`, because it no longer names a channel.
+- **`drive_from_amplitude` is re-based on the summed ceiling (`KILL_PEAK_FULL`), not `KILL_VOL_MAX`.** Required, not cosmetic — see below.
+
+### Measured on a real device (300-frame headless run, scripted input)
+- **22 of 25 kill-tone replays were cutting a tone that was still sounding.** The previous release reasoned that the kill tone "can afford" a named channel because it fires at most once per frame. Measured, it could not: kills land close enough together that a named-channel replay silenced the previous one 88% of the time.
+- **The metered peak went from 0.6000 to 1.0000.** Before, every reading was pinned at or under the single-voice ceiling (0 frames above 0.60 in 301). After, 61 frames read above it, because `levels()` sums the sounding voices. That *is* the new API working, visible end-to-end on a real device rather than inferred from unit tests.
+- **Which then broke the tuning, and had to be fixed.** `drive_from_amplitude` normalised against `KILL_VOL_MAX = 0.60` — one voice's ceiling — so with sums arriving, 61 of 197 sounding frames (31%) saturated the drive and sat at full shake. Re-basing on the summed ceiling brought that to 12 of 197 (6%), which puts a single kill mid-range and reserves the top for several kills landing together.
+
+### Notes for anyone building on it
+- **Adopting a polyphonic meter means re-checking anything that normalises against a single voice's maximum.** This is the generalizable lesson: the API change is additive and compiles fine, but any constant that assumed "the meter cannot exceed what one play produces" is now wrong. It shows up as a *feel* regression — a permanently saturated effect — not as an error.
+- **The previous release's stated reason for leaving the bullet tone on the anonymous ring does not survive arithmetic.** It said the bullet tone "fired every 0.14 s, cannot" afford being cut — but the tone is 0.04 s long, so consecutive bullet tones never overlap and a named channel would never have cut one. The bullet tone stays on the ring, now for the honest reason: it has nothing to meter.
+
 ## 0.140.0
 
 **`Audio::play_tone_metered` — a one-shot that overlaps itself *and* can be metered.** Until now a game had to pick one. `play_tone` / `play_tone_on_bus` ride a ring of anonymous voices, so consecutive plays overlap but there is no name for `enable_analysis` to address; `play_tone_on_channel` has a name, but opens with `stop_immediate` and **cuts** whatever that channel was already playing. A rapid-fire sound could be heard properly or measured properly, never both.
