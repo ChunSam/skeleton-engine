@@ -448,40 +448,40 @@ impl AudioManager {
             Box::new(source)
         };
 
-        // ── Level analysis tap ────────────────────────────────────────────────
-        // Inserted after the sound's own effects but before pan and (on the sink) volume, so it
-        // measures the pre-volume envelope described on `AudioLevels`. Returns the same box
-        // untouched when this channel is not analyzed.
-        let effected = self.tapped(channel, effected);
+        // ── Repeat ────────────────────────────────────────────────────────────
+        // Applied BEFORE the tap, deliberately. `repeat_infinite` buffers its input and replays
+        // that buffer on every pass after the first, so anything wrapped *inside* it is polled
+        // exactly once no matter how long the sound loops. With the tap inside, metering a
+        // looping sound went dead at the end of the first pass while the audio kept playing:
+        // `levels()`/`bands()` read silence over an audible track — measured on `play_music`,
+        // where the meter was live for one 2.56 s pass and then flat at 0.0000 with
+        // `is_channel_playing` still true. Repeating first puts the tap outside the buffer,
+        // where it sees every pass.
+        let looped: Box<dyn Source + Send + 'static> = if repeat {
+            Box::new(effected.repeat_infinite())
+        } else {
+            effected
+        };
 
-        // ── Apply pan / fade-in / repeat ──────────────────────────────────────
+        // ── Level analysis tap ────────────────────────────────────────────────
+        // After the sound's own effects and after repeat, but before pan and (on the sink)
+        // volume, so it still measures the pre-volume envelope described on `AudioLevels`.
+        // Returns the same box untouched when this channel is not analyzed.
+        let tapped = self.tapped(channel, looped);
+
+        // ── Apply pan / fade-in ───────────────────────────────────────────────
         // BufReader would be more efficient without pan or fade-in, but we unify
         // on the Cursor path here (bytes are already in memory, so the cost is identical).
-        if pan.abs() > 0.001 {
-            let panned = PannedSource::new(effected, pan);
-            if let Some(fade_dur) = fade_in_secs {
-                let faded = panned.fade_in(Duration::from_secs_f32(fade_dur));
-                if repeat {
-                    sink.append(faded.repeat_infinite());
-                } else {
-                    sink.append(faded);
-                }
-            } else if repeat {
-                sink.append(panned.repeat_infinite());
-            } else {
-                sink.append(panned);
-            }
-        } else if let Some(fade_dur) = fade_in_secs {
-            let faded = effected.fade_in(Duration::from_secs_f32(fade_dur));
-            if repeat {
-                sink.append(faded.repeat_infinite());
-            } else {
-                sink.append(faded);
-            }
-        } else if repeat {
-            sink.append(effected.repeat_infinite());
+        // Both now sit outside the repeat, so a fade-in plays once at the start of a looping
+        // track instead of being baked into the buffer and re-fading on every pass.
+        let panned: Box<dyn Source + Send + 'static> = if pan.abs() > 0.001 {
+            Box::new(PannedSource::new(tapped, pan))
         } else {
-            sink.append(effected);
+            tapped
+        };
+        match fade_in_secs {
+            Some(fade_dur) => sink.append(panned.fade_in(Duration::from_secs_f32(fade_dur))),
+            None => sink.append(panned),
         }
 
         self.sinks.insert(channel.to_string(), sink);
