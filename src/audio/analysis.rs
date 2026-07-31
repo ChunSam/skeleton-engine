@@ -729,6 +729,36 @@ mod tests {
     }
 
     #[test]
+    fn a_tone_and_a_clip_under_one_meter_share_the_ring() {
+        // `play_tone_poly` and `play_sfx_poly` are two producers on ONE counter, which is what
+        // makes a single meter name legal for both. If they kept separate counters, a tone and a
+        // clip fired together under the same name would land on the same voice channel and
+        // `stop_immediate` would cut one of them — the exact failure this API exists to avoid.
+        let mut seq = HashMap::new();
+        let taken: Vec<usize> = (0..4)
+            .map(|_| next_poly_voice(&mut seq, "impact"))
+            .collect();
+        assert_eq!(
+            taken,
+            vec![0, 1, 2, 3],
+            "the two paths must not fork the ring"
+        );
+    }
+
+    #[test]
+    fn a_voice_channel_is_private_and_never_the_meter_name() {
+        // The meter is a name in `analysis`; the voices are names in `sinks`. They must not
+        // collide, or `enable_analysis(meter)` would tap a sink instead of the shared entry (and
+        // `stop_channel(meter)` would start cutting voices). The `__poly_` prefix is what keeps a
+        // game's own channel named "impact" clear of the voices metering "impact".
+        for voice in 0..POLY_VOICES as usize {
+            let channel = poly_voice_channel("impact", voice);
+            assert_ne!(channel, "impact");
+            assert!(channel.starts_with("__poly_"), "{channel}");
+        }
+    }
+
+    #[test]
     fn each_name_rotates_independently() {
         // Two metered names must not share a counter, or one sound's rate would push the other's
         // voices around and they would start cutting each other.

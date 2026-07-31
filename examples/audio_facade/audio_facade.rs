@@ -12,6 +12,10 @@
 //! Keys (every press also calls [`Audio::resume`], which unlocks audio on web after the first
 //! gesture and is a no-op on native):
 //! * `1` `2` `3` — one-shot SFX at three pitches ([`play_sfx`](engine::Audio::play_sfx))
+//! * `4` — **three overlapping clips on one meter**
+//!   ([`play_sfx_metered`](engine::Audio::play_sfx_metered)) — the readout shows their **summed**
+//!   level, which is the thing a named channel cannot give you: put three clips on one named
+//!   channel and each replay cuts the last, so the meter would read one voice instead of three
 //! * `T` — synthesized tone, no clip bytes ([`play_tone`](engine::Audio::play_tone))
 //! * `M` — start looping music · `C` — crossfade to another loop · `X` — stop music
 //! * `↑` `↓` — master volume ([`set_master_volume`](engine::Audio::set_master_volume))
@@ -56,6 +60,10 @@ const VALUE: [u8; 4] = [160, 255, 170, 255];
 // Named-channel BGM = a low tone + a high tone (a chord) on the "music" bus. The muffle low-pass
 // cutoff sits between them, so toggling it removes the bright high tone and keeps the low one — an
 // audible low-pass (not a mute), same demo as settings_menu but here also hearable on the web.
+/// The meter name for the `4` burst. A *meter*, not a channel: the voices behind it are private
+/// (`__poly_impact_0..7`), which is what lets them overlap while reading as one level.
+const IMPACT_METER: &str = "impact";
+
 const BGM_LOW: f32 = 196.0;
 const BGM_HIGH: f32 = 1568.0;
 const MUFFLE_HZ: u32 = 400;
@@ -117,6 +125,10 @@ struct AudioDemo {
     music_a: Vec<u8>,
     music_b: Vec<u8>,
     bed: Vec<u8>,
+    /// The clip fired by `4`, three at a time.
+    impact: Vec<u8>,
+    /// Last summed peak read back from `IMPACT_METER`, for the readout.
+    impact_peak: f32,
     master_vol: f32,
     bed_vol: f32,
     bed_duck: f32,
@@ -139,6 +151,8 @@ impl Default for AudioDemo {
             music_a: sine_wav(110.0, 1.0), // low loop bed
             music_b: sine_wav(165.0, 1.0), // crossfade target
             bed: sine_wav(220.0, 4.0),     // sustained pad on the "bed" bus
+            impact: sine_wav(330.0, 0.30), // fired 3x overlapping by `4`
+            impact_peak: 0.0,
             master_vol: 1.0,
             bed_vol: 1.0,
             bed_duck: 1.0,
@@ -156,6 +170,7 @@ impl System for AudioDemo {
             s1,
             s2,
             s3,
+            burst,
             tone,
             music,
             xfade,
@@ -178,6 +193,7 @@ impl System for AudioDemo {
                 input.just_pressed(KeyCode::Digit1),
                 input.just_pressed(KeyCode::Digit2),
                 input.just_pressed(KeyCode::Digit3),
+                input.just_pressed(KeyCode::Digit4),
                 input.just_pressed(KeyCode::KeyT),
                 input.just_pressed(KeyCode::KeyM),
                 input.just_pressed(KeyCode::KeyC),
@@ -197,6 +213,7 @@ impl System for AudioDemo {
         let any = s1
             || s2
             || s3
+            || burst
             || tone
             || music
             || xfade
@@ -228,6 +245,17 @@ impl System for AudioDemo {
             if s3 {
                 audio.play_sfx(&self.sfx[2]);
                 self.status = "play_sfx (784 Hz)".into();
+            }
+            if burst {
+                // Three clips in ONE frame, all under one meter name. None of them cuts another —
+                // each takes its own private voice — and `levels()` reports their sum, so the
+                // readout jumps well past what a single play reaches. `play_sfx` would overlap
+                // too but has no name to meter; a named channel would have a name but each replay
+                // would cut the last.
+                for _ in 0..3 {
+                    audio.play_sfx_metered(IMPACT_METER, &self.impact, "sfx");
+                }
+                self.status = "play_sfx_metered x3 (overlapping, one meter)".into();
             }
             if tone {
                 // Synthesized on the fly — no clip bytes, unlike the SFX above.
@@ -299,6 +327,9 @@ impl System for AudioDemo {
             // Live readouts (note: bus_volume/bus_duck reflect the backend, not just our copy).
             self.bed_vol = audio.bus_volume("bed");
             self.bed_duck = audio.bus_duck("bed");
+            // The metered burst, read back as one value even though up to 8 voices feed it.
+            // `AudioFacadeSystem` has already ticked `update` this frame, so this is current.
+            self.impact_peak = audio.levels(IMPACT_METER).peak;
         }
 
         if quit {
@@ -323,7 +354,7 @@ impl System for AudioDemo {
                 HEAD,
             ));
             tq.push(DrawText::new(
-                "1 / 2 / 3 : play_sfx (440 / 587 / 784 Hz)    T : play_tone (synth, no clip)",
+                "1 / 2 / 3 : play_sfx (440/587/784 Hz)    4 : play_sfx_metered x3    T : play_tone",
                 Vec2::new(x, 84.0),
                 14.0,
                 LEGEND,
@@ -356,12 +387,13 @@ impl System for AudioDemo {
             ));
             tq.push(DrawText::new(
                 format!(
-                    "master vol: {:.1}    bed bus vol: {:.1}    bed duck: {:.2}    BGM: {}    low-pass: {}",
+                    "master vol: {:.1}    bed bus vol: {:.1}    bed duck: {:.2}    BGM: {}    low-pass: {}    impact meter: {:.2}",
                     self.master_vol,
                     self.bed_vol,
                     self.bed_duck,
                     on_off(self.bgm_on),
                     on_off(self.muffled),
+                    self.impact_peak,
                 ),
                 Vec2::new(x, 274.0),
                 15.0,
@@ -391,7 +423,10 @@ fn run() {
     });
     app.world.insert_resource(FontData(FONT.to_vec()));
 
-    if let Some(audio) = Audio::new() {
+    if let Some(mut audio) = Audio::new() {
+        // Opt in BEFORE the first play: a meter is wired into a sound as it starts, so enabling it
+        // later would not take effect until the next play under this name.
+        audio.enable_analysis(IMPACT_METER);
         app.world.insert_resource(audio);
     }
     app.add_system(AudioFacadeSystem); // ticks native fades/ducks; no-op on web

@@ -4,6 +4,29 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.143.0
+
+**`Audio::play_sfx_metered` — the clip counterpart of `play_tone_metered`.** A one-shot that overlaps consecutive plays *and* is metered. 0.140.0 closed that gap for tones only, and `enable_analysis`'s docs said so explicitly; clips still faced the original either/or. `play_sfx` / `play_sfx_on_bus` already overlap (they round-robin a ring of anonymous voices on native) but that ring has no name for `enable_analysis` to address, and moving a clip onto a named channel to meter it costs the overlap, because a replay there **cuts** what was already playing.
+
+Same shape as the tone path and the same semantics: a ring of `POLY_VOICES` private sink channels (`__poly_{meter}_{voice}`) rotated per call, all pointing their level tap at one shared meter entry, with `levels()` reporting the **sum** of the sounding voices. No new policy — `sum_levels` and `combine_voices` are reused unchanged.
+
+The one real difference from the tone path is where the tap goes in. A tone is a `SamplesBuffer` that `play_tone_poly` wraps itself; a clip must be decoded, and the decode → effects → repeat → tap → pan chain lives in `append_decoded`. The voice is therefore threaded down to it rather than applied at the top, which keeps both paths sharing one chain instead of forking it.
+
+### Added
+- **`Audio::play_sfx_metered(meter, bytes, bus)`** — native `AudioManager::play_sfx_poly`, wasm `WebAudio::play_sfx_metered`. The wasm side needed no voice pool, exactly like the tone path: `play_sfx_to` already builds a fresh per-source gain node per call, so the only missing piece was routing each into the meter's `AnalyserNode` — and connecting several sources to one analyser makes the browser mix them, which *is* the sum contract.
+- Two device-free tests: that the tone and clip paths share one voice ring (separate counters would put a tone and a clip fired together under one name on the same channel, and one would cut the other), and that a voice channel is private and never collides with the meter name.
+
+### Changed
+- **`enable_analysis`'s docs no longer say clips are excluded.** They were accurate; they are not any more.
+
+### Documented
+- **⚠️ `Audio::levels` now warns that a headless `ENGINE_CAPTURE` run cannot photograph a meter.** Capture advances the game with a fixed `1/60` dt as fast as the CPU allows while the audio thread publishes in real time (~21 ms), so the smoothing release drains within milliseconds of wall clock and the captured frame reads `0.0` even though the sound is playing correctly. This cost two separate investigations before it was written down — verify metering in real time, never from a captured PNG.
+
+### Verified on a real device (CI cannot exercise any of this)
+- One metered clip peaks at **0.4929**; three fired 60 ms apart peak at **0.9259** (**1.88×**) — they sum, so they overlap rather than cutting.
+- The control: the same three fired **600 ms** apart peak at **0.4929**, identical to a single voice. Per-voice staleness works on the byte path too — a drained voice stops contributing instead of accumulating.
+- `examples/audio_facade` gains key **`4`**: three overlapping metered clips on one meter, with the summed level in the readout.
+
 ## 0.142.0
 
 **`examples/games/beat_crawler` now runs its turn clock off a real mixed soundtrack instead of two tones chosen to be trivially separable.** The old version played a 110 Hz kick and an 880 Hz blip and asserted they were far apart in the low band — measured 4.00 vs 0.61, 6.5× — which is a test that cannot fail. This is the first case where the low-band detector could genuinely be wrong, and it was: three separate things had to be fixed before the example worked.

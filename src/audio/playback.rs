@@ -258,6 +258,34 @@ impl AudioManager {
         self.sinks.insert(channel, sink);
     }
 
+    /// Plays `bytes` as a **metered one-shot**: consecutive plays overlap instead of cutting each
+    /// other, and every voice publishes into one shared meter named `meter`.
+    ///
+    /// The clip counterpart of [`play_tone_poly`](Self::play_tone_poly), and the same shape: a ring
+    /// of eight private sink channels (`__poly_{meter}_{voice}`) rotated per call, all pointing
+    /// their level tap at the single analysis entry for `meter`. The channel model is untouched —
+    /// one sink per name — because only the *meter* is shared.
+    ///
+    /// The one difference from the tone path is where the tap goes in. A tone is a
+    /// `SamplesBuffer` this function could wrap itself; a clip has to be decoded, and the decode →
+    /// effects → repeat → tap → pan chain lives in `append_decoded`. So the voice is passed down
+    /// rather than applied here, which keeps the two paths sharing one chain instead of forking it.
+    pub fn play_sfx_poly(&mut self, meter: &str, bytes: &[u8], bus: &str) {
+        let voice = super::analysis::next_poly_voice(&mut self.poly_seq, meter);
+        let channel = super::analysis::poly_voice_channel(meter, voice);
+        self.assign_bus(&channel, bus);
+        // No explicit `stop_immediate` here, unlike `play_tone_poly`: `play_bytes_internal` already
+        // tears the channel down first, so wrapping the ring reuses this voice and cuts whatever it
+        // still held — the same bound, reached by the path that was already doing it.
+        self.play_bytes_internal(
+            &channel,
+            Arc::from(bytes),
+            false,
+            None,
+            Some((meter, voice)),
+        );
+    }
+
     /// Advances all active fades, duck/sidechain animations and level meters. Called every frame
     /// by the system.
     ///
@@ -375,7 +403,7 @@ impl AudioManager {
             Some(b) => b,
             None => return,
         };
-        self.append_decoded(channel, sink, bytes, repeat, fade_in_secs);
+        self.append_decoded(channel, sink, bytes, repeat, fade_in_secs, None);
     }
 
     /// Plays already-in-memory encoded audio `bytes` on a channel — the byte-slice analogue of
@@ -385,23 +413,28 @@ impl AudioManager {
     ///
     /// Backs the cross-platform [`Audio`](crate::Audio) facade's `play_sfx`/`play_music`.
     pub fn play_bytes(&mut self, channel: &str, bytes: &[u8], repeat: bool) {
-        self.play_bytes_internal(channel, Arc::from(bytes), repeat, None);
+        self.play_bytes_internal(channel, Arc::from(bytes), repeat, None, None);
     }
 
     /// Shared byte-playback entry: tears down the old sink, creates + volume-sets a new one, then
     /// decodes and appends `bytes`. The byte counterpart of [`play_internal`]'s tail; used by
-    /// `play_bytes` and `crossfade_bytes`.
+    /// `play_bytes`, `crossfade_bytes` and `play_sfx_poly`.
+    ///
+    /// `meter` is `Some((name, voice))` only for a metered one-shot, where the level tap must
+    /// publish into that name's shared meter instead of into this channel's own — see
+    /// `play_sfx_poly`. `None` builds exactly the graph it always did.
     pub(super) fn play_bytes_internal(
         &mut self,
         channel: &str,
         bytes: Arc<[u8]>,
         repeat: bool,
         fade_in_secs: Option<f32>,
+        meter: Option<(&str, usize)>,
     ) {
         self.stop_immediate(channel);
         let sink = Player::connect_new(self.stream.mixer());
         sink.set_volume(self.effective_volume(channel));
-        self.append_decoded(channel, sink, bytes, repeat, fade_in_secs);
+        self.append_decoded(channel, sink, bytes, repeat, fade_in_secs, meter);
     }
 
     /// Shared decode → effects → pan/fade/repeat → insert tail of `play_internal` and
@@ -415,6 +448,7 @@ impl AudioManager {
         bytes: Arc<[u8]>,
         repeat: bool,
         fade_in_secs: Option<f32>,
+        meter: Option<(&str, usize)>,
     ) {
         let pan = self.pans.get(channel).copied().unwrap_or(0.0);
         let source = match Decoder::new(Cursor::new(bytes)) {
@@ -466,8 +500,16 @@ impl AudioManager {
         // ── Level analysis tap ────────────────────────────────────────────────
         // After the sound's own effects and after repeat, but before pan and (on the sink)
         // volume, so it still measures the pre-volume envelope described on `AudioLevels`.
-        // Returns the same box untouched when this channel is not analyzed.
-        let tapped = self.tapped(channel, looped);
+        // Returns the same box untouched when nothing here is analyzed.
+        //
+        // A metered one-shot publishes into its *meter's* voice slot rather than into this
+        // channel's own entry: the sink channel is private (`__poly_{meter}_{voice}`) and nobody
+        // ever meters it by that name, which is exactly what lets several voices sound at once and
+        // still be read as one level.
+        let tapped = match meter {
+            Some((meter, voice)) => self.poly_tapped(meter, voice, looped),
+            None => self.tapped(channel, looped),
+        };
 
         // ── Apply pan / fade-in ───────────────────────────────────────────────
         // BufReader would be more efficient without pan or fade-in, but we unify
@@ -526,7 +568,7 @@ impl AudioManager {
     /// fade-in. Backs the cross-platform [`Audio`](crate::Audio) facade's `crossfade_music`.
     pub fn crossfade_bytes(&mut self, channel: &str, bytes: &[u8], repeat: bool, dur: f32) {
         self.begin_crossfade(channel, dur);
-        self.play_bytes_internal(channel, Arc::from(bytes), repeat, Some(dur));
+        self.play_bytes_internal(channel, Arc::from(bytes), repeat, Some(dur), None);
     }
 
     /// Relocates the track currently on `channel` (if any) to a temp channel scheduled to fade out
