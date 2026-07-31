@@ -16,15 +16,23 @@
 //!
 //! # Why this needs `bands()` and not `levels()`
 //!
-//! The soundtrack plays a repeating 16-step pattern of **kicks** (110 Hz) and **blips** (880 Hz).
-//! Only the kicks are turns. An amplitude meter ([`Audio::levels`]) cannot tell them apart — the
-//! blips are loud too, and would each fire a phantom turn. The game therefore sums the **low
-//! bands** of the spectrum, which the blips do not move at all. The rhythm is *discriminated by
-//! frequency*, which is exactly the thing `levels()` cannot do.
+//! The soundtrack is a real mix — kick, bass, hats and a lead, all sounding at once — looping from
+//! [`TRACK`]. An amplitude meter ([`Audio::levels`]) cannot find the turns in it: everything is
+//! loud at once, so `rms` barely moves between a kick and a bar of bass. The game instead sums the
+//! bottom two **spectrum bands**, where the kick's 150→48 Hz sweep lives. The rhythm is
+//! *discriminated by frequency*, which is exactly the thing `levels()` cannot do.
 //!
-//! Consequently the pattern below is the **only** description of the groove: no gameplay code
-//! reads it. Edit [`PATTERN`], and the turn structure of the game changes with it, because the
-//! game learns the rhythm by listening.
+//! This is a genuinely harder problem than a test tone, and it was made harder on purpose. The
+//! first mix put the bass on C2/F2/G2 — right on top of the kick — and measured: every low band
+//! sat pinned at full scale, the kick's transient vanished into it, and **no threshold worked at
+//! all**. Moving the bass up an octave is the same thing a real mix does, and it leaves the two
+//! *separable* without separating them: the bass still overlaps the detector's window through its
+//! harmonics. See `assets/soundtrack.py`, which generates the track and documents the numbers.
+//!
+//! Gameplay still learns the groove by listening: no gameplay code reads [`PATTERN`], which
+//! survives only so the [`BEAT_WATCHDOG`] has a schedule to fall back to. The audible groove lives
+//! in the `.wav`; `assets/soundtrack.py` renders one from the other, so changing the beat means
+//! changing both.
 //!
 //! # The loop
 //!
@@ -42,9 +50,10 @@
 //! - `ENGINE_CAPTURE=90:/tmp/beat.png cargo run --example beat_crawler_game` — engine-level frame
 //!   capture (v0.134.0); needs no code in this file and no window.
 //! - `BEAT_CRAWLER_SELFTEST=1 cargo run --example beat_crawler_game` — asserts the level is
-//!   solvable, enemies path toward the player, and (when an audio device exists) that a kick is
-//!   detected while a blip is not. Exits `0` pass · `1` stair unreachable · `2` bad enemy
-//!   placement · `3` pathing did not approach · `4` kick never detected · `5` blip false-fired.
+//!   solvable, enemies path toward the player, and (when an audio device exists) that the detector
+//!   finds the kicks **in the real mix**, at the spacing the mix actually has. Exits `0` pass ·
+//!   `1` stair unreachable · `2` bad enemy placement · `3` pathing did not approach · `4` no kick
+//!   ever detected · `5` detections did not land on the beat grid (wrong count or wrong spacing).
 //!   **No audio device is a SKIP, not a failure** — the rhythm cannot be exercised there.
 use engine::{
     find_path, generate_bsp_dungeon, generate_cellular_cave, spawn_floating_text, App, Audio,
@@ -74,10 +83,18 @@ const HP_BAR_W: f32 = 150.0;
 const HP_BAR_H: f32 = 14.0;
 
 // ── Rhythm ──────────────────────────────────────────────────────────────────────────────────
-/// Seconds per pattern step. 16 steps ≈ 2.6 s per bar.
+/// The soundtrack: one seamless 2.56 s bar, looped by `play_music`. Synthesized from scratch by
+/// `assets/soundtrack.py` — sine arithmetic and a seeded PRNG, no sample pack — so it is CC0 and
+/// safe to ship in an MIT repository, the same reasoning as `src/audio/fixtures/README.md`.
+const TRACK: &[u8] = include_bytes!("assets/soundtrack.wav");
+/// Seconds per pattern step. 16 steps = 2.56 s per bar, matching `STEP_SECS` in the generator.
 const STEP_SECS: f32 = 0.16;
+/// Seconds between kicks — every 4th step. The grid the detector is checked against.
+const BEAT_SECS: f32 = STEP_SECS * 4.0;
 /// The groove, as 16 steps. `K` = kick (a turn), `b` = blip (musical only, never a turn),
-/// `.` = rest. **No gameplay code reads this** — the game hears the kicks via `bands()`.
+/// `.` = rest. **No gameplay code reads this**, and nothing plays it: the audible groove is in
+/// [`TRACK`]. It survives as the schedule [`BEAT_WATCHDOG`] falls back to when nothing can be
+/// heard, and as the written description of what the `.wav` contains.
 const PATTERN: [Step; 16] = {
     use Step::{Blip, Kick, Rest};
     [
@@ -87,23 +104,35 @@ const PATTERN: [Step; 16] = {
         Kick, Blip, Rest, Blip, // 12-15
     ]
 };
-const KICK_HZ: f32 = 110.0;
-const BLIP_HZ: f32 = 880.0;
-const KICK_SECS: f32 = 0.10;
-const BLIP_SECS: f32 = 0.05;
-const BEAT_CHANNEL: &str = "crawler_beat";
-const BEAT_BUS: &str = "music";
+/// The meter the turn clock reads. `play_music` publishes under this name on both backends.
+const BEAT_METER: &str = Audio::MUSIC_CHANNEL;
 /// How many spectrum bands to ask for. `bands()` resamples its internal 32 to whatever length the
 /// caller passes — this is our choice, not an engine limit.
 const BANDS: usize = 16;
-/// Bands `0..LOW_BANDS` are summed into the kick detector. At 1024 points / 44.1 kHz these cover
-/// roughly the bottom of the spectrum, where a 110 Hz kick lives and an 880 Hz blip does not.
-const LOW_BANDS: usize = 4;
-/// Summed low-band energy that counts as a kick. A blip leaves this near zero.
-const KICK_THRESHOLD: f32 = 1.2;
-/// The detector re-arms only after energy falls back below this, so one kick fires one turn even
-/// though the meter decays over the smoothing release rather than snapping to zero.
-const REARM_THRESHOLD: f32 = 0.5;
+/// Bands `0..LOW_BANDS` are summed into the kick detector.
+///
+/// **Two, not four.** Measured per layer against the real track: the kick owns bands 0-1 (they
+/// share FFT bins at this resolution and move together), while the bass saturates bands 2-6 at
+/// full scale for most of the bar. Summing a saturated band adds a constant, not information —
+/// including bands 2-3 was what made every threshold fire on bass wobble instead of on kicks.
+const LOW_BANDS: usize = 2;
+/// Summed low-band energy that counts as a kick.
+///
+/// Measured, not guessed: over 7 bars of the real track the correct count (28) and the correct
+/// spacing (0.640 s, sd 0.03) hold anywhere in **1.45–1.95**, so this sits mid-plateau rather
+/// than on an edge. Below ~1.40 the bass starts tripping it; 2.00 is the saturation ceiling.
+const KICK_THRESHOLD: f32 = 1.6;
+/// A kick cannot fire another turn within this many seconds of the last one.
+///
+/// **This replaced an arm/re-arm latch, and the replacement is the point.** The latch — re-arm
+/// once energy falls back below a floor — is correct for discrete sounds separated by silence,
+/// which is what this example used to play. Under a real mix the low band never falls back: the
+/// bass holds it up, so the latch either never re-arms or re-arms on bass ripple. Measured over
+/// the same 7 bars, arm/re-arm produced 31 fires with gaps of sd 0.16 s; the cooldown produced
+/// exactly 28 at sd 0.03 s. This is the second independent confirmation of that finding —
+/// `examples/games/survivor` hit it first, on a completely different signal (see module-map
+/// row 79).
+const KICK_COOLDOWN: f32 = 0.40;
 /// Press within this many seconds *before* a beat to land the `ON BEAT` bonus.
 const ON_BEAT_WINDOW: f32 = 0.18;
 /// If this long passes with kicks scheduled but none *heard*, stop trusting the ears and run off
@@ -300,7 +329,6 @@ struct Crawler {
     // Beat detection (what we *hear*).
     bands: [f32; BANDS],
     low_energy: f32,
-    armed: bool,
     beats: u32,
     last_on_beat: bool,
     flash: f32,
@@ -334,7 +362,6 @@ impl Crawler {
             since_beat: 0.0,
             bands: [0.0; BANDS],
             low_energy: 0.0,
-            armed: true,
             beats: 0,
             last_on_beat: false,
             flash: 0.0,
@@ -460,9 +487,13 @@ impl Crawler {
         self.say("You fell. Back to depth 1.");
     }
 
-    /// Plays the scheduled soundtrack. This is the **only** place the pattern is consulted; the
-    /// turn logic never sees it.
-    fn advance_soundtrack(&mut self, world: &mut World, dt: f32) {
+    /// Advances the written schedule alongside the track. This is the **only** place the pattern
+    /// is consulted; the turn logic never sees it.
+    ///
+    /// Nothing is played here — [`TRACK`] loops on its own. All this produces is
+    /// `scheduled_kick`, which exists so [`BEAT_WATCHDOG`] can tell "the music is playing and I
+    /// am failing to hear it" apart from "there is nothing to hear yet".
+    fn advance_schedule(&mut self, dt: f32) {
         self.step_timer += dt;
         if self.step_timer < STEP_SECS {
             return;
@@ -473,25 +504,14 @@ impl Crawler {
         if step == Step::Kick {
             self.scheduled_kick = true;
         }
-        let Some(audio) = world.resource_mut::<Audio>() else {
-            return;
-        };
-        match step {
-            Step::Kick => {
-                audio.play_tone_on_channel(BEAT_CHANNEL, KICK_HZ, KICK_SECS, 0.9, BEAT_BUS)
-            }
-            Step::Blip => {
-                audio.play_tone_on_channel(BEAT_CHANNEL, BLIP_HZ, BLIP_SECS, 0.5, BEAT_BUS)
-            }
-            Step::Rest => {}
-        }
     }
 
     /// Listens for a kick and reports whether this frame is a beat.
     ///
-    /// With an audio device this is a genuine spectrum read: the low bands rise on a 110 Hz kick
-    /// and stay flat on an 880 Hz blip. With **no** device there is nothing to hear, so it falls
-    /// back to the schedule — the game stays playable and honest about which clock it is on.
+    /// With an audio device this is a genuine spectrum read: the bottom bands spike on the kick's
+    /// sweep and sit lower between kicks, even though the bass never lets them fall silent. With
+    /// **no** device there is nothing to hear, so it falls back to the schedule — the game stays
+    /// playable and honest about which clock it is on.
     fn detect_beat(&mut self, world: &mut World, dt: f32) -> bool {
         let scheduled = std::mem::take(&mut self.scheduled_kick);
         self.since_beat += dt;
@@ -506,16 +526,12 @@ impl Crawler {
             return false;
         };
 
-        audio.bands(BEAT_CHANNEL, &mut self.bands);
+        audio.bands(BEAT_METER, &mut self.bands);
         self.low_energy = self.bands[..LOW_BANDS].iter().sum();
-        // Re-arm only once the energy has fallen away again: the meter decays over the smoothing
-        // release rather than snapping to zero, so a bare threshold test would fire several times
-        // per kick.
-        if self.low_energy < REARM_THRESHOLD {
-            self.armed = true;
-        }
-        if self.armed && self.low_energy >= KICK_THRESHOLD {
-            self.armed = false;
+        // Retrigger guard: a cooldown, not an arm/re-arm latch. See `KICK_COOLDOWN` — under a
+        // sustained mix the energy never falls back far enough for a latch to re-arm honestly.
+        // `since_beat` is exactly "seconds since the last turn", so it is the guard already.
+        if self.low_energy >= KICK_THRESHOLD && self.since_beat >= KICK_COOLDOWN {
             self.heard = true;
             self.since_beat = 0.0;
             return true;
@@ -729,8 +745,8 @@ impl System for Crawler {
             self.pending_age += dt;
         }
 
-        // ── Play the soundtrack, then listen for it ─────────────────────────────
-        self.advance_soundtrack(world, dt);
+        // ── Track the written schedule, then listen to the track itself ────────
+        self.advance_schedule(dt);
         if self.detect_beat(world, dt) {
             self.tick_beat(world);
         }
@@ -822,6 +838,16 @@ impl Scene for CrawlScene {
         world.add_component(bar, ProgressBar::new(1.0));
         game.hp_bar = Some(bar);
 
+        // ⚠️ `AudioFacadeSystem` belongs to the SCENE, not to `main`.
+        //
+        // `SceneCmd::Replace` swaps out the entire systems list, so a system registered on the
+        // `App` before `set_scene` is silently dropped. This one ticks `Audio::update`, and
+        // `bands()` only ever reports what that tick published — registered one line too early,
+        // every band read back `0.000` forever, this game ran permanently on `BEAT_WATCHDOG`'s
+        // schedule, and the only symptom was the HUD reading "schedule (nothing heard)" instead
+        // of "listening". Registering it here makes the ordering unforgeable: the system that
+        // feeds the turn clock is owned by the scene whose turn clock it is.
+        systems.add(AudioFacadeSystem);
         systems.add(game);
     }
     fn on_exit(&mut self, _world: &mut World) {}
@@ -872,51 +898,82 @@ fn self_test() -> i32 {
         println!("SKIP: no audio device available (level checks passed)");
         return 0;
     };
-    audio.enable_spectrum(BEAT_CHANNEL);
+    audio.enable_spectrum(BEAT_METER);
+    audio.play_music(TRACK);
 
-    // Measure with the tones the game *actually plays* — same frequency, duration and volume as
-    // `advance_soundtrack`. Testing a longer or louder tone would report a margin the game never
-    // has, which is how a threshold ends up tuned against a case that does not occur.
-    let measure = |audio: &mut Audio, hz: f32, secs: f32, vol: f32| -> f32 {
-        audio.play_tone_on_channel(BEAT_CHANNEL, hz, secs, vol, BEAT_BUS);
-        let mut bands = [0.0f32; BANDS];
-        let mut peak_low = 0.0f32;
-        for _ in 0..40 {
-            std::thread::sleep(std::time::Duration::from_millis(16));
-            audio.update(0.016);
-            audio.bands(BEAT_CHANNEL, &mut bands);
-            let low: f32 = bands[..LOW_BANDS].iter().sum();
-            peak_low = peak_low.max(low);
+    // Run the game's own detector against the real track for a few bars.
+    //
+    // The previous version of this check played the game's two tones and asserted they were far
+    // apart in the low band. That could not fail: kick 110 Hz and blip 880 Hz measured 4.00 vs
+    // 0.61, and nothing in between was ever played. With a mix there is no such gap to assert on,
+    // so the question becomes the real one — does the detector find the kicks, at the spacing the
+    // music actually has?
+    //
+    // Timing comes off `Instant`, not an accumulator: `sleep(1/60)` sleeps *at least* 1/60, so a
+    // `t += 1.0/60.0` clock runs slower than the music and every measured gap comes out short.
+    // That mistake made a correct detector look like it was firing 40% too often.
+    const BARS: f32 = 4.0;
+    let mut bands = [0.0f32; BANDS];
+    let mut fires: Vec<f32> = Vec::new();
+    let start = std::time::Instant::now();
+    let (mut prev, mut last_fire, mut frame) = (start, -99.0f32, 0u32);
+    loop {
+        frame += 1;
+        let target = start + std::time::Duration::from_secs_f32(frame as f32 / 60.0);
+        let now = std::time::Instant::now();
+        if target > now {
+            std::thread::sleep(target - now);
         }
-        peak_low
-    };
-    // Let the meter settle back to silence between measurements.
-    let settle = |audio: &mut Audio| {
-        for _ in 0..30 {
-            std::thread::sleep(std::time::Duration::from_millis(16));
-            audio.update(0.016);
+        let now = std::time::Instant::now();
+        let t = (now - start).as_secs_f32();
+        audio.update((now - prev).as_secs_f32());
+        prev = now;
+        audio.bands(BEAT_METER, &mut bands);
+        let low: f32 = bands[..LOW_BANDS].iter().sum();
+        // Skip the first bar: the analyser is still filling its first FFT windows, and playback
+        // starts at an arbitrary offset into ours.
+        let bar_secs = STEP_SECS * PATTERN.len() as f32;
+        if t > bar_secs && low >= KICK_THRESHOLD && t - last_fire >= KICK_COOLDOWN {
+            last_fire = t;
+            fires.push(t);
         }
-    };
+        if t >= bar_secs * (BARS + 1.0) {
+            break;
+        }
+    }
+    audio.stop_music();
 
-    let kick_low = measure(&mut audio, KICK_HZ, KICK_SECS, 0.9);
-    println!("kick  low-band peak {kick_low:.3} (must reach {KICK_THRESHOLD:.2})");
-    if kick_low < KICK_THRESHOLD {
-        eprintln!("FAIL: a kick never crossed the low-band threshold");
+    if fires.is_empty() {
+        eprintln!("FAIL: no kick was ever detected in the soundtrack");
         return 4;
     }
 
-    settle(&mut audio);
-    let blip_low = measure(&mut audio, BLIP_HZ, BLIP_SECS, 0.5);
-    println!("blip  low-band peak {blip_low:.3} (must stay under {KICK_THRESHOLD:.2})");
-    if blip_low >= KICK_THRESHOLD {
-        eprintln!("FAIL: an 880 Hz blip moved the low bands — the turn clock would false-fire");
+    // 4 kicks per bar is the ground truth; allow one either side for where the window lands.
+    let expected = (BARS * 4.0) as usize;
+    let gaps: Vec<f32> = fires.windows(2).map(|p| p[1] - p[0]).collect();
+    let on_grid = gaps
+        .iter()
+        .filter(|g| (**g - BEAT_SECS).abs() <= 0.12)
+        .count();
+    let mean = gaps.iter().sum::<f32>() / gaps.len().max(1) as f32;
+    println!(
+        "kicks heard {} (expected ~{expected}), mean gap {mean:.3}s (grid {BEAT_SECS:.3}s), \
+         on-grid {on_grid}/{}",
+        fires.len(),
+        gaps.len()
+    );
+    if fires.len().abs_diff(expected) > 1 || on_grid * 10 < gaps.len() * 8 {
+        eprintln!(
+            "FAIL: detections did not land on the beat grid — the turn clock is hearing the \
+             bass, or missing kicks"
+        );
         return 5;
     }
 
     println!(
-        "PASS: levels solvable, enemies approach, kick {kick_low:.2} / blip {blip_low:.2} \
-         separated by {:.1}x around threshold {KICK_THRESHOLD:.2}",
-        kick_low / blip_low.max(0.001)
+        "PASS: levels solvable, enemies approach, {} kicks found in a real mix at {mean:.3}s \
+         spacing with threshold {KICK_THRESHOLD:.2}",
+        fires.len()
     );
     0
 }
@@ -942,14 +999,17 @@ fn main() {
     if let Some(mut audio) = Audio::new() {
         // Opt in BEFORE the first play: the analyser is wired into a sound as it starts, so
         // enabling it later would not take effect until the next play on this channel.
-        audio.enable_spectrum(BEAT_CHANNEL);
+        audio.enable_spectrum(BEAT_METER);
+        audio.play_music(TRACK);
         app.world.insert_resource(audio);
     }
     // No `register_persistent::<Audio>()` here: the engine registers it in `App::new` (v0.141.1).
     // This example is why that had to stop being the game's job — its turn clock *is* the audio
     // device, so a dropped `Audio` would not merely mute it, the world would stop taking turns.
 
-    app.add_system(AudioFacadeSystem); // ticks the meters (and native fades/ducks)
+    // `AudioFacadeSystem` is deliberately NOT registered here — `CrawlScene::on_enter` owns it,
+    // because a system added before `set_scene` is dropped by the scene swap. See the comment
+    // there; that ordering silently disabled this game's turn clock.
     app.set_scene(Box::new(CrawlScene));
     app.add_system(HitFlashSystem);
     app.add_system(FloatingTextSystem);
