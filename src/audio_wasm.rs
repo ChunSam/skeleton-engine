@@ -514,6 +514,19 @@ impl WebAudio {
         self.play_tone_to(freq, dur, vol, &dest);
     }
 
+    /// Plays a tone as a **metered one-shot**: it overlaps its own previous plays like
+    /// [`play_tone`](Self::play_tone), and `levels(meter)` reports it.
+    ///
+    /// The web backend needs no voice pool for this — [`play_tone_to`](Self::play_tone_to) already
+    /// builds a fresh oscillator per call, so tones never cut each other; the only missing piece was
+    /// routing each one into `meter`'s analyser. Connecting several sources to one `AnalyserNode`
+    /// makes Web Audio **mix** them, which is exactly the "sum of the sounding voices" contract the
+    /// native backend computes by hand (see `sum_levels` in `audio_analysis`).
+    pub fn play_tone_metered(&self, meter: &str, freq: f32, dur: f32, vol: f32, bus: &str) {
+        let dest = self.bus_input(bus).unwrap_or_else(|| self.master.clone());
+        self.play_tone_to_metered(freq, dur, vol, &dest, Some(meter));
+    }
+
     /// Shared tone path for [`play_tone`](Self::play_tone) / [`play_tone_on_bus`](Self::play_tone_on_bus):
     /// wires `oscillator → gain → dest` (where `dest` is the master gain or a bus gain) and schedules
     /// a 0→`vol`→0 attack/release envelope on the gain over `dur` seconds, stopping the oscillator at
@@ -523,6 +536,21 @@ impl WebAudio {
     // calls are correct (same situation as `stop_at` / `stop_music`), so allow it locally.
     #[allow(deprecated)]
     fn play_tone_to(&self, freq: f32, dur: f32, vol: f32, dest: &web_sys::GainNode) {
+        self.play_tone_to_metered(freq, dur, vol, dest, None);
+    }
+
+    /// [`play_tone_to`](Self::play_tone_to) with an optional meter name: when `meter` is `Some`,
+    /// this tone's gain node is *also* connected to that name's analyser, so the tone is measured
+    /// without giving up the fire-and-forget overlap. `None` is byte-identical to the old path.
+    #[allow(deprecated)] // OscillatorNode::start/stop* bindings are deprecated — same as elsewhere
+    fn play_tone_to_metered(
+        &self,
+        freq: f32,
+        dur: f32,
+        vol: f32,
+        dest: &web_sys::GainNode,
+        meter: Option<&str>,
+    ) {
         let dur = dur.max(0.0) as f64;
         let vol = vol.clamp(0.0, 1.0);
         let (Ok(osc), Ok(gain)) = (self.ctx.create_oscillator(), self.ctx.create_gain()) else {
@@ -534,6 +562,12 @@ impl WebAudio {
             || gain.connect_with_audio_node(dest).is_err()
         {
             return;
+        }
+        // Metered one-shot: also feed this voice's gain into the meter's analyser. Taken after the
+        // tone's own gain but before `dest`, matching where every other tap sits. Multiple live
+        // voices all connect here and the browser mixes them — that mixing IS the sum contract.
+        if let Some(meter) = meter {
+            self.tap(meter, &gain);
         }
         // Attack/release envelope (≤8ms, or a quarter of very short tones) — ramps prevent the
         // click a hard 0→vol step would make. Held flat between the two edges.

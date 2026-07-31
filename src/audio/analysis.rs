@@ -27,8 +27,38 @@ use std::time::Duration;
 use rodio::{ChannelCount, Sample, SampleRate, Source};
 
 use crate::audio_analysis::{
-    resample_bands, smooth_toward, AudioLevels, DEFAULT_ANALYSIS_SMOOTHING, SPECTRUM_BANDS,
+    resample_bands, smooth_toward, sum_levels, AudioLevels, DEFAULT_ANALYSIS_SMOOTHING,
+    SPECTRUM_BANDS,
 };
+
+/// Simultaneous voices one metered one-shot name can sound before it wraps and cuts its own oldest
+/// voice (`AudioManager::play_tone_poly`).
+///
+/// Half the anonymous ring's 16, because these are *per name*: eight overlapping hits of the same
+/// sound is already past what a player can distinguish, while the ring is shared by every
+/// fire-and-forget sound in the game at once.
+pub(crate) const POLY_VOICES: u64 = 8;
+
+/// Sink channel name for one voice of a metered one-shot: `__poly_{meter}_{voice}`.
+///
+/// These are ordinary channels as far as the sink map is concerned — which is the whole point of
+/// the design. The channel model stays one-sink-per-name; only the *meter* is shared, by
+/// `AudioManager::poly_tapped`. Pure (no device) so it is unit-testable headlessly, like
+/// `sfx_voice_channel`'s anonymous counterpart in `audio_facade`.
+pub(crate) fn poly_voice_channel(meter: &str, voice: usize) -> String {
+    format!("__poly_{meter}_{voice}")
+}
+
+/// Picks the next voice index for `meter` and advances its counter.
+///
+/// Split out of `play_tone_poly` so the rotation — the thing that makes consecutive plays *not*
+/// cut each other — is testable without an audio device, which CI does not have.
+pub(crate) fn next_poly_voice(seq: &mut HashMap<String, u64>, meter: &str) -> usize {
+    let counter = seq.entry(meter.to_string()).or_insert(0);
+    let voice = (*counter % POLY_VOICES) as usize;
+    *counter = counter.wrapping_add(1);
+    voice
+}
 
 /// Mono frames per spectrum transform. A power of two (required by the radix-2 FFT); 1024 frames
 /// is ~21 ms at 48 kHz, giving a fresh spectrum several times per rendered frame.
@@ -238,6 +268,39 @@ impl<S: Source> Source for LevelTap<S> {
 
 // ─── Manager-side smoothed state ──────────────────────────────────────────────
 
+/// One voice of a polyphonic metered name: its own publication slot, plus the sequence number last
+/// seen for it so a drained voice can be told from a sounding one.
+///
+/// Each overlapping voice needs its **own** slot. Pointing several taps at one slot would make them
+/// race — `LevelSlot::publish` is a plain store, so the reader would see whichever voice published
+/// most recently, which is neither the sum nor the loudest.
+#[derive(Debug)]
+struct PolyVoice {
+    slot: Arc<LevelSlot>,
+    last_seq: u64,
+}
+
+/// Combines a polyphonic name's voices into this frame's raw target, applying the **per-voice**
+/// staleness test before summing.
+///
+/// The per-voice part is what makes it correct: a voice whose sequence has not moved since the last
+/// tick has drained, so it contributes nothing. Testing staleness once for the whole name would
+/// hold a finished voice's level up for as long as any *other* voice was still sounding.
+///
+/// Split out of `tick_analysis` so it can be tested without an audio device.
+fn combine_voices(single: AudioLevels, poly: &mut [PolyVoice]) -> AudioLevels {
+    sum_levels(std::iter::once(single).chain(poly.iter_mut().map(|voice| {
+        let (rms, peak, seq) = voice.slot.read();
+        let sounding = seq != voice.last_seq;
+        voice.last_seq = seq;
+        if sounding {
+            AudioLevels { rms, peak }
+        } else {
+            AudioLevels::SILENT
+        }
+    })))
+}
+
 /// One analyzed channel: the shared slot the audio thread writes, plus the smoothed values the
 /// game reads.
 #[derive(Debug)]
@@ -246,6 +309,9 @@ pub(crate) struct AnalysisChannel {
     rms: f32,
     peak: f32,
     last_seq: u64,
+    /// Per-voice slots for a polyphonic metered name. **Empty for an ordinary channel**, so a
+    /// single-voice meter takes exactly the path it did before this existed.
+    poly: Vec<PolyVoice>,
     /// Smoothed spectrum, in the backend's internal band count. `bands()` resamples it to whatever
     /// length the caller asks for.
     bands: [f32; SPECTRUM_BANDS],
@@ -260,6 +326,7 @@ impl AnalysisChannel {
             rms: 0.0,
             peak: 0.0,
             last_seq: 0,
+            poly: Vec::new(),
             bands: [0.0; SPECTRUM_BANDS],
             spectrum: false,
         }
@@ -393,12 +460,48 @@ impl AudioManager {
         }
     }
 
+    /// Like [`tapped`](Self::tapped), but publishes into one **voice slot** of a polyphonic metered
+    /// name instead of the channel's single shared slot.
+    ///
+    /// `meter` is the logical name the game passes to `levels()`; `voice` is the index within that
+    /// name's ring. Slots are created on demand and then reused, so a name that has sounded once
+    /// never allocates again. Returns the source unchanged when `meter` is not analyzed — the same
+    /// pay-nothing rule as `tapped`.
+    pub(super) fn poly_tapped(
+        &mut self,
+        meter: &str,
+        voice: usize,
+        source: Box<dyn Source + Send + 'static>,
+    ) -> Box<dyn Source + Send + 'static> {
+        let Some(channel) = self.analysis.get_mut(meter) else {
+            return source;
+        };
+        while channel.poly.len() <= voice {
+            channel.poly.push(PolyVoice {
+                slot: Arc::new(LevelSlot::default()),
+                last_seq: 0,
+            });
+        }
+        // A wrapped voice reuses its slot, so the tap that owned it previously has already been
+        // dropped with its sink.
+        //
+        // Spectrum is deliberately left OFF on a voice slot. `bands()` reads the channel's own
+        // slot, and summing eight band arrays per window would put a per-voice FFT on the playback
+        // thread to feed an API whose use case (a soundtrack) is not a one-shot. `levels()` is what
+        // a metered one-shot is for; `bands()` reports zeros for one, as it does for any channel
+        // with no spectrum enabled.
+        let slot = Arc::clone(&channel.poly[voice].slot);
+        Box::new(LevelTap::new(source, slot))
+    }
+
     /// Advances every analyzed channel's smoothed levels. Called once per frame from
     /// [`update`](Self::update).
     ///
     /// A channel whose sequence counter has not moved since the last tick is **not producing**
     /// (stopped, drained or paused), so it decays toward silence instead of holding its last
-    /// reading — otherwise a stopped sound leaves its bar pinned at full height.
+    /// reading — otherwise a stopped sound leaves its bar pinned at full height. A polyphonic name
+    /// applies that test **per voice** and sums the ones still sounding
+    /// ([`sum_levels`](crate::audio_analysis::sum_levels)).
     pub(super) fn tick_analysis(&mut self, dt: f32) {
         let release = self.analysis_smoothing;
         let mut raw_bands = [0.0f32; SPECTRUM_BANDS];
@@ -406,7 +509,17 @@ impl AudioManager {
             let (rms, peak, seq) = channel.slot.read();
             let producing = seq != channel.last_seq;
             channel.last_seq = seq;
-            let (target_rms, target_peak) = if producing { (rms, peak) } else { (0.0, 0.0) };
+            let (mut target_rms, mut target_peak) =
+                if producing { (rms, peak) } else { (0.0, 0.0) };
+            if !channel.poly.is_empty() {
+                let single = AudioLevels {
+                    rms: target_rms,
+                    peak: target_peak,
+                };
+                let combined = combine_voices(single, &mut channel.poly);
+                target_rms = combined.rms;
+                target_peak = combined.peak;
+            }
             channel.rms = smooth_toward(channel.rms, target_rms, release, dt);
             channel.peak = smooth_toward(channel.peak, target_peak, release, dt);
 
@@ -523,6 +636,119 @@ mod tests {
         assert!((peak - 1.0).abs() < 1e-5, "peak {peak}");
         assert!(rms < 0.05, "a lone spike should barely move RMS, got {rms}");
         assert!(peak > rms * 10.0);
+    }
+
+    // ─── Metered one-shots (polyphonic metering) ──────────────────────────────
+
+    /// A slot that has published `(rms, peak)` exactly once, as a real tap would.
+    fn published_slot(rms: f32, peak: f32) -> Arc<LevelSlot> {
+        let slot = Arc::new(LevelSlot::default());
+        slot.publish(rms, peak);
+        slot
+    }
+
+    fn voice(rms: f32, peak: f32) -> PolyVoice {
+        PolyVoice {
+            slot: published_slot(rms, peak),
+            last_seq: 0,
+        }
+    }
+
+    #[test]
+    fn consecutive_metered_one_shots_take_different_voices() {
+        // THE property the API exists for: two triggers in a row must not land on the same sink,
+        // because that is what `play_tone_on_channel` does and why it cuts. Different voice index
+        // ⇒ different channel name ⇒ `stop_immediate` never touches the sound already playing.
+        let mut seq = HashMap::new();
+        let first = next_poly_voice(&mut seq, "hit");
+        let second = next_poly_voice(&mut seq, "hit");
+        assert_ne!(
+            first, second,
+            "a replay reused the same voice — it would cut the sound already there"
+        );
+        assert_ne!(
+            poly_voice_channel("hit", first),
+            poly_voice_channel("hit", second)
+        );
+    }
+
+    #[test]
+    fn voices_rotate_and_wrap_at_the_ring_size() {
+        let mut seq = HashMap::new();
+        let voices: Vec<usize> = (0..POLY_VOICES + 2)
+            .map(|_| next_poly_voice(&mut seq, "hit"))
+            .collect();
+        assert_eq!(
+            voices[..POLY_VOICES as usize],
+            (0..POLY_VOICES as usize).collect::<Vec<_>>()
+        );
+        // Bounded, not unbounded: voice 8 reuses slot 0 rather than opening a ninth sink.
+        assert_eq!(voices[POLY_VOICES as usize], 0);
+        assert_eq!(voices[POLY_VOICES as usize + 1], 1);
+    }
+
+    #[test]
+    fn each_name_rotates_independently() {
+        // Two metered names must not share a counter, or one sound's rate would push the other's
+        // voices around and they would start cutting each other.
+        let mut seq = HashMap::new();
+        assert_eq!(next_poly_voice(&mut seq, "hit"), 0);
+        assert_eq!(next_poly_voice(&mut seq, "step"), 0);
+        assert_eq!(next_poly_voice(&mut seq, "hit"), 1);
+        assert_eq!(next_poly_voice(&mut seq, "step"), 1);
+    }
+
+    #[test]
+    fn overlapping_voices_sum_into_one_reading() {
+        // The documented contract: while several voices sound, `levels()` reports their sum. This
+        // is what a single shared slot could not do — `publish` is a plain store, so the reader
+        // would have seen only whichever voice published last.
+        let mut poly = vec![voice(0.2, 0.3), voice(0.1, 0.25)];
+        let combined = combine_voices(AudioLevels::SILENT, &mut poly);
+        assert!((combined.rms - 0.3).abs() < 1e-6, "rms {}", combined.rms);
+        assert!(
+            (combined.peak - 0.55).abs() < 1e-6,
+            "peak {}",
+            combined.peak
+        );
+    }
+
+    #[test]
+    fn a_drained_voice_stops_contributing_while_others_still_sound() {
+        // Staleness is tested per voice, not per name. First tick: both are new, so both count.
+        let mut poly = vec![voice(0.2, 0.2), voice(0.3, 0.3)];
+        let first = combine_voices(AudioLevels::SILENT, &mut poly);
+        assert!((first.rms - 0.5).abs() < 1e-6);
+
+        // Second tick: voice 1 published again (still sounding), voice 0 did not (drained). Only
+        // voice 1 may contribute — a per-name staleness test would have kept voice 0 alive.
+        poly[1].slot.publish(0.3, 0.3);
+        let second = combine_voices(AudioLevels::SILENT, &mut poly);
+        assert!(
+            (second.rms - 0.3).abs() < 1e-6,
+            "a drained voice kept contributing: {}",
+            second.rms
+        );
+    }
+
+    #[test]
+    fn a_summed_reading_is_clamped_to_full_scale() {
+        // Eight loud voices must not push a meter past 1.0 and a bar off screen.
+        let mut poly: Vec<PolyVoice> = (0..POLY_VOICES).map(|_| voice(0.6, 0.9)).collect();
+        let combined = combine_voices(AudioLevels::SILENT, &mut poly);
+        assert_eq!(combined.rms, 1.0);
+        assert_eq!(combined.peak, 1.0);
+    }
+
+    #[test]
+    fn an_ordinary_channel_is_unaffected_by_the_poly_path() {
+        // No voices ⇒ the single reading passes through untouched, so an existing meter behaves
+        // exactly as it did before metered one-shots existed.
+        let single = AudioLevels {
+            rms: 0.42,
+            peak: 0.77,
+        };
+        assert_eq!(combine_voices(single, &mut []), single);
     }
 
     #[test]

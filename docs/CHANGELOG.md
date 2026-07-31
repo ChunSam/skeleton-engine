@@ -4,6 +4,27 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.140.0
+
+**`Audio::play_tone_metered` — a one-shot that overlaps itself *and* can be metered.** Until now a game had to pick one. `play_tone` / `play_tone_on_bus` ride a ring of anonymous voices, so consecutive plays overlap but there is no name for `enable_analysis` to address; `play_tone_on_channel` has a name, but opens with `stop_immediate` and **cuts** whatever that channel was already playing. A rapid-fire sound could be heard properly or measured properly, never both.
+
+That was not a hunch — it was measured. Adopting the metering API in `examples/games/survivor` (0.139.0) hit the constraint, worked around it by leaving the bullet tone unmetered, and documented the workaround in three places. This closes it.
+
+### Added
+- **`Audio::play_tone_metered(meter, freq, dur, vol, bus)`** — plays a tone that overlaps its own previous plays, with `levels(meter)` reporting it. Native rotates a ring of 8 sink channels *private to that meter name*, so the sinks never collide, while pointing every voice's tap at the one meter entry. The channel model is untouched: those voices are ordinary one-sink channels.
+- **`audio_analysis::sum_levels`** — the documented combination policy, in the un-gated shared module.
+
+### Notes for anyone building on it
+- **`levels()` reports the SUM of the sounding voices, clamped to full scale.** Three overlapping hits read louder than one, which is the point of metering them. The choice was not free: the web backend connects every voice to one `AnalyserNode` and Web Audio **mixes** multiple inputs, so a native `max` would have made the two platforms disagree about *meaning* rather than about rounding. Native sums per-voice measurements while the browser measures the summed signal — equivalent, not identical, the same caveat `bands()` carries.
+- **Each voice needs its own publication slot.** Pointing several taps at one slot would race: `LevelSlot::publish` is a plain store, so a reader would see whichever voice published last — neither the sum nor the loudest.
+- **Staleness is tested per voice, not per name.** Otherwise a voice that has drained keeps contributing its last level for as long as any *other* voice is still sounding, and the meter never falls between bursts.
+- **The web backend needed no voice pool.** `play_tone_to` already builds a fresh oscillator per call, so wasm tones never cut each other; the only missing piece was routing each one into the analyser. The asymmetry is real and is why the *policy* lives in `audio_analysis` rather than in either backend.
+- **Limits, on purpose.** The meter name is not a channel: `stop_channel` / `set_low_pass` / `is_channel_playing` do not address it, and `set_effect` does not apply — a sound you need to stop or filter wants a named channel. `bands()` reports zeros for a metered one-shot; a spectrum would cost an FFT per voice to serve an API whose use case is a soundtrack. Eight voices per name, then it wraps and reuses its oldest.
+- **Still a per-sound decision.** Overlap costs a voice, and a sound that repeats slower than it decays gains nothing from this over a named channel.
+
+### Fixed
+- Three `docs/PATTERNS.md` and two `docs/MODULE_MAP.md` references dated the previous release's scene-reset audit **v0.140.0**; it shipped as **v0.139.1**.
+
 ## 0.139.1
 
 **Seven more configuration resources were being silently reverted by a scene reset. `WindowConfig` (0.137.1) was not the only one — it was just the one found by accident.** That fix was prompted by a capstone game losing its clear color; nobody had then asked the obvious follow-up question, which is what *else* `insert_core_resources` inserts that a game sets once and expects to keep. This release is that audit, and its answer.
