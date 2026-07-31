@@ -193,8 +193,10 @@ impl Audio {
     ///
     /// Like [`play_tone`](Self::play_tone) this rides the shared round-robin voice ring, so
     /// consecutive tones overlap — and so it **cannot be metered**
-    /// ([`enable_analysis`](Self::enable_analysis) needs a stable channel name; use
-    /// [`play_tone_on_channel`](Self::play_tone_on_channel) for that).
+    /// ([`enable_analysis`](Self::enable_analysis) needs a stable name). For a tone that overlaps
+    /// *and* is metered use [`play_tone_metered`](Self::play_tone_metered); for one that is
+    /// metered, stoppable and filterable but cuts itself on replay use
+    /// [`play_tone_on_channel`](Self::play_tone_on_channel).
     pub fn play_tone_on_bus(&mut self, freq: f32, dur: f32, vol: f32, bus: &str) {
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -231,6 +233,53 @@ impl Audio {
         {
             self.inner
                 .play_tone_on_channel(channel, freq, dur, vol, bus);
+        }
+    }
+
+    /// Plays a synthesized tone as a **metered one-shot**: it overlaps its own previous plays, and
+    /// `levels(meter)` reports it. Routed through the named mixer `bus`.
+    ///
+    /// This exists because those two properties used to be mutually exclusive, and a game had to
+    /// pick. [`play_tone`](Self::play_tone) / [`play_tone_on_bus`](Self::play_tone_on_bus) overlap
+    /// but ride anonymous voices with no name to meter;
+    /// [`play_tone_on_channel`](Self::play_tone_on_channel) is meterable but **cuts** the sound
+    /// already on its channel, so a rapid-fire sound silences itself. Enable the meter for `meter`
+    /// with [`enable_analysis`](Self::enable_analysis) exactly as for a named channel:
+    ///
+    /// ```rust,no_run
+    /// # use engine::Audio;
+    /// # let mut audio = Audio::new().unwrap();
+    /// audio.enable_analysis("hit");
+    /// audio.play_tone_metered("hit", 150.0, 0.14, 0.4, "sfx");   // ×3 in one frame …
+    /// audio.play_tone_metered("hit", 150.0, 0.14, 0.4, "sfx");   // … none of them cutting
+    /// audio.play_tone_metered("hit", 150.0, 0.14, 0.4, "sfx");   // … and all three metered
+    /// ```
+    ///
+    /// # What `levels` reports
+    ///
+    /// The **sum** of the voices currently sounding, clamped to full scale — three overlapping hits
+    /// read louder than one, which is the point. The web backend gives the same answer structurally
+    /// (every voice feeds one `AnalyserNode`, and Web Audio mixes them), so the two platforms agree
+    /// on meaning; they are equivalent rather than bit-identical, the same caveat
+    /// [`bands`](Self::bands) carries. See `sum_levels` in `audio_analysis` for the full rationale.
+    ///
+    /// # Limits worth knowing
+    ///
+    /// - **`meter` is a meter name, not a channel name.** It is not addressable by
+    ///   [`stop_channel`](Self::stop_channel), [`set_low_pass`](Self::set_low_pass) or
+    ///   [`is_channel_playing`](Self::is_channel_playing) — a one-shot you can cut or filter is a
+    ///   named channel, which is what [`play_tone_on_channel`](Self::play_tone_on_channel) is for.
+    /// - **Eight voices per name**, then it wraps and reuses its oldest — a bound, not a leak.
+    /// - **[`bands`](Self::bands) reports zeros for it.** A spectrum costs an FFT per voice per
+    ///   window, and its use case (a soundtrack) is not a one-shot.
+    pub fn play_tone_metered(&mut self, meter: &str, freq: f32, dur: f32, vol: f32, bus: &str) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.inner.play_tone_poly(meter, freq, dur, vol, bus);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.inner.play_tone_metered(meter, freq, dur, vol, bus);
         }
     }
 
@@ -465,16 +514,21 @@ impl Audio {
     ///
     /// Any channel with a stable name: [`MUSIC_CHANNEL`](Self::MUSIC_CHANNEL), and the named
     /// channels from [`play_tone_on_channel`](Self::play_tone_on_channel) /
-    /// [`play_at_on_channel`](Self::play_at_on_channel).
+    /// [`play_at_on_channel`](Self::play_at_on_channel) — plus the meter name of a metered one-shot
+    /// ([`play_tone_metered`](Self::play_tone_metered)).
     ///
     /// **Not** the fire-and-forget one-shots — [`play_sfx`](Self::play_sfx),
     /// [`play_sfx_on_bus`](Self::play_sfx_on_bus), [`play_tone`](Self::play_tone) and
     /// [`play_tone_on_bus`](Self::play_tone_on_bus) *all* round-robin the same ring of 16 anonymous
-    /// voices on native, so none of them has a name to address. Moving a sound onto a named channel
-    /// to meter it is a real trade-off, not a free rename: a replay on a named channel **cuts** the
-    /// sound already there, where the anonymous ring lets consecutive one-shots overlap. Pick per
-    /// sound — `examples/games/survivor` meters its kill tone and deliberately leaves its
-    /// rapid-fire bullet tone on the ring.
+    /// voices on native, so none of them has a name to address.
+    ///
+    /// Moving a *tone* onto a named channel to meter it used to be a real trade-off rather than a
+    /// free rename — a replay on a named channel **cuts** the sound already there, where the
+    /// anonymous ring lets consecutive one-shots overlap.
+    /// [`play_tone_metered`](Self::play_tone_metered) removes that choice: it overlaps *and* is
+    /// metered. Reach for it when a sound repeats faster than it decays; a named channel is still
+    /// the right answer when you also need to stop, filter or query the sound. Clips
+    /// ([`play_sfx`](Self::play_sfx)) still face the original trade-off.
     pub fn enable_analysis(&mut self, channel: &str) {
         self.inner.enable_analysis(channel);
     }

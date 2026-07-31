@@ -73,6 +73,7 @@ impl AudioManager {
                 sidechains: Vec::new(),
                 analysis: super::analysis::new_analysis_map(),
                 analysis_smoothing: super::analysis::DEFAULT_SMOOTHING,
+                poly_seq: HashMap::new(),
             }),
             Err(e) => {
                 log::warn!("Audio initialization failed (running without audio): {e}");
@@ -214,6 +215,47 @@ impl AudioManager {
         let source = self.tapped(channel, source);
         sink.append(source);
         self.sinks.insert(channel.to_string(), sink);
+    }
+
+    /// Plays a tone as a **metered one-shot**: it overlaps its own previous plays like a
+    /// fire-and-forget `play_tone`, yet `levels(meter)` reports it.
+    ///
+    /// Those two properties used to be mutually exclusive. The anonymous ring behind `play_tone`
+    /// overlaps but has no stable name to meter, while [`play_tone`](Self::play_tone) on a named
+    /// channel is meterable but opens with `stop_immediate`, cutting the sound already there. This
+    /// rotates a ring of `POLY_VOICES` channels **private to `meter`** — so the sinks never
+    /// collide — while pointing every voice's tap at `meter`'s single meter entry.
+    ///
+    /// While more than one voice is sounding, `levels(meter)` reports their **sum**, clamped to
+    /// full scale (see [`sum_levels`](crate::audio_analysis::sum_levels) for why sum and not max).
+    ///
+    /// Per-channel effects (`set_effect`'s pitch / low-pass / attack) do **not** apply: the voice
+    /// channels are internal names a game cannot address, and the web backend's fire-and-forget
+    /// tone path has no filter either. Use a named channel when you need those.
+    pub fn play_tone_poly(
+        &mut self,
+        meter: &str,
+        freq: f32,
+        duration_secs: f32,
+        volume: f32,
+        bus: &str,
+    ) {
+        let voice = super::analysis::next_poly_voice(&mut self.poly_seq, meter);
+        let channel = super::analysis::poly_voice_channel(meter, voice);
+        self.assign_bus(&channel, bus);
+        // Wrapping the ring reuses this voice, cutting whatever it still held — the same bound the
+        // anonymous ring uses to keep the sink count finite.
+        self.stop_immediate(&channel);
+        let sink = Player::connect_new(self.stream.mixer());
+        sink.set_volume(self.effective_volume(&channel));
+        let source: Box<dyn Source + Send + 'static> = Box::new(SamplesBuffer::new(
+            TONE_CHANNELS,
+            TONE_RATE,
+            enveloped_tone_samples(freq, duration_secs, volume),
+        ));
+        let source = self.poly_tapped(meter, voice, source);
+        sink.append(source);
+        self.sinks.insert(channel, sink);
     }
 
     /// Advances all active fades, duck/sidechain animations and level meters. Called every frame

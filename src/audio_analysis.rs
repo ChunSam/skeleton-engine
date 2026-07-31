@@ -20,6 +20,41 @@
 /// [`Audio::MUSIC_CHANNEL`](crate::Audio::MUSIC_CHANNEL).
 pub const MUSIC_CHANNEL: &str = "__facade_music";
 
+/// Combines the simultaneously-sounding voices of one **metered one-shot** name into a single
+/// reading: their **sum**, clamped to full scale.
+///
+/// # Why sum, and why this lives here
+///
+/// A metered one-shot (`Audio::play_tone_metered`) lets the same name sound several times at once
+/// instead of cutting itself off, so `levels()` has to answer "how loud is that name *right now*"
+/// from more than one voice. Sum is the honest answer to that question — three overlapping hits
+/// really are louder than one, and a game driving a shake or a flash wants that to show.
+///
+/// It is also the answer the web backend gives whether we like it or not: every voice connects to
+/// the same `AnalyserNode`, and Web Audio mixes multiple inputs into one node. Choosing max on
+/// native would make the two backends disagree about *meaning*, not just about rounding. So the
+/// policy is stated once, here, un-gated — the same reason [`MUSIC_CHANNEL`] is.
+///
+/// Native calls this to combine its per-voice taps. Wasm does not: the browser has already summed
+/// the voices in the graph before the analyser sees them, so it reads one mixed signal. The two are
+/// **equivalent, not identical** — native sums per-voice measurements while the browser measures
+/// the summed signal, which differ when voices interfere. Drive visuals with them, not checksums.
+/// (Same caveat `bands()` carries.)
+///
+/// Clamping matters: three voices at 0.6 sum to 1.8, and a meter reading past full scale would
+/// push a bar off screen. The per-voice taps already clamp individually for the same reason.
+pub fn sum_levels(voices: impl IntoIterator<Item = AudioLevels>) -> AudioLevels {
+    let mut total = AudioLevels::SILENT;
+    for v in voices {
+        total.rms += v.rms;
+        total.peak += v.peak;
+    }
+    AudioLevels {
+        rms: total.rms.min(1.0),
+        peak: total.peak.min(1.0),
+    }
+}
+
 /// Default release time constant for the meter smoothing, in seconds.
 ///
 /// Used unless a game calls `set_analysis_smoothing`. Chosen so a meter falls visibly but without
@@ -332,6 +367,47 @@ mod tests {
         assert_eq!(out, [0.0; 4], "no source data reads as silence");
         let mut none: [f32; 0] = [];
         resample_bands(&[0.5; SPECTRUM_BANDS], &mut none); // must not panic
+    }
+
+    #[test]
+    fn summing_voices_adds_them_rather_than_taking_the_loudest() {
+        // The decision this function exists to pin down. Max would report 0.5 here; sum reports
+        // 0.9, and the difference is the whole reason a metered one-shot is worth having — three
+        // overlapping hits should read louder than one.
+        let combined = sum_levels([
+            AudioLevels {
+                rms: 0.5,
+                peak: 0.6,
+            },
+            AudioLevels {
+                rms: 0.4,
+                peak: 0.2,
+            },
+        ]);
+        assert!((combined.rms - 0.9).abs() < 1e-6, "rms {}", combined.rms);
+        assert!((combined.peak - 0.8).abs() < 1e-6, "peak {}", combined.peak);
+    }
+
+    #[test]
+    fn a_sum_past_full_scale_is_clamped() {
+        let combined = sum_levels(
+            [AudioLevels {
+                rms: 0.7,
+                peak: 0.9,
+            }; 3],
+        );
+        assert_eq!(combined.rms, 1.0);
+        assert_eq!(combined.peak, 1.0);
+    }
+
+    #[test]
+    fn summing_one_voice_or_none_is_the_identity_or_silence() {
+        let one = AudioLevels {
+            rms: 0.3,
+            peak: 0.45,
+        };
+        assert_eq!(sum_levels([one]), one);
+        assert_eq!(sum_levels([]), AudioLevels::SILENT);
     }
 
     #[test]

@@ -99,6 +99,9 @@ pub struct AudioManager {
     analysis: HashMap<String, analysis::AnalysisChannel>,
     /// Meter release time in seconds, shared by every analyzed channel.
     analysis_smoothing: f32,
+    /// Metered-one-shot name → its next voice index (see `play_tone_poly`). One counter per name,
+    /// unlike the facade's single ring counter shared by every fire-and-forget sound.
+    poly_seq: HashMap<String, u64>,
 }
 
 // ─── AudioSystem ──────────────────────────────────────────────────────────────

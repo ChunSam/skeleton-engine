@@ -299,12 +299,12 @@ the default 1280×720 (fixed in v0.137.1 — see the CHANGELOG).
 | `TextMeasurer` | lazily built after a one-time system-font scan; re-paying it per scene is waste |
 | `InputScript` | a scripted run must not be cancelled by a scene change |
 | the 7 RON registries | `DataTable` / `AnimationClip` / `ParticleConfig` / `Dialogue` / `TriggerZone` / `ZoneEffect` / `AnimEffect` |
-| `FocusRingStyle` · `StickNavConfig` · `FrameConfig` | engine-inserted config a game overrides once; the audit below (v0.140.0) |
+| `FocusRingStyle` · `StickNavConfig` · `FrameConfig` | engine-inserted config a game overrides once; the audit below (v0.139.1) |
 | `DesignResolution` · `WindowOptions` · `LightingConfig` · `DialogueStyle` | engine-*defined* config the **game** inserts; same audit |
 
 (`DebugUi` is also carried across, by hand inside `reload_scene` rather than through the registry.)
 
-#### The audit — done once, so it does not need doing again (v0.140.0)
+#### The audit — done once, so it does not need doing again (v0.139.1)
 
 `WindowConfig` was found by accident, after the engine had routed around it twice. All 27 resources
 `insert_core_resources` inserts were then classified against the session-vs-scene test below, plus
@@ -350,7 +350,7 @@ world from taking turns at all.
 > everything a game happens to insert would empty the mechanism of meaning.
 >
 > One of the listed triggers — *"another engine-inserted config type turns out to be dropped the
-> way `WindowConfig` was"* — fired in the v0.140.0 audit above: **seven** did. And the fix drew a
+> way `WindowConfig` was"* — fired in the v0.139.1 audit above: **seven** did. And the fix drew a
 > new line that weakens the original argument, because four of the seven are inserted by the
 > **game**, not the engine. Who inserts it turned out not to be the distinction that matters; the
 > distinction is whether the **engine defines the type and only reads it**.
