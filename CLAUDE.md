@@ -1,6 +1,6 @@
 # CLAUDE.md — skeleton-engine agent reference
 
-> Version v1.6.243 | package `skeleton-engine` v0.141.0, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
+> Version v1.6.244 | package `skeleton-engine` v0.141.1, library crate `engine` | wgpu-based Rust 2D game engine (wgpu 29, MSRV 1.95, CI pin Rust 1.95.0) | **Cargo workspace** (members `.` + `engine_reflect_derive` proc-macro)  
 > WASM support: `cargo build --target wasm32-unknown-unknown` passes; an example ships to the web via `cargo build --example` + `wasm-bindgen` (see `examples/games/coin_race/web/`)  
 > **Where is X? → `docs/MODULE_MAP.md`** (grep it) | Full API: `REFERENCE.html` | dev history / architecture decisions: `docs/HANDOFF.md`  
 > **Versioning: pre-1.0 (0.x)** — MINOR = any release (incl. breaking), PATCH = bugfix; 1.0.0 later. (Reset from 10.7.0, 2026-06-17, pre-publish — see CHANGELOG 0.11.0.)
@@ -90,9 +90,11 @@ Detailed in **`docs/PATTERNS.md`**:
   (no lock/alloc in `Source::next`; a stoppable producer needs a liveness counter or it freezes),
   **surviving a scene reset** (a scene swap rebuilds the `World`; a resource not registered via
   `register_persistent` is silently replaced by the engine default — `WindowConfig`/`SceneTransition`/
-  `TextMeasurer`/`InputScript`/the 7 RON registries are automatic, **but `Audio` and anything else a
-  game inserts is the game's job**; lose `Audio` and the device dies quietly. Includes the standing
-  decision to leave that game-side and what would reopen it).
+  `TextMeasurer`/`InputScript`/the 7 RON registries, the v0.139.1 config family and **`Audio`**
+  (v0.141.1) are automatic, **but a type the game itself defines is the game's job**. Line:
+  auto-persist what the engine defines and only reads, whoever inserts it — plus `Audio`, which the
+  engine drives but which owns an OS device handle. Includes the v0.139.1 audit's negative result
+  (the 20 that are correctly scene state, so it is not re-run) and what would reopen `Audio`).
 - **Task recipes** — adding a component / system / resource / event, and scene transitions.
 
 ---

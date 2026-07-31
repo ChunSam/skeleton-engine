@@ -4,6 +4,26 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.141.1
+
+**`Audio` now survives a scene reset without the game asking.** `App::new` registers it as persistent, so inserting the resource is enough — the two examples that were hand-rolling `register_persistent::<Audio>()` (`settings_menu`, `beat_crawler`) no longer do. This closes a decision that had been deferred rather than taken, and whose stated reopen trigger fired in 0.139.1.
+
+The deferral's argument was that `Audio` is inserted *by the game*, so persisting it would mean auto-persisting anything a game happens to insert. The 0.139.1 audit found seven config resources being silently dropped and **four of them are game-inserted** — so who inserts a type was never the distinction that mattered. The line that audit settled on is whether the *engine* defines the type; a type the game defines is still the game's job.
+
+`Audio` is the one entry that line does not reach cleanly, because `AudioFacadeSystem` drives it every frame rather than reading it as config. It is registered anyway, because it owns an **OS output device handle** rather than a value — which `docs/PATTERNS.md` already classified as session state — and because its failure mode is the worst in the set: losing it does not revert a value, it takes the device, so audio dies with no error and an `Audio`-clocked game stops progressing entirely.
+
+**No breaking change.** A game that still calls `register_persistent::<Audio>()` is unaffected — the call is idempotent.
+
+### Fixed
+- **`App::new` registers `Audio` as a persistent resource.** A `SceneCmd::Replace` no longer drops the audio device on games that did not know to ask.
+
+### Changed
+- **`examples/games/settings_menu` and `examples/games/beat_crawler` drop their hand-rolled `register_persistent::<Audio>()`.** `beat_crawler` is the example that motivated the change: its turn clock *is* `Audio::bands()`, so a dropped `Audio` did not merely mute it — the world stopped taking turns.
+- **`docs/PATTERNS.md`'s "Surviving a scene reset" block is rewritten as decided rather than pending**, and records what would reopen it: a game that genuinely wants a per-scene device teardown, which would get an opt-out rather than a revert to the footgun.
+
+### Notes
+- The regression test (`audio_is_registered_to_survive_a_scene_reset`, `src/app.rs`) asserts on the **registration**, not on a surviving instance. `Audio::new()` opens a real output device and returns `None` where there is none, which is every CI runner; the preservation mechanism itself is already covered by the eight resource round-trip tests beside it. Confirmed to fail without the one-line fix.
+
 ## 0.141.0
 
 **`examples/games/survivor` adopts `play_tone_metered`, which retires the workaround it was the reason for.** This is 0.140.0's acceptance test in the `docs/VISION.md` sense — the feature is not done until an example exercises it in real play — and it closes a loop that opened two releases ago: the game hit the constraint, the constraint became an API, the game now uses the API.

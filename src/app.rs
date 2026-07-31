@@ -326,6 +326,18 @@ impl App {
         app.register_persistent::<crate::resources::LightingConfig>();
         app.register_persistent::<crate::dialogue::DialogueStyle>();
 
+        // `Audio` is the one member of this list the engine *drives* rather than reads —
+        // `AudioFacadeSystem` pumps it every frame — and it owns an OS output device instead of a
+        // value. That is why it sat outside the audit's line ("engine-defined config engine code
+        // only ever reads") and stayed the game's job for several releases. The v0.139.1 audit
+        // settled it the other way: seven config types were being dropped the same way and four of
+        // them are game-inserted, so *who inserts it* was never the distinction. A device handle is
+        // the textbook session state `docs/PATTERNS.md` already tells games to register, and the
+        // failure mode is the worst in the family — losing this one does not revert a value, it
+        // takes the output device with it. Audio then dies silently, and a game that clocks itself
+        // off `Audio::bands()` (`examples/games/beat_crawler`) stops progressing at all.
+        app.register_persistent::<crate::audio_facade::Audio>();
+
         app
     }
 
@@ -601,6 +613,22 @@ mod tests {
         assert_eq!(
             style.body_font_size, 31.0,
             "scene reset reverted the game's dialogue box styling"
+        );
+    }
+
+    #[test]
+    fn audio_is_registered_to_survive_a_scene_reset() {
+        // The one member of the family that cannot assert on a surviving *instance*: `Audio::new()`
+        // opens an OS output device and returns `None` where there is none, which is every CI
+        // runner. So the assertion is on the registration itself — which is precisely what was
+        // missing, and it fails without the `register_persistent` call in `App::new`. The
+        // preservation mechanism it opts into is already proven by the eight tests above.
+        let app = App::new();
+        assert!(
+            app.persistent_resources
+                .contains(&std::any::TypeId::of::<crate::audio_facade::Audio>()),
+            "Audio is not registered as persistent — a scene reset drops the output device, so \
+             audio dies silently and an Audio-clocked game stops taking turns"
         );
     }
 

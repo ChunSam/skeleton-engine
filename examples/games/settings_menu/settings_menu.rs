@@ -11,8 +11,9 @@
 //! key; clicking a language button calls `LocaleResource::set_locale` and the whole
 //! UI retranslates next frame with no manual rebuild.
 //!
-//! Cross-scene state (`Settings`, the locale, and the cross-platform `Audio`) is kept
-//! across the `SceneCmd::Replace` world reset via `App::register_persistent`.
+//! Cross-scene state (`Settings` and the locale) is kept across the `SceneCmd::Replace`
+//! world reset via `App::register_persistent`. `Audio` needs no such call — the engine
+//! registers it in `App::new` (v0.141.1).
 
 use engine::{
     Anchor, App, Audio, Button, CheckBox, Color, Entity, Events, GameState, ImeConfig, InputState,
@@ -982,14 +983,14 @@ fn main() {
     app.register_persistent::<Settings>();
     app.register_persistent::<LocaleResource>();
 
-    // Cross-platform audio via the Audio facade: two buses (music / sfx) preserved across scene
-    // resets. The facade assigns each tone to its bus per call (play_tone_on_channel / _on_bus),
-    // so only the bus volumes are set here. Works the same on native and web — no cfg guards.
+    // Cross-platform audio via the Audio facade: two buses (music / sfx), preserved across scene
+    // resets by the engine itself (`App::new` registers `Audio` as persistent). The facade assigns
+    // each tone to its bus per call (play_tone_on_channel / _on_bus), so only the bus volumes are
+    // set here. Works the same on native and web — no cfg guards.
     if let Some(mut audio) = Audio::new() {
         audio.set_bus_volume("music", 0.6);
         audio.set_bus_volume("sfx", 0.6);
         app.world.insert_resource(audio);
-        app.register_persistent::<Audio>();
     }
 
     app.set_scene(Box::new(TitleScene::new()));

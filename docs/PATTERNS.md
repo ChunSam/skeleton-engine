@@ -301,6 +301,7 @@ the default 1280×720 (fixed in v0.137.1 — see the CHANGELOG).
 | the 7 RON registries | `DataTable` / `AnimationClip` / `ParticleConfig` / `Dialogue` / `TriggerZone` / `ZoneEffect` / `AnimEffect` |
 | `FocusRingStyle` · `StickNavConfig` · `FrameConfig` | engine-inserted config a game overrides once; the audit below (v0.139.1) |
 | `DesignResolution` · `WindowOptions` · `LightingConfig` · `DialogueStyle` | engine-*defined* config the **game** inserts; same audit |
+| `Audio` | an OS output device handle, not a value — losing it kills audio silently (v0.141.1; see below) |
 
 (`DebugUi` is also carried across, by hand inside `reload_scene` rather than through the registry.)
 
@@ -330,40 +331,44 @@ correct, not an oversight.
 The line the audit settled on: **auto-persist a type the engine defines and only ever reads**
 (no production path mutates one), whoever inserts it. That is what lets the four game-inserted
 types above be covered — `register_persistent` on an absent resource is free, because
-`reload_scene` skips types it does not find.
+`reload_scene` skips types it does not find. **A type the *game* defines is still the game's own
+job**; that is what keeps the mechanism meaningful.
 
-**Everything a game inserts itself is the game's responsibility**, and the one that bites is
-**`Audio`**: lose it and the device handle goes with it, so music stops and any audio-driven logic
-stops with it — silently. Register it at setup:
+**`Audio` is auto-persisted too, as of v0.141.1** — a game no longer writes
+`register_persistent::<Audio>()`, and the two examples that used to (`settings_menu`,
+`beat_crawler`) have had the call deleted. Inserting the resource is enough:
 
 ```rust
-app.register_persistent::<Audio>();   // precedent: examples/games/settings_menu
+if let Some(audio) = Audio::new() {
+    world.insert_resource(audio);   // survives a scene reset; no registration needed
+}
 ```
 
-`examples/games/beat_crawler` needs this for a sharper reason than most: its **turn clock** is
-`Audio::bands()`, so dropping the resource would not merely mute the game — it would stop the
-world from taking turns at all.
+`examples/games/beat_crawler` is why: its **turn clock** is `Audio::bands()`, so dropping the
+resource would not merely mute the game — it would stop the world from taking turns at all.
 
-> **Known rough edge, still not fixed — but its reopen trigger has now fired (2026-07-31).**
-> "Forget one line and audio silently dies" is the same class of footgun `WindowConfig` was. It was
-> left game-side because `Audio` is inserted *by the game*, not the engine, and auto-persisting
-> everything a game happens to insert would empty the mechanism of meaning.
+> **Decided 2026-07-31 (v0.141.1), after the trigger fired.** `Audio` had been left game-side on
+> the argument that it is inserted *by the game*, and that auto-persisting everything a game
+> happens to insert would empty the mechanism of meaning. One of that deferral's stated triggers —
+> *"another engine-inserted config type turns out to be dropped the way `WindowConfig` was"* —
+> fired in the v0.139.1 audit above: **seven** did, and **four of the seven are game-inserted**. So
+> *who inserts it* was never the distinction; the audit's line is whether the **engine defines the
+> type**, and a game's own types are still its own business.
 >
-> One of the listed triggers — *"another engine-inserted config type turns out to be dropped the
-> way `WindowConfig` was"* — fired in the v0.139.1 audit above: **seven** did. And the fix drew a
-> new line that weakens the original argument, because four of the seven are inserted by the
-> **game**, not the engine. Who inserts it turned out not to be the distinction that matters; the
-> distinction is whether the **engine defines the type and only reads it**.
+> `Audio` is the one entry that line does not reach cleanly, because `AudioFacadeSystem` *drives*
+> it every frame rather than reading it as config. It is registered anyway, on the rule stated
+> below: it owns an **OS device handle**, which is session state by definition. Its failure mode is
+> also the worst in the set — losing it does not revert a value, it takes the device, so audio dies
+> with no error and an `Audio`-clocked game stops progressing.
 >
-> `Audio` sits just outside that line: the engine defines it, but `AudioFacadeSystem` *drives* it
-> every frame rather than reading it as config, and it owns an OS device handle rather than a
-> value. That is a real difference, not a dodge — but it is thinner than the original "the game
-> inserted it" argument, and it is now the only thing holding the decision open.
+> **What would reopen this:** a game that genuinely wants its audio device torn down and rebuilt
+> per scene. None has; both engine examples that use `Audio` across scenes were already
+> hand-rolling the registration, which is what settled it. If one appears, the answer is an opt-out
+> (`App` builder flag) rather than reverting to the footgun.
 >
-> **This is a decision to take deliberately, not to let drift.** Left unchanged here on purpose:
-> the audit that fired the trigger is its own change, and folding an `Audio` behaviour change into
-> it would bury the question. The fix, if it comes, is still one line in `App::new` plus a
-> regression test — the same shape as v0.137.1.
+> The regression test is `audio_is_registered_to_survive_a_scene_reset` in `src/app.rs`. It asserts
+> on the *registration*, not on a surviving instance, because `Audio::new()` opens a real device
+> and returns `None` on every CI runner.
 
 **When adding a resource, ask which kind it is:** *scene state* (dies with the scene — correct) or
 *session state* (config, device handles, caches, cross-scene progress — must be registered). If it
