@@ -945,11 +945,9 @@ fn main() {
         audio.enable_spectrum(BEAT_CHANNEL);
         app.world.insert_resource(audio);
     }
-
-    // The `World` reset on the first scene enter drops every non-persistent resource, so without
-    // this the audio device — and with it the turn clock — would silently vanish the moment the
-    // scene starts. Same precedent as `examples/games/settings_menu`.
-    app.register_persistent::<Audio>();
+    // No `register_persistent::<Audio>()` here: the engine registers it in `App::new` (v0.141.1).
+    // This example is why that had to stop being the game's job — its turn clock *is* the audio
+    // device, so a dropped `Audio` would not merely mute it, the world would stop taking turns.
 
     app.add_system(AudioFacadeSystem); // ticks the meters (and native fades/ducks)
     app.set_scene(Box::new(CrawlScene));
