@@ -4,6 +4,29 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.142.0
+
+**`examples/games/beat_crawler` now runs its turn clock off a real mixed soundtrack instead of two tones chosen to be trivially separable.** The old version played a 110 Hz kick and an 880 Hz blip and asserted they were far apart in the low band — measured 4.00 vs 0.61, 6.5× — which is a test that cannot fail. This is the first case where the low-band detector could genuinely be wrong, and it was: three separate things had to be fixed before the example worked.
+
+The track ships as `examples/games/beat_crawler/assets/soundtrack.wav`, synthesized from scratch by the `soundtrack.py` beside it (sine arithmetic and a seeded PRNG — CC0, no sample pack), the same provenance rule as `src/audio/fixtures/README.md`. It is PCM rather than Ogg because the loop has to be sample-exact.
+
+### What the mix broke, and what fixed it
+
+- **Metering died after the first loop.** Shipped separately as **0.141.2** — the analysis tap sat inside `repeat_infinite`'s buffer. Without that fix this example cannot work at all.
+- **The first arrangement made the kick undetectable.** With the bass on C2/F2/G2, every low band sat pinned at full scale and the kick's transient vanished into it; **no threshold worked** — every setting fired on bass wobble. Moving the bass up an octave is what a real mix does for the same reason, and it leaves the two separable without separating them.
+- **`AudioFacadeSystem` was never running.** Registered on the `App` *before* `set_scene`, and `SceneCmd::Replace` swaps out the entire systems list — so the system that ticks `Audio::update` was silently dropped, `bands()` returned `0.000` forever, and the game ran permanently on `BEAT_WATCHDOG`'s schedule fallback. This predates the soundtrack: the example's headline feature was not actually running in the playable game, and the only symptom was the HUD reading "schedule (nothing heard)". It is now registered by `CrawlScene::on_enter`, so the ordering cannot be got wrong again.
+
+### Changed
+- **`LOW_BANDS` 4 → 2.** Measured per layer: the kick owns bands 0–1, the bass saturates 2–6. Summing a saturated band adds a constant, not information.
+- **`KICK_THRESHOLD` 1.2 → 1.6**, mid-plateau: over 7 bars the correct count (28) and spacing (0.640 s, sd 0.03) hold anywhere in 1.45–1.95.
+- **Arm/re-arm replaced by a retrigger cooldown (`KICK_COOLDOWN = 0.40`).** **This is the second independent confirmation of 0.139.0's finding** — `examples/games/survivor` hit it first, on a completely different signal. A rising-edge latch assumes silence between events; a mix has none, so the low band never falls back far enough to re-arm honestly. Measured over the same 7 bars: arm/re-arm 31 fires with gap sd 0.16 s, cooldown exactly 28 at sd 0.03 s.
+- **`BEAT_CRAWLER_SELFTEST=1` asserts the real question.** It no longer measures two tones; it runs the game's own detector against the mix and asserts the kicks are found at the spacing the music actually has. Exit `5` now means "detections did not land on the beat grid". Measured: **16 kicks over 4 bars, mean gap 0.638 s against a 0.640 s grid, 15/15 on-grid.**
+- `PATTERN` no longer plays anything — the audible groove is the `.wav`. It survives as the watchdog's schedule and as the written description of the bar.
+
+### Notes
+- **A timing trap worth knowing:** the first measurement loop paced itself with `t += 1.0/60.0`. `sleep(1/60)` sleeps *at least* 1/60, so that clock runs slower than the music and every measured gap came out ~28% short — which made a correct detector look like it was over-firing by 40%. All timings here come off `Instant`.
+- Headless `ENGINE_CAPTURE` runs still show "schedule (nothing heard)": frames run far faster than sound, so game time outruns real audio and the watchdog necessarily drives them. That is the documented behaviour, not a regression. Real-time behaviour is what the selftest covers.
+
 ## 0.141.2
 
 **Metering a looping sound went dead after its first pass.** `levels()` and `bands()` reported a live signal for one play-through of a looped source and then flat zeros forever — while the sound kept playing, audibly, with `is_channel_playing` still `true`. This hit `play_music` (whose whole point is that `Audio::MUSIC_CHANNEL` is meterable) and `play_at_on_channel`. Any game driving visuals or logic off a looping track saw the effect run for a few seconds and then quietly stop.
