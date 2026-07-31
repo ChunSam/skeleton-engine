@@ -1,7 +1,7 @@
 # Detailed agent operating rules
 
-This document supplements the quick checklist in `AGENTS.md` with detailed operating
-rules. Keep `AGENTS.md` under 200 lines; when detailed rules grow long, split them into
+This document supplements the quick checklist in `CLAUDE.md` with detailed operating
+rules. Keep `CLAUDE.md` under 200 lines; when detailed rules grow long, split them into
 this document or a separate `docs/*.md`.
 
 ## 1. Default workflow
@@ -49,7 +49,7 @@ Choose verification to match the change scope.
 
 | Change type | Recommended verification |
 | --- | --- |
-| Docs only | Check links, doc structure, and that `AGENTS.md` is under 200 lines |
+| Docs only | Check links, doc structure, and that `CLAUDE.md` is under 200 lines |
 | Single-module logic | Related unit tests or `cargo test <module_or_test>` |
 | Public API/example impact | Related tests + confirm examples still compile |
 | Rendering/platform impact | `cargo build` where possible, and a WASM build check if needed |
@@ -65,9 +65,9 @@ When public API, usage, examples, or release notes are affected, update docs alo
 - User getting-started steps, requirements, or check commands: `README.md`
 - Changes visible to release users: `docs/CHANGELOG.md`
 - Dev history, architecture decisions, handoff notes: `docs/HANDOFF.md`
-- Agent operating rules: `AGENTS.md` summary + details in this document
+- Agent operating rules: `CLAUDE.md` summary + details in this document
 
-Content that could push `AGENTS.md` over 200 lines goes into a new `docs/*.md`, with only a one-line summary and link added to `AGENTS.md`.
+Content that could push `CLAUDE.md` over 200 lines goes into a new `docs/*.md`, with only a one-line summary and link added to `CLAUDE.md`.
 
 ## 6. Verification scope
 

@@ -1,7 +1,7 @@
 # Core architecture & task patterns
 
-Detailed engine patterns and task recipes, extracted from `CLAUDE.md` / `AGENTS.md` to
-keep those quick-reference files under 200 lines. Both reference this document.
+Detailed engine patterns and task recipes, extracted from `CLAUDE.md` to keep that
+quick-reference file under 200 lines. It references this document.
 
 ---
 
