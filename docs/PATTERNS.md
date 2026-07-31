@@ -299,8 +299,38 @@ the default 1280×720 (fixed in v0.137.1 — see the CHANGELOG).
 | `TextMeasurer` | lazily built after a one-time system-font scan; re-paying it per scene is waste |
 | `InputScript` | a scripted run must not be cancelled by a scene change |
 | the 7 RON registries | `DataTable` / `AnimationClip` / `ParticleConfig` / `Dialogue` / `TriggerZone` / `ZoneEffect` / `AnimEffect` |
+| `FocusRingStyle` · `StickNavConfig` · `FrameConfig` | engine-inserted config a game overrides once; the audit below (v0.140.0) |
+| `DesignResolution` · `WindowOptions` · `LightingConfig` · `DialogueStyle` | engine-*defined* config the **game** inserts; same audit |
 
 (`DebugUi` is also carried across, by hand inside `reload_scene` rather than through the registry.)
+
+#### The audit — done once, so it does not need doing again (v0.140.0)
+
+`WindowConfig` was found by accident, after the engine had routed around it twice. All 27 resources
+`insert_core_resources` inserts were then classified against the session-vs-scene test below, plus
+the engine-defined config types a game inserts itself. **The result is in the table above: seven
+more were being silently reverted, all with the same one-line fix.** Each has a regression test in
+`src/app.rs` that was confirmed to fail before the fix.
+
+The other 20 are correctly scene state, and this is the negative result worth keeping so nobody
+re-runs the audit:
+
+| Group | Members | Why resetting is right |
+|---|---|---|
+| Device / derived state | `InputState`, `GamepadState`, `TouchState`, `RealDt`, `ViewportSize`, `PendingResize` | Rewritten from a live source every frame; self-heals on the next tick |
+| Per-frame draw queues | `TextQueue`, `UiQueue`, `UiImageQueue`, `DebugDraw` | Cleared and refilled every frame |
+| Scene-scoped state | `GameState`, `Camera`, `UiFocus`, `SelectedEntity`, `ProfilerData`, `SceneChange`, `LoadProgress`, `ShouldQuit` | Per-scene by definition; several hold `Entity` ids from the destroyed world |
+| Rebuilt by another mechanism | `AssetServer`, `ScriptRegistry`, `SerdeComponentRegistry`, `PanickedSystems` | Path-keyed caches (a reset costs a re-load, not wrongness), or re-registered by `reload_scene` itself |
+
+**`TimeScale` is the one deliberate exclusion.** It is engine-inserted config-shaped state, but it
+is a *live gameplay effect* (hit-stop, slow-mo) that games drive moment-to-moment — a frozen or
+slowed **old** scene leaking into the next one is the worse bug. Resetting it to `1.0` per scene is
+correct, not an oversight.
+
+The line the audit settled on: **auto-persist a type the engine defines and only ever reads**
+(no production path mutates one), whoever inserts it. That is what lets the four game-inserted
+types above be covered — `register_persistent` on an absent resource is free, because
+`reload_scene` skips types it does not find.
 
 **Everything a game inserts itself is the game's responsibility**, and the one that bites is
 **`Audio`**: lose it and the device handle goes with it, so music stops and any audio-driven logic
@@ -314,13 +344,26 @@ app.register_persistent::<Audio>();   // precedent: examples/games/settings_menu
 `Audio::bands()`, so dropping the resource would not merely mute the game — it would stop the
 world from taking turns at all.
 
-> **Known rough edge, deliberately not fixed (2026-07-30).** "Forget one line and audio silently
-> dies" is the same class of footgun `WindowConfig` was. It was left game-side because `Audio` is
-> inserted *by the game*, not the engine, and auto-persisting everything a game happens to insert
-> would empty the mechanism of meaning. **Revisit if any of these fire:** a third game hits it, a
-> bug report traces to it, or another engine-inserted config type turns out to be dropped the way
-> `WindowConfig` was. The fix, if it comes, is one line in `App::new` plus a regression test — the
-> same shape as v0.137.1.
+> **Known rough edge, still not fixed — but its reopen trigger has now fired (2026-07-31).**
+> "Forget one line and audio silently dies" is the same class of footgun `WindowConfig` was. It was
+> left game-side because `Audio` is inserted *by the game*, not the engine, and auto-persisting
+> everything a game happens to insert would empty the mechanism of meaning.
+>
+> One of the listed triggers — *"another engine-inserted config type turns out to be dropped the
+> way `WindowConfig` was"* — fired in the v0.140.0 audit above: **seven** did. And the fix drew a
+> new line that weakens the original argument, because four of the seven are inserted by the
+> **game**, not the engine. Who inserts it turned out not to be the distinction that matters; the
+> distinction is whether the **engine defines the type and only reads it**.
+>
+> `Audio` sits just outside that line: the engine defines it, but `AudioFacadeSystem` *drives* it
+> every frame rather than reading it as config, and it owns an OS device handle rather than a
+> value. That is a real difference, not a dodge — but it is thinner than the original "the game
+> inserted it" argument, and it is now the only thing holding the decision open.
+>
+> **This is a decision to take deliberately, not to let drift.** Left unchanged here on purpose:
+> the audit that fired the trigger is its own change, and folding an `Audio` behaviour change into
+> it would bury the question. The fix, if it comes, is still one line in `App::new` plus a
+> regression test — the same shape as v0.137.1.
 
 **When adding a resource, ask which kind it is:** *scene state* (dies with the scene — correct) or
 *session state* (config, device handles, caches, cross-scene progress — must be registered). If it

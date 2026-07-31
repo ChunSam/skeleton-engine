@@ -304,6 +304,28 @@ impl App {
         // `WASM_LOGICAL_SIZE` comment above and `schedule.rs`'s "unlike WindowConfig".
         app.register_persistent::<crate::resources::WindowConfig>();
 
+        // The rest of the same family, found by auditing every resource `insert_core_resources`
+        // inserts (plus the engine-defined config types a game inserts itself) against the
+        // `docs/PATTERNS.md` scene-state-vs-session-state test. Each is engine-defined
+        // configuration that engine code only ever *reads* — no production path mutates one — so
+        // without this each was silently reverted to its default by the `World` reset on the first
+        // scene enter, exactly as `WindowConfig` was. Registering a type is free when the resource
+        // never exists (`reload_scene` skips absent ones), which is what lets the four types the
+        // engine does not insert itself be covered by the same one-liner.
+        //
+        // `TimeScale` is deliberately excluded: it is a live gameplay effect (hit-stop, slow-mo)
+        // that games drive moment-to-moment, so a frozen or slowed *old* scene leaking into the
+        // next one would be the worse bug. Resetting it to 1.0 per scene is correct.
+        app.register_persistent::<crate::ui::FocusRingStyle>();
+        app.register_persistent::<crate::ui::StickNavConfig>();
+        app.register_persistent::<crate::resources::FrameConfig>();
+        // Not engine-inserted, but engine-read every frame — and losing this one does not revert a
+        // value, it silently switches letterboxing off and stretches a fixed-aspect layout.
+        app.register_persistent::<crate::resources::DesignResolution>();
+        app.register_persistent::<crate::resources::WindowOptions>();
+        app.register_persistent::<crate::resources::LightingConfig>();
+        app.register_persistent::<crate::dialogue::DialogueStyle>();
+
         app
     }
 
@@ -426,6 +448,159 @@ mod tests {
             cfg.clear_color,
             [0.03, 0.03, 0.05, 1.0],
             "scene reset reverted the game's clear color"
+        );
+    }
+
+    // ─── The rest of the set-up-config family ─────────────────────────────────
+    //
+    // `WindowConfig` above was found by accident, after the engine had routed around it twice.
+    // These seven are the result of auditing every resource `insert_core_resources` inserts (plus
+    // the engine-defined config types a game inserts itself) against the `docs/PATTERNS.md` test:
+    // *scene state* dies with the scene, *session state* (config a game sets once before `run()`)
+    // must be registered. Each one below is engine-defined config that engine code only ever
+    // **reads** — no production path mutates it — so a silent revert to the default on the first
+    // scene enter is the exact `WindowConfig` bug.
+    //
+    // `TimeScale` is deliberately NOT in this family: it is a live gameplay effect (hit-stop,
+    // slow-mo) that games drive moment-to-moment, and a frozen or slowed *old* scene leaking into
+    // the next one would be the worse bug. See `docs/PATTERNS.md`.
+
+    #[test]
+    fn focus_ring_style_survives_a_scene_reset() {
+        let mut app = App::new();
+        app.world.insert_resource(crate::ui::FocusRingStyle {
+            enabled: false,
+            thickness: 9.0,
+            ..Default::default()
+        });
+
+        app.reload_scene();
+
+        let style = app
+            .world
+            .resource::<crate::ui::FocusRingStyle>()
+            .expect("FocusRingStyle must exist after a scene reset");
+        assert!(
+            !style.enabled,
+            "scene reset re-enabled the focus ring a game had turned off"
+        );
+        assert_eq!(style.thickness, 9.0, "scene reset reverted ring thickness");
+    }
+
+    #[test]
+    fn stick_nav_config_survives_a_scene_reset() {
+        let mut app = App::new();
+        app.world.insert_resource(crate::ui::StickNavConfig {
+            activate: 0.9,
+            release: 0.2,
+        });
+
+        app.reload_scene();
+
+        let cfg = app
+            .world
+            .resource::<crate::ui::StickNavConfig>()
+            .expect("StickNavConfig must exist after a scene reset");
+        assert_eq!(
+            (cfg.activate, cfg.release),
+            (0.9, 0.2),
+            "scene reset reverted the game's stick deadzone tuning"
+        );
+    }
+
+    #[test]
+    fn frame_config_survives_a_scene_reset() {
+        let mut app = App::new();
+        app.world
+            .insert_resource(crate::resources::FrameConfig { max_dt: 0.02 });
+
+        app.reload_scene();
+
+        let cfg = app
+            .world
+            .resource::<crate::resources::FrameConfig>()
+            .expect("FrameConfig must exist after a scene reset");
+        assert_eq!(
+            cfg.max_dt, 0.02,
+            "scene reset reverted the game's per-frame dt cap to the 0.1 default"
+        );
+    }
+
+    #[test]
+    fn design_resolution_survives_a_scene_reset() {
+        // The most consequential of the family: `DesignResolution` is absent by default, so losing
+        // it does not revert a value — it silently switches letterboxing OFF entirely
+        // (`schedule.rs` takes the `None` branch), and the game's fixed-aspect layout stretches.
+        let mut app = App::new();
+        app.world
+            .insert_resource(crate::resources::DesignResolution::new(1280.0, 720.0));
+
+        app.reload_scene();
+
+        let res = app
+            .world
+            .resource::<crate::resources::DesignResolution>()
+            .expect("scene reset dropped DesignResolution — letterboxing silently turns off");
+        assert_eq!((res.width, res.height), (1280.0, 720.0));
+    }
+
+    #[test]
+    fn window_options_survive_a_scene_reset() {
+        let mut app = App::new();
+        app.world.insert_resource(crate::resources::WindowOptions {
+            resizable: false,
+            lock_aspect: Some(16.0 / 9.0),
+            ..Default::default()
+        });
+
+        app.reload_scene();
+
+        let opts = app
+            .world
+            .resource::<crate::resources::WindowOptions>()
+            .expect("scene reset dropped WindowOptions");
+        assert!(
+            !opts.resizable,
+            "scene reset made a deliberately fixed-size window resizable again"
+        );
+        assert_eq!(opts.lock_aspect, Some(16.0 / 9.0));
+    }
+
+    #[test]
+    fn lighting_config_survives_a_scene_reset() {
+        let mut app = App::new();
+        app.world
+            .insert_resource(crate::resources::LightingConfig { max_lights: 64 });
+
+        app.reload_scene();
+
+        let cfg = app
+            .world
+            .resource::<crate::resources::LightingConfig>()
+            .expect("scene reset dropped LightingConfig");
+        assert_eq!(
+            cfg.max_lights, 64,
+            "scene reset reverted the game's light budget to the default"
+        );
+    }
+
+    #[test]
+    fn dialogue_style_survives_a_scene_reset() {
+        let mut app = App::new();
+        app.world.insert_resource(crate::dialogue::DialogueStyle {
+            body_font_size: 31.0,
+            ..Default::default()
+        });
+
+        app.reload_scene();
+
+        let style = app
+            .world
+            .resource::<crate::dialogue::DialogueStyle>()
+            .expect("scene reset dropped DialogueStyle");
+        assert_eq!(
+            style.body_font_size, 31.0,
+            "scene reset reverted the game's dialogue box styling"
         );
     }
 

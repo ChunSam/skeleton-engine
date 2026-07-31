@@ -4,6 +4,23 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.139.1
+
+**Seven more configuration resources were being silently reverted by a scene reset. `WindowConfig` (0.137.1) was not the only one — it was just the one found by accident.** That fix was prompted by a capstone game losing its clear color; nobody had then asked the obvious follow-up question, which is what *else* `insert_core_resources` inserts that a game sets once and expects to keep. This release is that audit, and its answer.
+
+All 27 resources the engine inserts were classified against the session-state-vs-scene-state test in `docs/PATTERNS.md`, along with the engine-defined config types a game inserts itself. Seven were session config with no persistence; each is now registered, and each carries a regression test that was **confirmed to fail before the fix** rather than merely added alongside it.
+
+The remaining 20 are correctly scene state. That negative result is written into `docs/PATTERNS.md` on purpose, so the audit does not get run a third time.
+
+### Fixed
+- **`FocusRingStyle`, `StickNavConfig`, `FrameConfig`** — engine-inserted config a game overrides once at setup (focus-ring theming, stick-navigation deadzones, the per-frame `max_dt` cap). Each was replaced by its engine default on the first scene enter.
+- **`DesignResolution`, `WindowOptions`, `LightingConfig`, `DialogueStyle`** — engine-*defined* config the game inserts. `DesignResolution` is the consequential one: losing it does not revert a value, it silently switches letterboxing **off**, so a fixed-aspect layout starts stretching. `WindowOptions` silently made a deliberately non-resizable window resizable again.
+
+### Notes for anyone building on it
+- **Who inserts a resource turned out not to be the distinction that matters.** The v0.137.1 reasoning was "the engine inserts `WindowConfig`, so the engine should persist it" — but four of the seven above are inserted by the *game*, and they fail identically. The line this audit settled on is whether **the engine defines the type and only reads it** (no production path mutates one), whoever inserts it. Registering a type the engine never inserts is free: `reload_scene` skips a type it does not find.
+- **`TimeScale` is deliberately excluded**, and it is the useful counter-example. It is config-shaped and engine-inserted, but games drive it moment-to-moment for hit-stop and slow-mo — a frozen or slowed *old* scene leaking into the next one is the worse bug. Resetting it per scene is correct.
+- **This fires the reopen trigger on the deferred `Audio` auto-persistence decision**, which named "another engine-inserted config type turns out to be dropped the way `WindowConfig` was" as a condition. Seven did. `Audio` is deliberately left unchanged here — folding a behaviour change into the audit that fired its trigger would bury the question — but the argument holding it open is now thinner and is recorded in `docs/PATTERNS.md`.
+
 ## 0.139.0
 
 **Audio-reactive game feel adopted in `examples/games/survivor` — the first consumer of `levels()` that was not written by the API's designer, which is the point.** `audio_reactive` and `beat_crawler` both shipped in the same sessions that built the metering API, so neither could tell us whether the API survives contact with older code. `survivor` is older, denser, and already used the `Audio` facade. Its kill tone now rides a named, metered channel whose volume follows a decaying kill combo, and the *measured* envelope — not a second hardcoded constant — sets the `Camera::shake` amplitude and a player pulse. There is one intensity knob, so the sound and the picture cannot drift apart.
