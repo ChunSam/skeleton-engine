@@ -49,6 +49,15 @@
 //!   state it already holds, metering is a round-trip — the win comes from audio the game does
 //!   *not* author, which is why `beat_crawler` meters a soundtrack no gameplay code can see.
 //!
+//! **Acceptance test** — `SURVIVOR_SELFTEST=1 cargo run --release --example survivor_game`
+//! runs the game's real system chain headlessly instead of opening a window, and asserts what a
+//! screenshot cannot: the feel curve still spans its range, seekers close distance, a bullet kills
+//! and its pool slot comes back, the watchdog engages when nothing is audible, and — on a real
+//! device — the meter drives the feel and overlapping kills sum past one voice. It exists because
+//! every one of those degrades *gracefully*: `beat_crawler` shipped several releases with its turn
+//! clock silently on the fallback, and the only symptom was a HUD string. Checks 1-4 need no audio
+//! device and run anywhere; check 5 needs one and skips without.
+//!
 //! Controls: WASD/move · Arrow keys aim **and** fire (hold) · R restart · Esc quit.
 //! Perf-debug keys: `G` toggles invulnerability and `B` spawns +50 enemies, so the
 //! ~100-200 enemy perf target (and the HUD `frame_ms`/`steer` readouts) can be
@@ -165,6 +174,10 @@ const FEEL_WATCHDOG: f32 = 0.6;
 /// Top HUD row. Every other HUD row is an offset from this rather than an independent magic
 /// number — `beat_crawler` shipped a capture with two rows drawn on top of each other that way.
 const HUD_TOP: f32 = 8.0;
+
+/// Broad-phase cell size for `CollisionGridSystem`. Named because the self-test builds its own
+/// grid system and must use the same cell as the shipping game.
+const GRID_CELL: f32 = 64.0;
 
 // Collision layers — disjoint bits so `query_aabb(mask)` filters cleanly.
 const LAYER_PLAYER: u32 = 1 << 0;
@@ -344,6 +357,13 @@ impl Default for AudioFeel {
 // ─── Entry point ───────────────────────────────────────────────────────────────
 
 fn main() {
+    // `SURVIVOR_SELFTEST=1` runs the headless acceptance test instead of opening a window.
+    // Native-only: it needs a real audio device and a wall clock.
+    #[cfg(not(target_arch = "wasm32"))]
+    if std::env::var("SURVIVOR_SELFTEST").is_ok() {
+        std::process::exit(self_test());
+    }
+
     let mut app = App::new();
     app.world.insert_resource(WindowConfig {
         title: "skeleton-engine survivor".to_string(),
@@ -353,29 +373,63 @@ fn main() {
     });
     app.world.insert_resource(Camera::new(Vec2::ZERO, 1.0));
 
-    // Keyboard + gamepad action map (additive bindings).
-    app.world.insert_resource(build_input_map());
+    init_audio(&mut app.world);
+    app.add_system(AudioFacadeSystem); // ticks native fades/ducks; no-op on web
 
-    // Bullet object pool (same churn path the shooter exercised).
-    app.world.insert_resource(Pool::new(BULLET_POOL_CAP));
+    setup_game(&mut app.world);
 
-    // Audio is best-effort: no device (headless / web before a gesture) → silent, never panics.
-    // The `Audio` facade is cross-platform, so this wiring carries no `cfg` guards — sfx now play
-    // on web too. Tones route through the "sfx" bus (see `play_tone`); set its group volume here.
+    // System order: rebuild grid → input/move/fire → bullets → spawn → aim seek →
+    // engine steering (enemies move) → thruster sync → collisions → audio feel →
+    // particles → HUD. `SeekSystem` must precede the engine `SteeringSystem`;
+    // `CollisionSystem` reads the grid built first this frame; `AudioFeelSystem`
+    // follows it so a kill's tone is already playing when its meter is read.
+    // `self_test`'s `Sim` mirrors this order — keep the two in step.
+    app.add_system(CollisionGridSystem::new(GRID_CELL));
+    app.add_system(PlayerSystem);
+    app.add_system(BulletSystem);
+    app.add_system(SpawnSystem);
+    app.add_system(SeekSystem);
+    app.add_system(SteeringSystem::default());
+    app.add_system(ThrusterSystem);
+    app.add_system(CollisionSystem);
+    app.add_system(AudioFeelSystem);
+    app.add_system(ParticleSystem);
+    app.add_system(HudSystem);
+
+    app.run();
+}
+
+/// Best-effort audio wiring. Shared by `main` and the self-test **so the two cannot disagree
+/// about when the meter is enabled** — that ordering is the whole exposure. `enable_analysis`
+/// must land before the first play on the channel (the meter is wired into a sound as it starts,
+/// and a sound already playing is never rewired); one line too late and the game still runs,
+/// still makes noise, and only the HUD's feel line changes.
+///
+/// No device (headless / web before a gesture) → no `Audio` resource at all, silent, never panics.
+/// The `Audio` facade is cross-platform, so this wiring carries no `cfg` guards — sfx play on web
+/// too. Tones route through the "sfx" bus (see `play_tone`); its group volume is set here.
+fn init_audio(world: &mut World) {
     if let Some(mut audio) = Audio::new() {
         audio.set_bus_volume("sfx", 0.6);
-        // Meter the kill channel so its envelope can drive the shake + pulse. This MUST happen
-        // before the first play on that channel — the meter is wired in when the sound starts and
-        // a sound already playing is never rewired.
         audio.enable_analysis(KILL_METER);
-        app.world.insert_resource(audio);
+        world.insert_resource(audio);
     }
-    app.add_system(AudioFacadeSystem); // ticks native fades/ducks; no-op on web
-    app.world.insert_resource(AudioFeel::default());
+}
+
+/// Builds the game's own resources and entities, into any `World`. Shared by `main` and the
+/// self-test: a harness that rebuilt this itself would only ever prove that its *copy* works.
+fn setup_game(world: &mut World) {
+    // Keyboard + gamepad action map (additive bindings).
+    world.insert_resource(build_input_map());
+
+    // Bullet object pool (same churn path the shooter exercised).
+    world.insert_resource(Pool::new(BULLET_POOL_CAP));
+
+    world.insert_resource(AudioFeel::default());
 
     // Player ship at arena center.
-    let player = app.world.spawn();
-    app.world.add_component(
+    let player = world.spawn();
+    world.add_component(
         player,
         Transform {
             position: Vec2::new(W * 0.5, H * 0.5),
@@ -384,23 +438,21 @@ fn main() {
             z: 1.0,
         },
     );
-    app.world
-        .add_component(player, Sprite::colored(0.45, 0.9, 0.95));
-    app.world.add_component(player, Player);
-    app.world.add_component(
+    world.add_component(player, Sprite::colored(0.45, 0.9, 0.95));
+    world.add_component(player, Player);
+    world.add_component(
         player,
         Collider::Aabb {
             half_extents: Vec2::splat(PLAYER_HALF),
         },
     );
-    app.world
-        .add_component(player, CollisionLayer(LAYER_PLAYER));
+    world.add_component(player, CollisionLayer(LAYER_PLAYER));
 
     // Persistent GPU-particle thruster. The component compiles on both targets;
     // only the renderer is wasm-gated inside the engine, so on wasm this simply
     // renders nothing (no cfg needed here).
-    let thruster = app.world.spawn();
-    app.world.add_component(
+    let thruster = world.spawn();
+    world.add_component(
         thruster,
         Transform {
             position: Vec2::new(W * 0.5, H * 0.5),
@@ -424,10 +476,10 @@ fn main() {
         thruster_emitter.color_end = Color::rgba(0.2, 0.4, 0.9, 0.0);
         thruster_emitter.size = 5.0;
         thruster_emitter.emit = false; // toggled on only while moving
-        app.world.add_component(thruster, thruster_emitter);
+        world.add_component(thruster, thruster_emitter);
     }
 
-    app.world.insert_resource(Survivor {
+    world.insert_resource(Survivor {
         player,
         thruster,
         status: Status::Playing,
@@ -439,25 +491,6 @@ fn main() {
         move_dir: Vec2::ZERO,
         god: false,
     });
-
-    // System order: rebuild grid → input/move/fire → bullets → spawn → aim seek →
-    // engine steering (enemies move) → thruster sync → collisions → audio feel →
-    // particles → HUD. `SeekSystem` must precede the engine `SteeringSystem`;
-    // `CollisionSystem` reads the grid built first this frame; `AudioFeelSystem`
-    // follows it so a kill's tone is already playing when its meter is read.
-    app.add_system(CollisionGridSystem::new(64.0));
-    app.add_system(PlayerSystem);
-    app.add_system(BulletSystem);
-    app.add_system(SpawnSystem);
-    app.add_system(SeekSystem);
-    app.add_system(SteeringSystem::default());
-    app.add_system(ThrusterSystem);
-    app.add_system(CollisionSystem);
-    app.add_system(AudioFeelSystem);
-    app.add_system(ParticleSystem);
-    app.add_system(HudSystem);
-
-    app.run();
 }
 
 /// Spawn cadence shrinks as the run goes on (difficulty ramp), floored so it
@@ -755,7 +788,7 @@ fn edge_spawn(rng: &mut impl Rng) -> Vec2 {
     }
 }
 
-fn spawn_enemy(world: &mut World, pos: Vec2, target: Vec2, speed: f32) {
+fn spawn_enemy(world: &mut World, pos: Vec2, target: Vec2, speed: f32) -> Entity {
     let e = world.spawn();
     world.add_component(
         e,
@@ -791,6 +824,7 @@ fn spawn_enemy(world: &mut World, pos: Vec2, target: Vec2, speed: f32) {
         },
     );
     world.add_component(e, CollisionLayer(LAYER_ENEMY));
+    e
 }
 
 /// Debug helper (`B`): instantly spawn up to `count` seekers from the arena edges,
@@ -1277,4 +1311,430 @@ fn play_metered_tone(world: &mut World, meter: &str, freq: f32, dur: f32, vol: f
     if let Some(audio) = world.resource_mut::<Audio>() {
         audio.play_tone_metered(meter, freq, dur, vol, "sfx");
     }
+}
+
+// ─── Headless acceptance test ──────────────────────────────────────────────────
+
+/// Fixed step for the checks that do not touch the audio device. Real elapsed time is used for
+/// the ones that do — see `self_test` check 5.
+#[cfg(not(target_arch = "wasm32"))]
+const TEST_DT: f32 = 1.0 / 60.0;
+
+/// The game's real system chain, minus the two systems a headless harness cannot run:
+/// `PlayerSystem` (there is no way for an example to synthesize an `InputState`, so the test fires
+/// with the same `fire_bullet` that system calls) and `HudSystem` (pure text output). Everything
+/// that decides whether this game *works* — the grid, steering, collision, pooling and the whole
+/// audio-reactive path — is the shipping code, ticked in `main`'s order.
+#[cfg(not(target_arch = "wasm32"))]
+struct Sim {
+    facade: AudioFacadeSystem,
+    grid: CollisionGridSystem,
+    bullets: BulletSystem,
+    spawn: SpawnSystem,
+    seek: SeekSystem,
+    steering: SteeringSystem,
+    thruster: ThrusterSystem,
+    collision: CollisionSystem,
+    feel: AudioFeelSystem,
+    particles: ParticleSystem,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Sim {
+    fn new() -> Self {
+        Self {
+            facade: AudioFacadeSystem,
+            grid: CollisionGridSystem::new(GRID_CELL),
+            bullets: BulletSystem,
+            spawn: SpawnSystem,
+            seek: SeekSystem,
+            steering: SteeringSystem::default(),
+            thruster: ThrusterSystem,
+            collision: CollisionSystem,
+            feel: AudioFeelSystem,
+            particles: ParticleSystem,
+        }
+    }
+
+    /// Systems own scratch buffers across frames (the grid, the steering system), so one `Sim`
+    /// must be reused for a whole run — rebuilding it per frame would hide any state bug.
+    fn tick(&mut self, world: &mut World, dt: f32) {
+        self.facade.run(world, dt);
+        self.grid.run(world, dt);
+        self.bullets.run(world, dt);
+        self.spawn.run(world, dt);
+        self.seek.run(world, dt);
+        self.steering.run(world, dt);
+        self.thruster.run(world, dt);
+        self.collision.run(world, dt);
+        self.feel.run(world, dt);
+        self.particles.run(world, dt);
+    }
+}
+
+/// A `World` carrying the game's real setup plus the handful of `App` core resources the game's
+/// systems read. `App::insert_core_resources` is crate-private, so a headless harness has to name
+/// what it needs; everything else (render targets, UI queues) is never reached here.
+#[cfg(not(target_arch = "wasm32"))]
+fn test_world() -> World {
+    let mut world = World::new();
+    world.insert_resource(Camera::new(Vec2::ZERO, 1.0));
+    world.insert_resource(InputState::default());
+    world.insert_resource(GamepadState::default());
+    setup_game(&mut world);
+    world
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn player_pos(world: &World) -> Vec2 {
+    world
+        .resource::<Survivor>()
+        .and_then(|s| world.get::<Transform>(s.player).map(|t| t.position))
+        .unwrap_or(Vec2::new(W * 0.5, H * 0.5))
+}
+
+/// Keep every lane of a firing range occupied: stationary targets (`speed` 0, so they never reach
+/// the player and end the run) parked just to the player's right, close enough that a bullet
+/// crosses in a few frames — which is what produces kills on *consecutive* frames, and therefore
+/// overlapping tones.
+///
+/// Slots are tracked by entity rather than by counting `Enemy`: `SpawnSystem` keeps adding its own
+/// random edge seekers, and counting all enemies let those crowd the range out, which quietly
+/// starved the kill stream partway through a run.
+#[cfg(not(target_arch = "wasm32"))]
+fn refill_range(world: &mut World, slots: &mut [Option<Entity>]) {
+    let base = player_pos(world);
+    for (i, slot) in slots.iter_mut().enumerate() {
+        if slot.map(|e| world.is_alive(e)).unwrap_or(false) {
+            continue;
+        }
+        let pos = base + Vec2::new(60.0 + 34.0 * i as f32, 0.0);
+        *slot = Some(spawn_enemy(world, pos, base, 0.0));
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn fire_right(world: &mut World) {
+    let base = player_pos(world);
+    let mut pool = world.remove_resource::<Pool>().unwrap();
+    fire_bullet(&mut pool, world, base, Vec2::X);
+    world.insert_resource(pool);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn feel_of(world: &World) -> (f32, bool, f32) {
+    world
+        .resource::<AudioFeel>()
+        .map(|f| (f.peak, f.metered, f.since_shake))
+        .unwrap_or((0.0, false, 0.0))
+}
+
+/// `SURVIVOR_SELFTEST=1 cargo run --release --example survivor_game` — asserts the things a
+/// screenshot cannot, and in particular the one failure this game is most exposed to.
+///
+/// `beat_crawler` ran for several releases with its turn clock silently on a watchdog fallback;
+/// the only symptom was a HUD string nobody read. This game has exactly that shape: the shake and
+/// pulse degrade *gracefully* onto `FEEL_WATCHDOG` when the meter says nothing, so a dead metering
+/// path presents as a slightly duller game rather than as a bug. Checks 4 and 5 are that exposure
+/// from both sides — the fallback must engage when it should, and must **not** engage when a real
+/// device is present.
+///
+/// Checks 1–4 need no audio device, so CI runs them. Check 5 needs one and skips without.
+///
+/// Exit codes: `0` pass (or the audio check skipped, no device) · `1` the feel curve no longer
+/// spans its documented range · `2` seekers do not close distance · `3` a bullet does not kill, or
+/// the pool leaks · `4` the silent watchdog never engages, or the fallback stops firing shakes ·
+/// `5` a real device is present but the meter never rose, or the watchdog engaged anyway ·
+/// `6` the meter moved but reports a constant · `7` overlapping kills do not sum past one voice.
+#[cfg(not(target_arch = "wasm32"))]
+fn self_test() -> i32 {
+    use std::time::{Duration, Instant};
+
+    // ── 1. The feel curve still spans the tone's real amplitude range ──────────────────────────
+    //
+    // `drive_from_amplitude` is re-based on the *summed* polyphonic ceiling (`KILL_PEAK_FULL`).
+    // The header records why: normalising against a single voice's maximum instead put a fifth of
+    // a run at full shake. This is arithmetic, so it is cheap to pin — and a silent constant drift
+    // is precisely what it would take to un-fix that.
+    let floor = drive_from_amplitude(0.0);
+    let at_base = drive_from_amplitude(KILL_VOL_BASE);
+    let at_full = drive_from_amplitude(KILL_PEAK_FULL);
+    let at_voice_max = drive_from_amplitude(KILL_VOL_MAX);
+    let monotonic = (0..64)
+        .map(|i| drive_from_amplitude(i as f32 / 63.0))
+        .collect::<Vec<_>>()
+        .windows(2)
+        .all(|w| w[1] >= w[0]);
+    if (floor - DRIVE_FLOOR).abs() > 1e-4
+        || (at_base - DRIVE_FLOOR).abs() > 1e-4
+        || (at_full - 1.0).abs() > 1e-4
+        || !(at_voice_max > floor && at_voice_max < at_full)
+        || !monotonic
+    {
+        eprintln!(
+            "FAIL: drive_from_amplitude no longer spans its range — floor {floor:.3} \
+             (want {DRIVE_FLOOR:.3}), at base {at_base:.3}, at one-voice max {at_voice_max:.3}, \
+             at summed ceiling {at_full:.3} (want 1.000), monotonic {monotonic}"
+        );
+        return 1;
+    }
+    println!(
+        "curve ok: {floor:.2} at silence → {at_voice_max:.2} at one voice → {at_full:.2} at the \
+         summed ceiling"
+    );
+
+    // ── 2. Seekers actually close distance ────────────────────────────────────────────────────
+    //
+    // `SteeringSystem` is the surface this example was written to stress, and it has already
+    // shipped one silent regression (an O(N²) self-lookup). A dead `Seek` retarget or a steering
+    // system that stopped integrating would leave enemies frozen at the arena edge, which reads
+    // as "quiet start" rather than as breakage.
+    {
+        let mut world = test_world();
+        let target = player_pos(&world);
+        let mut seek = SeekSystem;
+        let mut steering = SteeringSystem::default();
+        const SEEKERS: usize = 32;
+        const SEEK_SPEED: f32 = 120.0;
+        for i in 0..SEEKERS {
+            let a = i as f32 / SEEKERS as f32 * std::f32::consts::TAU;
+            spawn_enemy(
+                &mut world,
+                target + Vec2::new(a.cos(), a.sin()) * 360.0,
+                target,
+                SEEK_SPEED,
+            );
+        }
+        let mean_dist = |w: &World| -> f32 {
+            let ds: Vec<f32> = w
+                .query::<Enemy>()
+                .filter_map(|(e, _)| w.get::<Transform>(e).map(|t| t.position.distance(target)))
+                .collect();
+            ds.iter().sum::<f32>() / ds.len().max(1) as f32
+        };
+        let before = mean_dist(&world);
+        const FRAMES: usize = 30;
+        for _ in 0..FRAMES {
+            seek.run(&mut world, TEST_DT);
+            steering.run(&mut world, TEST_DT);
+        }
+        let after = mean_dist(&world);
+        // 120 px/s over half a second is 60 px of approach; allow generous slack for integration
+        // detail, but not so much that a frozen seeker (0 px) could pass.
+        let want = SEEK_SPEED * FRAMES as f32 * TEST_DT * 0.8;
+        if before - after < want {
+            eprintln!(
+                "FAIL: seekers did not close distance — mean {before:.1} -> {after:.1} px \
+                 ({:.1} px of approach, wanted at least {want:.1})",
+                before - after
+            );
+            return 2;
+        }
+        println!(
+            "steering ok: {SEEKERS} seekers closed {:.1} px in {FRAMES} frames ({before:.1} -> \
+             {after:.1})",
+            before - after
+        );
+    }
+
+    // ── 3. A bullet kills, and the pool gets its bullet back ──────────────────────────────────
+    //
+    // The kill path is grid → `query_aabb` → despawn → `Pool::release`. A leak here is invisible
+    // in play until the pool starves and the gun quietly stops firing.
+    {
+        let mut world = test_world();
+        let base = player_pos(&world);
+        spawn_enemy(&mut world, base + Vec2::new(200.0, 0.0), base, 0.0);
+        // `Pool::new` starts empty and grows on demand, so the invariant is not "available is
+        // unchanged" — it is that the one slot this shot acquired comes *back*, and that no live
+        // bullet is left behind. A leak here starves the pool and the gun quietly stops firing.
+        let free_before = world
+            .resource::<Pool>()
+            .map(|p| p.available_count())
+            .unwrap_or(0);
+        fire_right(&mut world);
+        let mut grid = CollisionGridSystem::new(GRID_CELL);
+        let mut bullets = BulletSystem;
+        let mut collision = CollisionSystem;
+        let mut frames = 0;
+        while frames < 120 && world.resource::<Survivor>().map(|s| s.kills) == Some(0) {
+            grid.run(&mut world, TEST_DT);
+            bullets.run(&mut world, TEST_DT);
+            collision.run(&mut world, TEST_DT);
+            frames += 1;
+        }
+        let kills = world.resource::<Survivor>().map(|s| s.kills).unwrap_or(0);
+        let enemies_left = world.query::<Enemy>().count();
+        let live_bullets = world.query::<Bullet>().count();
+        let free_after = world
+            .resource::<Pool>()
+            .map(|p| p.available_count())
+            .unwrap_or(0);
+        if kills != 1 || enemies_left != 0 || live_bullets != 0 || free_after != free_before + 1 {
+            eprintln!(
+                "FAIL: the kill path is broken — {kills} kills after {frames} frames, \
+                 {enemies_left} enemies left, {live_bullets} bullets still live, pool free \
+                 {free_before} -> {free_after} (wanted {})",
+                free_before + 1
+            );
+            return 3;
+        }
+        println!(
+            "kill path ok: 1 kill in {frames} frames, enemy despawned, bullet returned to the \
+             pool (free {free_before} -> {free_after})"
+        );
+    }
+
+    // ── 4. With nothing audible, the watchdog engages and the fallback keeps firing ───────────
+    //
+    // No `init_audio` here, so there is no `Audio` resource at all: kills score, `play_metered_tone`
+    // no-ops, the meter stays flat. That is the headless/muted/pre-gesture case, and the game is
+    // supposed to notice within `FEEL_WATCHDOG` and drive the feel off the combo instead. The
+    // fallback is itself a feature that can rot — nothing else exercises it.
+    {
+        let mut world = test_world();
+        if let Some(s) = world.resource_mut::<Survivor>() {
+            s.god = true; // the game's own debug invulnerability: keep the run alive to the end
+        }
+        let mut sim = Sim::new();
+        // Run well past the flip: the fallback fires on a `SHAKE_SECS` cooldown, so a short tail
+        // could see a single shake and call a dead fallback healthy.
+        let frames = ((FEEL_WATCHDOG + 2.0) / TEST_DT).ceil() as usize;
+        let (mut flipped_at, mut shakes_after_flip, mut prev_since) = (None, 0usize, 0.0f32);
+        let mut slots = [None; 3];
+        for f in 0..frames {
+            refill_range(&mut world, &mut slots);
+            fire_right(&mut world);
+            sim.tick(&mut world, TEST_DT);
+            let (_, metered, since) = feel_of(&world);
+            if !metered {
+                if flipped_at.is_none() {
+                    flipped_at = Some(f as f32 * TEST_DT);
+                }
+                // A shake reset `since_shake` to zero this frame.
+                if since < prev_since {
+                    shakes_after_flip += 1;
+                }
+            }
+            prev_since = since;
+        }
+        let kills = world.resource::<Survivor>().map(|s| s.kills).unwrap_or(0);
+        match flipped_at {
+            None => {
+                eprintln!(
+                    "FAIL: {kills} kills landed with no audio device and the watchdog never \
+                     engaged — the game would be driving its feel off a meter that reads nothing"
+                );
+                return 4;
+            }
+            // The fallback fires on a `SHAKE_SECS` cooldown under a continuous kill stream, so a
+            // healthy run sees ~12 here. Require several, not one: a single shake is also what a
+            // fallback that fires once and then latches would produce.
+            Some(t) if shakes_after_flip < 3 => {
+                eprintln!(
+                    "FAIL: the watchdog engaged at {t:.2}s but only {shakes_after_flip} shake(s) \
+                     fired afterwards over {kills} kills — the silent fallback is dead or \
+                     latched, so a device-less run has no game feel at all"
+                );
+                return 4;
+            }
+            Some(t) => println!(
+                "watchdog ok: engaged at {t:.2}s (limit {FEEL_WATCHDOG:.2}s), {shakes_after_flip} \
+                 fallback shakes over {kills} kills"
+            ),
+        }
+    }
+
+    // ── 5. On a real device the meter drives the feel, and overlapping kills sum ──────────────
+    //
+    // Timing comes off `Instant`, not an accumulator: the audio device advances on the wall clock
+    // while a headless loop runs as fast as it can, and `sleep(1/60)` sleeps *at least* 1/60, so a
+    // `t += 1/60` clock drifts slow and every measurement comes out wrong. This is also why
+    // `ENGINE_CAPTURE` cannot photograph a meter.
+    let mut world = test_world();
+    init_audio(&mut world);
+    if world.resource::<Audio>().is_none() {
+        println!("SKIP: no audio device available — checks 1-4 passed");
+        return 0;
+    }
+    if let Some(s) = world.resource_mut::<Survivor>() {
+        s.god = true;
+    }
+
+    let mut sim = Sim::new();
+    const RUN_SECS: f32 = 2.5;
+    let (mut max_peak, mut min_live_peak, mut ever_unmetered) = (0.0f32, f32::MAX, false);
+    let mut live_frames = 0usize;
+    let start = Instant::now();
+    let (mut prev, mut frame) = (start, 0u32);
+    let mut slots = [None; 3];
+    loop {
+        frame += 1;
+        let target = start + Duration::from_secs_f32(frame as f32 / 60.0);
+        let now = Instant::now();
+        if target > now {
+            std::thread::sleep(target - now);
+        }
+        let now = Instant::now();
+        let dt = (now - prev).as_secs_f32();
+        prev = now;
+
+        refill_range(&mut world, &mut slots);
+        fire_right(&mut world);
+        sim.tick(&mut world, dt);
+
+        let (peak, metered, _) = feel_of(&world);
+        if !metered {
+            ever_unmetered = true;
+        }
+        max_peak = max_peak.max(peak);
+        if peak > KILL_PEAK_OFF {
+            min_live_peak = min_live_peak.min(peak);
+            live_frames += 1;
+        }
+        if (now - start).as_secs_f32() >= RUN_SECS {
+            break;
+        }
+    }
+    let kills = world.resource::<Survivor>().map(|s| s.kills).unwrap_or(0);
+
+    if ever_unmetered || max_peak <= KILL_PEAK_ON {
+        eprintln!(
+            "FAIL: an audio device is present but the kill meter did not drive the feel — \
+             {kills} kills, peak max {max_peak:.4} (needs > {KILL_PEAK_ON:.2}), watchdog \
+             engaged: {ever_unmetered}. The game would have silently fallen back to combo-driven \
+             feel, exactly the way beat_crawler's turn clock did."
+        );
+        return 5;
+    }
+    // A meter that reports one value is a round-trip, not a measurement — the header records the
+    // first cut of this feature doing exactly that (1 distinct amplitude in 40 kill frames).
+    let span = max_peak - min_live_peak;
+    if live_frames < 10 || span < 0.05 {
+        eprintln!(
+            "FAIL: the kill meter reports a constant — {live_frames} live frames spanning \
+             {min_live_peak:.4}..{max_peak:.4} ({span:.4}). Metering only pays when the sound \
+             carries information the game does not already hold."
+        );
+        return 6;
+    }
+    // `play_tone_metered` overlaps voices and `levels()` sums them, so a burst must read louder
+    // than any single voice can. Back on a named channel (or on a single anonymous voice) the
+    // peak pins at the one-voice ceiling instead — which is what this run looked like before
+    // engine v0.140.0.
+    if max_peak <= KILL_VOL_MAX {
+        eprintln!(
+            "FAIL: overlapping kills never summed past one voice — peak max {max_peak:.4}, \
+             one-voice ceiling {KILL_VOL_MAX:.2}, over {kills} kills. The kill tone is back on a \
+             single voice; shake and pulse have lost their top half."
+        );
+        return 7;
+    }
+
+    println!(
+        "PASS: {kills} kills in {RUN_SECS:.1}s drove the meter to {max_peak:.4} across \
+         {live_frames} live frames (span {span:.4}, one-voice ceiling {KILL_VOL_MAX:.2}), \
+         watchdog never engaged"
+    );
+    0
 }
