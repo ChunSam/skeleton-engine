@@ -1404,12 +1404,12 @@ fn player_pos(world: &World) -> Vec2 {
 #[cfg(not(target_arch = "wasm32"))]
 fn refill_range(world: &mut World, slots: &mut [Option<Entity>]) {
     let base = player_pos(world);
-    for i in 0..slots.len() {
-        if slots[i].map(|e| world.is_alive(e)).unwrap_or(false) {
+    for (i, slot) in slots.iter_mut().enumerate() {
+        if slot.map(|e| world.is_alive(e)).unwrap_or(false) {
             continue;
         }
         let pos = base + Vec2::new(60.0 + 34.0 * i as f32, 0.0);
-        slots[i] = Some(spawn_enemy(world, pos, base, 0.0));
+        *slot = Some(spawn_enemy(world, pos, base, 0.0));
     }
 }
 
