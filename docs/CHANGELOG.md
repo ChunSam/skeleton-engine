@@ -4,6 +4,25 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.143.1
+
+**`SURVIVOR_SELFTEST=1` — the survivor example can now prove its headline feature is alive.** `beat_crawler` ran for several releases with its turn clock silently on a watchdog fallback, and the only symptom was a HUD string nobody read (v0.142.0). `survivor` has the same shape and had no self-test at all: its shake and pulse degrade *gracefully* onto `FEEL_WATCHDOG` when the meter reads nothing, so a dead metering path presents as a slightly duller game rather than as a bug. This closes that exposure from both sides — the fallback must engage when it should, and must **not** engage when a real device is present. No public API change; example-only.
+
+### Added
+- **`SURVIVOR_SELFTEST=1 cargo run --release --example survivor_game`** — a headless acceptance test that ticks the game's **real system chain** (grid → bullets → spawn → seek → engine `SteeringSystem` → thruster → collision → `AudioFeelSystem` → particles, in `main`'s order), not a probe that reimplements it. Five checks, exit codes `1`–`7`:
+  1. `drive_from_amplitude` still spans its documented range (`0.35` at silence → `0.69` at one voice → `1.00` at the summed ceiling, monotonic). Pins the re-basing v0.141.0 forced.
+  2. Seekers close distance — 32 seekers closed 60.0 px in 30 frames. Guards the surface that already shipped one silent O(N²) regression.
+  3. A bullet kills and its pool slot comes back (1 kill in 18 frames, enemy despawned, no live bullet left). A pool leak starves the gun silently.
+  4. With **no** audio device the watchdog engages and the fallback keeps firing — measured: engaged at 0.63 s against the 0.60 s limit, 12 fallback shakes over 153 kills.
+  5. With a **real** device the meter drives the feel and overlapping kills sum past one voice — measured: 147 kills in 2.5 s, peak **1.0000** across 146 live frames (span 0.82), watchdog never engaged.
+- Checks 1–4 need no audio device, so CI runs them; check 5 skips (exit `0`) when there is no device, matching `BEAT_CRAWLER_SELFTEST`.
+
+### Changed
+- `main`'s world construction is extracted into `init_audio` + `setup_game`, and `spawn_enemy` now returns the `Entity` it spawned. The self-test builds its `World` through the same two functions — a harness that rebuilt the setup itself would only ever prove that its *copy* works, and the `enable_analysis`-before-first-play ordering that `init_audio` owns is exactly the thing that fails silently.
+
+### Verified
+- **Proven non-vacuous by sabotage**, each reverted after measuring: removing `enable_analysis` → exit `5` (peak `0.0000`, 147 kills still scored — the game plays fine, which is the point); `play_tone_metered` → `play_tone_on_channel` → exit `7` with the peak pinned at **0.6000**, reproducing the pre-v0.140.0 measurement exactly; removing the watchdog flip → exit `4`; dropping the `Seek` component → exit `2`. Three consecutive clean runs exit `0`.
+
 ## 0.143.0
 
 **`Audio::play_sfx_metered` — the clip counterpart of `play_tone_metered`.** A one-shot that overlaps consecutive plays *and* is metered. 0.140.0 closed that gap for tones only, and `enable_analysis`'s docs said so explicitly; clips still faced the original either/or. `play_sfx` / `play_sfx_on_bus` already overlap (they round-robin a ring of anonymous voices on native) but that ring has no name for `enable_analysis` to address, and moving a clip onto a named channel to meter it costs the overlap, because a replay there **cuts** what was already playing.
