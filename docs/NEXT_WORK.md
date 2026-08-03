@@ -27,7 +27,7 @@ A filed request preempts everything below.
 
 | Item | State |
 |---|---|
-| **`<NAME>_SELFTEST` coverage** | **4 of 21** playable games have one (`beat_crawler`, `survivor`, + `data_anim` and `data_particles` on 2026-08-03). This is the only defense against a headline feature degrading gracefully into silence, and CI cannot supply it. Promoted out of "Standing risks" on 2026-08-03 — it was a to-do filed as a hazard, where nobody would pick it up. Pick the games whose headline feature is *invisible to a screenshot* first; the `example-selftest` skill exists for exactly this. **Next-best candidates, and the reason each is hard:** the four networking games (`coin_race`, `predict_shooter`, `orbital_dodger`, `salvage_run`) — prediction/reconciliation/AOI are the most screenshot-invisible features in the tree, but each needs its `*_server` sibling running, so the harness has to spawn a process or skip; `settings_menu` and `scene_flow` — cross-scene persistence is the documented reset footgun, but it lives in `SceneCmd::Replace`, i.e. inside `App::update`, which an example cannot call. **That is the structural rule this session found: a self-test can drive anything expressed as systems + resources, and nothing expressed as an `App` frame step.** |
+| **`<NAME>_SELFTEST` coverage** | **5 of 21** playable games have one (`beat_crawler`, `survivor`, + `data_anim`/`data_particles`/`salvage_run` on 2026-08-03/04). This is the only defense against a headline feature degrading gracefully into silence, and CI cannot supply it. Promoted out of "Standing risks" on 2026-08-03 — it was a to-do filed as a hazard, where nobody would pick it up. Pick the games whose headline feature is *invisible to a screenshot* first; the `example-selftest` skill exists for exactly this. **Structural rule found 2026-08-03: a self-test can drive anything expressed as systems + resources, and nothing expressed as an `App` frame step** (`App::update` is crate-private) — which is why `settings_menu` / `scene_flow` cross-scene persistence is still out of reach even though it is the documented reset footgun. **The networking blocker is gone**: `salvage_run` built the spawn-the-server harness (OS-assigned port via an `*_ADDR` env override, `TcpStream` bind probe, SKIP if the binary was never built), so `predict_shooter`, `orbital_dodger` and `coin_race` can copy it. `predict_shooter` is the pick of the three — reconciliation is the load-bearing invisible property, and its `client_net.rs` unit tests cover the pure netcode but nothing covers the ECS wiring, which is the `beat_crawler` "the system was never running" shape. |
 | **4th procgen mode** (drunkard's walk) | Unchanged, still the lowest marginal value: the engine cannot fail at it, so nothing is learned. |
 | **`add-facade-capability` skill** | n=5 now (the facade + native + wasm + policy-module shape has repeated that many times). Deferred; the next facade capability makes the case by itself. |
 
@@ -97,6 +97,15 @@ Closed 2026-08-03 (this session):
 - **The `data_particles` emit-timer comment was wrong, and the measurement is now in the code** —
   replacing the `ParticleEmitter` every frame does not "never spawn particles"; it clamps emission
   to one per tick, measured at 60/s against a configured 90/s. Corrected in place.
+- **`SALVAGE_RUN_SELFTEST=1`** (v0.143.6, 2026-08-04) — the first acceptance test over the network
+  stack, and the one that unblocks the other three networked games. Two of its six checks spawn the
+  real server; four drive the client offline with injected protocol JSON. Three test-side lessons
+  worth more than the checks: an **end-state assertion missed a flicker** (a hysteresis window
+  shorter than the snapshot interval evicts a still-arriving entity *between* snapshots and
+  re-spawns it, so the endpoint looks fine — the check now watches every frame); **interpolation lag
+  has to be measured against where the sender was**, not against the newest snapshot, which is
+  already an interval old; and `NetworkClient::connect` **dials once**, so a spawned server must be
+  probed until it binds.
 
 Rolled off 2026-08-03 (previous session's list; durable homes verified before removing): the four
 v0.143.1–v0.143.4 releases are in `docs/CHANGELOG.md`; the gate's fusion trap and the
