@@ -4,6 +4,25 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.143.4
+
+**`embedded_image` now runs on the web, instead of merely compiling for it.** `App::load_image_bytes` exists so a PNG can ship *inside* the `.wasm` module — the single-file/jam case where a path load would need async fetch plumbing — but the only thing ever proving that on wasm was a compile. v0.136.0 closed exactly this gap for the atlas twin (`embedded_atlas` got a browser harness and a render smoke) and left the image half carrying only a `cargo build --target wasm32` behind it. It is now symmetric. No library code changed; this is examples and tooling only, so no public API is affected.
+
+The gap was not theoretical for this particular example: it was silently unbuildable for `wasm32` from the day it was added until v0.135.1, because nothing built it for that target. "It compiles" was a weak claim to begin with, and it was the only one being made.
+
+### Added
+- **`examples/embedded_image/web/`** (`index.html` + `build.sh`) — the `cargo build --example` + `wasm-bindgen` path, mirroring `embedded_atlas/web/`. The example gained a `#[cfg(target_arch = "wasm32")] run_embedded_image()` entry point; `main` and the headless acceptance test split off a shared `build_app()` so the browser runs the *same* code the native run does.
+- **`scripts/embedded_image_smoke.sh`** — a headless-Chrome render smoke (optional local check; CI has no Chrome/GPU). Like its atlas twin it asserts **both** halves of the claim: that no image file is served beside the page, *and* that the rendered frame is non-blank. Either alone is weak — a non-blank frame could have come from a fetch, and an empty directory proves nothing if nothing drew — but together they say the sprite rendered and cannot have come from a file.
+- The example moved to `examples/embedded_image/embedded_image.rs` (with a `[[example]]` entry) so the harness has a directory to live in, and its `include_bytes!` switched to the `CARGO_MANIFEST_DIR`-anchored form `embedded_atlas` uses, so the embed does not break the next time the file moves.
+
+### Verified
+- **Rendered in a real browser** at DPR=2 under SwiftShader: the 32×32 sprite draws from the embedded bytes, the HUD reads `working dir: <unknown>` (the wasm case — there is no filesystem to have loaded from), and the `App::asset_failures()` panel names `embedded/corrupt`. The screenshot was **looked at**, not just measured: the byte check cannot distinguish the correct sprite from the **white fallback texture**, which is the exact failure the verbatim-key invariant exists to prevent and which still draws a non-blank frame.
+- **The byte threshold was measured, not inherited.** Loading the same page *without* `?autostart=1` — the DOM paints, the engine never draws — yields **5,582** bytes against the real frame's **84,639**. The 15,000 threshold sits between them with room on both sides. Copying a sibling script's number would have been a guess about a differently-sized canvas.
+- Native `HEADLESS_SHOT` acceptance test unchanged and still passing after the move.
+
+### Known, unchanged, and deliberately not "fixed"
+- `embedded_image` now joins six sibling directory-based examples (`embedded_atlas`, `audio_facade`, `centered_text`, `game_feel`, `web_audio`, `wasm_save`) that `cargo package` **warns about and skips**, because `include` lists `examples/*.rs` and not `examples/*/*.rs`. CI's `cargo package --locked` stays green (a skipped target is a warning, not an error). Widening `include` would **break** it: these examples `include_bytes!` from `examples/assets/`, which is not packaged either, so packaging their sources would fail the verification build on a missing PNG. Harmless in practice — the engine is [unpublished by design](VISION.md).
+
 ## 0.143.3
 
 **`beat_crawler` fires its melee impact through `Audio::play_sfx_metered`** — the playable-game acceptance test v0.143.0 shipped without. Until now the only caller was `examples/audio_facade`, which demonstrates the surface but is a demo, and `CLAUDE.md`'s rule is that a feature is not done until a small playable example exercises it in real play. No public API change; example-only.

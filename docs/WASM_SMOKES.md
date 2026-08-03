@@ -75,6 +75,18 @@ cargo install wasm-bindgen-cli --version <ver>   # MUST match the wasm-bindgen c
   pyramid of `Rgba16Float` mip render targets (all need `EXT_color_buffer_float` on WebGL2); a boot
   panic on an unrenderable target leaves no verdict → FAIL. Run after touching `src/renderer/bloom.rs`,
   `bloom.wgsl`, the HDR post intermediate, or the example.
+- **Byte-source asset checks — `./scripts/embedded_atlas_smoke.sh` and
+  `./scripts/embedded_image_smoke.sh`** build the `embedded_atlas` / `embedded_image` examples to
+  wasm, serve them (`?autostart=1`), and render one headless DPR=2 frame. These two are **paired
+  assertions** rather than the usual lone non-blank check: each asserts that **no image file is
+  served beside the page** *and* that the **frame is non-blank**. Either alone is weak — a non-blank
+  frame could have come from a fetch, and an empty directory proves nothing if nothing drew — but
+  together they say the art rendered and *cannot* have come from a file, which is the entire claim of
+  [`load_atlas_bytes`](../src/atlas.rs) / [`load_image_bytes`](../src/asset.rs). The byte thresholds
+  are measured against a same-page engine-never-drew frame, not guessed. **Not** auto-checked: the
+  *right* tiles (atlas grid maths) and the *right* image — the white fallback texture, the failure the
+  verbatim-key invariant exists to prevent, still yields a non-blank frame — so eyeball the saved shot.
+  Run after touching the byte-source loaders, the verbatim-key path, or the examples.
 
 ## Web examples without a dedicated smoke
 
