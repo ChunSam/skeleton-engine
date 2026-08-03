@@ -22,7 +22,7 @@ added as a dependency. Read `docs/VISION.md` once — it is the "why" every feat
 | "Why does the gate look like that?" | `docs/VERIFICATION.md` — the traps that have actually bitten |
 | "How should I work?" | `docs/AGENT_WORKFLOW.md` (scope/verify/report rules), `docs/AGENT_NOTES.md` (context + subagent heuristics) |
 | "What changed, and why?" | `docs/CHANGELOG.md` (release-facing), `docs/HANDOFF.md` + `plans/handoffs/` (session history) |
-| "What should I build next?" | `docs/NEXT_WORK.md`, `docs/ROADMAP.md` |
+| "What should I build next?" | `docs/NEXT_WORK.md` — the live backlog; **start with its board gate**. `docs/ROADMAP.md` for milestones, `docs/PROGRAM_HISTORY.md` for the finished candidate A–O program |
 | GPU render tests / wasm smokes | `docs/RENDER_TESTING.md`, `docs/WASM_SMOKES.md` |
 | User-facing docs | `README.md`, `FORKING.md`, `REFERENCE.html` + `ARCHITECTURE.html` (Korean) |
 
