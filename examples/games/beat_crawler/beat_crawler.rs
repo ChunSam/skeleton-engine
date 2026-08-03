@@ -12,6 +12,7 @@
 //! | [`FovMap`] | fog-of-war; walls that block movement block sight |
 //! | [`find_path`] | enemies path to you — but only on the beat |
 //! | [`HitFlash`] / [`FloatingText`] / `Camera::shake` | the hit feedback |
+//! | [`Audio::play_sfx_metered`] | the melee impact — overlapping *and* measurable |
 //! | [`ProgressBar`] | the health gauge |
 //!
 //! # Why this needs `bands()` and not `levels()`
@@ -28,6 +29,26 @@
 //! all**. Moving the bass up an octave is the same thing a real mix does, and it leaves the two
 //! *separable* without separating them: the bass still overlaps the detector's window through its
 //! harmonics. See `assets/soundtrack.py`, which generates the track and documents the numbers.
+//!
+//! # Two meters at once
+//!
+//! The swing sound is fired with [`Audio::play_sfx_metered`], so the game runs a *looping* metered
+//! track and an *overlapping* metered one-shot at the same time. That combination had never been
+//! exercised: `audio_facade` demonstrates the one-shot but has no loop under it, and the bug fixed
+//! in v0.141.2 — a looping sound whose meter died after its first pass — lived in the very
+//! function both paths share.
+//!
+//! The property that has to hold, and that the self-test asserts, is that the impacts **sum**: a
+//! flurry reads louder than one swing. `play_sfx` overlaps but cannot be metered, and
+//! `play_sfx_on_channel` can be metered but cuts — this is the call that gives both.
+//!
+//! The clip is also built empty below 200 Hz (0.75% of its energy against the kick's ~99%), which
+//! is the right default for a game whose clock is a low-band detector. But it is worth being exact
+//! about why: **on native the two meters cannot leak into each other anyway**, because each is a
+//! tap on its own channel and `bands()` never sees the mixer output. Firing the bass-heavy
+//! [`TRACK`] as the impact was tried and moved the kick count not at all. The spectral separation
+//! matters for the wasm backend — where several sources connect into one `AnalyserNode` and the
+//! browser mixes them, which is exactly what makes the meter sum — and it costs nothing here.
 //!
 //! Gameplay still learns the groove by listening: no gameplay code reads [`PATTERN`], which
 //! survives only so the [`BEAT_WATCHDOG`] has a schedule to fall back to. The audible groove lives
@@ -51,9 +72,11 @@
 //!   capture (v0.134.0); needs no code in this file and no window.
 //! - `BEAT_CRAWLER_SELFTEST=1 cargo run --example beat_crawler_game` — asserts the level is
 //!   solvable, enemies path toward the player, and (when an audio device exists) that the detector
-//!   finds the kicks **in the real mix**, at the spacing the mix actually has. Exits `0` pass ·
-//!   `1` stair unreachable · `2` bad enemy placement · `3` pathing did not approach · `4` no kick
-//!   ever detected · `5` detections did not land on the beat grid (wrong count or wrong spacing).
+//!   finds the kicks **in the real mix**, at the spacing the mix actually has, and that a metered
+//!   flurry sums without disturbing the clock. Exits `0` pass · `1` stair unreachable · `2` bad
+//!   enemy placement · `3` pathing did not approach · `4` no kick ever detected · `5` detections
+//!   did not land on the beat grid (wrong count or wrong spacing) · `6` the impact meter read
+//!   nothing · `7` overlapping impacts did not sum · `8` the two meters are not independent.
 //!   **No audio device is a SKIP, not a failure** — the rhythm cannot be exercised there.
 use engine::{
     find_path, generate_bsp_dungeon, generate_cellular_cave, spawn_floating_text, App, Audio,
@@ -106,6 +129,22 @@ const PATTERN: [Step; 16] = {
 };
 /// The meter the turn clock reads. `play_music` publishes under this name on both backends.
 const BEAT_METER: &str = Audio::MUSIC_CHANNEL;
+/// The melee impact, fired by [`Audio::play_sfx_metered`]. Synthesized by `assets/hit.py`, CC0.
+///
+/// Deliberately empty where the turn clock listens: measured, **0.75%** of its energy sits in
+/// 20–200 Hz against the kick's ~99%. A hit with real low-end would be indistinguishable from a
+/// kick, so every swing would inject a phantom beat and the dungeon would lurch on the player's
+/// attacks instead of on the music. See `assets/README.md`.
+const HIT: &[u8] = include_bytes!("assets/hit.wav");
+/// The impact meter — its own name, so it is summed and read independently of [`BEAT_METER`].
+///
+/// This is the one thing `play_sfx` could not give us. `play_sfx` overlaps (a second swing does
+/// not cut the first) but round-robins *anonymous* voices, so there is no name for
+/// `enable_analysis` to address; `play_sfx_on_channel` has a name but a replay there **cuts** what
+/// is already sounding, which is precisely wrong for a flurry. `play_sfx_metered` is both.
+const HIT_METER: &str = "hit";
+/// Impact peak below which the flurry shake is not worth applying.
+const HIT_FLOOR: f32 = 0.05;
 /// How many spectrum bands to ask for. `bands()` resamples its internal 32 to whatever length the
 /// caller passes — this is our choice, not an engine limit.
 const BANDS: usize = 16;
@@ -332,6 +371,13 @@ struct Crawler {
     beats: u32,
     last_on_beat: bool,
     flash: f32,
+    /// Last summed peak of [`HIT_METER`] — how much impact is *audibly* still ringing.
+    ///
+    /// Not a hit count. The game knows how many swings landed; what it does not know is how loud
+    /// the result is right now, and that is what drives the flurry shake. Two hits inside one beat
+    /// sum past one voice, and the shake decays with the clip's real tail instead of a hand-tuned
+    /// timer.
+    hit_peak: f32,
 
     needs_spawn: bool,
     dirty: bool,
@@ -362,6 +408,7 @@ impl Crawler {
             since_beat: 0.0,
             bands: [0.0; BANDS],
             low_energy: 0.0,
+            hit_peak: 0.0,
             beats: 0,
             last_on_beat: false,
             flash: 0.0,
@@ -528,6 +575,11 @@ impl Crawler {
 
         audio.bands(BEAT_METER, &mut self.bands);
         self.low_energy = self.bands[..LOW_BANDS].iter().sum();
+        // Two meters, read in the same frame off the same `Audio`: a looping track under
+        // `bands()` and an overlapping one-shot under `levels()`. They are separate taps on
+        // separate channels, so the impacts must not move `low_energy` — the self-test asserts
+        // exactly that, because a leak here would make the player's own swings drive the clock.
+        self.hit_peak = audio.levels(HIT_METER).peak;
         // Retrigger guard: a cooldown, not an arm/re-arm latch. See `KICK_COOLDOWN` — under a
         // sustained mix the energy never falls back far enough for a latch to re-arm honestly.
         // `since_beat` is exactly "seconds since the last turn", so it is the guard already.
@@ -587,6 +639,12 @@ impl Crawler {
             );
             if let Some(cam) = world.resource_mut::<engine::Camera>() {
                 cam.shake(if on_beat { 5.0 } else { 2.5 }, 0.18);
+            }
+            // The impact itself. `play_sfx_metered` because a flurry has to overlap — two swings
+            // inside one beat are two voices summing, not one cutting the other — *and* because
+            // the game reads the result back through `HIT_METER` (see `hit_peak`).
+            if let Some(audio) = world.resource_mut::<Audio>() {
+                audio.play_sfx_metered(HIT_METER, HIT, "sfx");
             }
             if dead {
                 world.despawn(target);
@@ -749,6 +807,13 @@ impl System for Crawler {
         self.advance_schedule(dt);
         if self.detect_beat(world, dt) {
             self.tick_beat(world);
+        }
+        // Flurry shake, driven by what is *audible* rather than by a hit count. The camera is
+        // taken mutably here and not inside `detect_beat`, which holds `Audio` immutably.
+        if self.hit_peak > HIT_FLOOR {
+            if let Some(cam) = world.resource_mut::<engine::Camera>() {
+                cam.shake(3.0 * self.hit_peak, dt.max(1.0 / 60.0));
+            }
         }
         self.flash = (self.flash - dt).max(0.0);
         self.message_timer = (self.message_timer - dt).max(0.0);
@@ -970,9 +1035,120 @@ fn self_test() -> i32 {
         return 5;
     }
 
+    // 4. The metered one-shot, sounding *alongside* the metered loop.
+    //
+    // This combination had never been exercised anywhere. `audio_facade` demonstrates
+    // `play_sfx_metered` but has no looping metered track under it, and the loop-meter bug fixed
+    // in v0.141.2 lived in `append_decoded` — the very function both paths now share. Two claims,
+    // both of which would have shipped unnoticed:
+    //
+    //   A. the one-shot meter is alive and *sums* — a flurry must read louder than one swing;
+    //   B. the two meters do not leak — impacts must not move the turn clock's low band, or the
+    //      player's own attacks would drive the dungeon.
+    //
+    // Paced off `Instant` for the same reason as the loop above: an accumulator drifts slow, and
+    // a capture run cannot photograph a meter at all (fixed dt, no wall clock).
+    audio.enable_analysis(HIT_METER);
+    audio.play_music(TRACK);
+
+    let mut single_peak = 0.0f32;
+    let mut burst_peak = 0.0f32;
+    let (mut fired_single, mut fired_burst, mut kicks_with_hits) = (false, false, 0usize);
+    let start = std::time::Instant::now();
+    let (mut prev, mut last_fire, mut frame) = (start, -99.0f32, 0u32);
+    // One swing at 1.0 s, then three inside 0.1 s at 2.0 s. Both windows sit a full bar in, so the
+    // analyser is past its first FFT fills.
+    let (single_at, burst_at) = (1.0f32, 2.0f32);
+    loop {
+        frame += 1;
+        let target = start + std::time::Duration::from_secs_f32(frame as f32 / 60.0);
+        let now = std::time::Instant::now();
+        if target > now {
+            std::thread::sleep(target - now);
+        }
+        let now = std::time::Instant::now();
+        let t = (now - start).as_secs_f32();
+        audio.update((now - prev).as_secs_f32());
+        prev = now;
+
+        if !fired_single && t >= single_at {
+            audio.play_sfx_metered(HIT_METER, HIT, "sfx");
+            fired_single = true;
+        }
+        if !fired_burst && t >= burst_at {
+            for _ in 0..3 {
+                audio.play_sfx_metered(HIT_METER, HIT, "sfx");
+            }
+            fired_burst = true;
+        }
+
+        let peak = audio.levels(HIT_METER).peak;
+        if (single_at..burst_at - 0.2).contains(&t) {
+            single_peak = single_peak.max(peak);
+        } else if t >= burst_at {
+            burst_peak = burst_peak.max(peak);
+        }
+
+        audio.bands(BEAT_METER, &mut bands);
+        let low: f32 = bands[..LOW_BANDS].iter().sum();
+        // Only count from the first swing on, so the tally covers the window impacts were flying.
+        if t >= single_at && low >= KICK_THRESHOLD && t - last_fire >= KICK_COOLDOWN {
+            last_fire = t;
+            kicks_with_hits += 1;
+        }
+        if t >= burst_at + 1.0 {
+            break;
+        }
+    }
+    audio.stop_music();
+
+    println!(
+        "hit meter: single {single_peak:.4}, burst-of-3 {burst_peak:.4}; \
+         kicks still heard {kicks_with_hits} while swinging"
+    );
+
+    if single_peak <= HIT_FLOOR {
+        eprintln!(
+            "FAIL: play_sfx_metered produced no measurable level ({single_peak:.4}) — the clip \
+             sounded but the meter is dead, which is exactly the v0.141.2 loop bug's shape"
+        );
+        return 6;
+    }
+    // The discrimination here is 0.80 -> 1.00 and it is *by construction*: one voice reads the
+    // clip's own normalization (`hit.py` renders at 0.80 peak) and three saturate the meter's 1.0
+    // ceiling. Rendering the clip at 1.0 would put a single swing on the ceiling too and leave
+    // this check nothing to measure — the headroom in `hit.py` is load-bearing, not cosmetic.
+    if burst_peak <= single_peak {
+        eprintln!(
+            "FAIL: three overlapping impacts ({burst_peak:.4}) did not read louder than one \
+             ({single_peak:.4}) — the voices are cutting each other instead of summing"
+        );
+        return 7;
+    }
+    // ~1.6 kicks/s over the ~2 s that impacts were flying, so ~3.
+    //
+    // ⚠️ Be honest about what this can and cannot catch. **On native the two meters cannot leak
+    // into each other by construction** — each is a tap on its own channel, so `bands(BEAT_METER)`
+    // reads the music's tap and never the mixer output. That was verified by trying to break it:
+    // firing the bass-heavy `TRACK` as the impact clip changed the kick count not at all, and
+    // firing it at `BEAT_METER` instead trips check 6 before this one is even reached. So the
+    // upper bound is a **tripwire for a future topology change**, not something a badly chosen
+    // clip can trip today — the wasm backend is where it would bite, since there several sources
+    // connect into one `AnalyserNode` and the browser mixes them, which is what makes the meter
+    // sum in the first place. The lower bound is the guard that earns its place here: the clock
+    // has to keep working while impacts are sounding.
+    if !(2..=4).contains(&kicks_with_hits) {
+        eprintln!(
+            "FAIL: the turn clock read {kicks_with_hits} kicks while impacts were sounding \
+             (expected ~3) — the two meters are not independent"
+        );
+        return 8;
+    }
+
     println!(
         "PASS: levels solvable, enemies approach, {} kicks found in a real mix at {mean:.3}s \
-         spacing with threshold {KICK_THRESHOLD:.2}",
+         spacing with threshold {KICK_THRESHOLD:.2}, and a metered flurry sums ({single_peak:.4} \
+         -> {burst_peak:.4}) without disturbing the clock",
         fires.len()
     );
     0
@@ -1000,6 +1176,9 @@ fn main() {
         // Opt in BEFORE the first play: the analyser is wired into a sound as it starts, so
         // enabling it later would not take effect until the next play on this channel.
         audio.enable_spectrum(BEAT_METER);
+        // The impact meter is amplitude-only — `bands()` on a metered one-shot deliberately zeros,
+        // and "how loud is the flurry" is an amplitude question anyway.
+        audio.enable_analysis(HIT_METER);
         audio.play_music(TRACK);
         app.world.insert_resource(audio);
     }
