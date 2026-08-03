@@ -468,10 +468,15 @@ A filed request preempts everything below.
   violation). Lives only in `.claude/proposals/2026-08-03.md`, which is gitignored.
 - **`handoff` / `wrap` skills exceed the 800-char guideline** (2,245 and 3,195) — split the detail
   into reference files. Also gitignored, so this line is the only tracked record of it.
-- ⚠️ **The local gate hook over-matches.** It denies any Bash command containing both the gate
-  script's name and a delete, which includes *a commit message or a doc that merely mentions
-  them*. It fired twice on 2026-08-03 on exactly that. Workaround in use: write the text to a file
-  and pass the file. Narrow the pattern, or change the decision from deny to ask.
+- ✅ **The local gate hook's over-matching is fixed** (2026-08-03). It used to deny any Bash command
+  containing both the gate script's name and a delete — including *a commit message or a doc that
+  merely mentioned them*, which it did twice that day. It now ignores everything from the first
+  `<<` onward (heredoc bodies, where both false positives lived) and requires the delete to sit at
+  a **command position** (line start, or after `;` `&&` `||` `|` `(`), so prose no longer trips it.
+  Verified 12/12 against fused and non-fused shapes, then end-to-end against the installed hook.
+  Two residuals, both deliberate: a fusion written *after* a heredoc terminator is no longer seen
+  (over-matching was the costlier failure), and an inline `-m` message containing a literal
+  command-position delete alongside the gate name still trips it — put the text in a file.
 
 ## Known-unfalsifiable checks — do not mistake these for guarantees
 
