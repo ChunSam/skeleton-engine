@@ -4,6 +4,21 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.143.2
+
+**`SceneCmd::Replace` now warns when it discards a system the game registered on the `App`.** Systems added with `App::add_system` / `add_system_labeled` land in the *scene* portion of the schedule, which a `Replace` (and therefore `set_scene`) drains wholesale. For a system a `Scene` registered in `on_enter` that is correct — it dies with its scene. For one added straight to the `App` it is a silent loss: the system simply stops running, and nothing anywhere says so.
+
+This is not hypothetical. `beat_crawler` shipped several releases with its `AudioFacadeSystem` registered before `set_scene`, so `Audio::update` never ticked, `bands()` returned `0.000` forever, and the game's headline feature — "the turn clock is the music" — ran permanently on its watchdog fallback. The only symptom was a HUD string reading `schedule (nothing heard)` instead of `listening` (fixed in v0.142.0). A `log::warn!` costs nothing and makes the next occurrence loud.
+
+### Added
+- A `log::warn!` on `SceneCmd::Replace` naming how many systems are being discarded and pointing at `Scene::on_enter` + `SystemRegistrar` as the fix.
+- The count is `scene_len - Σ owned`, where `owned` is what each scene on the stack registered — so **a scene's own systems are never reported**, only the excess that came from the `App`. This covers both orderings of the mistake: registering before the first `set_scene` (beat_crawler's case, where the stack is empty and the whole scene portion is excess) and registering on the `App` after a scene is already running.
+- Three tests: the arithmetic (scene-owned → 0, App-registered → the excess, and a saturating floor so drifting bookkeeping cannot underflow), plus a behavioural pair — a system added before `set_scene` must **not** run afterwards, and the same system registered through the scene's `SystemRegistrar` must. The pair matters: without the control, the first test would also pass if systems stopped running entirely.
+
+### Verified
+- **Proven non-vacuous by sabotage:** panicking on the warning branch instead of logging fails the before-`set_scene` test with `orphaned=1` and leaves the scene-registered control passing, i.e. the branch is reached with the right value in exactly one of the two cases. Reverted after measuring, removal re-checked by `grep`.
+- **Ships silent:** all 20 examples that call `set_scene` were checked and none registers a system on the `App` first, so no existing example emits the new warning.
+
 ## 0.143.1
 
 **`SURVIVOR_SELFTEST=1` — the survivor example can now prove its headline feature is alive.** `beat_crawler` ran for several releases with its turn clock silently on a watchdog fallback, and the only symptom was a HUD string nobody read (v0.142.0). `survivor` has the same shape and had no self-test at all: its shake and pulse degrade *gracefully* onto `FEEL_WATCHDOG` when the meter reads nothing, so a dead metering path presents as a slightly duller game rather than as a bug. This closes that exposure from both sides — the fallback must engage when it should, and must **not** engage when a real device is present. No public API change; example-only.

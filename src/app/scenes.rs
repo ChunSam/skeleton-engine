@@ -1,5 +1,20 @@
 use super::*;
 
+/// How many of the systems a `Replace` is about to drain belong to no `Scene`.
+///
+/// Draining a scene's own systems is the *point* of `Replace` — they were registered in
+/// `Scene::on_enter` and die with it, which `scene_stack` records as `owned`. Whatever is left
+/// over in the scene portion got there through `App::add_system` / `add_system_labeled`
+/// instead, and `Replace` drops it with **no symptom**: the system just stops running.
+///
+/// `beat_crawler` shipped several releases that way — its `AudioFacadeSystem` was registered on
+/// the `App` before `set_scene`, so `Audio::update` never ticked, the turn clock ran on its
+/// watchdog fallback, and the only sign was a HUD string reading "schedule" instead of
+/// "listening" (fixed in v0.142.0).
+fn app_registered_system_count(scene_len: usize, owned_by_scenes: usize) -> usize {
+    scene_len.saturating_sub(owned_by_scenes)
+}
+
 impl App {
     pub fn register_persistent<T: 'static>(&mut self) {
         let tid = std::any::TypeId::of::<T>();
@@ -126,6 +141,20 @@ impl App {
 
         match cmd {
             SceneCmd::Replace(mut new_scene) => {
+                // Measured before the stack is drained — `owned` lives on the stack entries.
+                let orphaned = app_registered_system_count(
+                    self.systems.len().saturating_sub(tail),
+                    self.scene_stack.iter().map(|(_, owned)| *owned).sum(),
+                );
+                if orphaned > 0 {
+                    log::warn!(
+                        "SceneCmd::Replace is discarding {orphaned} system(s) registered directly \
+                         on the App; they will never run again, and nothing else will report it. \
+                         Register them inside `Scene::on_enter` via the `SystemRegistrar` — a \
+                         system added with `App::add_system` before `set_scene` is swept away by \
+                         the world reset."
+                    );
+                }
                 for (mut scene, _) in self.scene_stack.drain(..).rev() {
                     scene.on_exit(&mut self.world);
                 }
@@ -207,5 +236,31 @@ impl App {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::app_registered_system_count;
+
+    /// The whole point of the count: a scene's own systems are *supposed* to go, so they must
+    /// never be reported. Only the excess — what `App::add_system` put there — is a problem.
+    #[test]
+    fn scene_owned_systems_are_never_reported() {
+        // A scene registered all four; Replace dropping them is correct behaviour.
+        assert_eq!(app_registered_system_count(4, 4), 0);
+        // A pushed stack of two scenes owning 3 + 2 — Replace tears down the whole stack.
+        assert_eq!(app_registered_system_count(5, 3 + 2), 0);
+        // No scene has ever entered, so all four came from the App. This is beat_crawler's case.
+        assert_eq!(app_registered_system_count(4, 0), 4);
+        // Mixed: a scene owns 3, one was added on the App afterwards.
+        assert_eq!(app_registered_system_count(4, 3), 1);
+    }
+
+    /// `owned` is bookkeeping, and bookkeeping can drift. Saturating means a drift shows up as
+    /// silence rather than as a panic in the middle of a scene change.
+    #[test]
+    fn a_larger_owned_count_saturates_instead_of_underflowing() {
+        assert_eq!(app_registered_system_count(2, 5), 0);
     }
 }
