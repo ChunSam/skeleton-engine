@@ -46,7 +46,8 @@ This is the most-repeated trap in the project's history: it fired **twice on 202
 here is the whole procedure as one copy-paste block. It closes Traps 4 **and** 5 together:
 
 ```bash
-# 1. remove first, or an `until [ -f … ]` waiter matches a file from days ago (Trap 5)
+# 1. remove first, or an `until [ -f … ]` waiter matches a file from days ago (Trap 5).
+#    Run this as its OWN call — fusing it into step 2 puts the `rm` inside the background job.
 rm -f /tmp/v.exit /tmp/v.log
 # 2. run non-piped; write the gate's OWN status to the file
 (./scripts/verify.sh > /tmp/v.log 2>&1; echo $? > /tmp/v.exit) &
@@ -69,6 +70,14 @@ An `until [ -f /tmp/verify.exit ]; do …; done` waiter matches a **leftover fil
 ago** and returns that old code instantly — the gate looks like it passed while `cargo
 test` is still running. `rm -f` the file before spawning, or wait on the PID
 (`while kill -0 <pid>`), and check the file's mtime alongside its contents.
+
+**Steps 1 and 2 of the block above must be two separate calls.** Fusing them into one
+backgrounded command — `rm -f /tmp/v.exit; (./scripts/verify.sh …; echo $? > /tmp/v.exit) &`
+— moves the `rm` *inside* the background job, where it can still be pending when the `until`
+waiter runs. The waiter then matches the previous run's file and the Trap 5 defence is as
+absent as if it had never been written. This happened on **2026-08-03**: a red gate (clippy
+`needless_range_loop`, already sitting in the local log) was reported green, and CI caught it
+instead. Step 3's mtime check is the backstop — it was also skipped that run.
 
 ### Trap 6 — `core.fileMode = false` makes `chmod +x` invisible to git
 
