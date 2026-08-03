@@ -42,14 +42,6 @@ A filed request preempts everything below.
   judging it again. They live in **`~/.claude/skills/`** (user-global), not the project `.claude/`;
   either way they are untracked, so this line is the only durable record.
 
-- **Four dead remote branches are still on `origin`** — `docs/english-conversion`,
-  `fix/v8.1.5-scene-pop-text-wrap`, `claude/editor-ux-scene-reparent-rename-hc2bfu` (landed as
-  #304) and `docs/handoff-seq7-anim-effects` (landed as #288). All four are **fully contained in
-  `main`**, verified by content, not by the branch graph — the last two read as "ahead by 1" only
-  because a squash-merge leaves the original tip dangling. Deleting them needs a human hand
-  (`git push origin --delete <branch>`); an agent's attempt is refused by the remote-destructive
-  permission gate, which is the correct behavior and not a bug to route around.
-
 ## Noted — not scheduled
 
 - **The local verify-gate hook's two deliberate residuals** (fixed 2026-08-03, `.claude/` is
@@ -110,3 +102,11 @@ Closed 2026-08-03:
 - **`bands()` for a metered one-shot** — closed by its own stated rule (no use case in three
   sessions). The behavior is documented where it is actually needed, at
   `examples/games/beat_crawler/beat_crawler.rs:1179`, so the backlog row guarded nothing.
+- **Four dead remote branches deleted** — `docs/english-conversion`,
+  `fix/v8.1.5-scene-pop-text-wrap`, `claude/editor-ux-scene-reparent-rename-hc2bfu` (landed as
+  #304) and `docs/handoff-seq7-anim-effects` (landed as #288). All four were **fully contained in
+  `main`**, verified by content rather than by the branch graph — the last two read as "ahead by 1"
+  only because a squash-merge leaves the original tip dangling, which is the trap to remember here.
+  `origin` now carries `main` alone. **The push was run by a human**: an agent's `--delete` is
+  refused by the remote-destructive permission gate, which is correct and not something to route
+  around.
