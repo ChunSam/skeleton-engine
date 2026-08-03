@@ -632,6 +632,62 @@ mod tests {
         );
     }
 
+    /// The trap the `SceneCmd::Replace` warning exists for. A system registered on the `App`
+    /// sits in the *scene* portion of the schedule, so the first `set_scene` sweeps it away and
+    /// it never runs again — and nothing reports that. `beat_crawler` shipped several releases
+    /// like this: its `AudioFacadeSystem` was registered before `set_scene`, so the turn clock
+    /// silently ran on a watchdog fallback (fixed in v0.142.0).
+    ///
+    /// This test pins the *behaviour*, not the log line. If it ever starts failing because the
+    /// counter advanced, the scene/tail split changed and the warning has become a lie.
+    #[test]
+    fn system_added_before_set_scene_is_discarded_by_the_world_reset() {
+        struct CounterScene;
+        impl Scene for CounterScene {
+            fn on_enter(&mut self, world: &mut World, _s: &mut crate::scene::SystemRegistrar) {
+                world.insert_resource(Counter::default());
+            }
+            fn on_exit(&mut self, _world: &mut World) {}
+        }
+
+        let mut app = App::new();
+        app.add_system(CountSystem); // on the App — owned by no scene
+        app.set_scene(Box::new(CounterScene));
+
+        app.update(1.0 / 60.0);
+
+        assert_eq!(
+            app.world.resource::<Counter>().unwrap().0,
+            0,
+            "a system added before `set_scene` must not survive the Replace"
+        );
+    }
+
+    /// The control for the test above: the same system, registered the documented way, runs.
+    /// Without this pair the first test would also pass if systems stopped running entirely.
+    #[test]
+    fn system_registered_by_the_scene_runs_after_set_scene() {
+        struct CounterScene;
+        impl Scene for CounterScene {
+            fn on_enter(&mut self, world: &mut World, systems: &mut crate::scene::SystemRegistrar) {
+                world.insert_resource(Counter::default());
+                systems.add(CountSystem);
+            }
+            fn on_exit(&mut self, _world: &mut World) {}
+        }
+
+        let mut app = App::new();
+        app.set_scene(Box::new(CounterScene));
+
+        app.update(1.0 / 60.0);
+
+        assert_eq!(
+            app.world.resource::<Counter>().unwrap().0,
+            1,
+            "a system registered through the scene's `SystemRegistrar` must run"
+        );
+    }
+
     fn app_with_counter() -> App {
         let mut app = App::new();
         app.world.insert_resource(Counter::default());
