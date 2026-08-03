@@ -4,6 +4,24 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.143.3
+
+**`beat_crawler` fires its melee impact through `Audio::play_sfx_metered`** — the playable-game acceptance test v0.143.0 shipped without. Until now the only caller was `examples/audio_facade`, which demonstrates the surface but is a demo, and `CLAUDE.md`'s rule is that a feature is not done until a small playable example exercises it in real play. No public API change; example-only.
+
+The choice of host was not decorative. `beat_crawler` is the one place where a **looping** metered track and an **overlapping** metered one-shot sound at the same time, and both go through `append_decoded` — the function where v0.141.2's loop-meter bug lived. That combination had never been exercised anywhere.
+
+### Added
+- **`assets/hit.wav` + `assets/hit.py`** — a 0.13 s impact synthesized from scratch (mid sine sweep + first-differenced noise), CC0 like the soundtrack. Built empty where the turn clock listens: **0.75%** of its energy sits in 20–200 Hz against the kick's **99.44%**, measured with a flat window.
+- **The meter drives the flurry shake.** Not a hit count — the game already knows how many swings landed. What it does not know is how loud the result is *right now*, so the shake scales with the summed peak and decays with the clip's real tail instead of a hand-tuned timer.
+- **Three new self-test checks (exits `6`/`7`/`8`)**: the impact meter reads something at all; three overlapping impacts read louder than one; and the turn clock keeps finding kicks while impacts are sounding.
+
+### Verified
+- **Real device, `BEAT_CRAWLER_SELFTEST=1`:** 16 kicks at 0.638 s spacing (grid 0.640 s), on-grid 15/15 — unchanged from v0.142.0 — plus impact meter **single 0.8000 → burst-of-3 1.0000**, and 3 kicks still heard while swinging. CI cannot produce any of this.
+- **The summing check is non-vacuous by construction:** one voice reads the clip's own 0.80 normalization and three saturate the meter's 1.0 ceiling. Rendering `hit.py` at 1.0 would put a single swing on the ceiling too and leave the check nothing to discriminate — noted in `assets/README.md` so a future edit does not silently erase it.
+- **Proven non-vacuous by sabotage**, each reverted after measuring: removing `enable_analysis(HIT_METER)` → exit `6` (`0.0000`, the clip still sounding — the v0.141.2 bug's exact shape); firing 1 impact instead of 3 → exit `7` (`0.8000` vs `0.8000`).
+- **Exit `8` could NOT be tripped, and that is recorded rather than papered over.** Firing the bass-heavy `soundtrack.wav` as the impact clip changed the kick count not at all, and firing it at `BEAT_METER` trips exit `6` before `8` is reached. The reason is structural: on native each meter is a tap on its own channel, so `bands()` reads the music's tap and never the mixer output — the two *cannot* leak. Exit `8`'s upper bound is therefore a tripwire for a future topology change (the wasm backend, where several sources share one `AnalyserNode`), not something a badly chosen clip can trip today. Its lower bound — the clock must keep working while impacts sound — is the part that earns its place. The claim has been corrected in the example's docs and in `assets/README.md`.
+- The first draft of the summing check **failed for a test-side reason** and is recorded here because the failure mode is reusable: it overloaded one `Vec` to carry both impact times and kick times, so the kick pushes grew the vector and the burst's `len() == 1` guard never came true. The burst never fired, and the `0.0007` reading was the single hit's decaying tail — a green-looking measurement of a thing that never happened.
+
 ## 0.143.2
 
 **`SceneCmd::Replace` now warns when it discards a system the game registered on the `App`.** Systems added with `App::add_system` / `add_system_labeled` land in the *scene* portion of the schedule, which a `Replace` (and therefore `set_scene`) drains wholesale. For a system a `Scene` registered in `on_enter` that is correct — it dies with its scene. For one added straight to the `App` it is a silent loss: the system simply stops running, and nothing anywhere says so.
