@@ -20,17 +20,28 @@
 //! Headless: `HEADLESS_SHOT=/tmp/embedded.png cargo run --example embedded_image`. In headless mode
 //! the example exits non-zero unless the embedded image decoded to 32×32 (and was not reported as a
 //! failure) *and* the corrupt embed was reported — so it doubles as a runnable acceptance test.
+//!
+//! Web: `examples/embedded_image/web/build.sh` ships this example to the browser, where the claim
+//! is at its strongest — the page renders the sprite with **no image fetch at all**, because the
+//! pixels are inside the `.wasm` module. `scripts/embedded_image_smoke.sh` checks that headlessly.
 use engine::{
     App, Camera, Color, DrawText, ShouldQuit, Sprite, System, TextQueue, Transform, Vec2,
     WindowConfig, World,
 };
 
+#[cfg(target_arch = "wasm32")]
+use engine::wasm_bindgen;
+
 const WIN_W: u32 = 720;
 const WIN_H: u32 = 420;
 
-/// The whole point: the pixels live in the binary, not in a file on disk. `include_bytes!` resolves
-/// relative to THIS source file, so this is `examples/assets/player.png` — a 32×32 PNG.
-static PLAYER_PNG: &[u8] = include_bytes!("assets/player.png");
+/// The whole point: the pixels live in the binary, not in a file on disk. Anchored at
+/// `CARGO_MANIFEST_DIR` (as `embedded_atlas` does) rather than relative to this source file, so the
+/// embed does not silently break if the example moves — a 32×32 PNG.
+static PLAYER_PNG: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/examples/assets/player.png"
+));
 /// The logical key. It names no file; it is just the identity the sprite renders by.
 const PLAYER_KEY: &str = "embedded/player";
 
@@ -122,7 +133,9 @@ impl System for Hud {
     }
 }
 
-fn main() {
+/// Builds the whole example — shared by the native `main`, the headless acceptance test and the
+/// wasm entry point, so the browser runs the *same* code path the native run does.
+fn build_app() -> (App, engine::Handle<engine::ImageAsset>) {
     let mut app = App::new();
     app.world.insert_resource(WindowConfig {
         title: "Embedded image — include_bytes!".into(),
@@ -153,10 +166,16 @@ fn main() {
 
     app.add_system(Hud);
 
+    (app, hero)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn main() {
+    let (mut app, hero) = build_app();
+
     // The acceptance test is native-only (headless capture needs a GPU adapter), but the FEATURE is
-    // cross-platform: gating it keeps this example buildable for wasm32, which is the single-file
-    // build `load_image_bytes` exists for.
-    #[cfg(not(target_arch = "wasm32"))]
+    // cross-platform: gating it keeps this example buildable for wasm32, and it also RUNS there
+    // (see `web/`) — the single-file build `load_image_bytes` exists for.
     if let Ok(out) = std::env::var("HEADLESS_SHOT") {
         if run_acceptance_test(&mut app, &hero, &out) {
             return;
@@ -166,6 +185,22 @@ fn main() {
 
     app.run();
 }
+
+/// WASM entry point — `examples/embedded_image/web/index.html` calls this after `init()` (and on the
+/// "Start" click; winit wants a user gesture before grabbing the canvas).
+///
+/// This is the demo that matters for the feature: the PNG is inside the `.wasm` module itself, so
+/// the page renders the sprite with **no image fetch at all** — the thing a path-loaded image cannot
+/// do on the web without async plumbing.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn run_embedded_image() {
+    let (app, _hero) = build_app();
+    app.run();
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {}
 
 /// Headless acceptance test — returns `true` when every claim this example makes holds.
 ///

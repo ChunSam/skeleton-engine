@@ -98,8 +98,9 @@ Do **not** gate on `--target wasm32 --all-targets`: it fails on the native-only 
 (lib+bins) or `--lib` is the real wasm gate.
 
 **Consequence:** an example can be broken for wasm indefinitely and the gate stays green.
-`examples/embedded_image.rs` was unbuildable for `wasm32` from the day it was added (it
-called the native-only `save_screenshot_headless` unconditionally) until v0.135.1. After
+`embedded_image` was unbuildable for `wasm32` from the day it was added (it called the
+native-only `save_screenshot_headless` unconditionally) until v0.135.1 — and nothing *ran*
+it on the web until v0.143.4 gave it a browser harness and a render smoke. After
 touching an example's `cfg(target_arch = "wasm32")` path — or adding an example that claims
 to work on the web — build it explicitly:
 
@@ -150,22 +151,26 @@ are `rustup target add wasm32-unknown-unknown`, a matching `wasm-bindgen-cli`, a
 | `scripts/wasm_save_smoke.sh` | the AEAD `localStorage` round-trip (7/7) |
 | `scripts/wasm_audio_smoke.sh` | the `web_audio` surface incl. buses/ducking/positional |
 | `scripts/centered_text_smoke.sh` | non-blank render at DPR=2 (EW-001 centering — eyeball it) |
-| `scripts/embedded_atlas_smoke.sh` | no image is served beside the page **and** the frame is non-blank |
+| `scripts/embedded_atlas_smoke.sh`, `embedded_image_smoke.sh` | no image is served beside the page **and** the frame is non-blank |
 | `scripts/audio_reactive_smoke.sh` | `Audio::levels` reports a live level **and** `Audio::bands` a low-biased spectrum in a browser (the wasm `AnalyserNode` half shares almost no code with the native tap + FFT) |
 | `scripts/game_feel_web_smoke.sh`, `bloom_web_smoke.sh`, `hdr_web_smoke.sh`, `render_format_query_smoke.sh` | their example renders on the web |
 
 See **`docs/WASM_SMOKES.md`** for the full list and how to add one.
 
 A byte-size check alone is weak — it proves *something* drew, not that it drew *correctly*.
-Where a stronger structural assertion is available, pair the two: `embedded_atlas_smoke.sh`
-also asserts no image file exists in the served directory, so a non-blank frame cannot have
-come from a fetch. **Eyeball the saved screenshot** for anything positional; no byte count
-catches a wrong tile or a mis-centered label.
+Where a stronger structural assertion is available, pair the two: the two byte-source smokes
+(`embedded_atlas_smoke.sh`, `embedded_image_smoke.sh`) also assert no image file exists in the
+served directory, so a non-blank frame cannot have come from a fetch. **Eyeball the saved
+screenshot** for anything positional; no byte count catches a wrong tile or a mis-centered label.
+
+Set the byte threshold by *measuring* the same page with the engine never drawing (load it
+without `?autostart=1`), not by copying a number from a sibling script — a threshold below what
+the DOM alone paints passes on a frame the engine never touched.
 
 ### Which smokes actually prove their claim, and which need your eyes
 
-Nine of the fourteen assert something specific — a page verdict (`*_CHECK: PASS`), a pixel
-ratio, a reported failure. **Five are byte-size-only**, so a green run means "a frame drew",
+Nine of the fifteen assert something specific — a page verdict (`*_CHECK: PASS`), a pixel
+ratio, a reported failure. **Six are byte-size-only**, so a green run means "a frame drew",
 not "the right frame drew". For those, `SMOKE_KEEP=1` and *look*:
 
 | Byte-size only — eyeball it | What only the screenshot can tell you |
@@ -175,8 +180,9 @@ not "the right frame drew". For those, `SMOKE_KEEP=1` and *look*:
 | `hdr_web_smoke.sh` | HDR keeps core-vs-mid distinct where LDR collapses them to flat grey |
 | `wasm_smoke.sh` | the HUD says "Player #1" — i.e. the WebSocket handshake really happened |
 | `embedded_atlas_smoke.sh` | the 12 tiles are the right tiles (its no-image-served check is structural, but grid maths are not covered) |
+| `embedded_image_smoke.sh` | the sprite is the *right* image and not the white fallback — the exact failure the verbatim-key invariant exists to prevent, and it still draws a non-blank frame |
 
-Sweeping all fourteen takes about fifteen minutes and is worth doing after any change to
+Sweeping all fifteen takes about fifteen minutes and is worth doing after any change to
 the render path, the asset path, or a `web/build.sh` — they are the only checks that run
 engine code in a browser at all.
 

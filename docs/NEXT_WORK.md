@@ -452,13 +452,28 @@ A filed request preempts everything below.
   closing the VISION acceptance test v0.143.0 shipped without.
 - **The gate's fusion trap** — Trap 5 now states that the cleanup step and the background run must
   be separate *calls*, which is the part that actually failed on 2026-08-03.
+- **`embedded_image` web harness** (v0.143.4) — **built**, not carried a seventh session. The image
+  half of the byte-source story now matches the atlas half: `examples/embedded_image/web/` +
+  `scripts/embedded_image_smoke.sh`, verified by an eyeballed browser frame. The smoke's byte
+  threshold was *measured* against an engine-never-drew load of the same page (5,582 vs 84,639)
+  rather than copied from the sibling script — a habit now written into `docs/VERIFICATION.md`.
+
+## Noted on 2026-08-03 — not scheduled
+
+- **Seven directory-based examples silently drop out of `cargo package`.** `include` lists
+  `examples/*.rs`, not `examples/*/*.rs`, so `embedded_atlas`, `embedded_image`, `audio_facade`,
+  `centered_text`, `game_feel`, `web_audio` and `wasm_save` are warned-about-and-skipped. CI stays
+  green because a skipped target is a warning. **Do not "fix" this by widening `include`** — it
+  would break `cargo package`, since those examples `include_bytes!` from `examples/assets/`, which
+  is not packaged either, so the verification build would fail on a missing PNG. Fixing it properly
+  means packaging the assets too, and the engine is unpublished by design, so the payoff is zero.
+  Recorded so the next person who notices the warnings does not spend a session on them.
 
 ## Open — engineering
 
 | Item | State |
 |---|---|
 | **4th procgen mode** (drunkard's walk) | Unchanged, still the lowest marginal value: the engine cannot fail at it, so nothing is learned. |
-| **`embedded_image` web harness** | Carried unanswered since ~2026-07. Six sessions is enough — **either build it or close it**, do not carry it a seventh. |
 | **`add-facade-capability` skill** | n=5 now (the facade + native + wasm + policy-module shape has repeated that many times). Deferred; the next facade capability makes the case by itself. |
 | **`bands()` for a metered one-shot** | Deliberately zeros. No use case has appeared in three sessions — treat as **closed** unless one does. |
 
