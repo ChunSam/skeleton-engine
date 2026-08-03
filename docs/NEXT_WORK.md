@@ -422,3 +422,70 @@ Vision criteria: (1) fork-friendly skeleton, (2) genre-agnostic 2D, breadth-firs
 current breadth-first + dogfooding priority and is now done. The other two were cancelled
 from planned work and archived: Entity Generation v2's design is preserved for a possible
 v2.0.0, and the dependency advisories are recorded as accepted/known risk.
+
+---
+
+# Open backlog (2026-08-03)
+
+> **This section replaces the per-session handoff for completed sessions.** A handoff is now
+> written only when work stops *mid-task*; a finished session updates the backlog here instead.
+> Session narrative lives in commit bodies and `docs/CHANGELOG.md`, durable lessons in
+> `docs/PATTERNS.md` / `docs/VERIFICATION.md`. What has no other home is the *decision backlog*
+> below — and that is exactly what kept getting buried inside 60 KB handoff files.
+
+## Board gate — check this first, every session
+
+Both channels were **empty** as of 2026-08-03:
+
+- `../dungeon-merchant/docs/engine-wishlist.md` — next free **EW-012**, unmoved since 2026-07-27
+- `../rust-survivors/docs/ENGINE_CHANGE_REQUESTS.md` — `_None._`
+
+Check whether they **moved** (`git log -1 --date=short -- <file>`), not whether they look empty.
+A filed request preempts everything below.
+
+## Closed on 2026-08-03
+
+- **`SURVIVOR_SELFTEST=1`** (v0.143.1) — carried three sessions, done.
+- **`add_system` before `set_scene` is now loud** (v0.143.2) — the silent-drop footgun that cost
+  `beat_crawler` several releases of a dead headline feature now emits a warning naming the count.
+- **`play_sfx_metered` has a playable-game caller** (v0.143.3) — `beat_crawler`'s melee impact,
+  closing the VISION acceptance test v0.143.0 shipped without.
+- **The gate's fusion trap** — Trap 5 now states that the cleanup step and the background run must
+  be separate *calls*, which is the part that actually failed on 2026-08-03.
+
+## Open — engineering
+
+| Item | State |
+|---|---|
+| **4th procgen mode** (drunkard's walk) | Unchanged, still the lowest marginal value: the engine cannot fail at it, so nothing is learned. |
+| **`embedded_image` web harness** | Carried unanswered since ~2026-07. Six sessions is enough — **either build it or close it**, do not carry it a seventh. |
+| **`add-facade-capability` skill** | n=5 now (the facade + native + wasm + policy-module shape has repeated that many times). Deferred; the next facade capability makes the case by itself. |
+| **`bands()` for a metered one-shot** | Deliberately zeros. No use case has appeared in three sessions — treat as **closed** unless one does. |
+
+## Open — process
+
+- **`main`-push blocking hook** — proposed 2026-08-03, not applied, low priority (no observed
+  violation). Lives only in `.claude/proposals/2026-08-03.md`, which is gitignored.
+- **`handoff` / `wrap` skills exceed the 800-char guideline** (2,245 and 3,195) — split the detail
+  into reference files. Also gitignored, so this line is the only tracked record of it.
+- ⚠️ **The local gate hook over-matches.** It denies any Bash command containing both the gate
+  script's name and a delete, which includes *a commit message or a doc that merely mentions
+  them*. It fired twice on 2026-08-03 on exactly that. Workaround in use: write the text to a file
+  and pass the file. Narrow the pattern, or change the decision from deny to ask.
+
+## Known-unfalsifiable checks — do not mistake these for guarantees
+
+- **`BEAT_CRAWLER_SELFTEST` exit `8`** ("the two meters are not independent") **cannot fail on
+  native.** Each meter is a tap on its own channel, so the spectrum read never sees the mixer
+  output — verified by firing the bass-heavy soundtrack as the impact clip and measuring no
+  change at all. It is a tripwire for the **wasm** topology, where several sources share one
+  `AnalyserNode`. Only its lower bound (the clock keeps working while impacts sound) guards
+  anything today.
+
+## Standing risks
+
+- **Audio is outside CI entirely.** Every audio claim in v0.140–v0.143 rests on a local device.
+- **A headless capture cannot photograph a meter** — fixed dt, no wall clock. Three sessions have
+  now reached for `ENGINE_CAPTURE` before remembering this.
+- **An example's headline feature can degrade gracefully into silence.** That is what a
+  `<NAME>_SELFTEST` prevents; `beat_crawler` and `survivor` have one, the other games do not.
