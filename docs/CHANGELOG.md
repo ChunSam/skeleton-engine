@@ -4,6 +4,30 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.143.6
+
+**`salvage_run` gets an acceptance test, and it is the first one over the network stack.** Interest management is the most screenshot-invisible feature in the tree, and its failure is worse than invisible — it is *flattering*. The server signals that an entity left the area-of-interest only by omission, so with the client's eviction dead the world only ever gains entities: the HUD's "streaming N / total" climbs toward the total and the game looks like it is streaming beautifully. There is no message whose absence anything would notice. Nothing in the client had a test of any kind before this. No library code changed; examples and docs only.
+
+Coverage goes from **4 of 21** playable games to **5**, and the harness this needed unblocks the other three networked games.
+
+### Added
+- **`SALVAGE_RUN_SELFTEST=1 cargo run --example salvage_run`**, six checks / exit codes. Checks 1-4 need no server: they drive the real `SalvageClient` by injecting real protocol JSON into `Events<NetworkEvent>` — entities stream in (`1`); **removal-by-omission** evicts what stopped arriving and never drops what is still arriving (`2`); a disconnect clears `RemoteEntities` *and* the parallel `salvage_buf`/`drone_buf`/`last_seen` maps it does not own (`3`); streamed motion is interpolated rather than snapped (`4`).
+- **Checks 5-6 spawn the real `salvage_run_server`** and assert the properties no client-side test can reach: that the server tailors its snapshot to the AOI radius (`5`) and that shrinking the radius back *drains* what it streamed (`6`). Measured: radius 200 streams **3** entities, radius 1100 streams **97 of 120**, and shrinking back drains 97 → **5**. They **SKIP with exit 0** if that binary was never built — the rule `BEAT_CRAWLER_SELFTEST` uses for a missing audio device.
+- **`protocol::server_addr()`** — `SERVER_ADDR` unless `SALVAGE_RUN_ADDR` overrides it (client and server both). Additive: unset, it is byte-identical to the constant, so every documented way of running the example is unchanged. It exists because the port was hardcoded on both sides and the server `bind`s it with an `expect`, so a self-test on 9005 would collide with a server the user is already running — a hang-and-fail, not a skip. The test asks the OS for a free port and hands it to the child.
+- `SalvageScene::on_enter` splits its world-building into a shared `build_world`, so the self-test stands up the same arrangement. The socket deliberately stays in `on_enter`: the offline checks must not have a live connection racing them, and the connect line is covered by checks 5-6 instead.
+
+### Verified
+- **All six exit codes proven by sabotage**, each reverted and the revert re-checked by `grep`: `ingest` dropped (`1`); eviction disabled (`2`); a parallel map left behind on disconnect (`3`); the interpolation delay ignored (`4`); the server's AOI filter made unbounded — 120 vs 120 (`5`); and, for `6`, a server whose **interest set never shrinks** (`c.r = c.r.max(r)`), which passes check 5 at 24 → 92 and fails 6 at 92 → 93.
+- Default port unchanged and exercised end to end: the server started with no environment override, the real client run against it, and the frame **looked at** — HUD reads `Connected`. The client still builds for `wasm32`.
+
+### Fixed during the work — two test-side lessons that generalize
+- **An end-state assertion missed a flicker.** Check 2's "still-arriving entities are never evicted" half originally read the map once, at the end. A `STALE_TIMEOUT` sabotaged to 0.05 s — below the 0.083 s snapshot interval — evicts a still-arriving entity *between* snapshots and re-spawns it on the next one, so the endpoint looks perfect. It passed. The check now watches every frame, and that sabotage now fails it naming the ids that flickered.
+- **Interpolation lag must be measured against where the *sender* was, not against the newest snapshot.** That sample is already up to one snapshot interval old, so the first draft expected 37.5 px against a measured 17.5 and only passed because the tolerance was loose enough to swallow the gap. The expectation is now derived from the trajectory the test itself authored; it matches to the pixel (995.5 vs 995.5) with a tolerance of one tick of motion.
+- Also worth knowing before writing the next one of these: **`NetworkClient::connect` dials once and does not retry.** Connecting to a just-spawned server and hoping is not a slower path, it is a guaranteed failure — probe with a plain `TcpStream::connect` until it binds.
+
+### Also
+- `CLAUDE.md`'s capture caveat gains its second instance: a networked game photographs `streaming 0 / 120` while the server is happily sending, for the same reason an audio meter photographs `0.0`. Anything arriving on a wall clock — audio, sockets, file watchers — needs a loop paced off `Instant`.
+
 ## 0.143.5
 
 **Hot-reload now has playable-example acceptance tests.** `data_anim` and `data_particles` exist to show one thing — edit a RON file while the game runs and the animation/effect changes — and until now nothing anywhere asserted it. `CLAUDE.md` lists hot-reload among the things CI cannot run, and every link in the chain fails *silently*: a watch that was never registered, a registry that reloaded nothing, or a re-sync system that stopped rebuilding its component all leave a perfectly good sprite animating the clips it was born with. That is what a screenshot photographs either way, and what the person editing the RON sees when their change "did nothing" and they go looking at their own file instead of at the engine. No library code changed; examples and docs only.

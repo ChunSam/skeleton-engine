@@ -20,6 +20,25 @@ use serde::{Deserialize, Serialize};
 /// WebSocket address (distinct from `coin_race`'s 9002, `predict_shooter`'s 9003 and
 /// `orbital_dodger`'s 9004 so all four servers can run at once).
 pub const SERVER_ADDR: &str = "127.0.0.1:9005";
+
+/// The address both binaries actually use: [`SERVER_ADDR`] unless `SALVAGE_RUN_ADDR` overrides it.
+///
+/// Additive — with the variable unset this is byte-identical to the constant, so every documented
+/// way of running the example is unchanged. It exists because the port was hardcoded on both sides:
+/// `SALVAGE_RUN_SELFTEST=1` needs a server of its own on a free port, and binding 9005 would either
+/// collide with a server the user is already running or, in CI, with a parallel job. The server
+/// `bind`s this and panics on failure, so a collision is a hang-and-fail rather than a skip —
+/// which is the reason to make it configurable rather than to retry.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn server_addr() -> String {
+    std::env::var("SALVAGE_RUN_ADDR").unwrap_or_else(|_| SERVER_ADDR.to_string())
+}
+
+/// The web build has no environment to read, so it always uses the constant.
+#[cfg(target_arch = "wasm32")]
+pub fn server_addr() -> String {
+    SERVER_ADDR.to_string()
+}
 /// Fixed server simulation timestep (60 Hz).
 pub const FIXED_DT: f32 = 1.0 / 60.0;
 /// AOI snapshots per second the server broadcasts. Deliberately **low** (12 Hz) so client-side

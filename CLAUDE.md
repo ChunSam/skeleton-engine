@@ -45,7 +45,10 @@ Headless, no window or display needed (native only) — the way to *see* what a 
 - `ENGINE_INPUT=<script.ron>` — replay a scripted `(frame, action)` input list (`src/input_script.rs`).
 
 ⚠️ A capture run advances at a fixed `1/60` dt as fast as the CPU allows, so **real-time signals
-cannot be photographed** — an audio meter reads `0.0` in a captured frame while sounding correctly.
+cannot be photographed** — an audio meter reads `0.0` in a captured frame while sounding correctly,
+and a networked game photographs `streaming 0 / 120` while the server is happily sending. Anything
+arriving on a wall clock (audio, sockets, file watchers) needs a loop paced off `Instant`, which is
+what the `<NAME>_SELFTEST` acceptance tests are for.
 
 ---
 

@@ -183,14 +183,15 @@ impl Server {
 type Shared = Arc<Mutex<Server>>;
 
 fn main() {
-    let listener = TcpListener::bind(SERVER_ADDR).expect("bind failed");
+    let addr = server_addr();
+    let listener = TcpListener::bind(&addr).expect("bind failed");
     let seed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0x9E3779B97F4A7C15);
     let server: Shared = Arc::new(Mutex::new(Server::new(seed)));
 
-    println!("salvage_run_server: AOI-streaming world on ws://{SERVER_ADDR}");
+    println!("salvage_run_server: AOI-streaming world on ws://{addr}");
     println!(
         "  {ENTITY_COUNT} entities ({SALVAGE_COUNT} salvage + {DRONE_COUNT} drones) in a {WORLD_W:.0}x{WORLD_H:.0} world · {SNAPSHOT_HZ} Hz per-client AOI snapshots · run `salvage_run`"
     );
