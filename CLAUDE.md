@@ -1,11 +1,7 @@
 # CLAUDE.md — agent quick reference
 
-Guidance for Claude Code when working in this repository.
-
-**skeleton-engine** — a lightweight Rust 2D game engine on `wgpu` + a custom ECS + rapier2d.
 Package `skeleton-engine`, library crate **`engine`** — all code says `use engine::*`.
-Rust **1.95**, edition 2021. Workspace: `.` + `engine_reflect_derive`. Version lives in
-`Cargo.toml` and nowhere else.
+The version lives in `Cargo.toml` and nowhere else.
 
 The engine is **unpublished by design**: it is a *skeleton* meant to be forked and edited, not
 added as a dependency. Read `docs/VISION.md` once — it is the "why" every feature traces back to.
@@ -35,27 +31,6 @@ Read only what you need.
 
 ---
 
-## Layout
-
-```
-src/                engine source — edit it freely, that is the point
-  app/              App, main loop, headless capture, the in-game editor
-  renderer/         wgpu passes: sprite, text, lighting, post, particles, transition
-  ui/               widgets, layout, focus
-  ecs/              World, archetypes, events, systems
-  physics/ audio/ animation/ collision/ network/ scripting/ tilemap/ dialogue/ …
-engine_reflect_derive/   #[derive(Reflect)] proc-macro (a path DEV-dependency)
-examples/*.rs            single-file demos — auto-discovered by cargo
-examples/games/<name>/   playable example games — registered as [[example]] in Cargo.toml
-tests/                   integration tests (incl. tests/render.rs, the GPU render tests)
-scripts/                 verify.sh + the optional wasm/render smoke scripts
-plans/                   session plans + handoffs (tracked — commit them)
-```
-
-Unit tests live inline (`mod tests`), beside the code they cover. `.claude/` is gitignored.
-
----
-
 ## Build & run
 
 Any `examples/*.rs` is auto-discovered as `cargo run --example <name>`; `hello_sprite` is the
@@ -76,8 +51,7 @@ cannot be photographed** — an audio meter reads `0.0` in a captured frame whil
 
 ## Verification
 
-`./scripts/verify.sh` is the gate — it mirrors CI (fmt → clippy → wasm build → wasm clippy →
-`test --all-targets` → `test --doc` → rustdoc `-D warnings`). Run it before calling anything done.
+`./scripts/verify.sh` is the gate — it mirrors CI. Run it before calling anything done.
 
 ```sh
 ./scripts/verify.sh > /tmp/v.log 2>&1; echo "VERIFY_EXIT=$?"
@@ -98,9 +72,6 @@ What the gate does **not** cover, so get it yourself:
 - **macOS/Windows `cfg` branches** — CI is ubuntu (plus one Windows *build* job). Build both branches locally.
 - **Anything CI cannot run** — windowed playtest, audio playback, hot-reload, gamepads. Compiling
   for wasm is not running on wasm; for a runtime web claim, run the matching `scripts/*_smoke.sh`.
-
-CI (`.github/workflows/ci.yml`) runs six jobs: native test, **render** (Mesa lavapipe software GPU,
-`SKELETON_REQUIRE_GPU=1` so it can never silently skip), wasm, Windows/DX12, rustdoc, package dry-run.
 
 If you skip a verification step, **say so in the report**.
 
@@ -148,6 +119,9 @@ Two that have their own failure mode:
 
 **A feature is not done until a small playable example exercises it in real play.** The example is
 the acceptance test, not an afterthought — if the API feels awkward while writing it, fix the API.
+
+**Where things go.** Unit tests live inline (`mod tests`), beside the code they cover. `plans/` is
+tracked — commit session plans and handoffs. `.claude/` is gitignored.
 
 **Versioning.** Pre-1.0: MINOR covers any release including breaking changes, PATCH is a bugfix.
 A release bump touches `Cargo.toml`, `Cargo.lock`, and `docs/CHANGELOG.md` together. Docs-only
