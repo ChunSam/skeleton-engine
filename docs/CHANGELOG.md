@@ -4,6 +4,29 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.143.5
+
+**Hot-reload now has playable-example acceptance tests.** `data_anim` and `data_particles` exist to show one thing — edit a RON file while the game runs and the animation/effect changes — and until now nothing anywhere asserted it. `CLAUDE.md` lists hot-reload among the things CI cannot run, and every link in the chain fails *silently*: a watch that was never registered, a registry that reloaded nothing, or a re-sync system that stopped rebuilding its component all leave a perfectly good sprite animating the clips it was born with. That is what a screenshot photographs either way, and what the person editing the RON sees when their change "did nothing" and they go looking at their own file instead of at the engine. No library code changed; examples and docs only.
+
+This takes `<NAME>_SELFTEST` coverage from **2 of 21** playable games to **4**.
+
+### Added
+- **`DATA_ANIM_SELFTEST=1 cargo run --example data_anim_game`** — six checks / exit codes: the animation advances at the fps the RON declares (`1`); each clip's own fps reaches the render layer (`2`); an edit on disk reaches the registry (`3`); it reaches the **already-playing** `AnimationPlayer` (`4`); the selected clip survives the rebuild (`5`); the new clip is what actually gets drawn (`6`).
+- **`DATA_PARTICLES_SELFTEST=1 cargo run --example data_particles_game`** — the same six-code shape over `ParticleConfigRegistry`. Being the *second* registry through this path is the point: it makes the arrangement a pattern rather than one example's trick.
+- Both split their setup into a `setup(&mut App, path)` that `main` and the self-test share, so the ordering that fails quietly — load and watch the file *before* building the component from it — is the ordering under test. The self-test passes a **temp copy** of the RON, so the tracked asset is never edited and a mid-run death cannot leave the repo dirty.
+
+### Verified
+- **All twelve exit codes proven by sabotage**, each reverted and the revert re-checked by `grep`: fps → 0 in the RON (`1`); the `2` key branch dead (`2`); `watch_animation_clip_path` / `watch_particle_config_path` removed from `src/app/editor/loading.rs` (`3` — "the watcher did NOT report the change"); the re-sync branch dead (`4`); the rebuild forced back to clip 0 (`5`); a **partial** re-sync that copies the new rate but keeps the old frames/size (`6`).
+- **Check `6` was rewritten to be falsifiable rather than kept as a tripwire.** Asserting only the reloaded *rate* left nothing that could fail once checks 4 and 5 passed — the player is rebuilt wholesale, so there is no staleness to catch. Making the edit change the frame list / particle size **as well as** the rate gives it a real failure to detect, and the assertion compares the drawn `UvRect`s / `Transform::scale`s against the ones drawn *before* the edit rather than against values the test computed itself.
+- **Thresholds measured, then set — and one of them caught the guess.** The animation counts are exact (`SECONDS × fps`: 8, 24, 60). The particle population settles at `spawn_rate × lifetime` **plus one frame of spawning**, so the first flat tolerance passed the two slow emitters and failed the fast one at 224 against a wanted 220; the tolerance is now `rate * DT + 2`, which is the shape of the error rather than a fudge over it.
+- Both examples still run their normal windowed path, checked through `ENGINE_CAPTURE` and the frames **looked at**, not just measured.
+
+### Fixed
+- **A wrong comment in `data_particles`, corrected against a measurement.** Replacing the `ParticleEmitter` every frame was documented as making it "never spawn particles". It does not: it resets the emit timer every frame, which clamps emission to one particle per tick — **60/s against a configured 90/s**, a 63-particle population settling at 42. It under-emits rather than stopping, which is why the self-test asserts the rate and not merely that something spawned.
+
+### Also
+- `docs/VERIFICATION.md` gains **Trap 7** — a squash-merge leaves the original tip dangling, so an already-landed branch reads as "ahead by N" and the branch graph cannot clear it for deletion; verify by content. Moved out of `docs/NEXT_WORK.md`'s "Recently closed" (which rolls off every session) because it had no other durable home.
+
 ## 0.143.4
 
 **`embedded_image` now runs on the web, instead of merely compiling for it.** `App::load_image_bytes` exists so a PNG can ship *inside* the `.wasm` module — the single-file/jam case where a path load would need async fetch plumbing — but the only thing ever proving that on wasm was a compile. v0.136.0 closed exactly this gap for the atlas twin (`embedded_atlas` got a browser harness and a render smoke) and left the image half carrying only a `cargo build --target wasm32` behind it. It is now symmetric. No library code changed; this is examples and tooling only, so no public API is affected.

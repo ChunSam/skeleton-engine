@@ -86,6 +86,15 @@ working tree, which lies here. Use `git update-index --chmod=+x <files>` and ver
 `git ls-files -s '*.sh'`. (This is how v0.135.1 shipped a smoke script and its `build.sh`
 without the bit — fixed in v0.135.2.)
 
+### Trap 7 — a squash-merged branch reads as "ahead", so the branch graph cannot tell you it is safe to delete
+
+A squash-merge writes a *new* commit and leaves the original tip dangling, so
+`git branch --contains` / "ahead by N" report an already-landed branch as unmerged. Both branches
+deleted on 2026-08-03 that looked ahead by 1 were in fact fully contained in `main`. **Verify by
+content** — diff the branch's tree against `main`, or confirm the PR is merged — never by the graph.
+(An agent's `git push --delete` is refused by the remote-destructive permission gate, which is
+correct; a human runs that step.)
+
 ---
 
 ## What each step does and does not cover

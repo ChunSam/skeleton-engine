@@ -27,7 +27,7 @@ A filed request preempts everything below.
 
 | Item | State |
 |---|---|
-| **`<NAME>_SELFTEST` coverage** | **2 of 21** playable games have one (`beat_crawler`, `survivor`). This is the only defense against a headline feature degrading gracefully into silence, and CI cannot supply it. Promoted out of "Standing risks" on 2026-08-03 — it was a to-do filed as a hazard, where nobody would pick it up. Pick the games whose headline feature is *invisible to a screenshot* first; the `example-selftest` skill exists for exactly this. |
+| **`<NAME>_SELFTEST` coverage** | **4 of 21** playable games have one (`beat_crawler`, `survivor`, + `data_anim` and `data_particles` on 2026-08-03). This is the only defense against a headline feature degrading gracefully into silence, and CI cannot supply it. Promoted out of "Standing risks" on 2026-08-03 — it was a to-do filed as a hazard, where nobody would pick it up. Pick the games whose headline feature is *invisible to a screenshot* first; the `example-selftest` skill exists for exactly this. **Next-best candidates, and the reason each is hard:** the four networking games (`coin_race`, `predict_shooter`, `orbital_dodger`, `salvage_run`) — prediction/reconciliation/AOI are the most screenshot-invisible features in the tree, but each needs its `*_server` sibling running, so the harness has to spawn a process or skip; `settings_menu` and `scene_flow` — cross-scene persistence is the documented reset footgun, but it lives in `SceneCmd::Replace`, i.e. inside `App::update`, which an example cannot call. **That is the structural rule this session found: a self-test can drive anything expressed as systems + resources, and nothing expressed as an `App` frame step.** |
 | **4th procgen mode** (drunkard's walk) | Unchanged, still the lowest marginal value: the engine cannot fail at it, so nothing is learned. |
 | **`add-facade-capability` skill** | n=5 now (the facade + native + wasm + policy-module shape has repeated that many times). Deferred; the next facade capability makes the case by itself. |
 
@@ -86,27 +86,21 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
 > `docs/CHANGELOG.md` (what shipped) or `docs/PATTERNS.md` / `docs/VERIFICATION.md` (what was
 > learned). Without this rule the section regrows the history that was just split out.
 
-Closed 2026-08-03:
+Closed 2026-08-03 (this session):
 
-- **`SURVIVOR_SELFTEST=1`** (v0.143.1) — carried three sessions, done.
-- **`add_system` before `set_scene` is now loud** (v0.143.2) — the silent-drop footgun that cost
-  `beat_crawler` several releases of a dead headline feature now emits a warning naming the count.
-- **`play_sfx_metered` has a playable-game caller** (v0.143.3) — `beat_crawler`'s melee impact,
-  closing the VISION acceptance test v0.143.0 shipped without.
-- **`embedded_image` web harness** (v0.143.4) — built rather than carried a seventh session. The
-  image half of the byte-source story now matches the atlas half. Its smoke's byte threshold was
-  *measured* against an engine-never-drew load of the same page (5,582 vs 84,639) instead of copied
-  from the sibling script — a habit now written into `docs/VERIFICATION.md`.
-- **The gate's fusion trap** — Trap 5 now states that the cleanup step and the background run must
-  be separate *calls*, which is the part that actually failed.
-- **`bands()` for a metered one-shot** — closed by its own stated rule (no use case in three
-  sessions). The behavior is documented where it is actually needed, at
-  `examples/games/beat_crawler/beat_crawler.rs:1179`, so the backlog row guarded nothing.
-- **Four dead remote branches deleted** — `docs/english-conversion`,
-  `fix/v8.1.5-scene-pop-text-wrap`, `claude/editor-ux-scene-reparent-rename-hc2bfu` (landed as
-  #304) and `docs/handoff-seq7-anim-effects` (landed as #288). All four were **fully contained in
-  `main`**, verified by content rather than by the branch graph — the last two read as "ahead by 1"
-  only because a squash-merge leaves the original tip dangling, which is the trap to remember here.
-  `origin` now carries `main` alone. **The push was run by a human**: an agent's `--delete` is
-  refused by the remote-destructive permission gate, which is correct and not something to route
-  around.
+- **`DATA_ANIM_SELFTEST=1` and `DATA_PARTICLES_SELFTEST=1`** (v0.143.5) — the first two games taken
+  off the `<NAME>_SELFTEST` backlog above, chosen because hot-reload is named in `CLAUDE.md` as
+  something CI cannot run *and* is perfectly invisible to a screenshot: a sprite animating the clips
+  it was born with looks exactly like one that just reloaded. Both drive a real `notify` edit
+  through `poll_reloads` → `reload_path` → the game's own re-sync system. All twelve exit codes
+  proven by sabotage, each reverted and the revert re-checked by `grep`.
+- **The `data_particles` emit-timer comment was wrong, and the measurement is now in the code** —
+  replacing the `ParticleEmitter` every frame does not "never spawn particles"; it clamps emission
+  to one per tick, measured at 60/s against a configured 90/s. Corrected in place.
+
+Rolled off 2026-08-03 (previous session's list; durable homes verified before removing): the four
+v0.143.1–v0.143.4 releases are in `docs/CHANGELOG.md`; the gate's fusion trap and the
+measure-your-own-threshold habit are in `docs/VERIFICATION.md`; the `bands()` decision is at its
+call site. The one lesson with **no** other home — a squash-merge leaves the original tip dangling,
+so an already-landed branch reads as "ahead" and the branch graph cannot clear it for deletion —
+was moved to `docs/VERIFICATION.md` as **Trap 7** rather than dropped.

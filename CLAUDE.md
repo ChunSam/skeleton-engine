@@ -57,7 +57,7 @@ cannot be photographed** — an audio meter reads `0.0` in a captured frame whil
 ./scripts/verify.sh > /tmp/v.log 2>&1; echo "VERIFY_EXIT=$?"
 ```
 
-**Read the exit code from an unpiped command.** `docs/VERIFICATION.md` documents six traps that
+**Read the exit code from an unpiped command.** `docs/VERIFICATION.md` documents seven traps that
 have each cost a session; the ones that recur:
 
 - A trailing `| tail` reports the pipe's status and hides a red gate. zsh's array is `$pipestatus`, 1-indexed.
