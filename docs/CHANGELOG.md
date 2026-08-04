@@ -4,6 +4,34 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.143.8
+
+**CI now runs the acceptance tests, and builds the examples that ship to the web.** Two gaps, both found by asking what the gate actually executes rather than what it is supposed to cover. No library code changed; CI, scripts and docs only.
+
+The first is the uncomfortable one: **the seven `<NAME>_SELFTEST` acceptance tests had never run in CI, or in `verify.sh`.** Neither file contained the string `SELFTEST`. Every one of them was proven non-vacuous by sabotage on the day it was written, and then nothing ran it again. They all still pass (verified before wiring them up), so nothing had rotted — but that was luck, not a guarantee, and these tests are the project's only defense against a headline feature degrading gracefully into silence.
+
+### Added
+- **`scripts/selftests.sh`** — runs all seven selftests and reports one verdict. Wired into both CI's native job and `verify.sh`, so the gate keeps mirroring CI. ~58 s locally with a sound card; less in CI, where the audio halves skip.
+- **`scripts/build_wasm_examples.sh`** — builds the **16** examples that declare a `#[wasm_bindgen]` entry point for `wasm32`. Wired into CI's Build (WASM) job and `verify.sh`. The set is **derived from the entry point, not hardcoded**, so a new web example is covered without anyone remembering to register it.
+
+### Why the selftest runner is a script and not a `cargo run` line
+**A skip is not a pass.** Every selftest correctly opts out with exit 0 when its environment cannot support a check — a machine with no sound card should not fail the build. But that makes a skip indistinguishable from a pass at the exit code, and one skip is *not* environmental: the networked tests drop their live checks when the sibling server binary is missing, and `cargo run --example salvage_run` builds only `salvage_run`. A naive CI step would therefore silently drop exactly the checks that cover the most and report success.
+
+Measured, not assumed: with `predict_shooter_server` hidden, the raw exit code is **0**. The script builds `--examples` first, then treats `no audio device` as the only tolerable skip and fails on every other. Same principle as the render job's `SKELETON_REQUIRE_GPU=1`.
+
+### Why the wasm example build names its targets
+A blanket `--examples --target wasm32` fails, and correctly — several examples are native-only by construction. The old note in `docs/VERIFICATION.md` listed three (`platformer_game`/`mp_server`/`gpu_particles`); the real set is larger, and the rest fail on native-only *engine* APIs rather than dependencies: `headless_screenshot`, `hot_reload_asset_root`, `tile_anim_stagger`, `slider_keyboard_step`, `ui_stepper`, `ui_tabs`. So the build has to name the examples meant to reach the web, which is what the entry-point derivation does.
+
+### Fixed during the work
+- **`chmod +x` on the two new scripts was invisible to git** — this repo has `core.fileMode = false`, so both were staged `100644` and CI would have failed with permission denied. This is Trap 6 in `docs/VERIFICATION.md`, caught by checking `git ls-files -s` rather than trusting the local file mode. Fixed with `git update-index --chmod=+x`.
+- The selftest summary filter matched `ok:`/`PASS` but not `OK:`, which `audio_reactive` uses — so that test printed nothing under its heading and read as having done nothing, while actually running four checks.
+
+### Still not covered, stated plainly
+- **Audio playback.** The audio halves skip on CI, so every audio claim still rests on a local device.
+- **Running on the web.** None of the 15 `scripts/*_smoke.sh` runtime smokes is in CI; compiling for wasm is not running on wasm.
+- **macOS/Windows `cfg` branches.** CI is ubuntu plus one Windows *build* job.
+- Hot-reload, previously on this list, **is** covered now — `DATA_ANIM_SELFTEST` and `DATA_PARTICLES_SELFTEST` do real `notify` file-watching in CI.
+
 ## 0.143.7
 
 **`predict_shooter` proves its client-side prediction and server reconciliation.** This is the second acceptance test over the network stack, and it copies the server-spawning harness `salvage_run` built — which was the whole point of building it. Reconciliation is the load-bearing invisible property here, and its failure *flatters*: with the client's `reconcile` call never reached, input still moves you the instant you press a key and the motion is still perfectly smooth, because prediction alone is what makes it feel good. The only symptom is that the server quietly disagrees about where you are — no message says so, nothing renders differently, and in a single-window playtest there is nothing to compare against. `client_net.rs` already unit-tested `Prediction` in isolation; nothing covered the **ECS wiring** that calls it. No library code changed; examples and docs only.

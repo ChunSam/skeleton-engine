@@ -9,9 +9,12 @@
 #   ./scripts/verify.sh
 #
 # Note on the wasm gate: this builds the lib + bins for wasm32, NOT --all-targets.
-# The native-only examples (platformer_game / mp_server / gpu_particles) depend on
-# rapier2d / tungstenite / GpuParticleEmitter and do not compile to wasm, so
-# --all-targets would report false failures. --lib would also work.
+# The native-only examples depend on rapier2d / tungstenite / GpuParticleEmitter, or on
+# native-only engine APIs (hot-reload, headless screenshots), and do not compile to wasm,
+# so --all-targets would report false failures. --lib would also work.
+#
+# The examples that ARE meant to reach the web are covered separately by
+# scripts/build_wasm_examples.sh, which names them instead of building all of them.
 
 set -euo pipefail
 
@@ -41,5 +44,15 @@ cargo test --doc
 
 echo "[verify] RUSTDOCFLAGS=-D warnings cargo doc --no-deps"
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
+
+# The wasm build above is lib + bins, so an example's wasm path is invisible to it. This names the
+# examples that carry a wasm entry point and builds those.
+echo "[verify] ./scripts/build_wasm_examples.sh"
+./scripts/build_wasm_examples.sh
+
+# The `<NAME>_SELFTEST` acceptance tests. Locally these run MORE than they do in CI — a machine
+# with a sound card exercises the audio checks that CI can only skip.
+echo "[verify] ./scripts/selftests.sh"
+./scripts/selftests.sh
 
 echo "[verify] all checks passed ✓"

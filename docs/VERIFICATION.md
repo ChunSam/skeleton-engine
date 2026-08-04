@@ -99,23 +99,47 @@ correct; a human runs that step.)
 
 ## What each step does and does not cover
 
-### The WASM step is lib+bins, never examples
+### The WASM step is lib+bins — examples are a separate, derived step
 
-Do **not** gate on `--target wasm32 --all-targets`: it fails on the native-only examples
-(`platformer_game` / `mp_server` / `gpu_particles`, which pull in `rapier2d` /
-`tungstenite` / `GpuParticleEmitter`). `cargo build --target wasm32-unknown-unknown`
-(lib+bins) or `--lib` is the real wasm gate.
+Do **not** gate on `--target wasm32 --all-targets`: it fails on the native-only examples, and
+correctly so. There are more of them than the old note here listed — besides `platformer_game` /
+`mp_server` / `gpu_particles` (`rapier2d` / `tungstenite` / `GpuParticleEmitter`), the examples
+using native-only *engine* APIs also fail: `headless_screenshot`, `hot_reload_asset_root`,
+`tile_anim_stagger`, `slider_keyboard_step`, `ui_stepper`, `ui_tabs`.
 
-**Consequence:** an example can be broken for wasm indefinitely and the gate stays green.
-`embedded_image` was unbuildable for `wasm32` from the day it was added (it called the
-native-only `save_screenshot_headless` unconditionally) until v0.135.1 — and nothing *ran*
-it on the web until v0.143.4 gave it a browser harness and a render smoke. After
-touching an example's `cfg(target_arch = "wasm32")` path — or adding an example that claims
-to work on the web — build it explicitly:
+`cargo build --target wasm32-unknown-unknown` (lib+bins) is still the library wasm gate.
+**Since v0.143.8 the examples have their own step**: `scripts/build_wasm_examples.sh` builds the
+16 examples that declare a `#[wasm_bindgen]` entry point — the ones an `index.html` actually calls.
+The set is **derived from that entry point, not hardcoded**, so a new web example is picked up
+without anyone remembering to register it. It runs in CI's Build (WASM) job and in `verify.sh`.
 
-```bash
-cargo build --example <name> --target wasm32-unknown-unknown
-```
+**The consequence this closed:** an example could be broken for wasm indefinitely and the gate
+stayed green. `embedded_image` was unbuildable for `wasm32` from the day it was added (it called
+the native-only `save_screenshot_headless` unconditionally) until v0.135.1 — and nothing *ran* it
+on the web until v0.143.4 gave it a browser harness and a render smoke.
+
+An example with **no** wasm entry point is still not covered; if you want one built for wasm, it
+needs the entry point (which is also what makes it loadable) or an explicit build.
+
+### A skip is not a pass — `scripts/selftests.sh`
+
+The `<NAME>_SELFTEST` acceptance tests are the only defense against a headline feature degrading
+gracefully into silence. Each was proven non-vacuous by sabotage when written — and until v0.143.8
+**nothing ran them again**: neither CI nor `verify.sh` contained the string `SELFTEST`.
+
+They now run in both, via `scripts/selftests.sh`. The reason that is a script rather than a list of
+`cargo run` lines is that **every one of these tests opts out with exit 0** when its environment
+cannot support a check, so the exit code alone cannot distinguish "passed" from "ran nothing":
+
+- `SKIP: no audio device` is **expected** on CI and tolerated.
+- **Every other skip is a failure.** The networked tests skip their live checks when the sibling
+  server binary is absent, and `cargo run --example salvage_run` builds only `salvage_run` — so a
+  naive CI step would drop exactly the checks that cover the most, and report success. This was
+  measured, not assumed: with `predict_shooter_server` hidden, the raw exit code is **0**.
+
+So the script builds `--examples` first, then greps each run's output and fails on any non-audio
+skip. Same principle as the render job's `SKELETON_REQUIRE_GPU=1`: an environment opt-out must
+never read as a green pass.
 
 ### CI is ubuntu only
 
