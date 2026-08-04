@@ -4,6 +4,25 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.143.7
+
+**`predict_shooter` proves its client-side prediction and server reconciliation.** This is the second acceptance test over the network stack, and it copies the server-spawning harness `salvage_run` built — which was the whole point of building it. Reconciliation is the load-bearing invisible property here, and its failure *flatters*: with the client's `reconcile` call never reached, input still moves you the instant you press a key and the motion is still perfectly smooth, because prediction alone is what makes it feel good. The only symptom is that the server quietly disagrees about where you are — no message says so, nothing renders differently, and in a single-window playtest there is nothing to compare against. `client_net.rs` already unit-tested `Prediction` in isolation; nothing covered the **ECS wiring** that calls it. No library code changed; examples and docs only.
+
+Coverage goes from **5 of 21** playable games to **6**.
+
+### Added
+- **`PREDICT_SHOOTER_SELFTEST=1 cargo run --example predict_shooter`**, seven checks / exit codes. Checks 1-5 need no server: they drive the real `ShooterClient` by injecting real protocol JSON into `Events<NetworkEvent>` — `welcome` wires up the local player (`1`); held input is predicted immediately **and reaches the avatar's `Transform`** (`2`); an authoritative correction reconciles (`3`); reconciliation **replays the un-acked inputs** rather than snapping to the acked position (`4`); remote players are interpolated rather than snapped (`5`).
+- **Checks 6-7 spawn the real `predict_shooter_server`** on an OS-assigned port and assert what no client-side test can reach: that prediction **converges** on the server's authority (`6`), and that a `fire` input round-trips into a server-spawned bullet (`7`). They **SKIP with exit 0** if that binary was never built.
+- Check 6 leans on a disagreement the example builds in on purpose. The client seeds its prediction at the field centre while the server spawns each player at a *random* position — `handle_message` says so: "the first snapshot reconciles to the real spawn". A client that never reconciles stays anchored to the centre forever. Measured across runs: **0.00 px** between the client and the server's last word after ~285 px of driven movement.
+- **`protocol::server_addr()`** — `SERVER_ADDR` unless `PREDICT_SHOOTER_ADDR` overrides it. Additive: unset, it is byte-identical to the constant. Same rationale and same shape as `salvage_run`'s, and like it the windowed client keeps dialling the constant while the self-test builds its own `NetworkClient` against the port it reserved.
+- Held input is synthesized with **`InputScript`** — the engine's own `ENGINE_INPUT` replay path — because `InputState` has no public press setter. That routes the checks through the real `read_input` instead of a harness that fakes a direction.
+
+### Verified
+- **All seven exit codes proven by sabotage**, each reverted and the revert re-checked by `grep` (`client_net.rs` came back byte-identical to `main`): `welcome` not seeding the prediction (`1`); the `Transform` write dropped (`2`); the `reconcile` call removed (`3`); `reconcile` snapping without replay (`4`); the interpolation delay ignored (`5`); inputs predicted but **never sent** (`6`); `fire: false` on the wire (`7`).
+- Two of those are worth stating on their own. The `reconcile`-removed sabotage leaves checks 1-2 **green** — the game still predicts, the avatar still moves, it still feels right — which is exactly the exposure. And the never-sent sabotage leaves all five offline checks green and is caught only by check 6, which is the argument for the live checks existing at all.
+- Live checks are stable against the random spawn: the drive direction is picked away from the nearer wall, so the asserted travel is never clamped short. Three consecutive runs measured 284/288/288 px travelled and 0.00 px of disagreement.
+- SKIP path exercised by hiding the server binary (exit 0, offline checks only). The client still builds for `wasm32`.
+
 ## 0.143.6
 
 **`salvage_run` gets an acceptance test, and it is the first one over the network stack.** Interest management is the most screenshot-invisible feature in the tree, and its failure is worse than invisible — it is *flattering*. The server signals that an entity left the area-of-interest only by omission, so with the client's eviction dead the world only ever gains entities: the HUD's "streaming N / total" climbs toward the total and the game looks like it is streaming beautifully. There is no message whose absence anything would notice. Nothing in the client had a test of any kind before this. No library code changed; examples and docs only.

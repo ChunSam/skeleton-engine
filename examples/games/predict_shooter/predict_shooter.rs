@@ -17,7 +17,9 @@
 //!   lerped between snapshots, so they move smoothly despite the low snapshot rate.
 //!
 //! The pure netcode (prediction/reconciliation/interpolation) lives in `client_net.rs` and is
-//! unit-tested headlessly; this file wires it into ECS systems + rendering.
+//! unit-tested headlessly; this file wires it into ECS systems + rendering. The **wiring** is what
+//! `PREDICT_SHOOTER_SELFTEST=1` covers — see [`self_test`] — because a dead reconcile call still
+//! looks and feels like a correctly predicted client.
 //!
 //! Controls: WASD / arrows to move, Space to shoot; the bracket keys live-tune the
 //! interpolation delay so its feel can be judged in real play.
@@ -357,7 +359,637 @@ fn run() {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
+    // `PREDICT_SHOOTER_SELFTEST=1` runs the headless acceptance test instead of opening a window.
+    if std::env::var("PREDICT_SHOOTER_SELFTEST").is_ok() {
+        std::process::exit(self_test());
+    }
     run();
+}
+
+// ── Acceptance test ───────────────────────────────────────────────────────────────────────────
+
+/// `PREDICT_SHOOTER_SELFTEST=1 cargo run --example predict_shooter` — asserts the three pillars this
+/// example exists to show, none of which a screenshot can see.
+///
+/// Reconciliation is the load-bearing invisible one, and its failure *flatters*. With the
+/// `pred.reconcile(...)` call never reached, input still moves you the instant you press a key and
+/// the motion is still perfectly smooth — prediction alone is what makes it feel good. The only
+/// symptom is that the server quietly disagrees about where you are: no message says so, nothing
+/// renders differently, and in a single-window playtest there is nothing to compare against. That is
+/// the `beat_crawler` shape, where a headline feature was not running for several releases.
+///
+/// `client_net.rs` unit-tests `Prediction` in isolation, so what this closes is the **ECS wiring** —
+/// the snapshot handler reaching `reconcile`, and the predicted position reaching the avatar's
+/// `Transform`. Each is one line, and a dead one costs nothing visible.
+///
+/// Checks 1-5 need no server and run anywhere. Checks 6-7 spawn the real `predict_shooter_server` on
+/// a port of their own and **SKIP with exit 0** if that binary was never built — the same rule
+/// `SALVAGE_RUN_SELFTEST` uses for its server and `BEAT_CRAWLER_SELFTEST` for a missing audio device.
+///
+/// Exit codes: `0` pass (the live checks may have skipped) · `1` `welcome` does not wire up the local
+/// player · `2` input is not predicted locally, or the prediction never reaches the avatar ·
+/// `3` an authoritative correction does not reconcile · `4` reconciliation does not replay the
+/// un-acked inputs · `5` remote players are snapped rather than interpolated · `6` against a real
+/// server, prediction never converges on the authoritative position · `7` a `fire` input never
+/// round-trips into a server-spawned bullet.
+#[cfg(not(target_arch = "wasm32"))]
+fn self_test() -> i32 {
+    use engine::{InputAction, InputScript};
+    use std::time::{Duration, Instant};
+
+    /// Simulated frame time for the offline checks, deliberately equal to `FIXED_DT` so each tick
+    /// feeds the client's fixed-step input loop exactly one input — the sequence numbers the
+    /// reconcile checks reason about are then just the tick count. The **server-backed** checks
+    /// below must not use it: the server ticks in wall-clock time, so those are paced off `Instant`.
+    const DT: f32 = FIXED_DT;
+    /// One input's worth of movement along one axis, at full stick.
+    const STEP: f32 = MOVE_SPEED * FIXED_DT;
+    /// Snapshot cadence in frames — the shared `SNAPSHOT_HZ`, expressed in ticks.
+    const SNAP_EVERY: usize = (60 / SNAPSHOT_HZ) as usize;
+
+    let centre = Vec2::new(FIELD_W * 0.5, FIELD_H * 0.5);
+
+    /// The scene's systems, minus the socket. `ShooterClient::new` is the game's own constructor —
+    /// a harness that assembled its own client state would stop testing the scene.
+    fn harness() -> (App, NetworkSystem, ShooterClient) {
+        let mut app = App::new();
+        app.register_event::<NetworkEvent>();
+        (app, NetworkSystem::new(), ShooterClient::new())
+    }
+
+    /// Hand the client a real protocol message, through the real event bus.
+    fn feed(world: &mut World, msg: &ServerMsg) {
+        let text = serde_json::to_string(msg).expect("encode ServerMsg");
+        if let Some(bus) = world.resource_mut::<Events<NetworkEvent>>() {
+            bus.send(NetworkEvent::TextMessage(text));
+        }
+    }
+
+    /// One frame in the scene's order: scripted input where `App` applies it, then the two systems
+    /// `ShooterScene::on_enter` registers, then the end-of-frame flush `App` performs.
+    fn tick(
+        world: &mut World,
+        net: &mut NetworkSystem,
+        client: &mut ShooterClient,
+        script: Option<&mut InputScript>,
+        dt: f32,
+    ) {
+        if let Some(script) = script {
+            script.apply(world);
+        }
+        net.run(world, dt);
+        client.run(world, dt);
+        if let Some(bus) = world.resource_mut::<Events<NetworkEvent>>() {
+            bus.flush();
+        }
+    }
+
+    /// A script holding one key down from the first frame. `InputState` has no public press setter,
+    /// so `InputScript` — the engine's own `ENGINE_INPUT` replay path — is how a headless run
+    /// synthesizes held input, and it drives the real `read_input`.
+    fn hold(key: KeyCode) -> InputScript {
+        InputScript::new([(0, InputAction::KeyDown(key))])
+    }
+
+    fn release(key: KeyCode) -> InputScript {
+        InputScript::new([(0, InputAction::KeyUp(key))])
+    }
+
+    fn snap(tick: u32, players: Vec<PlayerState>, ack: u32) -> ServerMsg {
+        ServerMsg::Snap {
+            tick,
+            players,
+            bullets: vec![],
+            ack,
+        }
+    }
+
+    fn player(id: usize, pos: Vec2) -> PlayerState {
+        PlayerState {
+            id,
+            x: pos.x,
+            y: pos.y,
+        }
+    }
+
+    fn pred_pos(client: &ShooterClient) -> Vec2 {
+        client
+            .prediction
+            .as_ref()
+            .map(|p| Vec2::new(p.x, p.y))
+            .unwrap_or_default()
+    }
+
+    fn pending(client: &ShooterClient) -> usize {
+        client
+            .prediction
+            .as_ref()
+            .map(|p| p.pending_len())
+            .unwrap_or(0)
+    }
+
+    fn avatar_pos(world: &World, client: &ShooterClient) -> Option<Vec2> {
+        client
+            .local_entity
+            .and_then(|e| world.get::<Transform>(e))
+            .map(|t| t.position)
+    }
+
+    // ── 1. `welcome` wires up the local player ────────────────────────────────────────────────
+    //
+    // Everything downstream is guarded on `if let Some(pred) = &mut self.prediction`, so a welcome
+    // that does not land turns the whole example into a silent no-op that still opens a window and
+    // still draws a HUD.
+    {
+        let (mut app, mut net, mut client) = harness();
+        feed(&mut app.world, &ServerMsg::Welcome { id: 7 });
+        tick(&mut app.world, &mut net, &mut client, None, DT);
+
+        let spawned = avatar_pos(&app.world, &client);
+        if client.local_id != Some(7)
+            || client.prediction.is_none()
+            || spawned.is_none_or(|p| (p - centre).length() > 0.5)
+        {
+            eprintln!(
+                "FAIL: `welcome` did not wire up the local player — local_id {:?} (want Some(7)), \
+                 prediction {}, avatar at {spawned:?} (want the field centre {centre:?}). Every \
+                 prediction and reconciliation path below is guarded on `self.prediction` being \
+                 Some, so this failing makes the rest of the example a no-op that still renders.",
+                client.local_id,
+                if client.prediction.is_some() {
+                    "created"
+                } else {
+                    "MISSING"
+                },
+            );
+            return 1;
+        }
+        println!("welcome ok: player #7, prediction seeded at the field centre {centre:?}");
+    }
+
+    // ── 2. Held input is predicted immediately, and the prediction reaches the avatar ──────────
+    //
+    // The first pillar. `client_net.rs` proves `Prediction::predict` integrates correctly; nothing
+    // proved the client *calls* it from real input, or that step 3 copies the result onto the
+    // avatar's `Transform`. Drop that copy and the player sits at the centre while a perfectly
+    // correct prediction advances behind it — rivals, bullets and HUD all still working.
+    {
+        const FRAMES: usize = 30;
+        let (mut app, mut net, mut client) = harness();
+        let mut script = hold(KeyCode::KeyD);
+        feed(&mut app.world, &ServerMsg::Welcome { id: 1 });
+        for _ in 0..FRAMES {
+            tick(&mut app.world, &mut net, &mut client, Some(&mut script), DT);
+        }
+
+        let want = centre + Vec2::new(STEP * FRAMES as f32, 0.0);
+        let pred = pred_pos(&client);
+        let drawn = avatar_pos(&app.world, &client).unwrap_or_default();
+        if (pred - want).length() > 0.5
+            || (drawn - pred).length() > 0.5
+            || pending(&client) != FRAMES
+        {
+            eprintln!(
+                "FAIL: input is not predicted onto the avatar — after {FRAMES} frames holding D the \
+                 prediction is at {pred:?} and the avatar at {drawn:?}, want both at {want:?} with \
+                 {FRAMES} inputs buffered for replay (got {}). A client that predicts but never \
+                 writes the Transform leaves the player frozen at the centre; one that never \
+                 predicts feels laggy in play but is identical in a still frame.",
+                pending(&client)
+            );
+            return 2;
+        }
+        println!(
+            "prediction ok: {FRAMES} held inputs moved the avatar {:.1} px with no round trip, {} \
+             buffered for replay",
+            (drawn - centre).length(),
+            pending(&client)
+        );
+    }
+
+    // ── 3. An authoritative correction reconciles ─────────────────────────────────────────────
+    //
+    // The headline, and what the whole example is exposed to. The server never announces a
+    // correction — it just states where you are, in a snapshot that also carries everyone else's
+    // position. With `reconcile` unreached the client keeps its own prediction forever, which looks
+    // exactly like a correctly-predicted client, because it *is* one: just one the server disagrees
+    // with. The key is released first so the tick carrying the snapshot predicts a zero-move input
+    // and the reconciled position is the server's exactly.
+    {
+        const FRAMES: usize = 30;
+        let (mut app, mut net, mut client) = harness();
+        let mut script = hold(KeyCode::KeyD);
+        feed(&mut app.world, &ServerMsg::Welcome { id: 1 });
+        for _ in 0..FRAMES {
+            tick(&mut app.world, &mut net, &mut client, Some(&mut script), DT);
+        }
+        let predicted = pred_pos(&client);
+
+        let mut up = release(KeyCode::KeyD);
+        tick(&mut app.world, &mut net, &mut client, Some(&mut up), DT);
+        // What the client believes is outstanding; acking it drains the replay queue, so the
+        // correction lands as a pure snap and check 4 owns the replay half.
+        let sent = pending(&client) as u32;
+
+        let authoritative = Vec2::new(centre.x - 120.0, centre.y + 90.0);
+        feed(
+            &mut app.world,
+            &snap(1, vec![player(1, authoritative)], sent),
+        );
+        tick(&mut app.world, &mut net, &mut client, None, DT);
+
+        let pred = pred_pos(&client);
+        let drawn = avatar_pos(&app.world, &client).unwrap_or_default();
+        if (pred - authoritative).length() > 0.5 || (drawn - authoritative).length() > 0.5 {
+            eprintln!(
+                "FAIL: an authoritative correction did not reconcile — the server placed player 1 at \
+                 {authoritative:?} with all {sent} inputs acked, but the client is at {pred:?} \
+                 (avatar {drawn:?}). It had predicted {predicted:?}; a client whose reconcile call \
+                 is never reached stays exactly there, and nothing on screen ever says the server \
+                 disagrees."
+            );
+            return 3;
+        }
+        println!(
+            "reconciliation ok: a correction moved the client {:.1} px off its own prediction onto \
+             the server's position",
+            (predicted - authoritative).length()
+        );
+    }
+
+    // ── 4. Reconciliation replays the un-acked inputs ─────────────────────────────────────────
+    //
+    // What separates reconciliation from snapping. The server's snapshot is always in the past — it
+    // has not yet seen the inputs still in flight — so a client that simply adopts the acked
+    // position rubber-bands backwards on every snapshot, throwing away the responsiveness
+    // prediction just bought. The correction carries a Y lift the client never predicted, so this
+    // fails on *both* halves: a naive snap misses the replay, a dead reconcile misses the lift.
+    {
+        const FRAMES: usize = 30;
+        const ACKED: u32 = 10;
+        const LIFT: f32 = 50.0;
+        let (mut app, mut net, mut client) = harness();
+        let mut script = hold(KeyCode::KeyD);
+        feed(&mut app.world, &ServerMsg::Welcome { id: 1 });
+        for _ in 0..FRAMES {
+            tick(&mut app.world, &mut net, &mut client, Some(&mut script), DT);
+        }
+        let mut up = release(KeyCode::KeyD);
+        tick(&mut app.world, &mut net, &mut client, Some(&mut up), DT);
+
+        // Where the server is having applied only the first ACKED inputs, plus a correction on an
+        // axis the client never moved along.
+        let acked_pos = Vec2::new(centre.x + STEP * ACKED as f32, centre.y + LIFT);
+        feed(&mut app.world, &snap(1, vec![player(1, acked_pos)], ACKED));
+        tick(&mut app.world, &mut net, &mut client, None, DT);
+
+        // The acked position plus a replay of the un-acked inputs, which are all +x.
+        let want = Vec2::new(centre.x + STEP * FRAMES as f32, centre.y + LIFT);
+        let pred = pred_pos(&client);
+        if (pred - want).length() > 0.5 {
+            eprintln!(
+                "FAIL: reconciliation did not replay the un-acked inputs — the server acked {ACKED} \
+                 of {FRAMES} inputs at {acked_pos:?} and the client settled at {pred:?}, want \
+                 {want:?}. Snapping to the acked position alone lands on {acked_pos:?}, which is the \
+                 rubber-band; never reconciling at all lands on {:?}, missing the {LIFT} px \
+                 correction the client could not have predicted for itself.",
+                Vec2::new(centre.x + STEP * FRAMES as f32, centre.y)
+            );
+            return 4;
+        }
+        println!(
+            "replay ok: acking {ACKED} of {FRAMES} inputs left the client {:.1} px ahead of the \
+             server's position while still taking its {LIFT} px correction",
+            STEP * (FRAMES as f32 - ACKED as f32)
+        );
+    }
+
+    // ── 5. Remote players are interpolated, not snapped ───────────────────────────────────────
+    //
+    // The third pillar, and the reason the server snapshots at SNAPSHOT_HZ well below its 60 Hz sim.
+    // A client that renders the newest sample judders at the snapshot rate — invisible in any single
+    // frame, and the bracket keys that live-tune the delay are currently the only way anyone would
+    // find out.
+    {
+        const REMOTE: usize = 2;
+        const SPEED: f32 = 300.0; // px/s along +x
+        const FRAMES: usize = 30;
+        let (mut app, mut net, mut client) = harness();
+        let origin = Vec2::new(120.0, 480.0);
+        let mut newest = origin;
+
+        feed(&mut app.world, &ServerMsg::Welcome { id: 1 });
+        for f in 0..FRAMES {
+            if f % SNAP_EVERY == 0 {
+                newest = origin + Vec2::new(SPEED * (f as f32 * DT), 0.0);
+                feed(
+                    &mut app.world,
+                    &snap(1 + f as u32, vec![player(REMOTE, newest)], 0),
+                );
+            }
+            tick(&mut app.world, &mut net, &mut client, None, DT);
+        }
+
+        let drawn = client
+            .remote_players
+            .get(&REMOTE)
+            .and_then(|e| app.world.get::<Transform>(e))
+            .map(|t| t.position)
+            .unwrap_or_default();
+        // Where the *sender* was `interp_delay` ago, stated in the trajectory this check authored
+        // rather than re-derived from the engine's algorithm. `client_time` advances before events
+        // are read, so the snapshot fed before tick `f` is stamped `(f + 1) * DT` while carrying
+        // `x = origin + SPEED * f * DT`; over the sampled span the sender is therefore at
+        // `x(t) = origin.x + SPEED * (t - DT)`.
+        //
+        // Comparing against the newest *snapshot* instead would be wrong — that sample is already up
+        // to one snapshot interval old. It is the mistake `SALVAGE_RUN_SELFTEST` records costing it
+        // a 17.5 px measurement judged against a 37.5 px expectation.
+        let rt = FRAMES as f64 * DT as f64 - INTERP_DELAY_DEFAULT;
+        let want = origin.x + SPEED * (rt - DT as f64) as f32;
+        let slack = SPEED * DT; // one tick of motion, for where the cadence lands
+        let lag = newest.x - drawn.x;
+        if (drawn.x - want).abs() > slack || lag <= 0.0 {
+            eprintln!(
+                "FAIL: a remote player is not interpolated — drawn at x={:.1}, but \
+                 {INTERP_DELAY_DEFAULT} s ago the sender was at x={want:.1} (+/- {slack:.1}). The \
+                 newest snapshot said x={:.1}; a client that snaps to it rather than interpolating \
+                 draws exactly that, for a lag of 0 (measured {lag:.1}).",
+                drawn.x, newest.x
+            );
+            return 5;
+        }
+        println!(
+            "interpolation ok: remote drawn at x={:.1} where the sender was x={want:.1} \
+             {INTERP_DELAY_DEFAULT} s ago, {lag:.1} px behind the newest snapshot",
+            drawn.x
+        );
+    }
+
+    // ── 6-7. Against the real server ──────────────────────────────────────────────────────────
+    let server_bin = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .map(|d| {
+            d.join(format!(
+                "predict_shooter_server{}",
+                std::env::consts::EXE_SUFFIX
+            ))
+        });
+    let Some(server_bin) = server_bin.filter(|p| p.exists()) else {
+        println!(
+            "SKIP: predict_shooter_server has not been built, so the live checks (6-7) did not run. \
+             `cargo build --example predict_shooter_server` to include them."
+        );
+        println!("PASS: predict_shooter (offline checks only)");
+        return 0;
+    };
+
+    // A port of our own. Binding :0 asks the OS for a free one; the listener is dropped immediately
+    // so the child can take it. That is a race in principle and the right trade in practice — the
+    // alternative is the hardcoded 9003, which collides with a server the user is already running.
+    let addr = match std::net::TcpListener::bind("127.0.0.1:0").and_then(|l| l.local_addr()) {
+        Ok(a) => a.to_string(),
+        Err(e) => {
+            eprintln!("SKIP: could not reserve a local port ({e})");
+            println!("PASS: predict_shooter (offline checks only)");
+            return 0;
+        }
+    };
+
+    let mut child = match std::process::Command::new(&server_bin)
+        .env("PREDICT_SHOOTER_ADDR", &addr)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("SKIP: could not spawn {}: {e}", server_bin.display());
+            println!("PASS: predict_shooter (offline checks only)");
+            return 0;
+        }
+    };
+
+    // Wait for the child to bind before connecting. `NetworkClient::connect` dials once and does not
+    // retry, so connecting first and hoping is not a slower path — it is a guaranteed failure.
+    let bind_deadline = Instant::now() + Duration::from_secs(10);
+    let mut bound = false;
+    while Instant::now() < bind_deadline {
+        if std::net::TcpStream::connect(&addr).is_ok() {
+            bound = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    if !bound {
+        child.kill().ok();
+        child.wait().ok();
+        eprintln!("SKIP: predict_shooter_server never bound {addr} within 10 s");
+        println!("PASS: predict_shooter (offline checks only)");
+        return 0;
+    }
+
+    /// The most recent authoritative position the wire carried for `id`, read off the event bus
+    /// before the client consumes it. Observing the protocol is not reimplementing the client:
+    /// `reconcile` is precisely what these checks are about, so the expected value cannot be
+    /// derived from it.
+    fn observe(world: &World, id: usize) -> Option<Vec2> {
+        let bus = world.resource::<Events<NetworkEvent>>()?;
+        let mut latest = None;
+        for ev in bus.read() {
+            let NetworkEvent::TextMessage(text) = ev else {
+                continue;
+            };
+            let Ok(ServerMsg::Snap { players, .. }) = serde_json::from_str::<ServerMsg>(text)
+            else {
+                continue;
+            };
+            if let Some(p) = players.iter().find(|p| p.id == id) {
+                latest = Some(Vec2::new(p.x, p.y));
+            }
+        }
+        latest
+    }
+
+    /// Run the real system chain for `secs` of **wall clock**, paced off `Instant`.
+    ///
+    /// The server steps in real time, so an accumulator clock would drift against it — the trap
+    /// `beat_crawler` hit, where `t += 1.0/60.0` made a correct detector look 40% over-firing.
+    /// Returns the last authoritative position seen for `watch`, if a snapshot carried one.
+    fn run_live(
+        world: &mut World,
+        net: &mut NetworkSystem,
+        client: &mut ShooterClient,
+        script: &mut InputScript,
+        secs: f64,
+        watch: Option<usize>,
+    ) -> Option<Vec2> {
+        let start = Instant::now();
+        let mut last = start;
+        let mut authoritative = None;
+        while start.elapsed().as_secs_f64() < secs {
+            let now = Instant::now();
+            let dt = (now - last).as_secs_f32();
+            last = now;
+            script.apply(world);
+            net.run(world, dt);
+            if let Some(id) = watch {
+                if let Some(pos) = observe(world, id) {
+                    authoritative = Some(pos);
+                }
+            }
+            client.run(world, dt);
+            if let Some(bus) = world.resource_mut::<Events<NetworkEvent>>() {
+                bus.flush();
+            }
+            std::thread::sleep(Duration::from_millis(16));
+        }
+        authoritative
+    }
+
+    let finish = |child: &mut std::process::Child, code: i32, msg: Option<String>| -> i32 {
+        child.kill().ok();
+        child.wait().ok();
+        if let Some(msg) = msg {
+            eprintln!("FAIL: {msg}");
+        }
+        code
+    };
+
+    let mut app = App::new();
+    app.register_event::<NetworkEvent>();
+    let mut client = ShooterClient::new();
+    let mut net = NetworkSystem::new();
+    app.world
+        .insert_resource(NetworkClient::connect(&format!("ws://{addr}")));
+
+    let mut idle = InputScript::new([]);
+    let connect_deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < connect_deadline && client.local_id.is_none() {
+        run_live(&mut app.world, &mut net, &mut client, &mut idle, 0.25, None);
+    }
+    let Some(local_id) = client.local_id else {
+        return finish(
+            &mut child,
+            6,
+            Some(format!(
+                "never received a welcome from {addr} in 10 s (status: {})",
+                client.status
+            )),
+        );
+    };
+
+    // ── 6. Prediction converges on the server's authority ─────────────────────────────────────
+    //
+    // The client seeds its prediction at the field centre while the server spawns each player at a
+    // *random* position — `handle_message` says so: "the first snapshot reconciles to the real
+    // spawn". That deliberate initial disagreement is what makes this load-bearing. A client that
+    // never reconciles stays anchored to the centre forever, moving smoothly and responsively while
+    // the server thinks it is somewhere else entirely, and with one window there is nothing to
+    // compare it against.
+    let Some(spawn) = run_live(
+        &mut app.world,
+        &mut net,
+        &mut client,
+        &mut idle,
+        0.5,
+        Some(local_id),
+    ) else {
+        return finish(
+            &mut child,
+            6,
+            Some(format!(
+                "the server sent no snapshot carrying player {local_id} within 0.5 s of the welcome"
+            )),
+        );
+    };
+
+    // Drive away from the nearer wall, so 1.2 s of movement is never clamped short of the distance
+    // this check asserts. The spawn is random, so picking a fixed direction would flake.
+    let start_pos = pred_pos(&client);
+    let (key, key_name) = if start_pos.x > centre.x {
+        (KeyCode::KeyA, "A")
+    } else {
+        (KeyCode::KeyD, "D")
+    };
+    let mut drive = hold(key);
+    run_live(&mut app.world, &mut net, &mut client, &mut drive, 1.2, None);
+
+    // Settle with nothing held: with no movement left to replay, reconciliation should leave the
+    // client exactly where the server's last word put it.
+    let mut up = release(key);
+    let settled = run_live(
+        &mut app.world,
+        &mut net,
+        &mut client,
+        &mut up,
+        0.8,
+        Some(local_id),
+    );
+    let Some(authoritative) = settled else {
+        return finish(
+            &mut child,
+            6,
+            Some(format!(
+                "the server stopped sending snapshots carrying player {local_id} during the settle \
+                 window"
+            )),
+        );
+    };
+
+    let pred = pred_pos(&client);
+    let gap = (pred - authoritative).length();
+    let travelled = (pred - start_pos).length();
+    if gap > 2.0 || travelled < 150.0 {
+        return finish(
+            &mut child,
+            6,
+            Some(format!(
+                "prediction did not converge on the server — the client is at {pred:?}, the \
+                 server's last word was {authoritative:?} ({gap:.1} px apart), and it travelled \
+                 {travelled:.1} px from {start_pos:?} while holding {key_name} for 1.2 s. The \
+                 prediction is seeded at the field centre and the server spawned this player at \
+                 {spawn:?}, so a client that never reconciles simply keeps its own answer and \
+                 disagrees forever."
+            )),
+        );
+    }
+    println!(
+        "convergence ok: spawned at {spawn:?}, {travelled:.1} px of predicted movement settled onto \
+         the server's {authoritative:?}, {gap:.2} px apart"
+    );
+
+    // ── 7. A `fire` input round-trips into a server-spawned bullet ────────────────────────────
+    //
+    // Bullets are server authority end to end — the client never spawns one locally, it only
+    // receives them in snapshots. So this is the check that closes the loop: the `fire` field leaves
+    // the client, the server acts on it, and the result streams back and spawns. Sampled for its
+    // peak rather than read at the end, because a bullet's life is short and the player may be
+    // firing toward a nearby wall.
+    let mut fire = hold(KeyCode::Space);
+    let mut seen = 0usize;
+    for _ in 0..8 {
+        run_live(&mut app.world, &mut net, &mut client, &mut fire, 0.15, None);
+        seen = seen.max(client.bullets.len());
+    }
+    if seen == 0 {
+        return finish(
+            &mut child,
+            7,
+            Some(format!(
+                "holding fire for 1.2 s produced no bullets — every bullet is server-spawned and \
+                 server-integrated, so an empty client means the `fire` field never reached the \
+                 server. At a {FIRE_COOLDOWN} s cooldown roughly {} were due.",
+                (1.2 / FIRE_COOLDOWN) as u32
+            )),
+        );
+    }
+    println!("fire ok: up to {seen} server-spawned bullets streamed back while holding Space");
+
+    finish(&mut child, 0, None);
+    println!("PASS: predict_shooter");
+    0
 }
 
 /// WASM entry point (called from an `index.html`, mirroring `coin_race`).
