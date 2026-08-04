@@ -4,6 +4,19 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.143.10
+
+**CI has a sound card now, so the audio selftests actually run there.** "Audio is outside CI entirely" had been a standing risk since v0.140: every audio claim rested on one developer's local device, and the three selftests that guard those claims — `beat_crawler`'s metered flurry, `survivor`'s drive curve, `audio_reactive`'s meters — opted out with exit 0 on every CI run. No library code changed; CI, scripts and docs only.
+
+### Added
+- **A PulseAudio null sink in CI's native job.** `rodio` opens a device through `cpal`, which enumerates **ALSA** — so a null sink alone is only half of it. ALSA's *default* PCM has to be routed into PulseAudio as well, which is what `libasound2-plugins` provides and a two-line `.asoundrc` selects.
+- **`SKELETON_REQUIRE_AUDIO=1`** in `scripts/selftests.sh` — makes an audio-device skip a **failure** instead of a tolerated opt-out. CI sets it; local runs do not, so a developer box without a sound card still passes.
+
+### Why the flag is the important half
+Without it this change would have been unfalsifiable. A null sink that silently failed to come up would leave the selftests skipping their audio checks exactly as before, and CI would stay green — the same trap `scripts/selftests.sh` exists to close, one level up. The flag is the render job's `SKELETON_REQUIRE_GPU=1` applied to audio: **an environment opt-out must never read as a green pass.**
+
+Both classification paths verified before pushing: with the flag off `SKIP: no audio device` is tolerated, with it on the same line is flagged.
+
 ## 0.143.9
 
 **`orbital_dodger` proves its interpolation, and that collision agrees with what you see.** The third acceptance test over the network stack; the server-spawning harness transferred a third time with no changes, which is what makes it a pattern rather than one example's trick. No library code changed; examples and docs only.

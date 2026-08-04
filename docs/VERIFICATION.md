@@ -131,7 +131,10 @@ They now run in both, via `scripts/selftests.sh`. The reason that is a script ra
 `cargo run` lines is that **every one of these tests opts out with exit 0** when its environment
 cannot support a check, so the exit code alone cannot distinguish "passed" from "ran nothing":
 
-- `SKIP: no audio device` is **expected** on CI and tolerated.
+- `SKIP: no audio device` is tolerated **by default**, so a box without a sound card still passes.
+  **`SKELETON_REQUIRE_AUDIO=1` makes it fatal**, and CI sets it — since v0.143.10 the native job
+  provisions a PulseAudio null sink, so a skip there means the sink failed, not that audio is
+  unavailable. Without the flag that failure would look exactly like a pass.
 - **Every other skip is a failure.** The networked tests skip their live checks when the sibling
   server binary is absent, and `cargo run --example salvage_run` builds only `salvage_run` — so a
   naive CI step would drop exactly the checks that cover the most, and report success. This was
