@@ -15,7 +15,7 @@
 
 ## Board gate — check this first, every session
 
-Both channels were **empty** as of 2026-08-03:
+Both channels were **empty** as of 2026-08-04:
 
 - `../dungeon-merchant/docs/engine-wishlist.md` — next free **EW-012**, unmoved since 2026-07-27
 - `../rust-survivors/docs/ENGINE_CHANGE_REQUESTS.md` — `_None._`, unmoved since 2026-07-14
@@ -27,7 +27,7 @@ A filed request preempts everything below.
 
 | Item | State |
 |---|---|
-| **`<NAME>_SELFTEST` coverage** | **7 of 21** playable games have one (`beat_crawler`, `survivor`, + `data_anim`/`data_particles`/`salvage_run`/`predict_shooter`/`orbital_dodger` on 2026-08-03/04). **`coin_race` is the last one worth doing** — after it the remaining 13 games' headline features are all visible in a screenshot (`sokoban`, `platformer`, `maze_escape`, `dig_quest`, `shooter`, `lit_dungeon`, `multi_terrain`, `tile_paint`, `ui_layout_editor`, `stat_editor_game`, `script_steering`), so **8 of 21 is the natural stopping point**, not 21. The exceptions are `settings_menu`/`scene_flow` cross-scene persistence, which stays blocked on `App::update` being crate-private. Chasing the coverage number past 8 is effort against failures that are already visible. This is the only defense against a headline feature degrading gracefully into silence, and CI cannot supply it. Promoted out of "Standing risks" on 2026-08-03 — it was a to-do filed as a hazard, where nobody would pick it up. Pick the games whose headline feature is *invisible to a screenshot* first; the `example-selftest` skill exists for exactly this. **Structural rule found 2026-08-03: a self-test can drive anything expressed as systems + resources, and nothing expressed as an `App` frame step** (`App::update` is crate-private) — which is why `settings_menu` / `scene_flow` cross-scene persistence is still out of reach even though it is the documented reset footgun. **The networking harness is now a proven pattern, not one example's trick**: `salvage_run` built it (OS-assigned port via an `*_ADDR` env override, `TcpStream` bind probe, SKIP if the binary was never built) and `predict_shooter` reused it unchanged on 2026-08-04. `orbital_dodger` and `coin_race` are the two left that can copy it — `orbital_dodger` first, since interpolation-only is the same screenshot-invisible shape and `coin_race` has no `protocol.rs` to host `server_addr()`. **Second reusable finding (2026-08-04): `InputState` has no public press setter**, so a self-test that needs held input drives `InputScript` (the `ENGINE_INPUT` replay path) rather than faking a direction — which keeps the real `read_input` under test. |
+| **`<NAME>_SELFTEST` coverage** | **DONE at the planned stopping point — 8 of 21** (`beat_crawler`, `survivor`, `data_anim`, `data_particles`, `salvage_run`, `predict_shooter`, `orbital_dodger`, + `coin_race` on 2026-08-04). The remaining 13 games' headline features are all visible in a screenshot (`sokoban`, `platformer`, `maze_escape`, `dig_quest`, `shooter`, `lit_dungeon`, `multi_terrain`, `tile_paint`, `ui_layout_editor`, `stat_editor_game`, `script_steering`), so chasing the number past 8 is effort against failures that are already visible. **Do not reopen this as a coverage target.** The one real gap left is `settings_menu`/`scene_flow` cross-scene persistence, which stays blocked on `App::update` being crate-private — **a self-test can drive anything expressed as systems + resources, and nothing expressed as an `App` frame step**. If that ever becomes reachable, it is worth doing *because it is the documented reset footgun*, not to move a count. Durable findings from the four networked ones are in `docs/MODULE_MAP.md`'s `src/network.rs` row; the two that generalise beyond networking: **`InputState` has no public press setter**, so held input comes from `InputScript` (the `ENGINE_INPUT` replay path), keeping the real input read under test; and **assert an invariant, not an end state**, when a background process (a coin respawner, an entity spawner) can add to what you are counting. |
 | **4th procgen mode** (drunkard's walk) | Unchanged, still the lowest marginal value: the engine cannot fail at it, so nothing is learned. |
 | **`add-facade-capability` skill** | n=5 now (the facade + native + wasm + policy-module shape has repeated that many times). Deferred; the next facade capability makes the case by itself. |
 
@@ -102,30 +102,27 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
 > `docs/CHANGELOG.md` (what shipped) or `docs/PATTERNS.md` / `docs/VERIFICATION.md` (what was
 > learned). Without this rule the section regrows the history that was just split out.
 
-Closed 2026-08-03 (this session):
+Closed 2026-08-04 (this session):
 
-- **`DATA_ANIM_SELFTEST=1` and `DATA_PARTICLES_SELFTEST=1`** (v0.143.5) — the first two games taken
-  off the `<NAME>_SELFTEST` backlog above, chosen because hot-reload is named in `CLAUDE.md` as
-  something CI cannot run *and* is perfectly invisible to a screenshot: a sprite animating the clips
-  it was born with looks exactly like one that just reloaded. Both drive a real `notify` edit
-  through `poll_reloads` → `reload_path` → the game's own re-sync system. All twelve exit codes
-  proven by sabotage, each reverted and the revert re-checked by `grep`.
-- **The `data_particles` emit-timer comment was wrong, and the measurement is now in the code** —
-  replacing the `ParticleEmitter` every frame does not "never spawn particles"; it clamps emission
-  to one per tick, measured at 60/s against a configured 90/s. Corrected in place.
-- **`SALVAGE_RUN_SELFTEST=1`** (v0.143.6, 2026-08-04) — the first acceptance test over the network
-  stack, and the one that unblocks the other three networked games. Two of its six checks spawn the
-  real server; four drive the client offline with injected protocol JSON. Three test-side lessons
-  worth more than the checks: an **end-state assertion missed a flicker** (a hysteresis window
-  shorter than the snapshot interval evicts a still-arriving entity *between* snapshots and
-  re-spawns it, so the endpoint looks fine — the check now watches every frame); **interpolation lag
-  has to be measured against where the sender was**, not against the newest snapshot, which is
-  already an interval old; and `NetworkClient::connect` **dials once**, so a spawned server must be
-  probed until it binds.
+- **`COIN_RACE_SELFTEST=1`** (v0.143.12) — the eighth and **last planned** `<NAME>_SELFTEST`, closing
+  that backlog item at its stated stopping point. The first test in the tree to drive **two clients
+  at once**: a contested coin has no meaning with one player, so nothing single-client could have
+  reached it. Six exit codes, each proven by sabotage and each revert confirmed byte-identical
+  against a pristine copy. Two findings that outlive the example: **`NetworkClient` has no readable
+  outbox**, so "a message was sent" is unobservable offline and the check has to assert the
+  consequence instead; and **assert an invariant, not an end state**, when something in the
+  background can add to what you are counting — score deltas would have flaked on a coin respawning
+  under a player's feet, so the check asserts *points gained == coins the server took away*. That
+  invariant is also what caught the sharpest sabotage: dropping the server's first-claim-wins guard
+  leaves both scoreboards **agreeing** on 1-1, and only the accounting sees 2 points against 1 coin.
+- **The `coin_race` `protocol.rs` blocker was not real.** This item sat behind "no `protocol.rs` to
+  host `server_addr()`" — but the precedent it was copying puts the `*_ADDR` override on the
+  **server alone**; the client keeps dialling its constant and the self-test builds its own
+  `NetworkClient`. One 3-line function in `server.rs`, no shared module. Worth remembering as a
+  shape: a blocker inherited from a sibling's *structure* rather than measured against the actual
+  requirement.
 
-Rolled off 2026-08-03 (previous session's list; durable homes verified before removing): the four
-v0.143.1–v0.143.4 releases are in `docs/CHANGELOG.md`; the gate's fusion trap and the
-measure-your-own-threshold habit are in `docs/VERIFICATION.md`; the `bands()` decision is at its
-call site. The one lesson with **no** other home — a squash-merge leaves the original tip dangling,
-so an already-landed branch reads as "ahead" and the branch graph cannot clear it for deletion —
-was moved to `docs/VERIFICATION.md` as **Trap 7** rather than dropped.
+Rolled off 2026-08-04 (previous session's list; durable homes verified before removing): the
+`DATA_ANIM`/`DATA_PARTICLES` and `SALVAGE_RUN` self-tests are in `docs/CHANGELOG.md` (v0.143.5,
+v0.143.6) with their lessons in the `src/network.rs` row of `docs/MODULE_MAP.md`; the corrected
+`data_particles` emit-timer measurement lives in the code it describes.

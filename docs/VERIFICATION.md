@@ -144,6 +144,27 @@ So the script builds `--examples` first, then greps each run's output and fails 
 skip. Same principle as the render job's `SKELETON_REQUIRE_GPU=1`: an environment opt-out must
 never read as a green pass.
 
+### Writing one: assert an invariant, not an end state
+
+Two of these tests have now been bitten by the same shape, so it is a rule rather than an anecdote.
+When anything in the background can add to what you are counting, an end-state assertion is not a
+weaker check — it is a **differently-wrong** one, and it usually fails in the direction that looks
+green.
+
+- `SALVAGE_RUN_SELFTEST` (v0.143.6) asserted the endpoint of an eviction and passed against a
+  `STALE_TIMEOUT` sabotaged to 0.05 s: the entity was evicted between snapshots and re-spawned on
+  the next one, so only a **per-frame** watch saw the flicker.
+- `COIN_RACE_SELFTEST` (v0.143.12) could not count score deltas, because the server respawns a coin
+  at a random position after every take and one landing under a player's feet scores a point nobody
+  asked for. It asserts *points gained == coins the server took away* instead, which holds however
+  many coins get taken. That invariant is also what caught the sharpest sabotage: with the server's
+  first-claim-wins guard removed, both clients' scoreboards still **agree** (both faithfully apply
+  both `taken` messages) and only the accounting sees 2 points against 1 coin removed.
+
+The related limit: you can only assert what the API exposes. `NetworkClient` has no readable outbox,
+so "a message was sent" is unobservable offline — state the consequence you *can* see, and say in the
+failure message which property that stands for, rather than re-deriving the code under test.
+
 ### Audio in CI was attempted and does not work — do not re-litigate without new information
 
 Five CI runs went into this in v0.143.10 and the answer was no. Recorded so the next person does not

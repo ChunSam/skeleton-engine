@@ -37,6 +37,24 @@ use serde::{Deserialize, Serialize};
 use tungstenite::{accept, Message};
 
 const ADDR: &str = "127.0.0.1:9002";
+
+/// The address the server actually binds: [`ADDR`] unless `COIN_RACE_ADDR` overrides it.
+///
+/// Additive — with the variable unset this is byte-identical to the constant, so both documented
+/// ways of running the example (two native windows, or a browser tab against a native server) are
+/// unchanged. `COIN_RACE_SELFTEST=1` needs a server of its own on a free port; binding 9002 would
+/// collide with a server the user is already running, or in CI with a parallel job. The bind below
+/// `expect`s, so a collision is a hard failure rather than a skip — which is the reason to make it
+/// configurable rather than to retry.
+///
+/// The windowed client keeps dialling [`SERVER_URL`](../coin_race.rs) (that is the documented
+/// two-terminal flow, and the wasm build has no environment to read anyway); the self-test builds
+/// its own [`NetworkClient`](engine::NetworkClient) against the port it reserved. Same split as
+/// `salvage_run`, `predict_shooter` and `orbital_dodger`.
+fn server_addr() -> String {
+    std::env::var("COIN_RACE_ADDR").unwrap_or_else(|_| ADDR.to_string())
+}
+
 const MAX_JSON_MESSAGE_BYTES: usize = 4096;
 /// Score required to win.
 const TARGET_SCORE: u32 = 10;
@@ -175,14 +193,15 @@ impl Server {
 type Shared = Arc<Mutex<Server>>;
 
 fn main() {
-    let listener = TcpListener::bind(ADDR).expect("bind failed");
+    let addr = server_addr();
+    let listener = TcpListener::bind(&addr).expect("bind failed");
     let seed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0x9E3779B97F4A7C15);
     let server: Shared = Arc::new(Mutex::new(Server::new(seed)));
 
-    println!("coin_race_server: authoritative server on ws://{ADDR}");
+    println!("coin_race_server: authoritative server on ws://{addr}");
     println!("  first to {TARGET_SCORE} coins wins · {COIN_COUNT} coins on the field");
     println!("  run `cargo run --example coin_race_game` in two or more windows");
     println!();
