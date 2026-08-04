@@ -17,6 +17,22 @@ use serde::{Deserialize, Serialize};
 /// WebSocket address (distinct from `coin_race`'s 9002 and `predict_shooter`'s 9003 so all three
 /// servers can run at once).
 pub const SERVER_ADDR: &str = "127.0.0.1:9004";
+
+/// The address the server actually binds: [`SERVER_ADDR`] unless `ORBITAL_DODGER_ADDR` overrides it.
+///
+/// Additive — with the variable unset this is byte-identical to the constant, so every documented
+/// way of running the example is unchanged. `ORBITAL_DODGER_SELFTEST=1` needs a server of its own on
+/// a free port; binding 9004 would collide with a server the user is already running, or in CI with
+/// a parallel job. The server `bind`s this with an `expect`, so a collision is a hang-and-fail
+/// rather than a skip — which is the reason to make it configurable rather than to retry.
+///
+/// The windowed client keeps dialling the constant (that is the documented two-terminal flow); the
+/// self-test builds its own [`NetworkClient`](engine::NetworkClient) against the port it reserved.
+/// Same split as `salvage_run` and `predict_shooter`.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn server_addr() -> String {
+    std::env::var("ORBITAL_DODGER_ADDR").unwrap_or_else(|_| SERVER_ADDR.to_string())
+}
 /// Fixed server simulation timestep (60 Hz).
 pub const FIXED_DT: f32 = 1.0 / 60.0;
 /// Snapshots per second the server broadcasts. Deliberately **low** (10 Hz = one snapshot every

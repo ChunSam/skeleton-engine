@@ -162,14 +162,15 @@ impl Server {
 type Shared = Arc<Mutex<Server>>;
 
 fn main() {
-    let listener = TcpListener::bind(SERVER_ADDR).expect("bind failed");
+    let addr = server_addr();
+    let listener = TcpListener::bind(&addr).expect("bind failed");
     let seed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0x9E3779B97F4A7C15);
     let server: Shared = Arc::new(Mutex::new(Server::new(seed)));
 
-    println!("orbital_dodger_server: broadcast hazard server on ws://{SERVER_ADDR}");
+    println!("orbital_dodger_server: broadcast hazard server on ws://{addr}");
     println!(
         "  {HAZARD_COUNT} hazards · {SNAPSHOT_HZ} Hz snapshots (sim {:.0} Hz) · run `orbital_dodger`",
         1.0 / FIXED_DT
