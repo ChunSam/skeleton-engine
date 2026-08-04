@@ -6,16 +6,25 @@ The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINO
 
 ## 0.143.10
 
-**CI has a sound card now, so the audio selftests actually run there.** "Audio is outside CI entirely" had been a standing risk since v0.140: every audio claim rested on one developer's local device, and the three selftests that guard those claims — `beat_crawler`'s metered flurry, `survivor`'s drive curve, `audio_reactive`'s meters — opted out with exit 0 on every CI run. No library code changed; CI, scripts and docs only.
+**Audio in CI was attempted, measured, and does not work — the negative result is the deliverable.** "Audio is outside CI entirely" has been a standing risk since v0.140, and the obvious fix (give the runner a virtual sound card) turned out not to hold. Five CI runs went into establishing that. No library code changed; scripts and docs only.
 
 ### Added
-- **A PulseAudio null sink in CI's native job.** `rodio` opens a device through `cpal`, which enumerates **ALSA** — so a null sink alone is only half of it. ALSA's *default* PCM has to be routed into PulseAudio as well, which is what `libasound2-plugins` provides and a two-line `.asoundrc` selects.
-- **`SKELETON_REQUIRE_AUDIO=1`** in `scripts/selftests.sh` — makes an audio-device skip a **failure** instead of a tolerated opt-out. CI sets it; local runs do not, so a developer box without a sound card still passes.
+- **`SKELETON_REQUIRE_AUDIO=1`** in `scripts/selftests.sh` — turns an audio-device skip from a tolerated opt-out into a **failure**. Default off, so a box without a sound card still passes. Run it locally when you want proof the audio checks actually executed rather than quietly opting out: `SKELETON_REQUIRE_AUDIO=1 ./scripts/selftests.sh`. This is the tool that made the negative result *legible* — without it every attempt below would have been a silent green.
 
-### Why the flag is the important half
-Without it this change would have been unfalsifiable. A null sink that silently failed to come up would leave the selftests skipping their audio checks exactly as before, and CI would stay green — the same trap `scripts/selftests.sh` exists to close, one level up. The flag is the render job's `SKELETON_REQUIRE_GPU=1` applied to audio: **an environment opt-out must never read as a green pass.**
+### What was tried, and what each attempt measured
 
-Both classification paths verified before pushing: with the flag off `SKIP: no audio device` is tolerated, with it on the same line is flagged.
+| Attempt | Result |
+|---|---|
+| **PulseAudio null sink, default latency** | The sink comes up and **rodio opens a device** — `beat_crawler`'s whole audio chain passed on CI, finding **16 kicks in a real mix at 0.638 s spacing**. But `audio_reactive` read rms **0.0000** against its 1200 ms rise deadline, and `survivor`'s peak reached 1.0000 while its **600 ms watchdog engaged**. |
+| **Null sink + `PULSE_LATENCY_MSEC=30`** | **Worse.** `beat_crawler` finds *no* kick at all, `survivor`'s peak is 0.0000. The small buffer broke the one thing that worked, which refuted the burst-latency hypothesis that motivated it. |
+| **ALSA `snd-dummy`** | **Not available at all** — the runner's azure kernel ships no such module even with `linux-modules-extra` installed. |
+
+A null sink delivers samples in bursts rather than continuously, so the level tap publishes and then goes stale in the gaps. Checks that sample over *seconds* ride it out; sub-second deadlines land in the gaps. Those deadlines are calibrated against real hardware, and loosening them to make CI green would have discarded exactly the guarantee they exist to make — so they were left alone and the CI change was dropped instead.
+
+**Every audio claim therefore still rests on a local device.** Recorded in `docs/VERIFICATION.md` so this is not re-litigated without new information.
+
+### Also learned
+A **corrupt cargo cache** produces `collect2: fatal error: ld terminated with signal 7 [Bus error]`, twice in a row, on a runner with **108 GB free**. It is not disk exhaustion, which is what that signature usually means and what it was first misread as. `gh cache delete` on the `Linux-cargo-*` keys cleared it.
 
 ## 0.143.9
 

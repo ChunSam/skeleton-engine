@@ -32,38 +32,7 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y --no-install-recommends \
             libasound2-dev libudev-dev libxkbcommon-dev \
-            libwayland-dev libx11-dev pkg-config \
-            pulseaudio libasound2-plugins
-
-      # A virtual sound card, so the audio halves of the selftests actually RUN here instead of
-      # skipping. "Audio is outside CI entirely" had been a standing risk since v0.140 — every audio
-      # claim rested on one developer's local device, and the selftests that guard those claims
-      # (beat_crawler's metered flurry, survivor's drive curve, audio_reactive's meters) opted out
-      # with exit 0 on every CI run.
-      #
-      # rodio opens a device through cpal, which enumerates ALSA — so a null sink is only half of it;
-      # ALSA's *default* PCM has to be routed into PulseAudio too, which is what libasound2-plugins
-      # provides and .asoundrc selects.
-      #
-      # PULSE_LATENCY_MSEC is load-bearing, and was measured rather than guessed. With the default
-      # (multi-second) buffer, rodio pulls seconds of audio in one burst and then idles; the level
-      # tap publishes during the burst and goes STALE in the gap, so `levels()` decays to zero
-      # between bursts. Checks that sample over seconds ride it out — beat_crawler passed, finding
-      # 16 kicks in a real mix — while sub-second deadlines land in the gaps: audio_reactive read
-      # rms 0.0000 against a 1200 ms rise deadline and survivor's 600 ms watchdog engaged. A small
-      # buffer makes rodio poll continuously, which is what a real card does.
-      #
-      # `snd-dummy` would be the closer analogue to real hardware, but it is NOT available: the
-      # runner's azure kernel ships no such module (`modprobe: FATAL: Module snd-dummy not found in
-      # /lib/modules/6.17.0-1020-azure`), even with linux-modules-extra installed.
-      - name: Provision a virtual sound card (PulseAudio null sink)
-        run: |
-          pulseaudio --start --exit-idle-time=-1
-          pactl load-module module-null-sink \
-            sink_name=SelfTest sink_properties=device.description=SelfTest
-          pactl set-default-sink SelfTest
-          printf 'pcm.!default { type pulse }\nctl.!default { type pulse }\n' > "$HOME/.asoundrc"
-          pactl info
+            libwayland-dev libx11-dev pkg-config
 
       - name: Install Rust 1.95
         uses: dtolnay/rust-toolchain@1.95.0
@@ -95,17 +64,10 @@ jobs:
 
       # The `<NAME>_SELFTEST` acceptance tests. Each was proven non-vacuous by sabotage when it was
       # written, and then nothing ran them again — no CI step and no verify.sh step invoked one.
-      #
-      # SKELETON_REQUIRE_AUDIO=1 makes an audio-device skip a FAILURE, because the step above is
-      # supposed to have provided one. Without it a null sink that silently failed to come up would
-      # skip the audio checks and report success — the same trap the script exists to close, one
-      # level up. Same principle as the render job's SKELETON_REQUIRE_GPU=1.
+      # The device-free halves run fine here; the audio halves skip (no sound card), which the
+      # script tolerates while treating every OTHER skip as a failure. Same principle as the render
+      # job's SKELETON_REQUIRE_GPU: an environment opt-out must never read as a green pass.
       - name: cargo run --example <NAME>_SELFTEST (acceptance tests)
-        env:
-          SKELETON_REQUIRE_AUDIO: "1"
-          # Keep the device buffer small so the level tap is polled continuously — see the sound
-          # card step above for the measurements that make this load-bearing.
-          PULSE_LATENCY_MSEC: "30"
         run: ./scripts/selftests.sh
 
       - name: cargo build (release)

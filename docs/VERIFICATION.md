@@ -132,9 +132,9 @@ They now run in both, via `scripts/selftests.sh`. The reason that is a script ra
 cannot support a check, so the exit code alone cannot distinguish "passed" from "ran nothing":
 
 - `SKIP: no audio device` is tolerated **by default**, so a box without a sound card still passes.
-  **`SKELETON_REQUIRE_AUDIO=1` makes it fatal**, and CI sets it — since v0.143.10 the native job
-  provisions a PulseAudio null sink, so a skip there means the sink failed, not that audio is
-  unavailable. Without the flag that failure would look exactly like a pass.
+  **`SKELETON_REQUIRE_AUDIO=1` makes it fatal.** CI does *not* set it — see below, CI has no usable
+  sound card — but run it locally when you want proof the audio checks actually executed rather than
+  opted out: `SKELETON_REQUIRE_AUDIO=1 ./scripts/selftests.sh`.
 - **Every other skip is a failure.** The networked tests skip their live checks when the sibling
   server binary is absent, and `cargo run --example salvage_run` builds only `salvage_run` — so a
   naive CI step would drop exactly the checks that cover the most, and report success. This was
@@ -143,6 +143,30 @@ cannot support a check, so the exit code alone cannot distinguish "passed" from 
 So the script builds `--examples` first, then greps each run's output and fails on any non-audio
 skip. Same principle as the render job's `SKELETON_REQUIRE_GPU=1`: an environment opt-out must
 never read as a green pass.
+
+### Audio in CI was attempted and does not work — do not re-litigate without new information
+
+Five CI runs went into this in v0.143.10 and the answer was no. Recorded so the next person does not
+spend the same day.
+
+| Attempt | Result |
+|---|---|
+| **PulseAudio null sink, default latency** | The sink comes up and **rodio opens a device** — `beat_crawler`'s whole audio chain passed on CI, finding 16 kicks in a real mix at 0.638 s spacing. But `audio_reactive` read rms **0.0000** against its 1200 ms rise deadline, and `survivor`'s peak reached 1.0000 while its **600 ms watchdog engaged**. |
+| **Null sink + `PULSE_LATENCY_MSEC=30`** | **Worse.** `beat_crawler` now finds *no* kick at all and `survivor`'s peak is 0.0000. A small buffer broke the one thing that worked. |
+| **ALSA `snd-dummy`** | **Not available.** The runner's azure kernel ships no such module even with `linux-modules-extra` installed: `modprobe: FATAL: Module snd-dummy not found in /lib/modules/6.17.0-1020-azure`. |
+
+The pattern is that a null sink delivers samples in bursts rather than continuously, so the level
+tap publishes and then goes stale in the gaps. Checks that sample over *seconds* ride it out; the
+sub-second deadlines land in the gaps. Those deadlines are calibrated against real hardware and
+loosening them would discard the guarantee they exist to make, so they were left alone.
+
+**So every audio claim still rests on a local device**, and `SKELETON_REQUIRE_AUDIO=1` is the tool
+for making that local run prove itself. Anything that would change this answer — a runner image with
+a real or dummy ALSA card, or a different sink whose delivery is continuous — is new information.
+
+Unrelated but learned the same day: a **corrupt cargo cache** produced
+`collect2: fatal error: ld terminated with signal 7 [Bus error]` twice in a row on a runner with
+108 GB free. It is not disk. `gh cache delete` for the `Linux-cargo-*` keys cleared it.
 
 **The list is derived, not hardcoded** — an example is a selftest iff it reads a `<NAME>_SELFTEST`
 environment variable. The first version of the script hardcoded it, and the very next selftest to
