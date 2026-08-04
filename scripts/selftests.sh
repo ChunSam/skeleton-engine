@@ -21,9 +21,14 @@
 #     dropped them is green while testing strictly less than it appears to.
 #
 # `SKELETON_REQUIRE_AUDIO=1` makes the audio skips fatal too. Set it wherever a device is supposed
-# to exist — CI provisions a PulseAudio null sink, and without this flag a null sink that failed to
-# come up would simply skip the audio checks and report success. That is the same trap this script
-# exists to close, one level up. Mirrors the render job's `SKELETON_REQUIRE_GPU=1`.
+# to exist — on a local box with a sound card — because without it a device that failed to come up
+# simply skips the audio checks and reports success. That is the same trap this script exists to
+# close, one level up. Mirrors the render job's `SKELETON_REQUIRE_GPU=1`.
+#
+# **CI does NOT set it: the runner has no usable sound card.** A PulseAudio null sink and ALSA
+# `snd-dummy` were both tried in v0.143.10 and neither works — the measured table is in
+# docs/VERIFICATION.md § "Audio in CI was attempted and does not work". So the audio halves skip in
+# CI by design, and every audio claim still rests on a local device.
 #
 # That distinction is the whole reason this is a script and not a one-line `cargo run` in CI.
 
