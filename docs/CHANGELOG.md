@@ -25,6 +25,8 @@ Both are now `100755`, and no shell script anywhere in the repo is non-executabl
 
 `docs/NEXT_WORK.md` also compared bytes against a character budget: the `handoff`/`wrap` skill sizes were recorded as "4,531 and 5,987 chars", which are `wc -c` **bytes**. The 800 guideline counts characters, and Hangul is 3 bytes each in UTF-8, so the item read as roughly twice as urgent as it is. Measured with `wc -m`: 2,245 and 3,195, i.e. 2.8× and 4.0×.
 
+⚠️ **Those replacement figures were themselves stale by the time this released**, and the correction is left visible rather than rewritten because the failure repeated in a way worth seeing twice. The skills were split earlier the same day, so at merge time they measured 1,217 and 1,386 — the entry corrected a unit error and shipped a fresh staleness in the same line. Both skills are under the guideline as of 2026-08-04 (bodies 797 and 796). The durable form is the command, not the number: `for f in ~/.claude/skills/*/SKILL.md; do wc -m "$f"; done`.
+
 ## 0.143.13
 
 **The native job's cache was a guaranteed miss on every run, and had been for some time.** CI only; no library code, no scripts, no docs beyond this entry.

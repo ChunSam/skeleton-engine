@@ -33,13 +33,8 @@ A filed request preempts everything below.
 
 ## Open — process
 
-- **`handoff` / `wrap` skills exceed the 800-char guideline** — split the detail into reference
-  files. **Measured 2026-08-04 with `wc -m`: 2,245 and 3,195 characters**, i.e. **2.8× and 4.0×**
-  the guideline. The 2026-08-03 revision of this line read "4,531 and 5,987 chars" and called it
-  5.7×/7.5×; those are `wc -c` **bytes**, and the guideline counts characters — Hangul is 3 bytes
-  each in UTF-8, so the item was prioritised as roughly twice as urgent as it is. **Measure with
-  `wc -m`.** They live in **`~/.claude/skills/`** (user-global), not the project `.claude/`;
-  either way they are untracked, so this line is the only durable record.
+Nothing open. The two items that lived here — the `main`-push hook and the oversized skills — both
+closed on 2026-08-04.
 
 ## Noted — not scheduled
 
@@ -117,6 +112,16 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
 
 Closed 2026-08-04 (this session):
 
+- **`handoff` and `wrap` are under the 800-char guideline** — bodies 797 and 796, with the detail in
+  `references/` (`modes.md`; `scope.md` + `audit.md`). `example-selftest` is 758 with
+  `references/networked.md`. **The tracked size figures were wrong twice in a row, in opposite
+  directions, and the lesson is the same both times: measure at the moment you write the line.** The
+  2026-08-03 entry recorded `wc -c` bytes (4,531 / 5,987) against a guideline that counts
+  characters — Hangul is 3 bytes each in UTF-8, so it read as ~2× more urgent than it was. The
+  correction to `wc -m` (2,245 / 3,195) landed in v0.143.14 already stale: the skills had been split
+  earlier the same day, so the true figures at merge time were 1,217 / 1,386. Both numbers described
+  a state that no longer existed when they shipped. **The durable form of this row is not a number —
+  it is `for f in ~/.claude/skills/*/SKILL.md; do wc -m "$f"; done`.**
 - **Two local hooks added, and the `main`-push one is no longer "not applied".** That entry had sat
   in *Open — process* since 2026-08-03; it is now wrong in the direction that matters, since a
   future session would read it and re-derive a guard that already exists. Both live in
