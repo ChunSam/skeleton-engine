@@ -33,7 +33,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libasound2-dev libudev-dev libxkbcommon-dev \
             libwayland-dev libx11-dev pkg-config \
-            alsa-utils
+            pulseaudio libasound2-plugins
 
       # A virtual sound card, so the audio halves of the selftests actually RUN here instead of
       # skipping. "Audio is outside CI entirely" had been a standing risk since v0.140 — every audio
@@ -41,18 +41,29 @@ jobs:
       # (beat_crawler's metered flurry, survivor's drive curve, audio_reactive's meters) opted out
       # with exit 0 on every CI run.
       #
-      # `snd-dummy` and NOT a PulseAudio null sink, which was tried first and measured: the sink came
-      # up (`Default Sink: SelfTest`), rodio opened a device, and beat_crawler's whole audio chain
-      # passed — but `audio_reactive` read rms 0.0000 over a 1200 ms deadline and `survivor`'s
-      # watchdog engaged against its 600 ms limit. A null sink's default latency is on the order of
-      # seconds, so meters with sub-second deadlines see silence while multi-second checks pass.
-      # snd-dummy is a real ALSA driver with hardware-like period/buffer semantics and no PulseAudio
-      # in the path, so cpal sees a default device that behaves like a card.
-      - name: Provision a virtual sound card (ALSA snd-dummy)
+      # rodio opens a device through cpal, which enumerates ALSA — so a null sink is only half of it;
+      # ALSA's *default* PCM has to be routed into PulseAudio too, which is what libasound2-plugins
+      # provides and .asoundrc selects.
+      #
+      # PULSE_LATENCY_MSEC is load-bearing, and was measured rather than guessed. With the default
+      # (multi-second) buffer, rodio pulls seconds of audio in one burst and then idles; the level
+      # tap publishes during the burst and goes STALE in the gap, so `levels()` decays to zero
+      # between bursts. Checks that sample over seconds ride it out — beat_crawler passed, finding
+      # 16 kicks in a real mix — while sub-second deadlines land in the gaps: audio_reactive read
+      # rms 0.0000 against a 1200 ms rise deadline and survivor's 600 ms watchdog engaged. A small
+      # buffer makes rodio poll continuously, which is what a real card does.
+      #
+      # `snd-dummy` would be the closer analogue to real hardware, but it is NOT available: the
+      # runner's azure kernel ships no such module (`modprobe: FATAL: Module snd-dummy not found in
+      # /lib/modules/6.17.0-1020-azure`), even with linux-modules-extra installed.
+      - name: Provision a virtual sound card (PulseAudio null sink)
         run: |
-          sudo apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)"
-          sudo modprobe snd-dummy
-          aplay -l
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink \
+            sink_name=SelfTest sink_properties=device.description=SelfTest
+          pactl set-default-sink SelfTest
+          printf 'pcm.!default { type pulse }\nctl.!default { type pulse }\n' > "$HOME/.asoundrc"
+          pactl info
 
       - name: Install Rust 1.95
         uses: dtolnay/rust-toolchain@1.95.0
@@ -92,6 +103,9 @@ jobs:
       - name: cargo run --example <NAME>_SELFTEST (acceptance tests)
         env:
           SKELETON_REQUIRE_AUDIO: "1"
+          # Keep the device buffer small so the level tap is polled continuously — see the sound
+          # card step above for the measurements that make this load-bearing.
+          PULSE_LATENCY_MSEC: "30"
         run: ./scripts/selftests.sh
 
       - name: cargo build (release)
