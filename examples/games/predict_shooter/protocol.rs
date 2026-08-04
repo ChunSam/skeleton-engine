@@ -13,6 +13,23 @@ use serde::{Deserialize, Serialize};
 
 /// WebSocket address (distinct from `coin_race`'s 9002 so both can run at once).
 pub const SERVER_ADDR: &str = "127.0.0.1:9003";
+
+/// The address the server actually binds: [`SERVER_ADDR`] unless `PREDICT_SHOOTER_ADDR` overrides it.
+///
+/// Additive — with the variable unset this is byte-identical to the constant, so every documented
+/// way of running the example is unchanged. It exists because the port was hardcoded:
+/// `PREDICT_SHOOTER_SELFTEST=1` needs a server of its own on a free port, and binding 9003 would
+/// either collide with a server the user is already running or, in CI, with a parallel job. The
+/// server `bind`s this and panics on failure, so a collision is a hang-and-fail rather than a skip —
+/// which is the reason to make it configurable rather than to retry.
+///
+/// The windowed client keeps dialling the constant: it is the documented two-terminal flow, and the
+/// self-test builds its own [`NetworkClient`](engine::NetworkClient) against the port it reserved.
+/// Same split as `salvage_run`.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn server_addr() -> String {
+    std::env::var("PREDICT_SHOOTER_ADDR").unwrap_or_else(|_| SERVER_ADDR.to_string())
+}
 /// Fixed simulation timestep. Client and server both integrate at this step.
 pub const FIXED_DT: f32 = 1.0 / 60.0;
 /// Player movement speed (px/s).
