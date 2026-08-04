@@ -82,10 +82,15 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
   without new information** — a runner image with a real or dummy ALSA card would be new
   information; another sink tweak is not. `SKELETON_REQUIRE_AUDIO=1` exists so a *local* run can
   prove its audio checks ran rather than skipped.
-- **None of the 15 `scripts/*_smoke.sh` runtime web smokes is in CI** (measured 2026-08-04; the one
-  `smoke` hit in `ci.yml` is a comment). This is where "it compiles for wasm" stops and "it runs on
-  the web" begins, and it is the largest remaining CI gap now that the selftests and the wasm
-  example builds are wired in. Cost is the blocker: headless Chrome setup plus flake risk.
+- **11 of the 15 `scripts/*_smoke.sh` are still local-only.** The **4 native** ones went into CI in
+  v0.143.11 (34 s total); the remaining 11 are **browser** smokes and need Chrome plus a
+  `wasm-bindgen-cli` matching `Cargo.lock`. Two blockers there turned out to be stale and are worth
+  knowing before anyone scopes it: the scripts **already** pass
+  `--use-gl=angle --use-angle=swiftshader`, so **no GPU is needed**, and `ubuntu-latest` **ships
+  `google-chrome` on PATH**, which the scripts already auto-detect. The real cost is the
+  `wasm-bindgen-cli` install/cache. Note also that only **9 of the 15 self-verdict**
+  (`*_CHECK: PASS`, a pixel assertion); the other 6 are byte-size-only and documented as
+  eyeball-it, so they are poor CI candidates regardless.
 - **A headless capture cannot photograph a meter** — fixed dt, no wall clock. Three sessions have
   now reached for `ENGINE_CAPTURE` before remembering this.
 

@@ -4,6 +4,22 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.143.11
+
+**The four native smokes now run in CI.** They were local-only because "CI cannot render (no GPU)" — a claim that stopped being true when the lavapipe render job was added, and that three of the four scripts still state in their own headers. Nothing had run them since; every claim they make rested on someone remembering to run them on a Mac. No library code changed; CI, scripts and docs only.
+
+### Added
+- **Three render smokes in the `render` job**, which is the one with an adapter — `headless_screenshot`, `lighting_cap`, `packaged_assets`. They run under the same `SKELETON_REQUIRE_GPU=1` as the render tests, so a missing adapter fails rather than skips.
+- **`hot_reload_smoke.sh` in the native job** — it needs no adapter, and it covers a path the hot-reload selftests do not: `DATA_ANIM`/`DATA_PARTICLES` watch a *direct* path, while this watches a **logical path under an asset root** (EW-008), the clause where `notify` used to register the caller's path and miss the real file.
+
+### Why these four and not the other eleven
+The remaining smokes are browser smokes — they need Chrome and a `wasm-bindgen-cli` matching `Cargo.lock`. These four are native, need neither, and cost **34 s** in total locally. Splitting them out was the whole point of scoping the fifteen rather than treating them as one lump.
+
+None of the four has a skip path: they assert non-blank frames or a picked-up edit and fail hard, so there is no silent-pass risk to guard the way `selftests.sh` has to.
+
+### Fixed
+- The stale "CI is ubuntu-only and cannot render (no GPU)" headers in `headless_screenshot_smoke.sh` and `lighting_cap_smoke.sh`. That was the **third** stale CI assumption found this session, after the wasm-examples gap and the "no Chrome" claim.
+
 ## 0.143.10
 
 **Audio in CI was attempted, measured, and does not work — the negative result is the deliverable.** "Audio is outside CI entirely" has been a standing risk since v0.140, and the obvious fix (give the runner a virtual sound card) turned out not to hold. Five CI runs went into establishing that. No library code changed; scripts and docs only.
