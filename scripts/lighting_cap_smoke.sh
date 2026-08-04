@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Native headless-render smoke for the `lighting_cap` example (configurable point-light cap).
 #
-# Why this exists: CI is ubuntu-only and cannot render (no GPU), so it never exercises the real
-# GPU lighting path. This renders the `lighting_cap` example twice with NO window and NO display
+# Why this exists: nothing else exercises the real GPU lighting path at two different caps.
+# (This header used to say CI cannot render at all. That stopped being true when the lavapipe
+# render job was added, and since v0.143.11 this script runs there.)
+# This renders the `lighting_cap` example twice with NO window and NO display
 # (works with the monitor off/asleep/locked) — once at the historical 16-light cap and once at
 # the raised 40-light cap — and asserts the 40-cap frame lights up substantially more of the
 # scene than the 16-cap frame. That proves `LightingConfig::max_lights` actually drives how many

@@ -70,6 +70,13 @@ jobs:
       - name: cargo run --example <NAME>_SELFTEST (acceptance tests)
         run: ./scripts/selftests.sh
 
+      # The one native smoke that needs no adapter. It covers a path the hot-reload selftests do not:
+      # DATA_ANIM/DATA_PARTICLES watch a direct path, while this watches a LOGICAL path under an
+      # asset root (EW-008) — the clause where `notify` used to register the caller's path and miss
+      # the real file.
+      - name: Native smoke — hot reload under an asset root
+        run: ./scripts/hot_reload_smoke.sh
+
       - name: cargo build (release)
         run: cargo build --release
 
@@ -129,6 +136,24 @@ jobs:
           set -o pipefail
           cargo test --test render -- --nocapture 2>&1 | tee render.log
           grep -q '\[render-test\] adapter=' render.log
+
+      # The three native smokes that render. They live HERE and not in the native job because they
+      # need an adapter, which only this job has — and their own headers still say "CI is ubuntu-only
+      # and cannot render (no GPU)", which stopped being true when this lavapipe job was added.
+      # Nothing had run them since; every claim they make rested on someone remembering to run them
+      # on a Mac.
+      #
+      # Each is a real end-to-end run of an example, not a unit test: headless_screenshot writes a
+      # PNG through the real render path, lighting_cap renders at two different point-light caps, and
+      # packaged_assets launches the built binary from `/` to reproduce the packaged-build asset bug
+      # that `cargo run` from the checkout cannot.
+      - name: Native render smokes
+        env:
+          SKELETON_REQUIRE_GPU: "1"
+        run: |
+          ./scripts/headless_screenshot_smoke.sh
+          ./scripts/lighting_cap_smoke.sh
+          ./scripts/packaged_assets_smoke.sh
 
   # ── WASM 빌드 ─────────────────────────────────────────────────────────────
   wasm:

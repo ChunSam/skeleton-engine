@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Native headless-render smoke for the `headless_screenshot` example.
 #
-# Why this exists: CI is ubuntu-only and cannot render (no GPU), so it never exercises the real
-# GPU render path. This runs the `headless_screenshot` example — which renders a frame into an
+# Why this exists: nothing else runs a whole *example* through the real GPU render path — the
+# render job's `tests/render.rs` exercises the engine, not a shipped example end to end.
+# (This header used to say CI cannot render at all. That stopped being true when the lavapipe
+# render job was added, and since v0.143.11 this script runs there.)
+# This runs the `headless_screenshot` example — which renders a frame into an
 # offscreen texture with NO window and NO display (works with the monitor off/asleep/locked),
 # reads the pixels back, and writes a PNG — then asserts the frame is non-blank.
 #
