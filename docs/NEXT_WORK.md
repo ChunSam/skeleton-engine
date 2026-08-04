@@ -44,6 +44,20 @@ A filed request preempts everything below.
 
 ## Noted — not scheduled
 
+- **Two CI timings to re-measure once `Swatinem/rust-cache` has a warm `main` cache** (from
+  v0.143.13; the first run after it landed was necessarily cold, so neither number means anything
+  yet). Both were deliberately left alone rather than tuned on a cold measurement.
+  - **`cargo build --release` in the native job — 265 s, 26% of it.** It is *not* dead weight:
+    `[profile.release]` sets `lto = "thin"` + `codegen-units = 1`, so it is the only check that the
+    shipping profile links at all, which is why Phase 55 (`706a263`) added it. Most of those 265 s
+    is dependency compilation, which the cache now covers. If it is still expensive warm, move it
+    to its own job rather than deleting it — it is on the critical path, not inherently slow.
+    (`panic = "abort"` defeating the `catch_unwind` system-panic isolation is a **known** trade-off,
+    already noted at `src/app/schedule.rs:425` — not a reason to change this step.)
+  - **`Free disk space` — 63 s.** A workaround for the old whole-`target/` cache. Likely
+    unnecessary now, but the failure it prevents is a red gate, so remove it only after a run
+    proves the headroom.
+
 - **The local verify-gate hook's two deliberate residuals** (fixed 2026-08-03, `.claude/` is
   gitignored so this is the only tracked record). It no longer over-matches prose, because it
   ignores everything from the first `<<` onward and requires a delete at a **command position**.
