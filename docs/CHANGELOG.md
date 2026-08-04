@@ -4,6 +4,39 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.143.9
+
+**`orbital_dodger` proves its interpolation, and that collision agrees with what you see.** The third acceptance test over the network stack; the server-spawning harness transferred a third time with no changes, which is what makes it a pattern rather than one example's trick. No library code changed; examples and docs only.
+
+This example is interpolation *in isolation* — no prediction, no reconciliation, no client→server message at all — so its failure mode is narrow and completely invisible in a still frame. A client that ignored its buffers and drew the newest 10 Hz sample renders hazards at plausible positions in every single frame. Only motion shows it, and only as judder, which is why the example ships an `I` key to toggle interpolation off: watching it was the sole way to know.
+
+Coverage goes from **6 of 21** playable games to **7**.
+
+### Added
+- **`ORBITAL_DODGER_SELFTEST=1 cargo run --example orbital_dodger`**, six checks / exit codes. Checks 1-5 need no server: `Hello` spawns the full hazard set before any snapshot (`1`); hazard position is interpolated rather than snapped (`2`); the spin angle is interpolated on its **own** channel (`3`); the `I` toggle actually changes what is drawn (`4`); and **collision is tested against the displayed position, not the newest snapshot** (`5`).
+- **Check 6 spawns the real `orbital_dodger_server`** on an OS-assigned port and asserts hazards arrive, move and stay in the field. **SKIPs with exit 0** if that binary was never built.
+- **`protocol::server_addr()`** — `SERVER_ADDR` unless `ORBITAL_DODGER_ADDR` overrides it. Third instance of the same additive shape.
+- `DodgerScene::on_enter` splits its world-building into a shared `build_world`, so the self-test stands up the arrangement the game uses. The socket deliberately stays in `on_enter`.
+
+### Check 5 is the one that earns the test
+At 10 Hz the displayed position and the newest snapshot are far apart — measured **63.3 px** against a **38 px** collision radius. A client that renders interpolated but collides against the raw snapshot kills you for touching a hazard that is not where you see it. That reads as "the hitboxes feel off", never as a bug, and no frame of it looks wrong.
+
+Both halves are asserted, because each alone is passable by a broken client: one that never collides passes the "safe" half, one that collides with everything passes the "caught" half. The sabotage inverts them exactly — 31 catches where 0 are wanted, 0 where some are.
+
+### Verified
+- **All six exit codes proven by sabotage**, each reverted and the revert re-checked by `grep`: `Hello` ignored (`1`); the interpolation delay dropped (`2`); the **angle channel alone** snapped while position stayed interpolated (`3`); the `I` toggle unwired (`4`); collision moved to the raw snapshot (`5`); and — for `6` — a **server** that sends `Hello` and never a `Snap`, which leaves all five offline checks green and is caught only live.
+- Three consecutive runs green. The client still builds for `wasm32`.
+
+### Fixed during the work — a test-side lesson that generalizes
+**A warm-up is part of the property, not setup noise.** Check 5's first draft parked the player from frame 0 and scored 12 catches in the case that must be safe. The cause was not the game: until the buffer holds more than `interp_delay` of history there is nothing to interpolate *between*, so the displayed position and the newest sample coincide and a player parked on either is standing on the hazard. The check now waits out that window at the player's spawn and counts catches only over the parked phase. Any interpolation assertion has this window; measuring inside it measures the warm-up.
+
+Also worth recording, because it cost a confusing three-run result: **rebuilding the client does not rebuild the server.** `cargo build --example orbital_dodger` left a sabotaged `orbital_dodger_server` on disk, so a reverted tree kept failing check 6. This is the same shape as the skip trap `scripts/selftests.sh` guards.
+
+### Fixed: `scripts/selftests.sh` no longer hardcodes its list
+The script added one release ago listed its selftests by hand, and **this release's new selftest was not in it** — the gate ran green having never executed the test that was the entire point of the change. Caught here only because the omission was one commit old.
+
+The list is now **derived**: an example is a selftest iff it reads a `<NAME>_SELFTEST` environment variable (8 discovered, up from the 7 hardcoded). A registry you must remember to edit is a registry that silently shrinks, which is the same failure the script exists to prevent, one level up. `scripts/build_wasm_examples.sh` already derived its set for this reason; the selftest runner should have from the start.
+
 ## 0.143.8
 
 **CI now runs the acceptance tests, and builds the examples that ship to the web.** Two gaps, both found by asking what the gate actually executes rather than what it is supposed to cover. No library code changed; CI, scripts and docs only.

@@ -25,17 +25,35 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."
 
-# `ENV_VAR:cargo-example-target`. The target is the Cargo name, which is NOT always the file stem —
-# the directory-based examples rename (`examples/games/survivor/survivor.rs` is `survivor_game`).
-SELFTESTS=(
-  "DATA_ANIM_SELFTEST:data_anim_game"
-  "DATA_PARTICLES_SELFTEST:data_particles_game"
-  "SURVIVOR_SELFTEST:survivor_game"
-  "BEAT_CRAWLER_SELFTEST:beat_crawler_game"
-  "SALVAGE_RUN_SELFTEST:salvage_run"
-  "PREDICT_SHOOTER_SELFTEST:predict_shooter"
-  "AUDIO_REACTIVE_SELFTEST:audio_reactive"
-)
+# `ENV_VAR:cargo-example-target`, DERIVED rather than hardcoded: an example is a selftest iff it
+# reads a `<NAME>_SELFTEST` environment variable.
+#
+# The first version of this script hardcoded the list, and the very next selftest to land
+# (`ORBITAL_DODGER_SELFTEST`, v0.143.9) was not in it — the gate went green having never run the
+# test that was the whole point of that change. A list you must remember to edit is a list that
+# silently shrinks, which is the same failure this script exists to prevent.
+SELFTESTS=()
+while IFS= read -r file; do
+  var=$(grep -oE '"[A-Z_]+_SELFTEST"' "$file" | head -1 | tr -d '"')
+  [ -z "$var" ] && continue
+  # The Cargo target is NOT always the file stem — the directory-based examples rename
+  # (`examples/games/survivor/survivor.rs` builds as `survivor_game`). Explicit `[[example]]` blocks
+  # carry the name; auto-discovered `examples/*.rs` have no block and use the stem.
+  name=$(awk -v want="$file" '
+    /^\[\[example\]\]/   { name = "" }
+    /^name[[:space:]]*=/ { gsub(/[" ]/, "", $3); name = $3 }
+    /^path[[:space:]]*=/ { gsub(/[" ]/, "", $3); if ($3 == want) print name }
+  ' Cargo.toml)
+  [ -z "$name" ] && name=$(basename "$file" .rs)
+  SELFTESTS+=("${var}:${name}")
+done < <(grep -rlE 'env::var\("[A-Z_]+_SELFTEST"\)' examples/ | sort)
+
+if [ "${#SELFTESTS[@]}" -eq 0 ]; then
+  echo "[selftests] found no selftests — the detection above is broken" >&2
+  exit 1
+fi
+
+echo "[selftests] ${#SELFTESTS[@]} selftests discovered"
 
 # Build EVERY example before running any of them. The networked tests spawn a sibling server binary
 # (`salvage_run_server`, `predict_shooter_server`) and skip their live checks if it was never built

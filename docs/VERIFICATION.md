@@ -141,6 +141,13 @@ So the script builds `--examples` first, then greps each run's output and fails 
 skip. Same principle as the render job's `SKELETON_REQUIRE_GPU=1`: an environment opt-out must
 never read as a green pass.
 
+**The list is derived, not hardcoded** — an example is a selftest iff it reads a `<NAME>_SELFTEST`
+environment variable. The first version of the script hardcoded it, and the very next selftest to
+land (`ORBITAL_DODGER_SELFTEST`, v0.143.9) was not in the list: the gate went green having never run
+the test that was the entire point of that change. A registry you must remember to edit is a
+registry that silently shrinks — which is the same failure the script exists to prevent, one level
+up. `scripts/build_wasm_examples.sh` derives its set for the same reason.
+
 ### CI is ubuntu only
 
 `#[cfg(target_os = "macos")]` / `"windows"` code, and OS-only deps like
