@@ -4,6 +4,28 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.143.12
+
+**`coin_race` proves its server authority, with two clients contesting one coin.** The fourth acceptance test over the network stack, and the first to drive **two** clients at once — a contested coin has no meaning with one player, so no single-client test and no screenshot can reach this. No library code changed; examples and docs only.
+
+The failure this guards against is the *flattering* kind. A client that deleted the coin and scored the point itself would look **better** in single player: the coin vanishes the instant you touch it, with no round trip to wait through. The damage exists only when two players touch the same coin — both see themselves win it, and from that moment the two scoreboards disagree forever. Neither screen shows anything wrong on its own.
+
+Coverage goes from **7 of 21** playable games to **8**, which `docs/NEXT_WORK.md` has called the natural stopping point since 2026-08-03: every remaining game's headline feature is visible in a screenshot.
+
+### Added
+- **`COIN_RACE_SELFTEST=1 cargo run --example coin_race_game`**, six checks / exit codes. Checks 1-4 need no server: `hello` builds the field (`1`); **touching a coin claims it and does not delete it locally** (`2`); a `taken` removes the coin and credits whoever the server names, not us (`3`); a decided game freezes movement *and* further claims (`4`).
+- **Checks 5-6 spawn the real `coin_race_server`** on an OS-assigned port and put **both** players on the same coin on the same frame: the server must resolve it (`5`), and the field must refill afterwards (`6`). **SKIP with exit 0** if that binary was never built.
+- **`server_addr()` in `server.rs`** — `ADDR` unless `COIN_RACE_ADDR` overrides it. Fourth instance of the same additive shape.
+
+### The two-client check needed a different kind of assertion
+Score deltas are the obvious thing to measure and the wrong one: the server respawns a coin at a random position after every take, so one landing under a player's feet adds a point nobody asked for and the measurement flakes. The check asserts an **invariant** instead — *points gained == coins the server took away* — which holds however many coins get taken, plus *both clients see the same scoreboard*.
+
+Both clauses earn their place. The sabotage that removes the server's first-claim-wins guard leaves the two boards **agreeing** on 1-1, because both clients faithfully apply both `taken` messages; it is caught only by 2 points scored against 1 coin removed.
+
+### Two limits worth knowing before writing the next one
+- **`NetworkClient` has no readable outbox**, so "a `grab` was sent" cannot be observed offline. Check 2 asserts the *consequence* instead — the coin is still standing and sits in `claimed` — and needs both halves, since a client that never notices the coin also leaves it standing.
+- **Only the server reads `COIN_RACE_ADDR`.** `NEXT_WORK` had this example blocked on having no `protocol.rs` to host a `server_addr()`; the precedent it was copying puts the override on the server alone, so the client keeps dialling `SERVER_URL` and the self-test builds its own `NetworkClient` against the port it reserved. No shared module was needed.
+
 ## 0.143.11
 
 **The four native smokes now run in CI.** They were local-only because "CI cannot render (no GPU)" — a claim that stopped being true when the lavapipe render job was added, and that three of the four scripts still state in their own headers. Nothing had run them since; every claim they make rested on someone remembering to run them on a Mac. No library code changed; CI, scripts and docs only.
