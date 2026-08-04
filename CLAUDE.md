@@ -54,7 +54,9 @@ what the `<NAME>_SELFTEST` acceptance tests are for.
 
 ## Verification
 
-`./scripts/verify.sh` is the gate — it mirrors CI. Run it before calling anything done.
+`./scripts/verify.sh` is the gate — run it before calling anything done. It covers CI's `wasm` and
+`docs` jobs in full and its `test` job bar two steps. It is **not** all of CI; see the not-covered
+list below, and `grep -nE '^  [a-z_-]+:$|run:' .github/workflows/ci.yml` for the current split.
 
 ```sh
 ./scripts/verify.sh > /tmp/v.log 2>&1; echo "VERIFY_EXIT=$?"
@@ -75,12 +77,19 @@ missing server binary silently drops the live networking checks.
 
 What the gate does **not** cover, so get it yourself:
 
-- **macOS/Windows `cfg` branches** — CI is ubuntu (plus one Windows *build* job). Build both branches locally.
+- **The `render` job** — `cargo test --test render` plus the `headless_screenshot` / `lighting_cap` /
+  `packaged_assets` smokes, all under `SKELETON_REQUIRE_GPU=1`. A machine with a GPU can run them.
+- **`cargo build --release`** — the only check that the `lto = "thin"` shipping profile links. Same
+  for `scripts/hot_reload_smoke.sh` and the `package` job's `cargo package --locked`.
+- **macOS/Windows behaviour** — both have CI *build* jobs now, so the `cfg` branches compile; nothing
+  ever runs them. Anything behavioural there still needs a local run.
 - **Audio playback, windowed playtest, gamepads** — the audio selftest halves skip in CI, so every
   audio claim still rests on a local device. (Hot-reload *is* covered now — `DATA_ANIM_SELFTEST` and
   `DATA_PARTICLES_SELFTEST` do real `notify` file-watching in CI.)
 - **Running on the web** — compiling for wasm is not running on wasm; for a runtime web claim, run
-  the matching `scripts/*_smoke.sh`. None of the 15 smoke scripts is in CI.
+  the matching `scripts/*_smoke.sh`. Every *browser* smoke (needs Chrome + a wasm-bindgen-cli
+  matching `Cargo.lock`) is outside CI; the native ones run there. `grep smoke
+  .github/workflows/ci.yml` for which — do not trust a script header, they go stale.
 
 If you skip a verification step, **say so in the report**.
 

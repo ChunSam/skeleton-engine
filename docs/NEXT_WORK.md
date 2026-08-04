@@ -36,10 +36,11 @@ A filed request preempts everything below.
 - **`main`-push blocking hook** — proposed 2026-08-03, not applied, low priority (no observed
   violation). Lives only in `.claude/proposals/2026-08-03.md`, which is gitignored.
 - **`handoff` / `wrap` skills exceed the 800-char guideline** — split the detail into reference
-  files. **Measured 2026-08-03: 4,531 and 5,987 chars** (bodies alone 4,250 / 5,723), i.e. **5.7×
-  and 7.5×** the guideline. The previously tracked figures (2,245 / 3,195) were roughly half that,
-  so this item had been prioritised against numbers that were no longer true — re-measure before
-  judging it again. They live in **`~/.claude/skills/`** (user-global), not the project `.claude/`;
+  files. **Measured 2026-08-04 with `wc -m`: 2,245 and 3,195 characters**, i.e. **2.8× and 4.0×**
+  the guideline. The 2026-08-03 revision of this line read "4,531 and 5,987 chars" and called it
+  5.7×/7.5×; those are `wc -c` **bytes**, and the guideline counts characters — Hangul is 3 bytes
+  each in UTF-8, so the item was prioritised as roughly twice as urgent as it is. **Measure with
+  `wc -m`.** They live in **`~/.claude/skills/`** (user-global), not the project `.claude/`;
   either way they are untracked, so this line is the only durable record.
 
 ## Noted — not scheduled
