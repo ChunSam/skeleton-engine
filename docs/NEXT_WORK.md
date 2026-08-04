@@ -33,8 +33,6 @@ A filed request preempts everything below.
 
 ## Open — process
 
-- **`main`-push blocking hook** — proposed 2026-08-03, not applied, low priority (no observed
-  violation). Lives only in `.claude/proposals/2026-08-03.md`, which is gitignored.
 - **`handoff` / `wrap` skills exceed the 800-char guideline** — split the detail into reference
   files. **Measured 2026-08-04 with `wc -m`: 2,245 and 3,195 characters**, i.e. **2.8× and 4.0×**
   the guideline. The 2026-08-03 revision of this line read "4,531 and 5,987 chars" and called it
@@ -119,6 +117,23 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
 
 Closed 2026-08-04 (this session):
 
+- **Two local hooks added, and the `main`-push one is no longer "not applied".** That entry had sat
+  in *Open — process* since 2026-08-03; it is now wrong in the direction that matters, since a
+  future session would read it and re-derive a guard that already exists. Both live in
+  `.claude/settings.local.json`, which is gitignored, so this line is the only tracked record that
+  they exist. (1) **`git commit` is denied while any `*.sh` in the index is not `100755`** — the
+  trap `core.fileMode = false` hides, which v0.135.2 fixed repo-wide and v0.143.4 reintroduced twice
+  (fixed in v0.143.14). (2) **`main`-push blocking**, with `--delete` exempt so remote-branch cleanup
+  still works. Both were proven to fire by sabotage and checked for false positives against real
+  commands — a branch named `maintenance-branch` does not trip the `main` matcher.
+- **`example-selftest` gained `references/networked.md`.** The server-spawning harness had repeated
+  verbatim across four examples (`salvage_run`, `predict_shooter`, `orbital_dodger`, `coin_race`), so
+  it moved out of the skill body: OS-assigned ports via `<NAME>_ADDR`, the SKIP-if-no-binary rule and
+  its `cargo build --examples` counterpart, and the gotchas that cost a measurement each — a
+  sabotaged **server** binary survives a client rebuild, an end-state assertion misses a flicker, and
+  interpolation has a warm-up window where the displayed position and the newest snapshot coincide.
+  The body is back under the 800-char guideline (964 → 758) and no longer hardcodes a count of
+  precedents, which had already gone stale from 3 to 9.
 - **`COIN_RACE_SELFTEST=1`** (v0.143.12) — the eighth and **last planned** `<NAME>_SELFTEST`, closing
   that backlog item at its stated stopping point. The first test in the tree to drive **two clients
   at once**: a contested coin has no meaning with one player, so nothing single-client could have
