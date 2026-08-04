@@ -68,13 +68,19 @@ have each cost a session; the ones that recur:
   `echo $? > /tmp/v.exit` and **read the file**, after `rm -f`-ing it first (a stale file matches instantly).
 - `;` does not short-circuit — branch on the captured code before committing.
 
+The gate now also runs `scripts/build_wasm_examples.sh` (every example with a `#[wasm_bindgen]`
+entry point, built for wasm32) and `scripts/selftests.sh` (every `<NAME>_SELFTEST`). **A skip is not
+a pass**: `selftests.sh` tolerates only "no audio device" and fails on any other opt-out, because a
+missing server binary silently drops the live networking checks.
+
 What the gate does **not** cover, so get it yourself:
 
-- **Examples on wasm** — the wasm step is lib+bins only. Touched an example's wasm path?
-  `cargo build --example <name> --target wasm32-unknown-unknown`.
 - **macOS/Windows `cfg` branches** — CI is ubuntu (plus one Windows *build* job). Build both branches locally.
-- **Anything CI cannot run** — windowed playtest, audio playback, hot-reload, gamepads. Compiling
-  for wasm is not running on wasm; for a runtime web claim, run the matching `scripts/*_smoke.sh`.
+- **Audio playback, windowed playtest, gamepads** — the audio selftest halves skip in CI, so every
+  audio claim still rests on a local device. (Hot-reload *is* covered now — `DATA_ANIM_SELFTEST` and
+  `DATA_PARTICLES_SELFTEST` do real `notify` file-watching in CI.)
+- **Running on the web** — compiling for wasm is not running on wasm; for a runtime web claim, run
+  the matching `scripts/*_smoke.sh`. None of the 15 smoke scripts is in CI.
 
 If you skip a verification step, **say so in the report**.
 

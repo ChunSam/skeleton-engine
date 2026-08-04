@@ -74,7 +74,13 @@ A filed request preempts everything below.
 Context for judging new work — not to-dos. Anything here that becomes actionable belongs in
 **Open — engineering** instead; that is where `<NAME>_SELFTEST` coverage went on 2026-08-03.
 
-- **Audio is outside CI entirely.** Every audio claim in v0.140–v0.143 rests on a local device.
+- **Audio is outside CI entirely.** Every audio claim in v0.140–v0.143 rests on a local device. The
+  selftests run in CI as of v0.143.8, but their audio halves skip there — `scripts/selftests.sh`
+  tolerates exactly that one skip and fails on any other.
+- **None of the 15 `scripts/*_smoke.sh` runtime web smokes is in CI** (measured 2026-08-04; the one
+  `smoke` hit in `ci.yml` is a comment). This is where "it compiles for wasm" stops and "it runs on
+  the web" begins, and it is the largest remaining CI gap now that the selftests and the wasm
+  example builds are wired in. Cost is the blocker: headless Chrome setup plus flake risk.
 - **A headless capture cannot photograph a meter** — fixed dt, no wall clock. Three sessions have
   now reached for `ENGINE_CAPTURE` before remembering this.
 

@@ -62,6 +62,14 @@ jobs:
       - name: cargo test --doc
         run: cargo test --doc
 
+      # The `<NAME>_SELFTEST` acceptance tests. Each was proven non-vacuous by sabotage when it was
+      # written, and then nothing ran them again — no CI step and no verify.sh step invoked one.
+      # The device-free halves run fine here; the audio halves skip (no sound card), which the
+      # script tolerates while treating every OTHER skip as a failure. Same principle as the render
+      # job's SKELETON_REQUIRE_GPU: an environment opt-out must never read as a green pass.
+      - name: cargo run --example <NAME>_SELFTEST (acceptance tests)
+        run: ./scripts/selftests.sh
+
       - name: cargo build (release)
         run: cargo build --release
 
@@ -150,6 +158,14 @@ jobs:
 
       - name: cargo clippy (wasm, lib only)
         run: cargo clippy --target wasm32-unknown-unknown --lib -- -D warnings
+
+      # The build above is lib + bins, so an example's wasm path was invisible to CI and CLAUDE.md
+      # had to ask contributors to build it by hand. This names the examples that carry a
+      # `#[wasm_bindgen]` entry point — the ones an index.html actually calls — and builds those.
+      # A blanket --examples cannot work: the native-only examples fail to compile for wasm on
+      # purpose (hot-reload, headless screenshots, servers, physics, GPU particles).
+      - name: cargo build (wasm examples)
+        run: ./scripts/build_wasm_examples.sh
 
   # ── Windows 빌드 ──────────────────────────────────────────────────────────
   # The other jobs are ubuntu/wasm only, so nothing here ever compiled the DX12
