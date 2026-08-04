@@ -74,9 +74,14 @@ A filed request preempts everything below.
 Context for judging new work — not to-dos. Anything here that becomes actionable belongs in
 **Open — engineering** instead; that is where `<NAME>_SELFTEST` coverage went on 2026-08-03.
 
-- **Audio is outside CI entirely.** Every audio claim in v0.140–v0.143 rests on a local device. The
-  selftests run in CI as of v0.143.8, but their audio halves skip there — `scripts/selftests.sh`
-  tolerates exactly that one skip and fails on any other.
+- **Audio is outside CI entirely, and v0.143.10 established that it stays that way.** Five CI runs
+  tried a PulseAudio null sink (default and at 30 ms latency) and ALSA `snd-dummy`; the full table is
+  in `docs/VERIFICATION.md`. Summary: a null sink *does* let rodio open a device and `beat_crawler`'s
+  audio chain passes on CI, but it delivers samples in bursts, so the meters with sub-second
+  deadlines read silence. `snd-dummy` does not exist on the runner kernel. **Do not re-litigate
+  without new information** — a runner image with a real or dummy ALSA card would be new
+  information; another sink tweak is not. `SKELETON_REQUIRE_AUDIO=1` exists so a *local* run can
+  prove its audio checks ran rather than skipped.
 - **None of the 15 `scripts/*_smoke.sh` runtime web smokes is in CI** (measured 2026-08-04; the one
   `smoke` hit in `ci.yml` is a comment). This is where "it compiles for wasm" stops and "it runs on
   the web" begins, and it is the largest remaining CI gap now that the selftests and the wasm

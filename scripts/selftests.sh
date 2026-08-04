@@ -14,10 +14,16 @@
 # build. But that makes a skip indistinguishable from a pass at the exit code, so this script
 # reads the output too:
 #
-#   - "no audio device" skips are EXPECTED (CI has no sound card) and tolerated.
+#   - "no audio device" skips are tolerated by default, so a developer box or a runner without a
+#     sound card does not fail the build.
 #   - Every other skip is a FAILURE. The networked tests skip their live checks when the sibling
 #     server binary is missing, and those are the checks that cover the most; a run that quietly
 #     dropped them is green while testing strictly less than it appears to.
+#
+# `SKELETON_REQUIRE_AUDIO=1` makes the audio skips fatal too. Set it wherever a device is supposed
+# to exist — CI provisions a PulseAudio null sink, and without this flag a null sink that failed to
+# come up would simply skip the audio checks and report success. That is the same trap this script
+# exists to close, one level up. Mirrors the render job's `SKELETON_REQUIRE_GPU=1`.
 #
 # That distinction is the whole reason this is a script and not a one-line `cargo run` in CI.
 
@@ -54,6 +60,9 @@ if [ "${#SELFTESTS[@]}" -eq 0 ]; then
 fi
 
 echo "[selftests] ${#SELFTESTS[@]} selftests discovered"
+if [ "${SKELETON_REQUIRE_AUDIO:-0}" = "1" ]; then
+  echo "[selftests] SKELETON_REQUIRE_AUDIO=1 — an audio-device skip counts as a failure"
+fi
 
 # Build EVERY example before running any of them. The networked tests spawn a sibling server binary
 # (`salvage_run_server`, `predict_shooter_server`) and skip their live checks if it was never built
@@ -81,8 +90,12 @@ for spec in "${SELFTESTS[@]}"; do
 
   # A skip the environment should have been able to support: a server that was never built, a port
   # that could not be reserved, a child that never bound. Not having a sound card is the one
-  # legitimate reason to opt out here.
-  unexpected=$(printf '%s\n' "$out" | grep 'SKIP:' | grep -v 'no audio device' || true)
+  # legitimate reason to opt out — unless the caller says a device is supposed to be there.
+  if [ "${SKELETON_REQUIRE_AUDIO:-0}" = "1" ]; then
+    unexpected=$(printf '%s\n' "$out" | grep 'SKIP:' || true)
+  else
+    unexpected=$(printf '%s\n' "$out" | grep 'SKIP:' | grep -v 'no audio device' || true)
+  fi
 
   if [ "$code" -ne 0 ]; then
     printf '%s\n' "$out" | sed 's/^/    /'

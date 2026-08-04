@@ -4,6 +4,28 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.143.10
+
+**Audio in CI was attempted, measured, and does not work — the negative result is the deliverable.** "Audio is outside CI entirely" has been a standing risk since v0.140, and the obvious fix (give the runner a virtual sound card) turned out not to hold. Five CI runs went into establishing that. No library code changed; scripts and docs only.
+
+### Added
+- **`SKELETON_REQUIRE_AUDIO=1`** in `scripts/selftests.sh` — turns an audio-device skip from a tolerated opt-out into a **failure**. Default off, so a box without a sound card still passes. Run it locally when you want proof the audio checks actually executed rather than quietly opting out: `SKELETON_REQUIRE_AUDIO=1 ./scripts/selftests.sh`. This is the tool that made the negative result *legible* — without it every attempt below would have been a silent green.
+
+### What was tried, and what each attempt measured
+
+| Attempt | Result |
+|---|---|
+| **PulseAudio null sink, default latency** | The sink comes up and **rodio opens a device** — `beat_crawler`'s whole audio chain passed on CI, finding **16 kicks in a real mix at 0.638 s spacing**. But `audio_reactive` read rms **0.0000** against its 1200 ms rise deadline, and `survivor`'s peak reached 1.0000 while its **600 ms watchdog engaged**. |
+| **Null sink + `PULSE_LATENCY_MSEC=30`** | **Worse.** `beat_crawler` finds *no* kick at all, `survivor`'s peak is 0.0000. The small buffer broke the one thing that worked, which refuted the burst-latency hypothesis that motivated it. |
+| **ALSA `snd-dummy`** | **Not available at all** — the runner's azure kernel ships no such module even with `linux-modules-extra` installed. |
+
+A null sink delivers samples in bursts rather than continuously, so the level tap publishes and then goes stale in the gaps. Checks that sample over *seconds* ride it out; sub-second deadlines land in the gaps. Those deadlines are calibrated against real hardware, and loosening them to make CI green would have discarded exactly the guarantee they exist to make — so they were left alone and the CI change was dropped instead.
+
+**Every audio claim therefore still rests on a local device.** Recorded in `docs/VERIFICATION.md` so this is not re-litigated without new information.
+
+### Also learned
+A **corrupt cargo cache** produces `collect2: fatal error: ld terminated with signal 7 [Bus error]`, twice in a row, on a runner with **108 GB free**. It is not disk exhaustion, which is what that signature usually means and what it was first misread as. `gh cache delete` on the `Linux-cargo-*` keys cleared it.
+
 ## 0.143.9
 
 **`orbital_dodger` proves its interpolation, and that collision agrees with what you see.** The third acceptance test over the network stack; the server-spawning harness transferred a third time with no changes, which is what makes it a pattern rather than one example's trick. No library code changed; examples and docs only.
