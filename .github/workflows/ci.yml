@@ -33,7 +33,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libasound2-dev libudev-dev libxkbcommon-dev \
             libwayland-dev libx11-dev pkg-config \
-            pulseaudio libasound2-plugins
+            alsa-utils
 
       # A virtual sound card, so the audio halves of the selftests actually RUN here instead of
       # skipping. "Audio is outside CI entirely" had been a standing risk since v0.140 — every audio
@@ -41,17 +41,18 @@ jobs:
       # (beat_crawler's metered flurry, survivor's drive curve, audio_reactive's meters) opted out
       # with exit 0 on every CI run.
       #
-      # rodio opens a device through cpal, which enumerates ALSA — so a PulseAudio null sink is only
-      # half of it; ALSA's *default* PCM has to be routed into PulseAudio as well, which is what
-      # libasound2-plugins provides and .asoundrc selects.
-      - name: Provision a virtual sound card (PulseAudio null sink)
+      # `snd-dummy` and NOT a PulseAudio null sink, which was tried first and measured: the sink came
+      # up (`Default Sink: SelfTest`), rodio opened a device, and beat_crawler's whole audio chain
+      # passed — but `audio_reactive` read rms 0.0000 over a 1200 ms deadline and `survivor`'s
+      # watchdog engaged against its 600 ms limit. A null sink's default latency is on the order of
+      # seconds, so meters with sub-second deadlines see silence while multi-second checks pass.
+      # snd-dummy is a real ALSA driver with hardware-like period/buffer semantics and no PulseAudio
+      # in the path, so cpal sees a default device that behaves like a card.
+      - name: Provision a virtual sound card (ALSA snd-dummy)
         run: |
-          pulseaudio --start --exit-idle-time=-1
-          pactl load-module module-null-sink \
-            sink_name=SelfTest sink_properties=device.description=SelfTest
-          pactl set-default-sink SelfTest
-          printf 'pcm.!default { type pulse }\nctl.!default { type pulse }\n' > "$HOME/.asoundrc"
-          pactl info
+          sudo apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)"
+          sudo modprobe snd-dummy
+          aplay -l
 
       - name: Install Rust 1.95
         uses: dtolnay/rust-toolchain@1.95.0
