@@ -4,6 +4,27 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.143.14
+
+**The `embedded_image` web smoke could not be run at all — neither of its two scripts had the executable bit.** Tooling and docs only; no source, no API, no runtime behaviour changed.
+
+`scripts/embedded_image_smoke.sh` and `examples/embedded_image/web/build.sh` both landed as `100644` in v0.143.4. `docs/WASM_SMOKES.md` invokes the first as `./scripts/embedded_image_smoke.sh`, and that script executes the second directly at line 82 — so the smoke was broken twice over, the same shape v0.135.2 fixed repo-wide when 26 of 31 scripts were missing the bit.
+
+Three things hid it, and each is worth naming:
+
+- **`core.fileMode = false`** in this repo, so the mode is invisible in `git status` and `git diff`. `git ls-files -s` is the only local view of it — Trap 6 in `docs/VERIFICATION.md`.
+- **The file was not executable in the working tree either**, so there was no local run that could have worked.
+- **It is a browser smoke, and no browser smoke is in CI** (they need Chrome plus a wasm-bindgen-cli matching `Cargo.lock`). v0.143.8 caught this exact trap on two *other* new scripts by checking `git ls-files -s`; these two were outside that check's scope.
+
+Both are now `100755`, and no shell script anywhere in the repo is non-executable. Verified by running the smoke the way its own docs say: PASS, an 84,639-byte frame, and the screenshot **looked at** rather than only measured — the byte threshold cannot tell the correct sprite from the white fallback texture, which is the exact failure the verbatim-key invariant exists to prevent.
+
+### Docs — three claims that had gone stale
+- **`CLAUDE.md` said `verify.sh` "mirrors CI". It does not.** The gate covers CI's `wasm` and `docs` jobs in full and its `test` job bar two steps, and does not touch the `render` or `package` jobs at all. The not-covered list now names what it misses: the render tests and the three native render smokes, `cargo build --release` (the only check that the `lto = "thin"` shipping profile links), `scripts/hot_reload_smoke.sh`, and `cargo package --locked`.
+- **"CI is ubuntu (plus one Windows *build* job)"** — v0.143.13 added `Build (macOS / Metal)`. Both platforms now compile in CI; neither ever *runs*, which is the distinction that matters and the one the line was making badly.
+- **"None of the 15 smoke scripts is in CI"** — v0.143.11 put four native ones there. Rewritten as a property (browser smokes need Chrome, so they stay out; the native ones run) with a `grep` to check, rather than a count that goes stale again.
+
+`docs/NEXT_WORK.md` also compared bytes against a character budget: the `handoff`/`wrap` skill sizes were recorded as "4,531 and 5,987 chars", which are `wc -c` **bytes**. The 800 guideline counts characters, and Hangul is 3 bytes each in UTF-8, so the item read as roughly twice as urgent as it is. Measured with `wc -m`: 2,245 and 3,195, i.e. 2.8× and 4.0×.
+
 ## 0.143.13
 
 **The native job's cache was a guaranteed miss on every run, and had been for some time.** CI only; no library code, no scripts, no docs beyond this entry.
