@@ -1,10 +1,31 @@
 name: CI
 
+# ⚠️ The `push: [main]` run looks like pure duplication and is NOT. Do not remove it.
+#
+# It re-tests a tree that has already passed: a squash-merge from an up-to-date branch produces the
+# same tree the PR was built from (verified on #421 — both `323199e4`), and `main` is protected with
+# these six jobs as required checks, `strict`, and `enforce_admins`, so nothing arrives unverified
+# anyway. On that reasoning it was nearly deleted.
+#
+# What that reasoning misses is **cache scope**. GitHub isolates caches by ref: a `pull_request` run
+# writes into the PR's own scope, readable only inside that PR, while every branch can read caches
+# written on the default branch. So the `push: [main]` run is the only thing that populates the
+# cache the *next* PR restores from. Measured: all ten surviving entries are `refs/heads/main`;
+# not one was written by a PR run. Delete this trigger and every PR starts cold.
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+
+# One run per branch. Pushing a fixup while CI is still going used to leave both runs going to
+# completion — measured on the v0.143.10 branch, two full runs four minutes apart, both red.
+#
+# PR runs only. A `main` run must never be cancelled: it is the one that writes the shared cache
+# above, and killing it mid-flight would leave the next PR to rebuild from nothing.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -21,6 +42,10 @@ jobs:
       # The native job builds --all-targets (debug) AND --release in one `target/`, on top of a
       # restored cache; on a stock ubuntu-latest (~14 GB free on /) that has run the runner out of
       # disk ("No space left on device"). Drop large preinstalled SDKs we never use to free ~25 GB.
+      #
+      # Worth re-measuring now that the cache below is pruned rather than a whole `target/`: this
+      # step costs ~63 s and may no longer be earning it. Do not drop it on reasoning alone — the
+      # failure it prevents is a red gate, so remove it only after a run proves the headroom.
       - name: Free disk space
         run: |
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
@@ -39,15 +64,21 @@ jobs:
         with:
           components: clippy, rustfmt
 
+      # `Swatinem/rust-cache` rather than a raw `actions/cache` over `target/`.
+      #
+      # The raw version cached the WHOLE `target/`, which made this job's cache the largest in the
+      # repo — and it is also the slowest job, so it saved last. The five fast jobs filled the
+      # repo's 10 GB cache budget first and this one was evicted as LRU every single time. Measured
+      # on run 30884878663: `Cache not found for input keys: Linux-cargo-<hash>, Linux-cargo-` —
+      # the prefix fallback found nothing either, because no `Linux-cargo-*` entry existed at all.
+      # So the job rebuilt from zero every run AND spent 221 s (22% of its wall time) writing a
+      # cache that was thrown away before the next one.
+      #
+      # This action caches dependency artifacts and prunes the workspace's own, which is exactly
+      # the part that changes every commit and made the cache huge. It also keys per job and per
+      # toolchain by itself, so the six hand-written keys below are gone.
       - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+        uses: Swatinem/rust-cache@v2
 
       - name: cargo fmt --check
         run: cargo fmt --check
@@ -118,14 +149,7 @@ jobs:
         uses: dtolnay/rust-toolchain@1.95.0
 
       - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-render-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-render-
+        uses: Swatinem/rust-cache@v2
 
       # SKELETON_REQUIRE_GPU=1 → "no adapter" panics instead of skipping; the grep then confirms a
       # real render happened. Both must pass, so the render path can never silently go unverified.
@@ -169,14 +193,7 @@ jobs:
           components: clippy
 
       - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-wasm-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-wasm-
+        uses: Swatinem/rust-cache@v2
 
       - name: cargo build --target wasm32-unknown-unknown
         run: cargo build --target wasm32-unknown-unknown
@@ -208,14 +225,7 @@ jobs:
         uses: dtolnay/rust-toolchain@1.95.0
 
       - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-msvc-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-msvc-
+        uses: Swatinem/rust-cache@v2
 
       # A single `windows` version across the graph is the actual invariant; assert it
       # directly so a future dependency bump fails here with a readable message rather
@@ -232,6 +242,34 @@ jobs:
             echo "::error::multiple 'windows' crate versions on the MSVC target — DX12 will not compile"
             exit 1
           fi
+
+      - name: cargo build (lib + bins)
+        run: cargo build
+
+  # ── macOS 빌드 ────────────────────────────────────────────────────────────
+  # Same argument as the Windows job above, applied to the other platform nobody was compiling.
+  # Until this existed, `src/input/gamepad_macos.rs` — 142 lines — and seven `target_os = "macos"`
+  # branches across `app.rs`, `app/window.rs`, `input/mod.rs` and `input/gamepad.rs` were built by
+  # exactly one thing: somebody remembering to do it locally, as CLAUDE.md asks.
+  #
+  # That backend is not decorative. gilrs (IOKit-HID) cannot read modern Xbox/PS5 pads on macOS
+  # because Apple's GameController framework claims them, so macOS runs an entirely separate gamepad
+  # path (`app.rs`'s own comment says so). A compile error in it is invisible everywhere else.
+  #
+  # Build only, deliberately — matching the Windows job. Gamepads, audio playback and windowed
+  # playtest still need a real machine, and a runner cannot stand in for one; the question this job
+  # answers is only "do the macOS branches still compile".
+  macos:
+    name: Build (macOS / Metal)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.95
+        uses: dtolnay/rust-toolchain@1.95.0
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
 
       - name: cargo build (lib + bins)
         run: cargo build
@@ -254,14 +292,7 @@ jobs:
         uses: dtolnay/rust-toolchain@1.95.0
 
       - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-docs-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-docs-
+        uses: Swatinem/rust-cache@v2
 
       - name: cargo doc --no-deps
         run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
@@ -283,14 +314,7 @@ jobs:
         uses: dtolnay/rust-toolchain@1.95.0
 
       - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-package-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-package-
+        uses: Swatinem/rust-cache@v2
 
       - name: cargo package --locked --list
         run: cargo package --locked --list

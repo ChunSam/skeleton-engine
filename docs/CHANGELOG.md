@@ -4,6 +4,39 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.143.13
+
+**The native job's cache was a guaranteed miss on every run, and had been for some time.** CI only; no library code, no scripts, no docs beyond this entry.
+
+### The measurement
+Run 30884878663, the native job's own log:
+
+```
+Cache not found for input keys: Linux-cargo-<hash>, Linux-cargo-
+```
+
+Even the `restore-keys` prefix fallback found nothing, because **no `Linux-cargo-*` entry existed at all** — the cache list showed ten entries totalling 8.63 GB of a 10 GB budget, for every job *except* this one.
+
+The mechanism: the native job cached the whole `target/`, which made it the largest cache in the repo, and it is also the slowest job (16m41s), so it saved last. The five fast jobs (46s–1m53s) filled the budget first and the native entry was evicted as LRU every time. It therefore rebuilt from zero every run **and** spent **221 s — 22% of its wall time — writing a cache that was thrown away before the next run could read it.**
+
+### Fixed
+- **`Swatinem/rust-cache@v2` replaces the six hand-written `actions/cache` blocks.** It caches dependency artifacts and prunes the workspace's own — the part that changes every commit and made these caches enormous — and keys per job and toolchain itself.
+- **A `concurrency` group, cancelling superseded PR runs.** Measured on the v0.143.10 branch: two full runs four minutes apart on the same branch, both allowed to finish, both red. `main` runs are explicitly *never* cancelled, for the reason below.
+
+### Added — `Build (macOS / Metal)`
+The same argument the Windows job was added on, applied to the other platform nobody was compiling. Until now `src/input/gamepad_macos.rs` (142 lines) and seven `target_os = "macos"` branches across `app.rs`, `app/window.rs`, `input/mod.rs` and `input/gamepad.rs` were built by one thing only: somebody remembering to do it locally, as `CLAUDE.md` asks.
+
+That backend is not decorative — gilrs cannot read modern Xbox/PS5 pads on macOS because Apple's GameController framework claims them, so macOS runs a separate gamepad path entirely. Build only, matching the Windows job: gamepads, audio playback and windowed playtest still need a real machine.
+
+⚠️ **A new job is advisory until it is added to the required status checks on `main`** — that is a repository setting, not something this file can do.
+
+### The `push: [main]` run is not duplication — and nearly got deleted for looking like it
+It re-tests a tree that has already passed: a squash-merge from an up-to-date branch produces the same tree the PR was built from (verified on #421 — both `323199e4`), and `main` is protected with all six jobs as required checks, `strict`, and `enforce_admins`, so nothing can arrive unverified. Every part of that is true, and the conclusion drawn from it was still wrong.
+
+**GitHub isolates caches by ref.** A `pull_request` run writes into that PR's own scope, readable only inside it; caches written on the default branch are readable by every branch. So the `push: [main]` run is the only thing populating the cache the *next* PR restores from. Measured: all ten surviving entries are scoped to `refs/heads/main` — not one was written by a PR run. Removing that trigger would have made every PR start cold and quietly cancelled out the fix above.
+
+It is now commented in `ci.yml` as load-bearing, since the next person to look at CI cost will reach the same wrong conclusion from the same correct facts.
+
 ## 0.143.12
 
 **`coin_race` proves its server authority, with two clients contesting one coin.** The fourth acceptance test over the network stack, and the first to drive **two** clients at once — a contested coin has no meaning with one player, so no single-client test and no screenshot can reach this. No library code changed; examples and docs only.
