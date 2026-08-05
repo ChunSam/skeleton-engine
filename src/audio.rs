@@ -102,6 +102,17 @@ pub struct AudioManager {
     /// Metered-one-shot name → its next voice index (see `play_tone_poly`). One counter per name,
     /// unlike the facade's single ring counter shared by every fire-and-forget sound.
     poly_seq: HashMap<String, u64>,
+    /// Final output gain, multiplied into **every** write of a `Player`'s volume. `1.0` normally;
+    /// `0.0` when `SKELETON_MUTE=1` (see [`AudioManager::new`]).
+    ///
+    /// It deliberately sits *outside* `effective_volume`, which stays the pure
+    /// `base × bus × duck` product the API and its tests read back. Silence therefore changes what
+    /// the speakers emit and nothing that any check measures — the level taps are **pre-volume**
+    /// (`src/audio/analysis.rs`), so a muted run still measures identical `levels()` / `bands()`.
+    ///
+    /// **Every new `sink.set_volume(..)` must multiply this in**, or that one path stays audible.
+    /// Missing it is a comfort bug, not a correctness one: nothing measured changes either way.
+    output_gain: f32,
 }
 
 // ─── AudioSystem ──────────────────────────────────────────────────────────────

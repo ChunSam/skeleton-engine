@@ -28,7 +28,7 @@ impl AudioManager {
         self.channel_buses
             .insert(channel.to_string(), bus.to_string());
         // Apply bus volume immediately
-        let eff = self.effective_volume(channel);
+        let eff = self.effective_volume(channel) * self.output_gain;
         if let Some(sink) = self.sinks.get(channel) {
             sink.set_volume(eff);
         }
@@ -54,7 +54,7 @@ impl AudioManager {
             if self.fades.contains_key(&ch) {
                 continue;
             }
-            let eff = self.effective_volume(&ch);
+            let eff = self.effective_volume(&ch) * self.output_gain;
             if let Some(sink) = self.sinks.get(&ch) {
                 sink.set_volume(eff);
             }
@@ -90,7 +90,7 @@ impl AudioManager {
         if self.fades.contains_key(channel) {
             return;
         }
-        let eff = self.effective_volume(channel);
+        let eff = self.effective_volume(channel) * self.output_gain;
         if let Some(sink) = self.sinks.get(channel) {
             sink.set_volume(eff);
         }

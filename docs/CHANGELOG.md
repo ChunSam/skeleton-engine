@@ -4,6 +4,22 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.144.0
+
+**`SKELETON_MUTE=1` silences a test run without weakening it.** Additive: default behaviour is unchanged, no API removed, no existing call site behaves differently.
+
+Running the gate on a machine with a sound card plays real audio out of the speakers, from three independent sources: `cargo test` (`src/audio/tests.rs` fires real 440/880 Hz tones at amplitude 0.5), the three audio-bearing selftests (`survivor` alone fires ~147 kill tones in 2.5 s), and the browser audio smokes (headless Chrome had **no `--mute-audio`**, so a 110 Hz tone reached the system output). One switch now silences all three.
+
+**Why it costs nothing.** Level taps are **pre-volume** — `src/audio/analysis.rs` and `src/audio/playback.rs` both say so — so channel, bus and master gain all sit *after* the measurement. The mute is a final output gain multiplied into every write of a `Player`'s volume, deliberately **outside** `effective_volume`, which stays the pure `base × bus × duck` product that the API and its own tests read back. Verified by running the same selftest both ways: rms rise **0.654** and decay **0.0096** in both, with the ~0.5% band difference being run-to-run FFT noise present between two unmuted runs too.
+
+**Muted is not the same as having no sound card** — the device is still opened and driven. This release's gate was run with `SKELETON_MUTE=1` *and* `SKELETON_REQUIRE_AUDIO=1`, which turns any audio skip into a failure; it passed with zero skips. Silent, and every audio check genuinely executed.
+
+A subtlety worth recording, because it rules out the obvious shortcut: **`set_master_volume` cannot serve as a global mute.** It writes the `MASTER_BUS` volume, but `effective_volume` multiplies by each channel's *own* bus — so a channel explicitly assigned to `"sfx"`, as `survivor` does, ignores it entirely. `audio_reactive`'s `M`-key demo only looks global because its channels are unrouted. Hence a separate output gain rather than reusing the existing knob.
+
+Ten `sink.set_volume` sites multiply the gain in, and the field documents that any new site must too — missing one is a comfort bug, not a correctness one, since nothing measured changes either way. The browser half is the same switch: `SKELETON_MUTE=1` adds `--mute-audio`, which v0.143.17 already proved safe by measuring rms with no audio device at all.
+
+Default runs still make sound, so the ear remains available as a check on the one thing a pre-volume assertion cannot see.
+
 ## 0.143.18
 
 **`scripts/selftests.sh` built all 142 example targets to run 9 selftests.** Tooling and docs only; no source, no API, no runtime behaviour changed.

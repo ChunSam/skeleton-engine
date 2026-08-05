@@ -74,6 +74,15 @@ impl AudioManager {
                 analysis: super::analysis::new_analysis_map(),
                 analysis_smoothing: super::analysis::DEFAULT_SMOOTHING,
                 poly_seq: HashMap::new(),
+                // `SKELETON_MUTE=1` silences the speakers without weakening a single check: the
+                // device is still opened and exercised, and level taps are pre-volume, so the
+                // selftests measure exactly what they measure unmuted. Read once here rather than
+                // per-sound so it cannot change mid-run.
+                output_gain: if std::env::var("SKELETON_MUTE").as_deref() == Ok("1") {
+                    0.0
+                } else {
+                    1.0
+                },
             }),
             Err(e) => {
                 log::warn!("Audio initialization failed (running without audio): {e}");
@@ -181,7 +190,7 @@ impl AudioManager {
         self.stop_immediate(channel);
         let sink = Player::connect_new(self.stream.mixer());
         // Apply bus/channel volume to the sink (so set_bus_volume can update it immediately).
-        sink.set_volume(self.effective_volume(channel));
+        sink.set_volume(self.effective_volume(channel) * self.output_gain);
 
         let base = SineWave::new(freq)
             .take_duration(Duration::from_secs_f32(duration_secs))
@@ -247,7 +256,7 @@ impl AudioManager {
         // anonymous ring uses to keep the sink count finite.
         self.stop_immediate(&channel);
         let sink = Player::connect_new(self.stream.mixer());
-        sink.set_volume(self.effective_volume(&channel));
+        sink.set_volume(self.effective_volume(&channel) * self.output_gain);
         let source: Box<dyn Source + Send + 'static> = Box::new(SamplesBuffer::new(
             TONE_CHANNELS,
             TONE_RATE,
@@ -347,7 +356,7 @@ impl AudioManager {
                     // Fades store/interpolate the pre-bus (base) volume. The bus
                     // multiplier and duck factor are applied exactly once here, so the
                     // sink receives `base_vol × bus_vol × duck` — never squared.
-                    sink.set_volume(vol * bus_vol * duck);
+                    sink.set_volume(vol * bus_vol * duck * self.output_gain);
                 }
                 let t = (fade.elapsed / fade.duration).clamp(0.0, 1.0);
                 if t >= 1.0 {
@@ -391,7 +400,7 @@ impl AudioManager {
 
         let sink = Player::connect_new(self.stream.mixer());
 
-        let eff_vol = self.effective_volume(channel);
+        let eff_vol = self.effective_volume(channel) * self.output_gain;
         sink.set_volume(eff_vol);
 
         // Reuse cached file bytes so replaying the same SFX doesn't re-read the
@@ -433,7 +442,7 @@ impl AudioManager {
     ) {
         self.stop_immediate(channel);
         let sink = Player::connect_new(self.stream.mixer());
-        sink.set_volume(self.effective_volume(channel));
+        sink.set_volume(self.effective_volume(channel) * self.output_gain);
         self.append_decoded(channel, sink, bytes, repeat, fade_in_secs, meter);
     }
 

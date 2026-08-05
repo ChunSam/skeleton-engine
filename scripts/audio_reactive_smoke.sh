@@ -99,10 +99,16 @@ if ! kill -0 "$HTTPD_PID" 2>/dev/null; then
   exit 2
 fi
 
+# `SKELETON_MUTE=1` silences the speakers without weakening the check: the verdict is computed
+# inside the page's Web Audio graph, not from the output device. CI proves that directly — it has
+# no audio device at all and still measures rms/bands (v0.143.17). Same switch as the native engine.
+MUTE=()
+[ "${SKELETON_MUTE:-0}" = "1" ] && MUTE=(--mute-audio)
+
 echo ">>> [3/4] running headless with audio unlocked..."
 "$CHROME" --headless=new \
   --enable-unsafe-swiftshader --use-gl=angle --use-angle=swiftshader \
-  --autoplay-policy=no-user-gesture-required \
+  --autoplay-policy=no-user-gesture-required "${MUTE[@]}" \
   --remote-debugging-port="$DBG" \
   --user-data-dir="$PROFILE" \
   "http://localhost:$PORT/?autostart=1" >/dev/null 2>&1 &

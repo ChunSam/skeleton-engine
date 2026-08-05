@@ -71,7 +71,15 @@ could not have failed.)
 
 ```sh
 ./scripts/verify.sh > /tmp/v.log 2>&1; echo "VERIFY_EXIT=$?"
+SKELETON_MUTE=1 ./scripts/verify.sh …   # same run, silent speakers
 ```
+
+**`SKELETON_MUTE=1` silences a run without weakening it.** The gate plays real sound otherwise —
+`cargo test` alone fires 440/880 Hz tones, and `survivor` fires ~147. Mute is a final output gain
+applied *after* every measurement: level taps are **pre-volume**, so a muted run measures the same
+numbers (verified — `audio_reactive` reports rms `0.654` either way). The device is still opened
+and exercised, so it is not the same as having no sound card. It also passes `--mute-audio` to the
+browser audio smokes.
 
 **Read the exit code from an unpiped command.** `docs/VERIFICATION.md` documents seven traps that
 have each cost a session; the ones that recur:
