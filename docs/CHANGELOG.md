@@ -4,6 +4,25 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.143.16
+
+**The native job's 130 s swing is `cargo build --examples`, not the selftests — the step name had been read as its content.** CI only; no source, no API, no runtime behaviour changed.
+
+v0.143.15's measurement flagged the `cargo run --example <NAME>_SELFTEST` step as the job's largest and wildly variable (179–308 s), and the backlog entry it produced sent the reader after "which selftest doubles", suspecting a timeout in the four networked ones. Splitting the step by its own log timestamps shows that was chasing nothing:
+
+| | slow run | fast run |
+|---|---|---|
+| `cargo build --examples` | **284 s** | **165 s** |
+| the 9 selftests actually running | **15 s** | **15 s** |
+
+The selftests are 15 s and rock-stable. Six measurements of the build half: 292, 168, 284, 165, 169, 152 s.
+
+Two causes are ruled out with evidence. **Not the cargo cache** — the 284 s and 165 s runs restored the identical key `v0-rust-test-Linux-x64-4912c32d-dd762588`, `full match: true`, both times, on identical docs-only commits. **Not a uniformly slow machine** — in the run where the examples build was 119 s *faster*, every other cargo step was *slower* (`clippy` 12→15 s, `test --all-targets` 35→46 s, `test --doc` 27→33 s, `build --release` 59→67 s). They move in opposite directions.
+
+The standing hypothesis is runner core count: building ~21 example binaries is the most parallel thing the job does, so it is the step most sensitive to cores, while the serial-ish steps track clock speed — which is the observed pattern. It is unconfirmed, the runner image release is identical across both runs, and nothing in the log records `nproc`.
+
+So this release adds `nproc` and `free -g` beside the existing `df`, renaming the step to `Runner capacity`. Same reasoning as the `df` canary that v0.143.15 kept: a step that costs about a second and turns an argument into data. If the hypothesis holds it is infrastructure rather than a defect, and the backlog entry closes with nothing to fix.
+
 ## 0.143.15
 
 **CI no longer spends 63 s deleting SDKs to make room on a disk that is 74% empty.** CI only; no source, no API, no runtime behaviour changed.
