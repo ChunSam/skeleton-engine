@@ -235,7 +235,7 @@ impl AudioManager {
                     .map(|(ch, _)| ch.clone())
                     .collect();
                 for ch in channels {
-                    let eff = self.effective_volume(&ch);
+                    let eff = self.effective_volume(&ch) * self.output_gain;
                     if let Some(sink) = self.sinks.get(&ch) {
                         sink.set_volume(eff);
                     }

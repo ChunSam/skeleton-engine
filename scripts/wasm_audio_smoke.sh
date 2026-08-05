@@ -108,9 +108,14 @@ echo ">>> [3/4] running the lifecycle check headless..."
 # --autoplay-policy=no-user-gesture-required lets resume() unlock the context without a click;
 # SwiftShader runs WebGL/Audio without a GPU.
 DBG="${SMOKE_DBG:-9223}"
+# `SKELETON_MUTE=1` silences the speakers without weakening the check: the verdict is computed
+# inside the page's Web Audio graph, not from the output device. CI proves that directly — it has
+# no audio device at all and still reports 38/38 (v0.143.17). Same switch as the native engine.
+MUTE=()
+[ "${SKELETON_MUTE:-0}" = "1" ] && MUTE=(--mute-audio)
 "$CHROME" --headless=new \
   --enable-unsafe-swiftshader --use-gl=angle --use-angle=swiftshader \
-  --autoplay-policy=no-user-gesture-required \
+  --autoplay-policy=no-user-gesture-required "${MUTE[@]}" \
   --remote-debugging-port="$DBG" \
   --user-data-dir="$PROFILE" \
   "http://localhost:$PORT/" >/dev/null 2>&1 &

@@ -89,7 +89,7 @@ impl AudioManager {
 
         if !skip_sink_write {
             if let Some(sink) = self.sinks.get(channel) {
-                sink.set_volume(self.effective_volume_params(vol, channel));
+                sink.set_volume(self.effective_volume_params(vol, channel) * self.output_gain);
             }
         }
     }
