@@ -38,14 +38,15 @@ closed on 2026-08-04.
 
 ## Noted — not scheduled
 
-- **The `<NAME>_SELFTEST` step is the native job's largest, but it is not a stable cost.** Two warm
-  measurements: **308 s** (run `30967887895`, `main`) and **182 s** (run `30987090731`, v0.143.15's
-  own PR) — the same step, a 1.7× swing, so its share of the job moves with it (53% → 45%). It is the
-  right place to look if the native job ever needs to get shorter, but **do not quote a single
-  number for it**, and do not scope work off one measurement: the variance is larger than most
-  optimisations would save. This is also not a complaint about the selftests — they are the only
-  thing standing between CI and the real-device claims, and the four networked ones do genuine
-  socket work. Recorded because the v0.143.15 measurement surfaced it and nothing else tracks it.
+- **The `<NAME>_SELFTEST` step is the native job's dominant cost — ~300 s, 60% of it.** Three warm
+  measurements of the same step: **308 s** (`30967887895`), **182 s** (`30987090731`), **300 s**
+  (`30988080080`). So ~300 s is typical and **the 182 s run was the outlier, not a new normal** —
+  worth stating because a single fast run is exactly what would make a later 300 s look like a
+  regression. It is the right place to look if the native job ever has to get shorter, but measure
+  three runs before scoping anything: one sample here was off by 40%. This is not a complaint about
+  the selftests — they are what stands between CI and the real-device claims, and the four networked
+  ones do genuine socket work. Recorded because the v0.143.15 measurement surfaced it and nothing
+  else tracks it.
 
 - **The local verify-gate hook's two deliberate residuals** (fixed 2026-08-03, `.claude/` is
   gitignored so this is the only tracked record). It no longer over-matches prose, because it
@@ -136,11 +137,13 @@ Closed 2026-08-05 (this session):
     the exact cache key, whose **restore-key fallback stacked a stale whole-`target/`** until the
     disk filled — and v0.143.13 replaced that cache shape outright. v0.143.15 is itself a
     `Cargo.lock`-changing bump, so its own run re-triggered the June condition and went green.
-    A `df -h /` survives as a ~1 s canary; it immediately measured **88 GB free** before the build
-    (145 G disk, 40% used) against the step comment's stale "~14 GB free on /".
-  - ⚠️ **Do not read the job total as the saving.** Native went 581 s → 401 s, but only 63 s of that
-    is the removal — the rest is selftest variance (see *Noted*). Two steps changed at once and only
-    one of them was the change.
+    A `df -h /` survives as a ~1 s canary; it measured **88 GB free** before the build on both runs
+    since (145 G disk, 40% used) against the step comment's stale "~14 GB free on /".
+  - ⚠️ **The saving is 63 s, not the 180 s the first run appeared to show.** Native read 581 s →
+    401 s, but that 401 s run happened to catch the selftest step's one fast sample (182 s); the
+    very next run, on identical code, was 504 s with a 300 s selftest. Steady state is 581 − 63 ≈
+    **505 s**, which is the removal and nothing more. Recorded because the flattering number came
+    first and would have been the easy one to bank.
 
 Rolled off 2026-08-05 (previous session's entry; durable home verified before removing): the
 `scripts/selftests.sh` audio-device correction (#426) — its lesson, *when an experiment is reverted,
