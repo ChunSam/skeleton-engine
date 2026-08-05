@@ -39,12 +39,14 @@ closed on 2026-08-04.
 ## Noted — not scheduled
 
 - **The `<NAME>_SELFTEST` step is the native job's largest, and it looks bimodal — ~180 s or ~305 s.**
-  Four warm measurements of the same step, in run order: **308 s** (`30967887895`), **182 s**
-  (`30987090731`), **300 s** (`30988080080`), **179 s** (`30988755458`). Two tight clusters, not a
-  spread, and the last three ran on identical code.
+  Five warm measurements of the same step, in run order: **308 s** (`30967887895`), **182 s**
+  (`30987090731`), **300 s** (`30988080080`), **179 s** (`30988755458`), **184 s** (`30989297620`).
+  That is `{179, 182, 184}` and `{300, 308}` — two clusters tighter than the gap between them, not a
+  spread, and the last four ran on identical code.
   - **Do not average them, and do not read one run as a trend.** A three-point reading of this exact
     data said "~300 s typical, the 182 s an outlier" and the fourth point refuted it within the
-    hour. Two points had read it as a coin-flip and were closer.
+    hour. Two points had read it as a coin-flip and were closer. Stopped at five deliberately —
+    the clusters are established; more samples are the *next* person's measurement, not this one's.
   - The lead worth pulling is **which** selftest doubles, not the total. A step that lands in two
     tight clusters usually has something waiting out a timeout in one mode and hitting its condition
     in the other — and the four networked selftests do real socket work, which is where such a
