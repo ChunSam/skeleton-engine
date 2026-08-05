@@ -15,7 +15,7 @@
 
 ## Board gate — check this first, every session
 
-Both channels were **empty** as of 2026-08-05:
+Both channels were **empty** as of 2026-08-06:
 
 - `../dungeon-merchant/docs/engine-wishlist.md` — next free **EW-012**, unmoved since 2026-07-27
 - `../rust-survivors/docs/ENGINE_CHANGE_REQUESTS.md` — `_None._`, unmoved since 2026-07-14
@@ -38,32 +38,23 @@ closed on 2026-08-04.
 
 ## Noted — not scheduled
 
-- **The native job's swing is `cargo build --examples`, not the selftests.** The step *named* for the
-  selftests is the job's largest and swings 179–308 s, but that name misled two earlier versions of
-  this entry. Splitting the step by its own log timestamps:
-
-  | | slow run | fast run |
-  |---|---|---|
-  | `cargo build --examples` | **284 s** | **165 s** |
-  | the 9 selftests actually running | **15 s** | **15 s** |
-
-  **The selftests are 15 s and rock-stable.** Six measurements of the build half: 292, 168, 284, 165,
-  169, 152 s. Chasing "which selftest doubles" is chasing nothing — an earlier version of this entry
-  said exactly that, and pointed at the networked selftests' socket work as a suspected timeout. It
-  was wrong, and it was wrong because the step's *name* was treated as its *content*.
-  - **Ruled out, with evidence.** Not the cargo cache: the 284 s and 165 s runs restored the
-    *identical* key `v0-rust-test-Linux-x64-4912c32d-dd762588`, "full match: true", both times, on
-    identical docs-only code. Not a uniformly slow machine either — in the run where the examples
-    build was 119 s *faster*, every other cargo step was *slower* (`clippy` 12→15 s,
-    `test --all-targets` 35→46 s, `test --doc` 27→33 s, `build --release` 59→67 s). The two move in
-    opposite directions, which is the whole reason a job total cannot be read as a step measurement.
-  - **Standing hypothesis: runner core count.** Building ~21 example binaries is by far the most
-    parallel thing in the job, so it is the step most sensitive to cores, while the serial-ish steps
-    track clock speed instead — which is exactly the observed pattern. Unconfirmed: the runner image
-    release is identical across both, and **nothing in the log records `nproc`**. v0.143.16 adds it
-    to the `Runner capacity` step so the next few runs settle it as data rather than argument.
-  - **If confirmed it is infrastructure, not a defect** — nothing to fix in the repo, and the entry
-    can close. Check the `nproc` line before spending anything else here.
+- **CLOSED by removal, not by diagnosis: the native job's 130 s swing was `cargo build --examples`.**
+  Kept as a record because three successive versions of this entry got the *cause* wrong while the
+  *measurement* was right each time, and the shape of that mistake is worth more than the finding.
+  - **What it actually was.** The step named `<NAME>_SELFTEST` swung 179–308 s, so all three
+    versions hunted a flaky selftest. Splitting the step by its own log timestamps ended it: the
+    9 selftests run in **15 s, rock-stable**, and every second of the swing was the build in front
+    of them — 142 example targets compiled to run 9. v0.143.18 narrowed that to 14, and **the step
+    is now 26 s** with the variance gone. Nothing was diagnosed; the cause was deleted.
+  - **The `nproc` canary (v0.143.16) is now moot.** It was added to test a runner-core-count
+    hypothesis for a step that no longer dominates. It costs ~1 s and still records real headroom
+    numbers, so it stays — but **do not resume that investigation**; the question it was asked to
+    settle no longer has stakes.
+  - **The transferable lesson: a step's name is not its contents.** Two entries pointed at the
+    networked selftests' socket work as a suspected timeout on nothing but the step label, and a
+    third read three samples as bimodal before a fourth refuted it. What finally worked was the
+    cheapest thing available the whole time — per-line timestamps already in the CI log. **Split
+    the step before theorising about it.**
 
 - **The local verify-gate hook's two deliberate residuals** (fixed 2026-08-03, `.claude/` is
   gitignored so this is the only tracked record). It no longer over-matches prose, because it
@@ -143,30 +134,30 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
 > `docs/CHANGELOG.md` (what shipped) or `docs/PATTERNS.md` / `docs/VERIFICATION.md` (what was
 > learned). Without this rule the section regrows the history that was just split out.
 
-Closed 2026-08-05 (this session):
+Closed 2026-08-05/06 (this session):
 
-- **Both parked CI timings, settled on a warm cache** (#428, v0.143.15). They were the last thing in
-  *Noted* with a defined trigger, and the trigger had fired: the cache landed in #422 and five
-  successful `main` runs followed.
-  - **`cargo build --release`: 265 s → 59 s** (26% → 10% of the job). **No action taken, and none
-    needed** — the cache alone fixed it, so it stays in the native job rather than moving to its
-    own. Most of the old figure was dependency compilation, exactly as v0.143.13 predicted.
-  - **`Free disk space`: removed.** It was a fixed 63 s the cache could never touch. What justified
-    removing it was not the disk size but the mechanism: the June failure was a version bump missing
-    the exact cache key, whose **restore-key fallback stacked a stale whole-`target/`** until the
-    disk filled — and v0.143.13 replaced that cache shape outright. v0.143.15 is itself a
-    `Cargo.lock`-changing bump, so its own run re-triggered the June condition and went green.
-    A `df -h /` survives as a ~1 s canary; it measured **88 GB free** before the build on both runs
-    since (145 G disk, 40% used) against the step comment's stale "~14 GB free on /".
-  - ⚠️ **The saving is the 63 s, not the 180 s the first run appeared to show.** Native read
-    581 s → 401 s, which was tempting to bank whole. But the job total tracks the examples-build's
-    two modes (see *Noted*), not the change: **504 s and 385 s on identical code**, one run apart.
-    Comparing like with like — 581 s and 504 s are both slow-mode — leaves 77 s, of which 63 s is
-    the removal and the rest is the 308 → 300 s drift. Recorded because the flattering number came
-    first, and because a job total is not a step measurement when the step swings by 130 s on its
-    own.
+- **The browser smokes gate now** (#431, v0.143.17). The 5 that report a `*_CHECK: PASS` run in CI;
+  the other 6 assert byte sizes only and stay local on purpose. Both blockers named in *Standing
+  risks* were stale — the scripts already request swiftshader and already find `google-chrome` —
+  and the real cost, `wasm-bindgen-cli`, ships a prebuilt musl tarball. **Web Audio came with it**:
+  both audio smokes pass in CI, which split "audio cannot be tested in CI" into a native half that
+  is still true and a browser half that never was.
+- **The selftest step: 179–308 s → 26 s** (#432, v0.143.18). It was building 142 example targets to
+  run 9; it now builds 14 (the 9 plus the 5 sibling servers they spawn), both halves derived rather
+  than listed. Coverage is unchanged — `cargo test --all-targets` already compile-checks the rest.
+  Native job: 8m55s → 3m50s. Also corrected v0.143.16's "~21 example binaries", which was the count
+  of *games with selftests*, not example targets.
+- **`SKELETON_MUTE=1`** (#433, v0.144.0). The gate played real sound from three independent sources;
+  one switch silences all of them, and the proof it weakens nothing is the gate passing with
+  `SKELETON_MUTE=1` **and** `SKELETON_REQUIRE_AUDIO=1` at zero skips — silent, with every audio
+  check genuinely executed against the device. `set_master_volume` could not serve here: it writes
+  `MASTER_BUS`, but `effective_volume` uses each channel's *own* bus, so `survivor`'s `"sfx"`
+  channels would have ignored it.
+- **The gate has a scope rule now** (#432). "Run it before calling anything done" was unqualified,
+  and three consecutive docs/CI-only PRs each paid ~6 minutes for a run that could not have failed —
+  one of them a `ci.yml` change the local gate *cannot* test at all. See `CLAUDE.md`.
 
-Rolled off 2026-08-05 (previous session's entry; durable home verified before removing): the
-`scripts/selftests.sh` audio-device correction (#426) — its lesson, *when an experiment is reverted,
-grep for the prose that described it*, lives in *Standing risks* above, which also carries the
-measured record that CI audio does not work.
+Rolled off (durable homes verified before removing): the two parked CI timings and their 63 s
+disk-cleanup removal (#428, v0.143.15) — both live in `docs/CHANGELOG.md`, and the one thing that
+outlived them, *a job total is not a step measurement*, is now carried by the `cargo build
+--examples` entry in *Noted* above, which is the case that proved it twice over.
