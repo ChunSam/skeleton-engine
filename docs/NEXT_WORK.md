@@ -108,7 +108,13 @@ closed on 2026-08-04.
 Context for judging new work — not to-dos. Anything here that becomes actionable belongs in
 **Open — engineering** instead; that is where `<NAME>_SELFTEST` coverage went on 2026-08-03.
 
-- **Audio is outside CI entirely, and v0.143.10 established that it stays that way.** Five CI runs
+- **NATIVE audio is outside CI, and v0.143.10 established that it stays that way — but "audio" was
+  always too broad a word for it.** v0.143.17 put **Web Audio** under gate: `wasm_audio` (38/38) and
+  `audio_reactive` (`rms=0.643`, bands `low=9.41` / `high=0.00` on a 110 Hz tone — real spectral
+  discrimination) both pass in CI, because Chrome renders the graph in software and no hardware
+  device is involved. The rule below is about **rodio/ALSA**, which does need one. Keep the two
+  apart: "audio cannot be tested in CI" is now false as stated, and the browser half is the
+  counter-example. Five CI runs
   tried a PulseAudio null sink (default and at 30 ms latency) and ALSA `snd-dummy`; the full table is
   in `docs/VERIFICATION.md`. Summary: a null sink *does* let rodio open a device and `beat_crawler`'s
   audio chain passes on CI, but it delivers samples in bursts, so the meters with sub-second
@@ -121,15 +127,11 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
   commit*. `ci.yml` and `docs/VERIFICATION.md` were right the whole time; only the file a reader
   actually opens was wrong. **When an experiment is reverted, grep for prose that described it** —
   the revert diff will not show you the comment three files away.
-- **11 of the 15 `scripts/*_smoke.sh` are still local-only.** The **4 native** ones went into CI in
-  v0.143.11 (34 s total); the remaining 11 are **browser** smokes and need Chrome plus a
-  `wasm-bindgen-cli` matching `Cargo.lock`. Two blockers there turned out to be stale and are worth
-  knowing before anyone scopes it: the scripts **already** pass
-  `--use-gl=angle --use-angle=swiftshader`, so **no GPU is needed**, and `ubuntu-latest` **ships
-  `google-chrome` on PATH**, which the scripts already auto-detect. The real cost is the
-  `wasm-bindgen-cli` install/cache. Note also that only **9 of the 15 self-verdict**
-  (`*_CHECK: PASS`, a pixel assertion); the other 6 are byte-size-only and documented as
-  eyeball-it, so they are poor CI candidates regardless.
+- **6 of the 15 `scripts/*_smoke.sh` stay local, deliberately.** The other **9 all gate** now: the
+  4 native in v0.143.11, the 5 self-verdicting browser ones in v0.143.17. The remaining 6 assert
+  only byte sizes and are documented as eyeball-it — a green run would prove nothing, so adding
+  them would grow the gate without growing what it covers. **This is the finished state, not a
+  backlog item**; reopen it only if one of the 6 gains a real assertion.
 - **A headless capture cannot photograph a meter** — fixed dt, no wall clock. Three sessions have
   now reached for `ENGINE_CAPTURE` before remembering this.
 

@@ -12,7 +12,7 @@
 # The example writes the verdict to the document title (`SAVE_CHECK: PASS (n/n)` /
 # `...FAIL: <step>`); this script reads it live over Chrome's DevTools endpoint and asserts PASS.
 #
-# It is an *optional local* check, not a CI gate (CI has no Chrome). Run it after touching
+# It is a **CI gate** as of v0.143.17 (the `wasm-smokes` job), and runs locally the same way. Run it after touching
 # src/save.rs (the wasm path) or the example.
 #
 # Prerequisites:

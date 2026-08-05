@@ -14,7 +14,7 @@
 # Rgba16Float target) fires console_error_panic_hook and no verdict ever appears. This reads the
 # title live over Chrome's DevTools endpoint and asserts PASS.
 #
-# Optional *local* check, not a CI gate (CI has no Chrome/GPU). Run it after touching the bloom
+# A **CI gate** as of v0.143.17 (the `wasm-smokes` job; swiftshader supplies the GPU). Run it after touching the bloom
 # pass (src/renderer/bloom.rs, bloom.wgsl), the HDR post intermediate, or the example.
 #
 # Prerequisites:

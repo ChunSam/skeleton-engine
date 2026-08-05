@@ -15,7 +15,7 @@
 # This reads the title live over Chrome's DevTools endpoint and asserts PASS. It also proves the
 # example loads + renders on WebGL2 without panicking (no verdict ever appears otherwise).
 #
-# Optional *local* check, not a CI gate (CI has no Chrome/GPU). Run it after touching the
+# A **CI gate** as of v0.143.17 (the `wasm-smokes` job; swiftshader supplies the GPU). Run it after touching the
 # RenderCapabilities query path (src/renderer/context.rs) or the example.
 #
 # Prerequisites:

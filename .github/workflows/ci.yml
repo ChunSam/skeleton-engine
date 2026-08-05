@@ -228,9 +228,16 @@ jobs:
   # prebuilt musl tarball rather than a `cargo install` from source.
   #
   # Scope is deliberate: only the browser smokes that *assert* something. Of the 15 `*_smoke.sh`,
-  # 9 self-verdict — 4 are native and already run (in `test` and `render`), leaving these 3. The
+  # 9 self-verdict — 4 are native and already run (in `test` and `render`), leaving these 5. The
   # other 6 browser smokes only check byte sizes and are documented as eyeball-it, so a green run
-  # would mean nothing. The two audio ones are excluded on measured grounds; see docs/VERIFICATION.md.
+  # would mean nothing; adding them would grow the gate without growing what it proves.
+  #
+  # The two audio ones ARE here, which contradicts "audio is outside CI" — correctly. That rule was
+  # measured against *native* rodio/ALSA, which needs a hardware device CI does not have. These are
+  # **Web Audio**: Chrome renders the graph in software, so no device is involved. Measured, not
+  # assumed — `wasm_audio` reports 38/38, and `audio_reactive` reports rms=0.643 with bands
+  # low=9.41 / high=0.00 on a 110 Hz tone, i.e. real spectral discrimination rather than a
+  # trivially-true assertion. Native audio claims still rest on a local device; browser ones do not.
   wasm-smokes:
     name: Browser smokes (Chrome + swiftshader)
     runs-on: ubuntu-latest
@@ -274,18 +281,8 @@ jobs:
           SMOKE_DBG=9301 ./scripts/wasm_save_smoke.sh
           SMOKE_DBG=9302 ./scripts/render_format_query_smoke.sh
           SMOKE_DBG=9303 ./scripts/bloom_web_smoke.sh
-
-      # TEMPORARY — measurement only, deleted before this PR merges. Web Audio in headless Chrome
-      # is a different question from native ALSA (no hardware device is involved; Chrome renders
-      # the graph in software), so whether these two can gate is worth an actual run rather than an
-      # assumption in either direction. Non-gating so the experiment cannot redden the PR.
-      - name: EXPERIMENT — do the audio smokes work in CI?
-        continue-on-error: true
-        run: |
-          echo "=== wasm_audio_smoke.sh"
-          SMOKE_DBG=9304 ./scripts/wasm_audio_smoke.sh; echo "wasm_audio exit=$?"
-          echo "=== audio_reactive_smoke.sh"
-          SMOKE_DBG=9305 ./scripts/audio_reactive_smoke.sh; echo "audio_reactive exit=$?"
+          SMOKE_DBG=9304 ./scripts/wasm_audio_smoke.sh
+          SMOKE_DBG=9305 ./scripts/audio_reactive_smoke.sh
 
   # ── Windows 빌드 ──────────────────────────────────────────────────────────
   # The other jobs are ubuntu/wasm only, so nothing here ever compiled the DX12

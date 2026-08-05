@@ -22,7 +22,8 @@
 # flow, so acoustic output stays a human step — open the page (see below) and listen. Everything
 # up to "the right nodes are wired and playing" is automated here.
 #
-# It is an *optional local* check, not a CI gate (CI has no Chrome). Run it after touching
+# It is a **CI gate** as of v0.143.17 (the `wasm-smokes` job) — Web Audio renders in software, so
+# unlike the native rodio path this needs no hardware device. Run it after touching
 # src/audio_wasm.rs or the example.
 #
 # Prerequisites:
