@@ -15,7 +15,7 @@
 
 ## Board gate — check this first, every session
 
-Both channels were **empty** as of 2026-08-04:
+Both channels were **empty** as of 2026-08-05:
 
 - `../dungeon-merchant/docs/engine-wishlist.md` — next free **EW-012**, unmoved since 2026-07-27
 - `../rust-survivors/docs/ENGINE_CHANGE_REQUESTS.md` — `_None._`, unmoved since 2026-07-14
@@ -38,19 +38,21 @@ closed on 2026-08-04.
 
 ## Noted — not scheduled
 
-- **Two CI timings to re-measure once `Swatinem/rust-cache` has a warm `main` cache** (from
-  v0.143.13; the first run after it landed was necessarily cold, so neither number means anything
-  yet). Both were deliberately left alone rather than tuned on a cold measurement.
-  - **`cargo build --release` in the native job — 265 s, 26% of it.** It is *not* dead weight:
-    `[profile.release]` sets `lto = "thin"` + `codegen-units = 1`, so it is the only check that the
-    shipping profile links at all, which is why Phase 55 (`706a263`) added it. Most of those 265 s
-    is dependency compilation, which the cache now covers. If it is still expensive warm, move it
-    to its own job rather than deleting it — it is on the critical path, not inherently slow.
-    (`panic = "abort"` defeating the `catch_unwind` system-panic isolation is a **known** trade-off,
-    already noted at `src/app/schedule.rs:425` — not a reason to change this step.)
-  - **`Free disk space` — 63 s.** A workaround for the old whole-`target/` cache. Likely
-    unnecessary now, but the failure it prevents is a red gate, so remove it only after a run
-    proves the headroom.
+- **The `<NAME>_SELFTEST` step is the native job's largest, and it looks bimodal — ~180 s or ~305 s.**
+  Five warm measurements of the same step, in run order: **308 s** (`30967887895`), **182 s**
+  (`30987090731`), **300 s** (`30988080080`), **179 s** (`30988755458`), **184 s** (`30989297620`).
+  That is `{179, 182, 184}` and `{300, 308}` — two clusters tighter than the gap between them, not a
+  spread, and the last four ran on identical code.
+  - **Do not average them, and do not read one run as a trend.** A three-point reading of this exact
+    data said "~300 s typical, the 182 s an outlier" and the fourth point refuted it within the
+    hour. Two points had read it as a coin-flip and were closer. Stopped at five deliberately —
+    the clusters are established; more samples are the *next* person's measurement, not this one's.
+  - The lead worth pulling is **which** selftest doubles, not the total. A step that lands in two
+    tight clusters usually has something waiting out a timeout in one mode and hitting its condition
+    in the other — and the four networked selftests do real socket work, which is where such a
+    timeout would live. That would be a latent flake worth knowing about, not merely slowness.
+  - Not a complaint about the selftests: they are what stands between CI and the real-device claims.
+    Recorded because the v0.143.15 measurement surfaced it and nothing else tracks it.
 
 - **The local verify-gate hook's two deliberate residuals** (fixed 2026-08-03, `.claude/` is
   gitignored so this is the only tracked record). It no longer over-matches prose, because it
@@ -130,24 +132,27 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
 
 Closed 2026-08-05 (this session):
 
-- **`scripts/selftests.sh` no longer claims CI provisions an audio device** (#426; docs-only, so no
-  version bump and no CHANGELOG entry). The header told the reader to set `SKELETON_REQUIRE_AUDIO=1`
-  "wherever a device is supposed to exist — CI provisions a PulseAudio null sink". It entered in
-  `6187c25` (v0.143.10) — *the commit whose subject is "the measured record that CI audio does not
-  work"*. The experiment was reverted out of `ci.yml` there and the prose written for it was not.
-  Checked against the tree rather than the docs before rewriting: no sound device in `ci.yml`
-  (`libasound2-dev` is a build-time header package), every device test in `src/audio/tests.rs`
-  early-returns through `let Some(..) = AudioManager::new() else`, every audio doctest fence is
-  `rust,no_run`, `audio_reactive_smoke.sh` and `wasm_audio_smoke.sh` are referenced **0** times in
-  `ci.yml`, and the macOS/Windows jobs are `cargo build` only. **The PR's own CI run is the
-  evidence**: all three audio-bearing selftests printed `SKIP: no audio device` while the gate went
-  green — the exact state the old sentence denied. Lesson in *Standing risks* above.
+- **Both parked CI timings, settled on a warm cache** (#428, v0.143.15). They were the last thing in
+  *Noted* with a defined trigger, and the trigger had fired: the cache landed in #422 and five
+  successful `main` runs followed.
+  - **`cargo build --release`: 265 s → 59 s** (26% → 10% of the job). **No action taken, and none
+    needed** — the cache alone fixed it, so it stays in the native job rather than moving to its
+    own. Most of the old figure was dependency compilation, exactly as v0.143.13 predicted.
+  - **`Free disk space`: removed.** It was a fixed 63 s the cache could never touch. What justified
+    removing it was not the disk size but the mechanism: the June failure was a version bump missing
+    the exact cache key, whose **restore-key fallback stacked a stale whole-`target/`** until the
+    disk filled — and v0.143.13 replaced that cache shape outright. v0.143.15 is itself a
+    `Cargo.lock`-changing bump, so its own run re-triggered the June condition and went green.
+    A `df -h /` survives as a ~1 s canary; it measured **88 GB free** before the build on both runs
+    since (145 G disk, 40% used) against the step comment's stale "~14 GB free on /".
+  - ⚠️ **The saving is the 63 s, not the 180 s the first run appeared to show.** Native read
+    581 s → 401 s, which was tempting to bank whole. But the job total tracks the selftest step's
+    two modes (see *Noted*), not the change: **504 s and 385 s on identical code**, one run apart.
+    Comparing like with like — 581 s and 504 s are both slow-mode — leaves 77 s, of which 63 s is
+    the removal and the rest is the 308 → 300 s drift. Recorded because the flattering number came
+    first, and because a job total is not a step measurement when a step is bimodal.
 
-Rolled off 2026-08-05 (previous session's list; durable homes verified before removing):
-`COIN_RACE_SELFTEST` and its two transferable findings live in `docs/CHANGELOG.md` (v0.143.12), the
-`src/network.rs` row of `docs/MODULE_MAP.md` (the unreadable `NetworkClient` outbox), and
-`docs/VERIFICATION.md` § "assert an invariant, not an end state"; the `coin_race` `protocol.rs`
-non-blocker is folded into that same row; the `*.sh` fileMode fix is in `docs/CHANGELOG.md`
-(v0.143.14). The three `.claude/`-only items — the two local hooks and the skill split — moved up to
-*Noted — not scheduled* instead, because `.claude/` is gitignored and rolling them off would have
-erased the only record that they exist.
+Rolled off 2026-08-05 (previous session's entry; durable home verified before removing): the
+`scripts/selftests.sh` audio-device correction (#426) — its lesson, *when an experiment is reverted,
+grep for the prose that described it*, lives in *Standing risks* above, which also carries the
+measured record that CI audio does not work.
