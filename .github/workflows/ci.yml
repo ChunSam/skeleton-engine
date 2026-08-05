@@ -49,12 +49,14 @@ jobs:
       # near that. The `df` stays as a ~1 s canary — it is the number that decides whether the
       # cleanup ever has to come back, and it is what this removal was gated on in the first place.
       #
-      # `nproc` is here for a different open question. The selftest step's `cargo build --examples`
-      # swings 152-292 s across runs with an identical cache key (full hit, both times) and
-      # identical code, while every *other* cargo step in the same job moves the opposite way — so
-      # it is not the cache and not a uniformly slow machine. Building ~21 example binaries is the
-      # most parallel thing this job does, which points at runner core count, and nothing in the
-      # log records it. Two lines here settle it over the next few runs instead of by argument.
+      # `nproc` is here for a different open question. The selftest step's example build swings
+      # 152-292 s across runs with an identical cache key (full hit, both times) and identical
+      # code, while every *other* cargo step in the same job moves the opposite way — so it is not
+      # the cache and not a uniformly slow machine. Compiling example binaries is the most parallel
+      # thing this job does, which points at runner core count, and nothing in the log records it.
+      # Two lines here settle it over the next few runs instead of by argument. (v0.143.16 said
+      # "~21 example binaries" here; the real count was 142 — that figure was the number of *games
+      # with selftests*, not example targets. v0.143.18 narrows the build to the 9 + their servers.)
       - name: Runner capacity
         run: |
           df -h /

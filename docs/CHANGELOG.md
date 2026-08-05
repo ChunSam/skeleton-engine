@@ -4,6 +4,21 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.143.18
+
+**`scripts/selftests.sh` built all 142 example targets to run 9 selftests.** Tooling and docs only; no source, no API, no runtime behaviour changed.
+
+That example build — not the selftests — is the native job's single largest cost. v0.143.16 measured it at 152–292 s, while the 9 selftests themselves run in **15 s**. The build is now narrowed to what the step needs: the 9 selftest targets plus the 5 sibling servers they spawn, **14 instead of 142**.
+
+**Coverage is unchanged.** The other 133 examples are still compile-checked twice — `cargo test --all-targets` covers them natively and the `wasm` job builds the wasm-capable ones. This removes a third build, not a check.
+
+**The trap it had to avoid.** The blanket `--examples` was not laziness: the networked selftests spawn a sibling `<game>_server` resolved from their own `current_exe()` directory, and `cargo build --example salvage_run` alone never produces it. So the servers are built explicitly, and both halves of the list are **derived, never hardcoded** — the reason the discovery block already gives is that *a list you must remember to edit is a list that silently shrinks*, which is how `ORBITAL_DODGER_SELFTEST` (v0.143.9) once let the gate go green having never run. If a future selftest spawns a sibling this pattern misses, it fails **loudly**: the runner treats any `SKIP:` other than a missing sound card as a failure, and "server has not been built" is exactly such a skip. Verified by the local gate reporting **zero skips**, which is what proves all five servers were built and every live networking check actually ran.
+
+Two corrections ride along:
+
+- **v0.143.16's `ci.yml` comment said "~21 example binaries"; the real count is 142.** That figure was the number of *games with selftests*, not example targets — two different things, conflated. Fixed with the wrong number named, so it is not re-derived from the old comment.
+- **`CLAUDE.md` now scopes the gate.** "Run it before calling anything done" was unqualified, and three consecutive docs/CI-only PRs each paid ~6 minutes for a run that could not have failed — one of them a `ci.yml` change, which the local gate *cannot* test at all. The rule is now a bright line: run it for `src/`, `examples/`, `tests/`, a dependency change, or a script the gate executes; skip it (and say so) for prose, `.github/workflows/`, or a bare version bump, where the PR's own CI run is the gate.
+
 ## 0.143.17
 
 **CI now runs wasm in a browser instead of only compiling it — and Web Audio turns out to be testable in CI, which "audio is outside CI" had been hiding.** CI and docs only; no source, no API, no runtime behaviour changed.

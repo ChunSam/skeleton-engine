@@ -69,12 +69,35 @@ if [ "${SKELETON_REQUIRE_AUDIO:-0}" = "1" ]; then
   echo "[selftests] SKELETON_REQUIRE_AUDIO=1 — an audio-device skip counts as a failure"
 fi
 
-# Build EVERY example before running any of them. The networked tests spawn a sibling server binary
-# (`salvage_run_server`, `predict_shooter_server`) and skip their live checks if it was never built
-# — and `cargo run --example salvage_run` builds only `salvage_run`. Getting this wrong does not
-# fail; it silently drops the live checks and reports success.
-echo "[selftests] cargo build --examples"
-cargo build --examples --quiet || exit 1
+# Build the selftest targets and the sibling servers they spawn — NOT every example.
+#
+# `--examples` builds all 142 example targets to run 9 selftests, and it was the native CI job's
+# single largest cost. The other 133 are still compile-checked, twice: `cargo test --all-targets`
+# covers them natively and the `wasm` job builds the wasm-capable ones, so narrowing here removes
+# a third build, not a check.
+#
+# Why the servers must be in this list: the networked selftests spawn a sibling `<game>_server`
+# binary resolved from their own `current_exe()` directory (see `salvage_run.rs`), and
+# `cargo build --example salvage_run` alone would not produce it. That is the exact trap the old
+# `--examples` was guarding against, so the guard is kept — just derived rather than blanket.
+#
+# Both halves are DERIVED, never hardcoded, for the reason in the discovery comment above: a list
+# you must remember to edit is a list that silently shrinks. And if a future selftest spawns a
+# sibling this pattern misses, it fails LOUDLY — the runner below treats any `SKIP:` other than a
+# missing sound card as a failure, and "server has not been built" is exactly such a skip.
+SERVERS=()
+while IFS= read -r n; do [ -n "$n" ] && SERVERS+=("$n"); done < <(
+  { grep -oE '^name[[:space:]]*=[[:space:]]*"[a-z_]+_server"' Cargo.toml | grep -oE '"[a-z_]+"' | tr -d '"'
+    ls examples/*_server.rs 2>/dev/null | while read -r f; do basename "$f" .rs; done
+  } | sort -u
+)
+
+BUILD_ARGS=()
+for spec in "${SELFTESTS[@]}"; do BUILD_ARGS+=(--example "${spec##*:}"); done
+for s in "${SERVERS[@]}"; do BUILD_ARGS+=(--example "$s"); done
+
+echo "[selftests] cargo build — ${#SELFTESTS[@]} selftest targets + ${#SERVERS[@]} sibling servers"
+cargo build --quiet "${BUILD_ARGS[@]}" || exit 1
 
 failed=()
 
