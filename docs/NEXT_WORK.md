@@ -38,21 +38,32 @@ closed on 2026-08-04.
 
 ## Noted — not scheduled
 
-- **The `<NAME>_SELFTEST` step is the native job's largest, and it looks bimodal — ~180 s or ~305 s.**
-  Five warm measurements of the same step, in run order: **308 s** (`30967887895`), **182 s**
-  (`30987090731`), **300 s** (`30988080080`), **179 s** (`30988755458`), **184 s** (`30989297620`).
-  That is `{179, 182, 184}` and `{300, 308}` — two clusters tighter than the gap between them, not a
-  spread, and the last four ran on identical code.
-  - **Do not average them, and do not read one run as a trend.** A three-point reading of this exact
-    data said "~300 s typical, the 182 s an outlier" and the fourth point refuted it within the
-    hour. Two points had read it as a coin-flip and were closer. Stopped at five deliberately —
-    the clusters are established; more samples are the *next* person's measurement, not this one's.
-  - The lead worth pulling is **which** selftest doubles, not the total. A step that lands in two
-    tight clusters usually has something waiting out a timeout in one mode and hitting its condition
-    in the other — and the four networked selftests do real socket work, which is where such a
-    timeout would live. That would be a latent flake worth knowing about, not merely slowness.
-  - Not a complaint about the selftests: they are what stands between CI and the real-device claims.
-    Recorded because the v0.143.15 measurement surfaced it and nothing else tracks it.
+- **The native job's swing is `cargo build --examples`, not the selftests.** The step *named* for the
+  selftests is the job's largest and swings 179–308 s, but that name misled two earlier versions of
+  this entry. Splitting the step by its own log timestamps:
+
+  | | slow run | fast run |
+  |---|---|---|
+  | `cargo build --examples` | **284 s** | **165 s** |
+  | the 9 selftests actually running | **15 s** | **15 s** |
+
+  **The selftests are 15 s and rock-stable.** Six measurements of the build half: 292, 168, 284, 165,
+  169, 152 s. Chasing "which selftest doubles" is chasing nothing — an earlier version of this entry
+  said exactly that, and pointed at the networked selftests' socket work as a suspected timeout. It
+  was wrong, and it was wrong because the step's *name* was treated as its *content*.
+  - **Ruled out, with evidence.** Not the cargo cache: the 284 s and 165 s runs restored the
+    *identical* key `v0-rust-test-Linux-x64-4912c32d-dd762588`, "full match: true", both times, on
+    identical docs-only code. Not a uniformly slow machine either — in the run where the examples
+    build was 119 s *faster*, every other cargo step was *slower* (`clippy` 12→15 s,
+    `test --all-targets` 35→46 s, `test --doc` 27→33 s, `build --release` 59→67 s). The two move in
+    opposite directions, which is the whole reason a job total cannot be read as a step measurement.
+  - **Standing hypothesis: runner core count.** Building ~21 example binaries is by far the most
+    parallel thing in the job, so it is the step most sensitive to cores, while the serial-ish steps
+    track clock speed instead — which is exactly the observed pattern. Unconfirmed: the runner image
+    release is identical across both, and **nothing in the log records `nproc`**. v0.143.16 adds it
+    to the `Runner capacity` step so the next few runs settle it as data rather than argument.
+  - **If confirmed it is infrastructure, not a defect** — nothing to fix in the repo, and the entry
+    can close. Check the `nproc` line before spending anything else here.
 
 - **The local verify-gate hook's two deliberate residuals** (fixed 2026-08-03, `.claude/` is
   gitignored so this is the only tracked record). It no longer over-matches prose, because it
@@ -146,11 +157,12 @@ Closed 2026-08-05 (this session):
     A `df -h /` survives as a ~1 s canary; it measured **88 GB free** before the build on both runs
     since (145 G disk, 40% used) against the step comment's stale "~14 GB free on /".
   - ⚠️ **The saving is the 63 s, not the 180 s the first run appeared to show.** Native read
-    581 s → 401 s, which was tempting to bank whole. But the job total tracks the selftest step's
+    581 s → 401 s, which was tempting to bank whole. But the job total tracks the examples-build's
     two modes (see *Noted*), not the change: **504 s and 385 s on identical code**, one run apart.
     Comparing like with like — 581 s and 504 s are both slow-mode — leaves 77 s, of which 63 s is
     the removal and the rest is the 308 → 300 s drift. Recorded because the flattering number came
-    first, and because a job total is not a step measurement when a step is bimodal.
+    first, and because a job total is not a step measurement when the step swings by 130 s on its
+    own.
 
 Rolled off 2026-08-05 (previous session's entry; durable home verified before removing): the
 `scripts/selftests.sh` audio-device correction (#426) — its lesson, *when an experiment is reverted,
