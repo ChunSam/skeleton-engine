@@ -1,9 +1,15 @@
-# Optional wasm smoke checks
+# wasm smoke checks
 
-These are **optional local** checks, **not CI gates** — CI has no Chrome/GPU. CI builds wasm
-but never *runs* it, so a wasm-only regression (HiDPI viewport halving, missing font, broken
-audio graph, save round-trip) stays invisible until something renders/runs a wasm frame and
-looks at it. Each script below does exactly that for one example.
+CI builds wasm; building is not running, so a wasm-only regression (HiDPI viewport halving,
+missing font, broken audio graph, save round-trip) stays invisible until something actually
+renders or runs a wasm frame and looks at it. Each script below does exactly that for one example.
+
+**5 of these are CI gates** as of v0.143.17, in the `wasm-smokes` job — `wasm_save`,
+`render_format_query`, `bloom_web`, `wasm_audio` and `audio_reactive`, i.e. every browser smoke
+that reports a `*_CHECK: PASS` verdict. `ubuntu-latest` ships `google-chrome`, the scripts already
+request swiftshader so no GPU is needed, and the job installs a `wasm-bindgen-cli` pinned to
+`Cargo.lock`. **The rest are local-only on purpose**: they assert byte sizes rather than a verdict,
+so a green run would not mean the page was correct. Run those by hand and *look* at the frame.
 
 Common prerequisites (all scripts):
 

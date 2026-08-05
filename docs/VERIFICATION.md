@@ -228,10 +228,14 @@ Vulkan) on the GPU-less ubuntu runner, asserting renderer-tolerant invariants
 is present; otherwise it skips cleanly, and it runs under `verify.sh` where a GPU exists.
 See **`docs/RENDER_TESTING.md`**.
 
-### Optional wasm smoke checks (local only — CI has no Chrome or GPU)
+### wasm smoke checks (5 gate in CI as of v0.143.17; the rest are local)
 
 Each builds an example to wasm, serves it, and renders it in headless Chrome. Prerequisites
 are `rustup target add wasm32-unknown-unknown`, a matching `wasm-bindgen-cli`, and Chrome.
+
+The `wasm-smokes` job runs the five that report a `*_CHECK: PASS` verdict — `wasm_save`,
+`render_format_query`, `bloom_web`, `wasm_audio`, `audio_reactive`. The others assert byte sizes
+only, so they stay local where a human can look at the frame. See `docs/WASM_SMOKES.md`.
 
 | Script | Asserts |
 |---|---|

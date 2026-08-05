@@ -29,7 +29,9 @@
 #   examples/audio_reactive/web/build.sh
 #   python3 -m http.server 8087 --directory examples/audio_reactive/web
 #
-# Optional *local* check, not a CI gate (CI has no Chrome/GPU/audio).
+# A **CI gate** as of v0.143.17 (the `wasm-smokes` job). Chrome supplies the GPU via swiftshader and
+# renders Web Audio in software, so no hardware device is involved — the "audio is outside CI" rule
+# is about the *native* rodio/ALSA path and does not apply here.
 #
 # Prerequisites:
 #   rustup target add wasm32-unknown-unknown

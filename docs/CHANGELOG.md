@@ -4,6 +4,22 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.143.17
+
+**CI now runs wasm in a browser instead of only compiling it — and Web Audio turns out to be testable in CI, which "audio is outside CI" had been hiding.** CI and docs only; no source, no API, no runtime behaviour changed.
+
+"Compiling for wasm is not running on wasm" has been in `CLAUDE.md` for a long time, and until now every runtime web claim rested on someone running a script locally. The new `wasm-smokes` job closes that for the smokes that actually assert something.
+
+**The two blockers were stale.** The scripts already pass `--use-gl=angle --use-angle=swiftshader`, so no GPU is needed, and they already auto-detect `google-chrome`, which `ubuntu-latest` ships (150.0.7871.128 on the verifying run). The genuine cost was `wasm-bindgen-cli` — and that ships a prebuilt musl tarball, so it is a download rather than a multi-minute `cargo install` from source. Its version is **derived from `Cargo.lock`, never hardcoded**, and the job asserts the installed binary matches; every one of these scripts warns the CLI "MUST match the wasm-bindgen crate in Cargo.lock", and a literal here would drift into an unreadable binding mismatch at page load.
+
+**Scope: the 5 browser smokes that self-verdict.** Of the 15 `*_smoke.sh`, 9 report a `*_CHECK: PASS`; 4 of those are native and already gated in v0.143.11, leaving these 5. The other 6 assert byte sizes only and are documented as eyeball-it — gating them would grow the gate without growing what it proves, so they stay local on purpose.
+
+**The audio result was measured, not assumed.** Both audio smokes were run in CI as an explicitly non-gating experiment first, because the standing rule says audio cannot work there. Both passed: `wasm_audio` **38/38**, and `audio_reactive` **`rms=0.643`, bands `low=9.41` / `high=0.00`** on a 110 Hz tone — real spectral discrimination, not a trivially-true assertion. The rule was always about **native rodio/ALSA**, which needs a hardware device the runner lacks; **Web Audio renders in software** and needs none. The two had been collapsed under one word. Native audio claims still rest on a local device.
+
+Per the lesson v0.143.15 recorded, the prose that described the old state was swept rather than left to rot: all five script headers said "not a CI gate (CI has no Chrome)" — the file a reader actually opens — plus `CLAUDE.md`, `docs/WASM_SMOKES.md`, `docs/VERIFICATION.md` and two `docs/NEXT_WORK.md` standing risks. The dated `plans/handoffs/` files are left as written; they are history.
+
+The job runs in parallel with `Test (native)` and finishes inside it, so the wall-clock cost of the gate is zero.
+
 ## 0.143.16
 
 **The native job's 130 s swing is `cargo build --examples`, not the selftests — the step name had been read as its content.** CI only; no source, no API, no runtime behaviour changed.

@@ -83,12 +83,13 @@ What the gate does **not** cover, so get it yourself:
   for `scripts/hot_reload_smoke.sh` and the `package` job's `cargo package --locked`.
 - **macOS/Windows behaviour** — both have CI *build* jobs now, so the `cfg` branches compile; nothing
   ever runs them. Anything behavioural there still needs a local run.
-- **Audio playback, windowed playtest, gamepads** — the audio selftest halves skip in CI, so every
-  audio claim still rests on a local device. (Hot-reload *is* covered now — `DATA_ANIM_SELFTEST` and
-  `DATA_PARTICLES_SELFTEST` do real `notify` file-watching in CI.)
+- **NATIVE audio playback, windowed playtest, gamepads** — the audio selftest halves skip in CI, so
+  every *native* audio claim still rests on a local device. **Web Audio is covered**: `wasm_audio`
+  and `audio_reactive` gate in CI, since Chrome renders the graph in software and needs no device.
+  (Hot-reload too — `DATA_ANIM_SELFTEST` / `DATA_PARTICLES_SELFTEST` do real `notify` watching.)
 - **Running on the web** — compiling for wasm is not running on wasm; for a runtime web claim, run
-  the matching `scripts/*_smoke.sh`. Every *browser* smoke (needs Chrome + a wasm-bindgen-cli
-  matching `Cargo.lock`) is outside CI; the native ones run there. `grep smoke
+  the matching `scripts/*_smoke.sh`. The **5 self-verdicting browser smokes gate** in the
+  `wasm-smokes` job (v0.143.17); the other 6 are byte-size-only and stay local. `grep smoke
   .github/workflows/ci.yml` for which — do not trust a script header, they go stale.
 
 If you skip a verification step, **say so in the report**.

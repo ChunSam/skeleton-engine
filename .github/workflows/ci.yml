@@ -218,6 +218,72 @@ jobs:
       - name: cargo build (wasm examples)
         run: ./scripts/build_wasm_examples.sh
 
+  # ── 브라우저 스모크 ────────────────────────────────────────────────────────
+  # "Compiling for wasm is not running on wasm." The job above proves the examples *build*; nothing
+  # in CI ever loaded one in a browser, so every runtime web claim rested on a local run.
+  #
+  # Two blockers that kept this out were stale by the time they were checked: the scripts already
+  # pass `--use-gl=angle --use-angle=swiftshader` (no GPU needed) and already auto-detect
+  # `google-chrome`, which ubuntu-latest ships. The real cost was `wasm-bindgen-cli`, and that is a
+  # prebuilt musl tarball rather than a `cargo install` from source.
+  #
+  # Scope is deliberate: only the browser smokes that *assert* something. Of the 15 `*_smoke.sh`,
+  # 9 self-verdict — 4 are native and already run (in `test` and `render`), leaving these 5. The
+  # other 6 browser smokes only check byte sizes and are documented as eyeball-it, so a green run
+  # would mean nothing; adding them would grow the gate without growing what it proves.
+  #
+  # The two audio ones ARE here, which contradicts "audio is outside CI" — correctly. That rule was
+  # measured against *native* rodio/ALSA, which needs a hardware device CI does not have. These are
+  # **Web Audio**: Chrome renders the graph in software, so no device is involved. Measured, not
+  # assumed — `wasm_audio` reports 38/38, and `audio_reactive` reports rms=0.643 with bands
+  # low=9.41 / high=0.00 on a 110 Hz tone, i.e. real spectral discrimination rather than a
+  # trivially-true assertion. Native audio claims still rest on a local device; browser ones do not.
+  wasm-smokes:
+    name: Browser smokes (Chrome + swiftshader)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.95 + wasm32 target
+        uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      # Derived from Cargo.lock, never hardcoded. Every one of these scripts says the CLI "MUST
+      # match the wasm-bindgen crate in Cargo.lock"; pinning a literal here would let a dependency
+      # bump drift silently and fail as an unreadable binding mismatch at page load.
+      - name: Install wasm-bindgen-cli (version pinned to Cargo.lock)
+        run: |
+          ver=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | grep '^version' | head -1 | cut -d'"' -f2)
+          if [ -z "$ver" ]; then echo "FAIL: could not read wasm-bindgen version from Cargo.lock" >&2; exit 1; fi
+          echo "wasm-bindgen from Cargo.lock: $ver"
+          url="https://github.com/rustwasm/wasm-bindgen/releases/download/${ver}/wasm-bindgen-${ver}-x86_64-unknown-linux-musl.tar.gz"
+          curl -sSfL "$url" | tar xz --strip-components=1 -C /usr/local/bin \
+            "wasm-bindgen-${ver}-x86_64-unknown-linux-musl/wasm-bindgen"
+          # Assert the binary matches the crate rather than trusting the download.
+          got=$(wasm-bindgen --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+          echo "wasm-bindgen --version: $got"
+          if [ "$got" != "$ver" ]; then echo "FAIL: CLI $got != Cargo.lock $ver" >&2; exit 1; fi
+
+      # The scripts exit 2 for "environment" and 1 for a real assertion failure, so a missing
+      # browser would read as an infrastructure error rather than a broken engine. Fail loudly here
+      # instead, where the message says which it is.
+      - name: Assert Chrome is present
+        run: google-chrome --version
+
+      # SMOKE_DBG is pinned per script: wasm_save and audio_reactive both default to 9224, and a
+      # Chrome that outlives its script would make the next one read the wrong tab's title.
+      - name: Browser smokes (self-verdicting only)
+        run: |
+          SMOKE_DBG=9301 ./scripts/wasm_save_smoke.sh
+          SMOKE_DBG=9302 ./scripts/render_format_query_smoke.sh
+          SMOKE_DBG=9303 ./scripts/bloom_web_smoke.sh
+          SMOKE_DBG=9304 ./scripts/wasm_audio_smoke.sh
+          SMOKE_DBG=9305 ./scripts/audio_reactive_smoke.sh
+
   # ── Windows 빌드 ──────────────────────────────────────────────────────────
   # The other jobs are ubuntu/wasm only, so nothing here ever compiled the DX12
   # backend. That let a dependency conflict hide: an audio stack pulling an older
