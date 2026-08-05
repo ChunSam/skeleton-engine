@@ -4,6 +4,23 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.143.15
+
+**CI no longer spends 63 s deleting SDKs to make room on a disk that is 74% empty.** CI only; no source, no API, no runtime behaviour changed.
+
+The native job's `Free disk space` step `rm -rf`'d ~25 GB of preinstalled SDKs before building, because the debug and release builds share one `target/` and had once exhausted the runner. v0.143.13 flagged it for re-measurement once `Swatinem/rust-cache` had a warm `main` cache, on the rule that the failure it prevents is a red gate — so it comes out only after a run proves the headroom, never on reasoning alone.
+
+The decisive evidence is that its root cause no longer exists. `plans/handoffs/HANDOFF_engine-hardening_dialogue-depth_2026-06-17.md` records the original diagnosis: a version bump changed `Cargo.lock`, the exact cache key missed, and the **restore-key fallback stacked a stale whole-`target/` on top of the fresh one** until a then-14 GB root disk filled — `System.IO.IOException: No space left on device`, thrown in the runner process rather than in cargo. v0.143.13 replaced that whole-`target/` cache with a pruned one, which removes the stacking outright. This release is a `Cargo.lock`-changing version bump, so it exercises the exact trigger from June.
+
+The warm measurement (run `30967887895`, five successful `main` runs after the cache landed) settles both timings that were parked:
+
+- **`cargo build --release`: 265 s → 59 s**, from 26% of the job to 10%. That was the item at risk of being moved to its own job; the cache alone fixed it, so it stays where it is. Most of the old 265 s was dependency compilation, exactly as predicted.
+- **`Free disk space`: 63 s, unchanged** — it is a fixed cost the cache cannot touch, which is why it became the job's second-largest step once the build shrank.
+
+The headroom proof is in that run's own log: `/dev/root  145G  37G  108G  26%`, measured *after* the delete and before any Rust build, so ~83 GB stands without the step. The premise in the step's comment — "a stock ubuntu-latest (~14 GB free on /)" — had simply gone stale under a newer runner image.
+
+The `df -h /` survives as a ~1 s canary rather than being deleted with the `rm`. It costs nothing, and it is the single number that would justify bringing the cleanup back.
+
 ## 0.143.14
 
 **The `embedded_image` web smoke could not be run at all — neither of its two scripts had the executable bit.** Tooling and docs only; no source, no API, no runtime behaviour changed.
