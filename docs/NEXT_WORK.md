@@ -38,15 +38,19 @@ closed on 2026-08-04.
 
 ## Noted — not scheduled
 
-- **The `<NAME>_SELFTEST` step is the native job's dominant cost — ~300 s, 60% of it.** Three warm
-  measurements of the same step: **308 s** (`30967887895`), **182 s** (`30987090731`), **300 s**
-  (`30988080080`). So ~300 s is typical and **the 182 s run was the outlier, not a new normal** —
-  worth stating because a single fast run is exactly what would make a later 300 s look like a
-  regression. It is the right place to look if the native job ever has to get shorter, but measure
-  three runs before scoping anything: one sample here was off by 40%. This is not a complaint about
-  the selftests — they are what stands between CI and the real-device claims, and the four networked
-  ones do genuine socket work. Recorded because the v0.143.15 measurement surfaced it and nothing
-  else tracks it.
+- **The `<NAME>_SELFTEST` step is the native job's largest, and it looks bimodal — ~180 s or ~305 s.**
+  Four warm measurements of the same step, in run order: **308 s** (`30967887895`), **182 s**
+  (`30987090731`), **300 s** (`30988080080`), **179 s** (`30988755458`). Two tight clusters, not a
+  spread, and the last three ran on identical code.
+  - **Do not average them, and do not read one run as a trend.** A three-point reading of this exact
+    data said "~300 s typical, the 182 s an outlier" and the fourth point refuted it within the
+    hour. Two points had read it as a coin-flip and were closer.
+  - The lead worth pulling is **which** selftest doubles, not the total. A step that lands in two
+    tight clusters usually has something waiting out a timeout in one mode and hitting its condition
+    in the other — and the four networked selftests do real socket work, which is where such a
+    timeout would live. That would be a latent flake worth knowing about, not merely slowness.
+  - Not a complaint about the selftests: they are what stands between CI and the real-device claims.
+    Recorded because the v0.143.15 measurement surfaced it and nothing else tracks it.
 
 - **The local verify-gate hook's two deliberate residuals** (fixed 2026-08-03, `.claude/` is
   gitignored so this is the only tracked record). It no longer over-matches prose, because it
@@ -139,11 +143,12 @@ Closed 2026-08-05 (this session):
     `Cargo.lock`-changing bump, so its own run re-triggered the June condition and went green.
     A `df -h /` survives as a ~1 s canary; it measured **88 GB free** before the build on both runs
     since (145 G disk, 40% used) against the step comment's stale "~14 GB free on /".
-  - ⚠️ **The saving is 63 s, not the 180 s the first run appeared to show.** Native read 581 s →
-    401 s, but that 401 s run happened to catch the selftest step's one fast sample (182 s); the
-    very next run, on identical code, was 504 s with a 300 s selftest. Steady state is 581 − 63 ≈
-    **505 s**, which is the removal and nothing more. Recorded because the flattering number came
-    first and would have been the easy one to bank.
+  - ⚠️ **The saving is the 63 s, not the 180 s the first run appeared to show.** Native read
+    581 s → 401 s, which was tempting to bank whole. But the job total tracks the selftest step's
+    two modes (see *Noted*), not the change: **504 s and 385 s on identical code**, one run apart.
+    Comparing like with like — 581 s and 504 s are both slow-mode — leaves 77 s, of which 63 s is
+    the removal and the rest is the 308 → 300 s drift. Recorded because the flattering number came
+    first, and because a job total is not a step measurement when a step is bimodal.
 
 Rolled off 2026-08-05 (previous session's entry; durable home verified before removing): the
 `scripts/selftests.sh` audio-device correction (#426) — its lesson, *when an experiment is reverted,
