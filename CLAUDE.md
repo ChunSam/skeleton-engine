@@ -58,6 +58,17 @@ what the `<NAME>_SELFTEST` acceptance tests are for.
 `docs` jobs in full and its `test` job bar two steps. It is **not** all of CI; see the not-covered
 list below, and `grep -nE '^  [a-z_-]+:$|run:' .github/workflows/ci.yml` for the current split.
 
+**Run it when the change can move what it measures** — `src/`, `examples/`, `tests/`, a **dependency**
+in `Cargo.toml`, or a script the gate itself executes (`selftests.sh`, `build_wasm_examples.sh`).
+
+**Skip it — and say so in the report — when the change is confined to** prose (`docs/`, `plans/`,
+`*.md`, comments), `.github/workflows/`, or a bare version bump. Run `cargo check` to keep
+`Cargo.lock` honest and let **the PR's own CI run be the gate**: it re-runs everything anyway, on a
+clean machine. A `ci.yml` change is the clearest case — the local gate *cannot* run CI, so it proves
+nothing there. This is a bright line, not a judgement call: if a change touches both, it is a source
+change. (The rule exists because three consecutive docs/CI-only PRs each paid ~6 min for a gate that
+could not have failed.)
+
 ```sh
 ./scripts/verify.sh > /tmp/v.log 2>&1; echo "VERIFY_EXIT=$?"
 ```
