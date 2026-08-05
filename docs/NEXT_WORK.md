@@ -59,6 +59,19 @@ closed on 2026-08-04.
   costlier failure), and an inline `-m` message containing a literal command-position delete
   alongside the gate name still trips it — **put that text in a file** rather than fighting the hook.
 
+- **The rest of the `.claude/` inventory** (gitignored, so these lines are the only tracked record
+  that any of it exists; rolled off *Recently closed* on 2026-08-05 but kept here for that reason).
+  Two more hooks in `.claude/settings.local.json`, both proven to fire by sabotage and checked
+  against real commands for false positives: **`git commit` is denied while any `*.sh` in the index
+  is not `100755`** (the trap `core.fileMode = false` hides — fixed repo-wide in v0.135.2,
+  reintroduced twice in v0.143.4, re-fixed in v0.143.14), and **`main`-push blocking** with
+  `--delete` exempt so remote-branch cleanup still works (a branch named `maintenance-branch` does
+  not trip the matcher). Skills: `handoff`, `wrap` and `example-selftest` all carry their detail in
+  `references/` rather than the body. **Do not record their sizes here** — that number was wrong
+  twice in a row in opposite directions (`wc -c` bytes against a character guideline, then a
+  correct `wc -m` that was already stale at merge). The durable form is the command:
+  `for f in ~/.claude/skills/*/SKILL.md; do wc -m "$f"; done`.
+
 - **Seven directory-based examples silently drop out of `cargo package`.** `include` lists
   `examples/*.rs`, not `examples/*/*.rs`, so `embedded_atlas`, `embedded_image`, `audio_facade`,
   `centered_text`, `game_feel`, `web_audio` and `wasm_save` are warned-about-and-skipped. CI stays
@@ -89,7 +102,12 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
   deadlines read silence. `snd-dummy` does not exist on the runner kernel. **Do not re-litigate
   without new information** — a runner image with a real or dummy ALSA card would be new
   information; another sink tweak is not. `SKELETON_REQUIRE_AUDIO=1` exists so a *local* run can
-  prove its audio checks ran rather than skipped.
+  prove its audio checks ran rather than skipped. ⚠️ **`scripts/selftests.sh`'s own header claimed
+  the opposite** ("CI provisions a PulseAudio null sink") from v0.143.10 until #426 on 2026-08-05 —
+  the sentence was written for the null-sink experiment and survived its revert *in the same
+  commit*. `ci.yml` and `docs/VERIFICATION.md` were right the whole time; only the file a reader
+  actually opens was wrong. **When an experiment is reverted, grep for prose that described it** —
+  the revert diff will not show you the comment three files away.
 - **11 of the 15 `scripts/*_smoke.sh` are still local-only.** The **4 native** ones went into CI in
   v0.143.11 (34 s total); the remaining 11 are **browser** smokes and need Chrome plus a
   `wasm-bindgen-cli` matching `Cargo.lock`. Two blockers there turned out to be stale and are worth
@@ -110,54 +128,26 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
 > `docs/CHANGELOG.md` (what shipped) or `docs/PATTERNS.md` / `docs/VERIFICATION.md` (what was
 > learned). Without this rule the section regrows the history that was just split out.
 
-Closed 2026-08-04 (this session):
+Closed 2026-08-05 (this session):
 
-- **`handoff` and `wrap` are under the 800-char guideline** — bodies 797 and 796, with the detail in
-  `references/` (`modes.md`; `scope.md` + `audit.md`). `example-selftest` is 758 with
-  `references/networked.md`. **The tracked size figures were wrong twice in a row, in opposite
-  directions, and the lesson is the same both times: measure at the moment you write the line.** The
-  2026-08-03 entry recorded `wc -c` bytes (4,531 / 5,987) against a guideline that counts
-  characters — Hangul is 3 bytes each in UTF-8, so it read as ~2× more urgent than it was. The
-  correction to `wc -m` (2,245 / 3,195) landed in v0.143.14 already stale: the skills had been split
-  earlier the same day, so the true figures at merge time were 1,217 / 1,386. Both numbers described
-  a state that no longer existed when they shipped. **The durable form of this row is not a number —
-  it is `for f in ~/.claude/skills/*/SKILL.md; do wc -m "$f"; done`.**
-- **Two local hooks added, and the `main`-push one is no longer "not applied".** That entry had sat
-  in *Open — process* since 2026-08-03; it is now wrong in the direction that matters, since a
-  future session would read it and re-derive a guard that already exists. Both live in
-  `.claude/settings.local.json`, which is gitignored, so this line is the only tracked record that
-  they exist. (1) **`git commit` is denied while any `*.sh` in the index is not `100755`** — the
-  trap `core.fileMode = false` hides, which v0.135.2 fixed repo-wide and v0.143.4 reintroduced twice
-  (fixed in v0.143.14). (2) **`main`-push blocking**, with `--delete` exempt so remote-branch cleanup
-  still works. Both were proven to fire by sabotage and checked for false positives against real
-  commands — a branch named `maintenance-branch` does not trip the `main` matcher.
-- **`example-selftest` gained `references/networked.md`.** The server-spawning harness had repeated
-  verbatim across four examples (`salvage_run`, `predict_shooter`, `orbital_dodger`, `coin_race`), so
-  it moved out of the skill body: OS-assigned ports via `<NAME>_ADDR`, the SKIP-if-no-binary rule and
-  its `cargo build --examples` counterpart, and the gotchas that cost a measurement each — a
-  sabotaged **server** binary survives a client rebuild, an end-state assertion misses a flicker, and
-  interpolation has a warm-up window where the displayed position and the newest snapshot coincide.
-  The body is back under the 800-char guideline (964 → 758) and no longer hardcodes a count of
-  precedents, which had already gone stale from 3 to 9.
-- **`COIN_RACE_SELFTEST=1`** (v0.143.12) — the eighth and **last planned** `<NAME>_SELFTEST`, closing
-  that backlog item at its stated stopping point. The first test in the tree to drive **two clients
-  at once**: a contested coin has no meaning with one player, so nothing single-client could have
-  reached it. Six exit codes, each proven by sabotage and each revert confirmed byte-identical
-  against a pristine copy. Two findings that outlive the example: **`NetworkClient` has no readable
-  outbox**, so "a message was sent" is unobservable offline and the check has to assert the
-  consequence instead; and **assert an invariant, not an end state**, when something in the
-  background can add to what you are counting — score deltas would have flaked on a coin respawning
-  under a player's feet, so the check asserts *points gained == coins the server took away*. That
-  invariant is also what caught the sharpest sabotage: dropping the server's first-claim-wins guard
-  leaves both scoreboards **agreeing** on 1-1, and only the accounting sees 2 points against 1 coin.
-- **The `coin_race` `protocol.rs` blocker was not real.** This item sat behind "no `protocol.rs` to
-  host `server_addr()`" — but the precedent it was copying puts the `*_ADDR` override on the
-  **server alone**; the client keeps dialling its constant and the self-test builds its own
-  `NetworkClient`. One 3-line function in `server.rs`, no shared module. Worth remembering as a
-  shape: a blocker inherited from a sibling's *structure* rather than measured against the actual
-  requirement.
+- **`scripts/selftests.sh` no longer claims CI provisions an audio device** (#426; docs-only, so no
+  version bump and no CHANGELOG entry). The header told the reader to set `SKELETON_REQUIRE_AUDIO=1`
+  "wherever a device is supposed to exist — CI provisions a PulseAudio null sink". It entered in
+  `6187c25` (v0.143.10) — *the commit whose subject is "the measured record that CI audio does not
+  work"*. The experiment was reverted out of `ci.yml` there and the prose written for it was not.
+  Checked against the tree rather than the docs before rewriting: no sound device in `ci.yml`
+  (`libasound2-dev` is a build-time header package), every device test in `src/audio/tests.rs`
+  early-returns through `let Some(..) = AudioManager::new() else`, every audio doctest fence is
+  `rust,no_run`, `audio_reactive_smoke.sh` and `wasm_audio_smoke.sh` are referenced **0** times in
+  `ci.yml`, and the macOS/Windows jobs are `cargo build` only. **The PR's own CI run is the
+  evidence**: all three audio-bearing selftests printed `SKIP: no audio device` while the gate went
+  green — the exact state the old sentence denied. Lesson in *Standing risks* above.
 
-Rolled off 2026-08-04 (previous session's list; durable homes verified before removing): the
-`DATA_ANIM`/`DATA_PARTICLES` and `SALVAGE_RUN` self-tests are in `docs/CHANGELOG.md` (v0.143.5,
-v0.143.6) with their lessons in the `src/network.rs` row of `docs/MODULE_MAP.md`; the corrected
-`data_particles` emit-timer measurement lives in the code it describes.
+Rolled off 2026-08-05 (previous session's list; durable homes verified before removing):
+`COIN_RACE_SELFTEST` and its two transferable findings live in `docs/CHANGELOG.md` (v0.143.12), the
+`src/network.rs` row of `docs/MODULE_MAP.md` (the unreadable `NetworkClient` outbox), and
+`docs/VERIFICATION.md` § "assert an invariant, not an end state"; the `coin_race` `protocol.rs`
+non-blocker is folded into that same row; the `*.sh` fileMode fix is in `docs/CHANGELOG.md`
+(v0.143.14). The three `.claude/`-only items — the two local hooks and the skill split — moved up to
+*Noted — not scheduled* instead, because `.claude/` is gitignored and rolling them off would have
+erased the only record that they exist.
