@@ -50,11 +50,12 @@ closed on 2026-08-04.
     hypothesis for a step that no longer dominates. It costs ~1 s and still records real headroom
     numbers, so it stays — but **do not resume that investigation**; the question it was asked to
     settle no longer has stakes.
-  - **The transferable lesson: a step's name is not its contents.** Two entries pointed at the
-    networked selftests' socket work as a suspected timeout on nothing but the step label, and a
-    third read three samples as bimodal before a fourth refuted it. What finally worked was the
-    cheapest thing available the whole time — per-line timestamps already in the CI log. **Split
-    the step before theorising about it.**
+  - **The transferable lesson: a step's name is not its contents — and a job total is not a step
+    measurement.** Two entries pointed at the networked selftests' socket work as a suspected
+    timeout on nothing but the step label, and a third read three samples as bimodal before a
+    fourth refuted it. Both halves are the same mistake: reading a label or an aggregate where a
+    measurement was available. What finally worked was the cheapest thing on hand the whole time —
+    per-line timestamps already in the CI log. **Split the step before theorising about it.**
 
 - **The local verify-gate hook's two deliberate residuals** (fixed 2026-08-03, `.claude/` is
   gitignored so this is the only tracked record). It no longer over-matches prose, because it
@@ -134,30 +135,13 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
 > `docs/CHANGELOG.md` (what shipped) or `docs/PATTERNS.md` / `docs/VERIFICATION.md` (what was
 > learned). Without this rule the section regrows the history that was just split out.
 
-Closed 2026-08-05/06 (this session):
+**Empty.** Nothing closed in the session of 2026-08-06.
 
-- **The browser smokes gate now** (#431, v0.143.17). The 5 that report a `*_CHECK: PASS` run in CI;
-  the other 6 assert byte sizes only and stay local on purpose. Both blockers named in *Standing
-  risks* were stale — the scripts already request swiftshader and already find `google-chrome` —
-  and the real cost, `wasm-bindgen-cli`, ships a prebuilt musl tarball. **Web Audio came with it**:
-  both audio smokes pass in CI, which split "audio cannot be tested in CI" into a native half that
-  is still true and a browser half that never was.
-- **The selftest step: 179–308 s → 26 s** (#432, v0.143.18). It was building 142 example targets to
-  run 9; it now builds 14 (the 9 plus the 5 sibling servers they spawn), both halves derived rather
-  than listed. Coverage is unchanged — `cargo test --all-targets` already compile-checks the rest.
-  Native job: 8m55s → 3m50s. Also corrected v0.143.16's "~21 example binaries", which was the count
-  of *games with selftests*, not example targets.
-- **`SKELETON_MUTE=1`** (#433, v0.144.0). The gate played real sound from three independent sources;
-  one switch silences all of them, and the proof it weakens nothing is the gate passing with
-  `SKELETON_MUTE=1` **and** `SKELETON_REQUIRE_AUDIO=1` at zero skips — silent, with every audio
-  check genuinely executed against the device. `set_master_volume` could not serve here: it writes
-  `MASTER_BUS`, but `effective_volume` uses each channel's *own* bus, so `survivor`'s `"sfx"`
-  channels would have ignored it.
-- **The gate has a scope rule now** (#432). "Run it before calling anything done" was unqualified,
-  and three consecutive docs/CI-only PRs each paid ~6 minutes for a run that could not have failed —
-  one of them a `ci.yml` change the local gate *cannot* test at all. See `CLAUDE.md`.
-
-Rolled off (durable homes verified before removing): the two parked CI timings and their 63 s
-disk-cleanup removal (#428, v0.143.15) — both live in `docs/CHANGELOG.md`, and the one thing that
-outlived them, *a job total is not a step measurement*, is now carried by the `cargo build
---examples` entry in *Noted* above, which is the case that proved it twice over.
+Rolled off 2026-08-06 (durable homes verified before removing) — the four entries from the
+2026-08-05/06 session: the **browser-smokes gate** (#431, v0.143.17), the **selftest step's
+179–308 s → 26 s** (#432, v0.143.18) and **`SKELETON_MUTE=1`** (#433, v0.144.0), all three written
+up in full in `docs/CHANGELOG.md`; plus **the gate's scope rule** (#432), whose home is `CLAUDE.md`
+§ Verification. What outlived them was left behind first: the native/browser audio split is in
+*Standing risks*, `SKELETON_MUTE`'s usage is in `CLAUDE.md`, the `set_master_volume` dead end is
+`CHANGELOG` 0.144.0, and *a job total is not a step measurement* — which had been living only in
+the previous roll-off note — is now folded into the `cargo build --examples` entry under *Noted*.
