@@ -749,3 +749,125 @@ fn empty_conditions_never_fire() {
         "empty-condition transition must not fire"
     );
 }
+
+/// A self-transition (A → A) must actually restart the clip.
+///
+/// `play(same_index)` deliberately no-ops — re-firing a threshold parameter must not stutter the
+/// animation — but that left a self-transition with nothing to do: the machine fired it, the clip
+/// did not restart, and `finished` was never cleared. A one-shot state that re-enters itself (a
+/// repeated attack, a retriggerable stagger) therefore played exactly once and then sat on its
+/// last frame while the machine believed it had transitioned.
+#[test]
+fn self_transition_restarts_the_clip() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.add_component(e, AnimationPlayer::new(vec![one_shot_clip()]));
+
+    let mut sm = AnimationStateMachine::new("attack", 0);
+    sm.add_trigger("again");
+    sm.add_transition(
+        "attack",
+        "attack",
+        vec![TransitionCond::Trigger("again".into())],
+    );
+    world.add_component(e, sm);
+
+    let mut anim = AnimationSystem::new();
+    let mut stm = StateMachineSystem::new();
+
+    // Run the one-shot to completion.
+    for _ in 0..6 {
+        anim.run(&mut world, 0.05);
+        stm.run(&mut world, 0.05);
+    }
+    assert!(
+        world.get::<AnimationPlayer>(e).unwrap().finished,
+        "the one-shot should have finished"
+    );
+
+    // Re-enter the same state.
+    world
+        .get_mut::<AnimationStateMachine>(e)
+        .unwrap()
+        .fire_trigger("again");
+    stm.run(&mut world, 0.05);
+
+    let player = world.get::<AnimationPlayer>(e).unwrap();
+    assert!(
+        !player.finished,
+        "a self-transition must clear `finished` — the clip is playing again"
+    );
+    assert_eq!(
+        player.current_frame, 0,
+        "the clip must restart from frame 0"
+    );
+}
+
+/// A transition to a nonexistent state must be **skipped**, not abort the whole scan.
+///
+/// The lookup used `?`, so one satisfied dead edge returned `None` for the entire evaluation and
+/// every lower-priority transition out of that state became unreachable — the entity silently
+/// stuck. The function's own doc comment already described skipping.
+#[test]
+fn dead_edge_does_not_block_lower_priority_transitions() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.add_component(e, AnimationPlayer::new(vec![loop_clip(), loop_clip()]));
+
+    let mut sm = AnimationStateMachine::new("idle", 0);
+    sm.add_state("run", 1);
+    sm.set_bool("go", true);
+    // Higher priority (added first) but points at a state that does not exist.
+    sm.add_transition(
+        "idle",
+        "ghost",
+        vec![TransitionCond::BoolEq("go".into(), true)],
+    );
+    // Lower priority, valid — this must still be reached.
+    sm.add_transition(
+        "idle",
+        "run",
+        vec![TransitionCond::BoolEq("go".into(), true)],
+    );
+    world.add_component(e, sm);
+
+    let mut stm = StateMachineSystem::new();
+    stm.run(&mut world, 0.05);
+
+    assert_eq!(
+        world.get::<AnimationStateMachine>(e).unwrap().current,
+        "run",
+        "a dead edge must be skipped so the next transition is evaluated"
+    );
+    assert_eq!(world.get::<AnimationPlayer>(e).unwrap().current_clip, 1);
+}
+
+/// `set_current_state` (the editor's "jump to state") must re-point the player.
+///
+/// It moved the machine's `current` without touching the `AnimationPlayer`, so the active state
+/// and the visible clip silently desynced — and a state whose only exit is `AnimationEnd` could
+/// never fire again, because the player was still finishing a different clip.
+#[test]
+fn set_current_state_resyncs_the_player() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.add_component(e, AnimationPlayer::new(vec![loop_clip(), loop_clip()]));
+
+    let mut sm = AnimationStateMachine::new("idle", 0);
+    sm.add_state("run", 1);
+    world.add_component(e, sm);
+
+    assert!(world
+        .get_mut::<AnimationStateMachine>(e)
+        .unwrap()
+        .set_current_state("run"));
+
+    let mut stm = StateMachineSystem::new();
+    stm.run(&mut world, 0.05);
+
+    assert_eq!(
+        world.get::<AnimationPlayer>(e).unwrap().current_clip,
+        1,
+        "the player still shows the old state's clip"
+    );
+}

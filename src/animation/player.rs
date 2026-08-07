@@ -73,11 +73,23 @@ impl AnimationPlayer {
         }
         if self.current_clip != clip_index {
             self.current_clip = clip_index;
-            self.current_frame = 0;
-            self.timer = 0.0;
-            self.crossfade = None;
-            self.finished = false;
+            self.restart();
         }
+    }
+
+    /// Restarts the current clip from frame 0, clearing `finished` and any crossfade.
+    ///
+    /// `play(same_index)` is deliberately a no-op — re-firing a threshold parameter must not
+    /// stutter the animation — but that left a **self-transition (A → A) with nothing to do**:
+    /// the state machine fired the transition, the clip did not restart, and `finished` was
+    /// never cleared. A one-shot state that re-enters itself (a repeated attack, a stagger that
+    /// can retrigger) therefore played exactly once and then sat on its last frame, with the
+    /// machine convinced it had transitioned.
+    pub fn restart(&mut self) {
+        self.current_frame = 0;
+        self.timer = 0.0;
+        self.crossfade = None;
+        self.finished = false;
     }
 
     /// Switches to a clip with a smooth crossfade over `duration` seconds.
