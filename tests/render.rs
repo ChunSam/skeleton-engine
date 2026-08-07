@@ -27,8 +27,8 @@
 use engine::renderer::GpuContext;
 use engine::{
     spawn_floating_text, AmbientLight, App, Camera, Color, DesignResolution, DrawRect, DrawText,
-    FloatingText, FloatingTextSystem, FontData, LightingConfig, PointLight, Sprite, System, Tag,
-    TextQueue, Transform, UiQueue, Vec2, WindowConfig, World,
+    FloatingText, FloatingTextSystem, FontData, GpuParticleEmitter, LightingConfig, PointLight,
+    Sprite, System, Tag, TextQueue, Transform, UiQueue, Vec2, WindowConfig, World,
 };
 
 /// Prefix the CI silent-skip guard greps for (`grep -q '\[render-test\] adapter='`).
@@ -109,6 +109,85 @@ fn spawn_quad(app: &mut App, pos: Vec2, scale: Vec2, sprite: Sprite) {
         },
     );
     app.world.add_component(e, sprite);
+}
+
+// ── GPU particle path ────────────────────────────────────────────────────────────────────────
+
+/// GPU particles must **accumulate across frames**.
+///
+/// The ring write cursor into the particle buffer used to be a frame-local `let mut frame_cursor =
+/// 0u32` in the render stage, so every frame restarted the ring at slot 0 and overwrote the
+/// particles the previous frame had just spawned. However long a particle's `lifetime` was, the
+/// buffer only ever held **one frame's** emission. Nothing caught it: until this test the only
+/// GPU-particle test in the tree asserted `size_of::<GpuParticle>()`, so no automated check ever
+/// *executed* this renderer — which is also how the format-matched pipeline came to be built only
+/// under `if has_emitters` while the pass below it drew unconditionally.
+///
+/// The assertion is **self-calibrating** — the same scene is rendered for a few frames and for
+/// many, and the long run must light up meaningfully more pixels. That needs no absolute pixel
+/// constant and so survives the Metal/lavapipe difference. With the cursor reset per frame both
+/// runs light the same handful of pixels (a fixed 2 particles, both always one frame old, clustered
+/// on the emitter); with it persisted the long run holds ~9× as many, spread over a wider radius.
+#[test]
+fn gpu_particles_accumulate_across_frames() {
+    /// Renders the same emitter scene for `frames` and returns how many pixels are clearly
+    /// brighter than the near-black clear color. `None` = no GPU (skip).
+    fn lit_pixels(frames: u32) -> Option<u64> {
+        let mut app = App::new();
+        let (w, h) = (256u32, 256u32);
+        app.world.insert_resource(WindowConfig {
+            title: "render-test: gpu particles".into(),
+            width: w,
+            height: h,
+            clear_color: [0.02, 0.02, 0.03, 1.0],
+        });
+        let e = app.world.spawn();
+        app.world.add_component(
+            e,
+            Transform {
+                position: Vec2::new(w as f32 / 2.0, h as f32 / 2.0),
+                scale: Vec2::ONE,
+                rotation: 0.0,
+                z: 0.0,
+            },
+        );
+        // `lifetime` far exceeds the run, so a drop in particle count can only be the cursor
+        // overwriting live slots — never expiry. Zero gravity + symmetric spread fans the
+        // particles out from the emitter, so older ones occupy pixels newer ones do not.
+        app.world.add_component(e, GpuParticleEmitter::default());
+        if let Some(em) = app.world.get_mut::<GpuParticleEmitter>(e) {
+            em.spawn_rate = 120.0;
+            em.lifetime = 30.0;
+            em.velocity = Vec2::ZERO;
+            em.velocity_spread = Vec2::splat(70.0);
+            em.color_start = Color::rgb(1.0, 1.0, 1.0);
+            em.color_end = Color::rgb(1.0, 1.0, 1.0);
+            em.size = 4.0;
+            em.gravity = Vec2::ZERO;
+        }
+
+        let (_rw, _rh, px) = render_or_skip(&mut app, frames)?;
+        let mut n = 0u64;
+        for i in (0..px.len()).step_by(4) {
+            if px[i] as u16 + px[i + 1] as u16 + px[i + 2] as u16 > 150 {
+                n += 1;
+            }
+        }
+        Some(n)
+    }
+
+    let (Some(short), Some(long)) = (lit_pixels(5), lit_pixels(45)) else {
+        return;
+    };
+    assert!(
+        short > 0,
+        "no GPU particles rendered at all in the 5-frame run — the pass did not draw"
+    );
+    assert!(
+        long as f64 > short as f64 * 2.0,
+        "GPU particles are not accumulating across frames: 5 frames lit {short} px, 45 frames lit \
+         {long} px. A per-frame reset of the ring cursor makes these two counts equal."
+    );
 }
 
 // ── Sprite path ──────────────────────────────────────────────────────────────────────────────
