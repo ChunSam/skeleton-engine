@@ -4,6 +4,18 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.145.1
+
+**GPU particles: the ring cursor now survives the frame, and the format-matched pipeline is no longer built conditionally.** Two defects in the same twelve lines of `src/app/render/frame.rs`, both found by the 2026-08-07 full-codebase analysis, both invisible because **no automated check had ever executed this renderer** — the sole GPU-particle test in the tree asserted `size_of::<GpuParticle>()`.
+
+**The cursor.** The ring write cursor into the particle storage buffer was a frame-local `let mut frame_cursor = 0u32` in the render stage. Every frame restarted the ring at slot 0, so each frame's emission overwrote the particles the *previous* frame had just spawned. However long `GpuParticleEmitter::lifetime` was set, the buffer only ever held one frame's worth of particles — an emitter configured for a 3-second trail rendered a 16-millisecond one. The cursor is now a `frame_cursor` field on `GpuParticleRenderer` (with `frame_cursor()` / `set_frame_cursor()`), so it keeps advancing across frames while `collect_new_particles` still shares one cursor *within* a frame to keep every emitter's slots disjoint.
+
+**The pipeline.** `ensure_render_pipeline(device, scene_format)` was called inside an `if has_emitters` guard, but the pass immediately below it draws whenever the renderer *exists* — including the frame after the last emitter despawned, while particles spawned earlier are still alive and still being drawn. That is the documented pipeline-cache-keyed-by-target-format trap: under HDR or an offscreen `RenderTarget` the pass reaches for a pipeline compiled for a different format and the feature silently vanishes. The call moved into the same `if let Some(gpr)` block that records the pass, so the pipeline is guaranteed to match whatever this frame draws into.
+
+**The test that should have existed.** `tests/render.rs::gpu_particles_accumulate_across_frames` renders one emitter scene for 5 frames and again for 45, and asserts the long run lights up more than twice the pixels. The comparison is self-calibrating, so it carries no absolute pixel constant and survives the Metal/lavapipe difference; `lifetime` far exceeds the run so a count that fails to grow can only be the cursor overwriting live slots, never expiry. Verified non-vacuous by sabotage: with the per-frame reset restored it reports `5 frames lit 24 px, 45 frames lit 16 px` and fails.
+
+This runs in the `render` CI job under `SKELETON_REQUIRE_GPU=1`, which the local `scripts/verify.sh` gate does **not** cover — it was also run on a real GPU (Apple M1 Pro / Metal) before merge.
+
 ## 0.145.0
 
 **`App::step_headless(dt)` — a public frame step, and the two scene-lifecycle acceptance tests it unblocks.** Additive: one new public method, no API removed, no existing call site behaves differently.

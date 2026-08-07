@@ -446,22 +446,29 @@ impl App {
                         capacity,
                     ));
             }
-            // GPU particles are format-matched: lazily build (and cache) a render pipeline for the
-            // scene's target format, so they render correctly into the `Rgba16Float` HDR
-            // post-process intermediate too (a no-op for the surface format = the common case).
-            if has_emitters {
-                if let Some(gpr) = self.render.gpu_particle_renderer.as_mut() {
-                    gpr.ensure_render_pipeline(&gpu.device, scene_format);
-                }
-            }
-            if let Some(gpr) = &self.render.gpu_particle_renderer {
-                let mut frame_cursor = 0u32;
+            if let Some(gpr) = self.render.gpu_particle_renderer.as_mut() {
+                // GPU particles are format-matched: lazily build (and cache) a render pipeline for
+                // the scene's target format, so they render correctly into the `Rgba16Float` HDR
+                // post-process intermediate too (a no-op for the surface format = the common case).
+                //
+                // This MUST NOT be gated on `has_emitters`. The pass below draws whenever the
+                // renderer exists — including the frame after the last emitter despawned, while
+                // particles spawned earlier are still alive — so gating the pipeline build on
+                // "an emitter exists right now" left the pass reaching for a pipeline compiled
+                // for a different target format. Under HDR/offscreen that is the documented
+                // pipeline-cache-keyed-by-target-format trap: the feature silently vanishes.
+                gpr.ensure_render_pipeline(&gpu.device, scene_format);
+
+                let capacity = gpr.capacity();
+                // The ring cursor is renderer state, not frame state — see the field's doc.
+                let mut frame_cursor = gpr.frame_cursor();
                 let new_particles = crate::gpu_particle::collect_new_particles(
                     &mut self.world,
-                    gpr.capacity(),
+                    capacity,
                     self.last_dt,
                     &mut frame_cursor,
                 );
+                gpr.set_frame_cursor(frame_cursor);
                 for (slot, p) in &new_particles {
                     gpr.upload_particles(&gpu.queue, std::slice::from_ref(p), *slot);
                 }

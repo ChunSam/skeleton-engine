@@ -65,6 +65,15 @@ pub struct GpuParticleRenderer {
     camera_buf: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     particle_bind_group: wgpu::BindGroup,
+    /// Write cursor into the ring `particle_buf`, **persisted across frames**.
+    ///
+    /// It lived as a frame-local `let mut frame_cursor = 0u32` in the render stage, so every
+    /// frame restarted the ring at slot 0 and overwrote the particles the previous frame had
+    /// just spawned — a full-capacity buffer only ever held one frame's worth of emission, and
+    /// anything with a lifetime longer than a frame was destroyed before it could be drawn.
+    /// Owning it here keeps it advancing while still giving every emitter within a frame a
+    /// disjoint slot (`collect_new_particles` shares one cursor across emitters).
+    frame_cursor: u32,
 }
 
 /// Builds the GPU-particle render pipeline for a given color-target `format`. Shared by
@@ -292,6 +301,7 @@ impl GpuParticleRenderer {
             camera_buf,
             camera_bind_group,
             particle_bind_group,
+            frame_cursor: 0,
         }
     }
 
@@ -418,6 +428,17 @@ impl GpuParticleRenderer {
 
     pub fn capacity(&self) -> u32 {
         self.particle_capacity
+    }
+
+    /// The persistent ring write cursor. See [`GpuParticleRenderer::frame_cursor`] on the field
+    /// for why this is not per-frame state.
+    pub fn frame_cursor(&self) -> u32 {
+        self.frame_cursor
+    }
+
+    /// Stores the cursor back after a frame's emission has consumed some slots.
+    pub fn set_frame_cursor(&mut self, cursor: u32) {
+        self.frame_cursor = cursor;
     }
 }
 
