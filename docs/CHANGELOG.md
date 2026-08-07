@@ -4,6 +4,18 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.148.1
+
+**Three render/text defects that all looked fine on screen.** From the 2026-08-07 analysis.
+
+**A supplied `FontData` was only ever a fallback on native.** Loading a face into fontdb does not make anything ask for it, and every shaping call in the engine requests `Family::SansSerif`. So on native — where a real system sans-serif exists — the game's own font was reachable only for glyphs the system font *lacked*. Text rendered in the system font and looked entirely fine, which is exactly why the supplied font having no effect went unnoticed. `build_font_system` now points the sans-serif family at the loaded face.
+
+Worth noting *why* this hid: **on wasm there is no system font**, so the fallback happened to select the game's font anyway and the web build was correct all along. That is precisely the native/wasm divergence the repo's own cfg-split rule warns about — the same input producing different output per platform because the two rely on different defaults.
+
+**Lighting's `aspect_ratio` was measured in design space rather than window space.** The shader compares a light's distance against `radius_ndc`, which is rebased into window space with `clip_scale`; the aspect was not, so under any `DesignResolution` letterbox a point light came out **elliptical**, with the distortion changing as the window resized. The same uniform also feeds the Lambert direction vector, so it skewed diffuse *shading*, not just attenuation. The formula moved into a testable `lighting_aspect(vp_w, vp_h, clip_scale)`; an identity letterbox is `(1, 1)`, so the no-`DesignResolution` path stays byte-identical.
+
+**`RenderPlugin` is the only scene pass never handed the letterbox clip scale**, and its `viewport` argument is the *design* size, not the window — so a plugin built exactly as documented drew correctly until a `DesignResolution` was set, then leaked outside the letterbox. `record` already takes `&World`, and `Letterbox` / `camera::apply_letterbox` are already public, so the correction is one line; the trait now documents it with a copyable snippet. Left as a doc fix rather than a new `FrameContext` field, which would be a breaking change to a public struct with public fields.
+
 ## 0.148.0
 
 **Three physics and collision defects, each of which left the scene looking entirely normal.** From the 2026-08-07 analysis. Additive: one new public function, no API removed.

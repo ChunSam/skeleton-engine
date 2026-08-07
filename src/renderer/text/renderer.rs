@@ -77,6 +77,24 @@ pub(crate) fn build_font_system(font_data: &[u8], extra_fonts: &[Vec<u8>]) -> Fo
     let mut font_system = FontSystem::new();
     if !font_data.is_empty() {
         font_system.db_mut().load_font_data(font_data.to_vec());
+        // Loading a face into fontdb does NOT make anything ask for it. Every shaping call in
+        // the engine requests `Family::SansSerif` (see `shape_text`), so on native — where a
+        // real system sans-serif exists — the game's own `FontData` was only ever reachable as
+        // a *fallback* for glyphs the system font lacked. Text rendered in the system font and
+        // looked entirely fine, which is why it went unnoticed; the supplied font simply had no
+        // effect. Pointing the sans-serif family at the newly-loaded face is what actually
+        // honours `FontData`.
+        //
+        // On wasm there is no system font, so the fallback happened to select it anyway — this
+        // is exactly the kind of native/wasm divergence the repo's cfg-split rule warns about.
+        let family = font_system
+            .db()
+            .faces()
+            .last()
+            .and_then(|f| f.families.first().map(|(n, _)| n.clone()));
+        if let Some(name) = family {
+            font_system.db_mut().set_sans_serif_family(name);
+        }
     }
     for blob in extra_fonts {
         if !blob.is_empty() {

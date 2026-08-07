@@ -51,5 +51,24 @@ pub trait RenderPlugin {
     /// - `world` is read-only ECS access — read `Camera`, custom resources, entity
     ///   `Transform`s, etc.
     /// - `viewport` is the logical `(width, height)` in pixels matching the sprite pass.
+    ///
+    /// # ⚠️ `DesignResolution` — apply the letterbox yourself
+    ///
+    /// Every built-in scene pass (sprite, UI, GPU particle, lighting, text) is handed the
+    /// letterbox clip scale; a `RenderPlugin` is not, and `viewport` is the **design** size, not
+    /// the window. So a plugin that builds its projection straight from `viewport` draws
+    /// correctly with no `DesignResolution` and then leaks outside the letterbox the moment one
+    /// is set — the geometry is simply in a different space from everything around it.
+    ///
+    /// `record` takes `&World`, and both pieces are public, so the correction is one line:
+    ///
+    /// ```rust,no_run
+    /// # use engine::{Letterbox, camera};
+    /// # use engine::ecs::World;
+    /// # let world = World::new();
+    /// # let proj = glam::Mat4::IDENTITY;
+    /// let clip_scale = world.resource::<Letterbox>().map(|l| l.clip_scale).unwrap_or(glam::Vec2::ONE);
+    /// let proj = camera::apply_letterbox(clip_scale, proj);
+    /// ```
     fn record(&mut self, ctx: &mut FrameContext<'_>, world: &World, viewport: (u32, u32));
 }
