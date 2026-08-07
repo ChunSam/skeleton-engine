@@ -98,7 +98,16 @@ impl SpatialGrid {
         self.clear();
 
         for (entity, transform, collider) in world.query2::<Transform, Collider>() {
-            let center = transform.position;
+            // Mirror the renderer's policy: a parented entity's WORLD position is its
+            // `GlobalTransform`, and `Transform.position` is only the parent-relative offset.
+            // Indexing by the local offset put every child collider at the wrong place — a
+            // hitbox parented to a moving character sat near the world origin while its sprite
+            // drew correctly on the character, so hits landed in empty space and nothing about
+            // the scene looked wrong.
+            let center = world
+                .get::<crate::hierarchy::GlobalTransform>(entity)
+                .map(|gt| gt.position)
+                .unwrap_or(transform.position);
             let layer = world
                 .get::<CollisionLayer>(entity)
                 .copied()
@@ -390,6 +399,49 @@ mod tests {
         assert!(
             single.contains(&e),
             "single-cell fast path must return the in-cell candidate"
+        );
+    }
+
+    /// A parented collider must be indexed at its **world** position.
+    ///
+    /// `Transform.position` on a child is only the parent-relative offset; the world position is
+    /// `GlobalTransform`, which `HierarchySystem` composes and which the renderer already reads.
+    /// Indexing by the local offset put a hitbox parented to a moving character near the world
+    /// origin while its sprite drew correctly on the character — so hits landed in empty space
+    /// and nothing about the scene looked wrong.
+    #[test]
+    fn rebuild_indexes_children_at_their_global_position() {
+        let mut world = World::new();
+        let child = world.spawn();
+        // Local offset is small; the parent carries it far away.
+        world.add_component(
+            child,
+            Transform::new(Vec2::new(4.0, 0.0), Vec2::splat(8.0), 0.0),
+        );
+        world.add_component(child, Collider::Circle { radius: 8.0 });
+        world.add_component(
+            child,
+            crate::hierarchy::GlobalTransform {
+                position: Vec2::new(500.0, 500.0),
+                scale: Vec2::splat(8.0),
+                rotation: 0.0,
+                z: 0.0,
+            },
+        );
+
+        let mut grid = SpatialGrid::new(64.0);
+        grid.rebuild(&world);
+
+        assert!(
+            grid.query_radius(Vec2::new(500.0, 500.0), 16.0, CollisionLayer::ALL)
+                .contains(&child),
+            "the collider was not indexed at its GlobalTransform position"
+        );
+        assert!(
+            !grid
+                .query_radius(Vec2::new(4.0, 0.0), 16.0, CollisionLayer::ALL)
+                .contains(&child),
+            "the collider is still indexed at its parent-relative offset"
         );
     }
 }

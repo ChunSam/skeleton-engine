@@ -4,6 +4,18 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.148.0
+
+**Three physics and collision defects, each of which left the scene looking entirely normal.** From the 2026-08-07 analysis. Additive: one new public function, no API removed.
+
+**`despawn_with_body(world, entity)`** removes an entity's rapier rigid body and colliders along with the entity. The bodies live in `PhysicsWorld`, not in the ECS, so `World::despawn` dropped only the `PhysicsBody` component and left the body behind — an **invisible solid** that keeps blocking movement and emitting collision events with no entity behind them, and that is never reclaimed, so a game spawning and despawning physics entities leaked one body per spawn for as long as it ran. `PhysicsWorld::remove_body` already existed; nothing called it on despawn and nothing said you had to. `PhysicsBody` now carries the same loud cleanup warning `TilemapColliders` has had all along.
+
+**`SpatialGrid` indexed colliders at their local `Transform.position`, ignoring `GlobalTransform`.** On a parented entity `Transform.position` is only the parent-relative offset; the world position is `GlobalTransform`, which `HierarchySystem` composes and which the renderer already reads. So a hitbox parented to a moving character sat near the world origin while its sprite drew correctly on the character — **hits landed in empty space and nothing about the scene looked wrong**. The rebuild now mirrors the renderer's policy.
+
+**`PhysicsSystem` overwrote `Transform.rotation` with 0 for every rotation-locked body.** A locked body's rapier angle is pinned at 0, and the sync copied it back unconditionally, so any rotation the game set itself — a sprite facing, a turret aim, a tilted platform — was clobbered every frame and simply refused to stick. The behaviour was documented as a no-op for locked bodies; it was the exact opposite.
+
+**Why the existing guard test could not see it:** `locked_rotation_body_keeps_zero_rotation` starts from `Transform::default()`, whose rotation is already 0, so writing rapier's pinned 0 over it is indistinguishable from leaving it alone. The new test sets a non-zero rotation first — the one change that makes the two cases distinguishable. All three defects have regression tests verified non-vacuous by sabotage.
+
 ## 0.147.0
 
 **What survives a scene `Replace` — and a correction to the v0.139.1 audit that said it did not need revisiting.** From the 2026-08-07 analysis.
