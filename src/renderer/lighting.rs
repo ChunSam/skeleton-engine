@@ -114,6 +114,23 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
 ///
 /// **Platform note:** lighting is native-only. On `wasm32` targets this renderer is not
 /// compiled in and the lighting pass is silently skipped (no-op on wasm32).
+/// Aspect ratio the lighting shader needs, in **window** space.
+///
+/// The shader measures a light's distance in window UV space, and `radius_ndc` is rebased there
+/// with `clip_scale`. The aspect has to live in the same space or the two disagree: under a
+/// `DesignResolution` letterbox `vp_w`/`vp_h` are the DESIGN size, so a point light came out
+/// elliptical and its shape changed with the window. The same uniform also feeds the Lambert
+/// direction vector, so it skewed diffuse shading, not just attenuation.
+///
+/// An identity letterbox is `(1, 1)`, so the no-`DesignResolution` path is byte-identical.
+pub(crate) fn lighting_aspect(vp_w: u32, vp_h: u32, clip_scale: glam::Vec2) -> f32 {
+    if clip_scale.y.abs() > f32::EPSILON {
+        (vp_h as f32 * clip_scale.x) / (vp_w as f32 * clip_scale.y)
+    } else {
+        vp_h as f32 / vp_w as f32
+    }
+}
+
 pub struct LightingRenderer {
     /// Normal buffer texture (same size as the viewport, Rgba8Unorm).
     normal_texture: wgpu::Texture,
@@ -425,7 +442,14 @@ impl LightingRenderer {
             ambient_color: ambient.color.to_rgb(),
             ambient_intensity: ambient.intensity,
             light_count,
-            aspect_ratio: vp_h as f32 / vp_w as f32,
+            // The shader measures light distance in WINDOW UV space, and `radius_ndc` above was
+            // already rebased there via `clip_scale`. The aspect must live in the same space or
+            // the two disagree: under a `DesignResolution` letterbox `vp_w`/`vp_h` are the
+            // DESIGN size, so a point light came out elliptical and its shape changed with the
+            // window. The same uniform also feeds the Lambert direction vector, so it skewed
+            // diffuse shading, not just attenuation. Guard `clip_scale.y` — an identity
+            // letterbox is (1,1), so the OFF path is byte-identical.
+            aspect_ratio: lighting_aspect(vp_w, vp_h, clip_scale),
             _pad: [0.0; 2],
         };
 
@@ -682,5 +706,33 @@ mod tests {
             !selected.contains(&far_idx_1),
             "top-left light should be excluded"
         );
+    }
+
+    /// The lighting aspect must be measured in WINDOW space, not design space.
+    ///
+    /// `radius_ndc` is rebased into window space with `clip_scale`, and the shader compares the
+    /// two — so leaving the aspect in design space made a point light elliptical under any
+    /// `DesignResolution` letterbox, with the distortion changing as the window resized. The
+    /// same uniform feeds the Lambert direction vector, so diffuse shading skewed too.
+    #[test]
+    fn lighting_aspect_is_measured_in_window_space() {
+        // No letterbox: identity clip scale must be byte-identical to the raw ratio.
+        let plain = lighting_aspect(1600, 900, glam::Vec2::ONE);
+        assert!((plain - 900.0 / 1600.0).abs() < 1e-6);
+
+        // A 1280x720 design canvas letterboxed into a 1000x1000 window: the horizontal axis is
+        // squeezed relative to the vertical, so the aspect must NOT stay 720/1280.
+        let clip = glam::Vec2::new(1.0, 0.5625);
+        let boxed = lighting_aspect(1280, 720, clip);
+        let design_only = 720.0f32 / 1280.0;
+        assert!(
+            (boxed - design_only).abs() > 1e-3,
+            "aspect ignored the letterbox: {boxed} vs design-space {design_only}"
+        );
+        assert!((boxed - (720.0 * 1.0) / (1280.0 * 0.5625)).abs() < 1e-6);
+
+        // Degenerate clip scale falls back rather than dividing by zero.
+        let degenerate = lighting_aspect(800, 600, glam::Vec2::new(1.0, 0.0));
+        assert!(degenerate.is_finite());
     }
 }

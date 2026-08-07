@@ -462,3 +462,41 @@ fn cache_eviction_removes_stale_entries() {
     );
     assert!(!cache.contains_key(&k2), "stale entry should be evicted");
 }
+
+/// A supplied `FontData` must become the family the engine actually shapes with.
+///
+/// Loading a face into fontdb does **not** make anything ask for it. Every shaping call in the
+/// engine requests `Family::SansSerif` (see `shape_text`), so on native — where a real system
+/// sans-serif exists — the game's own font was only ever reachable as a *fallback* for glyphs the
+/// system font lacked. Text rendered in the system font and looked entirely fine, which is
+/// exactly why nobody noticed the supplied font having no effect.
+///
+/// On wasm there is no system font, so the fallback happened to pick it anyway — the native/wasm
+/// divergence the repo's cfg-split rule warns about.
+#[test]
+fn font_data_becomes_the_sans_serif_family() {
+    let hebrew = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/assets/fonts/NotoSansHebrew-Regular.ttf"
+    ))
+    .to_vec();
+
+    let default_family = {
+        let fs = build_font_system(&[], &[]);
+        fs.db()
+            .family_name(&glyphon::fontdb::Family::SansSerif)
+            .to_string()
+    };
+    let with_font = {
+        let fs = build_font_system(&hebrew, &[]);
+        fs.db()
+            .family_name(&glyphon::fontdb::Family::SansSerif)
+            .to_string()
+    };
+
+    assert!(
+        with_font.contains("Hebrew"),
+        "the supplied FontData must become the sans-serif family the shaper asks for, got \
+         {with_font:?} (default was {default_family:?})"
+    );
+}
