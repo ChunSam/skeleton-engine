@@ -4,6 +4,16 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.145.2
+
+**The docked editor's game viewport no longer goes blank when post-processing is enabled.** Found by the 2026-08-07 analysis; the second of the two `app/render/frame.rs` defects that pass fully verified.
+
+While docked, the scene renders into the editor's own debounced offscreen RT — `render_view` picks `docked_render_view` ahead of the post-process intermediate. The post, bloom and lighting passes, however, read *from* that intermediate and composite onto `scene_target`, which while docked is also the docked RT. So with `PostProcessConfig { enabled: true }` they painted a texture the frame had never rendered into straight over the game viewport. Measured: **0 of 66,000** central-strip pixels showed the scene. With `hdr: true` it is worse than blank — an `Rgba16Float` intermediate against a surface-format target is a wgpu format-validation error.
+
+Docked mode now runs no post chain at all: `use_post` and `use_lighting` are both gated on the docked RT being absent, and a **one-time** `warn!` explains the suppression (undock with F2 to see post/bloom/lighting), so the missing effects read as a documented editor limitation rather than a rendering bug. `setup_lighting` still runs while docked, so its intermediate textures are created and torn down exactly as before — only the *use* is suppressed.
+
+Regression test `tests/render.rs::docked_editor_viewport_survives_post_process` keys on the game's `clear_color` rather than a sprite, so it assumes nothing about where a world position lands inside the central panel: the viewport is either showing the scene or it is not. Non-vacuous by sabotage (the numbers above are what the un-gated build reports). Run on a real GPU (Apple M1 Pro / Metal), 15/15 green, and re-run under lavapipe in the `render` CI job.
+
 ## 0.145.1
 
 **GPU particles: the ring cursor now survives the frame, and the format-matched pipeline is no longer built conditionally.** Two defects in the same twelve lines of `src/app/render/frame.rs`, both found by the 2026-08-07 full-codebase analysis, both invisible because **no automated check had ever executed this renderer** — the sole GPU-particle test in the tree asserted `size_of::<GpuParticle>()`.

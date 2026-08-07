@@ -64,6 +64,10 @@ pub(crate) struct RenderState {
     pub(crate) egui_state: Option<egui_winit::State>,
     /// Temporary buffer carrying tessellated output from `update()` to `render()`.
     pub(crate) egui_output: Option<(Vec<egui::ClippedPrimitive>, egui::TexturesDelta, f32)>,
+    /// Latches once the docked editor has suppressed the post-process / lighting chain, so the
+    /// explanatory `warn!` is emitted a single time instead of every frame. See the docked gate
+    /// in `app/render/frame.rs`.
+    pub(crate) warned_docked_post_skipped: bool,
 }
 
 impl RenderState {
