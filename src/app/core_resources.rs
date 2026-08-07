@@ -121,6 +121,18 @@ pub(super) fn register_core_component_metadata(world: &mut World) {
                 }
             })),
         );
+        // Render-modifier components. These were `register_clone`d (so copy/paste and scene
+        // reset carried them) and editor-addable, but never serde-registered — and
+        // `serialize_entity` walks only the serde registry, so scene save dropped them in
+        // silence. The eye 👁 toggle in the entity list adds `Hidden`, which makes this the
+        // single most common editor gesture whose result did not survive Ctrl+S. All four
+        // derive `Serialize + Deserialize + Clone`, so nothing about them was transient by
+        // design. Names must match the `register_reflect_named` / editor keys exactly.
+        registry.register::<crate::components::Hidden>("Hidden", None);
+        registry.register::<crate::components::RenderLayer>("RenderLayer", None);
+        registry.register::<crate::components::SpriteFlip>("SpriteFlip", None);
+        registry.register::<crate::ysort::YSort>("YSort", None);
+
         registry.register::<crate::ui::CheckBox>("CheckBox", None);
         registry.register::<crate::ui::ProgressBar>("ProgressBar", None);
         registry.register::<crate::ui::RadioGroup>("RadioGroup", None);

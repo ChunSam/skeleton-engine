@@ -291,7 +291,53 @@ impl Prefab {
 /// Only the components specified in `def` are inserted.
 /// If the world contains a [`SerdeComponentRegistry`] resource and `def.components` is
 /// non-empty, the registry is used to deserialize the extra components onto the entity.
+///
+/// [`EntityDef::parent`] is honoured: the entity is attached under the first live entity whose
+/// [`Tag`] matches, warning when that tag is ambiguous and leaving the entity a root when it
+/// matches nothing. [`spawn_scene_def`] resolves parents differently — from a scene-local tag map
+/// in a second pass — because within one scene the parent may be listed after the child.
 pub fn spawn_entity_def(world: &mut World, def: &EntityDef) -> Entity {
+    spawn_entity_def_inner(world, def, true)
+}
+
+/// Attaches `entity` under the first live entity tagged `def.parent`, warning when the tag is
+/// missing or ambiguous.
+///
+/// `spawn_scene_def` resolves parents from a **scene-local** tag map in a second pass, because
+/// within one scene the parent may be spawned after the child. A lone `EntityDef` has no such
+/// map, so it searches the world and takes the first match — the same first-wins rule
+/// `spawn_scene_def` already applies to duplicate tags.
+fn attach_to_parent_tag(world: &mut World, entity: Entity, def: &EntityDef) {
+    let Some(parent_tag) = &def.parent else {
+        return;
+    };
+    let matches: Vec<Entity> = world
+        .query::<Tag>()
+        .filter(|(e, t)| *e != entity && t.0 == *parent_tag)
+        .map(|(e, _)| e)
+        .collect();
+    let Some(&parent) = matches.first() else {
+        log::warn!(
+            "spawn_entity_def: parent tag {parent_tag:?} matches no live entity; \
+             spawning as a root instead"
+        );
+        return;
+    };
+    if matches.len() > 1 {
+        log::warn!(
+            "spawn_entity_def: parent tag {parent_tag:?} matches {} entities; attaching to the \
+             first (the same first-wins rule spawn_scene_def uses)",
+            matches.len()
+        );
+    }
+    crate::hierarchy::attach(world, entity, parent);
+}
+
+/// The shared body. `resolve_parent` is `false` only for `spawn_scene_def`'s first pass, which
+/// must NOT resolve parents against the world: within a scene the parent is frequently spawned
+/// *after* the child, so a world search would warn spuriously and attach nothing. That pass
+/// builds a tag map and attaches in a second pass instead.
+fn spawn_entity_def_inner(world: &mut World, def: &EntityDef, resolve_parent: bool) -> Entity {
     let entity = world.spawn();
 
     if let Some(tag) = &def.tag {
@@ -320,6 +366,10 @@ pub fn spawn_entity_def(world: &mut World, def: &EntityDef) -> Entity {
         }
     }
 
+    if resolve_parent {
+        attach_to_parent_tag(world, entity, def);
+    }
+
     entity
 }
 
@@ -339,7 +389,8 @@ pub fn spawn_scene_def(world: &mut World, scene: &SceneDef) -> Vec<Entity> {
         .entities
         .iter()
         .map(|def| {
-            let e = spawn_entity_def(world, def);
+            // `false`: parents are resolved in pass 2 from the scene-local tag map below.
+            let e = spawn_entity_def_inner(world, def, false);
             if let Some(tag) = &def.tag {
                 use std::collections::hash_map::Entry;
                 match tag_to_entity.entry(tag.clone()) {

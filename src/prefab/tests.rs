@@ -599,3 +599,78 @@ fn spawn_entity_def_no_registry_with_components_does_not_panic() {
         Some("ghost")
     );
 }
+
+/// `spawn_entity_def` must honour `EntityDef.parent`.
+///
+/// The field's own doc says "on spawn, the entity is attached as a child of the entity with this
+/// tag", but the attach only ever existed in `spawn_scene_def`'s second pass. Every single-entity
+/// path — undo-of-delete, Duplicate/Paste redo, Ctrl+V, `Prefab::spawn` — therefore restored the
+/// entity as a **root**, and its `Transform` (authored as parent-relative) was then read as world
+/// space, so the entity visibly teleported. Silent: nothing errored, the entity just moved.
+#[test]
+fn spawn_entity_def_attaches_to_parent_tag() {
+    let mut world = World::new();
+    let parent = world.spawn();
+    world.add_component(parent, Tag("Rig".to_string()));
+
+    let def = EntityDef {
+        tag: Some("Hand".to_string()),
+        parent: Some("Rig".to_string()),
+        ..Default::default()
+    };
+    let child = spawn_entity_def(&mut world, &def);
+
+    assert_eq!(
+        world.get::<crate::hierarchy::Parent>(child).map(|p| p.0),
+        Some(parent),
+        "spawn_entity_def ignored EntityDef.parent, so the entity came back as a root"
+    );
+}
+
+/// A `parent` tag matching nothing must leave the entity a root rather than panicking — the
+/// undo-of-delete case where the parent was deleted too.
+#[test]
+fn spawn_entity_def_with_unknown_parent_tag_spawns_a_root() {
+    let mut world = World::new();
+    let def = EntityDef {
+        tag: Some("Orphan".to_string()),
+        parent: Some("NoSuchRig".to_string()),
+        ..Default::default()
+    };
+    let e = spawn_entity_def(&mut world, &def);
+    assert_eq!(world.get::<crate::hierarchy::Parent>(e).map(|p| p.0), None);
+}
+
+/// Scene loading must still resolve parents from its **scene-local** tag map, not the world.
+///
+/// Within one scene the parent is frequently listed *after* the child, so `spawn_scene_def`'s
+/// first pass deliberately skips world-search resolution and its second pass attaches from the
+/// map. This pins that a forward reference (child before parent) still links up — the case a
+/// naive "resolve in spawn_entity_def" change breaks.
+#[test]
+fn spawn_scene_def_resolves_a_forward_parent_reference() {
+    let mut world = World::new();
+    let scene = SceneDef {
+        entities: vec![
+            EntityDef {
+                tag: Some("Child".to_string()),
+                parent: Some("Parent".to_string()),
+                ..Default::default()
+            },
+            EntityDef {
+                tag: Some("Parent".to_string()),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    let spawned = spawn_scene_def(&mut world, &scene);
+    assert_eq!(spawned.len(), 2);
+    assert_eq!(
+        world
+            .get::<crate::hierarchy::Parent>(spawned[0])
+            .map(|p| p.0),
+        Some(spawned[1]),
+        "the child listed before its parent must still attach"
+    );
+}
