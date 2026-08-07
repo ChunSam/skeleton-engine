@@ -50,7 +50,25 @@ impl App {
         // Check PostProcessConfig resource (intermediate texture is used only when enabled=true)
         let pp_config: Option<PostProcessConfig> =
             self.world.resource::<PostProcessConfig>().copied();
-        let use_post = pp_config.map(|c| c.enabled).unwrap_or(false);
+        // The docked editor routes the scene into its own offscreen RT, NOT into the post-process
+        // intermediate — `render_view` below picks `docked_render_view` first. The post/bloom/
+        // lighting passes, however, read from the intermediate and composite onto `scene_target`
+        // (also the docked RT), so leaving them enabled made them paint a texture *this frame
+        // never rendered into* over the game viewport: the viewport went blank, and with
+        // `hdr: true` the `Rgba16Float` intermediate against a surface-format target is a wgpu
+        // format-validation error outright. Docked mode therefore runs no post chain at all.
+        let docked_suppresses_post = docked_render_view.is_some();
+        let use_post = pp_config.map(|c| c.enabled).unwrap_or(false) && !docked_suppresses_post;
+        if docked_suppresses_post
+            && pp_config.map(|c| c.enabled).unwrap_or(false)
+            && !self.render.warned_docked_post_skipped
+        {
+            self.render.warned_docked_post_skipped = true;
+            log::warn!(
+                "docked editor: post-process, bloom and lighting are not composited into the game \
+                 viewport; undock (F2) to see them"
+            );
+        }
 
         // Initialize / resize the post-process renderer. When HDR is requested the scene
         // intermediate is Rgba16Float (so > 1.0 colours survive to be tone-mapped); the pass still
@@ -82,7 +100,9 @@ impl App {
             }
         }
 
-        // Initialize / resize / disable the lighting renderer
+        // Initialize / resize / disable the lighting renderer. `setup_lighting` still runs while
+        // docked so its intermediate textures are created/torn down as usual; only the *use* is
+        // suppressed, for the same reason `use_post` is (see above).
         #[cfg(not(target_arch = "wasm32"))]
         let use_lighting = Self::setup_lighting(
             &mut self.render,
@@ -92,7 +112,7 @@ impl App {
             gpu.config.height,
             gpu.config.format,
             use_post,
-        );
+        ) && !docked_suppresses_post;
         #[cfg(target_arch = "wasm32")]
         let use_lighting = false;
 

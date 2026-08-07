@@ -28,7 +28,8 @@ use engine::renderer::GpuContext;
 use engine::{
     spawn_floating_text, AmbientLight, App, Camera, Color, DesignResolution, DrawRect, DrawText,
     FloatingText, FloatingTextSystem, FontData, GpuParticleEmitter, LightingConfig, PointLight,
-    Sprite, System, Tag, TextQueue, Transform, UiQueue, Vec2, WindowConfig, World,
+    PostProcessConfig, Sprite, System, Tag, TextQueue, Transform, UiQueue, Vec2, WindowConfig,
+    World,
 };
 
 /// Prefix the CI silent-skip guard greps for (`grep -q '\[render-test\] adapter='`).
@@ -835,6 +836,75 @@ fn editor_docked_renders_headless() {
     assert!(
         max_luma > 400,
         "no bright docked-panel pixels in the left strip — the docked editor did not render: max_luma={max_luma}"
+    );
+}
+
+/// The docked editor's game viewport must survive `PostProcessConfig { enabled: true }`.
+///
+/// While docked, the scene renders into the editor's own offscreen RT, **not** into the
+/// post-process intermediate — `render_view` picks the docked view first. But the post, bloom and
+/// lighting passes read from that intermediate and composite onto `scene_target`, which is *also*
+/// the docked RT. So with post enabled they painted a texture this frame never rendered into over
+/// the game viewport: it went blank. (With `hdr: true` it is worse than blank — an `Rgba16Float`
+/// intermediate against a surface-format target is a wgpu format-validation error.)
+///
+/// The check keys on the game's `clear_color` rather than a sprite, so it needs no assumption about
+/// where in the central panel a world position lands: the viewport is either showing the game
+/// scene (saturated green) or it is not.
+#[test]
+fn docked_editor_viewport_survives_post_process() {
+    // Wide enough that the 260px left + 300px right panels leave a real central strip.
+    let (w, h) = (900u32, 520u32);
+    let mut app = App::new();
+    app.world.insert_resource(WindowConfig {
+        title: "docked editor + post-process".into(),
+        width: w,
+        height: h,
+        // Saturated green — unmistakable against both the grey editor chrome and the black a
+        // blanked viewport reads as.
+        clear_color: [0.0, 0.85, 0.25, 1.0],
+    });
+    // The configuration that used to blank the viewport.
+    app.world.insert_resource(PostProcessConfig {
+        enabled: true,
+        ..Default::default()
+    });
+    let e = app.world.spawn();
+    app.world.add_component(e, Tag("Quad".into()));
+    app.world.add_component(
+        e,
+        Transform::new(Vec2::new(40.0, 40.0), Vec2::splat(24.0), 0.0),
+    );
+    app.world.add_component(e, Sprite::colored(0.9, 0.9, 0.9));
+
+    // >= 5 frames so the central RT debounce has fired and the viewport is composited.
+    let Some((rw, rh, px)) = editor_render_or_skip(&mut app, 8, true) else {
+        return;
+    };
+    assert_eq!((rw, rh), (w, h), "read-back size mismatch");
+
+    // Central strip only: inside the left panel's 260px and the right panel's 300px, below the
+    // toolbar and above the bottom Data Tables panel.
+    let mut green = 0u32;
+    let mut total = 0u32;
+    for y in 60..(rh - 240) {
+        for x in 280..(rw - 320) {
+            let p = px_rgb(&px, rw, x, y);
+            total += 1;
+            if p[1] as i32 > p[0] as i32 + 40 && p[1] as i32 > p[2] as i32 + 40 {
+                green += 1;
+            }
+        }
+    }
+    assert!(
+        total > 0,
+        "central strip region is empty — bad test geometry"
+    );
+    assert!(
+        green * 4 > total,
+        "the docked game viewport is not showing the scene with post-process enabled: only \
+         {green}/{total} central pixels are green-dominant. The post chain composited an \
+         intermediate the scene never rendered into over the viewport."
     );
 }
 
