@@ -36,9 +36,20 @@ impl System for DialogueSystem {
         //    `set_locale` retranslates them. `resolve` needs both `&mut DialogueBox` (query_mut)
         //    and `&LocaleResource`, so clone the resource first to release the world borrow. Only
         //    runs when a `LocaleResource` exists, and `resolve` is a no-op for literal boxes.
-        if let Some(locale) = world.resource::<LocaleResource>().cloned() {
-            for (_e, d) in world.query_mut::<DialogueBox>() {
-                d.resolve(&locale);
+        //
+        //    Guarded on there actually being a localized box: `LocaleResource` owns every
+        //    translated string in the game, so cloning it unconditionally meant a deep clone of
+        //    the entire locale table EVERY FRAME — paid in full by games with no dialogue on
+        //    screen, and even by games with no localized dialogue at all. The probe is a
+        //    read-only query with no allocation.
+        let needs_locale = world
+            .query::<DialogueBox>()
+            .any(|(_, d)| d.needs_locale_resolve());
+        if needs_locale {
+            if let Some(locale) = world.resource::<LocaleResource>().cloned() {
+                for (_e, d) in world.query_mut::<DialogueBox>() {
+                    d.resolve(&locale);
+                }
             }
         }
 

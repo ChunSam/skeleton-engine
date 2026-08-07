@@ -159,6 +159,23 @@ impl AnimEffectSystem {
 
 impl System for AnimEffectSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
+        // The event snapshot comes FIRST so the overwhelmingly common no-events frame
+        // returns before touching the registry. Cloning the whole binding table and then
+        // discovering there was nothing to do meant every idle frame paid for a deep clone
+        // of every effect binding in the game. Pure reordering — the snapshot needs only
+        // `&World`, so nothing else changes.
+        // 2. Snapshot this frame's animation events as (entity, tag) pairs.
+        let Some(bus) = world.resource::<Events<AnimationEvent>>() else {
+            return;
+        };
+        let events: Vec<(crate::ecs::Entity, String)> = bus
+            .read()
+            .iter()
+            .map(|e| (e.entity, e.tag.clone()))
+            .collect();
+        if events.is_empty() {
+            return;
+        }
         // 1. Clone the active binding table out so we can take `&mut World` later.
         let Some(bindings) = world
             .resource::<AnimEffectRegistry>()
@@ -173,19 +190,6 @@ impl System for AnimEffectSystem {
             }
             return;
         };
-
-        // 2. Snapshot this frame's animation events as (entity, tag) pairs.
-        let Some(bus) = world.resource::<Events<AnimationEvent>>() else {
-            return;
-        };
-        let events: Vec<(crate::ecs::Entity, String)> = bus
-            .read()
-            .iter()
-            .map(|e| (e.entity, e.tag.clone()))
-            .collect();
-        if events.is_empty() {
-            return;
-        }
 
         // 3. Resolve matching effects into a flat action list (read-only world access). Both the
         //    particle anchor and the flash target are the animating entity (no second anchor here).

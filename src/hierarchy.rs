@@ -213,7 +213,60 @@ pub fn topological_sort_entities(entities: &[Entity], world: &World) -> Vec<Enti
 /// # Depth
 /// Uses topological sort (root → children order) for a single-pass propagation, supporting
 /// **arbitrary-depth** hierarchies (e.g. deep bone chains like hip→torso→upper_arm→forearm→hand).
-pub struct HierarchySystem;
+#[derive(Default)]
+pub struct HierarchySystem {
+    /// Scratch buffers reused every frame (`clear()` + refill), per the engine's per-frame
+    /// allocation rule. This system is the one built-in every game is forced to pay for — it
+    /// runs unconditionally, on every entity with a `Transform`, whether or not the game uses
+    /// hierarchies at all — and it previously allocated six containers per frame: the entity
+    /// list, plus the sort's children map, entity set, roots, queue and result.
+    all: Vec<Entity>,
+    ordered: Vec<Entity>,
+    scratch: TopoScratch,
+}
+
+/// Reusable working set for the topological sort.
+#[derive(Default)]
+struct TopoScratch {
+    children_map: std::collections::HashMap<Entity, Vec<Entity>>,
+    entity_set: std::collections::HashSet<Entity>,
+    roots: Vec<Entity>,
+    queue: std::collections::VecDeque<Entity>,
+}
+
+impl TopoScratch {
+    /// Allocation-free twin of [`topological_sort_entities`], writing into `out`.
+    ///
+    /// `children_map`'s per-parent `Vec`s are cleared rather than dropped, so a stable hierarchy
+    /// reaches a steady state where no frame allocates at all.
+    fn sort_into(&mut self, entities: &[Entity], world: &World, out: &mut Vec<Entity>) {
+        for kids in self.children_map.values_mut() {
+            kids.clear();
+        }
+        self.entity_set.clear();
+        self.roots.clear();
+        self.queue.clear();
+        out.clear();
+
+        self.entity_set.extend(entities.iter().copied());
+        for &e in entities {
+            match world.get::<Parent>(e) {
+                Some(p) if self.entity_set.contains(&p.0) => {
+                    self.children_map.entry(p.0).or_default().push(e);
+                }
+                _ => self.roots.push(e),
+            }
+        }
+
+        self.queue.extend(self.roots.iter().copied());
+        while let Some(e) = self.queue.pop_front() {
+            out.push(e);
+            if let Some(kids) = self.children_map.get(&e) {
+                self.queue.extend(kids.iter().copied());
+            }
+        }
+    }
+}
 
 impl HierarchySystem {
     /// Schedule label for `HierarchySystem`.
@@ -231,10 +284,14 @@ impl System for HierarchySystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
         // Topological sort of all entities with a Transform (root → children order).
         // Parents are always processed before children, so arbitrary depth propagates in a single pass.
-        let all: Vec<Entity> = world.query::<Transform>().map(|(e, _)| e).collect();
-        let ordered = topological_sort_entities(&all, world);
+        self.all.clear();
+        self.all.extend(world.query::<Transform>().map(|(e, _)| e));
+        // `mem::take` the output so the loop below can borrow `world` mutably while the buffer
+        // stays owned; it is put back at the end, so the allocation is reused next frame.
+        let mut ordered = std::mem::take(&mut self.ordered);
+        self.scratch.sort_into(&self.all, world, &mut ordered);
 
-        for entity in ordered {
+        for &entity in &ordered {
             let gt = match world.get::<Parent>(entity).map(|p| p.0) {
                 // Has a parent: compose with the parent's GlobalTransform (already computed).
                 Some(parent) => {
@@ -258,6 +315,7 @@ impl System for HierarchySystem {
             };
             world.add_component(entity, gt);
         }
+        self.ordered = ordered;
     }
 }
 
@@ -308,7 +366,7 @@ mod tests {
             bones.push(e);
         }
 
-        HierarchySystem.run(&mut world, 0.0);
+        HierarchySystem::default().run(&mut world, 0.0);
 
         // Cumulative position: bone i is at (i+1)*10
         for (i, &e) in bones.iter().enumerate() {
@@ -334,7 +392,7 @@ mod tests {
                 z: 2.0,
             },
         );
-        HierarchySystem.run(&mut world, 0.0);
+        HierarchySystem::default().run(&mut world, 0.0);
         let gt = world.get::<GlobalTransform>(e).unwrap();
         assert_eq!(gt.position, Vec2::new(5.0, 7.0));
         assert_eq!(gt.z, 2.0);

@@ -150,6 +150,22 @@ impl System for TilemapSystem {
         for map_entity in tilemap_entities {
             // Clone out the data we need before any mutation. The optional `TilemapAutotile`
             // (single- or multi-terrain via its `mode`) drives display-UV selection.
+            // Check the CHEAP fields first and bail before cloning anything. The
+            // generation/dims fast path below already skipped the diff on an unchanged tilemap,
+            // but it sat *after* this deep clone of the whole tile grid — so an idle tilemap
+            // still copied every cell, every frame, before deciding there was nothing to do.
+            // On a large map that is the single biggest per-frame allocation in the engine.
+            {
+                let Some(tm) = world.get::<Tilemap>(map_entity) else {
+                    continue;
+                };
+                if let Some(view) = self.views.get(&map_entity) {
+                    if tm.generation == view.cached_generation && tm.dims() == view.cached_dims {
+                        continue;
+                    }
+                }
+            }
+
             let (tm_clone, autotile) = {
                 // The entity was alive when collected, but a script/coroutine could despawn it
                 // mid-frame; skip instead of panicking (release builds abort on panic).

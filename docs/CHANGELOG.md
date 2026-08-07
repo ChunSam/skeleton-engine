@@ -4,6 +4,24 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.150.0
+
+**Six per-frame allocation hot spots in built-in systems.** From the 2026-08-07 analysis. The engine's own rule is that a system running every frame keeps its temporaries as scratch fields (`clear()` + refill) or uses `std::mem::take`; these were the built-ins that did not.
+
+⚠️ **Breaking (MINOR):** `HierarchySystem` is no longer a unit struct. Use `HierarchySystem::default()` where you wrote `HierarchySystem`. Nothing in this repo but `App::new` constructed it, and games do not register it — `App` forces it as its one permanent built-in.
+
+**`HierarchySystem` allocated six containers per frame** — the entity list plus the topological sort's children map, entity set, roots, queue and result — and it is the one built-in **every game is forced to pay for**, running unconditionally over every entity with a `Transform` whether or not the game uses hierarchies at all. All six are now reused scratch buffers; the children map's per-parent `Vec`s are cleared rather than dropped, so a stable hierarchy reaches a steady state where no frame allocates. The public `topological_sort_entities` is unchanged for callers.
+
+**`AnimEffectSystem` and `ZoneEffectSystem` deep-cloned their entire binding table before checking whether any events existed.** Every idle frame paid for a full clone of every effect binding in the game and then discarded it. Pure reordering: the event snapshot needs only `&World`, so it simply moves ahead of the table clone and returns early.
+
+**`TilemapSystem` deep-cloned the whole tile grid *before* its own "nothing changed" fast path.** The generation/dims check already existed — it just sat downstream of the clone, so an idle tilemap copied every cell every frame before deciding there was nothing to do. On a large map that was the single biggest per-frame allocation in the engine. The cheap fields are now read first.
+
+**`DialogueSystem` cloned the entire `LocaleResource` every frame.** That resource owns every translated string in the game, and the clone was unconditional — paid in full by games with no dialogue on screen, and by games with no *localized* dialogue at all. Now guarded by `DialogueBox::needs_locale_resolve()`, an allocation-free read-only probe.
+
+**`LocalizationSystem` allocated four `String`s per entity per frame and threw three away.** An entity carries at most one text-bearing widget in practice, but every branch cloned unconditionally. It now skips the write when the text is already correct (every frame between locale switches) and moves rather than clones into the last branch.
+
+**Not addressed in this pass**, and still open from the analysis: `ui/panel.rs` (`LayoutSystem` per-frame `Vec` + per-panel children clone), `app/assets.rs` (full asset re-scan each frame), `app/render/debug_draw.rs` (one quad per dot instead of one rotated quad per segment), `particle/mod.rs` (`query3_mut` instead of collect + three `get_mut`), and `collision/grid.rs` (bucket `Vec` reallocation per rebuild).
+
 ## 0.149.0
 
 **Four animation defects, three of which left an entity silently stuck.** From the 2026-08-07 analysis. Additive: one new public method (`AnimationPlayer::restart`), no API removed.
