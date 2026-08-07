@@ -14,7 +14,7 @@
 //!    for the renderer. Must run **after** `BlendTreeSystem` and **before**
 //!    `StateMachineSystem`.
 //!
-//! 3. **[`StateMachineSystem`]** (`"engine::state_machine"`) — evaluates transition
+//! 3. **[`StateMachineSystem`]** (`"engine::animation_state_machine"`) — evaluates transition
 //!    conditions against `AnimationPlayer` state (e.g. `AnimationEnd`) and fires clip
 //!    transitions. Reading `AnimationPlayer` state requires the player to have already
 //!    ticked, so this must run **after** `AnimationSystem`.

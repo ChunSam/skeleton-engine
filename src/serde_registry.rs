@@ -91,6 +91,25 @@ impl SerdeComponentRegistry {
         T: serde::Serialize + serde::de::DeserializeOwned + Clone + Send + Sync + 'static,
     {
         let key = name.into();
+        // The docs declare these names must be unique, but nothing enforced it: `insert`
+        // replaced the previous entry in silence. The engine already occupies ~20 very ordinary
+        // names — "Panel", "Label", "Switch", "Timeline", "Slider" — so a fork registering its
+        // own `Panel` did not get a collision error, it got `ui::Panel` quietly evicted from
+        // scene save/load and from the editor's Add Component menu, plus every existing scene
+        // file's `Panel` payload routed to the wrong deserializer (which then warns and skips).
+        // The reflect registry is keyed by `TypeId` and is unaffected, so the two registries
+        // disagree about what "Panel" means — hence naming both types in the warning.
+        if self.entries.contains_key(&key) {
+            log::warn!(
+                "SerdeComponentRegistry: component name {key:?} is already registered; \
+                 re-registering it as {} REPLACES the previous entry. Scene save/load and the \
+                 editor will use the new type, and existing scene files carrying that name will \
+                 deserialize into it. Component names must be unique across the engine AND the \
+                 game — the engine already uses common ones such as \"Panel\", \"Label\", \
+                 \"Switch\" and \"Timeline\".",
+                std::any::type_name::<T>(),
+            );
+        }
         self.entries.insert(
             key,
             SerdeComponentEntry {

@@ -52,6 +52,8 @@ pub(super) const UI_SUBLAYER_Z_STEP: f32 = 0.001;
 /// 17. Submit render queue + batch-emit events
 #[derive(Default)]
 pub struct UiSystem {
+    /// Latches the one-time `Events<UiEvent>` unregistered warning (see `state::submit_output`).
+    warned_no_bus: bool,
     button_scratch: Vec<Entity>,
     checkbox_scratch: Vec<Entity>,
     dropdown_scratch: Vec<Entity>,
@@ -229,7 +231,7 @@ impl System for UiSystem {
             &mut output,
             &mut self.tooltip_scratch,
         );
-        submit_output(world, output);
+        submit_output(world, output, &mut self.warned_no_bus);
     }
 }
 

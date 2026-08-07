@@ -174,7 +174,8 @@ impl Scene for MenuScene {
         }
 
         // LayoutSystem BEFORE UiSystem (required — Panel geometry drives UiSystem hit-test).
-        systems.add(LayoutSystem);
+        // Labeled, so the `.after(LayoutSystem::LABEL)` below actually binds to it.
+        systems.add_labeled(LayoutSystem, SystemConfig::new().label(LayoutSystem::LABEL));
         systems.add_labeled(
             UiSystem::default(),
             SystemConfig::new().after(LayoutSystem::LABEL),
