@@ -338,6 +338,24 @@ impl App {
         // off `Audio::bands()` (`examples/games/beat_crawler`) stops progressing at all.
         app.register_persistent::<crate::audio_facade::Audio>();
 
+        // `AssetServer` and `ScriptRegistry` are **caches**, which `docs/PATTERNS.md` names
+        // explicitly as session state that must persist ("config, device handles, caches").
+        // Both were being rebuilt empty by `insert_core_resources` on every `Replace`, and the
+        // loss was invisible in the worst possible way: the `SpriteRenderer` texture cache lives
+        // on `App`, not in the World, so plain `Sprite`s kept rendering perfectly while
+        // `AtlasSprite` (which needs `AssetServer.atlases` for its UV lookup) and every
+        // `ScriptRunner` quietly stopped working. A game that loads its sheets and scripts once
+        // at startup — the obvious thing to do — got a working first scene and a broken second
+        // one, with no error anywhere.
+        //
+        // `AssetServer` also owns the native file-watch registrations behind F2 hot-reload, so
+        // dropping it silently ended hot-reload for the rest of the session.
+        //
+        // A game that genuinely wants per-scene asset teardown can still clear the resource
+        // itself; that is a deliberate act, unlike the previous silent drop.
+        app.register_persistent::<crate::asset::AssetServer>();
+        app.register_persistent::<crate::scripting::ScriptRegistry>();
+
         app
     }
 

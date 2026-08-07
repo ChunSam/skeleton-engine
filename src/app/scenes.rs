@@ -64,6 +64,11 @@ impl App {
         {
             self.editor.selected_entities.clear();
             self.editor.copy_clipboard.clear();
+            // Undo/redo holds raw `Entity` handles, and the ECS reuses ids — so a command
+            // surviving a world reset does not merely fail, it silently retargets onto whatever
+            // new entity now occupies that slot. (Native-only: `cmd_history` is not a field of
+            // the reduced wasm `EditorState`.)
+            self.editor.cmd_history.clear();
         }
         self.editor.editor_save_status = None;
         // Clear the set of system indices disabled by panics.
