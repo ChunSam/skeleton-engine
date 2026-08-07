@@ -513,3 +513,55 @@ fn versioned_with_key_roundtrip_and_wrong_key_fails() {
 
     fs::remove_dir_all(&dir).ok();
 }
+
+/// A save must be **staged through a sibling temp file and renamed**, never written in place.
+///
+/// `fs::write` truncates the target before it writes. A crash, kill, or power loss part-way
+/// through leaves a truncated file — and a truncated AEAD blob fails authentication, so
+/// `load_with_key` reports `SaveError::Decrypt` ("corrupted or tampered with"), blames tampering,
+/// and has nothing to fall back to. The player's progress is gone.
+///
+/// A unit test cannot kill the process mid-write, so this pins the observable half of the
+/// mechanism: the staging file is used and cleaned up, and a **stale** staging file left behind by
+/// an earlier crashed run is overwritten rather than appended to or tripped over.
+#[test]
+fn save_stages_through_a_temp_file_and_leaves_none_behind() {
+    let dir = unique_test_dir();
+    let path = dir.join("progress.ron");
+    let mut tmp_os = path.as_os_str().to_os_string();
+    tmp_os.push(".tmp");
+    let tmp = PathBuf::from(tmp_os);
+
+    let first = Settings {
+        sfx: 0.1,
+        music: 0.2,
+        hi_score: 1,
+    };
+    save(&path, &first).expect("save should succeed");
+    assert!(path.exists(), "target save must exist");
+    assert!(
+        !tmp.exists(),
+        "the staging file must be renamed away, not left behind: {tmp:?}"
+    );
+
+    // Simulate the debris of an earlier run that died between write and rename.
+    fs::write(&tmp, b"garbage from a crashed run").expect("seed stale temp");
+
+    let second = Settings {
+        sfx: 0.9,
+        music: 0.8,
+        hi_score: 4242,
+    };
+    save(&path, &second).expect("save must succeed despite a stale staging file");
+    assert!(
+        !tmp.exists(),
+        "a stale staging file must be consumed by the rename, not left behind"
+    );
+    let loaded: Settings = load(&path).expect("load should succeed");
+    assert_eq!(
+        second, loaded,
+        "the target must hold the whole new save, never a mix"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}

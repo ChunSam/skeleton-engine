@@ -4,6 +4,20 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.145.4
+
+**Three ways the engine silently destroyed user data.** All from the 2026-08-07 analysis. None of them errored, logged, or crashed — which is what made them expensive.
+
+**Saves were written in place.** `fs::write` truncates the target before writing, so a crash, kill or power loss part-way through left a *truncated* file. A truncated AEAD blob fails authentication, so `load` reported `SaveError::Corrupted` — "corrupted or has been tampered with" — with no previous version to fall back on. The player's progress was gone and the message blamed them for it. Saves now stage through a sibling `<path>.tmp` and `fs::rename` into place, which is atomic within a filesystem on POSIX and on Windows (`MoveFileEx` replace semantics), so a reader sees either the whole old file or the whole new one. The temp name *appends* rather than replacing the extension, so `save.ron` stages through `save.ron.tmp` and cannot collide with a differently-suffixed sibling.
+
+**`Hidden`, `RenderLayer`, `SpriteFlip` and `YSort` were dropped by Save Scene.** All four were `register_clone`d — so copy/paste and scene reset carried them — and all four are editor-addable, but none was ever serde-registered, and `serialize_entity` walks only the serde registry. The eye 👁 toggle in the docked entity list adds `Hidden`, which makes this the most common editor gesture whose result did not survive Ctrl+S: hide three entities, save, reload, and all three are back with no error anywhere. All four derive `Serialize + Deserialize + Clone`, so none was transient by design (contrast `TriggerZone`/`HitFlash`, which carry no serde derives at all — those omissions *are* deliberate).
+
+**`spawn_entity_def` ignored `EntityDef.parent`.** The field's own doc says "on spawn, the entity is attached as a child of the entity with this tag", but the attach only ever existed in `spawn_scene_def`'s second pass. Every single-entity path — undo-of-delete, Duplicate/Paste redo, Ctrl+V, `Prefab::spawn` — restored the entity as a **root**, and its `Transform` (authored parent-relative) was then read as world space, so the entity visibly teleported.
+
+The fix is careful about the two paths having genuinely different requirements. Within a scene the parent is frequently listed *after* the child, so resolving against the world in `spawn_scene_def`'s first pass would warn spuriously and attach nothing; that pass keeps its scene-local tag map and its second-pass attach. A lone `EntityDef` has no such map, so it searches the world and takes the first match — the same first-wins rule `spawn_scene_def` already applies to duplicate tags — warning when the tag is ambiguous, and leaving the entity a root (no panic) when it matches nothing, which is exactly the undo-of-delete case where the parent was deleted too. `spawn_entity_def_inner(world, def, resolve_parent)` carries the distinction.
+
+Four regression tests, each verified non-vacuous by sabotage — including one pinning that a scene listing a child *before* its parent still links up, the case a naive fix breaks.
+
 ## 0.145.3
 
 **macOS gamepad presses are no longer dropped while the mouse is moving.** Found by the 2026-08-07 analysis, in the one place the project's own docs say CI structurally cannot look: native gamepad input.

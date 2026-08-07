@@ -96,3 +96,37 @@ fn data_table_survives_set_scene() {
 
     let _ = std::fs::remove_file(&path);
 }
+
+/// The four render-modifier components must survive **Save Scene**.
+///
+/// `Hidden`, `RenderLayer`, `SpriteFlip` and `YSort` were `register_clone`d (so copy/paste and
+/// scene reset carried them) and were editor-addable, but never serde-registered — and
+/// `serialize_entity` walks only the serde registry. So scene save dropped them in total silence.
+///
+/// The eye 👁 toggle in the docked entity list adds `Hidden`, which makes this the most common
+/// editor gesture whose result did not survive Ctrl+S: hide three entities, save, reload, and all
+/// three are visible again with no error anywhere. All four derive `Serialize + Deserialize +
+/// Clone`, so none of them was transient by design.
+#[test]
+fn render_modifier_components_are_serde_registered() {
+    let mut app = engine::App::new();
+    let e = app.world.spawn();
+    app.world.add_component(e, engine::Hidden);
+    app.world.add_component(e, engine::RenderLayer(3));
+    app.world.add_component(e, engine::SpriteFlip::horizontal());
+    app.world.add_component(e, engine::YSort::default());
+
+    let registry = app
+        .world
+        .resource::<engine::SerdeComponentRegistry>()
+        .expect("SerdeComponentRegistry present");
+    let serialized = registry.serialize_entity(&app.world, e);
+
+    for name in ["Hidden", "RenderLayer", "SpriteFlip", "YSort"] {
+        assert!(
+            serialized.contains_key(name),
+            "{name} is not serde-registered, so Save Scene silently drops it; got keys {:?}",
+            serialized.keys().collect::<Vec<_>>()
+        );
+    }
+}

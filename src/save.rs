@@ -134,7 +134,21 @@ pub fn save_with_key<T: Serialize>(path: &Path, data: &T, key: SaveKey) -> Resul
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::write(path, encrypted)?;
+        // Write-then-rename, never write-in-place. A crash, a kill, or a power loss part-way
+        // through `fs::write` leaves a TRUNCATED file — and a truncated AEAD blob fails
+        // authentication on load, so `load_with_key` reports it as `SaveError::Decrypt`
+        // ("corrupted or tampered with") with no fallback and no previous version to fall back
+        // to: the player's progress is simply gone, and the message blames tampering.
+        //
+        // `fs::rename` is atomic within a filesystem on POSIX and on Windows (`MoveFileEx`
+        // replace semantics), so a reader sees either the whole old file or the whole new one.
+        // The temp name APPENDS rather than replacing the extension, so `save.ron` stages
+        // through `save.ron.tmp` and cannot collide with a differently-suffixed sibling.
+        let mut tmp = path.as_os_str().to_os_string();
+        tmp.push(".tmp");
+        let tmp = PathBuf::from(tmp);
+        fs::write(&tmp, encrypted)?;
+        fs::rename(&tmp, path)?;
         Ok(())
     }
     // wasm: localStorage holds strings → hex-encode the binary AEAD blob.
