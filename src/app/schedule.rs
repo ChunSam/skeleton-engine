@@ -145,6 +145,37 @@ impl App {
             .unwrap_or(1.0)
     }
 
+    /// Advances the app by **one full frame of everything except rendering** — with no window, no
+    /// GPU and no event loop.
+    ///
+    /// This is the frame step [`run`](Self::run) drives, minus the draw: scripted input is applied,
+    /// the schedule runs, then the end-of-frame work happens — event/input flush, **scene-transition
+    /// commands**, fade/transition ticks and hot-reload polling. Every GPU touch inside it is
+    /// already guarded on a context being present, so a bare [`App::new`] advances fine without one.
+    ///
+    /// It exists because a `Scene` change is not a system: `SceneCmd::Replace` is consumed *after*
+    /// the schedule, so a test that ticks systems by hand can never cross a scene boundary and never
+    /// sees the `World` reset. Anything expressed as systems + resources can be driven directly;
+    /// this is how the rest — the reset, and which resources survive it — gets driven too. Pair it
+    /// with an [`InputScript`](crate::InputScript) to synthesize input, which is registered
+    /// persistent so a run in progress survives the very transition under test.
+    ///
+    /// Do **not** call this from a game that also calls [`run`](Self::run) — `run` already steps the
+    /// app, and a second call per frame would double-advance it. This is for headless drivers:
+    /// acceptance tests, tools, and offline simulation.
+    ///
+    /// ```
+    /// # use engine::{App, InputAction, InputScript, KeyCode};
+    /// let mut app = App::new();
+    /// app.set_input_script(InputScript::new([(1, InputAction::KeyPress(KeyCode::Enter))]));
+    /// for _ in 0..10 {
+    ///     app.step_headless(1.0 / 60.0);
+    /// }
+    /// ```
+    pub fn step_headless(&mut self, dt: f32) {
+        self.update(dt);
+    }
+
     pub(super) fn update(&mut self, dt: f32) {
         self.world.clear_change_tracking();
 

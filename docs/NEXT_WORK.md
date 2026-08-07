@@ -27,7 +27,7 @@ A filed request preempts everything below.
 
 | Item | State |
 |---|---|
-| **`<NAME>_SELFTEST` coverage** | **DONE at the planned stopping point — 8 of 21** (`beat_crawler`, `survivor`, `data_anim`, `data_particles`, `salvage_run`, `predict_shooter`, `orbital_dodger`, + `coin_race` on 2026-08-04). The remaining 13 games' headline features are all visible in a screenshot (`sokoban`, `platformer`, `maze_escape`, `dig_quest`, `shooter`, `lit_dungeon`, `multi_terrain`, `tile_paint`, `ui_layout_editor`, `stat_editor_game`, `script_steering`), so chasing the number past 8 is effort against failures that are already visible. **Do not reopen this as a coverage target.** The one real gap left is `settings_menu`/`scene_flow` cross-scene persistence, which stays blocked on `App::update` being crate-private — **a self-test can drive anything expressed as systems + resources, and nothing expressed as an `App` frame step**. If that ever becomes reachable, it is worth doing *because it is the documented reset footgun*, not to move a count. Durable findings from the four networked ones are in `docs/MODULE_MAP.md`'s `src/network.rs` row; the two that generalise beyond networking: **`InputState` has no public press setter**, so held input comes from `InputScript` (the `ENGINE_INPUT` replay path), keeping the real input read under test; and **assert an invariant, not an end state**, when a background process (a coin respawner, an entity spawner) can add to what you are counting. |
+| **`<NAME>_SELFTEST` coverage** | **DONE — 10 of 21**, and the one real gap is now closed (`beat_crawler`, `survivor`, `data_anim`, `data_particles`, `salvage_run`, `predict_shooter`, `orbital_dodger`, `coin_race`, + `settings_menu` and `scene_flow` on 2026-08-06). The remaining 11 games' headline features are all visible in a screenshot (`sokoban`, `platformer`, `maze_escape`, `dig_quest`, `shooter`, `lit_dungeon`, `multi_terrain`, `tile_paint`, `ui_layout_editor`, `stat_editor_game`, `script_steering`), so chasing the number past 10 is effort against failures that are already visible. **Do not reopen this as a coverage target.** Durable findings from the four networked ones are in `docs/MODULE_MAP.md`'s `src/network.rs` row; the two that generalise beyond networking: **`InputState` has no public press setter**, so held input comes from `InputScript` (the `ENGINE_INPUT` replay path), keeping the real input read under test; and **assert an invariant, not an end state**, when a background process (a coin respawner, an entity spawner) can add to what you are counting. |
 | **4th procgen mode** (drunkard's walk) | Unchanged, still the lowest marginal value: the engine cannot fail at it, so nothing is learned. |
 | **`add-facade-capability` skill** | n=5 now (the facade + native + wasm + policy-module shape has repeated that many times). Deferred; the next facade capability makes the case by itself. |
 
@@ -135,7 +135,19 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
 > `docs/CHANGELOG.md` (what shipped) or `docs/PATTERNS.md` / `docs/VERIFICATION.md` (what was
 > learned). Without this rule the section regrows the history that was just split out.
 
-**Empty.** Nothing closed in the session of 2026-08-06.
+- **The blocked cross-scene persistence self-tests — closed by `App::step_headless` (v0.145.0).**
+  Both named examples are covered: `SETTINGS_MENU_SELFTEST` drives `Replace` (the World reset and
+  what survives it), `SCENE_FLOW_SELFTEST` drives `Push`/`Pop` (which reset **nothing**, so a
+  pushed overlay suspends rather than destroys and `Pop` resumes rather than re-enters). The block
+  was real but smaller than it read: `App::update` never needed a GPU (every GPU touch inside it is
+  already guarded, and `begin_egui_frame` no-ops without a window), so the public step is a
+  delegation, not a new path. Full write-up in `docs/CHANGELOG.md` 0.145.0; the mechanism and the
+  tests' shape are in `docs/MODULE_MAP.md`'s `src/app.rs` and `src/scene.rs` rows. The two lessons
+  it produced — **a skip condition the failure itself can forge**, and **`set_scene` is already a
+  `Replace`, so a "before" sample taken after setup is downstream of the mechanism** — are written
+  up in `docs/VERIFICATION.md` (§ *A skip is not a pass* and § *check where your "before" sample is
+  actually taken*), so this entry can roll off without taking them with it. Both were found by
+  sabotage; neither draft could have been reasoned wrong from reading it.
 
 Rolled off 2026-08-06 (durable homes verified before removing) — the four entries from the
 2026-08-05/06 session: the **browser-smokes gate** (#431, v0.143.17), the **selftest step's

@@ -144,6 +144,20 @@ So the script builds `--examples` first, then greps each run's output and fails 
 skip. Same principle as the render job's `SKELETON_REQUIRE_GPU=1`: an environment opt-out must
 never read as a green pass.
 
+**The subtler version, one level in: a skip condition the failure itself can forge.** The runner
+above polices skips it can *see*. It cannot police a check that decides to skip for the wrong
+reason. `SETTINGS_MENU_SELFTEST` (v0.145.0) asserts that the `Audio` handle survives a scene reset,
+and its first draft read `world.resource::<Audio>()` after the transition: `None` there means both
+"this machine has no sound card" and "the reset dropped the handle" — **the failure and the skip are
+the same observable**. Sabotaging the engine's own `register_persistent::<Audio>` call made the
+check print `SKIP` and report success, which is precisely the outcome the whole runner exists to
+prevent, reached from inside the test.
+
+The rule: **a skip condition must be sampled from a source the failure cannot produce.** Here that
+meant probing the device with a throwaway `Audio::new()` *before the app is built*, so "no device"
+is answered by the hardware rather than by the machinery under test. Ask it of any check that can
+opt out: *if the thing I am testing were completely broken, could that alone make this check skip?*
+
 ### Writing one: assert an invariant, not an end state
 
 Two of these tests have now been bitten by the same shape, so it is a rule rather than an anecdote.
@@ -164,6 +178,23 @@ green.
 The related limit: you can only assert what the API exposes. `NetworkClient` has no readable outbox,
 so "a message was sent" is unobservable offline — state the consequence you *can* see, and say in the
 failure message which property that stands for, rather than re-deriving the code under test.
+
+### Writing one: check where your "before" sample is actually taken
+
+The obvious fix for the skip trap above was to sample the same thing *earlier* — before the
+transition, while the app was still known-good. That draft skipped too, and the reason generalises:
+**`App::set_scene` is itself a `SceneCmd::Replace`**, so an `App` has already performed one full
+world reset by the time its setup function returns. A "before the transition" sample taken after
+`build_app()` is still a sample taken **downstream of the mechanism under test**.
+
+Anything that means to observe a pre-reset state has to establish it before the `App` exists, or
+establish it from outside the `App` entirely. The general shape: when a check depends on a baseline,
+confirm the baseline is upstream of every operation the check is about — an off-by-one-stage
+baseline does not fail loudly, it agrees with the broken state and reports success.
+
+Sabotage is what surfaces both of these. Neither draft could have been reasoned wrong from reading
+it — each looked like it was testing the right thing, and each was confirmed green before the
+sabotage was tried.
 
 ### Audio in CI was attempted and does not work — do not re-litigate without new information
 

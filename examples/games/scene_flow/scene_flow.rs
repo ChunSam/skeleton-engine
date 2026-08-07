@@ -1,3 +1,20 @@
+//! scene_flow_game — the scene **stack**: Menu → Play, with Pause and Result as overlays.
+//!
+//! The only example that uses `SceneCmd::Push`/`Pop`. The distinction it exists to show is that
+//! `Replace` rebuilds the `World` while **`Push`/`Pop` reset nothing**: a pushed overlay suspends
+//! the scene beneath rather than destroying it, and `Pop` *resumes* it rather than re-entering it.
+//! Cross-scene diagnostics live in `StatsData`, a plain resource kept across the `Replace` resets
+//! via `App::register_persistent` — no `Arc<Mutex<_>>`, no per-scene handle.
+//!
+//! # Controls
+//! - Menu: Enter starts · Esc quits
+//! - Play: P / Esc pauses (Push) · Enter finishes (Push Result) · M returns to the menu (Replace)
+//! - Pause / Result: P / Esc resumes (Pop) · M returns to the menu (Replace)
+//!
+//! - `SCENE_FLOW_SELFTEST=1 cargo run --example scene_flow_game` — asserts the above. A `Pop`
+//!   wrongly written as `Replace(PlayScene)` photographs *perfectly*, because a fresh play scene
+//!   draws exactly like a resumed one; what is gone is everything the suspended scene was holding.
+
 use engine::{
     Anchor, App, Button, ButtonState, Color, Entity, Events, GameState, InputState, KeyCode, Label,
     Scene, SceneChange, SceneCmd, ShouldQuit, System, SystemRegistrar, TextAlign, UiEvent,
@@ -650,7 +667,10 @@ impl System for BackdropSystem {
     }
 }
 
-fn main() {
+/// The whole game, ready to `run()`. The acceptance test below calls **this** rather than
+/// assembling its own app: `register_persistent::<StatsData>` is part of what it verifies, so a
+/// harness that repeated the registration would grade its own copy of the setup.
+fn build_app() -> App {
     let mut app = App::new();
     app.register_event::<UiEvent>();
 
@@ -663,5 +683,220 @@ fn main() {
     configure_window(&mut app.world);
     app.load_image(BG_PATH);
     app.load_image(BADGE_PATH);
-    app.run();
+    app
+}
+
+fn main() {
+    // `SCENE_FLOW_SELFTEST=1` runs the headless acceptance test instead of opening a window.
+    #[cfg(not(target_arch = "wasm32"))]
+    if std::env::var("SCENE_FLOW_SELFTEST").is_ok() {
+        std::process::exit(self_test());
+    }
+
+    build_app().run();
+}
+
+// ── Acceptance test ───────────────────────────────────────────────────────────────────────────
+
+/// `SCENE_FLOW_SELFTEST=1 cargo run --example scene_flow_game` — asserts the half of the scene
+/// machinery `SETTINGS_MENU_SELFTEST` cannot reach.
+///
+/// That test drives `SceneCmd::Replace`, which rebuilds the `World`. This one drives **`Push` and
+/// `Pop`**, a different arm of `apply_scene_cmd` with the opposite contract: a pushed overlay
+/// *suspends* the scene beneath instead of destroying it, and popping **resumes** it rather than
+/// re-entering it. `scene_flow` is the only example in the tree that uses the scene stack.
+///
+/// **Push and Replace are indistinguishable in a screenshot.** Both put a pause panel over the
+/// game; the difference is entirely in what still exists behind it. A `Pop` wrongly implemented as
+/// `Replace(PlayScene)` photographs *perfectly* — the play screen comes back, correctly drawn,
+/// because a fresh `PlayScene` draws exactly like a resumed one. What is gone is everything the
+/// suspended scene was holding, and the player only finds out by having lost their progress.
+///
+/// So the test tracks a **marker entity and an unregistered marker resource** across all three
+/// commands. They are the discriminator, and they run in opposite directions on purpose:
+/// `Push`/`Pop` must **keep** them (no reset happens at all — `register_persistent` is not even
+/// consulted), and `Replace` must **drop** them. A check that only ever asserted survival would
+/// pass on an engine that never reset anything; a check that only asserted the reset would pass on
+/// one that reset on every command.
+///
+/// Exit codes: `0` pass · `1` Enter at the menu does not start the game · `2` `Push` reset the
+/// world or exited the scene beneath · `3` `Pop` re-entered the scene instead of resuming it ·
+/// `4` `Replace` did not reset, or dropped the registered cross-scene state it must keep.
+#[cfg(not(target_arch = "wasm32"))]
+fn self_test() -> i32 {
+    use engine::{InputAction, InputScript};
+
+    const DT: f32 = 1.0 / 60.0;
+
+    /// A full app frame each — the end-of-frame block where `SceneCmd` is consumed is what makes
+    /// a scene transition reachable from a test at all (`App::step_headless`, v0.145.0).
+    fn steps(app: &mut App, n: u32) {
+        for _ in 0..n {
+            app.step_headless(DT);
+        }
+    }
+
+    fn press(app: &mut App, key: KeyCode) {
+        app.set_input_script(InputScript::new([(1, InputAction::KeyPress(key))]));
+        steps(app, 8);
+    }
+
+    /// The game's own bookkeeping, read straight out of the resource the on-screen stats panel
+    /// renders from. Returned as a tuple so a failure can print the whole lifecycle at once.
+    ///
+    /// `None` means the resource itself is gone, which is one specific bug — `StatsData` lost its
+    /// `register_persistent`, so the first `Replace` dropped it — and never a statement about the
+    /// `Push`/`Pop` semantics the counters are used to check. Callers report it as exit 4 wherever
+    /// they first notice, rather than letting it surface as a zero counter and impersonate a
+    /// different failure. (Without this it read as exit 1: "Enter did not start the game", which
+    /// was false — the game started, the scoreboard had vanished.)
+    fn stats(app: &App) -> Option<(u32, u32, u32, u32, u32)> {
+        app.world.resource::<StatsData>().map(|s| {
+            (
+                s.menu_enters,
+                s.play_enters,
+                s.play_exits,
+                s.pause_enters,
+                s.pause_exits,
+            )
+        })
+    }
+
+    /// Exit-4 message for a `StatsData` that is not there at all.
+    fn no_stats(at: &str) -> i32 {
+        eprintln!(
+            "FAIL: StatsData is gone by the time we {at} — it is the game's cross-scene state and \
+             `build_app` registers it persistent, so a `Replace` dropping it means the \
+             registration is not in force. Note `set_scene` is itself a Replace, so this resource \
+             has to survive from before the first scene was ever entered."
+        );
+        4
+    }
+
+    /// Which scene is live, independent of `StatsData`: every `on_enter` sets it, and
+    /// `PauseScene::on_exit` restores `Playing` on the way out of a Pop. Used for the transition
+    /// check so that a broken transition and a dropped scoreboard cannot report as each other.
+    fn playing(app: &App) -> bool {
+        app.world.resource::<GameState>() == Some(&GameState::Playing)
+    }
+
+    /// The same value as text, for a failure message.
+    fn state_name(app: &App) -> String {
+        app.world
+            .resource::<GameState>()
+            .map_or_else(|| "<missing>".to_string(), |s| format!("{s:?}"))
+    }
+
+    // A resource the game never registers — dropped by `Replace`, untouched by `Push`/`Pop`.
+    struct SceneLocal;
+
+    let mut app = build_app();
+
+    // ── 1. Menu → Play, the Replace that sets the scene up ────────────────────────────────────
+    //
+    // Asserted on `GameState`, not on the counters: a `StatsData` that failed to persist would
+    // otherwise read as "the transition never happened", which is a different bug entirely.
+    press(&mut app, KeyCode::Enter);
+    let is_playing = playing(&app);
+    let state = state_name(&app);
+    let Some((menu_enters, play_enters, _, _, _)) = stats(&app) else {
+        return no_stats("reach the play scene");
+    };
+    if !is_playing || play_enters != 1 {
+        eprintln!(
+            "FAIL: Enter at the menu did not start the game — GameState {state} (want Playing), \
+             play_enters {play_enters} (want 1), menu_enters {menu_enters}. Nothing below has a \
+             suspended scene to be about."
+        );
+        return 1;
+    }
+
+    // The discriminator, planted while Play is the live scene. Neither is tracked by any scene, so
+    // nothing but a World reset can remove them.
+    let marker = app.world.spawn();
+    app.world.insert_resource(SceneLocal);
+    println!("start ok: play scene entered once, marker planted");
+
+    // ── 2. Push suspends — it does not reset, and does not exit the scene beneath ─────────────
+    press(&mut app, KeyCode::KeyP);
+    let Some((_, play_enters, play_exits, pause_enters, _)) = stats(&app) else {
+        return no_stats("push the pause overlay");
+    };
+    let marker_alive = app.world.is_alive(marker);
+    let local_alive = app.world.resource::<SceneLocal>().is_some();
+    if pause_enters != 1 || play_exits != 0 || play_enters != 1 || !marker_alive || !local_alive {
+        eprintln!(
+            "FAIL: Push did not suspend the scene beneath — pause_enters {pause_enters} (want 1), \
+             play_exits {play_exits} (want 0: Push must NOT exit it), play_enters {play_enters} \
+             (want 1), marker entity alive {marker_alive}, unregistered resource alive \
+             {local_alive} (both want true — Push performs no World reset, so persistence \
+             registration is not even consulted). A Push that resets photographs exactly like one \
+             that does not: the pause panel is over the game either way."
+        );
+        return 2;
+    }
+    println!("push ok: pause overlay entered, play scene suspended intact (not exited, not reset)");
+
+    // ── 3. Pop resumes — it does not re-enter ─────────────────────────────────────────────────
+    //
+    // The headline. `play_enters` is the whole check: a `Pop` implemented as `Replace(PlayScene)`
+    // brings back a screen that looks right in every pixel and reads **2** here.
+    press(&mut app, KeyCode::KeyP);
+    let Some((_, play_enters, play_exits, _, pause_exits)) = stats(&app) else {
+        return no_stats("pop the pause overlay");
+    };
+    let marker_alive = app.world.is_alive(marker);
+    let local_alive = app.world.resource::<SceneLocal>().is_some();
+    if pause_exits != 1 || play_enters != 1 || play_exits != 0 || !marker_alive || !local_alive {
+        eprintln!(
+            "FAIL: Pop did not resume the scene beneath — pause_exits {pause_exits} (want 1), \
+             play_enters {play_enters} (want 1; 2 means the scene was re-entered, i.e. Pop \
+             behaved as a Replace), play_exits {play_exits} (want 0), marker entity alive \
+             {marker_alive}, unregistered resource alive {local_alive} (both want true). A \
+             re-entered scene renders identically and has lost everything it was holding."
+        );
+        return 3;
+    }
+    println!(
+        "pop ok: overlay exited, play scene resumed without re-entering (play_enters still 1)"
+    );
+
+    // ── 4. The contrast: Replace DOES reset ───────────────────────────────────────────────────
+    //
+    // The same two markers, the same run, the opposite outcome — and the registered `StatsData`
+    // crossing where they do not. Without this half, checks 2-3 would pass on an engine that
+    // simply never reset the World for any command.
+    press(&mut app, KeyCode::KeyM);
+    let Some((menu_enters, play_enters, play_exits, pause_enters, pause_exits)) = stats(&app)
+    else {
+        return no_stats("return to the menu");
+    };
+    let marker_alive = app.world.is_alive(marker);
+    let local_alive = app.world.resource::<SceneLocal>().is_some();
+    let counters_kept = (
+        menu_enters,
+        play_enters,
+        play_exits,
+        pause_enters,
+        pause_exits,
+    ) == (2, 1, 1, 1, 1);
+    if marker_alive || local_alive || !counters_kept {
+        eprintln!(
+            "FAIL: Replace did not behave as the reset Push/Pop are not — marker entity still \
+             alive {marker_alive} (want false), unregistered resource still present {local_alive} \
+             (want false), StatsData counters \
+             (menu_enters, play_enters, play_exits, pause_enters, pause_exits) = \
+             ({menu_enters}, {play_enters}, {play_exits}, {pause_enters}, {pause_exits}), want \
+             (2, 1, 1, 1, 1). The registered resource must cross the same boundary the \
+             unregistered one does not — that contrast is the whole mechanism."
+        );
+        return 4;
+    }
+    println!(
+        "replace ok: world reset dropped both markers, registered StatsData crossed with \
+         ({menu_enters}, {play_enters}, {play_exits}, {pause_enters}, {pause_exits})"
+    );
+
+    println!("SCENE_FLOW_SELFTEST: all checks passed");
+    0
 }
