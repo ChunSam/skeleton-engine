@@ -15,7 +15,7 @@
 
 ## Board gate — check this first, every session
 
-Both channels were **empty** as of 2026-08-06:
+Both channels were **empty** as of 2026-08-07:
 
 - `../dungeon-merchant/docs/engine-wishlist.md` — next free **EW-012**, unmoved since 2026-07-27
 - `../rust-survivors/docs/ENGINE_CHANGE_REQUESTS.md` — `_None._`, unmoved since 2026-07-14
@@ -135,25 +135,16 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
 > `docs/CHANGELOG.md` (what shipped) or `docs/PATTERNS.md` / `docs/VERIFICATION.md` (what was
 > learned). Without this rule the section regrows the history that was just split out.
 
-- **The blocked cross-scene persistence self-tests — closed by `App::step_headless` (v0.145.0).**
-  Both named examples are covered: `SETTINGS_MENU_SELFTEST` drives `Replace` (the World reset and
-  what survives it), `SCENE_FLOW_SELFTEST` drives `Push`/`Pop` (which reset **nothing**, so a
-  pushed overlay suspends rather than destroys and `Pop` resumes rather than re-enters). The block
-  was real but smaller than it read: `App::update` never needed a GPU (every GPU touch inside it is
-  already guarded, and `begin_egui_frame` no-ops without a window), so the public step is a
-  delegation, not a new path. Full write-up in `docs/CHANGELOG.md` 0.145.0; the mechanism and the
-  tests' shape are in `docs/MODULE_MAP.md`'s `src/app.rs` and `src/scene.rs` rows. The two lessons
-  it produced — **a skip condition the failure itself can forge**, and **`set_scene` is already a
-  `Replace`, so a "before" sample taken after setup is downstream of the mechanism** — are written
-  up in `docs/VERIFICATION.md` (§ *A skip is not a pass* and § *check where your "before" sample is
-  actually taken*), so this entry can roll off without taking them with it. Both were found by
-  sabotage; neither draft could have been reasoned wrong from reading it.
+Nothing closed this session — the session was this roll-off.
 
-Rolled off 2026-08-06 (durable homes verified before removing) — the four entries from the
-2026-08-05/06 session: the **browser-smokes gate** (#431, v0.143.17), the **selftest step's
-179–308 s → 26 s** (#432, v0.143.18) and **`SKELETON_MUTE=1`** (#433, v0.144.0), all three written
-up in full in `docs/CHANGELOG.md`; plus **the gate's scope rule** (#432), whose home is `CLAUDE.md`
-§ Verification. What outlived them was left behind first: the native/browser audio split is in
-*Standing risks*, `SKELETON_MUTE`'s usage is in `CLAUDE.md`, the `set_master_volume` dead end is
-`CHANGELOG` 0.144.0, and *a job total is not a step measurement* — which had been living only in
-the previous roll-off note — is now folded into the `cargo build --examples` entry under *Noted*.
+Rolled off 2026-08-07 (durable homes verified, not assumed) — the **`App::step_headless` entry**
+(#436, v0.145.0) and the 2026-08-06 note, both having served their session. The mechanism and both
+selftests' shape are in `docs/CHANGELOG.md` 0.145.0 and `docs/MODULE_MAP.md`'s `src/scene.rs` row,
+which also carries the reset footgun and the consequence that gives it teeth — **`set_scene` is
+itself a `Replace`**, so an `App` has already reset once by the time setup returns. The two lessons
+are in `docs/VERIFICATION.md` § *A skip is not a pass* and § *check where your "before" sample is
+actually taken*; the sabotage counts (6/6 and 4/4) are in the `CHANGELOG` entry and the
+`MODULE_MAP` row both. The 08-06 note's own pointers were re-checked on the way out rather than
+trusted — including the `set_master_volume` dead end (`CHANGELOG` 0.144.0) — and the one lesson
+that had ever lived only in a note, *a job total is not a step measurement*, is still where that
+note put it: the `cargo build --examples` entry under *Noted*.
