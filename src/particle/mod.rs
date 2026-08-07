@@ -66,9 +66,11 @@ impl EmitShape {
                 let a = rng.gen_range(0.0..std::f32::consts::TAU);
                 Vec2::new(a.cos(), a.sin()) * radius
             }
+            // `.abs()` for the same reason as `velocity_spread`: a negative half-extent makes
+            // `-x..=x` an empty range, which panics inside `gen_range`.
             EmitShape::Box { half_extents } => Vec2::new(
-                rng.gen_range(-half_extents.x..=half_extents.x),
-                rng.gen_range(-half_extents.y..=half_extents.y),
+                rng.gen_range(-half_extents.x.abs()..=half_extents.x.abs()),
+                rng.gen_range(-half_extents.y.abs()..=half_extents.y.abs()),
             ),
         }
     }
@@ -340,11 +342,25 @@ impl System for ParticleSystem {
                     // On a slow frame where timer exceeds interval multiple times, spawn
                     // that many. (Previously only one was spawned per frame, making density
                     // framerate-dependent.)
-                    let mut count = 0u32;
-                    while em.timer >= interval {
-                        em.timer -= interval;
-                        count += 1;
-                    }
+                    // Closed form, NOT a drain loop. `spawn_rate: f32::INFINITY` makes
+                    // `interval` exactly 0.0, and `timer -= 0.0` never terminates — the old
+                    // `while em.timer >= interval` loop hung the frame forever. The
+                    // `max_per_frame` cap could not save it because it was applied to the
+                    // count AFTER the loop had already spun.
+                    let count = if interval > 0.0 && interval.is_finite() {
+                        let n = (em.timer / interval).floor();
+                        em.timer -= n * interval;
+                        if n > 0.0 {
+                            n.min(u32::MAX as f32) as u32
+                        } else {
+                            0
+                        }
+                    } else {
+                        // Degenerate interval (infinite spawn_rate): emit the per-frame cap and
+                        // clear the timer rather than spinning.
+                        em.timer = 0.0;
+                        em.max_per_frame
+                    };
                     // Runaway guard: cap at the emitter's `max_per_frame` (default 64) — handles a
                     // very large spawn_rate + long dt; raised for dense rain/snow.
                     count.min(em.max_per_frame)
@@ -356,9 +372,13 @@ impl System for ParticleSystem {
                         .get::<ParticleEmitter>(emitter_entity)
                         .and_then(|em| em.texture.clone());
                     for _ in 0..spawn_count {
+                        // `.abs()`: a negative spread makes `-x..=x` an EMPTY range and
+                        // `gen_range` panics on it. A spread is a +/- magnitude, so the sign
+                        // carries no meaning and mirroring it is the intent-preserving read.
+                        let (sx, sy) = (spread.x.abs(), spread.y.abs());
                         let actual_velocity = Vec2::new(
-                            velocity.x + rng.gen_range(-spread.x..=spread.x),
-                            velocity.y + rng.gen_range(-spread.y..=spread.y),
+                            velocity.x + rng.gen_range(-sx..=sx),
+                            velocity.y + rng.gen_range(-sy..=sy),
                         );
                         let spawn_pos = pos + emit_shape.sample_offset(&mut rng);
 
@@ -533,6 +553,58 @@ mod tests {
         assert_eq!(spawn_one_tick(DEFAULT_MAX_PER_FRAME), 64);
         // Raising the cap lets a dense emitter spawn more in a single frame.
         assert_eq!(spawn_one_tick(256), 256);
+    }
+
+    #[test]
+    fn infinite_spawn_rate_does_not_hang_the_frame() {
+        // `spawn_rate: f32::INFINITY` makes `interval` exactly 0.0, and the old drain loop
+        // (`while em.timer >= interval { em.timer -= interval; }`) subtracted 0.0 forever --
+        // the frame never returned. `max_per_frame` could not save it: the cap was applied to
+        // the count AFTER the loop had already spun. If this regresses, this test HANGS rather
+        // than failing, which is precisely the production symptom.
+        let mut world = World::new();
+        let emitter = world.spawn();
+        world.add_component(emitter, Transform::default());
+        world.add_component(
+            emitter,
+            ParticleEmitter {
+                spawn_rate: f32::INFINITY,
+                emit: true,
+                ..ParticleEmitter::default()
+            },
+        );
+
+        ParticleSystem.run(&mut world, 0.016);
+
+        assert_eq!(
+            world.query::<Particle>().count(),
+            DEFAULT_MAX_PER_FRAME as usize,
+            "a degenerate interval must emit the per-frame cap, not spin"
+        );
+    }
+
+    #[test]
+    fn negative_velocity_spread_does_not_panic() {
+        // `gen_range(-x..=x)` with a negative x is an EMPTY range, which panics. A spread is a
+        // +/- magnitude, so the sign carries no meaning -- mirroring it preserves the intent.
+        let mut world = World::new();
+        let emitter = world.spawn();
+        world.add_component(emitter, Transform::default());
+        world.add_component(
+            emitter,
+            ParticleEmitter {
+                spawn_rate: 100.0,
+                emit: true,
+                velocity_spread: Vec2::new(-30.0, -10.0),
+                emit_shape: EmitShape::Box {
+                    half_extents: Vec2::new(-8.0, -4.0),
+                },
+                ..ParticleEmitter::default()
+            },
+        );
+
+        ParticleSystem.run(&mut world, 0.05);
+        assert_eq!(world.query::<Particle>().count(), 5);
     }
 
     #[test]

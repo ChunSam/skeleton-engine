@@ -61,6 +61,21 @@ impl Pool {
     /// If the pool is full (exceeds `capacity`), the entity is despawned.
     /// A `Pooled` marker component is added to indicate the inactive state.
     pub fn release(&mut self, entity: Entity, world: &mut World) {
+        // A double release used to push the same entity into `available` twice, so two later
+        // `acquire` calls handed the SAME `Entity` to two different callers, which then wrote
+        // over each other's components with no error anywhere. `Pooled` is precisely the
+        // "currently parked" marker (`acquire` removes it), so its presence is the cheap test.
+        if world.get::<Pooled>(entity).is_some() {
+            log::warn!(
+                "Pool::release: {entity:?} is already parked in this pool — ignoring the \
+                 double release (it would hand the same entity to two acquirers)"
+            );
+            return;
+        }
+        if !world.is_alive(entity) {
+            log::warn!("Pool::release: {entity:?} is not alive — ignoring");
+            return;
+        }
         if self.available.len() >= self.capacity {
             world.despawn(entity);
             return;
@@ -116,6 +131,27 @@ mod tests {
         assert!(world.is_alive(e));
         assert!(world.get::<Bullet>(e).is_some());
         assert_eq!(pool.available_count(), 0);
+    }
+
+    #[test]
+    fn double_release_does_not_hand_one_entity_to_two_acquirers() {
+        // Releasing the same entity twice used to push it into `available` twice, so the next
+        // two `acquire` calls returned the SAME `Entity` to two different callers, which then
+        // silently wrote over each other's components.
+        let mut world = World::new();
+        let mut pool = Pool::new(4);
+        let e = pool.acquire(&mut world, |_, _| {});
+        pool.release(e, &mut world);
+        pool.release(e, &mut world); // ignored
+        assert_eq!(
+            pool.available_count(),
+            1,
+            "a double release must not park the entity twice"
+        );
+
+        let a = pool.acquire(&mut world, |_, _| {});
+        let b = pool.acquire(&mut world, |_, _| {});
+        assert_ne!(a, b, "two acquires must never yield the same Entity");
     }
 
     #[test]

@@ -100,6 +100,14 @@ fn parse_color(raw: &str) -> Option<Color> {
     if hex.len() != 6 && hex.len() != 8 {
         return None;
     }
+    // `len()` is BYTES, but the slices below are byte slices — so a 6- or 8-BYTE non-ASCII
+    // value ("가나" is 6 bytes / 2 chars) passes the length check and then splits mid-character,
+    // which panics. A hex colour is ASCII by definition, so rejecting non-ASCII here is both the
+    // minimal guard and the correct one. Reached from ordinary game data: any `[color=…]` tag in
+    // a dialogue or UI string, i.e. from a translator's file, not from engine code.
+    if !hex.is_ascii() {
+        return None;
+    }
     let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
     let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
     let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
@@ -109,4 +117,24 @@ fn parse_color(raw: &str) -> Option<Color> {
         255
     };
     Some(Color::rgba(r, g, b, a))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A 6- or 8-BYTE non-ASCII colour value must be rejected, not byte-sliced.
+    ///
+    /// `hex.len()` counts bytes but the slices are byte slices, so "가나" (6 bytes, 2 chars)
+    /// passed the length check and then split mid-character — a panic, reached from ordinary
+    /// game data: any `[color=…]` tag in a dialogue or UI string, i.e. from a translator's file.
+    #[test]
+    fn non_ascii_color_value_is_rejected_not_sliced() {
+        assert_eq!(parse_color("가나"), None, "6-byte non-ASCII must not panic");
+        assert_eq!(parse_color("#가나"), None);
+        assert_eq!(parse_color("가나다까"), None, "8-byte case");
+        // The valid forms still parse.
+        assert!(parse_color("#ff8800").is_some());
+        assert!(parse_color("ff8800cc").is_some());
+    }
 }
