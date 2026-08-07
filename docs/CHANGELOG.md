@@ -4,6 +4,24 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.146.0
+
+**Three silent failures now say something, and the docs stop teaching one of them.** From the 2026-08-07 analysis. Additive — no API removed, no existing call site behaves differently; MINOR because `submit_output`'s internal signature changed and `UiSystem` gained a field.
+
+**A dangling `after`/`before` label was ignored without a word.** `compute_order` skipped any ordering reference whose label no registered system carries, so the constraint the author wrote simply did not exist and the schedule fell back to insertion order — invisible until the day insertion order stops agreeing with the intent, at which point it presents as a frame-ordering glitch nowhere near the registration.
+
+The dominant cause was never a typo: **`add`/`add_system` attach `SystemConfig::default()`, whose `label` is `None`**, so `X::LABEL` names nothing at all unless X was itself registered with `.label(X::LABEL)`. A `LABEL` constant is just a `&'static str`, not a self-registering identity.
+
+**The engine's own rustdoc taught the broken form** — `scene.rs`'s `add_labeled` example did `systems.add(LayoutSystem)` and then `.after(LayoutSystem::LABEL)`, which binds to nothing — and examples copied it. Fixed in the doc and in `settings_menu`, `ui_layout_editor` and `sm_crossfade`; `platformer` already had it right. `compute_order` now `warn!`s per unmatched label, naming the system index, the label, and the `add_system_labeled(..., SystemConfig::new().label(…))` form that fixes it. It runs only on schedule recompute, not per frame.
+
+`dangling_after_label_creates_no_constraint` pins both halves — the same `after` produces no edge against an unlabeled target and a real one against a labeled target — asserting on the *edge* rather than on insertion order, since reversing the registration order is what tells the two cases apart.
+
+**`Events<UiEvent>` was the only engine bus that dropped its sends in silence.** `CollisionEvent`, `TriggerEvent`, `ZoneEvent`, `AnimationEvent` and `NetworkEvent` all warn when unregistered; `UiEvent` did not. It is also the worst one to lose: `ButtonState` carries no `Clicked` variant, so unlike a `Slider` or `Dropdown` — whose value stays readable straight off the component — **a button click has no polling fallback at all**. The UI keeps drawing, highlighting and responding to hover exactly as normal while nothing the player clicks ever reaches the game. (This is not hypothetical; the changelog records `ui_dropdown` shipping in precisely that state.) `UiSystem` now carries a `warned_no_bus` latch and warns once, mirroring `TriggerZoneSystem`.
+
+**`SerdeComponentRegistry` silently overwrote duplicate component names.** The docs declare the names must be unique but nothing enforced it — `insert` replaced the previous entry. The engine already occupies ~20 very ordinary names (`Panel`, `Label`, `Switch`, `Timeline`, `Slider`), so a fork registering its own `Panel` did not get an error; it got `ui::Panel` quietly evicted from scene save/load and from the editor's Add Component menu, with every existing scene file's `Panel` payload routed to the wrong deserializer. The reflect registry is keyed by `TypeId` and is unaffected, so the two registries end up disagreeing about what the name means — which is why the warning names both types.
+
+**Doc fix:** the animation module described `StateMachineSystem`'s label as `"engine::state_machine"`; the constant is `"engine::animation_state_machine"`. Anyone who copied the documented string got exactly the dangling-label silence above — the two defects interlocked.
+
 ## 0.145.4
 
 **Three ways the engine silently destroyed user data.** All from the 2026-08-07 analysis. None of them errored, logged, or crashed — which is what made them expensive.

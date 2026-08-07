@@ -166,7 +166,17 @@ pub(super) fn viewport_from_world(world: &World) -> Option<ViewportSize> {
     world.resource::<ViewportSize>().copied()
 }
 
-pub(super) fn submit_output(world: &mut World, output: UiOutput) {
+/// Pushes a frame's UI draw output and events into the world.
+///
+/// `warned_no_bus` latches the one-time "no `Events<UiEvent>`" warning. Every other
+/// engine-emitted bus (`CollisionEvent`, `TriggerEvent`, `ZoneEvent`, `AnimationEvent`,
+/// `NetworkEvent`) already warns when it is unregistered; `UiEvent` was the only one that
+/// dropped its sends in complete silence. It is also the worst one to lose, because
+/// `ButtonState` has no `Clicked` variant — so unlike a `Slider` or `Dropdown`, whose value
+/// stays readable on the component, a **button click has no polling fallback at all**. The UI
+/// draws, highlights and responds to hover exactly as normal while nothing the player clicks
+/// ever reaches the game.
+pub(super) fn submit_output(world: &mut World, output: UiOutput, warned_no_bus: &mut bool) {
     if let Some(ui_queue) = world.resource_mut::<UiQueue>() {
         for rect in output.rects {
             ui_queue.push(rect);
@@ -183,6 +193,14 @@ pub(super) fn submit_output(world: &mut World, output: UiOutput) {
             for ev in output.events {
                 events.send(ev);
             }
+        } else if !*warned_no_bus {
+            log::warn!(
+                "UiSystem: Events<UiEvent> is not registered, so UI events are being dropped — \
+                 every button click, slider drag and dropdown selection is discarded. Call \
+                 `app.register_event::<UiEvent>()` during setup. (Note that Button has no \
+                 polling fallback: ButtonState carries no `Clicked` variant.)"
+            );
+            *warned_no_bus = true;
         }
     }
 }

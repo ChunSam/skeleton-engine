@@ -68,6 +68,29 @@ pub fn compute_order(metas: &[SystemConfig]) -> Result<Vec<usize>, ScheduleError
         }
     }
 
+    // A dangling `after`/`before` reference is always a bug, never intent — but the loops below
+    // simply skip it, so the ordering the author wrote silently does not exist and the schedule
+    // falls back to insertion order. That is invisible until the day insertion order stops
+    // agreeing with the intent, and then it presents as a frame-ordering glitch nowhere near
+    // the registration.
+    //
+    // The dominant cause is NOT a typo. `add`/`add_system` attach `SystemConfig::default()`,
+    // whose `label` is `None`, so `X::LABEL` names nothing at all unless X was itself registered
+    // with `add_system_labeled(x, SystemConfig::new().label(X::LABEL))` — a `LABEL` constant is
+    // just a `&'static str`, not a self-registering identity.
+    for (i, m) in metas.iter().enumerate() {
+        for l in m.after.iter().chain(m.before.iter()) {
+            if !by_label.contains_key(l) {
+                log::warn!(
+                    "system #{i} is ordered against label {l:?}, but no registered system carries \
+                     that label — the constraint is being IGNORED and ordering falls back to \
+                     insertion order. Register the target with \
+                     `add_system_labeled(sys, SystemConfig::new().label({l:?}))`."
+                );
+            }
+        }
+    }
+
     // Edge set (from → to). HashSet to prevent duplicates.
     let mut edges: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
 
@@ -241,6 +264,41 @@ mod tests {
         assert!(
             pos1 < pos2,
             "render(idx 1) should come before after_render(idx 2)"
+        );
+    }
+
+    /// An `after` naming a label **no registered system carries** creates no constraint at all.
+    ///
+    /// This is the shape of the trap `compute_order` now warns about. `add`/`add_system` attach
+    /// `SystemConfig::default()`, whose `label` is `None` — a `LABEL` constant is just a
+    /// `&'static str`, not a self-registering identity. So the extremely natural
+    /// `systems.add(LayoutSystem); systems.add_labeled(UiSystem, SystemConfig::new()
+    /// .after(LayoutSystem::LABEL))` produced **zero** edges, and the ordering held only by the
+    /// accident of insertion order. The engine's own rustdoc taught that form, and four examples
+    /// copied it.
+    ///
+    /// Pinned as an assertion on the *edge*, not on insertion order: reversing the registration
+    /// order is what tells the two cases apart.
+    #[test]
+    fn dangling_after_label_creates_no_constraint() {
+        // index 0 wants to run after "layout", but index 1 carries NO label.
+        let metas = vec![meta_after("layout"), SystemConfig::default()];
+        let order = compute_order(&metas).unwrap();
+        let pos0 = order.iter().position(|&x| x == 0).unwrap();
+        let pos1 = order.iter().position(|&x| x == 1).unwrap();
+        assert!(
+            pos0 < pos1,
+            "a dangling label must add no edge, leaving pure insertion order; got {order:?}"
+        );
+
+        // Label the target and the very same `after` now genuinely orders them.
+        let metas = vec![meta_after("layout"), meta_label("layout")];
+        let order = compute_order(&metas).unwrap();
+        let pos0 = order.iter().position(|&x| x == 0).unwrap();
+        let pos1 = order.iter().position(|&x| x == 1).unwrap();
+        assert!(
+            pos1 < pos0,
+            "with the target labeled, `after` must reorder against insertion order; got {order:?}"
         );
     }
 }

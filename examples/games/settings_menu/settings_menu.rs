@@ -699,7 +699,8 @@ impl Scene for SettingsScene {
         play_bgm(world);
 
         systems.add(LocalizationSystem);
-        systems.add(LayoutSystem);
+        // Labeled, so the `.after(LayoutSystem::LABEL)` below actually binds to it.
+        systems.add_labeled(LayoutSystem, SystemConfig::new().label(LayoutSystem::LABEL));
         systems.add(SpinnerSystem::new());
         // UiSystem reads the layout geometry computed by LayoutSystem each frame — must run after it.
         systems.add_labeled(
