@@ -175,6 +175,19 @@ impl DialogueBox {
     /// non-localized box is untouched. Deliberately does **not** touch `current`/`elapsed`/reveal
     /// state, so it is safe to call every frame — the typewriter keeps its progress across a
     /// live locale switch.
+    /// Whether this box has anything a locale could translate — any `line_keys`, or any choice
+    /// carrying a `key`.
+    ///
+    /// Used by `DialogueSystem` to skip cloning the entire `LocaleResource` (which owns every
+    /// translated string in the game) on frames where no box would use it.
+    pub fn needs_locale_resolve(&self) -> bool {
+        !self.line_keys.is_empty()
+            || self
+                .choices
+                .iter()
+                .any(|(_line, choices)| choices.iter().any(|c| c.key.is_some()))
+    }
+
     pub fn resolve(&mut self, locale: &LocaleResource) {
         // Localized choices resolve independently of line keys: a literal-line box may still
         // present localized choices (and vice versa).

@@ -181,21 +181,11 @@ impl ZoneEffectSystem {
 
 impl System for ZoneEffectSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
-        // 1. Clone the active binding table out so we can take `&mut World` later.
-        let Some(bindings) = world
-            .resource::<ZoneEffectRegistry>()
-            .and_then(|r| r.get(&self.name).cloned())
-        else {
-            if !self.warned_no_table {
-                log::warn!(
-                    "ZoneEffectSystem: no zone-effect table registered under '{}'",
-                    self.name
-                );
-                self.warned_no_table = true;
-            }
-            return;
-        };
-
+        // The event snapshot comes FIRST so the overwhelmingly common no-events frame
+        // returns before touching the registry. Cloning the whole binding table and then
+        // discovering there was nothing to do meant every idle frame paid for a deep clone
+        // of every effect binding in the game. Pure reordering — the snapshot needs only
+        // `&World`, so nothing else changes.
         // 2. Snapshot this frame's zone events as (phase, zone, other) triples.
         let Some(bus) = world.resource::<Events<ZoneEvent>>() else {
             return;
@@ -212,6 +202,20 @@ impl System for ZoneEffectSystem {
         if events.is_empty() {
             return;
         }
+        // 1. Clone the active binding table out so we can take `&mut World` later.
+        let Some(bindings) = world
+            .resource::<ZoneEffectRegistry>()
+            .and_then(|r| r.get(&self.name).cloned())
+        else {
+            if !self.warned_no_table {
+                log::warn!(
+                    "ZoneEffectSystem: no zone-effect table registered under '{}'",
+                    self.name
+                );
+                self.warned_no_table = true;
+            }
+            return;
+        };
 
         // 3. Resolve matching rules into a flat action list (read-only world access). A zone's Tag
         //    names the rule key; `at` picks a SpawnParticles anchor (entrant vs zone), while a Flash

@@ -102,18 +102,31 @@ impl System for LocalizationSystem {
         };
 
         // 3. Apply to whichever text-bearing widget the entity carries.
+        // An entity carries at most one text-bearing widget in practice, but every branch
+        // cloned unconditionally — so the common single-widget case paid for four `String`
+        // allocations per entity per frame and threw three away. Write into whichever widget
+        // matches and MOVE the string into the last one; also skip the write when the text is
+        // already correct, which is every frame between locale switches.
         for (entity, text) in resolved {
             if let Some(label) = world.get_mut::<Label>(entity) {
-                label.text = text.clone();
+                if label.text != text {
+                    label.text = text.clone();
+                }
             }
             if let Some(button) = world.get_mut::<Button>(entity) {
-                button.label = text.clone();
+                if button.label != text {
+                    button.label = text.clone();
+                }
             }
             if let Some(checkbox) = world.get_mut::<CheckBox>(entity) {
-                checkbox.label = text.clone();
+                if checkbox.label != text {
+                    checkbox.label = text.clone();
+                }
             }
             if let Some(ti) = world.get_mut::<TextInput>(entity) {
-                ti.placeholder = text.clone();
+                if ti.placeholder != text {
+                    ti.placeholder = text;
+                }
             }
         }
     }

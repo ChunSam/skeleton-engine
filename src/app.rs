@@ -284,7 +284,7 @@ impl App {
         // systems (smaller indices) run before HierarchySystem (largest index) by default.
         // A user system that explicitly declares `.after(HierarchySystem::LABEL)` is placed
         // after it by the topological sort, so it sees the freshly-propagated GlobalTransforms.
-        app.systems.push(Box::new(HierarchySystem));
+        app.systems.push(Box::new(HierarchySystem::default()));
         app.system_meta
             .push(crate::ecs::schedule::SystemConfig::new().label(HierarchySystem::LABEL));
         app.builtin_tail_count = 1;
