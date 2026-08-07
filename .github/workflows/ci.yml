@@ -252,6 +252,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # `wasm_smoke.sh` is the one smoke here that also builds a NATIVE binary — the
+      # authoritative `coin_race_server` it stands up — and the native build pulls in `alsa-sys`.
+      # The other five are pure wasm and need none of this. (Discovered the honest way: adding
+      # the smoke without this step failed with "Package alsa was not found in the pkg-config
+      # search path". The old note claiming the script was "byte-size only" was wrong about WHY
+      # it was kept local, but not wrong that it costs more than the others.)
+      - name: Install system dependencies (native server build)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libudev-dev libxkbcommon-dev \
+            libwayland-dev libx11-dev pkg-config
+
       - name: Install Rust 1.95 + wasm32 target
         uses: dtolnay/rust-toolchain@1.95.0
         with:
