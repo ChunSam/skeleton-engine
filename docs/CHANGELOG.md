@@ -4,6 +4,41 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.145.0
+
+**`App::step_headless(dt)` — a public frame step, and the two scene-lifecycle acceptance tests it unblocks.** Additive: one new public method, no API removed, no existing call site behaves differently.
+
+`docs/NEXT_WORK.md` had carried one blocked item since 2026-08-04, recorded as the single real gap left after the selftest programme reached its planned stopping point: `settings_menu`/`scene_flow` cross-scene persistence could not be self-tested, because **a self-test can drive anything expressed as systems + resources, and nothing expressed as an `App` frame step**. That is now false, and the item is closed.
+
+**Why the gap existed.** A scene change is not a system. `SceneCmd::Replace` is *requested* during the schedule and *consumed* after it, in the same end-of-frame block as the event/input flush and the fade tick. Every other selftest in the tree drives a scene by ticking its systems by hand — which is enough for gameplay, and structurally unable to reach a scene boundary or the World reset behind it. `App::update` was `pub(super)`.
+
+**What was actually missing was smaller than it looked.** `update` never needed a GPU: every GPU touch inside it is already guarded on a context being present, and `begin_egui_frame` is a no-op without a window. So `step_headless` is a delegation, not a new code path — the same frame the windowed loop runs, minus the draw. The crate's own inline tests had been calling `update` this way all along.
+
+**The first test is about the documented reset footgun** — `Replace` rebuilds the World and drops every resource not named by `register_persistent`. `SETTINGS_MENU_SELFTEST=1` drives two `Replace` round trips with real scripted input (Enter, a mouse click on the 한국어 button, Escape) and asserts six things, each with its own exit code.
+
+Three of them have no pixels at all, which is why this is a selftest and not a capture:
+
+- **The failure is silent and flatters itself.** Every read site in that example is `unwrap_or_default()` — a game must not crash on a missing resource — so a dropped `Settings` does not error, it renders a *complete, plausible settings screen* built from `Settings::default()`. "Hero" / 0.6 / subtitles-on photographs exactly as convincingly as whatever the player chose.
+- **Selectivity has no visual.** Exit 3 is the check that gives the others meaning: a resource that was never registered must be **gone**. Without it, an engine that simply never reset the World would pass every positive check here.
+- **`Audio` cannot be photographed** — a headless capture advances at fixed dt with no wall clock. The inline test `audio_is_registered_to_survive_a_scene_reset` can only assert the *registration*, because CI has no device; running on a machine that has one, this asserts the surviving **instance** and its bus mix.
+
+Exits 4 and 5 are deliberately separate. State that survives but is never read back leaves the player looking at default widgets — the same bug from their side, and a different bug from the engine's.
+
+**Two findings from making it falsifiable**, both caught by sabotage rather than reasoning:
+
+- **A skip and a failure were the same observable.** The first draft asked `world.resource::<Audio>()` after the round trip: `None` means either "no sound card" or "the reset dropped the handle", and the check took the SKIP path for both. Sabotaging the engine's own `register_persistent::<Audio>` call made it report success.
+- **The obvious fix did not work either, and the reason is worth keeping: `set_scene` is itself a `SceneCmd::Replace`.** So sampling "before the transition" — after the app was built — is still sampling downstream of the mechanism under test; the second draft skipped for the same reason. The device probe now runs *before the app exists*.
+
+All six checks were confirmed non-vacuous by sabotage (6/6 produce their exact exit code, every revert byte-compared against a pristine copy), including sabotaging `App::new`'s own `Audio` registration in `src/app.rs`.
+
+**`SCENE_FLOW_SELFTEST=1` covers the other arm of `apply_scene_cmd`.** `Replace` rebuilds the World; **`Push`/`Pop` reset nothing at all**, so a pushed overlay suspends the scene beneath instead of destroying it and `Pop` *resumes* rather than re-enters. `scene_flow` is the only example using the scene stack, and the distinction is invisible: a `Pop` wrongly written as `Replace(PlayScene)` brings the play screen back correctly drawn in every pixel, because a fresh `PlayScene` draws exactly like a resumed one — the player finds out by having lost their progress.
+
+The test carries **one marker entity and one unregistered marker resource** through all three commands, and they run in opposite directions on purpose: Push/Pop must **keep** them (persistence registration is not even consulted, since no reset happens), Replace must **drop** them, while the registered `StatsData` crosses where they do not. Either half alone is passable — survival-only passes on an engine that never resets, reset-only on one that always does. `play_enters` staying at 1 across the Push/Pop cycle is the headline. 4/4 by sabotage.
+
+One diagnostic fix came out of that sweep: sabotaging `register_persistent::<StatsData>` first reported **exit 1, "Enter did not start the game"** — which was false. The game had started; the scoreboard the check read had vanished, because `set_scene` is a `Replace` and dropped it before the first frame. The transition check now asserts on `GameState`, which every `on_enter` sets and no persistence registration governs, and a missing `StatsData` reports as itself. A check that fails for the right reason with the wrong message costs a session the next time it fires.
+
+The example's setup moved into a shared `build_app()` that both `main` and the test call, because the `register_persistent` calls **are** the subject: a harness that repeated them would grade its own copy and stay green after the real setup lost one.
+
 ## 0.144.0
 
 **`SKELETON_MUTE=1` silences a test run without weakening it.** Additive: default behaviour is unchanged, no API removed, no existing call site behaves differently.

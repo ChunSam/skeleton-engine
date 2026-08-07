@@ -14,6 +14,11 @@
 //! Cross-scene state (`Settings` and the locale) is kept across the `SceneCmd::Replace`
 //! world reset via `App::register_persistent`. `Audio` needs no such call — the engine
 //! registers it in `App::new` (v0.141.1).
+//!
+//! - `SETTINGS_MENU_SELFTEST=1 cargo run --example settings_menu_game` — asserts that the state
+//!   above really crosses the world reset, that the rebuilt UI reads it, and that a resource
+//!   which was *not* registered is dropped. A screenshot cannot: every read site is
+//!   `unwrap_or_default()`, so a dropped resource renders a plausible screen rather than an error.
 
 use engine::{
     Anchor, App, Audio, Button, CheckBox, Color, Entity, Events, GameState, ImeConfig, InputState,
@@ -968,12 +973,11 @@ impl System for DialogueSystem {
 
 // ── entry point ────────────────────────────────────────────────────────────────
 
-fn main() {
-    // Native log backend so `log::debug!` (incl. the engine's `frame gap …ms`
-    // drag-stall instrumentation) is visible. Control with e.g. RUST_LOG=engine=debug.
-    #[cfg(not(target_arch = "wasm32"))]
-    let _ = env_logger::try_init();
-
+/// The whole game, ready to `run()`. The acceptance test below calls **this** rather than
+/// assembling its own app: the persistent-resource registrations are precisely what it verifies,
+/// so a harness that repeated them would be grading its own copy and would stay green after a
+/// `register_persistent` call was dropped from the real setup.
+fn build_app() -> App {
     let mut app = App::new();
     app.register_event::<UiEvent>();
 
@@ -995,5 +999,308 @@ fn main() {
 
     app.set_scene(Box::new(TitleScene::new()));
     configure_window(&mut app.world);
-    app.run();
+    app
+}
+
+fn main() {
+    // `SETTINGS_MENU_SELFTEST=1` runs the headless acceptance test instead of opening a window.
+    #[cfg(not(target_arch = "wasm32"))]
+    if std::env::var("SETTINGS_MENU_SELFTEST").is_ok() {
+        std::process::exit(self_test());
+    }
+
+    // Native log backend so `log::debug!` (incl. the engine's `frame gap …ms`
+    // drag-stall instrumentation) is visible. Control with e.g. RUST_LOG=engine=debug.
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = env_logger::try_init();
+
+    build_app().run();
+}
+
+// ── Acceptance test ───────────────────────────────────────────────────────────────────────────
+
+/// `SETTINGS_MENU_SELFTEST=1 cargo run --example settings_menu_game` — asserts what this example
+/// exists to show and a screenshot cannot.
+///
+/// The subject is the engine's **documented reset footgun**: `SceneCmd::Replace` rebuilds the
+/// `World`, and every resource in it is dropped unless `register_persistent` named the type. This
+/// example is the tree's cross-scene state case — `Settings` and `LocaleResource` are registered,
+/// `Audio` is registered by `App::new` itself — so it is where the mechanism gets driven.
+///
+/// A capture can photograph the settings screen in Korean after a scripted round trip, so the
+/// locale alone is not the argument. Three things here have no pixels at all:
+///
+/// * **The failure is silent and flatters itself.** Every read site in this example is
+///   `unwrap_or_default()` / `unwrap_or_else` — a game must not crash on a missing resource — so a
+///   dropped `Settings` does not error, it renders a *complete, plausible settings screen* built
+///   from `Settings::default()`. "Hero", 0.6, 0.6, subtitles on is exactly as convincing a
+///   photograph as whatever the player actually chose. Nothing on screen distinguishes state that
+///   survived from state that was silently re-defaulted.
+/// * **Selectivity has no visual.** Check 3 is the one that gives the others meaning: a resource
+///   that was *never* registered must be **gone**. Without it an engine that simply never reset the
+///   `World` would pass every positive check here.
+/// * **`Audio` cannot be photographed at all** — a headless capture advances at a fixed `1/60` dt
+///   with no wall clock. Whether the device handle and its bus volumes crossed the reset is the
+///   "session state, must persist" half of the v0.139.1 audit, and no still frame reaches it.
+///
+/// It is also the first check in the tree that crosses a scene boundary. It could not exist before
+/// `App::step_headless`: `SceneCmd` is consumed *after* the schedule, so a test that ticks systems
+/// by hand — which is how every other selftest here drives a scene — never reaches the transition
+/// and never sees the reset.
+///
+/// Exit codes: `0` pass (the audio check may have skipped) · `1` the title→settings transition does
+/// not happen · `2` the language button does not change the locale · `3` a resource that was never
+/// registered persistent survives the reset · `4` registered cross-scene state does not survive it
+/// · `5` the rebuilt UI does not read the state that survived · `6` the engine-registered `Audio`
+/// handle or its bus volumes do not survive.
+#[cfg(not(target_arch = "wasm32"))]
+fn self_test() -> i32 {
+    use engine::{InputAction, InputScript, MouseButton, Vec2, ViewportSize};
+
+    /// Fixed step. Everything asserted below is driven by scripted input and by `dt`; nothing
+    /// waits on a wall clock, so this reproduces real play exactly. (The audio check reads stored
+    /// bus state, not a live meter — a *meter* is what would need an `Instant`.)
+    const DT: f32 = 1.0 / 60.0;
+
+    /// A full app frame each: scripted input, the schedule, then the end-of-frame work where
+    /// `SceneCmd` is consumed. The transition under test lives in that last part.
+    fn steps(app: &mut App, n: u32) {
+        for _ in 0..n {
+            app.step_headless(DT);
+        }
+    }
+
+    /// The Settings screen is the only scene with sliders, and it has exactly two.
+    fn slider_count(world: &World) -> usize {
+        world.query::<Slider>().count()
+    }
+
+    // A resource the game never registers — the negative control for check 3.
+    struct SceneLocal;
+
+    // ── Arrange ───────────────────────────────────────────────────────────────────────────────
+    //
+    // Does this machine have an output device at all? Asked **before the app exists**, because
+    // check 6 needs to tell "no sound card" apart from "the reset dropped the handle" and those
+    // are the same observable afterwards — a check that reads only the far side takes the SKIP
+    // path when it should fail, and reports success.
+    //
+    // Sampling `app.world.resource::<Audio>()` after `build_app` does not work either, and the
+    // reason is worth keeping: **`set_scene` is itself a `SceneCmd::Replace`**, so `build_app`
+    // has already performed one world reset by the time it returns. A sample taken there is a
+    // sample taken downstream of the mechanism under test. (Both of these were caught by
+    // sabotaging the engine's own `register_persistent::<Audio>` call and watching this check
+    // pass twice.)
+    let device_available = Audio::new().is_some();
+
+    // `build_app` is the game's own setup, `register_persistent` calls included: those calls are
+    // the subject, so the harness must not repeat them.
+    let mut app = build_app();
+
+    // Headless has no surface, and `compute_viewport` — the only writer of ViewportSize — is
+    // skipped without a GPU, so the UI would have no coordinate space to hit-test the click in.
+    // Supply the window's own size, and keep it across the resets the windowed app would simply
+    // recompute it after. This is the one thing the harness stands in for.
+    app.world
+        .insert_resource(ViewportSize::new(WINDOW_W, WINDOW_H));
+    app.register_persistent::<ViewportSize>();
+
+    // ── 1. The real transition happens ────────────────────────────────────────────────────────
+    //
+    // Everything below is about what crosses a scene boundary, so a run that never crossed one
+    // would pass the rest vacuously.
+    app.set_input_script(InputScript::new([(
+        1,
+        InputAction::KeyPress(KeyCode::Enter),
+    )]));
+    steps(&mut app, 8);
+
+    if slider_count(&app.world) != 2 {
+        eprintln!(
+            "FAIL: Enter at the title did not reach the Settings scene — {} slider(s) in the \
+             world after 8 frames, want 2. Nothing below crosses a scene boundary without this.",
+            slider_count(&app.world)
+        );
+        return 1;
+    }
+    println!("transition ok: title → settings, 2 sliders on screen");
+
+    // ── 2. Change the language through the real UI ────────────────────────────────────────────
+    //
+    // A click on the 한국어 button, not a resource poke: it is `SettingsSystem`'s own handler that
+    // writes both `LocaleResource` and `Settings.locale`, and a harness that wrote them itself
+    // would keep passing after that handler was deleted. The language buttons are absolutely
+    // positioned (`UiNode::new(610.0, 90.0, 130.0, 38.0)`), not laid out by `LayoutSystem`, so
+    // their centre is known without reproducing the layout pass.
+    app.set_input_script(InputScript::new([
+        (0, InputAction::MouseMove(Vec2::new(675.0, 109.0))),
+        (1, InputAction::Click(MouseButton::Left)),
+    ]));
+    steps(&mut app, 6);
+
+    let locale_now = app
+        .world
+        .resource::<LocaleResource>()
+        .map(|l| l.current_locale().to_string())
+        .unwrap_or_default();
+    if locale_now != "ko" {
+        eprintln!(
+            "FAIL: clicking the 한국어 button did not switch the locale — current locale {locale_now:?}, \
+             want \"ko\". The state the reset checks are about to carry was never actually set."
+        );
+        return 2;
+    }
+    println!("ui ok: 한국어 click switched the locale to ko");
+
+    // The remaining values a player sets by typing and dragging inside the laid-out panel.
+    // Set directly: reproducing `LayoutSystem`'s geometry to aim a drag would test the layout
+    // pass, not the reset. What is under test is that these values *cross the boundary*, and
+    // they are distinguishable from `Settings::default()` ("Hero", 0.6) on purpose — a silent
+    // re-default has to look different from a survival, or the check proves nothing.
+    if let Some(s) = app.world.resource_mut::<Settings>() {
+        s.name = "Ada".to_string();
+        s.music = 0.9;
+    }
+    if let Some(audio) = app.world.resource_mut::<Audio>() {
+        audio.set_bus_volume("music", 0.9);
+    }
+    // The negative control, inserted on the far side of the boundary from its check.
+    app.world.insert_resource(SceneLocal);
+
+    // ── 3. An unregistered resource does NOT survive ──────────────────────────────────────────
+    //
+    // The check that gives checks 4-6 their meaning. `SceneLocal` differs from `Settings` in
+    // exactly one way — nothing called `register_persistent` for it — so if it is still here the
+    // World was never reset, and "persisted" below would mean only "never dropped anything".
+    app.set_input_script(InputScript::new([(
+        1,
+        InputAction::KeyPress(KeyCode::Escape),
+    )]));
+    steps(&mut app, 8);
+
+    let back_at_title = slider_count(&app.world) == 0;
+    let leaked = app.world.resource::<SceneLocal>().is_some();
+    if !back_at_title || leaked {
+        eprintln!(
+            "FAIL: the world reset did not happen as a reset — back at the title: {back_at_title} \
+             (want true; {} slider(s) still alive), unregistered SceneLocal still present: {leaked} \
+             (want false). If it survived, `register_persistent` is not what decides, and every \
+             check below would pass on an engine that never resets the World at all.",
+            slider_count(&app.world)
+        );
+        return 3;
+    }
+    println!("reset ok: settings → title, scene entities gone, unregistered resource dropped");
+
+    // ── 4. Registered cross-scene state DOES survive ──────────────────────────────────────────
+    app.set_input_script(InputScript::new([(
+        1,
+        InputAction::KeyPress(KeyCode::Enter),
+    )]));
+    steps(&mut app, 8);
+
+    if slider_count(&app.world) != 2 {
+        eprintln!(
+            "FAIL: could not return to the Settings scene — {} slider(s), want 2.",
+            slider_count(&app.world)
+        );
+        return 1;
+    }
+
+    let settings = app
+        .world
+        .resource::<Settings>()
+        .cloned()
+        .unwrap_or_default();
+    let locale = app
+        .world
+        .resource::<LocaleResource>()
+        .map(|l| l.current_locale().to_string())
+        .unwrap_or_default();
+    if settings.name != "Ada" || (settings.music - 0.9).abs() > 1e-6 || locale != "ko" {
+        eprintln!(
+            "FAIL: cross-scene state did not survive the reset — name {:?} (want \"Ada\"), music \
+             {:.3} (want 0.900), locale {locale:?} (want \"ko\"). Defaults are \"Hero\" / 0.600 / \
+             \"en\": reading those back means the resources were dropped and re-created, which \
+             renders a perfectly plausible settings screen and reports no error anywhere.",
+            settings.name, settings.music
+        );
+        return 4;
+    }
+    println!(
+        "persist ok: name {:?}, music {:.2}, locale {locale:?} survived a Replace round trip",
+        settings.name, settings.music
+    );
+
+    // ── 5. The rebuilt UI reads the state that survived ───────────────────────────────────────
+    //
+    // Checks 4 and 5 are not the same check. A `Settings` that survives but is never read back
+    // leaves the player looking at default widgets, which is the same bug from the player's side.
+    // `on_enter` seeds the widgets from the resource; `LocalizationSystem` retranslates the
+    // labels — so the Korean title proves the *rebuilt* tree consumed the persisted locale, not
+    // merely that a resource somewhere still holds "ko".
+    let name_shown = app
+        .world
+        .query::<TextInput>()
+        .any(|(_, input)| input.text == "Ada");
+    let music_shown = app
+        .world
+        .query::<Slider>()
+        .any(|(_, s)| (s.value - 0.9).abs() < 1e-6);
+    let korean_title = app.world.query::<Label>().any(|(_, l)| l.text == "설정");
+    if !name_shown || !music_shown || !korean_title {
+        eprintln!(
+            "FAIL: the rebuilt Settings screen did not read the state that survived — name field \
+             shows \"Ada\": {name_shown}, a slider sits at 0.9: {music_shown}, the title label \
+             retranslated to \"설정\": {korean_title} (all want true). The resource surviving and \
+             the screen showing it are two different failures with the same symptom for a player."
+        );
+        return 5;
+    }
+    println!("rebuild ok: the new scene's widgets show Ada / 0.90 / 설정");
+
+    // ── 6. The engine-registered Audio handle survives ────────────────────────────────────────
+    //
+    // `Audio` is session state: a device handle and its bus mix, registered persistent by
+    // `App::new` (v0.141.1) rather than by this example. Dropping it on a scene change would
+    // silence the game from the second scene onward and raise nothing — and no capture can
+    // photograph it, because a headless run has no wall clock for audio to be measured on.
+    //
+    // The inline test `audio_is_registered_to_survive_a_scene_reset` can only assert on the
+    // *registration*, because CI has no device and `Audio::new()` returns `None` there. This runs
+    // on a machine that has one, so it asserts on the surviving **instance** and its bus mix —
+    // the thing the registration exists to produce.
+    //
+    // SKIPs with exit 0 only when the machine has no device, the same rule
+    // `BEAT_CRAWLER_SELFTEST` uses — decided by `device_available`, probed before the app existed,
+    // so a handle the reset actually dropped fails here instead of skipping.
+    if !device_available {
+        println!("SKIP: no audio device on this machine — the Audio persistence check did not run");
+    } else {
+        let Some(audio) = app.world.resource::<Audio>() else {
+            eprintln!(
+                "FAIL: the Audio resource is gone after the reset, though this machine has a \
+                 working output device. `App::new` registers Audio persistent (v0.141.1); \
+                 without that the game \
+                 falls silent from the second scene onward and every `resource_mut::<Audio>()` \
+                 call site quietly does nothing — no error, no log, no pixels."
+            );
+            return 6;
+        };
+        let music = audio.bus_volume("music");
+        let sfx = audio.bus_volume("sfx");
+        if (music - 0.9).abs() > 1e-6 || (sfx - 0.6).abs() > 1e-6 {
+            eprintln!(
+                "FAIL: the Audio handle did not carry its bus mix across the reset — music bus \
+                 {music:.3} (want 0.900, set before the transition), sfx bus {sfx:.3} (want \
+                 0.600, set at startup). Audio is registered persistent by `App::new`, not by \
+                 this example, so this is the engine's own registration under test."
+            );
+            return 6;
+        }
+        println!("audio ok: the Audio handle survived with music {music:.2} / sfx {sfx:.2}");
+    }
+
+    println!("SETTINGS_MENU_SELFTEST: all checks passed");
+    0
 }
