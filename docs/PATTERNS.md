@@ -314,14 +314,24 @@ more were being silently reverted, all with the same one-line fix.** Each has a 
 `src/app.rs` that was confirmed to fail before the fix.
 
 The other 20 are correctly scene state, and this is the negative result worth keeping so nobody
-re-runs the audit:
+re-runs the audit.
+
+> **Amended v0.147.0.** This table used to list **22** members (so the "20" above disagreed with
+> it), because it filed `AssetServer` and `ScriptRegistry` under "path-keyed caches — a reset costs
+> a re-load, not wrongness". **That rationale was false**, and the 2026-08-07 analysis caught it:
+> nothing re-loads them, `load_atlas_bytes`/`load_image_bytes` have no path to re-load *from*, and
+> the loss is invisible rather than merely costly — the `SpriteRenderer` texture cache lives on
+> `App` rather than in the World, so plain `Sprite`s keep rendering while `AtlasSprite` and every
+> `ScriptRunner` silently stop working. Both are now auto-persisted, which is what the
+> session-vs-scene test said all along ("config, device handles, **caches** → must persist"), and
+> the count is finally 20 for real.
 
 | Group | Members | Why resetting is right |
 |---|---|---|
 | Device / derived state | `InputState`, `GamepadState`, `TouchState`, `RealDt`, `ViewportSize`, `PendingResize` | Rewritten from a live source every frame; self-heals on the next tick |
 | Per-frame draw queues | `TextQueue`, `UiQueue`, `UiImageQueue`, `DebugDraw` | Cleared and refilled every frame |
 | Scene-scoped state | `GameState`, `Camera`, `UiFocus`, `SelectedEntity`, `ProfilerData`, `SceneChange`, `LoadProgress`, `ShouldQuit` | Per-scene by definition; several hold `Entity` ids from the destroyed world |
-| Rebuilt by another mechanism | `AssetServer`, `ScriptRegistry`, `SerdeComponentRegistry`, `PanickedSystems` | Path-keyed caches (a reset costs a re-load, not wrongness), or re-registered by `reload_scene` itself |
+| Rebuilt by another mechanism | `SerdeComponentRegistry`, `PanickedSystems` | Re-registered by `reload_scene` itself |
 
 **`TimeScale` is the one deliberate exclusion.** It is engine-inserted config-shaped state, but it
 is a *live gameplay effect* (hit-stop, slow-mo) that games drive moment-to-moment — a frozen or

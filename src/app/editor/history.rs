@@ -83,6 +83,23 @@ impl EditorHistory {
         }
     }
 
+    /// Drops both stacks. Called whenever entity identity stops being meaningful — a world
+    /// reset or a scene load — because every `EditorCmd` stores raw `Entity` handles. The ECS
+    /// reuses entity ids, so a stale `DeleteEntity(e)` sitting in the undo stack does not fail
+    /// after a reset: it resolves onto whatever NEW entity now occupies that slot and deletes
+    /// that instead. Ctrl+Z then destroys something the user never touched.
+    pub(in crate::app) fn clear(&mut self) {
+        self.undo.clear();
+        self.redo.clear();
+    }
+
+    /// Number of undoable commands on the stack. Test-only accessor — the fields are private
+    /// to this module and `editor/tests.rs` is a sibling, not a descendant.
+    #[cfg(test)]
+    pub(in crate::app) fn undo_len(&self) -> usize {
+        self.undo.len()
+    }
+
     pub(in crate::app) fn push(&mut self, cmd: EditorCmd) {
         self.undo.push(cmd);
         self.redo.clear();

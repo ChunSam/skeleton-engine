@@ -568,3 +568,30 @@ fn prefab_save_and_spawn_push_toasts() {
     );
     let _ = std::fs::remove_file(&path);
 }
+
+/// Undo/redo must be dropped when the world is rebuilt.
+///
+/// Every `EditorCmd` stores raw `Entity` handles, and the ECS reuses entity ids. So a command
+/// left on the stack across a `Replace` does not merely fail after the reset — it **resolves onto
+/// whatever new entity now occupies that slot**. One Ctrl+Z then deletes, moves or re-parents an
+/// object the user never touched, in a scene they only just loaded.
+#[test]
+fn world_reset_clears_editor_undo_history() {
+    let mut app = crate::App::new();
+    let e = app.world.spawn();
+    app.world
+        .add_component(e, crate::components::Transform::default());
+    app.editor.cmd_history.push(EditorCmd::DeleteEntity {
+        entity: Some(e),
+        def: Default::default(),
+    });
+    assert_eq!(app.editor.cmd_history.undo_len(), 1);
+
+    app.reload_scene();
+
+    assert_eq!(
+        app.editor.cmd_history.undo_len(),
+        0,
+        "undo history survived a world reset — its stale Entity handles now alias live entities"
+    );
+}

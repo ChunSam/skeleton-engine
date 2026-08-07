@@ -130,3 +130,65 @@ fn render_modifier_components_are_serde_registered() {
         );
     }
 }
+
+/// Loaded atlases and scripts must survive a scene `Replace`.
+///
+/// `AssetServer` and `ScriptRegistry` are caches — the category `docs/PATTERNS.md` names
+/// explicitly as session state that must persist — but `insert_core_resources` rebuilt both empty
+/// on every `Replace`. The loss was invisible in the worst possible way: the `SpriteRenderer`
+/// texture cache lives on `App`, not in the World, so plain `Sprite`s kept rendering perfectly
+/// while `AtlasSprite` (which needs `AssetServer.atlases` for its UV lookup) and every
+/// `ScriptRunner` quietly stopped working. Load your sheets at startup — the obvious thing to do —
+/// and you got a working first scene and a broken second one, with no error anywhere.
+#[test]
+fn asset_server_and_script_registry_survive_scene_replace() {
+    struct Empty;
+    impl engine::scene::Scene for Empty {
+        fn on_enter(
+            &mut self,
+            _w: &mut engine::ecs::World,
+            _s: &mut engine::scene::SystemRegistrar,
+        ) {
+        }
+        fn on_exit(&mut self, _w: &mut engine::ecs::World) {}
+    }
+
+    let mut app = engine::App::new();
+    // A byte-sourced atlas needs no file on disk and keys verbatim, so it is the cleanest probe.
+    let png = {
+        // 1x1 transparent PNG.
+        const BYTES: &[u8] = &[
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
+            0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78,
+            0x9C, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+            0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        ];
+        BYTES
+    };
+    let key = "embedded/__scene_replace_atlas__";
+    let handle = app.load_atlas_bytes(key, png, 1, 1);
+    assert!(
+        app.world
+            .resource::<engine::AssetServer>()
+            .and_then(|a| a.get_atlas(&handle))
+            .is_some(),
+        "atlas must be registered before the transition"
+    );
+
+    app.set_scene(Box::new(Empty));
+
+    let assets = app
+        .world
+        .resource::<engine::AssetServer>()
+        .expect("AssetServer present after Replace");
+    assert!(
+        assets.get_atlas(&handle).is_some(),
+        "the atlas loaded before the scene change was dropped by the World reset — every \
+         pre-existing AtlasSprite would render nothing, silently"
+    );
+    assert!(
+        app.world.resource::<engine::ScriptRegistry>().is_some(),
+        "ScriptRegistry must survive the reset too"
+    );
+}

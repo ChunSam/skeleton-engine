@@ -4,6 +4,20 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.147.0
+
+**What survives a scene `Replace` — and a correction to the v0.139.1 audit that said it did not need revisiting.** From the 2026-08-07 analysis.
+
+**`AssetServer` and `ScriptRegistry` are now auto-persisted.** Both were rebuilt empty by `insert_core_resources` on every `Replace`, and the loss was invisible in the worst possible way: the `SpriteRenderer` texture cache lives on `App`, **not in the World**, so plain `Sprite`s kept rendering perfectly while `AtlasSprite` — which needs `AssetServer.atlases` for its UV lookup — and every `ScriptRunner` quietly stopped working. A game that loads its sheets and scripts once at startup, the obvious thing to do, got a working first scene and a broken second one with no error anywhere. `AssetServer` also owns the native file-watch registrations behind F2 hot-reload, so dropping it silently ended hot-reload for the rest of the session.
+
+**The v0.139.1 audit table was wrong about these two, and the error was in its rationale rather than its arithmetic.** It filed them under "path-keyed caches — a reset costs a re-load, not wrongness". Nothing re-loads them; `load_atlas_bytes` / `load_image_bytes` have no path to re-load *from*; and the cost is not a re-load but silent wrongness. The session-vs-scene test the audit itself defines names caches explicitly ("config, device handles, **caches** → must persist"), so this was always the answer. `docs/PATTERNS.md` now carries the amendment rather than the old claim — which also resolves a numeric drift the analysis flagged separately: the prose said "the other 20" while the table listed 22. With these two moved, it is 20 for real.
+
+A game that genuinely wants per-scene asset teardown can still clear the resource itself. That is a deliberate act, unlike the previous silent drop.
+
+**Editor undo/redo is cleared on world reset.** Every `EditorCmd` stores raw `Entity` handles and the ECS reuses entity ids, so a command surviving a `Replace` did not merely fail — it **resolved onto whatever new entity now occupied that slot**. One Ctrl+Z could delete, move or re-parent an object the user never touched, in a scene they had only just loaded. `reload_scene` now clears the history alongside the selection and clipboard it already cleared.
+
+Both halves have regression tests; the asset one is verified non-vacuous by sabotage.
+
 ## 0.146.1
 
 **Five crashes and one hang, all reachable from ordinary game data rather than from engine misuse.** From the 2026-08-07 analysis. Each has a regression test verified non-vacuous by sabotage.
