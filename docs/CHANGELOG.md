@@ -4,6 +4,18 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.145.3
+
+**macOS gamepad presses are no longer dropped while the mouse is moving.** Found by the 2026-08-07 analysis, in the one place the project's own docs say CI structurally cannot look: native gamepad input.
+
+macOS uses the GameController framework rather than `gilrs` (gilrs is blind to pads that framework has claimed), so it gets a **full held-button snapshot** each poll instead of events. `apply_macos_snapshot` derived the edges by diffing that snapshot against the previous held set and then **assigned** the result: `slot.just_pressed = <diff>`.
+
+That is only correct if the snapshot is taken exactly once per frame, and it is not. `flush()` — the one thing allowed to clear a `just_*` edge — runs once per frame in `app/schedule.rs`, but the snapshot is taken in `about_to_wait`, which runs once per event-loop **iteration**, and input events wake the loop. So during any mouse movement several snapshots land between two frames: the second one finds the button already in `pressed`, computes an empty diff, and wipes the edge the first recorded — before the frame ever read it. The button press simply never happened. The event-driven `gilrs` path never had this problem because it `insert`s into the edge sets, and the type's own doc comment already said `pressed` persists across `flush` "which only clears the `just_*` edges".
+
+The diffing now lives in `Slot::apply_snapshot`, which **accumulates** into both edge sets, matching the `gilrs` path exactly.
+
+**The method is deliberately not `#[cfg(target_os = "macos")]`**, even though the GameController backend is its only caller. A macOS-gated test never runs in CI — the macOS job only builds — so gating the policy would have left the regression untested for the same reason it shipped. Keeping the *policy* un-gated while the *backend* stays gated is the "share the policy, not the implementation" rule this repo already applies to native/wasm splits, and it lets `snapshot_accumulates_edges_until_flush` drive the exact two-snapshots-between-frames interleaving on every platform, with no pad attached. Non-vacuous by sabotage: restoring the assignment fails it with "press edge dropped by a second snapshot taken before the frame read it".
+
 ## 0.145.2
 
 **The docked editor's game viewport no longer goes blank when post-processing is enabled.** Found by the 2026-08-07 analysis; the second of the two `app/render/frame.rs` defects that pass fully verified.

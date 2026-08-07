@@ -58,6 +58,32 @@ impl Slot {
         self.just_pressed.clear();
         self.just_released.clear();
     }
+
+    /// Folds a **full held-button snapshot** into this slot, *accumulating* the `just_*` edges.
+    ///
+    /// The edge policy is the whole point, and it must match the event-driven `gilrs` path
+    /// (`process_event`), which `insert`s into `just_pressed`/`just_released` and lets [`flush`]
+    /// — once per frame — be the only thing that clears them. A snapshot backend that *assigns*
+    /// the diff instead silently drops inputs, because it is polled far more often than once per
+    /// frame: `about_to_wait` runs once per event-loop **iteration**, and input events wake the
+    /// loop, so during any mouse movement several snapshots land between two frames. The second
+    /// one computes an empty diff (`pressed` already holds the button) and wipes the edge the
+    /// first one recorded, before the frame ever read it.
+    ///
+    /// Deliberately **not** `#[cfg(target_os = "macos")]` even though the GameController backend
+    /// is its only caller: a macOS-gated test never runs in CI (the macOS job only builds), and
+    /// this is exactly the "share the policy, not the implementation" rule the repo applies to
+    /// cfg-split backends. Keeping it un-gated is what lets the regression test run everywhere.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    fn apply_snapshot(&mut self, buttons: HashSet<GamepadButton>, axes: HashMap<GamepadAxis, f32>) {
+        self.just_pressed
+            .extend(buttons.difference(&self.pressed).copied());
+        self.just_released
+            .extend(self.pressed.difference(&buttons).copied());
+        self.pressed = buttons;
+        self.axes = axes;
+    }
 }
 
 /// ECS resource holding gamepad input state.
@@ -201,15 +227,9 @@ impl GamepadState {
         if pad >= 4 {
             return;
         }
-        let slot = self.slots[pad].get_or_insert_with(Slot::new);
-        let just_pressed: HashSet<GamepadButton> =
-            buttons.difference(&slot.pressed).copied().collect();
-        let just_released: HashSet<GamepadButton> =
-            slot.pressed.difference(&buttons).copied().collect();
-        slot.just_pressed = just_pressed;
-        slot.just_released = just_released;
-        slot.pressed = buttons;
-        slot.axes = axes;
+        self.slots[pad]
+            .get_or_insert_with(Slot::new)
+            .apply_snapshot(buttons, axes);
     }
 
     /// Drop the macOS gamepad in `pad` (the GameController framework no longer lists it).
@@ -292,6 +312,52 @@ impl GamepadState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A snapshot backend must **accumulate** press/release edges until the frame's [`flush`],
+    /// exactly like the event-driven `gilrs` path does.
+    ///
+    /// `apply_macos_snapshot` used to *assign* `slot.just_pressed = <diff>`. `flush()` runs once
+    /// per frame (`app/schedule.rs`), but the snapshot is taken in `about_to_wait`, which runs
+    /// once per event-loop **iteration** — and input events wake the loop, so during any mouse
+    /// movement several snapshots land between two frames. The second one sees the button already
+    /// in `pressed`, computes an empty diff, and wipes the edge before the frame ever read it:
+    /// button presses vanish on macOS whenever the player is also moving the mouse.
+    ///
+    /// This drives that exact interleaving. It runs on every platform because the edge policy
+    /// lives in the un-gated `Slot::apply_snapshot`; a `#[cfg(target_os = "macos")]` test would
+    /// never run in CI, since the macOS job only builds.
+    #[test]
+    fn snapshot_accumulates_edges_until_flush() {
+        let mut slot = Slot::new();
+
+        // Event-loop iteration 1: the button goes down.
+        slot.apply_snapshot(HashSet::from([GamepadButton::South]), HashMap::new());
+        assert!(slot.just_pressed.contains(&GamepadButton::South));
+
+        // Iteration 2 — still held, and still no frame boundary, so no flush has run.
+        slot.apply_snapshot(HashSet::from([GamepadButton::South]), HashMap::new());
+        assert!(
+            slot.just_pressed.contains(&GamepadButton::South),
+            "press edge dropped by a second snapshot taken before the frame read it"
+        );
+
+        // The frame reads input and only then flushes.
+        slot.flush();
+        assert!(slot.just_pressed.is_empty(), "flush must clear the edge");
+        assert!(
+            slot.pressed.contains(&GamepadButton::South),
+            "flush must NOT clear the held set"
+        );
+
+        // The release edge has the same property.
+        slot.apply_snapshot(HashSet::new(), HashMap::new());
+        assert!(slot.just_released.contains(&GamepadButton::South));
+        slot.apply_snapshot(HashSet::new(), HashMap::new());
+        assert!(
+            slot.just_released.contains(&GamepadButton::South),
+            "release edge dropped by a second snapshot taken before the frame read it"
+        );
+    }
 
     #[test]
     fn default_is_disconnected() {
