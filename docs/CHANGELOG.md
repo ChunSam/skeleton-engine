@@ -4,6 +4,20 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.146.1
+
+**Five crashes and one hang, all reachable from ordinary game data rather than from engine misuse.** From the 2026-08-07 analysis. Each has a regression test verified non-vacuous by sabotage.
+
+**A non-ASCII `[color=…]` tag panicked the text renderer.** `parse_color` checked `hex.len()` — which counts **bytes** — and then took **byte** slices, so a 6- or 8-byte non-ASCII value like `"가나"` (6 bytes, 2 chars) passed the length check and split mid-character. The reachable path is not engine code: it is any rich-text tag in a dialogue line or UI string, i.e. a translator's file. A hex colour is ASCII by definition, so the guard is one `is_ascii()` check.
+
+**`spawn_rate: f32::INFINITY` hung the frame forever.** `interval` becomes exactly `0.0`, and the drain loop `while em.timer >= interval { em.timer -= interval; }` subtracts zero indefinitely. `max_per_frame` could not save it, because the cap was applied to the count *after* the loop had already spun. Replaced with the closed form `(timer / interval).floor()`, with the degenerate-interval case emitting the per-frame cap and clearing the timer. Its regression test **hangs rather than fails** if this returns, which is exactly the production symptom.
+
+**A negative `velocity_spread` or `EmitShape::Box` half-extent panicked inside `gen_range`.** `-x..=x` with a negative `x` is an empty range. A spread is a ± magnitude, so the sign carries no meaning; `.abs()` at the sampling sites preserves the intent instead of rejecting the value.
+
+**Assigning `TextInput::text` without also resetting `cursor` panicked in the per-frame UI pass.** Both are public fields, so `input.text = loaded_name;` is the natural way to load a value from a save, a data table, or a locale swap — and it leaves `cursor` past the end, or mid-character. Every slicing read then panicked through `str::split_at` or `String::insert_str`, **a frame later and nowhere near the assignment**. A private `safe_cursor()` clamps into the string and snaps down to a char boundary at every read site, keeping the field public and forgiving rather than demanding callers remember a paired write.
+
+**`Pool::release` accepted an already-released entity**, pushing it into `available` twice — so the next two `acquire` calls handed the **same `Entity`** to two different callers, which then silently overwrote each other's components. `Pooled` is precisely the "currently parked" marker (`acquire` removes it), so its presence is the cheap test; a double release and a dead entity now both warn and no-op.
+
 ## 0.146.0
 
 **Three silent failures now say something, and the docs stop teaching one of them.** From the 2026-08-07 analysis. Additive — no API removed, no existing call site behaves differently; MINOR because `submit_output`'s internal signature changed and `UiSystem` gained a field.

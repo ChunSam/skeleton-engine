@@ -131,8 +131,26 @@ impl TextInput {
         }
     }
 
+    /// `cursor` clamped into `text` and snapped down to a char boundary.
+    ///
+    /// `text` and `cursor` are both public fields, so the entirely natural
+    /// `input.text = loaded_name;` (or a shorter string arriving from a data table, a save, or
+    /// a locale swap) leaves `cursor` pointing past the end — or into the middle of a
+    /// multi-byte character. Every slicing read below then panics via `str::split_at` or
+    /// `String::insert_str`, and it panics **inside the per-frame UI pass**, so the game dies on
+    /// the next frame rather than at the assignment that caused it. Clamping at the read sites
+    /// keeps the field public and forgiving instead of demanding callers remember a paired write.
+    fn safe_cursor(&self) -> usize {
+        let mut c = self.cursor.min(self.text.len());
+        while c > 0 && !self.text.is_char_boundary(c) {
+            c -= 1;
+        }
+        c
+    }
+
     /// Deletes the character immediately before the cursor (UTF-8 safe).
     pub fn backspace(&mut self) {
+        self.cursor = self.safe_cursor();
         if self.cursor == 0 {
             return;
         }
@@ -146,6 +164,7 @@ impl TextInput {
 
     /// Moves the cursor one character boundary to the left (UTF-8 safe).
     pub fn move_left(&mut self) {
+        self.cursor = self.safe_cursor();
         if self.cursor == 0 {
             return;
         }
@@ -158,6 +177,7 @@ impl TextInput {
 
     /// Moves the cursor one character boundary to the right (UTF-8 safe).
     pub fn move_right(&mut self) {
+        self.cursor = self.safe_cursor();
         if self.cursor >= self.text.len() {
             return;
         }
@@ -209,7 +229,7 @@ impl TextInput {
             return self.text.clone();
         }
         let mut out = self.text.clone();
-        out.insert_str(self.cursor, &self.preedit);
+        out.insert_str(self.safe_cursor(), &self.preedit);
         out
     }
 
@@ -224,7 +244,7 @@ impl TextInput {
         if self.text.is_empty() && self.preedit.is_empty() && !focused {
             return self.placeholder.clone();
         }
-        let (head, tail) = self.text.split_at(self.cursor);
+        let (head, tail) = self.text.split_at(self.safe_cursor());
         let caret = if !focused {
             ""
         } else if blink_on {
@@ -244,13 +264,39 @@ impl TextInput {
     /// directly after the head text and the IME preedit. The renderer uses this to
     /// measure the caret's x for single-line horizontal scrolling.
     pub fn caret_display_offset(&self) -> usize {
-        self.cursor + self.preedit.len()
+        self.safe_cursor() + self.preedit.len()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn assigning_text_without_resetting_cursor_does_not_panic() {
+        // `text` and `cursor` are both public fields, so this is the natural way to load a name
+        // from a save, a data table, or a locale swap. The stale cursor then pointed past the
+        // end and every slicing read panicked -- inside the per-frame UI pass, so the game died
+        // a frame later, nowhere near this line.
+        let mut input = TextInput::new("Enter name");
+        input.text = "a very long previous value".to_string();
+        input.cursor = input.text.len();
+        input.text = "hi".to_string(); // cursor now way past the end
+
+        assert_eq!(input.display_with_caret(true, true), "hi|");
+        assert_eq!(input.text_with_preedit(), "hi");
+        assert_eq!(input.caret_display_offset(), 2);
+        input.backspace();
+        assert_eq!(input.text, "h");
+    }
+
+    #[test]
+    fn cursor_landing_mid_utf8_char_is_snapped_to_a_boundary() {
+        let mut input = TextInput::new("");
+        input.text = "한글".to_string();
+        input.cursor = 1; // inside the first 3-byte char -- split_at would panic here
+        assert_eq!(input.display_with_caret(true, true), "|한글");
+    }
 
     #[test]
     fn insert_str_respects_utf8_max_len() {
