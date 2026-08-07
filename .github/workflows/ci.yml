@@ -4,8 +4,15 @@ name: CI
 #
 # It re-tests a tree that has already passed: a squash-merge from an up-to-date branch produces the
 # same tree the PR was built from (verified on #421 — both `323199e4`), and `main` is protected with
-# these six jobs as required checks, `strict`, and `enforce_admins`, so nothing arrives unverified
-# anyway. On that reasoning it was nearly deleted.
+# required checks, `strict`, and `enforce_admins`, so nothing arrives unverified anyway. On that
+# reasoning it was nearly deleted.
+#
+# ⚠️ The required set is SEVEN jobs, not six, and `Browser smokes (Chrome + swiftshader)` is NOT
+# among them (checked 2026-08-08 against the branch-protection API). Three docs claimed the browser
+# smokes "gate"; they run on every PR but do not block a merge. Read the real list rather than this
+# comment — it is the thing that drifts:
+#   gh api repos/ChunSam/skeleton-engine/branches/main/protection \
+#     --jq '.required_status_checks.contexts'
 #
 # What that reasoning misses is **cache scope**. GitHub isolates caches by ref: a `pull_request` run
 # writes into the PR's own scope, readable only inside that PR, while every branch can read caches
@@ -173,10 +180,9 @@ jobs:
           grep -q '\[render-test\] adapter=' render.log
 
       # The three native smokes that render. They live HERE and not in the native job because they
-      # need an adapter, which only this job has — and their own headers still say "CI is ubuntu-only
-      # and cannot render (no GPU)", which stopped being true when this lavapipe job was added.
-      # Nothing had run them since; every claim they make rested on someone remembering to run them
-      # on a Mac.
+      # need an adapter, which only this job has. (Their headers used to say "CI is ubuntu-only and
+      # cannot render (no GPU)"; that stopped being true when this lavapipe job was added, and the
+      # headers have since been corrected — this note used to claim they still said the old thing.)
       #
       # Each is a real end-to-end run of an example, not a unit test: headless_screenshot writes a
       # PNG through the real render path, lighting_cap renders at two different point-light caps, and
@@ -246,6 +252,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # `wasm_smoke.sh` is the one smoke here that also builds a NATIVE binary — the
+      # authoritative `coin_race_server` it stands up — and the native build pulls in `alsa-sys`.
+      # The other five are pure wasm and need none of this. (Discovered the honest way: adding
+      # the smoke without this step failed with "Package alsa was not found in the pkg-config
+      # search path". The old note claiming the script was "byte-size only" was wrong about WHY
+      # it was kept local, but not wrong that it costs more than the others.)
+      - name: Install system dependencies (native server build)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libudev-dev libxkbcommon-dev \
+            libwayland-dev libx11-dev pkg-config
+
       - name: Install Rust 1.95 + wasm32 target
         uses: dtolnay/rust-toolchain@1.95.0
         with:
@@ -285,6 +304,11 @@ jobs:
           SMOKE_DBG=9303 ./scripts/bloom_web_smoke.sh
           SMOKE_DBG=9304 ./scripts/wasm_audio_smoke.sh
           SMOKE_DBG=9305 ./scripts/audio_reactive_smoke.sh
+          # `wasm_smoke.sh` self-verdicts too (exit 1 on a blank frame or a server that never
+          # logged a connection), so the documented reason for keeping it local — "byte-size only"
+          # — was simply false. It is also the ONLY automated check that runs the wasm WebSocket
+          # path, which is why three latent wasm render bugs once survived for months.
+          SMOKE_DBG=9306 ./scripts/wasm_smoke.sh
 
   # ── Windows 빌드 ──────────────────────────────────────────────────────────
   # The other jobs are ubuntu/wasm only, so nothing here ever compiled the DX12

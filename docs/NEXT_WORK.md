@@ -77,7 +77,7 @@ closed on 2026-08-04.
   correct `wc -m` that was already stale at merge). The durable form is the command:
   `for f in ~/.claude/skills/*/SKILL.md; do wc -m "$f"; done`.
 
-- **Seven directory-based examples silently drop out of `cargo package`.** `include` lists
+- **Eight directory-based examples silently drop out of `cargo package`.** `include` lists
   `examples/*.rs`, not `examples/*/*.rs`, so `embedded_atlas`, `embedded_image`, `audio_facade`,
   `centered_text`, `game_feel`, `web_audio` and `wasm_save` are warned-about-and-skipped. CI stays
   green because a skipped target is a warning. **Do not "fix" this by widening `include`** — it

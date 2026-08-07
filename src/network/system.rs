@@ -6,7 +6,7 @@ use crate::ecs::{events::Events, system::System, world::World};
 /// Registration:
 /// ```text
 /// app.world.insert_resource(NetworkClient::connect("ws://localhost:9001"));
-/// app.world.register_event::<NetworkEvent>();
+/// app.register_event::<NetworkEvent>();
 /// app.add_system(NetworkSystem::new());
 /// ```
 #[derive(Default)]
@@ -47,7 +47,7 @@ impl System for NetworkSystem {
             self.warned_missing_events = true;
             log::warn!(
                 "network: NetworkSystem received events but Events<NetworkEvent> is not registered. \
-                 Call app.world.register_event::<NetworkEvent>() to receive network events. \
+                 Call app.register_event::<NetworkEvent>() to receive network events. \
                  Events will be discarded until it is registered."
             );
         }

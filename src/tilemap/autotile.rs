@@ -106,11 +106,14 @@ impl TilemapAutotile {
     /// 47-tile blob autotile layout.
     ///
     /// Uses the canonical blob-8 neighborhood. A contiguous 47-tile strip starting
-    /// at `base_atlas_id` is assumed. The 47 valid reduced masks are enumerated in
-    /// ascending order (0, 2, 8, 10, 11, 16, 18, 22, 24, 26, 27, 30, 31, 64, 66,
-    /// 72, 74, 75, 80, 82, 86, 88, 90, 91, 94, 95, 104, 106, 107, 120, 122, 123,
-    /// 126, 127, 208, 210, 214, 216, 218, 219, 222, 223, 248, 250, 251, 254, 255)
-    /// and each is assigned `base_atlas_id + <index in that sorted list>`.
+    /// at `base_atlas_id` is assumed. The 47 valid reduced masks are the `VALID_MASKS`
+    /// constant in the body below, in ascending order; each is assigned
+    /// `base_atlas_id + <index in that list>`.
+    ///
+    /// (This paragraph used to inline its own 47-value enumeration — `0, 2, 8, 10, 11, 16, …` —
+    /// which matched nothing: it was written against a different bit convention from the one
+    /// `compute_tile_mask` actually produces, and disagreed with the table three lines below it.
+    /// A second copy of a lookup table in prose is a copy that drifts, so there is now one.)
     ///
     /// # Blob-8 bit order
     /// N=1, E=2, S=4, W=8, NE=16, SE=32, SW=64, NW=128.

@@ -71,10 +71,15 @@ fi
 
 # Build the selftest targets and the sibling servers they spawn — NOT every example.
 #
-# `--examples` builds all 142 example targets to run 9 selftests, and it was the native CI job's
-# single largest cost. The other 133 are still compile-checked, twice: `cargo test --all-targets`
-# covers them natively and the `wasm` job builds the wasm-capable ones, so narrowing here removes
-# a third build, not a check.
+# `--examples` builds EVERY example target just to run the handful that carry a selftest, and it
+# was the native CI job's single largest cost. The rest are still compile-checked, twice:
+# `cargo test --all-targets` covers them natively and the `wasm` job builds the wasm-capable ones,
+# so narrowing here removes a third build, not a check.
+#
+# Deliberately no hardcoded counts here. This comment used to read "all 142 example targets to run
+# 9 selftests"; both numbers had drifted (11 selftests as of 2026-08-08) because they are derived
+# below and nothing makes the prose follow. Measure, don't remember:
+#   grep -rhoE '[A-Z_]+_SELFTEST' examples --include='*.rs' | sort -u | wc -l
 #
 # Why the servers must be in this list: the networked selftests spawn a sibling `<game>_server`
 # binary resolved from their own `current_exe()` directory (see `salvage_run.rs`), and
