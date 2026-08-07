@@ -224,8 +224,13 @@ impl System for SkeletalAnimationSystem {
                     if duration > f32::EPSILON {
                         anim.time = anim.time.rem_euclid(duration);
                     }
-                } else if anim.time >= duration {
-                    anim.time = duration;
+                } else {
+                    // Clamp BOTH ends. Only the upper bound was clamped, so a negative `speed`
+                    // (reverse playback) drove `time` unboundedly negative, every track sampled
+                    // before its first keyframe forever, and `is_finished()` — which tests
+                    // `time >= duration` — could never become true, so a "play it backwards then
+                    // continue" sequence hung indefinitely.
+                    anim.time = anim.time.clamp(0.0, duration);
                 }
                 let time = anim.time;
 

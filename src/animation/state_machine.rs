@@ -411,7 +411,20 @@ impl AnimationStateMachine {
                 .iter()
                 .all(|c| self.check_condition(c, anim_finished))
             {
-                let next_clip = self.states.get(&transition.to)?.clip_index;
+                // A transition pointing at a state that does not exist is a DEAD EDGE. Using
+                // `?` here aborted the whole scan and returned `None`, so every LOWER-PRIORITY
+                // transition out of this state became unreachable the moment one dead edge above
+                // it was satisfied — the entity silently stuck in its current state. Skipping the
+                // edge is what this function's own doc comment (and its test comment) already
+                // described.
+                let Some(next_state) = self.states.get(&transition.to) else {
+                    log::warn!(
+                        "AnimationStateMachine: transition to unknown state {:?} — skipping",
+                        transition.to
+                    );
+                    continue;
+                };
+                let next_clip = next_state.clip_index;
                 return Some((
                     transition.to.clone(),
                     next_clip,
@@ -487,6 +500,15 @@ impl System for StateMachineSystem {
                 .and_then(|sm| sm.evaluate(anim_finished));
 
             if let Some((next_state, clip_index, crossfade_dur)) = transition {
+                // A SELF-transition (A -> A) reuses the same clip index, and `play` deliberately
+                // no-ops on the clip already playing. Without this the transition fired, the clip
+                // did not restart, and `finished` was never cleared — so a one-shot state that
+                // re-enters itself (a repeated attack, a retriggerable stagger) played exactly
+                // once and then sat on its last frame while the machine believed it had moved.
+                let self_transition = world
+                    .get::<AnimationStateMachine>(entity)
+                    .map(|sm| sm.current == next_state)
+                    .unwrap_or(false);
                 if let Some(sm) = world.get_mut::<AnimationStateMachine>(entity) {
                     sm.current = next_state;
                     sm.consume_triggers();
@@ -494,6 +516,9 @@ impl System for StateMachineSystem {
                 if let Some(player) = world.get_mut::<AnimationPlayer>(entity) {
                     if crossfade_dur > 0.0 {
                         player.play_with_crossfade(clip_index, crossfade_dur);
+                    } else if self_transition {
+                        player.current_clip = clip_index;
+                        player.restart();
                     } else {
                         player.play(clip_index);
                     }
@@ -502,6 +527,22 @@ impl System for StateMachineSystem {
                 // Even without a transition, triggers are only valid for one frame and must be consumed.
                 if let Some(sm) = world.get_mut::<AnimationStateMachine>(entity) {
                     sm.consume_triggers();
+                }
+                // Idempotent resync: `set_current_state` (the editor's "jump to state") moves the
+                // machine's `current` without touching the player, so the visible clip and the
+                // active state silently desynced — and a state whose only exit is `AnimationEnd`
+                // could never fire again, because the player was still finishing a different
+                // clip. Re-point the player whenever the two disagree and no crossfade is in
+                // flight. A no-op in the overwhelmingly common case where they already agree.
+                let want = world
+                    .get::<AnimationStateMachine>(entity)
+                    .and_then(|sm| sm.states.get(&sm.current).map(|s| s.clip_index));
+                if let Some(want) = want {
+                    if let Some(player) = world.get_mut::<AnimationPlayer>(entity) {
+                        if player.current_clip != want && player.crossfade.is_none() {
+                            player.play(want);
+                        }
+                    }
                 }
             }
         }

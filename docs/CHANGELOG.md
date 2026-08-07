@@ -4,6 +4,18 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.149.0
+
+**Four animation defects, three of which left an entity silently stuck.** From the 2026-08-07 analysis. Additive: one new public method (`AnimationPlayer::restart`), no API removed.
+
+**A self-transition (A → A) fired but did nothing.** `play(same_index)` is deliberately a no-op — re-firing a threshold parameter must not stutter the animation — but that left a self-transition with no effect at all: the machine transitioned, the clip did not restart, and `finished` was never cleared. A one-shot state that re-enters itself (a repeated attack, a retriggerable stagger) played exactly **once** and then sat on its last frame while the machine believed it had moved. `AnimationPlayer::restart()` is now public, and `StateMachineSystem` calls it when the target state is the current one.
+
+**A satisfied transition to a nonexistent state aborted the entire scan.** The target lookup used `?`, so one dead edge returned `None` for the whole evaluation and **every lower-priority transition out of that state became unreachable** the moment the dead one was satisfied — the entity silently stuck in place. Skipping the edge is what the function's own doc comment and its test comment already described; it now `continue`s and warns.
+
+**`set_current_state` never re-pointed the player.** The editor's "jump to state" moved the machine's `current` without touching the `AnimationPlayer`, so the active state and the visible clip silently desynced — and a state whose only exit is `AnimationEnd` could **never fire again**, because the player was still finishing a different clip. `StateMachineSystem` now performs an idempotent resync when the two disagree and no crossfade is in flight; a no-op in the overwhelmingly common case where they already agree.
+
+**A negative `SkeletalAnimator::speed` on a non-looping clip ran away.** Only the upper bound was clamped, so reverse playback drove `time` unboundedly negative, every track sampled before its first keyframe forever, and `is_finished()` — which tests `time >= duration` — could never become true, hanging any "play it backwards, then continue" sequence. The non-looping branch now clamps both ends.
+
 ## 0.148.2
 
 **Five audio defects, four of them native/wasm divergences.** From the 2026-08-07 analysis. Every fix here is verified on the CPU; see the honest limitation note at the end.
