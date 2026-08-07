@@ -274,9 +274,18 @@ impl System for PhysicsSystem {
             if let Some(body) = physics.rigid_body_set.get(handle.0) {
                 let t = *body.translation();
                 let angle = body.rotation().angle();
+                // Only write rotation back when the body actually owns it. A rotation-LOCKED
+                // body's rapier angle is pinned at 0, so copying it into the Transform
+                // clobbered whatever rotation the game had set itself — a sprite facing, a
+                // turret aim, a tilted platform — with 0, every single frame. The sync was
+                // documented as a no-op for locked bodies; it was the exact opposite, and the
+                // guard test could not see it because it only checked unlocked bodies.
+                let owns_rotation = !body.is_rotation_locked();
                 if let Some(tr) = world.get_mut::<Transform>(entity) {
                     tr.position = Vec2::new(t.x * scale, t.y * scale);
-                    tr.rotation = angle;
+                    if owns_rotation {
+                        tr.rotation = angle;
+                    }
                 }
             }
         }
@@ -496,6 +505,74 @@ mod tests {
         assert!(
             rotation.abs() < 1e-6,
             "rotation-locked body must keep rotation 0: {rotation}"
+        );
+    }
+
+    /// A rotation-locked body must not have its `Transform.rotation` **overwritten**.
+    ///
+    /// The guard test above starts from `Transform::default()` (rotation 0), so writing rapier's
+    /// pinned 0 back over it is indistinguishable from leaving it alone — it could never see the
+    /// defect. The sync was documented as a no-op for locked bodies; in fact it clobbered any
+    /// rotation the game had set itself (a sprite facing, a turret aim, a tilted platform) with
+    /// 0, every single frame, so the value simply refused to stick.
+    #[test]
+    fn locked_rotation_body_does_not_clobber_a_game_set_rotation() {
+        let mut physics = PhysicsWorld::new(Vec2::ZERO);
+        let (rb, col) = physics.add_dynamic_box(Vec2::ZERO, 0.5, 0.5, true);
+
+        let mut world = World::new();
+        world.insert_resource(physics);
+        let mut system = PhysicsSystem::new(1.0);
+        let e = world.spawn();
+        world.add_component(
+            e,
+            PhysicsBody {
+                rigid_body_handle: rb,
+                collider_handle: col,
+            },
+        );
+        world.add_component(e, Transform::default());
+        // The game aims the sprite itself — physics does not own this value.
+        world.get_mut::<Transform>(e).unwrap().rotation = 1.25;
+
+        system.run(&mut world, 1.0 / 60.0);
+
+        let rotation = world.get_mut::<Transform>(e).unwrap().rotation;
+        assert!(
+            (rotation - 1.25).abs() < 1e-6,
+            "a rotation-locked body must leave the game's rotation alone, got {rotation}"
+        );
+    }
+
+    /// `despawn_with_body` must remove the rapier body, not just the entity.
+    ///
+    /// `World::despawn` drops only the `PhysicsBody` component; the rigid body and collider live
+    /// in `PhysicsWorld`, so they stayed behind as an invisible solid that kept colliding — and
+    /// were never reclaimed, leaking one body per spawn/despawn cycle.
+    #[test]
+    fn despawn_with_body_removes_the_rapier_body() {
+        let mut physics = PhysicsWorld::new(Vec2::ZERO);
+        let (rb, col) = physics.add_dynamic_box(Vec2::ZERO, 0.5, 0.5, false);
+
+        let mut world = World::new();
+        world.insert_resource(physics);
+        let e = world.spawn();
+        world.add_component(
+            e,
+            PhysicsBody {
+                rigid_body_handle: rb,
+                collider_handle: col,
+            },
+        );
+        world.add_component(e, Transform::default());
+
+        crate::physics::despawn_with_body(&mut world, e);
+
+        assert!(!world.is_alive(e), "the entity must be despawned");
+        let physics = world.resource::<PhysicsWorld>().unwrap();
+        assert!(
+            physics.rigid_body(rb).is_none(),
+            "the rigid body outlived its entity — an invisible ghost that keeps colliding"
         );
     }
 
