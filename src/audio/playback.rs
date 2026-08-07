@@ -6,7 +6,6 @@ use std::time::Duration;
 use super::types::Fade;
 
 use rodio::buffer::SamplesBuffer;
-use rodio::source::SineWave;
 use rodio::{ChannelCount, Decoder, Player, SampleRate, Source};
 
 use super::source::PannedSource;
@@ -64,6 +63,7 @@ impl AudioManager {
                 sinks: HashMap::new(),
                 volume_overrides: HashMap::new(),
                 pans: HashMap::new(),
+                pan_handles: HashMap::new(),
                 bus_volumes: HashMap::new(),
                 channel_buses: HashMap::new(),
                 fades: HashMap::new(),
@@ -192,9 +192,18 @@ impl AudioManager {
         // Apply bus/channel volume to the sink (so set_bus_volume can update it immediately).
         sink.set_volume(self.effective_volume(channel) * self.output_gain);
 
-        let base = SineWave::new(freq)
-            .take_duration(Duration::from_secs_f32(duration_secs))
-            .amplify(volume);
+        // The de-click envelope (attack + release) is part of what a tone IS on this engine —
+        // `TONE_ENVELOPE_FRAC`'s own comment claims parity with the wasm `WebAudio` path, which
+        // always envelopes. Building it here rather than only in the `None` arm is what makes
+        // that true: setting ANY channel effect used to drop back to a raw `SineWave`, so a
+        // low-pass or a pitch shift silently reintroduced the click at both ends. Materialized
+        // into a buffer rather than composed from combinators so `enveloped_tone_samples` stays
+        // assertable on the CPU (see the golden phase test).
+        let base = SamplesBuffer::new(
+            TONE_CHANNELS,
+            TONE_RATE,
+            enveloped_tone_samples(freq, duration_secs, volume),
+        );
 
         let source: Box<dyn Source + Send + 'static> = match self.effects.get(channel).cloned() {
             Some(eff) => {
@@ -209,15 +218,8 @@ impl AudioManager {
                     (None, _) => Box::new(s),
                 }
             }
-            // No channel effect: emit the tone with a default de-click envelope (attack +
-            // release) so a plain `play_tone` beep doesn't click on/off. The envelope is
-            // materialized into a buffer rather than composed from source combinators so that
-            // `enveloped_tone_samples` stays assertable on the CPU (see the golden phase test).
-            None => Box::new(SamplesBuffer::new(
-                TONE_CHANNELS,
-                TONE_RATE,
-                enveloped_tone_samples(freq, duration_secs, volume),
-            )),
+            // No channel effect: the enveloped buffer as-is.
+            None => Box::new(base),
         };
         // Measure the tone's own envelope when this channel is analyzed. A no-op (returns the
         // same box) otherwise, so the unanalyzed path is unchanged.
@@ -525,11 +527,21 @@ impl AudioManager {
         // on the Cursor path here (bytes are already in memory, so the cost is identical).
         // Both now sit outside the repeat, so a fade-in plays once at the start of a looping
         // track instead of being baked into the buffer and re-fading on every pass.
-        let panned: Box<dyn Source + Send + 'static> = if pan.abs() > 0.001 {
-            Box::new(PannedSource::new(tapped, pan))
-        } else {
-            tapped
-        };
+        // ALWAYS wrap, and share the handle with the channel. Wrapping only when the starting
+        // pan was non-zero created a correctness cliff: a positional sound that happened to
+        // begin centred (source exactly on the listener) could never be panned afterwards, no
+        // matter how far it moved. At pan 0 both gains are exactly 1.0, so the centred path is
+        // arithmetically unchanged.
+        let handle = self
+            .pan_handles
+            .entry(channel.to_string())
+            .or_insert_with(|| crate::audio::source::pan_handle(pan))
+            .clone();
+        handle.store(
+            crate::audio::source::pack_pan(pan),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        let panned: Box<dyn Source + Send + 'static> = Box::new(PannedSource::new(tapped, handle));
         match fade_in_secs {
             Some(fade_dur) => sink.append(panned.fade_in(Duration::from_secs_f32(fade_dur))),
             None => sink.append(panned),
@@ -598,6 +610,19 @@ impl AudioManager {
             self.sinks.insert(temp.clone(), old_sink);
             if let Some(f) = old_fade {
                 self.fades.insert(temp.clone(), f);
+            }
+            // Carry the MIXER state across too, not just the sink. `fade_start_vol` and
+            // `effective_volume` both key on the channel name, and the temp name had no bus
+            // assignment and no base volume — so `effective_volume(temp)` fell back to 1.0 and
+            // the outgoing track jumped to FULL volume for the entire fade before ramping down.
+            // With a master bus at 0.2 that is a 5x spike on every crossfade, which reads as a
+            // mixing bug rather than a fade bug. Removing the old entries also stops the temp
+            // channel outliving the crossfade in the bus maps.
+            if let Some(bus) = self.channel_buses.remove(channel) {
+                self.channel_buses.insert(temp.clone(), bus);
+            }
+            if let Some(vol) = self.volume_overrides.remove(channel) {
+                self.volume_overrides.insert(temp.clone(), vol);
             }
 
             // Schedule a stop-when-done fade-out on the temp channel.

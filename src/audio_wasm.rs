@@ -663,10 +663,14 @@ impl WebAudio {
     /// [`play_tone_on_channel`](Self::play_tone_on_channel) when it drains (the web analogue of the
     /// native [`AudioManager::is_playing`](crate::audio::AudioManager::is_playing) for tones).
     pub fn is_channel_playing(&self, channel: &str) -> bool {
-        match self.tone_channels.borrow().get(channel) {
-            Some(v) => self.ctx.current_time() < v.stop_time,
-            None => false,
+        if let Some(v) = self.tone_channels.borrow().get(channel) {
+            return self.ctx.current_time() < v.stop_time;
         }
+        // Also answer for POSITIONAL channels. Looking only at `tone_channels` meant this
+        // returned `false` on the web for anything started by `play_at_on_channel`, while the
+        // native `AudioManager::is_playing` answers `true` — so the obvious "re-arm it when it
+        // drains" loop either never fired or fired every frame, depending on the platform.
+        self.spatial_channels.borrow().contains_key(channel)
     }
 
     /// Sets a low-pass filter cutoff (Hz) on the named tone `channel`, applied to the **next**
@@ -923,7 +927,13 @@ impl WebAudio {
             prev.stop();
         }
         let dest = self.bus_input(bus).unwrap_or_else(|| self.master.clone());
-        let sfx = self.play_sfx_to_opts(bytes, &dest, true, None);
+        // Pass the channel name through as the METER. Without it a positional channel was never
+        // connected to its analyser, so `Audio::levels()` reported silence on the web forever
+        // while native metered the same sound correctly — a game driving visuals off the level
+        // tap (a reactive HUD, `beat_crawler`'s clock) simply stopped responding on the web with
+        // the audio still audible. `play_sfx_to_opts` no-ops the tap when the name is not being
+        // analyzed, so unanalyzed positional channels are unchanged.
+        let sfx = self.play_sfx_to_opts(bytes, &dest, true, Some(channel));
         sfx.update_position(source, listener, max_dist);
         self.spatial_channels
             .borrow_mut()

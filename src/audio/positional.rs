@@ -86,6 +86,16 @@ impl AudioManager {
 
         self.volume_overrides.insert(channel.to_string(), vol);
         self.pans.insert(channel.to_string(), pan);
+        // Write the LIVE pan too. Storing it in `pans` alone only affected the next play, so a
+        // positional sound tracked the listener in volume while its stereo image stayed frozen
+        // wherever it started — the web `StereoPannerNode` path repositioned correctly, so the
+        // same game sounded different on the two platforms.
+        if let Some(handle) = self.pan_handles.get(channel) {
+            handle.store(
+                crate::audio::source::pack_pan(pan),
+                std::sync::atomic::Ordering::Relaxed,
+            );
+        }
 
         if !skip_sink_write {
             if let Some(sink) = self.sinks.get(channel) {
@@ -97,9 +107,23 @@ impl AudioManager {
     // ── Volume / Pan ──────────────────────────────────────────────────────
 
     /// Sets the stereo pan for a channel (-1.0 = left, 0.0 = center, 1.0 = right).
-    /// Takes effect from the next `play()` call.
+    ///
+    /// Applies **immediately** to a sound already playing on the channel, and is remembered for
+    /// the next `play()`.
+    ///
+    /// ⚠️ A **mono** source cannot be panned: the two gains always sum to the same value, so the
+    /// result is unchanged. Panning mono would require upmixing to stereo, which changes the
+    /// channel count of every sound in the engine. Use a stereo asset for sounds that must move
+    /// in the stereo image.
     pub fn set_pan(&mut self, channel: &str, pan: f32) {
-        self.pans.insert(channel.to_string(), pan.clamp(-1.0, 1.0));
+        let pan = pan.clamp(-1.0, 1.0);
+        self.pans.insert(channel.to_string(), pan);
+        if let Some(handle) = self.pan_handles.get(channel) {
+            handle.store(
+                crate::audio::source::pack_pan(pan),
+                std::sync::atomic::Ordering::Relaxed,
+            );
+        }
     }
 
     /// Computes (volume, pan) from the sound source position and listener position.

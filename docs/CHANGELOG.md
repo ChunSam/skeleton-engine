@@ -4,6 +4,24 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.148.2
+
+**Five audio defects, four of them native/wasm divergences.** From the 2026-08-07 analysis. Every fix here is verified on the CPU; see the honest limitation note at the end.
+
+**Crossfade spiked the outgoing track to full volume.** `begin_crossfade` relocates the current sink to a `<channel>__xfade` temp channel, but it moved only the sink — not the channel's bus assignment or its base volume. `fade_start_vol` and `effective_volume` both key on the *channel name*, so the temp name resolved to the 1.0 default and the outgoing track **jumped to full volume for the entire fade** before ramping down. With a master bus at 0.2 that is a 5× spike on every crossfade, which reads as a mixing bug rather than a fade bug. The bus and volume entries now move with the sink (and are removed from the original, so the temp channel does not outlive the crossfade in the bus maps).
+
+**Setting any channel effect stripped the tone de-click envelope.** `TONE_ENVELOPE_FRAC`'s own comment claims parity with the wasm `WebAudio` path, which always envelopes — but the envelope lived only in the no-effect arm, so a low-pass or a pitch shift silently dropped back to a raw `SineWave` and reintroduced the click at both ends. The enveloped buffer is now the base in both arms.
+
+**Native `update_position` never moved a playing sound's stereo image.** The pan was baked into `PannedSource`'s gains at construction, so it was fixed for the sound's lifetime: `update_position` recomputed a pan every frame, stored it, and it only took effect the *next* time the channel played. A positional sound therefore tracked the listener in **volume** while its stereo image stayed frozen where it started — and the web `StereoPannerNode` path repositioned correctly, so the same game sounded different on the two platforms. The pan is now a shared `Arc<AtomicU32>` read per sample, written live by both `update_position` and `set_pan`.
+
+`PannedSource` is also now applied unconditionally rather than only when the starting pan was non-zero. That removed a correctness cliff — a positional sound that happened to begin centred could never be panned afterwards, however far it moved. At pan 0 both gains are exactly 1.0, so the centred path is arithmetically unchanged (pinned by a test).
+
+**On the web, a positional channel was never connected to its analyser**, so `Audio::levels()` reported silence forever while native metered the same sound correctly. A game driving visuals off the level tap stopped responding on the web with the audio still plainly audible. **And `is_channel_playing` only consulted tone channels**, so it answered `false` on the web for anything started by `play_at_on_channel` while native answers `true` — the obvious "re-arm it when it drains" loop either never fired or fired every frame, depending on platform.
+
+**Known limitation, deliberately not fixed:** panning a **mono** source does not move it in the stereo image at all — it only *attenuates* it (a 0.5× cut at hard pan, with no directional cue), because both gains are `clamp(0, 1)` and the mono branch averages them. Real mono panning needs a stereo upmix, which changes `channels()` for every sound in the engine and cannot be verified without a real output device. It is pinned by a test that asserts the actual behaviour rather than left to be rediscovered.
+
+⚠️ **Native audio playback is not verifiable in CI** (the selftest halves skip without a device) and was **not** ear-verified for this release. The sample math is unit-tested on the CPU — live pan, unity gain at centre, mono attenuation — but the acoustic result of the crossfade and envelope changes rests on that reasoning, not on listening.
+
 ## 0.148.1
 
 **Three render/text defects that all looked fine on screen.** From the 2026-08-07 analysis.

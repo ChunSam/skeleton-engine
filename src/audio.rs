@@ -79,6 +79,9 @@ pub struct AudioManager {
     volume_overrides: HashMap<String, f32>,
     /// Per-channel stereo pan.
     pans: HashMap<String, f32>,
+    /// Live pan handles shared with each channel's `PannedSource`, so `update_position` /
+    /// `set_pan` reposition a sound WHILE it plays instead of only affecting the next play.
+    pan_handles: HashMap<String, crate::audio::source::PanHandle>,
     /// Bus name → volume multiplier.
     bus_volumes: HashMap<String, f32>,
     /// Channel → bus name.
