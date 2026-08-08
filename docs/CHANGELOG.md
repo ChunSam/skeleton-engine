@@ -4,6 +4,20 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.150.5
+
+**Pointing the v0.150.4 instrument at v0.150.0's claims, and getting two surprises.** Six systems were fixed in v0.150.0 on a code-reading basis and three more were named in that entry as "not addressed in this pass" — then recorded nowhere the backlog looks, so they survived four releases unmeasured. Measuring them reversed two of the readings.
+
+**`HierarchySystem` was still allocating 200 times per frame, in the one built-in every game is forced to register.** v0.150.0 converted its six per-frame containers to scratch buffers and stopped there; the write at the end of the loop was `world.add_component(entity, gt)`, and on an existing component that is `column[row] = Box::new(value)` — a fresh 24-byte heap allocation per entity per frame, old box dropped. It now overwrites in place via `get_mut_tracked`, which keeps the change record so `query_changed::<GlobalTransform>()` returns exactly what it always did.
+
+**`World::clear_change_tracking` allocated once per changed entity per frame — an ECS-wide cost nobody had noticed.** `App` calls it at the start of every frame and it did `HashMap::clear`, which drops the per-entity `HashSet`s, so every entity that changed last frame bought a fresh one to be recorded again this frame. With `HierarchySystem` writing `GlobalTransform` for every entity, that was per-entity-per-frame for any game with entities. The sets are now emptied in place, with the same prune-when-empties-dominate bound `SpatialGrid` uses. **No system-only test could have caught this**: without the `clear` the entry survives and the cost disappears, which is why the new test drives the real frame sequence — reset tracking, then run.
+
+**`LayoutSystem` was a false positive.** v0.150.0 named it as an unaddressed per-frame allocation (`Vec` + per-panel children clone). Measured over 50 panels of 8 children: **zero**. Reading found a `clone()` and stopped there; the buffers are already reused. **`TilemapSystem`'s fix is confirmed** — an idle tilemap allocates nothing, as claimed.
+
+⚠️ **The harness had two bugs of its own, and both were caught by not trusting it.** The v0.150.4 control test had already exposed global-counter cross-talk. This round exposed the second: **one warm-up frame is not enough.** `HierarchySystem` reaches steady state on frame 3, not frame 2 — it adds `GlobalTransform` on frame 1 (archetype migration) and creates its change-tracking entry on frame 2 — so the first measurement reported 407 allocations, of which 207 were a transient the harness was mistaking for a leak. Bisecting that surprising number is what found it. The harness now warms up three frames and measures **two consecutive** frames, taking the worse: a system that allocates every *other* frame would otherwise pass half the time.
+
+Both fixes are sabotage-verified independently: reverting the hierarchy write restores 200 allocations / 4,800 B, and reverting the tracking reset restores 200 allocations / 15,200 B in the full-frame test. Neither covers for the other.
+
 ## 0.150.4
 
 **The per-frame allocation rule is now measured instead of read.** The last three candidates from the 2026-08-07 analysis §10 were code-reading claims, and so were the six fixed in v0.150.0 — plausible, unmeasured, and impossible to confirm or refute without reading them all again. `tests/per_frame_alloc.rs` installs a counting `#[global_allocator]` (its own integration binary; a process gets exactly one) and measures a **steady-state frame**: run a system once to let scratch buffers fill, then assert the second identical frame allocates nothing.

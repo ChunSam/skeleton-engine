@@ -6,9 +6,35 @@ use std::any::TypeId;
 
 impl World {
     /// Resets change tracking for this tick. Called by `App` at the start of every frame.
+    ///
+    /// Empties the per-entity sets **in place** rather than dropping them. `HashMap::clear` drops
+    /// the values, so every entity that changed last frame paid a fresh `HashSet` allocation to be
+    /// recorded again this frame. That is the whole cost for a component rewritten every frame by
+    /// construction: `HierarchySystem` writes `GlobalTransform` for every entity with a
+    /// `Transform`, so before this, change tracking alone was 200 allocations / 44,212 bytes per
+    /// frame for 200 entities (`tests/per_frame_alloc.rs`).
+    ///
+    /// Keeping the entries means an entity that stops changing keeps an empty set, so the map
+    /// would grow to every entity that has ever changed. The empties are pruned once they
+    /// outnumber the live ones — waste bounded at 2×, and a steady scene never prunes, which is
+    /// what makes the steady state allocation-free. Same shape as `SpatialGrid`'s bucket reuse.
     pub fn clear_change_tracking(&mut self) {
-        self.added_this_tick.clear();
-        self.changed_this_tick.clear();
+        Self::clear_tick_map_reusing_capacity(&mut self.added_this_tick);
+        Self::clear_tick_map_reusing_capacity(&mut self.changed_this_tick);
+    }
+
+    fn clear_tick_map_reusing_capacity(
+        map: &mut std::collections::HashMap<Entity, std::collections::HashSet<TypeId>>,
+    ) {
+        // Decide before emptying: `HashSet::clear` keeps capacity, so afterwards there is no way
+        // left to tell which entries had actually gone quiet.
+        let live = map.values().filter(|set| !set.is_empty()).count();
+        if map.len() > 2 * live.max(1) {
+            map.retain(|_, set| !set.is_empty());
+        }
+        for set in map.values_mut() {
+            set.clear();
+        }
     }
 
     /// Returns only entities whose component T was *first added* this tick.
