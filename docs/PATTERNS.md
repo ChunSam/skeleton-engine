@@ -232,6 +232,15 @@ threading — but the **policy must be single**. If it is duplicated, both sides
 platforms silently behave differently, which no test catches unless someone thought to write a
 cross-platform one.
 
+⚠️ **`cfg` is not the precondition — two call sites are.** v0.150.1 found the identical failure with
+no `cfg` anywhere in it: the mouse (`CursorMoved`) and touch (`Touch`) arms of `App::window_event`
+each mapped a window position into the game's cursor space, and only the mouse arm was taught
+`Letterbox::window_to_design`. Under a `DesignResolution` one `InputState::cursor()` therefore meant
+window space from a finger and design space from a mouse — on a single platform, in a single
+function, sixty lines apart. The fix was the same shape as the audio ones (`App::game_cursor`, one
+private helper, two callers). **Ask the question wherever a derived value is computed twice, not
+just where a `#[cfg]` is.** Two arms of one `match` are as far apart as two backends.
+
 Three instances, all in audio:
 
 | Module | Shared |

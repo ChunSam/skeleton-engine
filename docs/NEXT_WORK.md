@@ -15,7 +15,7 @@
 
 ## Board gate — check this first, every session
 
-Both channels were **empty** as of 2026-08-07:
+Both channels were **empty** as of 2026-08-08:
 
 - `../dungeon-merchant/docs/engine-wishlist.md` — next free **EW-012**, unmoved since 2026-07-27
 - `../rust-survivors/docs/ENGINE_CHANGE_REQUESTS.md` — `_None._`, unmoved since 2026-07-14
@@ -30,11 +30,69 @@ A filed request preempts everything below.
 | **`<NAME>_SELFTEST` coverage** | **DONE — 10 of 21**, and the one real gap is now closed (`beat_crawler`, `survivor`, `data_anim`, `data_particles`, `salvage_run`, `predict_shooter`, `orbital_dodger`, `coin_race`, + `settings_menu` and `scene_flow` on 2026-08-06). The remaining 11 games' headline features are all visible in a screenshot (`sokoban`, `platformer`, `maze_escape`, `dig_quest`, `shooter`, `lit_dungeon`, `multi_terrain`, `tile_paint`, `ui_layout_editor`, `stat_editor_game`, `script_steering`), so chasing the number past 10 is effort against failures that are already visible. **Do not reopen this as a coverage target.** Durable findings from the four networked ones are in `docs/MODULE_MAP.md`'s `src/network.rs` row; the two that generalise beyond networking: **`InputState` has no public press setter**, so held input comes from `InputScript` (the `ENGINE_INPUT` replay path), keeping the real input read under test; and **assert an invariant, not an end state**, when a background process (a coin respawner, an entity spawner) can add to what you are counting. |
 | **4th procgen mode** (drunkard's walk) | Unchanged, still the lowest marginal value: the engine cannot fail at it, so nothing is learned. |
 | **`add-facade-capability` skill** | n=5 now (the facade + native + wasm + policy-module shape has repeated that many times). Deferred; the next facade capability makes the case by itself. |
+| **2026-08-07 analysis §10 — 7 candidates left** | **Step 0 of the plan never ran, and nothing recorded that until 2026-08-08.** Two of the nine shipped in v0.150.1. See the subsection below. |
+
+### The 2026-08-07 analysis's unverified candidates — what is actually left
+
+`plans/2026-08-07-analysis-followup.md` had **fourteen** steps, 0 through 13. Steps 1–13 all
+shipped (#438–#450, v0.145.1 → v0.150.0). **Step 0 — re-running the 33 verification agents that
+died on a session limit, so §10's candidates would get the adversarial pass §1–§8 got — did not
+run**, and it left no trace anywhere: `docs/CODE_ANALYSIS_2026-08-07.md` §10 still says only "worth
+verifying in a follow-up session", which is not a backlog. That is the burial this file exists to
+prevent, so it is written down here instead.
+
+§10 was hand-checked against the tree on **2026-08-08** rather than re-run. Its 21 bullets split
+**10 / 1 / 1 / 9**:
+
+- **10 are already closed**, four of them by the very steps that ran while §10 sat unverified —
+  `serde_registry` duplicate names now warn and name both types (#442), `audio_wasm::is_channel_playing`
+  answers for positional channels (#447), the GPU-particle verification blind spot is closed by
+  `tests/render.rs` `gpu_particles_accumulate_across_frames` (#438), and `PATTERNS.md`'s 20-vs-22
+  disagreement was amended (#444). The other six are the drift items #450 fixed: `wasm_smoke.sh` into
+  CI, `selftests.sh`'s stale counts, `network/system.rs`'s non-existent `world.register_event`,
+  this file's seven-vs-eight, `MODULE_MAP`'s `dig_quest`/`tile_paint` target names, and `ci.yml:176`.
+- **1 became the process item above** — `ci.yml:7`, "`wasm-smokes` is not a required check". #450
+  corrected the false *claim* in three docs; the *decision* it exposed is still open.
+- **1 is a false positive** — `src/ron_registry.rs:11`'s "nobody registers the path with the file
+  watcher". Hot reload *is* wired: `App::register_hot_reloadable` → `forward_hot_reload` →
+  `HotReloadable::reload_path`, and `particle/config_set.rs` has a test pinning the canonical-path
+  match. Do not re-open it.
+- **9 survived**; **2 of those shipped in v0.150.1** (the touch letterbox map and the wasm asset
+  failure hook — the two that silently corrupted a running game), leaving **7** below.
+
+⚠️ §10's header says **23**; the section lists **21** bullets. The header is the wrong number —
+count the bullets, and do not propagate either figure without counting.
+
+| # | Where | What | Confidence |
+|---|---|---|---|
+| 1 | `src/network/wasm_impl.rs:158` | **A send issued before the socket opens is dropped on wasm, queued on native.** wasm calls `send_*` straight at the `WebSocket` and returns `is_ok()` — a `CONNECTING` socket fails, so it warns and drops. Native pushes into `sync_channel(config.max_pending_messages)`, which drains once connected. Only the *doc* drift was fixed (`network/event.rs:54` now says the field has no wasm effect); the behaviour still differs | **Confirmed** |
+| 2 | `src/network.rs:97` | `#[cfg(test)] #[cfg(not(target_arch = "wasm32"))] mod tests;` — the wasm copy of `push_event_bounded` is **hand-mirrored** (the two are cross-referenced at `:29` / `:68`) and its overflow policy has **zero** test coverage | **Confirmed** |
+| 3 | `src/particle/mod.rs:238` | `ParticleSystem` collects the whole particle set into a `Vec` every frame, then does per-particle `get_mut`, instead of `query3_mut` | Unverified (code read only) |
+| 4 | `src/collision/grid.rs:90` | `SpatialGrid::rebuild` calls `clear()` on the bucket map every frame, dropping every inner `Vec`'s capacity; `query_radius` / `query_aabb` allocate per call | Unverified |
+| 5 | `src/ui/localized.rs:81` | `LocalizationSystem` re-translates **every** `LocalizedText` every frame with no locale-dirty check, allocating a `Vec<(Entity, String)>` plus a `key.clone()` per entity | Unverified |
+| 6 | `src/input/gamepad.rs` | `GamepadState` is permanently unresponsive on wasm and the type's doc comment says nothing about it (`#[cfg(not(target_arch = "wasm32"))]` at `:105` is the only hint, and it is invisible in rustdoc) | Confirmed (docs) |
+| 7 | `src/renderer/texture.rs:293` | `decode_valid_png_returns_rgba` is vacuous: `let _ = decode_image_bytes(png_bytes); // Ok or Err both acceptable` | **Confirmed** |
+
+**3–5 are a separate list from the six that shipped in v0.150.0** (those came from §6). Do not
+assume the perf pass covered them.
+
+Sequencing, if this is picked up: 1–2 are one networking PR. 3–5 are one `perf(*)` PR and must not
+ride along with behaviour changes, per the plan's own "do not bundle" rule. 6–7 are docs/test
+hygiene with no version bump.
+
+**One follow-up the v0.150.1 fix earned rather than closed:** its wasm half is compile-verified
+only. A browser smoke that fetches a deliberate 404 and asserts `asset_failures()` is non-empty
+would make it a runtime claim — and would be the first automated check of the web asset-failure
+path at all. Cheap, and it did not belong in a two-defect PATCH.
 
 ## Open — process
 
-Nothing open. The two items that lived here — the `main`-push hook and the oversized skills — both
-closed on 2026-08-04.
+| Item | State |
+|---|---|
+| **Should `Browser smokes (Chrome + swiftshader)` be a required check?** | **A repo-settings decision, deliberately left to the maintainer** by #450 — where it was recorded in a commit body and a `ci.yml` comment and nowhere else, which is why it is here now. The required set is **seven** contexts — `Build (WASM)`, `Test (native)`, `Rustdoc`, `Package dry-run`, `Render tests (lavapipe)`, `Build (Windows / DX12)`, `Build (macOS / Metal)` — and the browser-smokes job is **not** among them (checked 2026-08-08 against the branch-protection API). It runs on every PR; it just cannot block a merge. **What changed the stakes:** #450 moved `wasm_smoke.sh` into that job, and it is the **only** automated check that exercises the wasm WebSocket path — the path where three latent render bugs once survived for months. That coverage now exists and is still non-blocking. **The cost of saying yes:** it is the slowest job in CI (389 s on the last `main` run, against 232 s for `Test (native)`), so it becomes the critical path to every merge. Re-check the real list rather than trusting this row: `gh api repos/ChunSam/skeleton-engine/branches/main/protection --jq '.required_status_checks.contexts'` |
+
+The two items that used to live here — the `main`-push hook and the oversized skills — both closed
+on 2026-08-04.
 
 ## Noted — not scheduled
 
@@ -119,11 +177,15 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
   commit*. `ci.yml` and `docs/VERIFICATION.md` were right the whole time; only the file a reader
   actually opens was wrong. **When an experiment is reverted, grep for prose that described it** —
   the revert diff will not show you the comment three files away.
-- **6 of the 15 `scripts/*_smoke.sh` stay local, deliberately.** The other **9 all gate** now: the
-  4 native in v0.143.11, the 5 self-verdicting browser ones in v0.143.17. The remaining 6 assert
-  only byte sizes and are documented as eyeball-it — a green run would prove nothing, so adding
-  them would grow the gate without growing what it covers. **This is the finished state, not a
-  backlog item**; reopen it only if one of the 6 gains a real assertion.
+- **5 of the 15 `scripts/*_smoke.sh` stay local, deliberately.** The other **10 run in CI**: 4 native
+  in v0.143.11, 5 self-verdicting browser ones in v0.143.17, and `wasm_smoke.sh` in #450 — which had
+  been counted among the byte-size-only ones and was not; it self-verdicts, and it is the only
+  automated exercise of the wasm WebSocket path. The remaining 5 (`centered_text`, `embedded_atlas`,
+  `embedded_image`, `game_feel_web`, `hdr_web`) assert only byte sizes and are documented as
+  eyeball-it — a green run would prove nothing. Reopen only if one of the 5 gains a real assertion.
+  ⚠️ **"run in CI" is not "gate"** for the browser six: their job is not a required check — see
+  *Open — process*. Count before quoting a number here; it has now been wrong twice:
+  `grep -cE '^\s*[^#]*scripts/[a-z_]*_smoke\.sh' .github/workflows/ci.yml`
 - **A headless capture cannot photograph a meter** — fixed dt, no wall clock. Three sessions have
   now reached for `ENGINE_CAPTURE` before remembering this.
 
@@ -135,16 +197,25 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
 > `docs/CHANGELOG.md` (what shipped) or `docs/PATTERNS.md` / `docs/VERIFICATION.md` (what was
 > learned). Without this rule the section regrows the history that was just split out.
 
-Nothing closed this session — the session was this roll-off.
+Closed 2026-08-08 — **the 2026-08-07 analysis's execution plan, steps 1–13**
+(`plans/2026-08-07-analysis-followup.md`), shipped as #438–#450 / v0.145.1 → v0.150.0. Durable home
+is `docs/CHANGELOG.md`, one entry per version; do not re-summarise them here. Two things a reader
+comparing the plan against the `CHANGELOG` will trip on: step 12 was planned as `0.149.1` but
+shipped as **`0.150.0`**, because making `HierarchySystem` hold scratch fields is a breaking change
+and pre-1.0 breaking means MINOR; and step 13 took **no** version bump, being docs + CI only.
+**Step 0 of that plan did not ship** — it is now the §10 entry under *Open — engineering*, and it is
+the part of this program to carry forward.
 
-Rolled off 2026-08-07 (durable homes verified, not assumed) — the **`App::step_headless` entry**
-(#436, v0.145.0) and the 2026-08-06 note, both having served their session. The mechanism and both
-selftests' shape are in `docs/CHANGELOG.md` 0.145.0 and `docs/MODULE_MAP.md`'s `src/scene.rs` row,
-which also carries the reset footgun and the consequence that gives it teeth — **`set_scene` is
-itself a `Replace`**, so an `App` has already reset once by the time setup returns. The two lessons
-are in `docs/VERIFICATION.md` § *A skip is not a pass* and § *check where your "before" sample is
-actually taken*; the sabotage counts (6/6 and 4/4) are in the `CHANGELOG` entry and the
-`MODULE_MAP` row both. The 08-06 note's own pointers were re-checked on the way out rather than
-trusted — including the `set_master_volume` dead end (`CHANGELOG` 0.144.0) — and the one lesson
-that had ever lived only in a note, *a job total is not a step measurement*, is still where that
-note put it: the `cargo build --examples` entry under *Noted*.
+Closed 2026-08-08 — **the first two of §10's nine** (v0.150.1): touch bypassing the letterbox map,
+and the wasm asset-fetch failure that reached neither `asset_failures()` nor strict mode. Durable
+homes: `docs/CHANGELOG.md` 0.150.1, and `docs/MODULE_MAP.md`'s `Letterbox` and `asset_path` rows —
+the first now records that **all** pointer sources share `App::game_cursor`, which is the part that
+prevents the recurrence, not the arithmetic. The lesson generalises the existing cfg-split pattern
+in `CLAUDE.md`: **two callers computing the same derived value will drift even on one platform.**
+Mouse and touch are not a cfg split, and they diverged anyway, for the same reason.
+
+Rolled off 2026-08-08 — the 2026-08-07 `App::step_headless` paragraph (#436/#437), having served its
+session. Its durable homes were verified on the way in, not assumed: `docs/CHANGELOG.md` 0.145.0,
+`docs/MODULE_MAP.md`'s `src/scene.rs` row (which also carries the reset footgun and the consequence
+that gives it teeth — **`set_scene` is itself a `Replace`**), and `docs/VERIFICATION.md` § *A skip is
+not a pass* / § *check where your "before" sample is actually taken*.

@@ -315,47 +315,19 @@ impl ApplicationHandler for App {
                     .map(|w| w.scale_factor() as f32)
                     .unwrap_or(1.0);
                 let logical = Vec2::new(position.x as f32 / scale, position.y as f32 / scale);
-                // Map the window-logical cursor into design space when a DesignResolution is
-                // active (identity otherwise), so cursor hit-testing lines up with the
-                // letterboxed UI. The docked-editor path keeps the untranslated cursor (it has
-                // its own viewport_to_game mapping and design resolution does not apply there).
-                let design_cursor = self
-                    .world
-                    .resource::<Letterbox>()
-                    .map(|lb| lb.window_to_design(logical))
-                    .unwrap_or(logical);
 
+                // Always track the untranslated window-space cursor; the docked pointer gate
+                // needs the physical position even while the game cursor is frozen outside
+                // the panel. Editor bookkeeping, so it stays out of `game_cursor`.
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    use crate::app::editor::{docked_rt::viewport_to_game, EditorMode};
-                    // Always track the untranslated window-space cursor; the docked
-                    // pointer gate needs the physical position even while the game
-                    // cursor is frozen outside the panel.
                     self.editor.window_cursor = Some(egui::pos2(logical.x, logical.y));
-                    if self.editor.mode == EditorMode::Docked {
-                        if let Some(central_rect) = self.editor.central_rect {
-                            let win_pos = egui::pos2(logical.x, logical.y);
-                            if let Some(game_pos) = viewport_to_game(win_pos, central_rect) {
-                                if let Some(input) = self.world.resource_mut::<InputState>() {
-                                    input.set_cursor(Vec2::new(game_pos.x, game_pos.y));
-                                }
-                            }
-                            // Outside the central rect: game cursor is frozen (no update).
-                        } else {
-                            // central_rect not yet computed (first frames) — pass through.
-                            if let Some(input) = self.world.resource_mut::<InputState>() {
-                                input.set_cursor(logical);
-                            }
-                        }
-                    } else {
-                        if let Some(input) = self.world.resource_mut::<InputState>() {
-                            input.set_cursor(design_cursor);
-                        }
-                    }
                 }
-                #[cfg(target_arch = "wasm32")]
-                if let Some(input) = self.world.resource_mut::<InputState>() {
-                    input.set_cursor(design_cursor);
+
+                if let Some(cursor) = self.game_cursor(logical) {
+                    if let Some(input) = self.world.resource_mut::<InputState>() {
+                        input.set_cursor(cursor);
+                    }
                 }
             }
 
@@ -470,9 +442,9 @@ impl ApplicationHandler for App {
             }
 
             // ── Touch input ────────────────────────────────────────────────────
-            // winit delivers touch locations in physical pixels. Divide by the window
-            // scale factor to convert to logical (scale-adjusted) pixels, consistent
-            // with the mouse cursor path (CursorMoved) and UI hit-testing.
+            // winit delivers touch locations in physical pixels, so they need the same two
+            // steps the mouse path takes: divide by the window scale factor, then map into
+            // the game's cursor space via `game_cursor`.
             WindowEvent::Touch(winit::event::Touch {
                 phase,
                 location,
@@ -484,9 +456,18 @@ impl ApplicationHandler for App {
                     .as_ref()
                     .map(|w| w.scale_factor() as f32)
                     .unwrap_or(1.0);
-                // Convert physical → logical pixels so TouchState positions match
-                // InputState::cursor() and Camera::screen_to_world conventions.
-                let pos = Vec2::new(location.x as f32 / scale, location.y as f32 / scale);
+                // Convert physical → logical pixels, then through the SAME mapping the mouse
+                // takes, so TouchState positions really do match InputState::cursor() and
+                // Camera::screen_to_world — under a `DesignResolution` they did not, because
+                // this arm stopped at the scale division. See `App::game_cursor`.
+                //
+                // Unlike the mouse, a touch does not freeze when `game_cursor` declines: the
+                // `None` case is the docked editor with the pointer outside the central panel,
+                // and swallowing a `Ended` there would leak a stuck touch id into `TouchState`.
+                // Falling back to the unmapped position keeps the editor's behaviour exactly
+                // as it was; the defect being fixed is in the letterboxed game path.
+                let logical = Vec2::new(location.x as f32 / scale, location.y as f32 / scale);
+                let pos = self.game_cursor(logical).unwrap_or(logical);
                 if let Some(ts) = self.world.resource_mut::<TouchState>() {
                     match phase {
                         winit::event::TouchPhase::Started => ts.on_touch_started(id, pos),
@@ -497,15 +478,15 @@ impl ApplicationHandler for App {
                     }
                 }
                 // Emulate touch as left mouse button (for compatibility with existing UI systems).
-                // `pos` is already logical (divided by scale above).
-                let logical = pos;
+                // `pos` is the mapped position from above — the same value the mouse would
+                // deliver for this physical point.
                 if let Some(input) = self.world.resource_mut::<InputState>() {
                     match phase {
                         winit::event::TouchPhase::Started => {
-                            input.set_cursor(logical);
+                            input.set_cursor(pos);
                             input.press_mouse(winit::event::MouseButton::Left);
                         }
-                        winit::event::TouchPhase::Moved => input.set_cursor(logical),
+                        winit::event::TouchPhase::Moved => input.set_cursor(pos),
                         winit::event::TouchPhase::Ended | winit::event::TouchPhase::Cancelled => {
                             input.release_mouse(winit::event::MouseButton::Left);
                         }
@@ -607,6 +588,39 @@ impl ApplicationHandler for App {
 }
 
 impl App {
+    /// Maps a window-logical pointer position into the space [`InputState::cursor`] is documented
+    /// to be in, or `None` when the game cursor must not move at all.
+    ///
+    /// **Every pointer source goes through here.** The mouse and touch arms each used to do their
+    /// own mapping, and only the mouse arm learned about [`Letterbox`] — so under a
+    /// `DesignResolution` a finger reported window space while a mouse reported design space,
+    /// through the one accessor `Camera::screen_to_world` documents as its input. One function with
+    /// two callers is the point of this, not the arithmetic.
+    fn game_cursor(&self, logical: Vec2) -> Option<Vec2> {
+        // The docked editor keeps the untranslated cursor: the central panel has its own
+        // `viewport_to_game` mapping, and a design resolution does not apply inside it.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use crate::app::editor::{docked_rt::viewport_to_game, EditorMode};
+            if self.editor.mode == EditorMode::Docked {
+                return match self.editor.central_rect {
+                    // Outside the central rect the game cursor freezes at its last in-panel
+                    // value — hence `Option`, and hence no update rather than a clamped one.
+                    Some(rect) => viewport_to_game(egui::pos2(logical.x, logical.y), rect)
+                        .map(|p| Vec2::new(p.x, p.y)),
+                    // `central_rect` not yet computed (first frames) — pass through.
+                    None => Some(logical),
+                };
+            }
+        }
+        Some(
+            self.world
+                .resource::<Letterbox>()
+                .map(|lb| lb.window_to_design(logical))
+                .unwrap_or(logical),
+        )
+    }
+
     /// Starts the event loop. Blocks until the window is closed.
     #[allow(unused_mut)]
     pub fn run(mut self) {
@@ -859,5 +873,46 @@ impl App {
                 state.process_event(event);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::resources::Letterbox;
+
+    /// A finger and a mouse must land in the same coordinate space.
+    ///
+    /// Regression: the `Touch` arm stopped at the physical→logical scale division while
+    /// `CursorMoved` went on to apply `Letterbox::window_to_design`. Under a `DesignResolution`
+    /// that made `InputState::cursor()` — the value `Camera::screen_to_world` documents as its
+    /// input — mean window space from a touch and design space from a mouse.
+    #[test]
+    fn game_cursor_maps_window_logical_into_design_space() {
+        let mut app = App::new();
+        // A 1280x720 design canvas letterboxed into a square 1000x1000 window.
+        app.world
+            .insert_resource(Letterbox::compute(1280.0, 720.0, 1000.0, 1000.0));
+
+        let mapped = app
+            .game_cursor(Vec2::new(500.0, 500.0))
+            .expect("the cursor only freezes in the docked editor");
+
+        // The window centre is the design centre, and emphatically not (500, 500) — which is
+        // what the touch arm returned. The touch arm predates `DesignResolution` (v0.62.0,
+        // #217), which taught `CursorMoved` the mapping and never came back for it.
+        assert!((mapped.x - 640.0).abs() < 1e-3, "x={}", mapped.x);
+        assert!((mapped.y - 360.0).abs() < 1e-3, "y={}", mapped.y);
+    }
+
+    /// No design resolution in play: the mapping must be an exact no-op, not an approximate
+    /// one. Every game without a `DesignResolution` rides this path.
+    #[test]
+    fn game_cursor_is_identity_without_a_design_resolution() {
+        let mut app = App::new();
+        app.world.insert_resource(Letterbox::IDENTITY);
+
+        let p = Vec2::new(123.0, 456.0);
+        assert_eq!(app.game_cursor(p), Some(p));
     }
 }
