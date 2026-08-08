@@ -77,29 +77,45 @@ impl LocalizationSystem {
 
 impl System for LocalizationSystem {
     fn run(&mut self, world: &mut World, _dt: f32) {
-        // 1. Collect (entity, key) — query borrow released before locale lookup.
-        let entries: Vec<(Entity, String)> = world
-            .query::<LocalizedText>()
-            .map(|(entity, lt)| (entity, lt.key.clone()))
-            .collect();
-        if entries.is_empty() {
-            return;
-        }
-
-        // 2. Resolve against the current locale.
-        let resolved: Vec<(Entity, String)> = {
+        // 1+2. Resolve, and buffer ONLY the entities whose text is actually stale.
+        //
+        // This used to be two passes with two `Vec`s: collect `(Entity, key.clone())`, then map
+        // each key through the locale into another `String`. Both allocated unconditionally, so a
+        // steady screen paid two `Vec`s plus two `String`s per entity **every frame** just to
+        // rediscover that nothing had changed — measured at 401 allocations / 10,400 bytes per
+        // frame for 200 labels (`tests/per_frame_alloc.rs`).
+        //
+        // Two things make one allocation-free pass possible. The key clone was never necessary:
+        // the query and the `LocaleResource` lookup are both `&World`, so they coexist and the
+        // key can be borrowed straight through `t()`. And staleness is decidable with immutable
+        // reads, so `to_string()` happens only for text that is actually about to change — which
+        // in steady state is nothing, leaving `pending` empty and `Vec::new()` allocation-free.
+        let mut pending: Vec<(Entity, String)> = Vec::new();
+        {
             let locale = match world.resource::<LocaleResource>() {
                 Some(l) => l,
                 None => return,
             };
-            entries
-                .into_iter()
-                .map(|(entity, key)| {
-                    let text = locale.t(&key).to_string();
-                    (entity, text)
-                })
-                .collect()
-        };
+            for (entity, lt) in world.query::<LocalizedText>() {
+                let want = locale.t(&lt.key);
+                // Stale if ANY text-bearing widget on this entity disagrees. Mirrors the write
+                // below, so the two cannot drift into "buffered but never written".
+                let stale = world.get::<Label>(entity).is_some_and(|w| w.text != want)
+                    || world.get::<Button>(entity).is_some_and(|w| w.label != want)
+                    || world
+                        .get::<CheckBox>(entity)
+                        .is_some_and(|w| w.label != want)
+                    || world
+                        .get::<TextInput>(entity)
+                        .is_some_and(|w| w.placeholder != want);
+                if stale {
+                    pending.push((entity, want.to_string()));
+                }
+            }
+        }
+        if pending.is_empty() {
+            return;
+        }
 
         // 3. Apply to whichever text-bearing widget the entity carries.
         // An entity carries at most one text-bearing widget in practice, but every branch
@@ -107,7 +123,7 @@ impl System for LocalizationSystem {
         // allocations per entity per frame and threw three away. Write into whichever widget
         // matches and MOVE the string into the last one; also skip the write when the text is
         // already correct, which is every frame between locale switches.
-        for (entity, text) in resolved {
+        for (entity, text) in pending {
             if let Some(label) = world.get_mut::<Label>(entity) {
                 if label.text != text {
                     label.text = text.clone();

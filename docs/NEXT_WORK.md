@@ -30,7 +30,7 @@ A filed request preempts everything below.
 | **`<NAME>_SELFTEST` coverage** | **DONE — 10 of 21**, and the one real gap is now closed (`beat_crawler`, `survivor`, `data_anim`, `data_particles`, `salvage_run`, `predict_shooter`, `orbital_dodger`, `coin_race`, + `settings_menu` and `scene_flow` on 2026-08-06). The remaining 11 games' headline features are all visible in a screenshot (`sokoban`, `platformer`, `maze_escape`, `dig_quest`, `shooter`, `lit_dungeon`, `multi_terrain`, `tile_paint`, `ui_layout_editor`, `stat_editor_game`, `script_steering`), so chasing the number past 10 is effort against failures that are already visible. **Do not reopen this as a coverage target.** Durable findings from the four networked ones are in `docs/MODULE_MAP.md`'s `src/network.rs` row; the two that generalise beyond networking: **`InputState` has no public press setter**, so held input comes from `InputScript` (the `ENGINE_INPUT` replay path), keeping the real input read under test; and **assert an invariant, not an end state**, when a background process (a coin respawner, an entity spawner) can add to what you are counting. |
 | **4th procgen mode** (drunkard's walk) | Unchanged, still the lowest marginal value: the engine cannot fail at it, so nothing is learned. |
 | **`add-facade-capability` skill** | n=5 now (the facade + native + wasm + policy-module shape has repeated that many times). Deferred; the next facade capability makes the case by itself. |
-| **2026-08-07 analysis §10 — 5 candidates left** | **Step 0 of the plan never ran, and nothing recorded that until 2026-08-08.** Four of the nine shipped in v0.150.1 and v0.150.2; none of the rest is a correctness defect. See the subsection below. |
+| **2026-08-07 analysis §10 — 2 candidates left** | **Step 0 of the plan never ran, and nothing recorded that until 2026-08-08.** Seven of the nine shipped across v0.150.1–v0.150.4; the last two are docs/test hygiene. See the subsection below. |
 
 ### The 2026-08-07 analysis's unverified candidates — what is actually left
 
@@ -57,28 +57,32 @@ prevent, so it is written down here instead.
   watcher". Hot reload *is* wired: `App::register_hot_reloadable` → `forward_hot_reload` →
   `HotReloadable::reload_path`, and `particle/config_set.rs` has a test pinning the canonical-path
   match. Do not re-open it.
-- **9 survived**, and **4 of those have since shipped** — the touch letterbox map and the wasm asset
-  failure hook in v0.150.1, the wasm pre-open send drop and the untested wasm event queue in
-  v0.150.2 — leaving **5** below. Those four were every correctness defect in the nine.
+- **9 survived**, and **7 of those have since shipped** — the touch letterbox map and the wasm
+  asset failure hook (v0.150.1), the wasm pre-open send drop and the untested wasm event queue
+  (v0.150.2), and the three per-frame allocation candidates (v0.150.4, measured first) — leaving
+  **2** below, both docs/test hygiene.
 
 ⚠️ §10's header says **23**; the section lists **21** bullets. The header is the wrong number —
 count the bullets, and do not propagate either figure without counting.
 
 | # | Where | What | Confidence |
 |---|---|---|---|
-| 1 | `src/particle/mod.rs:238` | `ParticleSystem` collects the whole particle set into a `Vec` every frame, then does per-particle `get_mut`, instead of `query3_mut` | Unverified (code read only) |
-| 2 | `src/collision/grid.rs:90` | `SpatialGrid::rebuild` calls `clear()` on the bucket map every frame, dropping every inner `Vec`'s capacity; `query_radius` / `query_aabb` allocate per call | Unverified |
-| 3 | `src/ui/localized.rs:81` | `LocalizationSystem` re-translates **every** `LocalizedText` every frame with no locale-dirty check, allocating a `Vec<(Entity, String)>` plus a `key.clone()` per entity | Unverified |
-| 4 | `src/input/gamepad.rs` | `GamepadState` is permanently unresponsive on wasm and the type's doc comment says nothing about it (`#[cfg(not(target_arch = "wasm32"))]` at `:105` is the only hint, and it is invisible in rustdoc) | Confirmed (docs) |
-| 5 | `src/renderer/texture.rs:293` | `decode_valid_png_returns_rgba` is vacuous: `let _ = decode_image_bytes(png_bytes); // Ok or Err both acceptable` | **Confirmed** |
+| 1 | `src/input/gamepad.rs` | `GamepadState` is permanently unresponsive on wasm and the type's doc comment says nothing about it (`#[cfg(not(target_arch = "wasm32"))]` at `:105` is the only hint, and it is invisible in rustdoc) | Confirmed (docs) |
+| 2 | `src/renderer/texture.rs:293` | `decode_valid_png_returns_rgba` is vacuous: `let _ = decode_image_bytes(png_bytes); // Ok or Err both acceptable` | **Confirmed** |
 
-**1–3 are a separate list from the six that shipped in v0.150.0** (those came from §6). Do not
-assume the perf pass covered them.
+The three per-frame allocation candidates shipped in v0.150.4, **measured rather than read** —
+all three claims were real (401 / 190 / 1 allocations per steady-state frame). Two went to zero;
+`ParticleSystem` was deliberately left at one bulk allocation because the proposed `query3_mut`
+fix would stop a hand-spawned `Particle` from ageing, and a particle that never ages never
+despawns. The reasoning is in the test that guards it.
 
-Sequencing, if this is picked up: 1–3 are one `perf(*)` PR and must not ride along with behaviour
-changes, per the plan's own "do not bundle" rule. 4–5 are docs/test hygiene with no version bump.
-**None of the five is a correctness defect** — all four of those shipped in v0.150.1/v0.150.2, so
-what remains is performance and hygiene, and the two follow-ups below outrank every row of it.
+⚠️ **Measure before adding to this list.** `tests/per_frame_alloc.rs` now exists precisely so a
+per-frame allocation claim can be settled in one command instead of another reading of the code.
+The six fixed in v0.150.0 were never measured either; they are plausible, and that is all anyone
+can currently say about them.
+
+What is left below is docs/test hygiene with no version bump, and it is genuinely the bottom of
+the barrel — neither item changes behaviour.
 
 **Both follow-ups are closed** (v0.150.3). The gap was that the wasm halves of v0.150.1 and
 v0.150.2 were compile-verified only, because nothing drove them — a 404 was never requested and a

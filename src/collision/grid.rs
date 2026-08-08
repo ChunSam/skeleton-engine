@@ -85,9 +85,36 @@ impl SpatialGrid {
         }
     }
 
-    /// Clears internal state.
+    /// Clears internal state, releasing the bucket storage.
+    ///
+    /// [`rebuild`](Self::rebuild) does **not** use this — it reuses the bucket capacity instead
+    /// (see there). Call this to actually hand the memory back.
     pub fn clear(&mut self) {
         self.buckets.clear();
+        self.entries.clear();
+    }
+
+    /// Empties the buckets for a rebuild **without** dropping their `Vec`s.
+    ///
+    /// `HashMap::clear` drops the values, which throws away every bucket's capacity and
+    /// reallocates it on the next rebuild — measured at 190 allocations / 7,520 bytes per frame
+    /// for 400 colliders (`tests/per_frame_alloc.rs`), paid 60 times a second by every game with
+    /// colliders. Clearing each `Vec` in place keeps the capacity a stable scene reuses.
+    ///
+    /// The cost is that a cell which empties keeps its (now empty) entry. For a scene that roams
+    /// far — a scrolling world — that set would grow without bound, so the empties are pruned
+    /// once they outnumber the occupied cells. That keeps the waste under 2× while still making
+    /// the steady state allocation-free, because a scene that is not roaming never prunes.
+    fn clear_buckets_reusing_capacity(&mut self) {
+        // Decide BEFORE emptying: `Vec::clear` keeps capacity, so once everything is cleared
+        // there is no way left to tell which cells had actually emptied out.
+        let occupied = self.buckets.values().filter(|b| !b.is_empty()).count();
+        if self.buckets.len() > 2 * occupied.max(1) {
+            self.buckets.retain(|_, bucket| !bucket.is_empty());
+        }
+        for bucket in self.buckets.values_mut() {
+            bucket.clear();
+        }
         self.entries.clear();
     }
 
@@ -95,7 +122,7 @@ impl SpatialGrid {
     ///
     /// Entities without a `CollisionLayer` component are treated as `CollisionLayer::ALL`.
     pub fn rebuild(&mut self, world: &World) {
-        self.clear();
+        self.clear_buckets_reusing_capacity();
 
         for (entity, transform, collider) in world.query2::<Transform, Collider>() {
             // Mirror the renderer's policy: a parented entity's WORLD position is its
@@ -442,6 +469,42 @@ mod tests {
                 .query_radius(Vec2::new(4.0, 0.0), 16.0, CollisionLayer::ALL)
                 .contains(&child),
             "the collider is still indexed at its parent-relative offset"
+        );
+    }
+
+    /// The capacity-reuse in `rebuild` keeps a cell's `Vec` after the cell empties, which is what
+    /// makes a stable scene allocation-free. This pins the bound on the other side: a scene that
+    /// roams must not accumulate one bucket per cell it has ever touched.
+    #[test]
+    fn a_roaming_scene_does_not_grow_the_bucket_map_without_bound() {
+        let mut world = World::new();
+        let e = world.spawn();
+        world.add_component(e, Transform::default());
+        world.add_component(e, Collider::Circle { radius: 8.0 });
+
+        let mut grid = SpatialGrid::new(128.0);
+        // Walk far enough to touch hundreds of distinct cells, rebuilding at each step the way a
+        // scrolling game would.
+        for step in 0..400 {
+            if let Some(tr) = world.get_mut::<Transform>(e) {
+                tr.position = Vec2::new(step as f32 * 200.0, 0.0);
+            }
+            grid.rebuild(&world);
+        }
+
+        // One collider occupies 1-2 cells, so the live set is tiny; the prune keeps the map near
+        // that rather than near 400.
+        assert!(
+            grid.buckets.len() <= 8,
+            "bucket map grew to {} entries while tracking ONE roaming collider — the prune in \
+             clear_buckets_reusing_capacity is not firing",
+            grid.buckets.len()
+        );
+        // And it still answers correctly at the final position.
+        let hits = grid.query_radius(Vec2::new(399.0 * 200.0, 0.0), 16.0, CollisionLayer::ALL);
+        assert!(
+            hits.contains(&e),
+            "the collider must still be found at its final position"
         );
     }
 }

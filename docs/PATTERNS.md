@@ -48,8 +48,33 @@ allocate them fresh every call. Two sanctioned patterns:
   instead of cloning, and put it back if it must survive
   (`TextQueue` drain in `renderer/text.rs`, `exec_order` in `app/schedule.rs`).
 
+A third pattern is often better than either, and it is the one that gets missed: **decide before
+allocating.** `LocalizationSystem` (v0.150.4) buffered a resolved `String` per entity every frame
+and then discovered nothing had changed. Checking staleness with immutable reads first means the
+buffer stays empty in steady state — and an empty `Vec::new()` never allocates, so no scratch
+field is needed at all. Reach for this when the per-frame work is *conditional*; a scratch field
+only pays off when the work genuinely happens every frame.
+
 One-shot or editor-only paths may allocate freely — this convention is for code that
 runs every frame.
+
+**Measure it; do not read it.** `tests/per_frame_alloc.rs` installs a counting
+`#[global_allocator]` and asserts that a system's **steady-state** frame (the second run over an
+unchanged World) allocates nothing. Add a case there when you add a per-frame system, and settle
+"does this allocate?" with `cargo test --test per_frame_alloc` rather than by re-reading the body.
+
+⚠️ Two things that file learned the hard way, both worth keeping if you write another harness like
+it. **Counters must be thread-local** — with globals, other test threads' setup allocations land
+in whoever is measuring, which its own control test caught. And **a measurement harness needs
+control tests in both directions**: one proving the counter sees a known allocation, one proving
+it reads zero for allocation-free work. Without the first, every assertion in the file can pass
+vacuously; without the second, a noisy counter makes the real assertions impossible to satisfy and
+the next person "fixes" them by loosening the threshold.
+
+Note that zero is not always the right target. `ParticleSystem` keeps one bulk allocation on
+purpose: the change that would remove it also changes which particles get updated, and a particle
+that stops ageing never despawns. The test asserts *not per particle* and explains why — an
+assertion that encodes the trade-off beats one that encodes an ideal nobody can honour.
 
 ### Time-driven System animation (no global clock)
 
