@@ -4,6 +4,28 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.150.4
+
+**The per-frame allocation rule is now measured instead of read.** The last three candidates from the 2026-08-07 analysis §10 were code-reading claims, and so were the six fixed in v0.150.0 — plausible, unmeasured, and impossible to confirm or refute without reading them all again. `tests/per_frame_alloc.rs` installs a counting `#[global_allocator]` (its own integration binary; a process gets exactly one) and measures a **steady-state frame**: run a system once to let scratch buffers fill, then assert the second identical frame allocates nothing.
+
+All three claims were real. Measured before the fix:
+
+| System | Per steady-state frame | Scale |
+|---|---|---|
+| `LocalizationSystem` | **401 allocations / 10,400 B** | 200 labels — ~2 per entity |
+| `SpatialGrid::rebuild` | **190 allocations / 7,520 B** | 400 colliders — one per occupied cell |
+| `ParticleSystem` | **1 allocation / 32,000 B** | 500 particles — one bulk `Vec` |
+
+**`LocalizationSystem` → 0.** It built two `Vec`s and two `String`s per entity every frame just to rediscover nothing had changed. v0.150.0 fixed only the *write* side. Two things made a single allocation-free pass possible: the key clone was never necessary (the query and the `LocaleResource` lookup are both `&World`, so they coexist and the key borrows straight through `t()`), and staleness is decidable with immutable reads — so `to_string()` now happens only for text about to change, which in steady state is nothing, leaving the buffer empty and `Vec::new()` allocation-free. No API change.
+
+**`SpatialGrid::rebuild` → 0.** `HashMap::clear` drops the values, so every bucket's `Vec` was freed and reallocated on the next rebuild — the capacity a stable scene would reuse, thrown away 60 times a second. `rebuild` now empties buckets in place. `clear()` keeps its old release-the-memory meaning for external callers.
+
+⚠️ **That introduces a bound worth knowing:** a cell that empties keeps its entry, so a roaming scene would grow the map forever. The empties are pruned once they outnumber the occupied cells, keeping waste under 2× while a non-roaming scene never prunes at all. `a_roaming_scene_does_not_grow_the_bucket_map_without_bound` pins it — and it bites: removing the prune grows the map to **900 entries while tracking one collider**.
+
+**`ParticleSystem` — deliberately left at one bulk allocation**, with the test asserting "not per particle" rather than zero. §10 proposed `query3_mut`, which would reach zero and also silently change behaviour: the current code advances `age` through `get_mut::<Particle>` whatever else the entity carries, while `query3_mut::<Transform, Sprite, Particle>` skips a particle missing any of the three. The engine's spawner always attaches all three, but a hand-spawned `Particle` would stop ageing — and one that never ages never reaches its lifetime, so it would never despawn. Trading a bulk allocation for a leak in forked game code is a bad trade, and the scratch-field alternative is a breaking change (a unit struct constructed bare in seven places here alone) for one allocation.
+
+**The harness has two control tests**, because a counter that silently reads zero would make every assertion above vacuous. One of them earned its place immediately: the first version used global counters plus a mutex, and the control test caught that other test threads' allocations were landing in whoever was measuring. The counters are thread-local now.
+
 ## 0.150.3
 
 **The first check in the tree that asserts a *failure* path works.** Every browser smoke before this one drives a path that is supposed to succeed and passes when nothing goes wrong. That is a blind spot, and v0.150.1 and v0.150.2 both walked through it: each fixed a broken failure handler, and each shipped **compile-verified only**, because nothing automated could reach the code.
