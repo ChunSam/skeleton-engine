@@ -4,6 +4,20 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.150.1
+
+**Two silent corruptions, both from the 2026-08-07 analysis §10** — the candidates that never got their adversarial pass because step 0 of the follow-up plan did not run. Both were confirmed by reading the code on 2026-08-08; see `docs/NEXT_WORK.md` for the other seven still open.
+
+**Touch input bypassed the letterbox mapping.** With a `DesignResolution` active, `CursorMoved` mapped the cursor into design space via `Letterbox::window_to_design` but the `Touch` arm stopped at the physical→logical scale division. So `InputState::cursor()` — the value `Camera::screen_to_world` documents as its input — meant **window space from a finger and design space from a mouse**, and every touch-driven hit test in a letterboxed game landed in the wrong place. `TouchState` carried the unmapped position too, contradicting its own comment that its positions match `InputState::cursor()`.
+
+The touch arm predates the feature: `DesignResolution` arrived in v0.62.0 (#217), taught `CursorMoved` the mapping, and never came back for the `Touch` arm sitting 130 lines below it. The fix is `App::game_cursor`, one private helper that both arms now call; the mouse and touch arms each doing their own mapping is what let only one of them learn about `Letterbox`. Behaviour for the mouse is unchanged in all five of its cases (docked in/out of the central panel, `central_rect` not yet computed, non-docked, wasm). Touch does **not** adopt the docked editor's cursor freeze — swallowing an `Ended` there would leak a stuck touch id into `TouchState` — so the editor behaves exactly as before.
+
+⚠️ **Confirmed by reading both arms and by sabotage, not on a touch device.** Reverting the map inside the helper makes `game_cursor_maps_window_logical_into_design_space` fail with `x=500` (the raw window coordinate) against the expected design-space `640` — the defect exactly as reported. No touchscreen was involved at any point.
+
+**A web asset fetch failure never reached `asset_failures()` or strict mode.** On wasm, a 404 or a decode error set `AssetLoadState::Failed` — visible through `load_state()` and `failed_handles()` — but never called `asset_path::record_failure`, which is what feeds `asset_failures()` **and** what panics under `set_strict_assets(true)`. Both are documented as the way to refuse to start on a missing asset; both were **native-only in practice**, so on the web the engine painted magenta and said nothing either hook could act on. All seven `Failed` returns in `fetch_image_wasm` now go through one `fetch_failed` helper. Three of them never even logged; they do now, and the four that did no longer log twice (`record_failure` logs).
+
+⚠️ **Compile-verified on wasm32, not runtime-verified.** This code is `#[cfg(target_arch = "wasm32")]`, so `cargo test` cannot reach it and no existing browser smoke requests a missing asset. Proving it on the web needs a smoke that fetches a 404 and asserts `asset_failures()` is non-empty — worth doing, not done here.
+
 ## 0.150.0
 
 **Six per-frame allocation hot spots in built-in systems.** From the 2026-08-07 analysis. The engine's own rule is that a system running every frame keeps its temporaries as scratch fields (`clear()` + refill) or uses `std::mem::take`; these were the built-ins that did not.

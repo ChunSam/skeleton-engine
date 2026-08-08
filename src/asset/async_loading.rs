@@ -116,6 +116,21 @@ impl AssetServer {
 
 // ─── WASM Fetch Helper ────────────────────────────────────────────────────────
 
+/// Builds the failure result for a web fetch — and records it the way a native path load does.
+///
+/// Every `Failed` return in [`fetch_image_wasm`] goes through here. They used to only build an
+/// `AssetLoadState::Failed`, which `load_state()` and `failed_handles()` see but
+/// [`asset_failures`](crate::asset_path::asset_failures) does not — so the documented boot-time
+/// "refuse to start on a missing asset" hook, and [`set_strict_assets`](crate::asset_path::set_strict_assets),
+/// were **native-only in practice**: on the web a 404 painted magenta and said nothing either one
+/// could act on. `record_failure` also does the `log::error!`, so these sites no longer log twice
+/// (and the three that never logged at all now do).
+#[cfg(target_arch = "wasm32")]
+fn fetch_failed(url: &str, msg: String) -> (ImageAsset, AssetLoadState) {
+    crate::asset_path::record_failure(url, &msg);
+    (magenta_fallback(), AssetLoadState::Failed(msg))
+}
+
 #[cfg(target_arch = "wasm32")]
 async fn fetch_image_wasm(url: &str) -> (ImageAsset, AssetLoadState) {
     use wasm_bindgen::JsCast;
@@ -123,50 +138,31 @@ async fn fetch_image_wasm(url: &str) -> (ImageAsset, AssetLoadState) {
 
     let window = match web_sys::window() {
         Some(w) => w,
-        None => {
-            let msg = format!("fetch failed '{url}': no window");
-            log::error!("{msg}");
-            return (magenta_fallback(), AssetLoadState::Failed(msg));
-        }
+        None => return fetch_failed(url, format!("fetch failed '{url}': no window")),
     };
 
     let resp_value = match JsFuture::from(window.fetch_with_str(url)).await {
         Ok(v) => v,
-        Err(e) => {
-            let msg = format!("fetch failed '{url}': {e:?}");
-            log::error!("{msg}");
-            return (magenta_fallback(), AssetLoadState::Failed(msg));
-        }
+        Err(e) => return fetch_failed(url, format!("fetch failed '{url}': {e:?}")),
     };
 
     let resp: web_sys::Response = match resp_value.dyn_into() {
         Ok(r) => r,
-        Err(_) => {
-            let msg = format!("fetch response cast failed '{url}'");
-            return (magenta_fallback(), AssetLoadState::Failed(msg));
-        }
+        Err(_) => return fetch_failed(url, format!("fetch response cast failed '{url}'")),
     };
 
     if !resp.ok() {
-        let msg = format!("fetch HTTP error '{url}': {}", resp.status());
-        log::error!("{msg}");
-        return (magenta_fallback(), AssetLoadState::Failed(msg));
+        return fetch_failed(url, format!("fetch HTTP error '{url}': {}", resp.status()));
     }
 
     let array_buffer_promise = match resp.array_buffer() {
         Ok(p) => p,
-        Err(e) => {
-            let msg = format!("array_buffer() failed '{url}': {e:?}");
-            return (magenta_fallback(), AssetLoadState::Failed(msg));
-        }
+        Err(e) => return fetch_failed(url, format!("array_buffer() failed '{url}': {e:?}")),
     };
 
     let array_buffer = match JsFuture::from(array_buffer_promise).await {
         Ok(v) => v,
-        Err(e) => {
-            let msg = format!("response read failed '{url}': {e:?}");
-            return (magenta_fallback(), AssetLoadState::Failed(msg));
-        }
+        Err(e) => return fetch_failed(url, format!("response read failed '{url}': {e:?}")),
     };
 
     let uint8_array = js_sys::Uint8Array::new(&array_buffer);
@@ -185,11 +181,7 @@ async fn fetch_image_wasm(url: &str) -> (ImageAsset, AssetLoadState) {
                 AssetLoadState::Loaded,
             )
         }
-        Err(e) => {
-            let msg = format!("image decode failed '{url}': {e}");
-            log::error!("{msg}");
-            (magenta_fallback(), AssetLoadState::Failed(msg))
-        }
+        Err(e) => fetch_failed(url, format!("image decode failed '{url}': {e}")),
     }
 }
 
