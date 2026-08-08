@@ -95,10 +95,22 @@ burial that hid step 0:
 | `src/app/assets.rs:262` | **Open, and the harness cannot reach it**: `image_assets_for_gpu` is `pub(crate)` and the caller early-returns without a GPU, so an integration test cannot drive it. Needs either a unit test inside the crate or the render job. |
 | `src/app/render/debug_draw.rs:34` | **Open, and mis-filed** — it draws one quad per dot along a segment where one rotated quad would do. That is a draw-call/vertex-volume claim, not an allocation one, so `per_frame_alloc.rs` is the wrong instrument. Assert the quad count instead. |
 
-⚠️ **The remaining five v0.150.0 fixes are still unmeasured** (`AnimEffectSystem`,
-`ZoneEffectSystem`, `DialogueSystem`, and the two halves of the tilemap/dialogue guards beyond the
-idle path). `TilemapSystem`'s idle claim is confirmed. The rest are plausible, and that is still
-all anyone can say — each needs a fixture that reaches its hot path.
+⚠️ **Three of v0.150.0's six fixes are still unmeasured**, and this is the highest-value work
+left in this file. Of the six it claimed: `HierarchySystem` and `LocalizationSystem` have since
+been measured (**both were still allocating** — fixed properly in v0.150.5 and v0.150.4), and
+`TilemapSystem`'s *idle* path is confirmed at zero. Nobody has measured:
+
+| Unmeasured | What v0.150.0 claimed | What a fixture has to reach |
+|---|---|---|
+| `AnimEffectSystem` | stopped deep-cloning the binding table before checking for events | registered bindings + an empty event bus (the idle frame is the claim) |
+| `ZoneEffectSystem` | same shape, same claim | same |
+| `DialogueSystem` | stopped cloning the whole `LocaleResource` every frame | a `DialogueBox` where `needs_locale_resolve()` is false |
+| `TilemapSystem` (non-idle) | cheap fields read before the grid clone | a tilemap whose generation/dims **did** change |
+
+**The track record says do not assume these are fine.** Two of the three claims that have been
+measured turned out to be wrong — one system that was "fixed" never stopped allocating, and one
+named as a problem (`LayoutSystem`) never had one. Reading got both backwards. The instrument
+exists and each of these needs only a fixture: `cargo test --test per_frame_alloc`.
 
 What is left below is docs/test hygiene with no version bump, and it is genuinely the bottom of
 the barrel — neither item changes behaviour.
@@ -116,9 +128,16 @@ and if a new failure path gets a handler, it belongs in `wasm_failpaths`, not in
 
 ## Open — process
 
-| Item | State |
-|---|---|
-| **Should `Browser smokes (Chrome + swiftshader)` be a required check?** | **A repo-settings decision, deliberately left to the maintainer** by #450 — where it was recorded in a commit body and a `ci.yml` comment and nowhere else, which is why it is here now. The required set is **seven** contexts — `Build (WASM)`, `Test (native)`, `Rustdoc`, `Package dry-run`, `Render tests (lavapipe)`, `Build (Windows / DX12)`, `Build (macOS / Metal)` — and the browser-smokes job is **not** among them (checked 2026-08-08 against the branch-protection API). It runs on every PR; it just cannot block a merge. **What changed the stakes:** #450 moved `wasm_smoke.sh` into that job, and it is the **only** automated check that exercises the wasm WebSocket path — the path where three latent render bugs once survived for months. That coverage now exists and is still non-blocking. **The cost of saying yes:** it is the slowest job in CI (389 s on the last `main` run, against 232 s for `Test (native)`), so it becomes the critical path to every merge. Re-check the real list rather than trusting this row: `gh api repos/ChunSam/skeleton-engine/branches/main/protection --jq '.required_status_checks.contexts'` |
+Nothing open. **The required-check question closed on 2026-08-08**: `Browser smokes (Chrome +
+swiftshader)` is now the **eighth** required context, so the only automated check that exercises
+the wasm WebSocket path — and, since v0.150.3, the only one that asserts a *failure* path — can
+actually block a merge. Verified against the branch-protection API before and after: the other
+settings (`strict`, `enforce_admins`, force-push and deletion bans) are byte-identical, only the
+context list changed. Re-read the real list rather than trusting this paragraph:
+`gh api repos/ChunSam/skeleton-engine/branches/main/protection --jq '.required_status_checks.contexts'`
+
+⚠️ **Expect ~8 min to merge, not ~4.** That job is the slowest in CI and is now on the critical
+path. Reverting is one command (`-X DELETE` on the same endpoint) if the cost stops being worth it.
 
 The two items that used to live here — the `main`-push hook and the oversized skills — both closed
 on 2026-08-04.
@@ -237,18 +256,31 @@ and pre-1.0 breaking means MINOR; and step 13 took **no** version bump, being do
 **Step 0 of that plan did not ship** — it is now the §10 entry under *Open — engineering*, and it is
 the part of this program to carry forward.
 
-Closed 2026-08-08 — **four of §10's nine, in two PATCHes**, which between them were every
-correctness defect in that list. v0.150.1: touch bypassing the letterbox map, and the wasm
-asset-fetch failure that reached neither `asset_failures()` nor strict mode. v0.150.2: the wasm
-pre-open send drop, and the hand-mirrored event-queue policy whose wasm copy no test executed.
-Durable homes: `docs/CHANGELOG.md` 0.150.1/0.150.2, and `docs/MODULE_MAP.md`'s `Letterbox`,
-`asset_path` and `src/network.rs` rows.
+Closed 2026-08-08 — **seven of §10's nine, across five PATCH releases**, plus the two
+verification gaps those releases exposed. Durable home is `docs/CHANGELOG.md` 0.150.1–0.150.5; do
+not re-summarise the fixes here. What is worth carrying:
 
-**All four were one shape.** A policy written at two call sites, where only one stayed correct:
-mouse vs touch, native vs wasm asset loader, native vs wasm sender, native vs wasm event queue.
-Three of the four had no `cfg` protecting them from being noticed — and the one that did was worse,
-because the `cfg` on `mod tests` is what hid it. The generalisation is in `docs/PATTERNS.md`
-§ *Shared policy for cfg-split backends*: **`cfg` was never the precondition, two call sites are.**
+| Release | Closed |
+|---|---|
+| v0.150.1 | touch bypassing the letterbox map; a wasm asset failure reaching neither `asset_failures()` nor strict mode |
+| v0.150.2 | the wasm pre-open send drop; the hand-mirrored event-queue policy whose wasm copy no test executed |
+| v0.150.3 | the first check in the tree that asserts a **failure** path works — the gap v0.150.1 and v0.150.2 both shipped through |
+| v0.150.4 | the per-frame allocation rule became **measured** instead of read; two of three candidates fixed |
+| v0.150.5 | the two allocations measuring found that reading had missed, including an ECS-wide one nobody had listed |
+
+**All nine correctness defects in §10 are shipped.** What remains there is two hygiene items.
+
+**The shape they shared.** Every one was a policy written at two call sites where only one stayed
+correct: mouse vs touch, native vs wasm asset loader, native vs wasm sender, native vs wasm event
+queue. Three had no `cfg` protecting them; the one that did was worse, because the `cfg` on
+`mod tests` is what hid it. `docs/PATTERNS.md` § *Shared policy for cfg-split backends* carries it:
+**`cfg` was never the precondition, two call sites are.**
+
+**The lesson that outlived the fixes.** Two verification habits earned their place by catching real
+errors the same day they were written: a fail-path check is worthless until you revert the fix and
+watch it go red, and a measurement is worthless until a control test proves the instrument can see
+anything at all. Both are in `docs/PATTERNS.md`; the second caught two separate bugs in its own
+harness.
 
 Rolled off 2026-08-08 — the 2026-08-07 `App::step_headless` paragraph (#436/#437), having served its
 session. Its durable homes were verified on the way in, not assumed: `docs/CHANGELOG.md` 0.145.0,
