@@ -30,7 +30,7 @@ A filed request preempts everything below.
 | **`<NAME>_SELFTEST` coverage** | **DONE — 10 of 21**, and the one real gap is now closed (`beat_crawler`, `survivor`, `data_anim`, `data_particles`, `salvage_run`, `predict_shooter`, `orbital_dodger`, `coin_race`, + `settings_menu` and `scene_flow` on 2026-08-06). The remaining 11 games' headline features are all visible in a screenshot (`sokoban`, `platformer`, `maze_escape`, `dig_quest`, `shooter`, `lit_dungeon`, `multi_terrain`, `tile_paint`, `ui_layout_editor`, `stat_editor_game`, `script_steering`), so chasing the number past 10 is effort against failures that are already visible. **Do not reopen this as a coverage target.** Durable findings from the four networked ones are in `docs/MODULE_MAP.md`'s `src/network.rs` row; the two that generalise beyond networking: **`InputState` has no public press setter**, so held input comes from `InputScript` (the `ENGINE_INPUT` replay path), keeping the real input read under test; and **assert an invariant, not an end state**, when a background process (a coin respawner, an entity spawner) can add to what you are counting. |
 | **4th procgen mode** (drunkard's walk) | Unchanged, still the lowest marginal value: the engine cannot fail at it, so nothing is learned. |
 | **`add-facade-capability` skill** | n=5 now (the facade + native + wasm + policy-module shape has repeated that many times). Deferred; the next facade capability makes the case by itself. |
-| **2026-08-07 analysis §10 — 7 candidates left** | **Step 0 of the plan never ran, and nothing recorded that until 2026-08-08.** Two of the nine shipped in v0.150.1. See the subsection below. |
+| **2026-08-07 analysis §10 — 5 candidates left** | **Step 0 of the plan never ran, and nothing recorded that until 2026-08-08.** Four of the nine shipped in v0.150.1 and v0.150.2; none of the rest is a correctness defect. See the subsection below. |
 
 ### The 2026-08-07 analysis's unverified candidates — what is actually left
 
@@ -57,33 +57,42 @@ prevent, so it is written down here instead.
   watcher". Hot reload *is* wired: `App::register_hot_reloadable` → `forward_hot_reload` →
   `HotReloadable::reload_path`, and `particle/config_set.rs` has a test pinning the canonical-path
   match. Do not re-open it.
-- **9 survived**; **2 of those shipped in v0.150.1** (the touch letterbox map and the wasm asset
-  failure hook — the two that silently corrupted a running game), leaving **7** below.
+- **9 survived**, and **4 of those have since shipped** — the touch letterbox map and the wasm asset
+  failure hook in v0.150.1, the wasm pre-open send drop and the untested wasm event queue in
+  v0.150.2 — leaving **5** below. Those four were every correctness defect in the nine.
 
 ⚠️ §10's header says **23**; the section lists **21** bullets. The header is the wrong number —
 count the bullets, and do not propagate either figure without counting.
 
 | # | Where | What | Confidence |
 |---|---|---|---|
-| 1 | `src/network/wasm_impl.rs:158` | **A send issued before the socket opens is dropped on wasm, queued on native.** wasm calls `send_*` straight at the `WebSocket` and returns `is_ok()` — a `CONNECTING` socket fails, so it warns and drops. Native pushes into `sync_channel(config.max_pending_messages)`, which drains once connected. Only the *doc* drift was fixed (`network/event.rs:54` now says the field has no wasm effect); the behaviour still differs | **Confirmed** |
-| 2 | `src/network.rs:97` | `#[cfg(test)] #[cfg(not(target_arch = "wasm32"))] mod tests;` — the wasm copy of `push_event_bounded` is **hand-mirrored** (the two are cross-referenced at `:29` / `:68`) and its overflow policy has **zero** test coverage | **Confirmed** |
-| 3 | `src/particle/mod.rs:238` | `ParticleSystem` collects the whole particle set into a `Vec` every frame, then does per-particle `get_mut`, instead of `query3_mut` | Unverified (code read only) |
-| 4 | `src/collision/grid.rs:90` | `SpatialGrid::rebuild` calls `clear()` on the bucket map every frame, dropping every inner `Vec`'s capacity; `query_radius` / `query_aabb` allocate per call | Unverified |
-| 5 | `src/ui/localized.rs:81` | `LocalizationSystem` re-translates **every** `LocalizedText` every frame with no locale-dirty check, allocating a `Vec<(Entity, String)>` plus a `key.clone()` per entity | Unverified |
-| 6 | `src/input/gamepad.rs` | `GamepadState` is permanently unresponsive on wasm and the type's doc comment says nothing about it (`#[cfg(not(target_arch = "wasm32"))]` at `:105` is the only hint, and it is invisible in rustdoc) | Confirmed (docs) |
-| 7 | `src/renderer/texture.rs:293` | `decode_valid_png_returns_rgba` is vacuous: `let _ = decode_image_bytes(png_bytes); // Ok or Err both acceptable` | **Confirmed** |
+| 1 | `src/particle/mod.rs:238` | `ParticleSystem` collects the whole particle set into a `Vec` every frame, then does per-particle `get_mut`, instead of `query3_mut` | Unverified (code read only) |
+| 2 | `src/collision/grid.rs:90` | `SpatialGrid::rebuild` calls `clear()` on the bucket map every frame, dropping every inner `Vec`'s capacity; `query_radius` / `query_aabb` allocate per call | Unverified |
+| 3 | `src/ui/localized.rs:81` | `LocalizationSystem` re-translates **every** `LocalizedText` every frame with no locale-dirty check, allocating a `Vec<(Entity, String)>` plus a `key.clone()` per entity | Unverified |
+| 4 | `src/input/gamepad.rs` | `GamepadState` is permanently unresponsive on wasm and the type's doc comment says nothing about it (`#[cfg(not(target_arch = "wasm32"))]` at `:105` is the only hint, and it is invisible in rustdoc) | Confirmed (docs) |
+| 5 | `src/renderer/texture.rs:293` | `decode_valid_png_returns_rgba` is vacuous: `let _ = decode_image_bytes(png_bytes); // Ok or Err both acceptable` | **Confirmed** |
 
-**3–5 are a separate list from the six that shipped in v0.150.0** (those came from §6). Do not
+**1–3 are a separate list from the six that shipped in v0.150.0** (those came from §6). Do not
 assume the perf pass covered them.
 
-Sequencing, if this is picked up: 1–2 are one networking PR. 3–5 are one `perf(*)` PR and must not
-ride along with behaviour changes, per the plan's own "do not bundle" rule. 6–7 are docs/test
-hygiene with no version bump.
+Sequencing, if this is picked up: 1–3 are one `perf(*)` PR and must not ride along with behaviour
+changes, per the plan's own "do not bundle" rule. 4–5 are docs/test hygiene with no version bump.
+**None of the five is a correctness defect** — all four of those shipped in v0.150.1/v0.150.2, so
+what remains is performance and hygiene, and the two follow-ups below outrank every row of it.
 
-**One follow-up the v0.150.1 fix earned rather than closed:** its wasm half is compile-verified
-only. A browser smoke that fetches a deliberate 404 and asserts `asset_failures()` is non-empty
-would make it a runtime claim — and would be the first automated check of the web asset-failure
-path at all. Cheap, and it did not belong in a two-defect PATCH.
+**Two follow-ups the fixes earned rather than closed — both the same gap.** The wasm halves of
+v0.150.1 and v0.150.2 are not runtime-proven, because nothing drives them:
+
+- **A 404 fetch is never requested.** A browser smoke that asks for a missing asset and asserts
+  `asset_failures()` is non-empty would be the first automated check of the web asset-failure path.
+- **A pre-open send is never made.** `wasm_smoke.sh`'s client only sends on input and a headless run
+  presses nothing, so the `CONNECTING` branch of `try_send_*` is never taken. What that smoke *does*
+  prove is that the `onopen` flush did not break `Connected` delivery — the frame reads
+  "You are Player #1", so the server's assignment arrived.
+
+Both want the same thing: **a page that exercises a failure path on purpose, and a check that reads
+the result.** Worth doing as one piece of work rather than two, and worth more than any remaining
+item in the table above.
 
 ## Open — process
 
@@ -206,13 +215,18 @@ and pre-1.0 breaking means MINOR; and step 13 took **no** version bump, being do
 **Step 0 of that plan did not ship** — it is now the §10 entry under *Open — engineering*, and it is
 the part of this program to carry forward.
 
-Closed 2026-08-08 — **the first two of §10's nine** (v0.150.1): touch bypassing the letterbox map,
-and the wasm asset-fetch failure that reached neither `asset_failures()` nor strict mode. Durable
-homes: `docs/CHANGELOG.md` 0.150.1, and `docs/MODULE_MAP.md`'s `Letterbox` and `asset_path` rows —
-the first now records that **all** pointer sources share `App::game_cursor`, which is the part that
-prevents the recurrence, not the arithmetic. The lesson generalises the existing cfg-split pattern
-in `CLAUDE.md`: **two callers computing the same derived value will drift even on one platform.**
-Mouse and touch are not a cfg split, and they diverged anyway, for the same reason.
+Closed 2026-08-08 — **four of §10's nine, in two PATCHes**, which between them were every
+correctness defect in that list. v0.150.1: touch bypassing the letterbox map, and the wasm
+asset-fetch failure that reached neither `asset_failures()` nor strict mode. v0.150.2: the wasm
+pre-open send drop, and the hand-mirrored event-queue policy whose wasm copy no test executed.
+Durable homes: `docs/CHANGELOG.md` 0.150.1/0.150.2, and `docs/MODULE_MAP.md`'s `Letterbox`,
+`asset_path` and `src/network.rs` rows.
+
+**All four were one shape.** A policy written at two call sites, where only one stayed correct:
+mouse vs touch, native vs wasm asset loader, native vs wasm sender, native vs wasm event queue.
+Three of the four had no `cfg` protecting them from being noticed — and the one that did was worse,
+because the `cfg` on `mod tests` is what hid it. The generalisation is in `docs/PATTERNS.md`
+§ *Shared policy for cfg-split backends*: **`cfg` was never the precondition, two call sites are.**
 
 Rolled off 2026-08-08 — the 2026-08-07 `App::step_headless` paragraph (#436/#437), having served its
 session. Its durable homes were verified on the way in, not assumed: `docs/CHANGELOG.md` 0.145.0,

@@ -4,6 +4,22 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.150.2
+
+**The two networking items from the 2026-08-07 analysis §10.** Both are the same failure as v0.150.1's: one policy written at two call sites, where only one of them stayed correct.
+
+**A send issued before the socket opened was dropped on the web and queued on native.** `connect()` returns before the handshake completes on both targets, so `let c = connect(url); c.send_text(join);` is ordinary game code. Native puts that message in a `sync_channel(max_pending_messages)` that the client thread drains once connected. The web client handed it straight to a `CONNECTING` socket, which throws — `is_ok()` was false, the message was gone, and the same game lost its join packet on the web and nowhere else. `try_send_bytes`/`try_send_text` now queue while `readyState == CONNECTING`, and `onopen` flushes them **in order and before `Connected` reaches the game**, so a pre-open send still arrives ahead of whatever the game sends on `Connected` — the order native already produced. The queue is bounded by the same `max_pending_messages` and drops on overflow, matching native's full-channel behaviour.
+
+⚠️ `max_pending_messages` now means something on **both** targets, and its doc says which window each one bounds: native the whole outbound channel, wasm only the pre-open queue (once open, `max_buffered_bytes` governs).
+
+**The wasm event queue's overflow policy had zero test coverage.** `push_event_bounded` existed twice — `back_mut`/`pop_back`/`push_back` for native's `VecDeque`, `last_mut`/`pop`/`push` for wasm's `Vec` — held together by a comment on each asking the next editor to keep them identical, while `mod tests` was gated `not(target_arch = "wasm32")`. So the copy that no test ever executed was the one guarded only by prose.
+
+Rather than test the duplicate, the duplicate is gone: one `push_bounded` over an `EventQueue` trait, with both containers adapting. The `cfg` split is now only the lock-vs-borrow wrapper, which is genuinely per-target. New tests drive **both** containers through the same script and assert they agree at every step — and pin the expected sequence, since two implementations can also be identically wrong.
+
+**Evidence.** The pre-existing native overflow tests pass unchanged, which is what says the refactor did not move native behaviour. `scripts/wasm_smoke.sh` passes against a real Chrome and a real server: the connection is logged, `Connected` still reaches the game (the frame reads "You are Player #1", so the server's assignment arrived), and the frame renders correctly.
+
+⚠️ **The pre-open queue itself is not runtime-proven.** The smoke's client only sends on input, and a headless run presses nothing, so the `CONNECTING` branch of `try_send_*` is never taken there — what the smoke verifies is that the `onopen` flush did not break `Connected` delivery. Proving the queue needs a page that sends before open and a server that reports receiving it; recorded in `docs/NEXT_WORK.md`, not attempted here.
+
 ## 0.150.1
 
 **Two silent corruptions, both from the 2026-08-07 analysis §10** — the candidates that never got their adversarial pass because step 0 of the follow-up plan did not run. Both were confirmed by reading the code on 2026-08-08; see `docs/NEXT_WORK.md` for the other seven still open.

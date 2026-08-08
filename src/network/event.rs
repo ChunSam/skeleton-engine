@@ -46,6 +46,12 @@ pub enum NetworkEvent {
 pub struct NetworkConfig {
     pub max_message_bytes: usize,
     /// Max outbound queue size. When exceeded, `send_text`/`send_bytes` drops the message.
+    ///
+    /// Both targets have such a queue, but they cover different windows. Native bounds the
+    /// whole outbound channel, which the client thread drains for the life of the connection.
+    /// WASM bounds only the messages sent **before the socket opens** — once it is open the
+    /// browser owns the send buffer, and [`max_buffered_bytes`](Self::max_buffered_bytes)
+    /// governs from there.
     pub max_pending_messages: usize,
     /// Max inbound event queue size. When exceeded, new events are dropped and an overflow event is reported.
     pub max_pending_events: usize,
