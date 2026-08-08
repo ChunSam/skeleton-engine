@@ -80,19 +80,16 @@ changes, per the plan's own "do not bundle" rule. 4–5 are docs/test hygiene wi
 **None of the five is a correctness defect** — all four of those shipped in v0.150.1/v0.150.2, so
 what remains is performance and hygiene, and the two follow-ups below outrank every row of it.
 
-**Two follow-ups the fixes earned rather than closed — both the same gap.** The wasm halves of
-v0.150.1 and v0.150.2 are not runtime-proven, because nothing drives them:
+**Both follow-ups are closed** (v0.150.3). The gap was that the wasm halves of v0.150.1 and
+v0.150.2 were compile-verified only, because nothing drove them — a 404 was never requested and a
+pre-open send was never made. `examples/wasm_failpaths` now does both on purpose and
+`scripts/wasm_failpaths_smoke.sh` reads the verdict; it gates in the `wasm-smokes` job. It is
+sabotage-verified in both directions, each half reddening only for its own defect.
 
-- **A 404 fetch is never requested.** A browser smoke that asks for a missing asset and asserts
-  `asset_failures()` is non-empty would be the first automated check of the web asset-failure path.
-- **A pre-open send is never made.** `wasm_smoke.sh`'s client only sends on input and a headless run
-  presses nothing, so the `CONNECTING` branch of `try_send_*` is never taken. What that smoke *does*
-  prove is that the `onopen` flush did not break `Connected` delivery — the frame reads
-  "You are Player #1", so the server's assignment arrived.
-
-Both want the same thing: **a page that exercises a failure path on purpose, and a check that reads
-the result.** Worth doing as one piece of work rather than two, and worth more than any remaining
-item in the table above.
+⚠️ **The standing lesson, which outlived the two items:** every other browser smoke passes when
+nothing goes wrong, so a *failure* handler can be entirely broken with every check still green.
+Two shipped that way. When adding a check, ask what it does when the thing it guards is removed —
+and if a new failure path gets a handler, it belongs in `wasm_failpaths`, not in a new smoke.
 
 ## Open — process
 
@@ -186,12 +183,14 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
   commit*. `ci.yml` and `docs/VERIFICATION.md` were right the whole time; only the file a reader
   actually opens was wrong. **When an experiment is reverted, grep for prose that described it** —
   the revert diff will not show you the comment three files away.
-- **5 of the 15 `scripts/*_smoke.sh` stay local, deliberately.** The other **10 run in CI**: 4 native
-  in v0.143.11, 5 self-verdicting browser ones in v0.143.17, and `wasm_smoke.sh` in #450 — which had
+- **5 of the 16 `scripts/*_smoke.sh` stay local, deliberately.** The other **11 run in CI**: 4 native
+  in v0.143.11, 5 self-verdicting browser ones in v0.143.17, `wasm_smoke.sh` in #450 — which had
   been counted among the byte-size-only ones and was not; it self-verdicts, and it is the only
-  automated exercise of the wasm WebSocket path. The remaining 5 (`centered_text`, `embedded_atlas`,
-  `embedded_image`, `game_feel_web`, `hdr_web`) assert only byte sizes and are documented as
-  eyeball-it — a green run would prove nothing. Reopen only if one of the 5 gains a real assertion.
+  automated exercise of the wasm WebSocket *success* path — and `wasm_failpaths_smoke.sh` in
+  v0.150.3, the only one that asserts a **failure** path. The remaining 5 (`centered_text`,
+  `embedded_atlas`, `embedded_image`, `game_feel_web`, `hdr_web`) assert only byte sizes and are
+  documented as eyeball-it — a green run would prove nothing. Reopen only if one gains a real
+  assertion.
   ⚠️ **"run in CI" is not "gate"** for the browser six: their job is not a required check — see
   *Open — process*. Count before quoting a number here; it has now been wrong twice:
   `grep -cE '^\s*[^#]*scripts/[a-z_]*_smoke\.sh' .github/workflows/ci.yml`
