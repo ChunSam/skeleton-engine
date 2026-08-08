@@ -4,6 +4,25 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.150.3
+
+**The first check in the tree that asserts a *failure* path works.** Every browser smoke before this one drives a path that is supposed to succeed and passes when nothing goes wrong. That is a blind spot, and v0.150.1 and v0.150.2 both walked through it: each fixed a broken failure handler, and each shipped **compile-verified only**, because nothing automated could reach the code.
+
+New example `wasm_failpaths` takes two failure paths **on purpose** and reports what happened:
+
+| # | On purpose | What used to happen |
+|---|---|---|
+| 1 | `load_image_async` on a URL that 404s | Set `AssetLoadState::Failed` but never called `record_failure`, so `asset_failures()` stayed empty and `set_strict_assets` never fired — both documented hooks were native-only in practice (fixed v0.150.1) |
+| 2 | `send_text` immediately after `connect`, socket still `CONNECTING` | Handed to a `CONNECTING` socket, which throws; the message vanished on the web and nowhere else (fixed v0.150.2) |
+
+Check 2 is why `wasm_failpaths_echo_server` exists: send before open, and the message must come back. Nothing else in the tree sends before `Connected`, which is exactly why that bug survived.
+
+The page stamps `FAILPATH_CHECK: PASS (n/n)` / `FAILPATH_CHECK: FAIL: <step>` into the document title — the same contract `web_audio`'s `AUDIO_CHECK` uses — and `scripts/wasm_failpaths_smoke.sh` reads it live over Chrome's DevTools endpoint, so the failing step travels with a failure. A 20 s in-page deadline turns "never resolved" into a named FAIL instead of a hang. The smoke gates in the `wasm-smokes` job.
+
+**Sabotage-verified in both directions, which is the only thing that makes a fail-path check worth having.** Reverting the v0.150.2 queue turns it red with *"a send issued before the socket opened never came back within 20s"* and the echo server's log independently stops seeing the payload; reverting the v0.150.1 `record_failure` call turns it red with *"a 404 asset fetch did not reach asset_failures() within 20s"*. Each sabotage reddens **only its own half** — the two checks do not cover for each other. A green run after reverting either fix would mean the check is decoration, so the smoke's header says to re-run this if you touch either one.
+
+The smoke also keeps a second, independent witness: the echo server logs every frame it receives, and the script fails a page-reported PASS that the server log does not corroborate. A check that can only hear from the thing it is checking is one bug away from agreeing with itself.
+
 ## 0.150.2
 
 **The two networking items from the 2026-08-07 analysis §10.** Both are the same failure as v0.150.1's: one policy written at two call sites, where only one of them stayed correct.

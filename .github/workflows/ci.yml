@@ -252,12 +252,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # `wasm_smoke.sh` is the one smoke here that also builds a NATIVE binary — the
-      # authoritative `coin_race_server` it stands up — and the native build pulls in `alsa-sys`.
-      # The other five are pure wasm and need none of this. (Discovered the honest way: adding
-      # the smoke without this step failed with "Package alsa was not found in the pkg-config
-      # search path". The old note claiming the script was "byte-size only" was wrong about WHY
-      # it was kept local, but not wrong that it costs more than the others.)
+      # Two smokes here also build a NATIVE binary — `wasm_smoke.sh` (the authoritative
+      # `coin_race_server`) and `wasm_failpaths_smoke.sh` (its echo server) — and a native build
+      # pulls in `alsa-sys`. The other five are pure wasm and need none of this. (Discovered the
+      # honest way: adding the first such smoke without this step failed with "Package alsa was
+      # not found in the pkg-config search path". The old note claiming the script was "byte-size
+      # only" was wrong about WHY it was kept local, but not wrong that it costs more.)
       - name: Install system dependencies (native server build)
         run: |
           sudo apt-get update -q
@@ -309,6 +309,13 @@ jobs:
           # — was simply false. It is also the ONLY automated check that runs the wasm WebSocket
           # path, which is why three latent wasm render bugs once survived for months.
           SMOKE_DBG=9306 ./scripts/wasm_smoke.sh
+          # The only check in the tree that asserts a FAILURE path works. Everything above passes
+          # when nothing goes wrong, which is why two broken failure handlers shipped green
+          # (v0.150.1's 404 → `asset_failures()`, v0.150.2's send-before-open). This page takes
+          # both paths on purpose. ⚠️ It is sabotage-verified in BOTH directions — reverting
+          # either fix turns it red, and only the matching half — so if you change either one and
+          # this stays green, distrust the check, not the fix.
+          SMOKE_DBG=9307 ./scripts/wasm_failpaths_smoke.sh
 
   # ── Windows 빌드 ──────────────────────────────────────────────────────────
   # The other jobs are ubuntu/wasm only, so nothing here ever compiled the DX12

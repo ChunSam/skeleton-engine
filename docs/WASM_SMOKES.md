@@ -23,6 +23,21 @@ cargo install wasm-bindgen-cli --version <ver>   # MUST match the wasm-bindgen c
   headless on a simulated Retina (DPR=2) display, and asserts the app **connects + renders a
   non-blank frame**, saving the screenshot to eyeball for subtle geometry/text bugs. Run after
   wasm-affecting changes.
+- **Fail-path check — `./scripts/wasm_failpaths_smoke.sh`** is the only one here that asserts a
+  **failure** path works. Every other entry on this page drives a path that is supposed to succeed
+  and passes when nothing goes wrong — so a failure *handler* can be entirely broken with the whole
+  list green, which is exactly how two of them shipped. It builds `wasm_failpaths`, stands up
+  `wasm_failpaths_echo_server`, and asserts (1) a **404 image fetch reaches `asset_failures()`**
+  (fixed v0.150.1 — it used to set `AssetLoadState::Failed` and stop there, leaving that hook and
+  `set_strict_assets` native-only in practice) and (2) a **`send` issued before the socket opens
+  survives and echoes back** (fixed v0.150.2 — it used to be handed to a `CONNECTING` socket, which
+  throws). Verdict `FAILPATH_CHECK: PASS (2/2)` read from the page title over the DevTools
+  endpoint; 20 s in-page deadline so "never resolved" is a named FAIL, not a hang.
+  ⚠️ **Sabotage-verified in both directions** — reverting either fix turns it red, and only the
+  matching half. Re-run that check if you touch either fix: a fail-path smoke that stays green
+  when the fix is gone is worse than no smoke, because it reads as coverage. The script also
+  cross-checks the page's PASS against the echo server's own log, so the check cannot agree with
+  itself. Run after touching wasm asset loading or `src/network/wasm_impl.rs`.
 - **Save check — `./scripts/wasm_save_smoke.sh`** builds the `wasm_save` example to wasm, runs it
   headless, and asserts the **AEAD save/load `localStorage` round-trip** — encrypt→store→`load`
   round-trip, stored value is hex ciphertext (not plaintext), AEAD tamper detection,
