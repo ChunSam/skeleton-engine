@@ -26,8 +26,9 @@ use std::alloc::{GlobalAlloc, Layout, System as SysAlloc};
 use std::cell::Cell;
 
 use engine::{
-    Collider, CollisionLayer, Color, Label, LocaleResource, LocalizationSystem, LocalizedText,
-    Particle, ParticleSystem, SpatialGrid, Sprite, System, Transform, Vec2, World,
+    Collider, CollisionLayer, Color, HierarchySystem, Label, LayoutDir, LayoutSystem,
+    LocaleResource, LocalizationSystem, LocalizedText, Panel, Parent, Particle, ParticleSystem,
+    SpatialGrid, Sprite, System, TilemapSystem, Transform, UiNode, Vec2, World,
 };
 
 // ── Counting allocator ────────────────────────────────────────────────────────────────────────
@@ -93,11 +94,31 @@ fn measure<F: FnOnce()>(f: F) -> (usize, usize) {
     (ALLOCS.with(|a| a.get()), BYTES.with(|b| b.get()))
 }
 
-/// Runs `system` once to let it fill its scratch buffers, then measures a second identical frame.
+/// Warms the system up, then measures **two consecutive** frames and returns the worse one.
+///
+/// Two details this had to learn the hard way. **One warm-up frame is not enough**: a system can
+/// reach steady state on its third frame, not its second — `HierarchySystem` adds
+/// `GlobalTransform` on frame 1 (archetype migration) and only creates its change-tracking entry
+/// on frame 2, so frame 2 measures 207 allocations and frame 3 measures none. A single warm-up
+/// reported that transient as a per-frame leak. **And measuring one frame is not enough**: a
+/// system that allocates every *other* frame would pass half the time. Two consecutive frames,
+/// worst one wins.
 fn steady_state_frame(system: &mut dyn System, world: &mut World, dt: f32) -> (usize, usize) {
-    system.run(world, dt);
-    measure(|| system.run(world, dt))
+    for _ in 0..WARMUP_FRAMES {
+        system.run(world, dt);
+    }
+    let first = measure(|| system.run(world, dt));
+    let second = measure(|| system.run(world, dt));
+    if first.0 >= second.0 {
+        first
+    } else {
+        second
+    }
 }
+
+/// Frames a system is allowed before it must be at steady state. Three, because reaching it can
+/// take two (see [`steady_state_frame`]); the third is slack, not a licence to be slow to settle.
+const WARMUP_FRAMES: usize = 3;
 
 /// The assertion every test here makes, with a message that names the system and the numbers.
 fn assert_no_steady_state_allocation(name: &str, (allocs, bytes): (usize, usize)) {
@@ -246,4 +267,115 @@ fn the_counter_reads_zero_for_allocation_free_work() {
         std::hint::black_box(&buf);
     });
     assert_eq!(allocs, 0, "refilling a pre-sized Vec must not allocate");
+}
+
+// ── v0.150.0's claims, measured for the first time ────────────────────────────────────────────
+//
+// v0.150.0 fixed six of these on a code-reading basis and nothing has checked them since. A claim
+// that a system stopped allocating deserves the same instrument as a claim that it allocates.
+
+/// `HierarchySystem` is the one built-in **every game is forced to pay for** — `App` registers it
+/// unconditionally and it runs over every entity with a `Transform` whether or not the game uses
+/// hierarchies. v0.150.0 turned its six per-frame containers into scratch buffers; this is the
+/// first thing to confirm that actually happened.
+#[test]
+fn hierarchy_system_steady_state_does_not_allocate() {
+    let mut world = World::new();
+    // A parented chain plus loose entities: exercises the topological sort, not just the trivial
+    // "no Parent anywhere" path.
+    let mut previous = None;
+    for i in 0..200 {
+        let e = world.spawn();
+        world.add_component(
+            e,
+            Transform {
+                position: Vec2::new(i as f32, 0.0),
+                ..Default::default()
+            },
+        );
+        if i % 2 == 1 {
+            if let Some(parent) = previous {
+                world.add_component(e, Parent(parent));
+            }
+        }
+        previous = Some(e);
+    }
+    let mut system = HierarchySystem::default();
+    let measured = steady_state_frame(&mut system, &mut world, 1.0 / 60.0);
+    assert_no_steady_state_allocation("HierarchySystem", measured);
+}
+
+/// `TilemapSystem` deep-cloned the whole tile grid *before* its own "nothing changed" fast path —
+/// v0.150.0 called it the single biggest per-frame allocation in the engine and moved the cheap
+/// checks first. An idle tilemap must now copy nothing.
+#[test]
+fn tilemap_system_steady_state_does_not_allocate() {
+    let mut world = World::new();
+    let mut system = TilemapSystem::new();
+    let measured = steady_state_frame(&mut system, &mut world, 1.0 / 60.0);
+    assert_no_steady_state_allocation("TilemapSystem (idle)", measured);
+}
+
+// ── The leftovers v0.150.0 named and nobody wrote down ────────────────────────────────────────
+
+/// `LayoutSystem` snapshots every panel each frame, cloning each panel's child list. Named as
+/// "not addressed" by v0.150.0 and then recorded nowhere the backlog looks, so it survived three
+/// more releases unmeasured.
+#[test]
+fn layout_system_steady_state_does_not_allocate() {
+    let mut world = World::new();
+    for _ in 0..50 {
+        let panel = world.spawn();
+        world.add_component(panel, UiNode::new(0.0, 0.0, 200.0, 400.0));
+        let mut p = Panel::new(LayoutDir::Vertical);
+        for _ in 0..8 {
+            let child = world.spawn();
+            world.add_component(child, UiNode::new(0.0, 0.0, 180.0, 40.0));
+            p.children.push(child);
+        }
+        world.add_component(panel, p);
+    }
+    let mut system = LayoutSystem;
+    let measured = steady_state_frame(&mut system, &mut world, 1.0 / 60.0);
+    assert_no_steady_state_allocation("LayoutSystem", measured);
+}
+
+/// The **real** per-frame sequence, which the system-only tests above do not cover.
+///
+/// `App` calls `World::clear_change_tracking()` at the start of every frame. That used to
+/// `HashMap::clear` the per-entity sets — dropping them — so every entity that changed last frame
+/// paid a fresh `HashSet` to be recorded again this frame. `HierarchySystem` writes
+/// `GlobalTransform` for **every** entity with a `Transform`, so that was a per-entity allocation
+/// per frame in the one built-in every game is forced to register, and no system-only test could
+/// see it: without the `clear`, the entry survives and the cost vanishes.
+///
+/// Measured before the fix: 200 allocations per frame for 200 entities, on top of the 200
+/// `Box<GlobalTransform>` the write itself was doing.
+#[test]
+fn a_full_frame_including_change_tracking_reset_does_not_allocate() {
+    let mut world = World::new();
+    for i in 0..200 {
+        let e = world.spawn();
+        world.add_component(
+            e,
+            Transform {
+                position: Vec2::new(i as f32, 0.0),
+                ..Default::default()
+            },
+        );
+    }
+    let mut system = HierarchySystem::default();
+
+    // A frame is: reset tracking, then run the systems.
+    let frame = |world: &mut World, system: &mut HierarchySystem| {
+        world.clear_change_tracking();
+        system.run(world, 1.0 / 60.0);
+    };
+    for _ in 0..WARMUP_FRAMES {
+        frame(&mut world, &mut system);
+    }
+    let first = measure(|| frame(&mut world, &mut system));
+    let second = measure(|| frame(&mut world, &mut system));
+    let worst = if first.0 >= second.0 { first } else { second };
+    assert_no_steady_state_allocation("clear_change_tracking + HierarchySystem", worst);
 }

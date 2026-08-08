@@ -76,10 +76,29 @@ all three claims were real (401 / 190 / 1 allocations per steady-state frame). T
 fix would stop a hand-spawned `Particle` from ageing, and a particle that never ages never
 despawns. The reasoning is in the test that guards it.
 
-⚠️ **Measure before adding to this list.** `tests/per_frame_alloc.rs` now exists precisely so a
-per-frame allocation claim can be settled in one command instead of another reading of the code.
-The six fixed in v0.150.0 were never measured either; they are plausible, and that is all anyone
-can currently say about them.
+⚠️ **Measure before adding to this list.** `tests/per_frame_alloc.rs` exists so a per-frame
+allocation claim can be settled in one command instead of another reading of the code. v0.150.5
+pointed it at v0.150.0's six "fixed" and three "not addressed" claims and **reversed two of them**:
+`HierarchySystem` was still allocating 200×/frame (the scratch buffers were converted; the
+`add_component` write at the end of the loop was not), and `LayoutSystem` — named as an
+unaddressed hot spot — measures **zero**. Reading got both backwards. It also turned up an
+ECS-wide cost nobody had listed at all: `clear_change_tracking` dropped a `HashSet` per changed
+entity every frame.
+
+**The three v0.150.0 named as "not addressed" are now accounted for**, and this is where they
+should have been recorded in the first place rather than only in a CHANGELOG entry — the same
+burial that hid step 0:
+
+| Item | Verdict |
+|---|---|
+| `src/ui/panel.rs` `LayoutSystem` | **False positive** — measures 0 over 50 panels × 8 children. Do not reopen without a measurement that disagrees. |
+| `src/app/assets.rs:262` | **Open, and the harness cannot reach it**: `image_assets_for_gpu` is `pub(crate)` and the caller early-returns without a GPU, so an integration test cannot drive it. Needs either a unit test inside the crate or the render job. |
+| `src/app/render/debug_draw.rs:34` | **Open, and mis-filed** — it draws one quad per dot along a segment where one rotated quad would do. That is a draw-call/vertex-volume claim, not an allocation one, so `per_frame_alloc.rs` is the wrong instrument. Assert the quad count instead. |
+
+⚠️ **The remaining five v0.150.0 fixes are still unmeasured** (`AnimEffectSystem`,
+`ZoneEffectSystem`, `DialogueSystem`, and the two halves of the tilemap/dialogue guards beyond the
+idle path). `TilemapSystem`'s idle claim is confirmed. The rest are plausible, and that is still
+all anyone can say — each needs a fixture that reaches its hot path.
 
 What is left below is docs/test hygiene with no version bump, and it is genuinely the bottom of
 the barrel — neither item changes behaviour.

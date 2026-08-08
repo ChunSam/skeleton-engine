@@ -313,7 +313,22 @@ impl System for HierarchySystem {
                     None => continue,
                 },
             };
-            world.add_component(entity, gt);
+            // Overwrite in place when the component already exists. `add_component` on an
+            // existing component does `column[row] = Box::new(value)` — a fresh heap allocation
+            // per entity per frame, with the old box dropped — and this loop runs over EVERY
+            // entity with a `Transform`, in the one built-in every game is forced to register.
+            // Measured at 407 allocations / 49,012 bytes per frame for 200 entities before this
+            // (`tests/per_frame_alloc.rs`); v0.150.0 converted this system's scratch buffers but
+            // left the write.
+            //
+            // `get_mut_tracked` rather than `get_mut`: it still records the change, so
+            // `query_changed::<GlobalTransform>()` keeps returning what it always did. That
+            // record is not free — see the test for what it still costs and why removing it is a
+            // separate decision, not a perf cleanup.
+            match world.get_mut_tracked::<GlobalTransform>(entity) {
+                Some(slot) => *slot = gt,
+                None => world.add_component(entity, gt),
+            }
         }
         self.ordered = ordered;
     }

@@ -63,13 +63,27 @@ runs every frame.
 unchanged World) allocates nothing. Add a case there when you add a per-frame system, and settle
 "does this allocate?" with `cargo test --test per_frame_alloc` rather than by re-reading the body.
 
-⚠️ Two things that file learned the hard way, both worth keeping if you write another harness like
-it. **Counters must be thread-local** — with globals, other test threads' setup allocations land
-in whoever is measuring, which its own control test caught. And **a measurement harness needs
+⚠️ Three things that file learned the hard way, all worth keeping if you write another harness
+like it. **Counters must be thread-local** — with globals, other test threads' setup allocations
+land in whoever is measuring, which its own control test caught. **A measurement harness needs
 control tests in both directions**: one proving the counter sees a known allocation, one proving
-it reads zero for allocation-free work. Without the first, every assertion in the file can pass
-vacuously; without the second, a noisy counter makes the real assertions impossible to satisfy and
-the next person "fixes" them by loosening the threshold.
+it reads zero for allocation-free work. Without the first, every assertion can pass vacuously;
+without the second, a noisy counter makes the real assertions impossible to satisfy and the next
+person "fixes" them by loosening the threshold. And **one warm-up frame is not enough** —
+`HierarchySystem` reaches steady state on frame 3, not frame 2 (it adds `GlobalTransform` on
+frame 1 and creates its change-tracking entry on frame 2), so a single warm-up reported a
+two-frame transient as a per-frame leak. Warm up three, then measure **two consecutive** frames
+and take the worse; a system that allocates every *other* frame passes half the time otherwise.
+
+**A surprising measurement is a lead, not a nuisance.** Both of those harness bugs were found by
+refusing to accept a number that did not add up — the second only because 407 allocations for 200
+entities was an odd ratio, and bisecting it found the transient. When the instrument disagrees
+with the code, one of them is wrong and it is worth ten minutes to learn which.
+
+⚠️ **The instrument only covers what the test actually drives.** `clear_change_tracking` dropped a
+`HashSet` per changed entity every frame — invisible to every system-only test, because without
+the per-frame reset the entry survives and the cost vanishes. If the real loop does something
+before your system runs, the test has to do it too.
 
 Note that zero is not always the right target. `ParticleSystem` keeps one bulk allocation on
 purpose: the change that would remove it also changes which particles get updated, and a particle
