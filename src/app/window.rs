@@ -693,8 +693,8 @@ impl App {
         self.pending_texture_formats.clear();
         if let Some(assets) = self.world.resource::<AssetServer>() {
             for (path, asset) in assets.image_assets_for_gpu() {
-                if !sprite_renderer.has_texture_key(&path) {
-                    sprite_renderer.load_texture_from_image(&gpu.device, &gpu.queue, &path, &asset);
+                if !sprite_renderer.has_texture_key(path) {
+                    sprite_renderer.load_texture_from_image(&gpu.device, &gpu.queue, path, asset);
                 }
             }
         }

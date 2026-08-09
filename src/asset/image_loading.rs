@@ -154,15 +154,19 @@ impl AssetServer {
     }
 
     /// CPU-side images paired with their cache keys for lazy GPU upload.
-    pub(crate) fn image_assets_for_gpu(&self) -> Vec<(String, ImageAsset)> {
+    ///
+    /// **Borrowed, and it has to stay borrowed.** `App` calls this from the render stage on
+    /// *every* frame, and the caller discards nearly every item — `has_texture_key` is already
+    /// true for everything except an image loaded since the last frame, which is almost always
+    /// nothing. Returning `Vec<(String, ImageAsset)>` therefore allocated one `String` per
+    /// loaded image plus the `Vec`, every frame, to throw all of it away. The keys are
+    /// `Arc<str>` in the map, so copying them was pure waste even before the discard.
+    ///
+    /// The steady-state cost is now zero allocations. Do not "simplify" this back to a `Vec`.
+    pub(crate) fn image_assets_for_gpu(&self) -> impl Iterator<Item = (&str, &ImageAsset)> + '_ {
         self.path_to_id
             .iter()
-            .filter_map(|(path, &id)| {
-                self.images
-                    .get(&id)
-                    .map(|img| (path.to_string(), img.clone()))
-            })
-            .collect()
+            .filter_map(|(path, id)| self.images.get(id).map(|img| (&**path, img)))
     }
 }
 

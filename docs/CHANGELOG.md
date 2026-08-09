@@ -4,6 +4,14 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.150.6
+
+**The per-frame allocation the measuring harness structurally cannot see.** `AssetServer::image_assets_for_gpu` returned `Vec<(String, ImageAsset)>` and `App` called it from the render stage on every frame, so every loaded image bought a fresh `String` — plus the `Vec` — each frame, for a caller that immediately discards nearly all of them behind `has_texture_key`. The map keys are already `Arc<str>`, so the copy was waste even before the discard. It now yields `(&str, &ImageAsset)` and the steady-state cost is zero allocations.
+
+⚠️ **This one could not have been caught the way the last three were, and that is the point.** `tests/per_frame_alloc.rs` is its own integration binary (a process gets one `#[global_allocator]`), so it cannot see a `pub(crate)` method; and the caller early-returns when there is no GPU, so a headless frame never reaches the code at all. Native CI would have stayed green forever. The backlog had it filed as *"open, and the harness cannot reach it"* — as a **measurement** problem needing a fixture. It was a **fix** problem: removing the allocation is a four-line change, and afterwards there is nothing left to measure.
+
+The no-copy property is pinned in-crate instead, by identity rather than equality: the yielded key must be the *same memory* as the stored key (`std::ptr::eq`) and the pixel buffer must be the same `Arc` (`Arc::ptr_eq`). `assert_eq!` on the strings would pass just as happily for a fresh `String`, which is exactly the bug. Sabotage-verified — handing back `Box::leak(path.to_string()…)` reddens it on the pointer assertion, and the file restored byte-identical.
+
 ## 0.150.5
 
 **Pointing the v0.150.4 instrument at v0.150.0's claims, and getting two surprises.** Six systems were fixed in v0.150.0 on a code-reading basis and three more were named in that entry as "not addressed in this pass" — then recorded nowhere the backlog looks, so they survived four releases unmeasured. Measuring them reversed two of the readings.
