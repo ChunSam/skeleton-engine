@@ -276,20 +276,42 @@ mod tests {
         assert!(matches!(result, Err(TextureError::Decode(_))));
     }
 
+    /// The one check that the *success* path of `decode_image_bytes` works at all —
+    /// `decode_broken_bytes_returns_decode_error` covers only the failure side.
+    ///
+    /// Assert the decoded pixel, not just `is_ok()`. This test used to throw the result away
+    /// (`let _ = …; // Ok or Err both acceptable`), and that hid a fixture whose IDAT chunk
+    /// carried a **wrong CRC** — the "minimal valid PNG" had never decoded once, so the success
+    /// path had no coverage at all. A vacuous assertion does not merely fail to test the code;
+    /// it hides the test's own rot.
     #[test]
     fn decode_valid_png_returns_rgba() {
-        // 1×1 red pixel PNG (minimal valid PNG)
+        // 1×1 opaque red, 8-bit RGB. Regenerate with:
+        //   python3 -c 'import zlib,struct
+        //   c=lambda t,d:struct.pack(">I",len(d))+t+d+struct.pack(">I",zlib.crc32(t+d))
+        //   print((b"\x89PNG\r\n\x1a\n"+c(b"IHDR",struct.pack(">IIBBBBB",1,1,8,2,0,0,0))
+        //         +c(b"IDAT",zlib.compress(b"\x00\xff\x00\x00"))+c(b"IEND",b"")).hex())'
+        #[rustfmt::skip]
         let png_bytes: &[u8] = &[
-            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, // signature
-            0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, // IHDR length+type
-            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // 1×1
-            0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, // bit depth 8, RGB
-            0xde, 0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41, // IDAT
-            0x54, 0x08, 0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, 0xe2,
-            0x21, 0xbc, 0x33, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, // IEND
-            0x44, 0xae, 0x42, 0x60, 0x82,
+            // signature
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+            // IHDR: length + type, 1×1, bit depth 8, colour type 2 (RGB), then its CRC
+            0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+            0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
+            0xde,
+            // IDAT: length + type, zlib stream, then its CRC
+            0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41, 0x54,
+            0x78, 0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00,
+            0xc9, 0xfe, 0x92, 0xef,
+            // IEND: length + type, then its CRC
+            0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44,
+            0xae, 0x42, 0x60, 0x82,
         ];
-        // Delegate to the library to check whether the PNG is actually valid — at minimum it must not panic
-        let _ = decode_image_bytes(png_bytes); // Ok or Err both acceptable, only panic is forbidden
+
+        let (pixels, w, h) = decode_image_bytes(png_bytes).expect("the fixture must decode");
+        assert_eq!((w, h), (1, 1), "dimensions come from IHDR");
+        // `to_rgba8` widens the RGB source, so the alpha byte is synthesised as opaque.
+        assert_eq!(pixels, vec![255, 0, 0, 255], "1×1 opaque red as RGBA8");
     }
 }
