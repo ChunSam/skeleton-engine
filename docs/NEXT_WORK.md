@@ -30,7 +30,7 @@ A filed request preempts everything below.
 | **`<NAME>_SELFTEST` coverage** | **DONE — 10 of 21**, and the one real gap is now closed (`beat_crawler`, `survivor`, `data_anim`, `data_particles`, `salvage_run`, `predict_shooter`, `orbital_dodger`, `coin_race`, + `settings_menu` and `scene_flow` on 2026-08-06). The remaining 11 games' headline features are all visible in a screenshot (`sokoban`, `platformer`, `maze_escape`, `dig_quest`, `shooter`, `lit_dungeon`, `multi_terrain`, `tile_paint`, `ui_layout_editor`, `stat_editor_game`, `script_steering`), so chasing the number past 10 is effort against failures that are already visible. **Do not reopen this as a coverage target.** Durable findings from the four networked ones are in `docs/MODULE_MAP.md`'s `src/network.rs` row; the two that generalise beyond networking: **`InputState` has no public press setter**, so held input comes from `InputScript` (the `ENGINE_INPUT` replay path), keeping the real input read under test; and **assert an invariant, not an end state**, when a background process (a coin respawner, an entity spawner) can add to what you are counting. |
 | **4th procgen mode** (drunkard's walk) | Unchanged, still the lowest marginal value: the engine cannot fail at it, so nothing is learned. |
 | **`add-facade-capability` skill** | n=5 now (the facade + native + wasm + policy-module shape has repeated that many times). Deferred; the next facade capability makes the case by itself. |
-| **2026-08-07 analysis §10 — 2 candidates left** | **Step 0 of the plan never ran, and nothing recorded that until 2026-08-08.** Seven of the nine shipped across v0.150.1–v0.150.4; the last two are docs/test hygiene. See the subsection below. |
+| **2026-08-07 analysis §10** | **DONE 2026-08-09 — all 9 surviving candidates closed.** Step 0 of the plan never ran, and nothing recorded that until 2026-08-08; seven shipped across v0.150.1–v0.150.4 and the last two docs/test hygiene items closed on 2026-08-09 with no version bump. **What is still open is not from §10** — three measurement gaps the same pass exposed, listed in the subsection below: `src/app/assets.rs:262` (harness cannot reach it), `src/app/render/debug_draw.rs:34` (mis-filed as an allocation claim), and the five unmeasured v0.150.0 fixes. |
 
 ### The 2026-08-07 analysis's unverified candidates — what is actually left
 
@@ -57,18 +57,18 @@ prevent, so it is written down here instead.
   watcher". Hot reload *is* wired: `App::register_hot_reloadable` → `forward_hot_reload` →
   `HotReloadable::reload_path`, and `particle/config_set.rs` has a test pinning the canonical-path
   match. Do not re-open it.
-- **9 survived**, and **7 of those have since shipped** — the touch letterbox map and the wasm
-  asset failure hook (v0.150.1), the wasm pre-open send drop and the untested wasm event queue
-  (v0.150.2), and the three per-frame allocation candidates (v0.150.4, measured first) — leaving
-  **2** below, both docs/test hygiene.
+- **9 survived, and all 9 are now closed** — the touch letterbox map and the wasm asset failure
+  hook (v0.150.1), the wasm pre-open send drop and the untested wasm event queue (v0.150.2), the
+  three per-frame allocation candidates (v0.150.4, measured first), and the last two docs/test
+  hygiene items on 2026-08-09 (no version bump; the table below records what the second one found).
 
 ⚠️ §10's header says **23**; the section lists **21** bullets. The header is the wrong number —
 count the bullets, and do not propagate either figure without counting.
 
 | # | Where | What | Confidence |
 |---|---|---|---|
-| 1 | `src/input/gamepad.rs` | `GamepadState` is permanently unresponsive on wasm and the type's doc comment says nothing about it (`#[cfg(not(target_arch = "wasm32"))]` at `:105` is the only hint, and it is invisible in rustdoc) | Confirmed (docs) |
-| 2 | `src/renderer/texture.rs:293` | `decode_valid_png_returns_rgba` is vacuous: `let _ = decode_image_bytes(png_bytes); // Ok or Err both acceptable` | **Confirmed** |
+| 1 | `src/input/gamepad.rs` | ~~`GamepadState` is permanently unresponsive on wasm and the type's doc comment says nothing about it~~ **DONE 2026-08-09** — the doc comment now carries a *Native only* section naming every method that stays `false` / `None` / `0.0` on wasm, and says to give web builds a keyboard or touch path. No behaviour change, no version bump. | Confirmed (docs) |
+| 2 | `src/renderer/texture.rs:293` | ~~`decode_valid_png_returns_rgba` is vacuous~~ **DONE 2026-08-09 — and the vacuity was hiding a broken fixture.** Replacing `let _ = …` with a real assertion showed the "1×1 red pixel PNG (minimal valid PNG)" had a **wrong IDAT CRC** and had never decoded once, so `decode_image_bytes`' success path had *zero* coverage — only the failure path was tested. The fixture is regenerated (CRCs verified, generator command in the test), and the test now asserts dimensions and the RGBA pixel. Both assertions sabotage-verified red and reverted byte-identical. No behaviour change, no version bump. | **Confirmed** |
 
 The three per-frame allocation candidates shipped in v0.150.4, **measured rather than read** —
 all three claims were real (401 / 190 / 1 allocations per steady-state frame). Two went to zero;
@@ -100,8 +100,11 @@ burial that hid step 0:
 idle path). `TilemapSystem`'s idle claim is confirmed. The rest are plausible, and that is still
 all anyone can say — each needs a fixture that reaches its hot path.
 
-What is left below is docs/test hygiene with no version bump, and it is genuinely the bottom of
-the barrel — neither item changes behaviour.
+The two docs/test hygiene items below were closed on 2026-08-09 with no version bump — neither
+changed behaviour. ⚠️ One of them was **not** the bottom of the barrel it was filed as: the
+vacuous PNG test was hiding a fixture that had never decoded. **"It only changes a test" is not
+the same as "it cannot find anything"** — a check that asserts nothing tells you nothing about the
+check itself, and that is exactly where rot hides.
 
 **Both follow-ups are closed** (v0.150.3). The gap was that the wasm halves of v0.150.1 and
 v0.150.2 were compile-verified only, because nothing drove them — a 404 was never requested and a
@@ -116,12 +119,22 @@ and if a new failure path gets a handler, it belongs in `wasm_failpaths`, not in
 
 ## Open — process
 
-| Item | State |
-|---|---|
-| **Should `Browser smokes (Chrome + swiftshader)` be a required check?** | **A repo-settings decision, deliberately left to the maintainer** by #450 — where it was recorded in a commit body and a `ci.yml` comment and nowhere else, which is why it is here now. The required set is **seven** contexts — `Build (WASM)`, `Test (native)`, `Rustdoc`, `Package dry-run`, `Render tests (lavapipe)`, `Build (Windows / DX12)`, `Build (macOS / Metal)` — and the browser-smokes job is **not** among them (checked 2026-08-08 against the branch-protection API). It runs on every PR; it just cannot block a merge. **What changed the stakes:** #450 moved `wasm_smoke.sh` into that job, and it is the **only** automated check that exercises the wasm WebSocket path — the path where three latent render bugs once survived for months. That coverage now exists and is still non-blocking. **The cost of saying yes:** it is the slowest job in CI (389 s on the last `main` run, against 232 s for `Test (native)`), so it becomes the critical path to every merge. Re-check the real list rather than trusting this row: `gh api repos/ChunSam/skeleton-engine/branches/main/protection --jq '.required_status_checks.contexts'` |
+_Nothing open._
 
-The two items that used to live here — the `main`-push hook and the oversized skills — both closed
-on 2026-08-04.
+**Closed 2026-08-09: `Browser smokes (Chrome + swiftshader)` is now a required check.** The
+maintainer decision this row was waiting on has been made — the required set is **eight** contexts,
+the seven that were listed here plus the browser-smokes job. The wasm WebSocket path, which #450
+made this job the only automated exercise of, can now block a merge. The cost noted here was real
+and is now paid: it is the slowest job in CI (389 s against 232 s for `Test (native)`), so it is
+the critical path to every merge.
+
+⚠️ This row sat stale for a day because the decision was made in repo settings, which nothing in
+the tree observes. **Do not trust a number here** — the row that closed it was found by running the
+command it had itself recorded:
+`gh api repos/ChunSam/skeleton-engine/branches/main/protection --jq '.required_status_checks.contexts'`
+
+The three items that used to live here — the `main`-push hook, the oversized skills, and the
+required-check decision above — closed on 2026-08-04, 2026-08-04, and 2026-08-09.
 
 ## Noted — not scheduled
 
@@ -214,8 +227,9 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
   `embedded_atlas`, `embedded_image`, `game_feel_web`, `hdr_web`) assert only byte sizes and are
   documented as eyeball-it — a green run would prove nothing. Reopen only if one gains a real
   assertion.
-  ⚠️ **"run in CI" is not "gate"** for the browser six: their job is not a required check — see
-  *Open — process*. Count before quoting a number here; it has now been wrong twice:
+  ✅ **"run in CI" now *is* "gate"** for the browser six: their job became a required check on
+  2026-08-09 (see *Open — process*). This line said the opposite until then. Count before quoting a
+  number here; it has now been wrong twice:
   `grep -cE '^\s*[^#]*scripts/[a-z_]*_smoke\.sh' .github/workflows/ci.yml`
 - **A headless capture cannot photograph a meter** — fixed dt, no wall clock. Three sessions have
   now reached for `ENGINE_CAPTURE` before remembering this.

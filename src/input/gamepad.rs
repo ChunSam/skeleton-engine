@@ -91,6 +91,16 @@ impl Slot {
 /// Supports up to 4 gamepads (slots 0–3).
 /// Automatically inserted by `App::new()`; no manual registration required.
 ///
+/// # Native only — on wasm this resource never reports input
+///
+/// The backend is `gilrs`, which is compiled out under `target_arch = "wasm32"`; there is no
+/// Web Gamepad API replacement. The resource is still inserted and every method still answers,
+/// so a web build **compiles and runs** — `is_connected` / `any_connected` / `is_pressed` /
+/// `just_pressed` / `just_released` just stay `false`, `primary` stays `None`, and `axis` stays
+/// `0.0`, forever. Nothing logs a warning.
+///
+/// Give any wasm-targeted game a keyboard or touch path; do not gate play on a pad.
+///
 /// # Example
 /// ```ignore
 /// // Slot 0 (first connected pad)
