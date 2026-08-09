@@ -259,14 +259,15 @@ impl App {
         let (Some(sr), Some(gpu)) = (&mut self.render.sprite_renderer, &self.gpu) else {
             return;
         };
-        let images = self
-            .world
-            .resource::<AssetServer>()
-            .map(|assets| assets.image_assets_for_gpu())
-            .unwrap_or_default();
-        for (path, asset) in images {
-            if !sr.has_texture_key(&path) {
-                sr.load_texture_from_image(&gpu.device, &gpu.queue, &path, &asset);
+        // Borrow straight from the server rather than collecting: this runs every frame and
+        // the `has_texture_key` guard rejects nearly every item. `self.world` is a different
+        // field from `self.render` / `self.gpu`, so the disjoint borrows coexist.
+        let Some(assets) = self.world.resource::<AssetServer>() else {
+            return;
+        };
+        for (path, asset) in assets.image_assets_for_gpu() {
+            if !sr.has_texture_key(path) {
+                sr.load_texture_from_image(&gpu.device, &gpu.queue, path, asset);
             }
         }
     }

@@ -276,13 +276,56 @@ fn load_atlas_bytes_keys_the_atlas_image_and_render_key_identically() {
     let img = server.get_image(&atlas.handle).expect("image registered");
     assert_eq!((img.width, img.height), (8, 6));
     assert!(
-        server.image_assets_for_gpu().iter().any(|(k, _)| k == key),
+        server.image_assets_for_gpu().any(|(k, _)| k == key),
         "the renderer must upload the embedded sheet under the caller's key verbatim"
     );
 
     // Loading the same key again returns the cached handle (bytes ignored on a hit).
     let again = server.load_atlas_bytes(key, b"", 4, 3);
     assert_eq!(again.id(), handle.id());
+}
+
+/// `image_assets_for_gpu` runs on **every frame** from `App`'s render stage, so it must hand out
+/// borrows rather than copies. It used to return `Vec<(String, ImageAsset)>`, which allocated one
+/// `String` per loaded image plus the `Vec` every frame, for a caller that discards nearly all of
+/// them behind `has_texture_key`.
+///
+/// The counting allocator in `tests/per_frame_alloc.rs` cannot reach this — it is a separate
+/// integration binary and this method is `pub(crate)` — so the no-copy property is pinned here
+/// directly instead: the yielded key must be *the same memory* as the stored key, not an equal
+/// one. `assert_eq!` on the strings would pass just as happily for a fresh `String`.
+#[test]
+fn image_assets_for_gpu_yields_borrows_not_copies() {
+    let mut server = AssetServer::new();
+    let key = "embedded/__unit_test_no_copy__";
+    server.load_atlas_bytes(key, &png_bytes(2, 2), 1, 1);
+
+    let (yielded, asset) = server
+        .image_assets_for_gpu()
+        .find(|(k, _)| *k == key)
+        .expect("the freshly loaded sheet must be offered to the renderer");
+
+    // The key is `Arc<str>` in the map; a copy would live at a different address.
+    let stored = server
+        .image_assets_for_gpu()
+        .find(|(k, _)| *k == key)
+        .expect("stable across calls")
+        .0;
+    assert!(
+        std::ptr::eq(yielded.as_ptr(), stored.as_ptr()),
+        "the key must be borrowed from the server's own storage, not copied per call"
+    );
+
+    // The pixels come through the `Arc` too — cloning the asset must not deep-copy them.
+    let again = server
+        .image_assets_for_gpu()
+        .find(|(k, _)| *k == key)
+        .expect("stable across calls")
+        .1;
+    assert!(
+        std::sync::Arc::ptr_eq(&asset.data, &again.data),
+        "the pixel buffer must be shared, not duplicated"
+    );
 }
 
 /// A byte-sourced atlas must be geometrically indistinguishable from a path-loaded one: same
