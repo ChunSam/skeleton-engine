@@ -1,7 +1,23 @@
 # Handoff document — skeleton-engine
 
+> **A frozen record, not live state.** Document status: historical handoff. Git last touched this
+> file on **2026-06-16**; every statement below is as of then, including the ones written in the
+> present tense ("Current … status", "is now", "no longer"). Live equivalents: session history is
+> `plans/handoffs/`, the open backlog is `docs/NEXT_WORK.md`, and what shipped is
+> `docs/CHANGELOG.md`.
+>
+> ⚠️ **The version below is neither a typo nor ahead of today's.** This file says `v4.3.0` because
+> the project then ran a 1.x–10.x SemVer line. That line was **reset to 0.x on 2026-06-17** —
+> `docs/CHANGELOG.md` § 0.11.0, *"Version line reset: pre-1.0"*, no code changes, prior history
+> preserved. So `4.3.0` here is **older** than today's `0.152.0`, and `## 4.3.0` is a real CHANGELOG
+> entry you can go read. Treat every version, count and status heading below as pinned to 2026-06-16;
+> measure the tree instead of quoting one.
+>
+> (The in-file date list on the next line stops at 2026-05-29 and is itself incomplete — two later
+> commits edited the file without extending it. `git log -1 -- docs/HANDOFF.md` is the real answer.)
+
 Written: 2026-05-24 (Phase 45~53 update: 2026-05-26 / Phase 46~59 complete: 2026-05-26 / 7 code-review fixes: 2026-05-26 / doc cleanup: 2026-05-29)
-Engine version: **v4.3.0** (main branch)
+Engine version: **v4.3.0** (main branch) — pre-reset 10.x line; see the note above
 
 ## Current v2.0.0 cleanup status
 
@@ -20,12 +36,12 @@ Author: ChunSam
 
 ## Project overview
 
-A wgpu-based Rust 2D game engine. On top of an ECS architecture it provides physics (Rapier2D), audio, particles, tilemaps, UI, a scene system, and more. A separate game project (`rust-survivors`) uses this engine as a dependency.
+A wgpu-based Rust 2D game engine. On top of an ECS architecture it provides physics (Rapier2D), audio, particles, tilemaps, UI, a scene system, and more. A separate game project (`rust-survivors`) *used* this engine as a dependency; it was **dropped as a maintained consumer on 2026-06-16** — the same day this file was last touched, by the commit that missed this sentence — and engine changes are now validated on their own examples. See the verification-scope line above.
 
 - **Repository**: `https://github.com/ChunSam/skeleton-engine`
 - **Local path**: `/Users/jkl/Projects/skeleton-engine`
 - **Branch**: `main`
-- **Engine source size**: ~5,400 LOC (entire src/)
+- **Engine source size**: ~5,400 LOC (entire src/) — as of 2026-05-24, and long since outgrown. Measure it (`find src -name '*.rs' | xargs wc -l | tail -1`) rather than quoting this.
 
 ---
 
