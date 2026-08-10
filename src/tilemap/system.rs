@@ -36,12 +36,24 @@ struct TilemapView {
 ///   any cell changes.
 pub struct TilemapSystem {
     views: HashMap<Entity, TilemapView>,
+    /// Alive tilemap entities, refilled each frame. A scratch field rather than a local `collect`
+    /// because this system runs every frame: on a map nobody is editing, this and
+    /// [`scratch_alive`](Self::scratch_alive) were the **entire** cost of the frame — 2 allocations,
+    /// invisible until `tests/per_frame_alloc.rs` measured the system against a populated world
+    /// instead of an empty one.
+    scratch_entities: Vec<Entity>,
+    /// Membership set for the same list, so the "did a tilemap entity disappear" check stays O(1)
+    /// without allocating a `HashSet` per frame. `clear()` keeps the table (the values are unit, so
+    /// nothing is dropped) — unlike `HashMap<_, Vec<_>>::clear`, which frees every bucket.
+    scratch_alive: HashSet<Entity>,
 }
 
 impl TilemapSystem {
     pub fn new() -> Self {
         Self {
             views: HashMap::new(),
+            scratch_entities: Vec::new(),
+            scratch_alive: HashSet::new(),
         }
     }
 }
@@ -127,15 +139,23 @@ impl System for TilemapSystem {
     #[allow(clippy::map_entry)]
     fn run(&mut self, world: &mut World, _dt: f32) {
         // ── Step 1: collect alive tilemap entities (avoids holding borrow) ──────
-        let tilemap_entities: Vec<Entity> = world.query::<Tilemap>().map(|(e, _)| e).collect();
+        // Refill the scratch buffer instead of collecting a fresh `Vec` — see the field's docs.
+        self.scratch_entities.clear();
+        self.scratch_entities
+            .extend(world.query::<Tilemap>().map(|(e, _)| e));
 
         // ── Step 2: despawn views for disappeared tilemap entities ────────────
-        // Build a HashSet for O(1) membership checks instead of O(M×N) Vec::contains.
-        let alive_set: HashSet<Entity> = tilemap_entities.iter().copied().collect();
+        // A HashSet for O(1) membership checks instead of O(M×N) Vec::contains.
+        self.scratch_alive.clear();
+        self.scratch_alive
+            .extend(self.scratch_entities.iter().copied());
+        // `removed` stays a local: it is empty on every frame nobody despawns a tilemap, and an
+        // empty `collect` does not allocate. A frame that *does* remove one is not a steady-state
+        // frame, so there is nothing here for the per-frame rule to bite on.
         let removed: Vec<Entity> = self
             .views
             .keys()
-            .filter(|e| !alive_set.contains(e))
+            .filter(|e| !self.scratch_alive.contains(e))
             .copied()
             .collect();
         for map_entity in removed {
@@ -147,7 +167,12 @@ impl System for TilemapSystem {
         }
 
         // ── Step 3: process each alive tilemap entity ──────────────────────────
-        for map_entity in tilemap_entities {
+        // `mem::take` hands the buffer out for the loop so the body can take `self.views` mutably,
+        // then hands it back below with its capacity intact. `run` has no early return, so the
+        // buffer is never dropped on the floor — **keep it that way**, or the next frame silently
+        // reallocates.
+        let entities = std::mem::take(&mut self.scratch_entities);
+        for map_entity in entities.iter().copied() {
             // Clone out the data we need before any mutation. The optional `TilemapAutotile`
             // (single- or multi-terrain via its `mode`) drives display-UV selection.
             // Check the CHEAP fields first and bail before cloning anything. The
@@ -408,6 +433,9 @@ impl System for TilemapSystem {
                 }
             }
         }
+        // Hand the scratch buffer back with its capacity, so step 1 refills it next frame instead
+        // of allocating a new one.
+        self.scratch_entities = entities;
     }
 }
 

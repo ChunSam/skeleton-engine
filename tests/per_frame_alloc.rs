@@ -16,6 +16,20 @@
 //! asserts the **second** frame allocates nothing: the first frame is allowed to fill scratch
 //! buffers, and steady state is the property that actually matters for a game loop.
 //!
+//! # Writing one
+//!
+//! ⚠️ **Pair every must-be-zero assertion with a positive control in the same test.** Zero is also
+//! what a system reads when it bailed on its first line, and v0.150.7 found a test in this very file
+//! that had been passing for four releases against a `World` with **no `Tilemap` in it** — the
+//! system returned immediately and never reached the allocation it was written to guard. Green
+//! proves two things at once (*the code is clean*, *the code ran*) and only the second is cheap to
+//! check, so check it: drive the guarded path and require a non-zero reading.
+//!
+//! When zero is not reachable — `DialogueSystem` legitimately allocates on a frame with a visible
+//! box — measure a **difference** instead. Two runs differing only in the size of the thing that
+//! must not be cloned settle the claim, with the same kind of control: a third run where that thing
+//! *is* used, which must cost more.
+//!
 //! # Reading a failure
 //!
 //! A failure prints allocation count and bytes for the steady-state frame. That is a real
@@ -26,9 +40,13 @@ use std::alloc::{GlobalAlloc, Layout, System as SysAlloc};
 use std::cell::Cell;
 
 use engine::{
-    Collider, CollisionLayer, Color, HierarchySystem, Label, LayoutDir, LayoutSystem,
-    LocaleResource, LocalizationSystem, LocalizedText, Panel, Parent, Particle, ParticleSystem,
-    SpatialGrid, Sprite, System, TilemapSystem, Transform, UiNode, Vec2, World,
+    AnimEffectBindings, AnimEffectRegistry, AnimEffectSystem, AnimationEvent, Collider,
+    CollisionLayer, Color, DialogueBox, DialogueStyle, DialogueSystem, Effect, Events,
+    HierarchySystem, HitFlash, Label, LayoutDir, LayoutSystem, LocaleData, LocaleResource,
+    LocalizationSystem, LocalizedText, Panel, Parent, Particle, ParticleSystem, SpatialGrid,
+    Sprite, System, Tag, Tilemap, TilemapAtlas, TilemapSystem, Transform, UiNode, UvRect, Vec2,
+    World, ZoneEffectBindings, ZoneEffectRegistry, ZoneEffectRule, ZoneEffectSystem, ZoneEvent,
+    ZonePhase,
 };
 
 // ── Counting allocator ────────────────────────────────────────────────────────────────────────
@@ -305,9 +323,15 @@ fn hierarchy_system_steady_state_does_not_allocate() {
     assert_no_steady_state_allocation("HierarchySystem", measured);
 }
 
-/// `TilemapSystem` deep-cloned the whole tile grid *before* its own "nothing changed" fast path —
-/// v0.150.0 called it the single biggest per-frame allocation in the engine and moved the cheap
-/// checks first. An idle tilemap must now copy nothing.
+/// The "no tilemaps at all" frame: `run` collects an empty entity list and returns.
+///
+/// ⚠️ **This was written to guard the grid clone and does not.** It has no `Tilemap` in its world,
+/// so it never reaches step 3 — it passed for four releases while `TilemapSystem` allocated twice
+/// per frame on a real map, and the v0.150.5 CHANGELOG called v0.150.0's fix "confirmed" on the
+/// strength of it. `tilemap_system_edit_frame_works_and_the_next_frame_is_idle_again` is the test
+/// that actually measures the claim. Kept because the empty-world path is worth pinning on its own
+/// (a game that despawns its last tilemap must not start allocating), but **do not read it as
+/// covering the clone**.
 #[test]
 fn tilemap_system_steady_state_does_not_allocate() {
     let mut world = World::new();
@@ -338,6 +362,257 @@ fn layout_system_steady_state_does_not_allocate() {
     let mut system = LayoutSystem;
     let measured = steady_state_frame(&mut system, &mut world, 1.0 / 60.0);
     assert_no_steady_state_allocation("LayoutSystem", measured);
+}
+
+// ── v0.150.0's four remaining unmeasured claims ────────────────────────────────────────────────
+//
+// v0.150.0 claimed six systems stopped allocating per frame. By v0.150.5 two had been genuinely
+// measured — `HierarchySystem` and `LocalizationSystem`, **both still allocating**, fixed properly —
+// and `TilemapSystem` had been *reported* clean by a test that turned out to hold no `Tilemap` at
+// all. These four close the set: the three nobody had touched, plus the tilemap claim measured
+// against a map for the first time.
+//
+// **Every zero below carries a positive control in the same test.** Zero allocations is also what
+// a system that bailed on its first line reads — a missing `Events` resource, a query that matched
+// nothing — so each test proves the instrument sees *this* system allocate once the path under
+// measurement is genuinely entered. Without that a "steady state is clean" assertion is the
+// vacuous kind #456 found in `decode_valid_png_returns_rgba`: it passes because nothing ran.
+
+/// A binding table with `tags` entries, big enough that cloning it is unmissable against a
+/// zero-allocation frame.
+fn anim_effect_bindings(tags: usize) -> AnimEffectBindings {
+    let mut b = AnimEffectBindings::default();
+    for i in 0..tags {
+        b.bindings.insert(
+            format!("tag{i}"),
+            vec![Effect::Flash {
+                color: (1.0, 1.0, 1.0, 1.0),
+                secs: 0.1,
+            }],
+        );
+    }
+    b
+}
+
+/// `AnimEffectSystem` snapshots the event bus **before** touching the registry, so a frame with no
+/// animation events must not deep-clone the binding table. v0.150.0 made that reordering; nothing
+/// had measured it.
+#[test]
+fn anim_effect_system_idle_frame_does_not_allocate() {
+    let mut world = World::new();
+    world.insert_resource(Events::<AnimationEvent>::default());
+    let mut reg = AnimEffectRegistry::default();
+    reg.insert("fx", anim_effect_bindings(64));
+    world.insert_resource(reg);
+
+    let actor = world.spawn();
+    world.add_component(actor, Transform::default());
+    world.add_component(actor, Sprite::default());
+
+    let mut system = AnimEffectSystem::new("fx");
+    let measured = steady_state_frame(&mut system, &mut world, 1.0 / 60.0);
+    assert_no_steady_state_allocation("AnimEffectSystem (no events)", measured);
+
+    // The control. `run` returns early in two places that both read zero: a missing
+    // `Events<AnimationEvent>` resource (line 1) and an empty queue (line 2). Only the second is
+    // the claim, so drive one event through and require the frame to cost something — that is what
+    // distinguishes "the fast path works" from "the fixture never reached the system".
+    world
+        .resource_mut::<Events<AnimationEvent>>()
+        .unwrap()
+        .send(AnimationEvent {
+            entity: actor,
+            clip: 0,
+            frame: 1,
+            tag: "tag0".to_string(),
+        });
+    let (allocs, _) = measure(|| system.run(&mut world, 1.0 / 60.0));
+    assert!(
+        allocs > 0,
+        "AnimEffectSystem read 0 allocations on a frame WITH an event — the table clone should be \
+         visible here, so the zero above proves nothing about the fast path"
+    );
+    assert!(
+        world.get::<HitFlash>(actor).is_some(),
+        "the control event did not apply its effect, so the measured frame was not this system \
+         doing its job"
+    );
+}
+
+/// The zone half of the same claim, same shape: snapshot the bus, return before the registry clone.
+#[test]
+fn zone_effect_system_idle_frame_does_not_allocate() {
+    let mut world = World::new();
+    world.insert_resource(Events::<ZoneEvent>::default());
+    let mut bindings = ZoneEffectBindings::default();
+    for i in 0..64 {
+        bindings.bindings.insert(
+            format!("tag{i}"),
+            vec![ZoneEffectRule {
+                on: ZonePhase::Entered,
+                effect: Effect::Flash {
+                    color: (1.0, 0.3, 0.3, 1.0),
+                    secs: 0.25,
+                },
+            }],
+        );
+    }
+    let mut reg = ZoneEffectRegistry::default();
+    reg.insert("fx", bindings);
+    world.insert_resource(reg);
+
+    let zone = world.spawn();
+    world.add_component(zone, Transform::default());
+    world.add_component(zone, Tag("tag0".to_string()));
+    let entrant = world.spawn();
+    world.add_component(entrant, Transform::default());
+    world.add_component(entrant, Sprite::default());
+
+    let mut system = ZoneEffectSystem::new("fx");
+    let measured = steady_state_frame(&mut system, &mut world, 1.0 / 60.0);
+    assert_no_steady_state_allocation("ZoneEffectSystem (no events)", measured);
+
+    // Control, as above.
+    world
+        .resource_mut::<Events<ZoneEvent>>()
+        .unwrap()
+        .send(ZoneEvent::Entered {
+            zone,
+            other: entrant,
+        });
+    let (allocs, _) = measure(|| system.run(&mut world, 1.0 / 60.0));
+    assert!(
+        allocs > 0,
+        "ZoneEffectSystem read 0 allocations on a frame WITH an event — the zero above proves \
+         nothing about the fast path"
+    );
+    assert!(
+        world.get::<HitFlash>(entrant).is_some(),
+        "the control event did not apply its effect, so the measured frame was not this system \
+         doing its job"
+    );
+}
+
+/// A locale table with `entries` translations — the thing `DialogueSystem` must not clone.
+fn locale_with(entries: usize) -> LocaleResource {
+    let mut translations = std::collections::HashMap::new();
+    for i in 0..entries {
+        translations.insert(format!("key.{i}"), format!("translated string number {i}"));
+    }
+    let mut locale = LocaleResource::new("en");
+    locale.insert_locale(
+        "en",
+        LocaleData {
+            translations,
+            ..Default::default()
+        },
+    );
+    locale
+}
+
+/// One steady-state frame of `DialogueSystem` over a single box, as an allocation count.
+///
+/// The render queues (`TextQueue` / `UiImageQueue`) are deliberately absent: an `App` clears them
+/// every frame and nothing here can (`TextQueue::items` is `pub(super)`), so leaving them in would
+/// add amortized `Vec`-growth noise to a differential that is about step 0.
+fn dialogue_frame_allocs(locale_entries: usize, localized: bool) -> usize {
+    let mut world = World::new();
+    world.insert_resource(locale_with(locale_entries));
+    world.insert_resource(DialogueStyle::default());
+    let e = world.spawn();
+    if localized {
+        world.add_component(e, DialogueBox::localized("key.0", ["key.1", "key.2"]));
+    } else {
+        world.add_component(e, DialogueBox::new("Guide", ["a literal line", "and more"]));
+    }
+    let mut system = DialogueSystem;
+    steady_state_frame(&mut system, &mut world, 1.0 / 60.0).0
+}
+
+/// `DialogueSystem` guards its `LocaleResource` clone on a box that actually has keys to resolve.
+/// `LocaleResource` owns **every translated string in the game**, so before v0.150.0 a game with no
+/// localized dialogue — or no dialogue on screen — still deep-cloned the whole table 60 times a
+/// second.
+///
+/// This is a **differential** measurement, not a zero: `DialogueSystem` legitimately allocates on a
+/// frame with a visible box (it gathers speaker/body/choice strings to release the query borrow
+/// before writing the queues). A blanket zero is therefore unreachable without changing behaviour,
+/// and asserting one would only invite someone to loosen it. What the claim actually says is that
+/// the cost does not depend on the size of the locale table — which is exactly what two runs
+/// differing *only* in table size can settle.
+#[test]
+fn dialogue_system_frame_cost_is_independent_of_locale_table_size() {
+    let empty = dialogue_frame_allocs(0, false);
+    let large = dialogue_frame_allocs(400, false);
+    assert_eq!(
+        empty, large,
+        "a literal DialogueBox cost {empty} allocations against an empty locale table and {large} \
+         against a 400-entry one — the table is being cloned on frames no box could use it"
+    );
+
+    // The control: with a *localized* box the table size must show through, or the assertion above
+    // is measuring an instrument that cannot see a locale clone in the first place.
+    let empty_localized = dialogue_frame_allocs(0, true);
+    let large_localized = dialogue_frame_allocs(400, true);
+    assert!(
+        large_localized > empty_localized,
+        "a localized DialogueBox cost {empty_localized} allocations against an empty locale table \
+         and {large_localized} against a 400-entry one — if the table size does not show up HERE, \
+         this test cannot see a locale clone at all and the equality above is vacuous"
+    );
+}
+
+/// The tilemap claim, on a tilemap.
+///
+/// ⚠️ `tilemap_system_steady_state_does_not_allocate` above measures a world with **no `Tilemap`
+/// in it**, so it reads zero without ever reaching the grid clone it was written to guard. This is
+/// the first measurement of the claim on a populated map, and of the non-idle half: v0.150.0 moved
+/// the generation/dims check in **front** of the clone, and a fast path that swallowed a real edit
+/// would look identical to a working one from the idle side.
+#[test]
+fn tilemap_system_edit_frame_works_and_the_next_frame_is_idle_again() {
+    let mut world = World::new();
+    let map = world.spawn();
+    // One empty cell, so the edit below spawns a tile entity — an ECS-visible proof the edit was
+    // processed rather than skipped.
+    let mut tiles = vec![vec![1u32; 20]; 20];
+    tiles[0][0] = 0;
+    world.add_component(
+        map,
+        Tilemap::new(
+            TilemapAtlas::new("atlas.png", 4, 4),
+            tiles,
+            16.0,
+            Vec2::ZERO,
+        ),
+    );
+
+    let mut system = TilemapSystem::new();
+    let idle = steady_state_frame(&mut system, &mut world, 1.0 / 60.0);
+    assert_no_steady_state_allocation("TilemapSystem (populated, idle)", idle);
+    let tiles_before = world.query::<UvRect>().count();
+    assert_eq!(tiles_before, 399, "the fixture should have built 399 tiles");
+
+    // The edit frame. It is allowed to allocate — an edit is not a steady-state frame — but it must
+    // do the work, and that is the half the reordering could have broken.
+    world.get_mut::<Tilemap>(map).unwrap().set_tile(0, 0, 1);
+    let (edit_allocs, _) = measure(|| system.run(&mut world, 1.0 / 60.0));
+    assert_eq!(
+        world.query::<UvRect>().count(),
+        tiles_before + 1,
+        "the edited cell did not spawn a tile — the generation/dims fast path in front of the grid \
+         clone swallowed a real change"
+    );
+    assert!(
+        edit_allocs > 0,
+        "an edit frame read 0 allocations, so this fixture cannot tell a working fast path from a \
+         system that never runs"
+    );
+
+    // And it converges: the view's cached generation was updated, so an edited tilemap does not
+    // keep re-cloning its grid for the rest of the session.
+    let settled = steady_state_frame(&mut system, &mut world, 1.0 / 60.0);
+    assert_no_steady_state_allocation("TilemapSystem (frames after an edit)", settled);
 }
 
 /// The **real** per-frame sequence, which the system-only tests above do not cover.

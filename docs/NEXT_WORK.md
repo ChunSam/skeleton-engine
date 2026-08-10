@@ -30,7 +30,7 @@ A filed request preempts everything below.
 | **`<NAME>_SELFTEST` coverage** | **DONE — 10 of 21**, and the one real gap is now closed (`beat_crawler`, `survivor`, `data_anim`, `data_particles`, `salvage_run`, `predict_shooter`, `orbital_dodger`, `coin_race`, + `settings_menu` and `scene_flow` on 2026-08-06). The remaining 11 games' headline features are all visible in a screenshot (`sokoban`, `platformer`, `maze_escape`, `dig_quest`, `shooter`, `lit_dungeon`, `multi_terrain`, `tile_paint`, `ui_layout_editor`, `stat_editor_game`, `script_steering`), so chasing the number past 10 is effort against failures that are already visible. **Do not reopen this as a coverage target.** Durable findings from the four networked ones are in `docs/MODULE_MAP.md`'s `src/network.rs` row; the two that generalise beyond networking: **`InputState` has no public press setter**, so held input comes from `InputScript` (the `ENGINE_INPUT` replay path), keeping the real input read under test; and **assert an invariant, not an end state**, when a background process (a coin respawner, an entity spawner) can add to what you are counting. |
 | **4th procgen mode** (drunkard's walk) | Unchanged, still the lowest marginal value: the engine cannot fail at it, so nothing is learned. |
 | **`add-facade-capability` skill** | n=5 now (the facade + native + wasm + policy-module shape has repeated that many times). Deferred; the next facade capability makes the case by itself. |
-| **2026-08-07 analysis §10** | **DONE 2026-08-09 — all 9 surviving candidates closed.** Step 0 of the plan never ran, and nothing recorded that until 2026-08-08; seven shipped across v0.150.1–v0.150.4 and the last two docs/test hygiene items closed on 2026-08-09 with no version bump. **What is still open is not from §10** — measurement gaps the same pass exposed, listed in the subsection below. `src/app/assets.rs:262` closed in v0.150.6 by deleting the allocation rather than measuring it; what remains is `src/app/render/debug_draw.rs:34` (mis-filed as an allocation claim, and its suggested fix is **not implementable as written** — `DrawRect` has no rotation field, so "one rotated quad would do" needs a renderer change; the cheap half is an in-crate test pinning the quad count) and the five unmeasured v0.150.0 fixes. |
+| **2026-08-07 analysis §10** | **DONE 2026-08-09 — all 9 surviving candidates closed.** Step 0 of the plan never ran, and nothing recorded that until 2026-08-08; seven shipped across v0.150.1–v0.150.4 and the last two docs/test hygiene items closed on 2026-08-09 with no version bump. **What is still open is not from §10** — measurement gaps the same pass exposed, listed in the subsection below. `src/app/assets.rs:262` closed in v0.150.6 by deleting the allocation rather than measuring it; what remains is `src/app/render/debug_draw.rs:34` (mis-filed as an allocation claim, and its suggested fix is **not implementable as written** — `DrawRect` has no rotation field, so "one rotated quad would do" needs a renderer change; the cheap half is an in-crate test pinning the quad count). **The unmeasured v0.150.0 fixes are all measured as of v0.150.7** — `debug_draw.rs:34` is the only thing left from this whole program. |
 
 ### The 2026-08-07 analysis's unverified candidates — what is actually left
 
@@ -95,22 +95,28 @@ burial that hid step 0:
 | `src/app/assets.rs:262` | **FIXED v0.150.6 — and it was never a measurement problem.** This row asked for a fixture (in-crate unit test or the render job) to *measure* a `pub(crate)` method the harness cannot see. But an allocation you can read off the signature does not need measuring: `image_assets_for_gpu` returned `Vec<(String, ImageAsset)>` from a per-frame call site over `Arc<str>` keys. Yielding `(&str, &ImageAsset)` deletes it in four lines, and leaves nothing to measure. Pinned in-crate by **identity** (`ptr::eq` on the key, `Arc::ptr_eq` on the pixels) — `assert_eq!` on the strings would have passed for a fresh `String`. ⚠️ **Ask "can I just delete this?" before "how do I measure this?"** — the harness's reach is not the only route to a claim. |
 | `src/app/render/debug_draw.rs:34` | **Open, and mis-filed** — it draws one quad per dot along a segment where one rotated quad would do. That is a draw-call/vertex-volume claim, not an allocation one, so `per_frame_alloc.rs` is the wrong instrument. Assert the quad count instead. |
 
-⚠️ **Three of v0.150.0's six fixes are still unmeasured**, and this is the highest-value work
-left in this file. Of the six it claimed: `HierarchySystem` and `LocalizationSystem` have since
-been measured (**both were still allocating** — fixed properly in v0.150.5 and v0.150.4), and
-`TilemapSystem`'s *idle* path is confirmed at zero. Nobody has measured:
+✅ **All six of v0.150.0's fixes are now measured** (v0.150.7 closed the last four). Final tally
+across v0.150.4 → v0.150.7: of the six claims, **three were wrong** — `HierarchySystem` and
+`LocalizationSystem` never stopped allocating and were fixed properly, and `TilemapSystem` was
+still allocating twice per frame. Reading got half of them backwards.
 
-| Unmeasured | What v0.150.0 claimed | What a fixture has to reach |
-|---|---|---|
-| `AnimEffectSystem` | stopped deep-cloning the binding table before checking for events | registered bindings + an empty event bus (the idle frame is the claim) |
-| `ZoneEffectSystem` | same shape, same claim | same |
-| `DialogueSystem` | stopped cloning the whole `LocaleResource` every frame | a `DialogueBox` where `needs_locale_resolve()` is false |
-| `TilemapSystem` (non-idle) | cheap fields read before the grid clone | a tilemap whose generation/dims **did** change |
+| Claim | Verdict |
+|---|---|
+| `AnimEffectSystem` — bus snapshot before the registry clone | **Real.** Idle frame 0; reverting the order restores 129 allocations / 9,150 B |
+| `ZoneEffectSystem` — same shape | **Real.** Idle frame 0; 129 / 9,662 B reverted |
+| `DialogueSystem` — `LocaleResource` clone guarded on a box with keys | **Real.** Frame cost independent of table size; unguarded it goes 8 → 809 |
+| `TilemapSystem` (idle, populated) | **Was still allocating** — 2/frame, fixed in v0.150.7 |
+| `HierarchySystem` / `LocalizationSystem` | Were still allocating; fixed in v0.150.5 / v0.150.4 |
 
-**The track record says do not assume these are fine.** Two of the three claims that have been
-measured turned out to be wrong — one system that was "fixed" never stopped allocating, and one
-named as a problem (`LayoutSystem`) never had one. Reading got both backwards. The instrument
-exists and each of these needs only a fixture: `cargo test --test per_frame_alloc`.
+⚠️ **The tilemap one is the finding worth carrying, and it is not about tilemaps.** The test that
+was supposed to guard the grid clone — `tilemap_system_steady_state_does_not_allocate`, shipped in
+v0.150.4 — builds a `World` with **no `Tilemap` in it**. `run` collects an empty entity list and
+returns, so it never reaches the clone. It passed for four releases, and the v0.150.5 CHANGELOG
+reported v0.150.0's tilemap fix "confirmed" on the strength of it. **A green must-be-zero assertion
+is two claims glued together — *the code is clean* and *the code ran* — and only the second is cheap
+to check.** Every fixture in that file now carries a positive control that drives the guarded path
+and requires a non-zero reading; the rule is written up in `docs/VERIFICATION.md` § *a fixture that
+omits the subject reads clean*, next to #456's vacuous PNG assert, which is the same family.
 
 The two docs/test hygiene items below were closed on 2026-08-09 with no version bump — neither
 changed behaviour. ⚠️ One of them was **not** the bottom of the barrel it was filed as: the
@@ -259,46 +265,22 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
 > `docs/CHANGELOG.md` (what shipped) or `docs/PATTERNS.md` / `docs/VERIFICATION.md` (what was
 > learned). Without this rule the section regrows the history that was just split out.
 
-Closed 2026-08-08 — **the 2026-08-07 analysis's execution plan, steps 1–13**
-(`plans/2026-08-07-analysis-followup.md`), shipped as #438–#450 / v0.145.1 → v0.150.0. Durable home
-is `docs/CHANGELOG.md`, one entry per version; do not re-summarise them here. Two things a reader
-comparing the plan against the `CHANGELOG` will trip on: step 12 was planned as `0.149.1` but
-shipped as **`0.150.0`**, because making `HierarchySystem` hold scratch fields is a breaking change
-and pre-1.0 breaking means MINOR; and step 13 took **no** version bump, being docs + CI only.
-**Step 0 of that plan did not ship** — it is now the §10 entry under *Open — engineering*, and it is
-the part of this program to carry forward.
+Closed 2026-08-10 — **the four unmeasured v0.150.0 per-frame allocation claims** (v0.150.7). Three
+held; `TilemapSystem` did not, and the reason it had looked fine is the part worth keeping: its
+guard test measured a `World` with no `Tilemap` in it. Durable homes are `docs/CHANGELOG.md` 0.150.7
+and `docs/VERIFICATION.md` § *a fixture that omits the subject reads clean*; the numbers are in the
+verdict table above, which stays because it is the record that this program is finished.
 
-Closed 2026-08-08 — **seven of §10's nine, across five PATCH releases**, plus the two
-verification gaps those releases exposed. Durable home is `docs/CHANGELOG.md` 0.150.1–0.150.5; do
-not re-summarise the fixes here. What is worth carrying:
+**This ends the v0.150.x measurement program.** All six of v0.150.0's fixes have now been measured,
+three of them turned out to be wrong, and `tests/per_frame_alloc.rs` is the instrument that settles
+the next claim in one command. The one item still open from the 2026-08-07 analysis is
+`debug_draw.rs:34`, which is a draw-call claim and needs a different instrument.
 
-| Release | Closed |
-|---|---|
-| v0.150.1 | touch bypassing the letterbox map; a wasm asset failure reaching neither `asset_failures()` nor strict mode |
-| v0.150.2 | the wasm pre-open send drop; the hand-mirrored event-queue policy whose wasm copy no test executed |
-| v0.150.3 | the first check in the tree that asserts a **failure** path works — the gap v0.150.1 and v0.150.2 both shipped through |
-| v0.150.4 | the per-frame allocation rule became **measured** instead of read; two of three candidates fixed |
-| v0.150.5 | the two allocations measuring found that reading had missed, including an ECS-wide one nobody had listed |
-
-**All nine correctness defects in §10 are shipped**, and the two hygiene items that remained when
-this was written closed the next day (#456, no version bump) — one of them turning out not to be
-hygiene at all: the vacuous PNG assertion was hiding a fixture with a bad IDAT CRC that had never
-decoded, so `decode_image_bytes` had no success-path coverage. §10 is now empty.
-
-**The shape they shared.** Every one was a policy written at two call sites where only one stayed
-correct: mouse vs touch, native vs wasm asset loader, native vs wasm sender, native vs wasm event
-queue. Three had no `cfg` protecting them; the one that did was worse, because the `cfg` on
-`mod tests` is what hid it. `docs/PATTERNS.md` § *Shared policy for cfg-split backends* carries it:
-**`cfg` was never the precondition, two call sites are.**
-
-**The lesson that outlived the fixes.** Two verification habits earned their place by catching real
-errors the same day they were written: a fail-path check is worthless until you revert the fix and
-watch it go red, and a measurement is worthless until a control test proves the instrument can see
-anything at all. Both are in `docs/PATTERNS.md`; the second caught two separate bugs in its own
-harness.
-
-Rolled off 2026-08-08 — the 2026-08-07 `App::step_headless` paragraph (#436/#437), having served its
-session. Its durable homes were verified on the way in, not assumed: `docs/CHANGELOG.md` 0.145.0,
-`docs/MODULE_MAP.md`'s `src/scene.rs` row (which also carries the reset footgun and the consequence
-that gives it teeth — **`set_scene` is itself a `Replace`**), and `docs/VERIFICATION.md` § *A skip is
-not a pass* / § *check where your "before" sample is actually taken*.
+Rolled off 2026-08-10 — the two 2026-08-08 entries (the 2026-08-07 analysis's steps 1–13, and seven
+of §10's nine across five PATCH releases), having served their session. Their durable homes are
+`docs/CHANGELOG.md` 0.145.1–0.150.5 one entry per version, `docs/PATTERNS.md` § *Shared policy for
+cfg-split backends* (**`cfg` was never the precondition, two call sites are**), and the two
+verification habits that outlived them, also in `PATTERNS.md`: a fail-path check is worthless until
+you revert the fix and watch it go red, and a measurement is worthless until a control proves the
+instrument can see anything at all. The v0.150.7 tilemap finding is the third instance of that
+second one, so it has now earned the stronger form written up in `VERIFICATION.md`.
