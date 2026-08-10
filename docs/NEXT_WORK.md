@@ -28,6 +28,7 @@ A filed request preempts everything below.
 | Item | State |
 |---|---|
 | **`<NAME>_SELFTEST` coverage** | **DONE — 10 of 21**, and the one real gap is now closed (`beat_crawler`, `survivor`, `data_anim`, `data_particles`, `salvage_run`, `predict_shooter`, `orbital_dodger`, `coin_race`, + `settings_menu` and `scene_flow` on 2026-08-06). The remaining 11 games' headline features are all visible in a screenshot (`sokoban`, `platformer`, `maze_escape`, `dig_quest`, `shooter`, `lit_dungeon`, `multi_terrain`, `tile_paint`, `ui_layout_editor`, `stat_editor_game`, `script_steering`), so chasing the number past 10 is effort against failures that are already visible. **Do not reopen this as a coverage target.** Durable findings from the four networked ones are in `docs/MODULE_MAP.md`'s `src/network.rs` row; the two that generalise beyond networking: **`InputState` has no public press setter**, so held input comes from `InputScript` (the `ENGINE_INPUT` replay path), keeping the real input read under test; and **assert an invariant, not an end state**, when a background process (a coin respawner, an entity spawner) can add to what you are counting. |
+| **`DialogueChoice.cond` cannot express a conjunction** | **Open, found by `rpg_quest` (v0.151.0).** `cond` is one `DialogueCond` — no `All`/`Any` — so `gold >= 10 && !has_lantern`, an ordinary shop gate, is unwriteable in a tree. The workaround is real and shipping (`rpg_quest` derives `can_buy_lantern` in a system each frame), which is why this is not urgent: a game *can* always precompute. What it costs is authoring — a designer editing `*.dlg.ron` cannot add a two-term gate without a programmer adding a variable. Fix shape: `cond: Option<DialogueCond>` → accept `All([…])`/`Any([…])` variants, additive if the single-cond form still parses. Do it when a second example wants it; one data point is not a mandate. |
 | **4th procgen mode** (drunkard's walk) | Unchanged, still the lowest marginal value: the engine cannot fail at it, so nothing is learned. |
 | **`add-facade-capability` skill** | n=5 now (the facade + native + wasm + policy-module shape has repeated that many times). Deferred; the next facade capability makes the case by itself. |
 | **2026-08-07 analysis §10** | **DONE 2026-08-09 — all 9 surviving candidates closed.** Step 0 of the plan never ran, and nothing recorded that until 2026-08-08; seven shipped across v0.150.1–v0.150.4 and the last two docs/test hygiene items closed on 2026-08-09 with no version bump. **What is still open is not from §10** — measurement gaps the same pass exposed, listed in the subsection below. `src/app/assets.rs:262` closed in v0.150.6 by deleting the allocation rather than measuring it; what remains is `src/app/render/debug_draw.rs:34` (mis-filed as an allocation claim, and its suggested fix is **not implementable as written** — `DrawRect` has no rotation field, so "one rotated quad would do" needs a renderer change; the cheap half is an in-crate test pinning the quad count). **The unmeasured v0.150.0 fixes are all measured as of v0.150.7** — `debug_draw.rs:34` is the only thing left from this whole program. |
@@ -264,6 +265,25 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
 > **Roll-off rule:** an entry stays here for **one session**, then goes. Its durable home is
 > `docs/CHANGELOG.md` (what shipped) or `docs/PATTERNS.md` / `docs/VERIFICATION.md` (what was
 > learned). Without this rule the section regrows the history that was just split out.
+
+Closed 2026-08-10 — **the RPG genre gap** (v0.151.0, `examples/games/rpg_quest/`). `docs/VISION.md`
+names five genres in its success criteria and four had a playable game; RPG did not, and the
+dialogue system's five examples were all top-level *demos* that never walked, fought, or persisted.
+Durable homes are `docs/CHANGELOG.md` 0.151.0 and the `src/dialogue/` row in `docs/MODULE_MAP.md`.
+Two things worth carrying:
+
+- **The loop worked as VISION says it should.** Writing the example found a real gap rather than
+  confirming a design: `DialogueVars` is where quest flags have to live (choice conditions read from
+  there) and it was **not serializable and had no iterator**, so persisting quest state meant
+  hardcoding every flag name at the save site. Fixed additively; the example's `SaveData` now carries
+  the whole bag in one field. The second gap it found — `cond` cannot express a conjunction — is
+  under *Open — engineering* rather than fixed, because one data point is not a mandate.
+- ⚠️ **A check passed for the wrong reason again, two sessions running.** `RPG_QUEST_SELFTEST`'s
+  first draft asserted that a locked door blocked the player, while the player was actually
+  immobile because a dialogue box was open — indistinguishable readings. A *later* check failing is
+  what exposed it, not review. Same family as v0.150.7's empty-world tilemap test, and the same fix:
+  every walking check now carries a movement control that requires real displacement first.
+  `docs/VERIFICATION.md` § *a fixture that omits the subject reads clean* is the general form.
 
 Closed 2026-08-10 — **the four unmeasured v0.150.0 per-frame allocation claims** (v0.150.7). Three
 held; `TilemapSystem` did not, and the reason it had looked fine is the part worth keeping: its

@@ -4,6 +4,20 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.151.0
+
+**The RPG slice, and the engine gap it found.** `docs/VISION.md` names five genres its success criteria cover — platformer, shooter, **RPG**, puzzle, top-down action. Four had a playable game in `examples/games/`; RPG did not. The dialogue system had five examples and every one was a *demo*: all sit at the top level, open with a box already on screen, and end when the conversation does. None walks anywhere, fights anything, or is still there after you quit, so the pieces an RPG needs *together* had never been under gameplay pressure at once.
+
+`examples/games/rpg_quest/` is that game: walk a village, talk to the merchant (`E`), buy a lantern with a choice gated on what you can afford, hear where the mine is behind a second gate, and find the door has actually opened — the gate is a `Collider` that `DoorSystem` adds and removes, so nothing about it is scripted. The slime past it is seeded from `enemies.ron` through `DataTableRegistry`. `F5`/`F9` save and load, and the game auto-loads at launch.
+
+**What writing it changed: `DialogueVars` is now `Serialize` + `Deserialize` and has `iter()`.** Quest state has to live in `DialogueVars` — that is where choice conditions read from — and it could not be persisted. Its getters answer one *already-known* key at a time and the `HashMap` was private with no iterator, so a save path had to hardcode the name of every flag in the game and re-`set_*` each one on load: correct on the day it was written, and silently lossy the moment anyone added a quest step. The values already round-tripped; only the container did not. The whole bag is now one field in the example's `SaveData`.
+
+⚠️ **A second gap is recorded, not fixed: `DialogueChoice.cond` holds exactly one `DialogueCond`.** There is no `All`/`Any`, so `gold >= 10 && !has_lantern` — an ordinary shop gate — cannot be written in the tree. `rpg_quest` precomputes it into a `can_buy_lantern` variable each frame instead, which works and is what a game would do, but the tree cannot express the conjunction on its own. In `docs/NEXT_WORK.md`.
+
+`RPG_QUEST_SELFTEST` covers what a screenshot cannot: a collider has no pixels (a locked door and an unlocked one differ only by a tint this example chose, drawn by the same system that owns the gate), a hidden dialogue choice has no pixels because the ungated screen looks complete, and a save file that dropped a flag renders a perfectly plausible game. All seven checks are sabotage-verified, each reddening only its own code, and the source restored byte-identical. The one that matters most is check 7: it asserts that flags the example *never names* round-trip too, and re-implementing the pre-change hand-listed save path passes checks 1–6 and fails only that one — which is exactly the regression that would otherwise ship the next time someone added a quest step.
+
+⚠️ **The first draft of check 3 passed for the wrong reason**, and it is the same family as v0.150.7's empty-world tilemap test. "The locked door blocked the player" and "the player never moved because a dialogue box was open" are the same reading, and check 3 was measuring the second. Check 5 failing is what exposed it. Every walking check now closes the conversation first and carries a movement control — walk the *other* way over open floor and require real displacement — before asserting that anything blocked.
+
 ## 0.150.7
 
 **The last four unmeasured v0.150.0 claims, and the one that was measuring an empty world.** v0.150.0 fixed six systems on a code-reading basis; v0.150.5 measured three of them and reversed two readings. These are the remaining four, each with a fixture in `tests/per_frame_alloc.rs`.

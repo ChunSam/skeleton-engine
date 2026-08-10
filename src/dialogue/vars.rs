@@ -188,7 +188,26 @@ pub struct DialogueEvent {
 ///
 /// Game-owned: insert it (`world.insert_resource(DialogueVars::default())`) and seed starting
 /// state. The [`dialogue::choose`](super::choose) helper lazily inserts it on a `SetVar` effect.
-#[derive(Debug, Clone, Default)]
+///
+/// **Serializable, because an RPG's quest flags live here and a save file has to carry them.**
+/// The `rpg_quest` example is what established that: it stores `has_lantern` / `knows_mine` / `gold`
+/// as dialogue variables (so choice conditions can gate on them), and then had no way to persist
+/// them — the getters answer one *known* key at a time, which means a save site would have to
+/// hardcode the name of every flag in the game and re-`set_*` each one on load. Round-trip the whole
+/// bag instead:
+///
+/// ```
+/// # use engine::{DialogueVars, save};
+/// let mut vars = DialogueVars::default();
+/// vars.set_bool("has_lantern", true);
+/// vars.set_int("gold", 10);
+///
+/// let ron = ron::to_string(&vars).unwrap();
+/// let restored: DialogueVars = ron::from_str(&ron).unwrap();
+/// assert_eq!(restored.get_bool("has_lantern"), Some(true));
+/// assert_eq!(restored.get_int("gold"), Some(10));
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DialogueVars {
     vars: HashMap<String, DialogueValue>,
 }
@@ -249,6 +268,16 @@ impl DialogueVars {
         self.vars.get(key).and_then(DialogueValue::as_str)
     }
 
+    /// Every variable currently set, in unspecified order.
+    ///
+    /// The getters above all need a key you already know. This is for the cases that do not have
+    /// one: a debug overlay listing live quest state, a test asserting on the whole bag, or a save
+    /// path that wants to inspect rather than round-trip (for which `Serialize` is the shorter
+    /// route). Sort by key if you need a stable order — this is a `HashMap` underneath.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &DialogueValue)> {
+        self.vars.iter().map(|(k, v)| (k.as_str(), v))
+    }
+
     /// Removes all variables.
     pub fn clear(&mut self) {
         self.vars.clear();
@@ -268,6 +297,44 @@ impl DialogueVars {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A save file has to carry quest state, and quest state lives here. Round-trip every value
+    /// kind through RON — the format `save::write_ron` uses — and check the conditions still
+    /// evaluate the same afterwards, which is what a loaded game actually depends on.
+    #[test]
+    fn vars_round_trip_through_ron_and_conditions_still_hold() {
+        let mut vars = DialogueVars::new();
+        vars.set_bool("has_lantern", true);
+        vars.set_int("gold", 10);
+        vars.set_float("reputation", 0.5);
+        vars.set_str("last_npc", "merchant");
+
+        let ron = ron::to_string(&vars).expect("serialize");
+        let restored: DialogueVars = ron::from_str(&ron).expect("deserialize");
+
+        assert_eq!(restored.len(), 4);
+        assert_eq!(restored.get_bool("has_lantern"), Some(true));
+        assert_eq!(restored.get_int("gold"), Some(10));
+        assert_eq!(restored.get_float("reputation"), Some(0.5));
+        assert_eq!(restored.get_str("last_npc"), Some("merchant"));
+        // The gate `rpg_quest` puts on the lantern purchase must survive the round trip, not just
+        // the raw value: a restored save that cannot re-evaluate its conditions is not restored.
+        assert!(
+            DialogueCond::new("gold", DialogueOp::Ge, DialogueValue::Int(10)).eval(&restored),
+            "a gold gate that passed before saving must still pass after loading"
+        );
+    }
+
+    #[test]
+    fn iter_sees_every_set_var() {
+        let mut vars = DialogueVars::new();
+        vars.set_bool("a", true);
+        vars.set_int("b", 2);
+        let mut seen: Vec<&str> = vars.iter().map(|(k, _)| k).collect();
+        seen.sort_unstable();
+        assert_eq!(seen, vec!["a", "b"]);
+        assert_eq!(vars.iter().count(), vars.len());
+    }
 
     #[test]
     fn cond_eq_and_ne() {
