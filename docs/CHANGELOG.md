@@ -4,6 +4,52 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.151.1
+
+**A straight debug line was 275 quads. It is one.** This closes the last open item from the
+2026-08-07 analysis, and it had been sitting behind a wrong reading of itself twice over.
+
+`DebugDraw`'s shapes are converted to `DrawRect`s by filling each segment with `thickness ×
+thickness` dots. `examples/centered_text` draws three vertical guide columns; at the default
+960×540 each is 410 px long at 1.5 thickness, so each cost **275 quads** and the three cost **825**
+— to draw three straight lines. A `Cross` of size 20 cost 30. The backlog had this filed as a
+per-frame *allocation* candidate (it is a draw-call/vertex-volume one, so `tests/per_frame_alloc.rs`
+was the wrong instrument) and then as **not implementable** — the suggested fix was "one rotated
+quad would do", and `DrawRect` has no rotation field.
+
+Half of that was right. Diagonals and circle chords genuinely need rotation and are unchanged. But
+an **axis-aligned** segment needs no renderer change at all: `push_line` steps by
+`len / ceil(len / thickness)`, which is always `<= thickness`, so consecutive dots always touch or
+overlap and their union *is* one rect. That is an identity, not an approximation — and the `Rect`
+arm three lines below had been hand-writing its four outline edges as four quads all along.
+
+| Shape | Before | After |
+|---|---|---|
+| `centered_text` guide column (410 px, t=1.5) | 275 | **1** |
+| its three columns, per frame | 825 | **3** |
+| `Cross { size: 20 }` | 30 | **2** |
+| `Circle { radius: 24 }` | 144 | 144 — needs rotation |
+
+**Two conditions are load-bearing, and the second was nearly missed.** The collapse requires
+*exactly* on-axis (one float off and the union is a staircase, not a rect) **and**
+`thickness >= MIN_STEP_THICKNESS`. Below that threshold the step is clamped to `0.5` while the dots
+stay `thickness` wide, so they stop touching and the line is *meant* to read as dotted —
+`DebugDraw::line_thick` is public and can ask for exactly that. Collapsing it would have silently
+turned a dotted line solid. Both conditions have a test that fails without them.
+
+**Verified by capture, with a control.** `ENGINE_CAPTURE=30:` on `centered_text` before and after
+is **byte-identical** across all 2,073,600 bytes at 960×540. That number means nothing on its own —
+a frame that never drew the subject also diffs to zero, which is the trap v0.150.7 was written up
+for — so the same check confirms the guides are *in* both frames: three columns at x=191/479/767,
+luminance 152.7 against a 68.7 background, spanning y=27..480. This was also the case most likely
+to shift: the repo's only `DebugDraw::line` call site uses alpha 70/255, so overlapping dots were
+double-blending. The seams are 0.0037 px wide and round away entirely.
+
+`src/app/render/debug_draw.rs` had **no tests at all** before this. It has 11, and 5 of them pin
+what does *not* collapse — the diagonal, the near-axis-aligned line, the hairline, the circle's
+144, the rect's 4 — so a green collapse assertion cannot be green because the shape produced
+nothing. No public API change, no behaviour change.
+
 ## 0.151.0
 
 **The RPG slice, and the engine gap it found.** `docs/VISION.md` names five genres its success criteria cover — platformer, shooter, **RPG**, puzzle, top-down action. Four had a playable game in `examples/games/`; RPG did not. The dialogue system had five examples and every one was a *demo*: all sit at the top level, open with a box already on screen, and end when the conversation does. None walks anywhere, fights anything, or is still there after you quit, so the pieces an RPG needs *together* had never been under gameplay pressure at once.

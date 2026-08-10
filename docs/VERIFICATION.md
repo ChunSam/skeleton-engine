@@ -217,6 +217,16 @@ allocates on a frame with a visible dialogue box — is to measure a **differenc
 absolute. Two runs differing only in the size of the thing that must not be cloned settle it, and
 the control is the same shape: a third run where that thing *is* used, which must cost more.
 
+**The same trap wearing a different hat: a byte-identical `ENGINE_CAPTURE` diff.** v0.151.1 changed
+how `DebugDraw` emits axis-aligned segments and proved it invisible by capturing `centered_text`
+before and after — 0 differing bytes out of 2,073,600. That number is worth exactly nothing on its
+own, because **a frame that never drew the subject also diffs to zero**, and so does a capture that
+silently failed and wrote the same clear colour twice. It is the identical two-claims-glued-together
+shape: *the change is invisible* and *the changed thing was on screen*. The control is cheap — the
+same pass over the pixels located the three guide columns at x=191/479/767 at luminance 152.7
+against a 68.7 background, which is what makes the zero mean anything. **Before reporting a
+before/after image as unchanged, assert where the subject is in it.**
+
 ### Audio in CI was attempted and does not work — do not re-litigate without new information
 
 Five CI runs went into this in v0.143.10 and the answer was no. Recorded so the next person does not
