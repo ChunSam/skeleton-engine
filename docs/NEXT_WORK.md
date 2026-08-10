@@ -31,9 +31,13 @@ A filed request preempts everything below.
 | **`DialogueChoice.cond` cannot express a conjunction** | **Open, found by `rpg_quest` (v0.151.0).** `cond` is one `DialogueCond` — no `All`/`Any` — so `gold >= 10 && !has_lantern`, an ordinary shop gate, is unwriteable in a tree. The workaround is real and shipping (`rpg_quest` derives `can_buy_lantern` in a system each frame), which is why this is not urgent: a game *can* always precompute. What it costs is authoring — a designer editing `*.dlg.ron` cannot add a two-term gate without a programmer adding a variable. Fix shape: `cond: Option<DialogueCond>` → accept `All([…])`/`Any([…])` variants, additive if the single-cond form still parses. Do it when a second example wants it; one data point is not a mandate. |
 | **4th procgen mode** (drunkard's walk) | Unchanged, still the lowest marginal value: the engine cannot fail at it, so nothing is learned. |
 | **`add-facade-capability` skill** | n=5 now (the facade + native + wasm + policy-module shape has repeated that many times). Deferred; the next facade capability makes the case by itself. |
-| **2026-08-07 analysis §10** | **DONE 2026-08-09 — all 9 surviving candidates closed.** Step 0 of the plan never ran, and nothing recorded that until 2026-08-08; seven shipped across v0.150.1–v0.150.4 and the last two docs/test hygiene items closed on 2026-08-09 with no version bump. **What is still open is not from §10** — measurement gaps the same pass exposed, listed in the subsection below. `src/app/assets.rs:262` closed in v0.150.6 by deleting the allocation rather than measuring it; what remains is `src/app/render/debug_draw.rs:34` (mis-filed as an allocation claim, and its suggested fix is **not implementable as written** — `DrawRect` has no rotation field, so "one rotated quad would do" needs a renderer change; the cheap half is an in-crate test pinning the quad count). **The unmeasured v0.150.0 fixes are all measured as of v0.150.7** — `debug_draw.rs:34` is the only thing left from this whole program. |
+| **2026-08-07 analysis §10** | ✅ **CLOSED 2026-08-10 (v0.151.1). The whole program is finished.** Step 0 of the plan never ran, and nothing recorded that until 2026-08-08; seven shipped across v0.150.1–v0.150.4, two docs/test hygiene items closed on 2026-08-09, the unmeasured v0.150.0 fixes were all measured by v0.150.7, and the last item — `src/app/render/debug_draw.rs:34` — closed in v0.151.1. Nothing from this analysis is open. **Do not reopen it as a source of work**; a new pass would be a new analysis. What it leaves behind is `tests/per_frame_alloc.rs` and the two habits in `docs/PATTERNS.md` / `docs/VERIFICATION.md`. |
 
-### The 2026-08-07 analysis's unverified candidates — what is actually left
+### The 2026-08-07 analysis's unverified candidates — the closed record
+
+> **Nothing below is open** as of 2026-08-10 (v0.151.1). It is kept as the record of *how* the
+> program closed, because three of its readings were reversed by measurement and one by re-deriving
+> a problem the row had written off. Read it for the habits, not for work.
 
 `plans/2026-08-07-analysis-followup.md` had **fourteen** steps, 0 through 13. Steps 1–13 all
 shipped (#438–#450, v0.145.1 → v0.150.0). **Step 0 — re-running the 33 verification agents that
@@ -94,7 +98,7 @@ burial that hid step 0:
 |---|---|
 | `src/ui/panel.rs` `LayoutSystem` | **False positive** — measures 0 over 50 panels × 8 children. Do not reopen without a measurement that disagrees. |
 | `src/app/assets.rs:262` | **FIXED v0.150.6 — and it was never a measurement problem.** This row asked for a fixture (in-crate unit test or the render job) to *measure* a `pub(crate)` method the harness cannot see. But an allocation you can read off the signature does not need measuring: `image_assets_for_gpu` returned `Vec<(String, ImageAsset)>` from a per-frame call site over `Arc<str>` keys. Yielding `(&str, &ImageAsset)` deletes it in four lines, and leaves nothing to measure. Pinned in-crate by **identity** (`ptr::eq` on the key, `Arc::ptr_eq` on the pixels) — `assert_eq!` on the strings would have passed for a fresh `String`. ⚠️ **Ask "can I just delete this?" before "how do I measure this?"** — the harness's reach is not the only route to a claim. |
-| `src/app/render/debug_draw.rs:34` | **Open, and mis-filed** — it draws one quad per dot along a segment where one rotated quad would do. That is a draw-call/vertex-volume claim, not an allocation one, so `per_frame_alloc.rs` is the wrong instrument. Assert the quad count instead. |
+| `src/app/render/debug_draw.rs:34` | **FIXED v0.151.1 — and both of this row's own readings of it were wrong.** It was mis-filed as an allocation claim (it is draw-call volume, so `per_frame_alloc.rs` was the wrong instrument — that part this row got right), and then written off as not implementable because `DrawRect` has no rotation. Rotation is only needed for **diagonals**. An axis-aligned segment collapses to one quad with no renderer change, because `push_line`'s step is always `<= thickness`, so the dots' union *is* the rect — an identity. `centered_text`'s three guide columns went 825 → 3 quads/frame, a `Cross` 30 → 2, with a byte-identical capture. ⚠️ **"not implementable" was a claim about the *suggested fix*, not about the problem** — the row never asked whether a different fix existed, and the answer was three lines below in the same file, where the `Rect` arm already drew its four edges as four quads. |
 
 ✅ **All six of v0.150.0's fixes are now measured** (v0.150.7 closed the last four). Final tally
 across v0.150.4 → v0.150.7: of the six claims, **three were wrong** — `HierarchySystem` and
@@ -266,41 +270,32 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
 > `docs/CHANGELOG.md` (what shipped) or `docs/PATTERNS.md` / `docs/VERIFICATION.md` (what was
 > learned). Without this rule the section regrows the history that was just split out.
 
-Closed 2026-08-10 — **the RPG genre gap** (v0.151.0, `examples/games/rpg_quest/`). `docs/VISION.md`
-names five genres in its success criteria and four had a playable game; RPG did not, and the
-dialogue system's five examples were all top-level *demos* that never walked, fought, or persisted.
-Durable homes are `docs/CHANGELOG.md` 0.151.0 and the `src/dialogue/` row in `docs/MODULE_MAP.md`.
-Two things worth carrying:
+Closed 2026-08-10 — **`debug_draw.rs:34`, and with it the entire 2026-08-07 analysis program**
+(v0.151.1). A straight debug guide line cost 275 quads; it costs 1. Durable home is
+`docs/CHANGELOG.md` 0.151.1. Two things worth carrying:
 
-- **The loop worked as VISION says it should.** Writing the example found a real gap rather than
-  confirming a design: `DialogueVars` is where quest flags have to live (choice conditions read from
-  there) and it was **not serializable and had no iterator**, so persisting quest state meant
-  hardcoding every flag name at the save site. Fixed additively; the example's `SaveData` now carries
-  the whole bag in one field. The second gap it found — `cond` cannot express a conjunction — is
-  under *Open — engineering* rather than fixed, because one data point is not a mandate.
-- ⚠️ **A check passed for the wrong reason again, two sessions running.** `RPG_QUEST_SELFTEST`'s
-  first draft asserted that a locked door blocked the player, while the player was actually
-  immobile because a dialogue box was open — indistinguishable readings. A *later* check failing is
-  what exposed it, not review. Same family as v0.150.7's empty-world tilemap test, and the same fix:
-  every walking check now carries a movement control that requires real displacement first.
-  `docs/VERIFICATION.md` § *a fixture that omits the subject reads clean* is the general form.
+- ⚠️ **"The suggested fix is not implementable" is not "the problem is not fixable."** This row sat
+  closed-in-practice for two sessions on that conflation. The filed fix (a rotated quad) really was
+  blocked — `DrawRect` has no rotation — but that only ever blocked *diagonals*, and nobody asked
+  what the axis-aligned case needed. It needed nothing: the answer was three lines below in the same
+  file, where the `Rect` arm had been emitting one quad per outline edge since it was written. **When
+  a backlog row records a blocked fix, re-derive the problem before trusting the row.**
+- **The zero-diff needed a control, and the file is where the next one goes.** A byte-identical
+  before/after capture proves nothing until you show the subject was in the frame — the v0.150.7
+  trap exactly. The same check confirms the three guides at x=191/479/767, luminance 152.7 vs a 68.7
+  background. Five of the eleven new tests exist for the same reason: they pin what does *not*
+  collapse, so the collapse assertions cannot pass vacuously.
 
-Closed 2026-08-10 — **the four unmeasured v0.150.0 per-frame allocation claims** (v0.150.7). Three
-held; `TilemapSystem` did not, and the reason it had looked fine is the part worth keeping: its
-guard test measured a `World` with no `Tilemap` in it. Durable homes are `docs/CHANGELOG.md` 0.150.7
-and `docs/VERIFICATION.md` § *a fixture that omits the subject reads clean*; the numbers are in the
-verdict table above, which stays because it is the record that this program is finished.
+Rolled off 2026-08-10 — the previous session's two entries, having served their session: **the RPG
+genre gap** (v0.151.0) and **the four unmeasured v0.150.0 allocation claims** (v0.150.7). Durable
+homes are `docs/CHANGELOG.md` 0.150.7 and 0.151.0, the `src/dialogue/` row in `docs/MODULE_MAP.md`,
+and `docs/VERIFICATION.md` § *a fixture that omits the subject reads clean* — which both of them fed
+and which this session's entry is now the fourth instance of. The v0.150.x verdict tables above stay
+where they are; they are the record that that program is finished, not a backlog.
 
-**This ends the v0.150.x measurement program.** All six of v0.150.0's fixes have now been measured,
-three of them turned out to be wrong, and `tests/per_frame_alloc.rs` is the instrument that settles
-the next claim in one command. The one item still open from the 2026-08-07 analysis is
-`debug_draw.rs:34`, which is a draw-call claim and needs a different instrument.
-
-Rolled off 2026-08-10 — the two 2026-08-08 entries (the 2026-08-07 analysis's steps 1–13, and seven
-of §10's nine across five PATCH releases), having served their session. Their durable homes are
-`docs/CHANGELOG.md` 0.145.1–0.150.5 one entry per version, `docs/PATTERNS.md` § *Shared policy for
-cfg-split backends* (**`cfg` was never the precondition, two call sites are**), and the two
-verification habits that outlived them, also in `PATTERNS.md`: a fail-path check is worthless until
-you revert the fix and watch it go red, and a measurement is worthless until a control proves the
-instrument can see anything at all. The v0.150.7 tilemap finding is the third instance of that
-second one, so it has now earned the stronger form written up in `VERIFICATION.md`.
+⚠️ **Two programs ended here, and the file should stay small now.** The v0.150.x measurement program
+closed with v0.150.7 and the 2026-08-07 analysis with v0.151.1. Nothing from either is open. What
+survives them is instruments and habits, not work: `tests/per_frame_alloc.rs` settles an allocation
+claim in one command, and `docs/PATTERNS.md` carries the two rules they cost — a fail-path check is
+worthless until you revert the fix and watch it go red, and a measurement is worthless until a
+control proves the instrument can see anything at all.
