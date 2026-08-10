@@ -26,7 +26,7 @@ engine code directly under `src/`, and grow it into your own engine. There is no
 | `examples/*.rs` | small single-file examples (auto-discovered by cargo) |
 | `examples/games/<name>/` | full example games (registered via `[[example]]` in `Cargo.toml`) |
 | `examples/assets/` | shared example assets (PNGs, etc.) |
-| `docs/` | VISION, PATTERNS, HANDOFF, CHANGELOG (English) |
+| `docs/` | VISION, PATTERNS, NEXT_WORK, CHANGELOG (English) |
 | `scripts/verify.sh` | the local CI-equivalent gate — run before you commit |
 
 ## Start your own game
