@@ -25,12 +25,28 @@ A filed request preempts everything below.
 
 ## Open — engineering
 
+**Three items, all deliberately unscheduled** — each gated on a trigger, none on a decision. A
+backlog this short is the *expected* state, not a gap to fill: two programs closed in v0.150.7 and
+v0.151.1, and the board gate above is empty.
+Manufacturing work to fill it would be a new analysis — say so out loud and scope it, rather than
+letting it arrive as "the backlog said so".
+
 | Item | State |
+|---|---|
+| **4th procgen mode** (drunkard's walk) | Unchanged, still the lowest marginal value: the engine cannot fail at it, so nothing is learned. `src/mapgen.rs` already ships three generators over one shared `DungeonMap` (BSP rooms, cellular cave, perfect maze), each with its own example and each guaranteed-connected by a different mechanism. |
+| **`add-facade-capability` skill** | n=5 now (the facade + native + wasm + policy-module shape has repeated that many times). Deferred; the next facade capability makes the case by itself. **Building it now would ship a skill with nothing to apply it to** — no facade capability is queued, so do it *alongside* the next one, not before. |
+| **Last-seen eviction helper** (`RemoteEntities` #5) | **n=1, gated on a 2nd staleness example** — the same bar that held `SnapshotBuffer` until its 2nd call site. `salvage_run`'s AOI streaming produces **removal-by-omission**: the server never sends a `Bye`, an entity just stops appearing in snapshots, so the client infers eviction from `last_seen` + timeout. Candidate shape (`touch(key, t)` / `expired(now - timeout) -> Vec<K>`) is written up in `docs/REMOTE_ENTITIES_DESIGN.md` § *5th example*, **flagged not built**. Surfaced here 2026-08-10 because that doc was its only home — the four sibling verdicts in the same section all resolved to *keep minimal / zero engine change*, and this is the one that did not. |
+
+### Closed — do not reopen without new information
+
+⚠️ **All three of these sat in the table above marked closed**, which is the exact burial this file
+exists to prevent: a reader scanning *Open — engineering* for work met 3 finished rows out of 5.
+Kept verbatim rather than trimmed, because each carries a lesson whose only home is this row.
+
+| Item | Verdict |
 |---|---|
 | **`<NAME>_SELFTEST` coverage** | **DONE — 10 of 21**, and the one real gap is now closed (`beat_crawler`, `survivor`, `data_anim`, `data_particles`, `salvage_run`, `predict_shooter`, `orbital_dodger`, `coin_race`, + `settings_menu` and `scene_flow` on 2026-08-06). The remaining 11 games' headline features are all visible in a screenshot (`sokoban`, `platformer`, `maze_escape`, `dig_quest`, `shooter`, `lit_dungeon`, `multi_terrain`, `tile_paint`, `ui_layout_editor`, `stat_editor_game`, `script_steering`), so chasing the number past 10 is effort against failures that are already visible. **Do not reopen this as a coverage target.** Durable findings from the four networked ones are in `docs/MODULE_MAP.md`'s `src/network.rs` row; the two that generalise beyond networking: **`InputState` has no public press setter**, so held input comes from `InputScript` (the `ENGINE_INPUT` replay path), keeping the real input read under test; and **assert an invariant, not an end state**, when a background process (a coin respawner, an entity spawner) can add to what you are counting. |
 | **`DialogueChoice.cond` cannot express a conjunction** | ✅ **CLOSED 2026-08-10 (v0.152.0)** — `cond_all` / `cond_any` ship alongside `cond`, and `rpg_quest`'s `can_buy_lantern` workaround is deleted. ⚠️ **This row's own fix shape was impossible**, which is why it is worth reading twice: it specified `All([…])`/`Any([…])` *variants* on `DialogueCond`, "additive if the single-cond form still parses" — and in RON 0.8 those are mutually exclusive. An externally tagged enum rewrites every existing `cond: (var: …)` into `cond: Cmp((var: …))`; `#[serde(untagged)]`, the usual way out, cannot even re-read its own serialized output. **One throwaway test settled it in a minute; no amount of reading would have.** Durable homes: `docs/PATTERNS.md` § *Extend a type that is authored in RON*, `docs/CHANGELOG.md` 0.152.0. **Do not reopen for arbitrary nesting** — `a && (b || c)` is expressible, deeper trees need a helper var, and no example has asked. |
-| **4th procgen mode** (drunkard's walk) | Unchanged, still the lowest marginal value: the engine cannot fail at it, so nothing is learned. |
-| **`add-facade-capability` skill** | n=5 now (the facade + native + wasm + policy-module shape has repeated that many times). Deferred; the next facade capability makes the case by itself. |
 | **2026-08-07 analysis §10** | ✅ **CLOSED 2026-08-10 (v0.151.1). The whole program is finished.** Step 0 of the plan never ran, and nothing recorded that until 2026-08-08; seven shipped across v0.150.1–v0.150.4, two docs/test hygiene items closed on 2026-08-09, the unmeasured v0.150.0 fixes were all measured by v0.150.7, and the last item — `src/app/render/debug_draw.rs:34` — closed in v0.151.1. Nothing from this analysis is open. **Do not reopen it as a source of work**; a new pass would be a new analysis. What it leaves behind is `tests/per_frame_alloc.rs` and the two habits in `docs/PATTERNS.md` / `docs/VERIFICATION.md`. |
 
 ### The 2026-08-07 analysis's unverified candidates — the closed record
@@ -166,6 +182,24 @@ required-check decision above — closed on 2026-08-04, 2026-08-04, and 2026-08-
 
 ## Noted — not scheduled
 
+- **Every doc dated before 2026-06-17 cites a version *higher* than today's, and none of them is
+  wrong.** The project ran a `1.0.0` → `10.7.0` SemVer line from 2026-05-26 to 2026-06-16 (ten
+  majors in three weeks), then **reset to `0.11.0` on 2026-06-17** — `docs/CHANGELOG.md` § 0.11.0,
+  *"Version line reset: pre-1.0"*, no code changes, full prior history preserved below it and in git
+  tags. So `## 4.3.0` and `## 10.7.0` are real CHANGELOG entries that are **older** than `0.152.0`,
+  and a pre-reset doc citing `v8.11.0` is not ahead of `main`. Recorded so the next person who hits
+  one does not "correct" a real version into a wrong one — #464 came within a command of doing
+  exactly that. **Do not go marker-ify the other pre-reset docs — they are already covered**, and
+  this was checked rather than assumed. Of the **11** tracked docs last touched before the reset,
+  **6** carry the date in the filename (`CODE_ANALYSIS_2026-06-16.md` and friends) and the other 5
+  open with an explicit status line: `ROADMAP.md` *historical roadmap*, `ENTITY_GENERATION_V2_PLAN.md`
+  *Implemented in v2.0.0*, `CODE_ANALYSIS.md` *Generated 2026-06-05*, `REMOTE_ENTITIES_DESIGN.md`
+  *minimal helper shipped … deliberately deferred*, while `SKELETAL.md` is a feature reference with
+  no status to go stale. `docs/HANDOFF.md` was the only one carrying **no marker of any kind**, which
+  is why it alone needed one. (A first draft of this bullet claimed the others self-mark *by
+  filename*; 5 of 11 do not. The conclusion held, the reason did not — and only listing them showed
+  which.)
+
 - **CLOSED by removal, not by diagnosis: the native job's 130 s swing was `cargo build --examples`.**
   Kept as a record because three successive versions of this entry got the *cause* wrong while the
   *measurement* was right each time, and the shape of that mistake is worth more than the finding.
@@ -270,28 +304,30 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
 > `docs/CHANGELOG.md` (what shipped) or `docs/PATTERNS.md` / `docs/VERIFICATION.md` (what was
 > learned). Without this rule the section regrows the history that was just split out.
 
-Closed 2026-08-10 — **the `DialogueChoice.cond` conjunction gap** (v0.152.0). `cond_all` /
-`cond_any` ship, and `rpg_quest` deleted the flag, the system upkeep and the helper it needed to
-work around it. Durable homes are `docs/CHANGELOG.md` 0.152.0, the `src/dialogue/` row in
-`docs/MODULE_MAP.md`, and `docs/PATTERNS.md` § *Extend a type that is authored in RON*. Two things
-worth carrying:
+Closed 2026-08-10 — **`docs/HANDOFF.md` presented a frozen 2026-06-16 record as current state**
+(#464; docs-only, no version bump, so it has no CHANGELOG entry and the commit body is its detail).
+It now carries the historical marker `docs/ROADMAP.md` and `docs/PROGRAM_HISTORY.md` already had,
+and the two pointers that sent readers into it — `CLAUDE.md`'s orientation row and `FORKING.md`'s
+docs table — name the live files instead. Two things worth carrying:
 
-- ⚠️ **A backlog row can specify an impossible fix, and this one did.** It called for `All`/`Any`
-  variants on `DialogueCond`, "additive if the single-cond form still parses" — two requirements
-  RON 0.8 cannot satisfy at once. The row was written from reading the Rust type, where the change
-  *is* additive; the format is a separate question the compiler never asks. A throwaway
-  round-trip test answered it in one `cargo test`. **When a row specifies a shape rather than a
-  problem, spike the shape before building on it** — this is the third consecutive session where
-  re-deriving a row beat trusting it (`debug_draw.rs:34`, `assets.rs:262`, this).
-- **Two functions needed two sabotages.** Breaking `is_available` reddened four tests and left
-  `multi_term_gates_are_not_unconditional` green; only breaking `is_unconditional` caught that one.
-  A single sabotage that turns *something* red is not evidence the whole feature is covered —
-  sabotage each entry point the feature added.
+- ⚠️ **The wrong-looking version was right, and "fixing" it would have *introduced* the error.**
+  The file says `v4.3.0` against a `Cargo.toml` at `0.152.0`, which reads as a typo. It is a real
+  and *older* version — see the version-line note under *Noted — not scheduled*. One command
+  settled it (`grep -n '^## 4\.3\.0' docs/CHANGELOG.md` → line 4931). **This is the fourth
+  consecutive session where re-deriving a claim beat trusting it** (`debug_draw.rs:34`,
+  `assets.rs:262`, the RON fix shape, this) — and the first where the claim being re-derived was
+  the session's *own*, asserted ten minutes earlier. Age is not what makes a claim worth checking.
+- **A commit that removes a concept leaves prose behind a few lines away.** `92e05fe` dropped
+  rust-survivors as a consumer and cleaned a dangling pointer at line 121, while line 23's
+  "uses this engine as a dependency" sat eight lines under its own contradiction at line 15. Same
+  family as the reverted null-sink experiment whose comment survived in `scripts/selftests.sh`:
+  **grep for the concept, not for the file you happened to be editing.**
 
-Rolled off this session, having served theirs: **`debug_draw.rs:34` and the 2026-08-07 analysis
-program** (v0.151.1), and before it the RPG genre gap (v0.151.0) and the four unmeasured v0.150.0
-allocation claims (v0.150.7). Durable homes are `docs/CHANGELOG.md` 0.150.7 / 0.151.0 / 0.151.1,
-`docs/PATTERNS.md`, and `docs/VERIFICATION.md` § *a fixture that omits the subject reads clean*.
+Rolled off this session, having served theirs: **the `DialogueChoice.cond` conjunction gap**
+(v0.152.0) — durable homes `docs/CHANGELOG.md` 0.152.0, the `src/dialogue/` row in
+`docs/MODULE_MAP.md`, and `docs/PATTERNS.md` § *Extend a type that is authored in RON* — and before
+it `debug_draw.rs:34` with the 2026-08-07 analysis program (v0.151.1), the RPG genre gap (v0.151.0)
+and the four unmeasured v0.150.0 allocation claims (v0.150.7).
 
 ⚠️ **Two programs ended here, and the file should stay small now.** The v0.150.x measurement program
 closed with v0.150.7 and the 2026-08-07 analysis with v0.151.1. Nothing from either is open. What
