@@ -59,6 +59,14 @@ struct ChoiceDef {
     goto: String,
     #[serde(default)]
     cond: Option<DialogueCond>,
+    // The multi-term gates. `Vec` with `#[serde(default)]` (empty = absent) for the same reason
+    // the string fields above use `String`: it authors bare in RON. All three gate fields are
+    // ANDed by `DialogueChoice::is_available`, and every one of them is optional, so a file
+    // written before these existed parses unchanged.
+    #[serde(default)]
+    cond_all: Vec<DialogueCond>,
+    #[serde(default)]
+    cond_any: Vec<DialogueCond>,
     #[serde(default)]
     effect: Option<DialogueEffect>,
 }
@@ -176,6 +184,12 @@ impl DialogueTree {
                 };
                 if let Some(cond) = &c.cond {
                     choice = choice.when(cond.clone());
+                }
+                if !c.cond_all.is_empty() {
+                    choice = choice.when_all(c.cond_all.iter().cloned());
+                }
+                if !c.cond_any.is_empty() {
+                    choice = choice.when_any(c.cond_any.iter().cloned());
                 }
                 if let Some(effect) = &c.effect {
                     choice = choice.then(effect.clone());
@@ -423,6 +437,97 @@ mod tests {
         assert_eq!(c.goto, 1, "goto id 'end' → index 1");
         assert!(c.cond.is_some(), "cond parsed via IMPLICIT_SOME");
         assert!(c.effect.is_some(), "effect parsed via IMPLICIT_SOME");
+        // The single-term form leaves the multi-term gates empty, so it stays unconditional-ish:
+        // exactly one gate is in play, which is what every pre-`cond_all` file expects.
+        assert!(c.cond_all.is_empty() && c.cond_any.is_empty());
+    }
+
+    /// **The additivity claim, asserted rather than assumed.** `cond_all` / `cond_any` were added
+    /// after `.dlg.ron` files were already being authored, and the whole reason they are flat
+    /// fields on the choice — instead of `All`/`Any` variants on `DialogueCond` — is that RON 0.8
+    /// cannot add those variants without rewriting every existing `cond:` line. This is the text
+    /// of a tree written before the feature existed; it must still parse to the same box.
+    #[test]
+    fn a_pre_feature_tree_parses_unchanged() {
+        const PRE_FEATURE: &str = r#"(
+    speaker_key: "npc.merchant",
+    chars_per_sec: 40.0,
+    nodes: [
+        (id: "ask", line_key: "dlg.ask", choices: [
+            (key: "choice.buy", goto: "buy",
+             cond: (var: "can_buy_lantern", op: Eq, value: Bool(true)),
+             effect: EmitEvent(name: "buy_lantern")),
+            (key: "choice.leave", goto: "buy"),
+        ]),
+        (id: "buy", line_key: "dlg.buy"),
+    ],
+)"#;
+        let b = DialogueTree::from_ron_str(PRE_FEATURE)
+            .expect("a tree written before cond_all/cond_any existed must still parse")
+            .to_box();
+        let choices = &b.choices.iter().find(|(l, _)| *l == 0).expect("ask").1;
+        assert_eq!(choices.len(), 2);
+        assert_eq!(
+            choices[0].cond.as_ref().expect("cond").var,
+            "can_buy_lantern"
+        );
+        assert!(
+            choices[0].cond_all.is_empty(),
+            "absent field defaults empty"
+        );
+        assert!(
+            choices[0].cond_any.is_empty(),
+            "absent field defaults empty"
+        );
+        assert!(choices[1].is_unconditional(), "ungated choice unaffected");
+    }
+
+    /// The new gates author in RON, and both directions of each are driven — a tree that parsed
+    /// the fields but never evaluated them would pass a visible-only assertion.
+    #[test]
+    fn tree_parses_multi_term_gates() {
+        let ron = r#"(
+    chars_per_sec: 0.0,
+    nodes: [
+        (id: "ask", line: "Pick", choices: [
+            (text: "buy", goto: "end", cond_all: [
+                (var: "gold", op: Ge, value: Int(10)),
+                (var: "has_lantern", op: Eq, value: Bool(false)),
+            ]),
+            (text: "nodeal", goto: "end", cond_any: [
+                (var: "gold", op: Lt, value: Int(10)),
+                (var: "has_lantern", op: Eq, value: Bool(true)),
+            ]),
+        ]),
+        (id: "end", line: "Bye"),
+    ],
+)"#;
+        let b = DialogueTree::from_ron_str(ron).expect("parse").to_box();
+        let choices = &b.choices.iter().find(|(l, _)| *l == 0).expect("ask").1;
+        assert_eq!(choices[0].cond_all.len(), 2, "both terms survived parsing");
+        assert_eq!(choices[1].cond_any.len(), 2);
+        assert!(choices[0].cond.is_none(), "cond_all does not populate cond");
+
+        // The parsed gates are mutually exclusive by construction — whichever vars are set,
+        // exactly one of the two branches is offered. That is the property the tree encodes.
+        let d = b.clone();
+        for (gold, lantern, want) in [
+            (10, false, "buy"),
+            (9, false, "nodeal"),
+            (10, true, "nodeal"),
+            (9, true, "nodeal"),
+        ] {
+            let mut vars = crate::DialogueVars::new();
+            vars.set_int("gold", gold);
+            vars.set_bool("has_lantern", lantern);
+            let visible = d.visible_choices(&vars);
+            assert_eq!(
+                visible.len(),
+                1,
+                "gold={gold} lantern={lantern}: exactly one branch should be offered"
+            );
+            assert_eq!(visible[0].text, want, "gold={gold} lantern={lantern}");
+        }
     }
 
     #[test]

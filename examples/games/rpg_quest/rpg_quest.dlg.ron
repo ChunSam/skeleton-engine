@@ -4,16 +4,21 @@
 //
 // Flow:  intro → ask → { buy → ask2 → [secret?] → bye | nodeal → bye | bye }
 //
-// Two gates, one of each shape the engine offers:
+// Three gates, one of each shape the engine offers — all three written here, in the data, with no
+// help from the game:
 //
-//   * `choice.buy` is gated on **`can_buy_lantern`**, a flag the *game* computes each frame as
-//     `gold >= 10 && !has_lantern`. ⚠️ It is not written as `(var: "gold", op: Ge, …)` because
-//     `cond` holds exactly ONE `DialogueCond` — there is no `All`/`Any`, so a two-term gate has to
-//     be precomputed into a single variable by the game. Ordinary RPG requirement, currently
-//     inexpressible in the tree; see docs/NEXT_WORK.md.
-//   * `choice.secret` is gated directly on **`has_lantern`**, which is the single-term case the
-//     `cond` field does express, and it carries a `SetVar` effect so reaching the secret records
-//     `knows_mine` without the game hearing about it.
+//   * `choice.buy` uses **`cond_all`**: `gold >= 10 && !has_lantern`, the ordinary shop gate.
+//     Every listed condition must pass.
+//   * `choice.nodeal` uses **`cond_any`**: `gold < 10 || has_lantern`, the exact negation. One
+//     listed condition is enough. The two branches are mutually exclusive by construction, so the
+//     merchant always has exactly one thing to say.
+//   * `choice.secret` uses **`cond`**, the single-term sugar, and carries a `SetVar` effect so
+//     reaching the secret records `knows_mine` without the game hearing about it.
+//
+// The first two used to be one precomputed `can_buy_lantern` flag that the game recalculated every
+// frame, because `cond` held exactly one `DialogueCond`. That cost a designer a programmer for
+// every two-term gate. `cond_all` / `cond_any` landed in v0.152.0 and this file is what asked for
+// them; the flag and the system that maintained it are both gone.
 //
 // `choice.buy` uses the other effect kind — `EmitEvent` — because buying does *two* things (spend
 // the gold, grant the lantern) and a choice carries one effect. The game turns the one event into
@@ -25,10 +30,16 @@
         (id: "intro", line_key: "dlg.intro"),
         (id: "ask", line_key: "dlg.ask", choices: [
             (key: "choice.buy", goto: "buy",
-             cond: (var: "can_buy_lantern", op: Eq, value: Bool(true)),
+             cond_all: [
+                 (var: "gold", op: Ge, value: Int(10)),
+                 (var: "has_lantern", op: Eq, value: Bool(false)),
+             ],
              effect: EmitEvent(name: "buy_lantern")),
             (key: "choice.nodeal", goto: "nodeal",
-             cond: (var: "can_buy_lantern", op: Eq, value: Bool(false))),
+             cond_any: [
+                 (var: "gold", op: Lt, value: Int(10)),
+                 (var: "has_lantern", op: Eq, value: Bool(true)),
+             ]),
             (key: "choice.leave", goto: "bye"),
         ]),
         (id: "buy", line_key: "dlg.buy", choices: [

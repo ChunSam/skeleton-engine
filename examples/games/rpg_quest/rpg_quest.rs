@@ -33,10 +33,17 @@
 //! `Serialize`/`Deserialize` (its values already did) and exposes `iter()`, so the whole bag
 //! round-trips in one line — see `SaveData` below.
 //!
-//! ⚠️ **One gap this example works around rather than fixes:** a choice's `cond` is a single
-//! `DialogueCond`, so `gold >= 10 && !has_lantern` — an entirely ordinary shop gate — cannot be
-//! written in the tree. The game precomputes it into `can_buy_lantern` each frame instead.
-//! Recorded in `docs/NEXT_WORK.md`; the workaround is in `rpg_quest.dlg.ron`'s header.
+//! **The second gap it found is now fixed, and this example is what closed it.** A choice's `cond`
+//! was a single `DialogueCond`, so `gold >= 10 && !has_lantern` — an entirely ordinary shop gate —
+//! could not be written in the tree; the game precomputed it into a `can_buy_lantern` flag it
+//! recalculated every frame. That is a designer needing a programmer for a two-term gate.
+//! `DialogueChoice` now also carries `cond_all` (conjunction) and `cond_any` (disjunction), the
+//! flag and its upkeep are deleted, and `rpg_quest.dlg.ron` states both branches of the shop gate
+//! directly. ⚠️ The gate's *price* now lives in the tree next to `LANTERN_COST` here, which is a
+//! real coupling. Selftest check 2 pins the two together from **both** sides of the boundary — at
+//! `LANTERN_COST - 1` the offer is hidden and "no deal" shows, at exactly `LANTERN_COST` they
+//! swap — so a tree written against a different price cannot pass. Check 4's purchase is not
+//! enough on its own: it buys at `START_GOLD`, which has ten gold of slack.
 //!
 //! Run from the repo root:  `cargo run --example rpg_quest_game`
 //! WASD/arrows move · `E` talk · SPACE advance · 1/2/3 choose · `F5` save · `F9` load ·
@@ -110,9 +117,6 @@ const VAR_GOLD: &str = "gold";
 const VAR_HAS_LANTERN: &str = "has_lantern";
 const VAR_KNOWS_MINE: &str = "knows_mine";
 const VAR_SLIME_SLAIN: &str = "slime_slain";
-/// Derived every frame by [`QuestEventSystem`] as `gold >= LANTERN_COST && !has_lantern`. See the
-/// module header: `cond` holds one term, so the conjunction is the game's job.
-const VAR_CAN_BUY: &str = "can_buy_lantern";
 
 const LOCALES_RON: &str = r#"
 (
@@ -288,12 +292,6 @@ fn gold(world: &World) -> i64 {
         .resource::<DialogueVars>()
         .and_then(|v| v.get_int(VAR_GOLD))
         .unwrap_or(0)
-}
-
-fn set_var_bool(world: &mut World, key: &str, value: bool) {
-    if let Some(v) = world.resource_mut::<DialogueVars>() {
-        v.set_bool(key, value);
-    }
 }
 
 /// The starting quest state, used by a fresh game and by `R`.
@@ -583,7 +581,11 @@ fn set_notice(world: &mut World, msg: &str) {
     }
 }
 
-/// Turns dialogue events into world consequences, and keeps the derived `can_buy_lantern` honest.
+/// Turns dialogue events into world consequences.
+///
+/// It used to do a second job — recompute a derived `can_buy_lantern` flag every frame, because
+/// `gold >= LANTERN_COST && !has_lantern` could not be written in the tree. `cond_all` /
+/// `cond_any` (v0.152.0) took that job back into the data, and the flag is gone.
 struct QuestEventSystem;
 
 impl System for QuestEventSystem {
@@ -604,11 +606,6 @@ impl System for QuestEventSystem {
                 set_notice(world, "bought the lantern — the mine door will open");
             }
         }
-
-        // Derived, every frame: `cond` is one term, so the conjunction lives here. Cheap, and it
-        // cannot drift out of sync with gold the way an event-time write could.
-        let can_buy = gold(world) >= LANTERN_COST && !var_bool(world, VAR_HAS_LANTERN);
-        set_var_bool(world, VAR_CAN_BUY, can_buy);
     }
 
     fn name(&self) -> &'static str {
@@ -1214,9 +1211,11 @@ fn self_test() -> i32 {
     // ── 2. The gates hide what they should, before anything is earned ────────
     //
     // The negative half, and it is the half that gives checks 4 and 5 meaning: a build that simply
-    // ignored `cond` would pass every positive check here.
+    // ignored every gate field would pass all of the positive checks below. It runs both gate
+    // shapes against each other — `choice.buy`'s `cond_all` and `choice.nodeal`'s `cond_any` are
+    // exact negations, so at every gold value exactly one of them is offered.
     set_gold(&mut app, LANTERN_COST - 1);
-    steps(&mut app, 2); // QuestEventSystem recomputes can_buy_lantern
+    steps(&mut app, 2);
     teleport(&mut app, beside_merchant);
     if !talk_until_choices(&mut app) {
         eprintln!("FAIL: pressing E next to the merchant never reached a choice prompt.");
@@ -1226,15 +1225,56 @@ fn self_test() -> i32 {
     if broke_keys.iter().any(|k| k == "choice.buy") {
         eprintln!(
             "FAIL: the lantern is on offer at {} gold with a cost of {LANTERN_COST} — the \
-             can_buy_lantern gate is not being read. Visible: {broke_keys:?}",
+             cond_all gate on choice.buy is not being read. Visible: {broke_keys:?}",
+            LANTERN_COST - 1
+        );
+        return 2;
+    }
+    // The `cond_any` half — the exact negation — must be offering the other branch, or the
+    // merchant has nothing to say and "no buy offer" above would also be true of a tree that
+    // failed to load at all.
+    if !broke_keys.iter().any(|k| k == "choice.nodeal") {
+        eprintln!(
+            "FAIL: broke at {} gold and the merchant offers neither branch — the cond_any gate \
+             on choice.nodeal is not being read. Visible: {broke_keys:?}",
             LANTERN_COST - 1
         );
         return 2;
     }
     println!(
-        "gate ok: broke at {} gold, no buy offer — {broke_keys:?}",
+        "gate ok: broke at {} gold, no buy offer, 'no deal' instead — {broke_keys:?}",
         LANTERN_COST - 1
     );
+
+    // One more gold, nothing else touched: the offer must flip. This pins the gate's *boundary* to
+    // `LANTERN_COST` exactly, which matters because the price now lives in the tree too. Check 4 is
+    // not enough on its own — it buys at `START_GOLD`, ten gold of slack, so a tree written against
+    // the wrong price would sail through it. It also shows the gate is read live out of the tree:
+    // the old build needed a `QuestEventSystem` frame to recompute a derived flag first, and this
+    // changes no flag at all.
+    set_gold(&mut app, LANTERN_COST);
+    let afford_keys = visible_keys(&app);
+    if !afford_keys.iter().any(|k| k == "choice.buy") {
+        eprintln!(
+            "FAIL: exactly {LANTERN_COST} gold and no buy offer — the cond_all gate disagrees \
+             with LANTERN_COST. Visible: {afford_keys:?}"
+        );
+        return 2;
+    }
+    if afford_keys.iter().any(|k| k == "choice.nodeal") {
+        eprintln!(
+            "FAIL: both branches offered at {LANTERN_COST} gold — cond_all and cond_any are \
+             supposed to be exact negations. Visible: {afford_keys:?}"
+        );
+        return 2;
+    }
+    println!(
+        "boundary ok: at exactly {LANTERN_COST} gold the offer flips to buy — {afford_keys:?}"
+    );
+    // Required, not tidiness: check 3 closes the conversation by taking the first offered choice
+    // at every prompt, and at this gold that first choice is `buy` — which would grant the lantern,
+    // open the mine door, and make the locked-door check assert against an unlocked door.
+    set_gold(&mut app, LANTERN_COST - 1);
 
     // ── 3. The locked door blocks ────────────────────────────────────────────
     //
