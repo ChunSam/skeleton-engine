@@ -44,8 +44,9 @@ The chosen path combines two things:
 These are not separate tracks — they are one loop. The dogfooding vehicle is a growing
 set of **small playable example games**, one per genre/feature area, living in
 `examples/`. The repo now includes playable slices such as platformer, shooter,
-scene-flow, sokoban, maze escape, survivor, and settings/menu examples; future feature
-work should keep using those examples, or add a new one, to validate the API in play.
+scene-flow, sokoban, maze escape, survivor, RPG (`rpg_quest` — as of v0.151.0 every genre named
+above has one), and settings/menu examples; future feature work should keep using those examples,
+or add a new one, to validate the API in play.
 
 ### Operating principles
 
