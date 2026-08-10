@@ -15,7 +15,7 @@
 
 ## Board gate — check this first, every session
 
-Both channels were **empty** as of 2026-08-08:
+Both channels were **empty** as of 2026-08-10 (re-checked; neither has moved):
 
 - `../dungeon-merchant/docs/engine-wishlist.md` — next free **EW-012**, unmoved since 2026-07-27
 - `../rust-survivors/docs/ENGINE_CHANGE_REQUESTS.md` — `_None._`, unmoved since 2026-07-14
@@ -28,7 +28,7 @@ A filed request preempts everything below.
 | Item | State |
 |---|---|
 | **`<NAME>_SELFTEST` coverage** | **DONE — 10 of 21**, and the one real gap is now closed (`beat_crawler`, `survivor`, `data_anim`, `data_particles`, `salvage_run`, `predict_shooter`, `orbital_dodger`, `coin_race`, + `settings_menu` and `scene_flow` on 2026-08-06). The remaining 11 games' headline features are all visible in a screenshot (`sokoban`, `platformer`, `maze_escape`, `dig_quest`, `shooter`, `lit_dungeon`, `multi_terrain`, `tile_paint`, `ui_layout_editor`, `stat_editor_game`, `script_steering`), so chasing the number past 10 is effort against failures that are already visible. **Do not reopen this as a coverage target.** Durable findings from the four networked ones are in `docs/MODULE_MAP.md`'s `src/network.rs` row; the two that generalise beyond networking: **`InputState` has no public press setter**, so held input comes from `InputScript` (the `ENGINE_INPUT` replay path), keeping the real input read under test; and **assert an invariant, not an end state**, when a background process (a coin respawner, an entity spawner) can add to what you are counting. |
-| **`DialogueChoice.cond` cannot express a conjunction** | **Open, found by `rpg_quest` (v0.151.0).** `cond` is one `DialogueCond` — no `All`/`Any` — so `gold >= 10 && !has_lantern`, an ordinary shop gate, is unwriteable in a tree. The workaround is real and shipping (`rpg_quest` derives `can_buy_lantern` in a system each frame), which is why this is not urgent: a game *can* always precompute. What it costs is authoring — a designer editing `*.dlg.ron` cannot add a two-term gate without a programmer adding a variable. Fix shape: `cond: Option<DialogueCond>` → accept `All([…])`/`Any([…])` variants, additive if the single-cond form still parses. Do it when a second example wants it; one data point is not a mandate. |
+| **`DialogueChoice.cond` cannot express a conjunction** | ✅ **CLOSED 2026-08-10 (v0.152.0)** — `cond_all` / `cond_any` ship alongside `cond`, and `rpg_quest`'s `can_buy_lantern` workaround is deleted. ⚠️ **This row's own fix shape was impossible**, which is why it is worth reading twice: it specified `All([…])`/`Any([…])` *variants* on `DialogueCond`, "additive if the single-cond form still parses" — and in RON 0.8 those are mutually exclusive. An externally tagged enum rewrites every existing `cond: (var: …)` into `cond: Cmp((var: …))`; `#[serde(untagged)]`, the usual way out, cannot even re-read its own serialized output. **One throwaway test settled it in a minute; no amount of reading would have.** Durable homes: `docs/PATTERNS.md` § *Extend a type that is authored in RON*, `docs/CHANGELOG.md` 0.152.0. **Do not reopen for arbitrary nesting** — `a && (b || c)` is expressible, deeper trees need a helper var, and no example has asked. |
 | **4th procgen mode** (drunkard's walk) | Unchanged, still the lowest marginal value: the engine cannot fail at it, so nothing is learned. |
 | **`add-facade-capability` skill** | n=5 now (the facade + native + wasm + policy-module shape has repeated that many times). Deferred; the next facade capability makes the case by itself. |
 | **2026-08-07 analysis §10** | ✅ **CLOSED 2026-08-10 (v0.151.1). The whole program is finished.** Step 0 of the plan never ran, and nothing recorded that until 2026-08-08; seven shipped across v0.150.1–v0.150.4, two docs/test hygiene items closed on 2026-08-09, the unmeasured v0.150.0 fixes were all measured by v0.150.7, and the last item — `src/app/render/debug_draw.rs:34` — closed in v0.151.1. Nothing from this analysis is open. **Do not reopen it as a source of work**; a new pass would be a new analysis. What it leaves behind is `tests/per_frame_alloc.rs` and the two habits in `docs/PATTERNS.md` / `docs/VERIFICATION.md`. |
@@ -270,28 +270,28 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
 > `docs/CHANGELOG.md` (what shipped) or `docs/PATTERNS.md` / `docs/VERIFICATION.md` (what was
 > learned). Without this rule the section regrows the history that was just split out.
 
-Closed 2026-08-10 — **`debug_draw.rs:34`, and with it the entire 2026-08-07 analysis program**
-(v0.151.1). A straight debug guide line cost 275 quads; it costs 1. Durable home is
-`docs/CHANGELOG.md` 0.151.1. Two things worth carrying:
+Closed 2026-08-10 — **the `DialogueChoice.cond` conjunction gap** (v0.152.0). `cond_all` /
+`cond_any` ship, and `rpg_quest` deleted the flag, the system upkeep and the helper it needed to
+work around it. Durable homes are `docs/CHANGELOG.md` 0.152.0, the `src/dialogue/` row in
+`docs/MODULE_MAP.md`, and `docs/PATTERNS.md` § *Extend a type that is authored in RON*. Two things
+worth carrying:
 
-- ⚠️ **"The suggested fix is not implementable" is not "the problem is not fixable."** This row sat
-  closed-in-practice for two sessions on that conflation. The filed fix (a rotated quad) really was
-  blocked — `DrawRect` has no rotation — but that only ever blocked *diagonals*, and nobody asked
-  what the axis-aligned case needed. It needed nothing: the answer was three lines below in the same
-  file, where the `Rect` arm had been emitting one quad per outline edge since it was written. **When
-  a backlog row records a blocked fix, re-derive the problem before trusting the row.**
-- **The zero-diff needed a control, and the file is where the next one goes.** A byte-identical
-  before/after capture proves nothing until you show the subject was in the frame — the v0.150.7
-  trap exactly. The same check confirms the three guides at x=191/479/767, luminance 152.7 vs a 68.7
-  background. Five of the eleven new tests exist for the same reason: they pin what does *not*
-  collapse, so the collapse assertions cannot pass vacuously.
+- ⚠️ **A backlog row can specify an impossible fix, and this one did.** It called for `All`/`Any`
+  variants on `DialogueCond`, "additive if the single-cond form still parses" — two requirements
+  RON 0.8 cannot satisfy at once. The row was written from reading the Rust type, where the change
+  *is* additive; the format is a separate question the compiler never asks. A throwaway
+  round-trip test answered it in one `cargo test`. **When a row specifies a shape rather than a
+  problem, spike the shape before building on it** — this is the third consecutive session where
+  re-deriving a row beat trusting it (`debug_draw.rs:34`, `assets.rs:262`, this).
+- **Two functions needed two sabotages.** Breaking `is_available` reddened four tests and left
+  `multi_term_gates_are_not_unconditional` green; only breaking `is_unconditional` caught that one.
+  A single sabotage that turns *something* red is not evidence the whole feature is covered —
+  sabotage each entry point the feature added.
 
-Rolled off 2026-08-10 — the previous session's two entries, having served their session: **the RPG
-genre gap** (v0.151.0) and **the four unmeasured v0.150.0 allocation claims** (v0.150.7). Durable
-homes are `docs/CHANGELOG.md` 0.150.7 and 0.151.0, the `src/dialogue/` row in `docs/MODULE_MAP.md`,
-and `docs/VERIFICATION.md` § *a fixture that omits the subject reads clean* — which both of them fed
-and which this session's entry is now the fourth instance of. The v0.150.x verdict tables above stay
-where they are; they are the record that that program is finished, not a backlog.
+Rolled off this session, having served theirs: **`debug_draw.rs:34` and the 2026-08-07 analysis
+program** (v0.151.1), and before it the RPG genre gap (v0.151.0) and the four unmeasured v0.150.0
+allocation claims (v0.150.7). Durable homes are `docs/CHANGELOG.md` 0.150.7 / 0.151.0 / 0.151.1,
+`docs/PATTERNS.md`, and `docs/VERIFICATION.md` § *a fixture that omits the subject reads clean*.
 
 ⚠️ **Two programs ended here, and the file should stay small now.** The v0.150.x measurement program
 closed with v0.150.7 and the 2026-08-07 analysis with v0.151.1. Nothing from either is open. What

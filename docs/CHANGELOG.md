@@ -4,6 +4,52 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.152.0
+
+**A two-term choice gate is writable in the tree, and the serde shape the backlog specified for it
+was impossible.** `DialogueChoice.cond` held exactly one `DialogueCond`, so `gold >= 10 &&
+!has_lantern` — an ordinary shop gate — could not be authored in a `*.dlg.ron`. `rpg_quest` worked
+around it by having the *game* recompute a `can_buy_lantern` flag every frame, which costs a
+designer a programmer for every two-term gate. `DialogueChoice` now also carries **`cond_all`**
+(conjunction) and **`cond_any`** (disjunction), with builders `when_all` / `when_any`. The three
+gate fields are ANDed, so `a && (b || c)` is expressible without nesting; an empty gate passes
+vacuously, and `is_unconditional()` counts all three.
+
+**The filed fix shape does not work in RON 0.8, and measuring said so in one command.**
+`docs/NEXT_WORK.md` specified `DialogueCond` → an enum with `All([…])`/`Any([…])` variants,
+"additive if the single-cond form still parses". It cannot be both:
+
+| Shape | Legacy `cond: (var: "gold", …)` | `All`/`Any` |
+|---|---|---|
+| externally tagged enum | ✗ `ExpectedIdentifier` — becomes `cond: Cmp((var: …))` | ✓ |
+| `#[serde(untagged)]` | ✗ | ✗ — **cannot even re-read its own output** |
+
+Untagged is the usual escape hatch and it is simply broken here: it serialized `(all:[(var:"gold",
+op:Ge,value:Int(10))])` and then failed to deserialize that exact string. So the choice was real —
+tax the common single-term case to serve the rare compound one, or keep the enum out of it. Flat
+fields on the choice keep every `.dlg.ron` written before this release parsing byte-for-byte
+unchanged, which `a_pre_feature_tree_parses_unchanged` pins with the literal text of one.
+
+**`rpg_quest` is the acceptance test and it lost code.** `VAR_CAN_BUY`, the per-frame derived-flag
+recompute in `QuestEventSystem`, and the `set_var_bool` helper it existed for are all deleted; the
+tree states both branches directly (`cond_all` for buy, `cond_any` for its exact negation, "no
+deal"). The selftest gained a **boundary** check: at `LANTERN_COST - 1` the offer is hidden and
+"no deal" shows, and at exactly `LANTERN_COST` they swap. That pins the tree's price to the Rust
+constant from *both* sides — the pre-existing purchase check buys at `START_GOLD` (20 against a
+cost of 10), enough slack that a gate written against the wrong price would still have passed it.
+It also demonstrates the gate is read live from the tree: no flag changes, and the old build needed
+a system frame to recompute one.
+
+⚠️ Moving the gate into data moved the *price* into data alongside `LANTERN_COST`. That coupling
+is deliberate — a gate is a design decision — but it is only safe because both sides of the
+boundary are asserted.
+
+**Sabotage-verified in four directions**, each reddening only for its own defect: dropping
+`cond_all`/`cond_any` from `is_available` (4 unit tests red), dropping them from
+`is_unconditional` (1 red, and *only* that one — the two functions need separate sabotages),
+drifting the tree's price to 11 (`FAIL: exactly 10 gold and no buy offer`), and removing the
+`cond_any` gate (`FAIL: both branches offered at 10 gold`).
+
 ## 0.151.1
 
 **A straight debug line was 275 quads. It is one.** This closes the last open item from the

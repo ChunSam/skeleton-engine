@@ -494,6 +494,32 @@ impl Default for FocusRingStyle {
 
 Additive — no public API removed; ship as a MINOR under the 0.x cadence.
 
+### Extend a type that is authored in RON (additive means additive *in the format*)
+
+A change can be perfectly additive in Rust and still rewrite every `.ron` file a game has. The two
+are separate questions, and only one of them the compiler will answer for you. **Check the format
+with a throwaway round-trip before designing against a shape** — it is one `cargo test` and it has
+already reversed one plan (`DialogueChoice`'s multi-term gates, v0.152.0).
+
+What RON 0.8 will and will not do, measured:
+
+| You want | What happens |
+|---|---|
+| Add a field to a struct | ✓ additive with `#[serde(default)]`; a file that omits it parses |
+| Turn a struct into an enum to add variants | ✗ **breaks every existing site** — `(var: "gold", …)` must become `Cmp((var: "gold", …))` |
+| `#[serde(untagged)]` to keep the old form | ✗ does not work — it cannot even deserialize its own serialized output |
+
+So a struct already being authored in RON is effectively **frozen as a struct**. To add "one or
+many" / "all or any" semantics, add *sibling fields* on the containing type — `cond` (one),
+`cond_all` (conjunction), `cond_any` (disjunction), all `#[serde(default)]` and ANDed together —
+rather than variants on the type itself. Flat fields cost expressive nesting (`(a && b) || c`
+needs a helper var) and buy an untouched corpus of data files; the trade is worth it while the
+common case is a single term, because an enum taxes that common case to serve the rare one.
+
+Then **assert the additivity claim** — a test holding the literal text of a pre-feature file,
+asserting it still parses to the same thing (`tree.rs`'s `a_pre_feature_tree_parses_unchanged`).
+"Old files still work" is exactly the kind of claim that stays true right up until it doesn't.
+
 ### Add a new event
 
 ```rust

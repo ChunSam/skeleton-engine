@@ -17,6 +17,30 @@ use super::{DialogueCond, DialogueEffect, DialogueEvent, DialogueVars};
 /// [`DialogueBox::resolve`] fills `text` from the active [`LocaleResource`] (same as line keys).
 /// `goto` is the target line index ([`DialogueBox::choose`] clamps an out-of-range value to the
 /// end, finishing the conversation, rather than panicking).
+///
+/// # Gating
+///
+/// Three independent gate fields, ANDed together — the choice is shown when **all** of these
+/// hold (see [`DialogueBox::visible_choices`]):
+///
+/// | Field | Passes when |
+/// |---|---|
+/// | [`cond`](Self::cond) | it is `None`, or its single condition evaluates true |
+/// | [`cond_all`](Self::cond_all) | **every** listed condition evaluates true (empty = passes) |
+/// | [`cond_any`](Self::cond_any) | **at least one** listed condition evaluates true (empty = passes) |
+///
+/// `cond` is the one-term sugar: it predates the other two and is exactly `cond_all` with a
+/// single element. Ordinary two-term gates go in `cond_all` (`gold >= 10 && !has_lantern`) and
+/// their negations in `cond_any` (`gold < 10 || has_lantern`); combining the fields expresses
+/// a conjunction of a disjunction without nesting.
+///
+/// Why three flat fields rather than `All`/`Any` variants on [`DialogueCond`]: the conditions
+/// are authored in RON, and **RON 0.8 cannot express that shape without breaking every existing
+/// file**. An externally tagged enum turns today's `cond: (var: "gold", …)` into
+/// `cond: Cmp((var: "gold", …))`, taxing the common single-term case to serve the rare compound
+/// one; `#[serde(untagged)]` — the usual escape hatch — does not work at all here, and cannot
+/// even round-trip its own output through RON. Measured, not assumed. Flat fields keep every
+/// `.dlg.ron` written before this feature parsing byte-for-byte unchanged.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DialogueChoice {
     /// Display label for this choice (resolved from `key` when localized).
@@ -26,10 +50,16 @@ pub struct DialogueChoice {
     pub key: Option<String>,
     /// Line index the conversation jumps to when this choice is selected.
     pub goto: usize,
-    /// Optional gate: the choice is only shown when this condition passes against
-    /// [`DialogueVars`] (see [`DialogueBox::visible_choices`]). `None` = always shown.
+    /// Optional single-term gate: the choice is only shown when this condition passes against
+    /// [`DialogueVars`] (see [`DialogueBox::visible_choices`]). `None` = this gate passes.
     #[serde(default)]
     pub cond: Option<DialogueCond>,
+    /// Conjunctive gate: **every** condition here must pass. Empty = this gate passes.
+    #[serde(default)]
+    pub cond_all: Vec<DialogueCond>,
+    /// Disjunctive gate: **at least one** condition here must pass. Empty = this gate passes.
+    #[serde(default)]
+    pub cond_any: Vec<DialogueCond>,
     /// Optional side effect applied when the choice is taken (set a var / emit an event) via
     /// [`dialogue::choose`](crate::dialogue::choose). `None` = no effect.
     #[serde(default)]
@@ -44,6 +74,8 @@ impl DialogueChoice {
             key: None,
             goto,
             cond: None,
+            cond_all: Vec::new(),
+            cond_any: Vec::new(),
             effect: None,
         }
     }
@@ -55,6 +87,8 @@ impl DialogueChoice {
             key: Some(key.into()),
             goto,
             cond: None,
+            cond_all: Vec::new(),
+            cond_any: Vec::new(),
             effect: None,
         }
     }
@@ -65,22 +99,55 @@ impl DialogueChoice {
         self
     }
 
+    /// Gates this choice on **every** condition in `conds` (builder) — a conjunction.
+    ///
+    /// ```
+    /// # use engine::{DialogueChoice, DialogueCond, DialogueOp, DialogueValue, DialogueVars};
+    /// // `gold >= 10 && !has_lantern` — the ordinary shop gate.
+    /// let buy = DialogueChoice::new("Buy the lantern", 1).when_all([
+    ///     DialogueCond::new("gold", DialogueOp::Ge, DialogueValue::Int(10)),
+    ///     DialogueCond::new("has_lantern", DialogueOp::Eq, DialogueValue::Bool(false)),
+    /// ]);
+    /// let mut vars = DialogueVars::new();
+    /// vars.set_int("gold", 10);
+    /// assert!(!buy.is_unconditional());
+    /// ```
+    pub fn when_all(mut self, conds: impl IntoIterator<Item = DialogueCond>) -> Self {
+        self.cond_all = conds.into_iter().collect();
+        self
+    }
+
+    /// Gates this choice on **at least one** condition in `conds` (builder) — a disjunction.
+    pub fn when_any(mut self, conds: impl IntoIterator<Item = DialogueCond>) -> Self {
+        self.cond_any = conds.into_iter().collect();
+        self
+    }
+
     /// Attaches a side `effect` applied when this choice is taken (builder).
     pub fn then(mut self, effect: DialogueEffect) -> Self {
         self.effect = Some(effect);
         self
     }
 
-    /// Whether this choice is currently available (its `cond` passes, or it has none).
+    /// Whether this choice is currently available: every gate it carries passes.
+    ///
+    /// The three gates are ANDed — `cond` (single term), `cond_all` (conjunction) and `cond_any`
+    /// (disjunction) — and an unset gate passes vacuously, so a choice with none is always
+    /// available. See the table on [`DialogueChoice`].
     fn is_available(&self, vars: &DialogueVars) -> bool {
         self.cond.as_ref().is_none_or(|c| c.eval(vars))
+            && self.cond_all.iter().all(|c| c.eval(vars))
+            && (self.cond_any.is_empty() || self.cond_any.iter().any(|c| c.eval(vars)))
     }
 
-    /// Whether this choice has no condition (`cond` is `None`) and is therefore always
-    /// shown — independent of any [`DialogueVars`]. Used by the plain (vars-unaware) API
-    /// to avoid deadlocking on lines whose choices are entirely condition-gated.
+    /// Whether this choice carries no gate at all and is therefore always shown — independent
+    /// of any [`DialogueVars`]. Used by the plain (vars-unaware) API to avoid deadlocking on
+    /// lines whose choices are entirely condition-gated.
+    ///
+    /// All three gate fields count: a choice gated only by `cond_all` / `cond_any` is *not*
+    /// unconditional, and the vars-unaware API must not offer it.
     pub fn is_unconditional(&self) -> bool {
-        self.cond.is_none()
+        self.cond.is_none() && self.cond_all.is_empty() && self.cond_any.is_empty()
     }
 }
 
