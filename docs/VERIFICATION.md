@@ -196,6 +196,27 @@ Sabotage is what surfaces both of these. Neither draft could have been reasoned 
 it — each looked like it was testing the right thing, and each was confirmed green before the
 sabotage was tried.
 
+### Writing one: a fixture that omits the subject reads clean
+
+`tilemap_system_steady_state_does_not_allocate` (v0.150.4) built a `World`, added a `TilemapSystem`,
+measured a steady-state frame and asserted zero. It passed for four releases. It contained **no
+`Tilemap`** — so `TilemapSystem::run` collected an empty entity list and returned, never reaching
+the grid clone the test was written to guard. The v0.150.5 entry reported v0.150.0's tilemap fix
+"confirmed" on the strength of it. Given a populated map, the same system measured 2 allocations per
+idle frame (v0.150.7).
+
+This is the same family as the vacuous PNG assertion #456 found, and the tell is the same: **a check
+that cannot fail reports exactly what a working system reports.** A green "must be zero" assertion is
+two claims glued together — *the code is clean* and *the code ran* — and only the second is cheap to
+verify. So verify it: pair every must-be-zero assertion with a **positive control in the same test**
+that drives the guarded path and requires a non-zero reading. If the control cannot be made to fail,
+the fixture is not measuring what its name says.
+
+The corollary for a claim that is genuinely not reachable as a zero — `DialogueSystem` legitimately
+allocates on a frame with a visible dialogue box — is to measure a **difference** instead of an
+absolute. Two runs differing only in the size of the thing that must not be cloned settle it, and
+the control is the same shape: a third run where that thing *is* used, which must cost more.
+
 ### Audio in CI was attempted and does not work — do not re-litigate without new information
 
 Five CI runs went into this in v0.143.10 and the answer was no. Recorded so the next person does not

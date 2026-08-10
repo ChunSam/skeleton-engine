@@ -4,6 +4,24 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.150.7
+
+**The last four unmeasured v0.150.0 claims, and the one that was measuring an empty world.** v0.150.0 fixed six systems on a code-reading basis; v0.150.5 measured three of them and reversed two readings. These are the remaining four, each with a fixture in `tests/per_frame_alloc.rs`.
+
+Three were real, and are now pinned rather than believed:
+
+| Claim | Idle frame | Reverted (sabotage) |
+|---|---|---|
+| `AnimEffectSystem` snapshots the event bus before touching the registry | **0** | 129 allocations / 9,150 B |
+| `ZoneEffectSystem`, same shape | **0** | 129 allocations / 9,662 B |
+| `DialogueSystem` guards its `LocaleResource` clone on a box with keys to resolve | **table-size independent** | 8 → 809 allocations |
+
+**`TilemapSystem` was still allocating twice per frame, and the existing test could not have seen it.** `tilemap_system_steady_state_does_not_allocate` (v0.150.4) measures a world with **no `Tilemap` in it** — so it read zero without ever reaching the grid clone it was written to guard, and reported v0.150.0's fix "confirmed" in the v0.150.5 entry on that basis. Measured against a populated 20×20 map, an idle frame cost **2 allocations / 76 B**: step 1's `Vec<Entity>` of alive tilemaps and step 2's `HashSet<Entity>` membership set, both rebuilt from scratch every frame. Both are scratch fields now (`std::mem::take` for the one the loop body needs `&mut self.views` across), and an idle populated map allocates nothing. `removed` stays a local deliberately — it is empty on every frame nobody despawns a tilemap, and an empty `collect` does not allocate.
+
+⚠️ **The grid-clone claim itself was never wrong — nobody had ever tested it.** The distinction matters for the other numbers in this file: "the test is green" and "the test reached the code" are separate facts, and only the second one is worth anything.
+
+Every fixture carries a **positive control in the same test**, because zero allocations is also what a system reads when it bailed on its first line — a missing `Events` resource, a query that matched nothing. Each one drives the path under measurement and requires the frame to cost something *and* the work to land. The tilemap test additionally asserts the edit frame spawns its tile, which is the half a fast path moved in front of the grid clone could have broken: sabotaging that check to swallow changes reddens it 399 against 400, and sabotaging the control's event tag to one nothing is bound to reddens the "effect landed" assertion while the allocation count stays happily above zero.
+
 ## 0.150.6
 
 **The per-frame allocation the measuring harness structurally cannot see.** `AssetServer::image_assets_for_gpu` returned `Vec<(String, ImageAsset)>` and `App` called it from the render stage on every frame, so every loaded image bought a fresh `String` — plus the `Vec` — each frame, for a caller that immediately discards nearly all of them behind `has_texture_key`. The map keys are already `Arc<str>`, so the copy was waste even before the discard. It now yields `(&str, &ImageAsset)` and the steady-state cost is zero allocations.
