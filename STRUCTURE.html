@@ -1,0 +1,824 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>skeleton-engine — 프로젝트 구조</title>
+<style>
+/* ── tokens ─────────────────────────────────────────────────────────────── */
+:root{
+  --ground:#EAEDF3; --surface:#F8F9FC; --surface-2:#DFE4EE; --sunk:#E2E6EF;
+  --ink:#11131B; --ink-2:#454C60; --ink-3:#6D7589;
+  --line:#CFD5E2; --line-2:#BAC2D4;
+  --accent:#1B5EA8; --accent-2:#0E4C8F; --accent-soft:#D8E6F7;
+  --c-core:#2F4FD0; --c-render:#C4383F; --c-ui:#A65E14;
+  --c-gameplay:#1B7F46; --c-data:#6B2FBF; --c-platform:#0F6E80;
+  --shadow:0 1px 2px rgba(17,19,27,.06), 0 8px 24px -16px rgba(17,19,27,.24);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --ground:#0D0D1A; --surface:#141726; --surface-2:#1D2134; --sunk:#0A0A14;
+    --ink:#E9EDF7; --ink-2:#A7AFC5; --ink-3:#767E96;
+    --line:#262B41; --line-2:#333A55;
+    --accent:#A0D2FF; --accent-2:#C4E2FF; --accent-soft:#182842;
+    --c-core:#6680FF; --c-render:#FF6E6E; --c-ui:#FFA64D;
+    --c-gameplay:#4DE68A; --c-data:#B37DFF; --c-platform:#4DE0F0;
+    --shadow:0 1px 2px rgba(0,0,0,.5), 0 10px 30px -18px rgba(0,0,0,.9);
+  }
+}
+:root[data-theme="light"]{
+  --ground:#EAEDF3; --surface:#F8F9FC; --surface-2:#DFE4EE; --sunk:#E2E6EF;
+  --ink:#11131B; --ink-2:#454C60; --ink-3:#6D7589;
+  --line:#CFD5E2; --line-2:#BAC2D4;
+  --accent:#1B5EA8; --accent-2:#0E4C8F; --accent-soft:#D8E6F7;
+  --c-core:#2F4FD0; --c-render:#C4383F; --c-ui:#A65E14;
+  --c-gameplay:#1B7F46; --c-data:#6B2FBF; --c-platform:#0F6E80;
+  --shadow:0 1px 2px rgba(17,19,27,.06), 0 8px 24px -16px rgba(17,19,27,.24);
+}
+:root[data-theme="dark"]{
+  --ground:#0D0D1A; --surface:#141726; --surface-2:#1D2134; --sunk:#0A0A14;
+  --ink:#E9EDF7; --ink-2:#A7AFC5; --ink-3:#767E96;
+  --line:#262B41; --line-2:#333A55;
+  --accent:#A0D2FF; --accent-2:#C4E2FF; --accent-soft:#182842;
+  --c-core:#6680FF; --c-render:#FF6E6E; --c-ui:#FFA64D;
+  --c-gameplay:#4DE68A; --c-data:#B37DFF; --c-platform:#4DE0F0;
+  --shadow:0 1px 2px rgba(0,0,0,.5), 0 10px 30px -18px rgba(0,0,0,.9);
+}
+
+/* ── base ───────────────────────────────────────────────────────────────── */
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard",
+    "Noto Sans KR","Malgun Gothic",system-ui,sans-serif;
+  font-size:15px; line-height:1.65; letter-spacing:-0.003em;
+}
+.mono,code,kbd{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,"Cascadia Mono",
+  "Liberation Mono",monospace}
+code{font-size:.88em; background:var(--sunk); border:1px solid var(--line);
+  padding:.08em .36em; border-radius:3px; color:var(--ink-2)}
+a{color:var(--accent); text-decoration-color:color-mix(in srgb, var(--accent) 35%, transparent);
+  text-underline-offset:.2em}
+a:hover{color:var(--accent-2)}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:2px}
+h1,h2,h3{text-wrap:balance; margin:0}
+.eyebrow{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:10.5px; letter-spacing:.16em; text-transform:uppercase;
+  color:var(--ink-3); font-weight:600;
+}
+.num{font-variant-numeric:tabular-nums}
+
+/* ── masthead ───────────────────────────────────────────────────────────── */
+.top{
+  position:sticky; top:0; z-index:40; background:color-mix(in srgb, var(--ground) 88%, transparent);
+  backdrop-filter:blur(12px); border-bottom:1px solid var(--line);
+}
+.top-in{
+  max-width:1180px; margin:0 auto; padding:10px 24px;
+  display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+}
+.brand{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:14px; font-weight:600; letter-spacing:-.02em; color:var(--ink);
+  display:flex; align-items:baseline; gap:8px;
+}
+.brand .v{font-size:11px; color:var(--ink-3); font-weight:400}
+.tabs{display:flex; gap:2px; margin-left:auto; flex-wrap:wrap}
+.tab{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
+  padding:5px 11px; border-radius:5px; border:1px solid transparent;
+  background:none; color:var(--ink-3); cursor:pointer; text-decoration:none; line-height:1.5;
+}
+.tab:hover{color:var(--ink); background:var(--surface-2)}
+.tab[aria-current="page"]{color:var(--ink); background:var(--surface); border-color:var(--line);
+  box-shadow:var(--shadow)}
+.tab.ext::after{content:" ↗"; opacity:.5}
+.themebtn{
+  font-family:ui-monospace,Menlo,monospace; font-size:11px; padding:5px 9px;
+  border-radius:5px; border:1px solid var(--line); background:var(--surface);
+  color:var(--ink-3); cursor:pointer;
+}
+.themebtn:hover{color:var(--ink)}
+
+/* ── layout ─────────────────────────────────────────────────────────────── */
+main{max-width:1180px; margin:0 auto; padding:0 24px 96px}
+section{display:none}
+section[data-active]{display:block}
+.stack{display:flex; flex-direction:column; gap:44px}
+.block{display:flex; flex-direction:column; gap:14px}
+.h2{font-size:19px; font-weight:650; letter-spacing:-.018em}
+.lede{color:var(--ink-2); max-width:66ch}
+.rule{height:1px; background:var(--line); border:0; margin:0}
+
+/* ── hero ───────────────────────────────────────────────────────────────── */
+.hero{padding:56px 0 40px; display:flex; flex-direction:column; gap:20px}
+.hero h1{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:clamp(30px,5.4vw,50px); font-weight:600; letter-spacing:-.045em; line-height:1.02;
+}
+.hero h1 .dim{color:var(--ink-3)}
+.hero p{margin:0; max-width:60ch; color:var(--ink-2); font-size:16px}
+.hero .kicker{color:var(--ink); font-weight:600}
+
+.plate{
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(148px,1fr));
+  border:1px solid var(--line); border-radius:9px; overflow:hidden;
+  background:var(--surface); box-shadow:var(--shadow);
+}
+.cell{padding:14px 16px; border-right:1px solid var(--line); border-bottom:1px solid var(--line)}
+.cell:last-child{border-right:0}
+.cell .k{font-family:ui-monospace,Menlo,monospace; font-size:10px; letter-spacing:.13em;
+  text-transform:uppercase; color:var(--ink-3); font-weight:600}
+.cell .v{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:24px;
+  font-weight:600; letter-spacing:-.03em; font-variant-numeric:tabular-nums; line-height:1.3}
+.cell .s{font-size:11.5px; color:var(--ink-3)}
+
+/* ── generic card ───────────────────────────────────────────────────────── */
+.card{background:var(--surface); border:1px solid var(--line); border-radius:9px; padding:18px 20px}
+.grid2{display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:14px}
+
+/* ── tree ───────────────────────────────────────────────────────────────── */
+.tree{
+  background:var(--sunk); border:1px solid var(--line); border-radius:9px;
+  padding:18px 20px; overflow-x:auto;
+}
+.tree pre{
+  margin:0; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:12.5px; line-height:1.85; color:var(--ink-2); white-space:pre;
+}
+.tree b{color:var(--ink); font-weight:600}
+.tree i{color:var(--ink-3); font-style:normal}
+
+/* ── pipeline ───────────────────────────────────────────────────────────── */
+.pipe{display:flex; flex-direction:column; gap:0; counter-reset:none}
+.step{
+  display:grid; grid-template-columns:46px 1fr; gap:0 16px; position:relative;
+  padding:0 0 16px;
+}
+.step:last-child{padding-bottom:0}
+.step::before{
+  content:""; position:absolute; left:15px; top:24px; bottom:-2px; width:1px;
+  background:var(--line-2);
+}
+.step:last-child::before{display:none}
+.step .n{
+  font-family:ui-monospace,Menlo,monospace; font-size:10.5px; font-variant-numeric:tabular-nums;
+  width:31px; height:24px; display:grid; place-items:center; border-radius:5px;
+  background:var(--surface-2); color:var(--ink-2); border:1px solid var(--line);
+  position:relative; z-index:1; font-weight:600;
+}
+.step.acc .n{background:var(--accent-soft); color:var(--accent); border-color:color-mix(in srgb,var(--accent) 30%,transparent)}
+.step .t{font-weight:600; font-size:14px}
+.step .d{color:var(--ink-3); font-size:13px}
+.step .f{font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--ink-3)}
+
+/* ── bars ───────────────────────────────────────────────────────────────── */
+.bars{display:flex; flex-direction:column; gap:9px}
+.bar{display:grid; grid-template-columns:104px 1fr 124px; align-items:center; gap:12px}
+.bar .lbl{font-size:12.5px; font-weight:600}
+.bar .track{height:9px; background:var(--sunk); border-radius:5px; overflow:hidden;
+  border:1px solid var(--line)}
+.bar .fill{height:100%; border-radius:4px}
+.bar .val{font-family:ui-monospace,Menlo,monospace; font-size:11.5px; color:var(--ink-3);
+  font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap}
+
+/* ── chips / dots ───────────────────────────────────────────────────────── */
+.chip{
+  display:inline-flex; align-items:center; gap:6px; font-family:ui-monospace,Menlo,monospace;
+  font-size:11px; padding:3px 9px; border-radius:20px; border:1px solid var(--line);
+  background:var(--surface); color:var(--ink-2); cursor:pointer; line-height:1.6;
+}
+.chip:hover{border-color:var(--line-2); color:var(--ink)}
+.chip[aria-pressed="true"]{background:var(--accent-soft); border-color:color-mix(in srgb,var(--accent) 32%,transparent); color:var(--ink)}
+.chiprow{display:flex; gap:6px; flex-wrap:wrap; align-items:center}
+.dot{width:8px; height:8px; border-radius:50%; flex:none}
+.tag{
+  font-family:ui-monospace,Menlo,monospace; font-size:10px; padding:1px 6px; border-radius:3px;
+  border:1px solid var(--line); color:var(--ink-3); white-space:nowrap;
+}
+.tag.native{color:var(--c-ui); border-color:color-mix(in srgb,var(--c-ui) 35%,transparent)}
+.tag.wasm{color:var(--c-data); border-color:color-mix(in srgb,var(--c-data) 35%,transparent)}
+.tag.priv{color:var(--ink-3)}
+.tag.ok{color:var(--c-gameplay); border-color:color-mix(in srgb,var(--c-gameplay) 35%,transparent)}
+
+/* ── table ──────────────────────────────────────────────────────────────── */
+.tablewrap{overflow-x:auto; border:1px solid var(--line); border-radius:9px; background:var(--surface)}
+table{border-collapse:collapse; width:100%; min-width:760px; font-size:13px}
+th{
+  text-align:left; font-family:ui-monospace,Menlo,monospace; font-size:10px; letter-spacing:.12em;
+  text-transform:uppercase; color:var(--ink-3); font-weight:600; padding:10px 12px;
+  border-bottom:1px solid var(--line); white-space:nowrap; position:sticky; top:0;
+  background:var(--surface); z-index:2;
+}
+th.s{cursor:pointer; user-select:none}
+th.s:hover{color:var(--ink)}
+th.s[data-dir]::after{content:" ▾"; opacity:.7}
+th.s[data-dir="asc"]::after{content:" ▴"}
+td{padding:9px 12px; border-bottom:1px solid var(--line); vertical-align:top}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover{background:var(--surface-2)}
+td.n{font-family:ui-monospace,Menlo,monospace; font-variant-numeric:tabular-nums;
+  text-align:right; color:var(--ink-2); white-space:nowrap}
+td.id{font-family:ui-monospace,Menlo,monospace; font-weight:600; white-space:nowrap}
+td.desc{color:var(--ink-2); min-width:270px}
+.namecell{display:flex; align-items:center; gap:8px}
+
+.searchbar{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+input[type="search"]{
+  font-family:ui-monospace,Menlo,monospace; font-size:12.5px; padding:7px 11px;
+  border-radius:6px; border:1px solid var(--line); background:var(--surface); color:var(--ink);
+  min-width:220px; flex:1;
+}
+input[type="search"]::placeholder{color:var(--ink-3)}
+.count{font-family:ui-monospace,Menlo,monospace; font-size:11.5px; color:var(--ink-3);
+  font-variant-numeric:tabular-nums}
+
+/* ── notes ──────────────────────────────────────────────────────────────── */
+.note{
+  border-left:2px solid var(--line-2); padding:2px 0 2px 14px; color:var(--ink-2); font-size:13.5px;
+}
+.note b{color:var(--ink)}
+ul.tight{margin:0; padding-left:18px; color:var(--ink-2); font-size:13.5px}
+ul.tight li{margin:3px 0}
+ul.tight li b{color:var(--ink)}
+.deplist{display:flex; flex-direction:column; gap:10px}
+.deprow{display:grid; grid-template-columns:130px 1fr; gap:12px; font-size:12.5px; align-items:baseline}
+.deprow .k{font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--ink-3);
+  letter-spacing:.06em; text-transform:uppercase; font-weight:600}
+.deprow .vv{font-family:ui-monospace,Menlo,monospace; color:var(--ink-2); font-size:12px; line-height:1.9}
+.foot{margin-top:56px; padding-top:20px; border-top:1px solid var(--line); color:var(--ink-3);
+  font-size:12px; display:flex; gap:16px; flex-wrap:wrap; justify-content:space-between}
+
+@media (max-width:620px){
+  .deprow{grid-template-columns:1fr; gap:2px}
+  .bar{grid-template-columns:80px 1fr; }
+  .bar .val{grid-column:2; text-align:left}
+  main{padding:0 16px 72px}
+  .top-in{padding:10px 16px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none !important; transition:none !important}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-in">
+    <div class="brand">skeleton-engine <span class="v mono">v0.152.0</span></div>
+    <nav class="tabs">
+      <button class="tab" data-view="overview" aria-current="page">개요</button>
+      <button class="tab" data-view="modules">모듈</button>
+      <button class="tab" data-view="examples">예제</button>
+      <button class="tab" data-view="verify">검증</button>
+      <a class="tab ext" href="DEPENDENCY_GRAPH.html">의존 그래프</a>
+      <button class="themebtn" id="themebtn" type="button" title="테마 전환">◐</button>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<!-- ══════════════════ 개요 ══════════════════ -->
+<section id="overview" data-active>
+  <div class="hero">
+    <div class="eyebrow">Rust 2D game engine · 라이브러리 크레이트 <span class="mono">engine</span></div>
+    <h1>포크해서 <span class="dim">고쳐 쓰라고</span><br>만든 뼈대.</h1>
+    <p><span class="kicker">의존성으로 추가하는 엔진이 아니다.</span> crates.io에 올리지 않는 것이 설계
+      의도이고, 게임 하나를 만들 만큼의 구조를 미리 깔아둔 뒤 그 위에서 직접 코드를 고치는 것을
+      전제로 한다. 커스텀 ECS · wgpu 렌더러 · rapier2d 물리 · 도킹 에디터까지 한 크레이트에 들어 있고,
+      네이티브와 wasm을 같은 소스로 빌드한다.</p>
+  </div>
+
+  <div class="stack">
+
+    <div class="plate" id="plate"></div>
+
+    <div class="block">
+      <div class="eyebrow">디렉터리</div>
+      <h2 class="h2">저장소가 놓인 모양</h2>
+      <div class="tree"><pre id="tree"></pre></div>
+      <div class="note">
+        <b>탐색 순서는 정해져 있다.</b> 심볼을 <code>rg</code>로 찾고 → <code>src/lib.rs</code>의
+        재export 목록에서 위치를 확인하고 → <code>docs/MODULE_MAP.md</code>의 해당 행을 grep한 뒤
+        → 파일을 연다. <code>MODULE_MAP.md</code>는 119&nbsp;KB라 통째로 읽는 문서가 아니다.
+      </div>
+    </div>
+
+    <div class="block">
+      <div class="eyebrow">한 프레임</div>
+      <h2 class="h2">App::update 가 실제로 도는 순서</h2>
+      <p class="lede">엔진의 뼈대는 이 순서다. 게임 시스템은 4번 안에서 돌고, 그 앞뒤는 모두
+        엔진이 소유한다. 각 단계 번호는 <code>src/app/schedule.rs</code>의 주석 번호 그대로다.</p>
+      <div class="card">
+        <div class="pipe" id="pipe"></div>
+      </div>
+      <div class="note">
+        <b>시스템 순서는 암묵적이지 않다.</b> 내장 시스템은 모두 <code>const LABEL</code>을 갖고,
+        <code>add_system_labeled(…, SystemConfig::new().after(X::LABEL))</code>로 관계를 선언한다.
+        등록 순서에 기대는 코드는 이 저장소의 관행이 아니다.
+      </div>
+    </div>
+
+    <div class="block">
+      <div class="eyebrow">규모</div>
+      <h2 class="h2">분류별 코드량</h2>
+      <p class="lede">64개 최상위 모듈을 여섯 갈래로 묶은 것. 색은 이 문서와
+        <a href="DEPENDENCY_GRAPH.html">의존 그래프</a>에서 같은 뜻으로 쓰인다.</p>
+      <div class="card"><div class="bars" id="catbars"></div></div>
+    </div>
+
+    <div class="grid2">
+      <div class="card block">
+        <div class="eyebrow">의존 구조 — 측정값</div>
+        <div class="deplist" id="depfacts"></div>
+      </div>
+      <div class="card block">
+        <div class="eyebrow">외부 크레이트</div>
+        <div class="deplist" id="stack"></div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ══════════════════ 모듈 ══════════════════ -->
+<section id="modules">
+  <div class="hero">
+    <div class="eyebrow">src/ · 최상위 모듈 64개</div>
+    <h1>모듈 색인</h1>
+    <p><code>src/lib.rs</code>가 선언하는 최상위 모듈 전부. 줄 수·파일 수·<code>#[test]</code> 수는
+      트리에서 직접 센 값이고, 의존/피의존은 주석을 제거한 소스의 <code>crate::…</code> 참조에서
+      뽑았다. 행을 누르면 그 모듈이 무엇을 쓰고 누가 그것을 쓰는지 펼쳐진다.</p>
+  </div>
+  <div class="stack">
+    <div class="block">
+      <div class="searchbar">
+        <input type="search" id="msearch" placeholder="모듈 이름 · 설명 검색" aria-label="모듈 검색">
+        <span class="count" id="mcount"></span>
+      </div>
+      <div class="chiprow" id="mcats"></div>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr>
+          <th class="s" data-sort="id">모듈</th>
+          <th class="s" data-sort="loc" style="text-align:right">줄</th>
+          <th class="s" data-sort="files" style="text-align:right">파일</th>
+          <th class="s" data-sort="tests" style="text-align:right">테스트</th>
+          <th class="s" data-sort="nd" style="text-align:right">의존</th>
+          <th class="s" data-sort="nr" style="text-align:right">피의존</th>
+          <th>설명</th>
+        </tr></thead>
+        <tbody id="mbody"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════ 예제 ══════════════════ -->
+<section id="examples">
+  <div class="hero">
+    <div class="eyebrow">examples/ · cargo 타깃 145개</div>
+    <h1>예제가 인수 테스트다</h1>
+    <p>이 저장소의 규칙 하나: <b>작은 플레이 가능한 예제가 기능을 실제로 굴리기 전에는 그 기능은
+      완료가 아니다.</b> 그래서 예제는 부산물이 아니라 합격 기준이고, 예제를 쓰다가 API가 어색하면
+      API를 고친다. <code>cargo run --example &lt;name&gt;</code>으로 전부 실행된다.</p>
+  </div>
+  <div class="stack">
+    <div class="block">
+      <div class="searchbar">
+        <input type="search" id="esearch" placeholder="예제 이름 · 설명 검색" aria-label="예제 검색">
+        <span class="count" id="ecount"></span>
+      </div>
+      <div class="chiprow" id="efilters"></div>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr>
+          <th class="s" data-esort="name">예제</th>
+          <th class="s" data-esort="loc" style="text-align:right">줄</th>
+          <th>검증 수단</th>
+          <th>설명</th>
+        </tr></thead>
+        <tbody id="ebody"></tbody>
+      </table>
+    </div>
+    <div class="note">
+      <b class="mono">SELFTEST</b> — 예제 스스로 헤드리스로 돌며 판정하는 인수 테스트.
+      CI가 만들어낼 수 없는 것(실기기 오디오, 실시간 신호, 살아있는 소켓)을 증명한다.
+      <b class="mono">HEADLESS_SHOT</b> — 창 없이 PNG를 찍는다.
+      <b class="mono">WASM</b> — <code>#[wasm_bindgen]</code> 진입점이 있어 브라우저에서도 돈다.
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════ 검증 ══════════════════ -->
+<section id="verify">
+  <div class="hero">
+    <div class="eyebrow">scripts/verify.sh · .github/workflows/ci.yml</div>
+    <h1>무엇이 증명되고<br><span style="color:var(--ink-3)">무엇이 증명되지 않는가</span></h1>
+    <p><code>./scripts/verify.sh</code>가 로컬 게이트다. CI의 <code>wasm</code>·<code>docs</code>
+      잡을 전부, <code>test</code> 잡을 두 단계만 빼고 덮는다. 하지만 <b>CI 전체는 아니다</b> —
+      덮지 못하는 항목이 명시적으로 정해져 있고, 건너뛴 검증은 보고에 적는 것이 규칙이다.</p>
+  </div>
+  <div class="stack">
+    <div class="grid2">
+      <div class="card block">
+        <div class="eyebrow" style="color:var(--c-gameplay)">게이트가 덮는 것</div>
+        <ul class="tight">
+          <li><b>단위·통합 테스트</b> — <span class="mono num">1,414</span>개 <code>#[test]</code> +
+            통합 테스트 <span class="mono num">74</span>개</li>
+          <li><b>wasm 빌드</b> — <code>build_wasm_examples.sh</code>가
+            <code>#[wasm_bindgen]</code> 진입점을 가진 예제 <span class="mono num">17</span>개를
+            wasm32로 전부 빌드</li>
+          <li><b>셀프테스트</b> — <code>selftests.sh</code>가
+            <span class="mono num">12</span>종 <code>&lt;NAME&gt;_SELFTEST</code>를 실행.
+            <b>스킵은 합격이 아니다</b>: "오디오 장치 없음"만 허용하고 다른 이탈은 실패 처리한다</li>
+          <li><b>브라우저 스모크 5종</b> — Chrome이 오디오 그래프를 소프트웨어로 렌더하므로
+            Web Audio는 장치 없이도 CI에서 판정된다</li>
+          <li><b>문서·포맷·클리피</b></li>
+        </ul>
+      </div>
+      <div class="card block">
+        <div class="eyebrow" style="color:var(--c-render)">게이트가 덮지 못하는 것</div>
+        <ul class="tight">
+          <li><b>render 잡</b> — GPU가 필요한 <code>cargo test --test render</code>와
+            스크린샷/라이팅 스모크. <code>SKELETON_REQUIRE_GPU=1</code></li>
+          <li><b>릴리즈 빌드</b> — <code>lto = "thin"</code> 프로필이 링크되는지 확인하는 유일한 검사</li>
+          <li><b>macOS/Windows 런타임</b> — 빌드 잡은 있으나 아무것도 실행하지 않는다</li>
+          <li><b>네이티브 오디오·창 있는 플레이테스트·게임패드</b> — 실기기에서만</li>
+          <li><b>웹에서 도는 것</b> — wasm으로 컴파일되는 것과 wasm에서 도는 것은 다르다</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="block">
+      <div class="eyebrow">CI 잡</div>
+      <h2 class="h2">8개 잡으로 갈라진 파이프라인</h2>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>잡</th><th>러너</th><th>실제로 도는 것</th><th>로컬 게이트</th></tr></thead>
+          <tbody id="cijobs"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="block">
+      <div class="eyebrow">헤드리스로 보는 법</div>
+      <h2 class="h2">창도 디스플레이도 없이 변경을 눈으로 확인한다</h2>
+      <div class="card block">
+        <div class="deprow"><span class="k">화면 캡처</span>
+          <span class="vv">HEADLESS_SHOT=/tmp/x.png cargo run --example &lt;name&gt;<br>
+          ENGINE_CAPTURE=&lt;frame&gt;:&lt;path.png&gt;[,…]  — 아무 게임이나</span></div>
+        <div class="deprow"><span class="k">입력 재생</span>
+          <span class="vv">ENGINE_INPUT=&lt;script.ron&gt;  — (frame, action) 목록</span></div>
+        <div class="deprow"><span class="k">무음 실행</span>
+          <span class="vv">SKELETON_MUTE=1 ./scripts/verify.sh</span></div>
+      </div>
+      <div class="note">
+        <b>캡처 런은 실시간 신호를 사진으로 못 찍는다.</b> 고정 <code>1/60</code> dt로 CPU가 허용하는
+        만큼 빠르게 돌기 때문에, 소리는 제대로 나면서도 캡처된 프레임의 오디오 미터는
+        <span class="mono">0.0</span>을 가리키고, 서버가 멀쩡히 보내는 중에도
+        <span class="mono">streaming 0 / 120</span>이 찍힌다. 벽시계에 실려 오는 것
+        (오디오·소켓·파일 감시)은 <code>Instant</code>로 페이싱하는 루프가 필요하고, 그것이
+        <code>SELFTEST</code>들이 존재하는 이유다.
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="foot">
+  <span>소스 트리에서 직접 측정 · <span class="mono">v0.152.0</span></span>
+  <span class="mono">STRUCTURE.html · DEPENDENCY_GRAPH.html</span>
+</div>
+
+</main>
+
+<script>
+const DATA = {"version":"0.152.0","crate":"skeleton-engine","lib":"engine","edition":"2021","msrv":"1.95","stats":{"srcFiles":273,"srcLoc":85966,"unitTests":1414,"modules":64,"edges":229,"examples":145,"games":26,"exampleLoc":43990,"selftests":13,"headless":44,"wasmEntry":17},"mods":[{"id":"anim_effect","cat":"render","loc":411,"files":1,"tests":6,"desc":"애니메이션 이벤트 → RON으로 작성한 이펙트 바인딩","deps":["animation","asset","asset_path","color","components","ecs","effect","hit_flash","particle","ron_registry"],"rdeps":["app"],"ext":[["serde",1],["glam",1]],"gate":"","vis":"pub"},{"id":"animation","cat":"gameplay","loc":3551,"files":9,"tests":70,"desc":"프레임 애니메이션 플레이어 · 블렌드 트리 · 상태 머신","deps":["asset","asset_path","ecs","prefab","renderer","ron_registry"],"rdeps":["anim_effect","app"],"ext":[["serde",5]],"gate":"","vis":"pub"},{"id":"app","cat":"core","loc":16073,"files":52,"tests":159,"desc":"엔진 진입점 — 메인 루프, 프레임 스케줄, 렌더 오케스트레이션, 도킹 에디터","deps":["anim_effect","animation","asset","asset_path","atlas","audio","audio_facade","camera","collision","color","components","data_table","debug_ui","dialogue","ecs","floating_text","gpu_particle","hierarchy","hit_flash","input","input_script","particle","pathfinding","physics","prefab","reflect","renderer","resources","save","scene","scene_transition","scripting","sprite_trail","text_measure","tilemap","timeline","timer","trigger_zone","tween","ui","ysort","zone_effect"],"rdeps":["floating_text","input_script","text_measure"],"ext":[["winit",30],["glam",6],["egui",3],["wasm_bindgen",3],["web_time",2]],"gate":"","vis":"pub"},{"id":"asset","cat":"data","loc":1400,"files":6,"tests":13,"desc":"에셋 서버 — 비동기 로딩, 이미지/아틀라스, 네이티브 핫리로드","deps":["asset_path","atlas"],"rdeps":["anim_effect","animation","app","atlas","components","data_table","dialogue","particle","renderer","ron_registry","scripting","trigger_zone","zone_effect"],"ext":[["notify",6],["wasm_bindgen",1],["wasm_bindgen_futures",1]],"gate":"","vis":"pub"},{"id":"asset_path","cat":"data","loc":474,"files":1,"tests":12,"desc":"상대 에셋 경로의 탐색 규칙과 실패 처리 정책","deps":[],"rdeps":["anim_effect","animation","app","asset","audio","data_table","dialogue","input_script","particle","renderer","ron_registry","scripting","trigger_zone","zone_effect"],"ext":[],"gate":"","vis":"pub"},{"id":"atlas","cat":"render","loc":167,"files":1,"tests":5,"desc":"텍스처 아틀라스와 스프라이트 UV 조회","deps":["asset","color","renderer"],"rdeps":["app","asset","renderer"],"ext":[],"gate":"","vis":"pub"},{"id":"audio","cat":"platform","loc":4226,"files":11,"tests":83,"desc":"네이티브 오디오(rodio) — 버스, 더킹, 이펙트, 위치 재생, 스펙트럼","deps":["asset_path","audio_analysis","audio_spatial","ecs"],"rdeps":["app","audio_facade"],"ext":[["rodio",21],["glam",2]],"gate":"native","vis":"pub"},{"id":"audio_analysis","cat":"platform","loc":424,"files":1,"tests":18,"desc":"네이티브/웹이 공유하는 레벨 분석·스무딩 정책","deps":[],"rdeps":["audio","audio_facade","audio_wasm"],"ext":[],"gate":"","vis":"pub"},{"id":"audio_facade","cat":"platform","loc":758,"files":1,"tests":2,"desc":"네이티브·웹 공통 오디오 파사드 — 오디오 코드를 한 벌만 작성","deps":["audio","audio_analysis","audio_wasm","ecs"],"rdeps":["app","effect"],"ext":[["glam",1]],"gate":"","vis":"pub"},{"id":"audio_spatial","cat":"platform","loc":95,"files":1,"tests":6,"desc":"거리 감쇠·스테레오 팬 수학을 두 백엔드가 공유","deps":[],"rdeps":["audio","audio_wasm"],"ext":[["glam",1]],"gate":"","vis":"private"},{"id":"audio_wasm","cat":"platform","loc":1182,"files":1,"tests":0,"desc":"Web Audio 기반 웹 사운드/음악 백엔드","deps":["audio_analysis","audio_spatial"],"rdeps":["audio_facade"],"ext":[["wasm_bindgen_futures",2],["glam",1],["wasm_bindgen",1]],"gate":"wasm","vis":"pub"},{"id":"behavior","cat":"gameplay","loc":811,"files":1,"tests":23,"desc":"비헤이비어 트리 + 블랙보드","deps":["ecs"],"rdeps":["scripting"],"ext":[["glam",2]],"gate":"","vis":"pub"},{"id":"camera","cat":"render","loc":812,"files":1,"tests":33,"desc":"2D 카메라 — 추적, 룩어헤드, 흔들림","deps":["ecs"],"rdeps":["app","components","floating_text","parallax","renderer","timeline"],"ext":[["glam",2]],"gate":"","vis":"pub"},{"id":"collision","cat":"gameplay","loc":723,"files":4,"tests":8,"desc":"공간 그리드 브로드페이즈와 충돌 질의·디버그 그리기","deps":["color","components","ecs","hierarchy","resources"],"rdeps":["app","trigger_zone"],"ext":[["glam",2]],"gate":"","vis":"pub"},{"id":"color","cat":"core","loc":164,"files":1,"tests":4,"desc":"엔진 전역에서 쓰는 단일 색 타입","deps":[],"rdeps":["anim_effect","app","atlas","collision","components","effect","floating_text","gpu_particle","hit_flash","particle","prefab","renderer","resources","scene_transition","timeline","tween","ui","zone_effect"],"ext":[["serde",2]],"gate":"","vis":"pub"},{"id":"components","cat":"core","loc":409,"files":1,"tests":4,"desc":"Transform · Sprite · PointLight 등 기본 컴포넌트","deps":["asset","camera","color","reflect"],"rdeps":["anim_effect","app","collision","effect","floating_text","gpu_particle","hierarchy","hit_flash","parallax","particle","physics","prefab","renderer","scripting","skeletal","sprite_trail","steering","tilemap","timeline","trigger_zone","ysort","zone_effect"],"ext":[["glam",4],["serde",2]],"gate":"","vis":"pub"},{"id":"coroutine","cat":"core","loc":455,"files":1,"tests":11,"desc":"월드에 대해 시간에 걸쳐 실행되는 명령형 코루틴 시퀀서","deps":["ecs"],"rdeps":[],"ext":[],"gate":"","vis":"pub"},{"id":"data_table","cat":"data","loc":595,"files":1,"tests":12,"desc":"런타임 편집 가능한 스키마 무관 RON 데이터 테이블","deps":["asset","asset_path","save"],"rdeps":["app"],"ext":[["ron",1]],"gate":"","vis":"pub"},{"id":"debug_ui","cat":"render","loc":116,"files":1,"tests":1,"desc":"egui 디버그 오버레이 토글 리소스","deps":[],"rdeps":["app"],"ext":[["egui",2],["ab_glyph",2]],"gate":"","vis":"pub"},{"id":"dialogue","cat":"ui","loc":2587,"files":7,"tests":52,"desc":"대화 상자 — 타자기 연출, 분기 트리, 변수, 선택지","deps":["asset","asset_path","ecs","locale","renderer","resources","ron_registry"],"rdeps":["app"],"ext":[["serde",7],["ron",1]],"gate":"","vis":"pub"},{"id":"ecs","cat":"core","loc":2641,"files":15,"tests":59,"desc":"월드·엔티티·컴포넌트·쿼리·이벤트·스케줄의 ECS 코어","deps":["reflect"],"rdeps":["anim_effect","animation","app","audio","audio_facade","behavior","camera","collision","coroutine","dialogue","effect","floating_text","gpu_particle","hierarchy","hit_flash","input_script","network","parallax","particle","physics","pool","prefab","renderer","resources","scene","scene_transition","scripting","serde_registry","skeletal","sprite_trail","steering","text_measure","tilemap","timeline","trigger_zone","ui","ysort","zone_effect"],"ext":[["rayon",12]],"gate":"","vis":"pub"},{"id":"effect","cat":"render","loc":229,"files":1,"tests":0,"desc":"이벤트→이펙트 바인딩이 공유하는 이펙트 어휘와 적용","deps":["audio_facade","color","components","ecs","hit_flash","particle"],"rdeps":["anim_effect","zone_effect"],"ext":[["glam",1],["serde",1]],"gate":"","vis":"pub"},{"id":"floating_text","cat":"render","loc":421,"files":1,"tests":8,"desc":"월드 좌표에서 떠오르며 사라지는 전투 텍스트","deps":["app","camera","color","components","ecs","renderer"],"rdeps":["app"],"ext":[["glam",1]],"gate":"","vis":"pub"},{"id":"fov","cat":"gameplay","loc":478,"files":1,"tests":9,"desc":"재귀 그림자 캐스팅 시야 계산","deps":["pathfinding"],"rdeps":["mapgen"],"ext":[["glam",1]],"gate":"","vis":"pub"},{"id":"gpu_particle","cat":"render","loc":231,"files":1,"tests":1,"desc":"GPU 인스턴싱 파티클(네이티브 전용)","deps":["color","components","ecs","particle","renderer"],"rdeps":["app","particle"],"ext":[["glam",1],["rand",1]],"gate":"native","vis":"pub"},{"id":"hierarchy","cat":"core","loc":543,"files":1,"tests":9,"desc":"부모/자식 계층과 GlobalTransform 합성","deps":["components","ecs"],"rdeps":["app","collision","prefab","renderer","skeletal"],"ext":[["glam",5]],"gate":"","vis":"pub"},{"id":"history","cat":"core","loc":214,"files":1,"tests":4,"desc":"스냅샷 기반 범용 실행 취소/재실행","deps":[],"rdeps":[],"ext":[],"gate":"","vis":"pub"},{"id":"hit_flash","cat":"render","loc":232,"files":1,"tests":6,"desc":"피격 시 스프라이트를 순간 착색 후 복귀","deps":["color","components","ecs","tween"],"rdeps":["anim_effect","app","effect","zone_effect"],"ext":[],"gate":"","vis":"pub"},{"id":"input","cat":"platform","loc":1802,"files":6,"tests":45,"desc":"키보드·마우스·게임패드·터치 상태와 액션 매핑","deps":[],"rdeps":["app","input_script","ui"],"ext":[["winit",4],["gilrs",3],["objc2_game_controller",2],["glam",2]],"gate":"","vis":"pub"},{"id":"input_buffer","cat":"platform","loc":296,"files":1,"tests":9,"desc":"입력 버퍼링과 코요테 타임","deps":[],"rdeps":[],"ext":[],"gate":"","vis":"pub"},{"id":"input_script","cat":"platform","loc":868,"files":1,"tests":13,"desc":"(프레임, 액션) 목록으로 앱을 구동하는 스크립트 입력 재생","deps":["app","asset_path","ecs","input","resources"],"rdeps":["app"],"ext":[["winit",2],["glam",1],["serde",1]],"gate":"","vis":"pub"},{"id":"locale","cat":"ui","loc":227,"files":1,"tests":4,"desc":"로케일 번들과 텍스트 방향","deps":[],"rdeps":["dialogue","ui"],"ext":[["serde",2]],"gate":"","vis":"pub"},{"id":"mapgen","cat":"gameplay","loc":1141,"files":1,"tests":26,"desc":"절차적 맵 생성 — BSP 던전, 셀룰러 동굴, 미로","deps":["fov","pathfinding","rng"],"rdeps":[],"ext":[["glam",1]],"gate":"","vis":"pub"},{"id":"material","cat":"render","loc":93,"files":1,"tests":0,"desc":"셰이더 머티리얼 기술자","deps":[],"rdeps":["renderer"],"ext":[],"gate":"","vis":"pub"},{"id":"network","cat":"platform","loc":1649,"files":8,"tests":25,"desc":"웹소켓 클라이언트 — 스냅샷 보간, 원격 엔티티, 예측","deps":["ecs","tween"],"rdeps":[],"ext":[["wasm_bindgen",2],["glam",1]],"gate":"","vis":"pub"},{"id":"nine_slice","cat":"render","loc":266,"files":1,"tests":6,"desc":"9-패치 스케일러블 스프라이트","deps":["renderer"],"rdeps":["renderer"],"ext":[["serde",2],["glam",1]],"gate":"","vis":"pub"},{"id":"parallax","cat":"render","loc":230,"files":1,"tests":3,"desc":"카메라 이동의 일부만 따라 흐르는 시차 레이어","deps":["camera","components","ecs"],"rdeps":[],"ext":[["glam",2]],"gate":"","vis":"pub"},{"id":"particle","cat":"render","loc":1317,"files":2,"tests":22,"desc":"CPU 파티클 이미터와 RON 설정 레지스트리","deps":["asset","asset_path","color","components","ecs","gpu_particle","ron_registry"],"rdeps":["anim_effect","app","effect","gpu_particle","zone_effect"],"ext":[["glam",2],["serde",1],["rand",1]],"gate":"","vis":"pub"},{"id":"pathfinding","cat":"gameplay","loc":704,"files":1,"tests":17,"desc":"그리드 A* 경로 탐색(직선·대각선)","deps":["tilemap"],"rdeps":["app","fov","mapgen"],"ext":[["glam",3]],"gate":"","vis":"pub"},{"id":"physics","cat":"gameplay","loc":3323,"files":12,"tests":55,"desc":"rapier2d 래퍼 — 강체, 캐릭터 컨트롤러, 조인트, 타일 콜라이더","deps":["components","ecs","tilemap"],"rdeps":["app"],"ext":[["rapier2d",12],["glam",8]],"gate":"native","vis":"pub"},{"id":"pool","cat":"core","loc":221,"files":1,"tests":6,"desc":"재사용 오브젝트 풀","deps":["ecs"],"rdeps":[],"ext":[],"gate":"","vis":"pub"},{"id":"prefab","cat":"data","loc":1105,"files":2,"tests":24,"desc":"씬 직렬화와 프리팹 — SceneDef · EntityDef · 인스턴스","deps":["color","components","ecs","hierarchy","reflect","save","serde_registry","ui"],"rdeps":["animation","app","timeline","trigger_zone","zone_effect"],"ext":[["serde",2],["glam",1]],"gate":"","vis":"pub"},{"id":"reflect","cat":"core","loc":92,"files":1,"tests":1,"desc":"런타임 리플렉션 — 에디터 인스펙터가 읽는 값 트리","deps":[],"rdeps":["app","components","ecs","prefab","ui"],"ext":[["glam",1]],"gate":"","vis":"pub"},{"id":"renderer","cat":"render","loc":8285,"files":31,"tests":77,"desc":"wgpu 렌더러 — 스프라이트, 텍스트, UI, 라이팅, 블룸, 포스트","deps":["asset","asset_path","atlas","camera","color","components","ecs","hierarchy","material","nine_slice","resources"],"rdeps":["animation","app","atlas","dialogue","floating_text","gpu_particle","nine_slice","text_measure","tilemap","ui"],"ext":[["glyphon",29],["wgpu",20],["bytemuck",14],["glam",7],["winit",2],["wasm_bindgen",1]],"gate":"","vis":"pub"},{"id":"resources","cat":"core","loc":1015,"files":8,"tests":16,"desc":"엔진 레벨 ECS 리소스 모음(시간·창·표시·프로파일링)","deps":["color","ecs"],"rdeps":["app","collision","dialogue","input_script","renderer","text_measure","ui"],"ext":[["glam",3]],"gate":"","vis":"pub"},{"id":"rng","cat":"core","loc":350,"files":1,"tests":11,"desc":"시드 결정론 난수와 가중치 추첨","deps":[],"rdeps":["mapgen"],"ext":[],"gate":"","vis":"pub"},{"id":"ron_registry","cat":"data","loc":168,"files":1,"tests":2,"desc":"이름→값 RON 레지스트리 + 정규 경로 핫리로드","deps":["asset","asset_path"],"rdeps":["anim_effect","animation","dialogue","particle","trigger_zone","zone_effect"],"ext":[],"gate":"","vis":"private"},{"id":"save","cat":"data","loc":1192,"files":2,"tests":22,"desc":"세이브/로드 — 버전 마이그레이션, 암호화 키","deps":[],"rdeps":["app","data_table","prefab"],"ext":[["chacha20poly1305",5],["serde",4],["rand",2]],"gate":"","vis":"pub"},{"id":"scene","cat":"core","loc":140,"files":1,"tests":0,"desc":"씬 전환과 시스템 등록","deps":["ecs"],"rdeps":["app","scene_transition"],"ext":[],"gate":"","vis":"pub"},{"id":"scene_transition","cat":"core","loc":301,"files":1,"tests":5,"desc":"페이드·와이프·아이리스 씬 전환 연출","deps":["color","ecs","scene"],"rdeps":["app"],"ext":[],"gate":"","vis":"pub"},{"id":"scripting","cat":"data","loc":1395,"files":7,"tests":15,"desc":"rhai 스크립트 런타임 — 게임 로직을 데이터로","deps":["asset","asset_path","behavior","components","ecs","steering"],"rdeps":["app"],"ext":[["rhai",7],["glam",4]],"gate":"","vis":"pub"},{"id":"serde_registry","cat":"data","loc":215,"files":1,"tests":0,"desc":"타입 소거 serde 컴포넌트 레지스트리","deps":["ecs"],"rdeps":["prefab"],"ext":[],"gate":"","vis":"pub"},{"id":"skeletal","cat":"gameplay","loc":526,"files":1,"tests":8,"desc":"2D 컷아웃 스켈레탈 애니메이션","deps":["components","ecs","hierarchy"],"rdeps":[],"ext":[["glam",1]],"gate":"","vis":"pub"},{"id":"sprite_trail","cat":"render","loc":295,"files":1,"tests":6,"desc":"움직이는 스프라이트 뒤에 남는 잔상 고스트","deps":["components","ecs"],"rdeps":["app"],"ext":[["glam",1]],"gate":"","vis":"pub"},{"id":"steering","cat":"gameplay","loc":592,"files":1,"tests":6,"desc":"스티어링 행동 — Seek · Flee · Arrive · Wander","deps":["components","ecs"],"rdeps":["scripting"],"ext":[["glam",2]],"gate":"","vis":"pub"},{"id":"text_measure","cat":"render","loc":368,"files":1,"tests":11,"desc":"그리기 전에 셰이핑된 텍스트 크기를 재는 측정 프리미티브","deps":["app","ecs","renderer","resources"],"rdeps":["app"],"ext":[["glyphon",2],["glam",1]],"gate":"","vis":"pub"},{"id":"tilemap","cat":"gameplay","loc":2847,"files":5,"tests":76,"desc":"타일맵 — 오토타일, 타일 애니메이션, 투영(사각·헥스)","deps":["components","ecs","renderer"],"rdeps":["app","pathfinding","physics"],"ext":[["glam",3]],"gate":"","vis":"pub"},{"id":"timeline","cat":"gameplay","loc":833,"files":1,"tests":28,"desc":"키프레임 기반 타임라인/컷신","deps":["camera","color","components","ecs","prefab","tween"],"rdeps":["app"],"ext":[["serde",2],["glam",1]],"gate":"","vis":"pub"},{"id":"timer","cat":"core","loc":162,"files":1,"tests":5,"desc":"경과·반복 타이머","deps":[],"rdeps":["app","tween"],"ext":[],"gate":"","vis":"pub"},{"id":"trigger_zone","cat":"gameplay","loc":739,"files":1,"tests":10,"desc":"영역 진입/체류/이탈 이벤트를 쏘는 트리거 존","deps":["asset","asset_path","collision","components","ecs","prefab","ron_registry"],"rdeps":["app","zone_effect"],"ext":[["glam",1],["serde",1]],"gate":"","vis":"pub"},{"id":"tween","cat":"gameplay","loc":628,"files":1,"tests":17,"desc":"이징 보간과 트윈 시퀀스","deps":["color","timer"],"rdeps":["app","hit_flash","network","timeline"],"ext":[["serde",2],["glam",1]],"gate":"","vis":"pub"},{"id":"ui","cat":"ui","loc":11229,"files":39,"tests":218,"desc":"UI 위젯 22종 + 레이아웃/포커스/이벤트 시스템","deps":["color","ecs","input","locale","reflect","renderer","resources"],"rdeps":["app","prefab"],"ext":[["serde",34],["glam",32],["winit",17]],"gate":"","vis":"pub"},{"id":"ysort","cat":"render","loc":126,"files":1,"tests":2,"desc":"월드 Y로 깊이 정렬(탑다운)","deps":["components","ecs"],"rdeps":["app"],"ext":[["serde",2],["glam",1]],"gate":"","vis":"pub"},{"id":"zone_effect","cat":"render","loc":430,"files":1,"tests":5,"desc":"존 이벤트 → RON으로 작성한 이펙트 바인딩","deps":["asset","asset_path","color","components","ecs","effect","hit_flash","particle","prefab","ron_registry","trigger_zone"],"rdeps":["app"],"ext":[["serde",1],["glam",1]],"gate":"","vis":"pub"}],"edges":[{"from":"anim_effect","to":"animation","w":2},{"from":"anim_effect","to":"asset","w":2},{"from":"anim_effect","to":"asset_path","w":1},{"from":"anim_effect","to":"color","w":2},{"from":"anim_effect","to":"components","w":3},{"from":"anim_effect","to":"ecs","w":7},{"from":"anim_effect","to":"effect","w":4},{"from":"anim_effect","to":"hit_flash","w":2},{"from":"anim_effect","to":"particle","w":7},{"from":"anim_effect","to":"ron_registry","w":2},{"from":"animation","to":"asset","w":2},{"from":"animation","to":"asset_path","w":1},{"from":"animation","to":"ecs","w":31},{"from":"animation","to":"prefab","w":2},{"from":"animation","to":"renderer","w":15},{"from":"animation","to":"ron_registry","w":2},{"from":"app","to":"anim_effect","w":3},{"from":"app","to":"animation","w":22},{"from":"app","to":"asset","w":16},{"from":"app","to":"asset_path","w":10},{"from":"app","to":"atlas","w":2},{"from":"app","to":"audio","w":2},{"from":"app","to":"audio_facade","w":2},{"from":"app","to":"camera","w":17},{"from":"app","to":"collision","w":3},{"from":"app","to":"color","w":13},{"from":"app","to":"components","w":93},{"from":"app","to":"data_table","w":14},{"from":"app","to":"debug_ui","w":5},{"from":"app","to":"dialogue","w":6},{"from":"app","to":"ecs","w":77},{"from":"app","to":"floating_text","w":1},{"from":"app","to":"gpu_particle","w":3},{"from":"app","to":"hierarchy","w":29},{"from":"app","to":"hit_flash","w":3},{"from":"app","to":"input","w":17},{"from":"app","to":"input_script","w":1},{"from":"app","to":"particle","w":14},{"from":"app","to":"pathfinding","w":2},{"from":"app","to":"physics","w":3},{"from":"app","to":"prefab","w":54},{"from":"app","to":"reflect","w":7},{"from":"app","to":"renderer","w":62},{"from":"app","to":"resources","w":91},{"from":"app","to":"save","w":6},{"from":"app","to":"scene","w":24},{"from":"app","to":"scene_transition","w":12},{"from":"app","to":"scripting","w":5},{"from":"app","to":"sprite_trail","w":3},{"from":"app","to":"text_measure","w":2},{"from":"app","to":"tilemap","w":29},{"from":"app","to":"timeline","w":5},{"from":"app","to":"timer","w":1},{"from":"app","to":"trigger_zone","w":7},{"from":"app","to":"tween","w":6},{"from":"app","to":"ui","w":111},{"from":"app","to":"ysort","w":4},{"from":"app","to":"zone_effect","w":3},{"from":"asset","to":"asset_path","w":10},{"from":"asset","to":"atlas","w":7},{"from":"atlas","to":"asset","w":4},{"from":"atlas","to":"color","w":2},{"from":"atlas","to":"renderer","w":2},{"from":"audio","to":"asset_path","w":2},{"from":"audio","to":"audio_analysis","w":10},{"from":"audio","to":"audio_spatial","w":1},{"from":"audio","to":"ecs","w":21},{"from":"audio_facade","to":"audio","w":3},{"from":"audio_facade","to":"audio_analysis","w":3},{"from":"audio_facade","to":"audio_wasm","w":2},{"from":"audio_facade","to":"ecs","w":3},{"from":"audio_wasm","to":"audio_analysis","w":10},{"from":"audio_wasm","to":"audio_spatial","w":1},{"from":"behavior","to":"ecs","w":4},{"from":"camera","to":"ecs","w":2},{"from":"collision","to":"color","w":1},{"from":"collision","to":"components","w":2},{"from":"collision","to":"ecs","w":13},{"from":"collision","to":"hierarchy","w":2},{"from":"collision","to":"resources","w":2},{"from":"components","to":"asset","w":4},{"from":"components","to":"camera","w":1},{"from":"components","to":"color","w":2},{"from":"components","to":"reflect","w":3},{"from":"coroutine","to":"ecs","w":3},{"from":"data_table","to":"asset","w":1},{"from":"data_table","to":"asset_path","w":1},{"from":"data_table","to":"save","w":2},{"from":"dialogue","to":"asset","w":8},{"from":"dialogue","to":"asset_path","w":1},{"from":"dialogue","to":"ecs","w":18},{"from":"dialogue","to":"locale","w":6},{"from":"dialogue","to":"renderer","w":9},{"from":"dialogue","to":"resources","w":6},{"from":"dialogue","to":"ron_registry","w":2},{"from":"ecs","to":"reflect","w":11},{"from":"effect","to":"audio_facade","w":2},{"from":"effect","to":"color","w":2},{"from":"effect","to":"components","w":3},{"from":"effect","to":"ecs","w":3},{"from":"effect","to":"hit_flash","w":2},{"from":"effect","to":"particle","w":4},{"from":"floating_text","to":"app","w":1},{"from":"floating_text","to":"camera","w":2},{"from":"floating_text","to":"color","w":2},{"from":"floating_text","to":"components","w":2},{"from":"floating_text","to":"ecs","w":4},{"from":"floating_text","to":"renderer","w":3},{"from":"fov","to":"pathfinding","w":3},{"from":"gpu_particle","to":"color","w":2},{"from":"gpu_particle","to":"components","w":2},{"from":"gpu_particle","to":"ecs","w":3},{"from":"gpu_particle","to":"particle","w":2},{"from":"gpu_particle","to":"renderer","w":2},{"from":"hierarchy","to":"components","w":2},{"from":"hierarchy","to":"ecs","w":7},{"from":"hit_flash","to":"color","w":2},{"from":"hit_flash","to":"components","w":2},{"from":"hit_flash","to":"ecs","w":4},{"from":"hit_flash","to":"tween","w":2},{"from":"input_script","to":"app","w":1},{"from":"input_script","to":"asset_path","w":1},{"from":"input_script","to":"ecs","w":2},{"from":"input_script","to":"input","w":2},{"from":"input_script","to":"resources","w":2},{"from":"mapgen","to":"fov","w":6},{"from":"mapgen","to":"pathfinding","w":3},{"from":"mapgen","to":"rng","w":2},{"from":"network","to":"ecs","w":10},{"from":"network","to":"tween","w":2},{"from":"nine_slice","to":"renderer","w":2},{"from":"parallax","to":"camera","w":4},{"from":"parallax","to":"components","w":4},{"from":"parallax","to":"ecs","w":6},{"from":"particle","to":"asset","w":3},{"from":"particle","to":"asset_path","w":1},{"from":"particle","to":"color","w":4},{"from":"particle","to":"components","w":3},{"from":"particle","to":"ecs","w":7},{"from":"particle","to":"gpu_particle","w":2},{"from":"particle","to":"ron_registry","w":2},{"from":"pathfinding","to":"tilemap","w":8},{"from":"physics","to":"components","w":4},{"from":"physics","to":"ecs","w":16},{"from":"physics","to":"tilemap","w":7},{"from":"pool","to":"ecs","w":5},{"from":"prefab","to":"color","w":2},{"from":"prefab","to":"components","w":6},{"from":"prefab","to":"ecs","w":3},{"from":"prefab","to":"hierarchy","w":13},{"from":"prefab","to":"reflect","w":3},{"from":"prefab","to":"save","w":8},{"from":"prefab","to":"serde_registry","w":3},{"from":"prefab","to":"ui","w":4},{"from":"renderer","to":"asset","w":14},{"from":"renderer","to":"asset_path","w":2},{"from":"renderer","to":"atlas","w":3},{"from":"renderer","to":"camera","w":9},{"from":"renderer","to":"color","w":7},{"from":"renderer","to":"components","w":15},{"from":"renderer","to":"ecs","w":18},{"from":"renderer","to":"hierarchy","w":2},{"from":"renderer","to":"material","w":2},{"from":"renderer","to":"nine_slice","w":3},{"from":"renderer","to":"resources","w":16},{"from":"resources","to":"color","w":6},{"from":"resources","to":"ecs","w":1},{"from":"ron_registry","to":"asset","w":3},{"from":"ron_registry","to":"asset_path","w":1},{"from":"scene","to":"ecs","w":5},{"from":"scene_transition","to":"color","w":2},{"from":"scene_transition","to":"ecs","w":2},{"from":"scene_transition","to":"scene","w":3},{"from":"scripting","to":"asset","w":8},{"from":"scripting","to":"asset_path","w":3},{"from":"scripting","to":"behavior","w":10},{"from":"scripting","to":"components","w":4},{"from":"scripting","to":"ecs","w":13},{"from":"scripting","to":"steering","w":12},{"from":"serde_registry","to":"ecs","w":3},{"from":"skeletal","to":"components","w":3},{"from":"skeletal","to":"ecs","w":5},{"from":"skeletal","to":"hierarchy","w":2},{"from":"sprite_trail","to":"components","w":3},{"from":"sprite_trail","to":"ecs","w":4},{"from":"steering","to":"components","w":4},{"from":"steering","to":"ecs","w":6},{"from":"text_measure","to":"app","w":2},{"from":"text_measure","to":"ecs","w":2},{"from":"text_measure","to":"renderer","w":6},{"from":"text_measure","to":"resources","w":3},{"from":"tilemap","to":"components","w":11},{"from":"tilemap","to":"ecs","w":16},{"from":"tilemap","to":"renderer","w":17},{"from":"timeline","to":"camera","w":4},{"from":"timeline","to":"color","w":2},{"from":"timeline","to":"components","w":5},{"from":"timeline","to":"ecs","w":9},{"from":"timeline","to":"prefab","w":2},{"from":"timeline","to":"tween","w":5},{"from":"trigger_zone","to":"asset","w":2},{"from":"trigger_zone","to":"asset_path","w":1},{"from":"trigger_zone","to":"collision","w":6},{"from":"trigger_zone","to":"components","w":2},{"from":"trigger_zone","to":"ecs","w":5},{"from":"trigger_zone","to":"prefab","w":3},{"from":"trigger_zone","to":"ron_registry","w":2},{"from":"tween","to":"color","w":3},{"from":"tween","to":"timer","w":2},{"from":"ui","to":"color","w":37},{"from":"ui","to":"ecs","w":120},{"from":"ui","to":"input","w":30},{"from":"ui","to":"locale","w":2},{"from":"ui","to":"reflect","w":51},{"from":"ui","to":"renderer","w":80},{"from":"ui","to":"resources","w":58},{"from":"ysort","to":"components","w":2},{"from":"ysort","to":"ecs","w":4},{"from":"zone_effect","to":"asset","w":2},{"from":"zone_effect","to":"asset_path","w":1},{"from":"zone_effect","to":"color","w":2},{"from":"zone_effect","to":"components","w":3},{"from":"zone_effect","to":"ecs","w":5},{"from":"zone_effect","to":"effect","w":5},{"from":"zone_effect","to":"hit_flash","w":2},{"from":"zone_effect","to":"particle","w":5},{"from":"zone_effect","to":"prefab","w":2},{"from":"zone_effect","to":"ron_registry","w":2},{"from":"zone_effect","to":"trigger_zone","w":2}],"examples":[{"name":"anim_effects","path":"examples/anim_effects.rs","loc":244,"kind":"demo","doc":"Data-driven Animation→Effect bindings — fire RON-authored effects on tagged animation frames.  The companion to `examples/zone_effects.rs`: there a zone overlap fires effects, here an animation frame does. This plays the same 4-frame walk cycle as `examples/animation_events.rs`, whose two **contact*","selftest":false,"headless":true,"wasm":false},{"name":"animated_tiles","path":"examples/animated_tiles.rs","loc":248,"kind":"demo","doc":"Animated tiles demo.  Demonstrates per-tile-value animation via [`TileAnimationSet`] + [`AnimatedTileSystem`].  A small tilemap is shown with three regions: - **Water** (value 1) — four blue frames that cycle, simulating ripples. - **Lava**  (value 2) — three orange/red frames that glow and pulse. -","selftest":false,"headless":false,"wasm":false},{"name":"animation_events","path":"examples/animation_events.rs","loc":221,"kind":"demo","doc":"`AnimationEvents` — fire a tagged event when an animation playhead enters a frame.  Add an [`AnimationEvents`] component next to an [`AnimationPlayer`], list `(clip, frame, tag)` triples, and register the bus with `App::register_event::<AnimationEvent>()`. Each frame [`AnimationSystem`] advances the","selftest":false,"headless":true,"wasm":false},{"name":"audio_ducking","path":"examples/audio_ducking.rs","loc":218,"kind":"demo","doc":"Bus ducking / sidechain mixing demo.  Demonstrates automatic bus ducking via [`AudioManager::set_sidechain`]: a music channel on bus \"music\" ducks down while a voice/blip on bus \"voice\" is playing, then releases back to full volume once the blip finishes.  The live `bus_duck(\"music\")` multiplier is ","selftest":false,"headless":false,"wasm":false},{"name":"audio_fades","path":"examples/audio_fades.rs","loc":189,"kind":"demo","doc":"Audio fade + release-envelope demo.  The built-in `AudioSystem` drives `AudioManager::update(dt)` every frame so scheduled fades (including release envelopes) actually progress.  `cargo run --example audio_fades`  **Fade controls** - Space   : play a sustained tone - F       : fade out over 1.5 s, t","selftest":false,"headless":false,"wasm":false},{"name":"basic","path":"examples/basic.rs","loc":75,"kind":"demo","doc":"","selftest":false,"headless":false,"wasm":false},{"name":"blend_locomotion","path":"examples/blend_locomotion.rs","loc":240,"kind":"demo","doc":"`BlendTree1D` locomotion demo — dogfoods 1D parameter-driven clip blending.  A single character's animation is driven entirely by one number: **speed**. Holding an accelerate key ramps speed up; releasing decelerates it. A [`BlendTree1D`] maps speed to idle / walk / run clips (thresholds 0.0 / 0.6 /","selftest":false,"headless":false,"wasm":false},{"name":"bloom","path":"examples/bloom.rs","loc":233,"kind":"demo","doc":"Engine **real multi-pass bloom** — dogfoods [`PostProcessConfig`](engine::PostProcessConfig)'s new `bloom` / `bloom_iterations` fields.  A dark scene holds several **over-bright** emitters (colour values well above `1.0`) plus a couple of **dim** swatches below the bloom threshold. With HDR on, the ","selftest":false,"headless":false,"wasm":true},{"name":"camera_lookahead","path":"examples/camera_lookahead.rs","loc":243,"kind":"demo","doc":"`Camera::lookahead` — bias the camera ahead of a moving follow target.  With a plain smooth-follow the camera centers on the target, so a fast-moving player sees as much behind them as ahead. **Lookahead** leads the view in the target's direction of motion: set [`Camera::lookahead`](engine::Camera::","selftest":false,"headless":true,"wasm":false},{"name":"cave_generation","path":"examples/cave_generation.rs","loc":274,"kind":"demo","doc":"Procedural cave generation — an organic, always-connected cavern you can regenerate and walk.  [`generate_cellular_cave`] seeds the grid with random rock, smooths it with a few cellular-automata passes, then keeps only the largest connected cavern — so, like the BSP dungeon, every floor cell is reac","selftest":false,"headless":true,"wasm":false},{"name":"coroutine_demo","path":"examples/coroutine_demo.rs","loc":211,"kind":"demo","doc":"Coroutine sequencer demo.  A single coroutine drives the whole scene:  1. Wait 1 s  — title screen 2. Run       — spawn a cyan box 3. RunFor 2s — slide the box across the screen (progress 0→1) 4. Wait 0.5s — brief pause 5. Run       — change box colour to orange 6. Wait 0.5s — pause before loop 7. R","selftest":false,"headless":false,"wasm":false},{"name":"crane_wrecking_ball","path":"examples/crane_wrecking_ball.rs","loc":387,"kind":"demo","doc":"Crane wrecking-ball — dogfoods the engine's physics **joints** in real play.  A kinematic crane cart hangs a long rigid arm (pinned by a **revolute joint**) with a heavy ball tethered on the end (a **distance joint**). Drive the cart left/right to swing the ball and smash a stack of blocks off its p","selftest":false,"headless":false,"wasm":false},{"name":"data_trigger_zones","path":"examples/data_trigger_zones.rs","loc":285,"kind":"demo","doc":"Data-driven `TriggerZone`s — author a level's zones in RON, load + spawn them.  The code-built counterpart is `examples/trigger_zones.rs`. This version loads the same kind of heal / damage / goal zones from [`data_trigger_zones.ron`](./data_trigger_zones.ron) via [`App::load_trigger_zones`](engine::","selftest":false,"headless":true,"wasm":false},{"name":"design_resolution","path":"examples/design_resolution.rs","loc":140,"kind":"demo","doc":"Engine **fixed design (virtual) resolution + letterbox** — dogfoods [`DesignResolution`](engine::DesignResolution).  The whole UI is authored at a fixed **1280×720** design space. With `DesignResolution` set, the engine reports that size as [`ViewportSize`](engine::ViewportSize) to game systems, ren","selftest":false,"headless":false,"wasm":false},{"name":"diagonal_pathing","path":"examples/diagonal_pathing.rs","loc":261,"kind":"demo","doc":"Diagonal pathfinding demo — press **T** to toggle between 4-dir (cardinal) and 8-dir (diagonal) A*. The 4-dir path makes a visible staircase; the 8-dir path cuts straight across. Path length (step count) is shown on screen.  Grid: 24×16 cells, 28px per cell. Start = top-left area, goal = bottom-righ","selftest":false,"headless":false,"wasm":false},{"name":"dialogue_branching","path":"examples/dialogue_branching.rs","loc":182,"kind":"demo","doc":"dialogue_branching — localized, branching dialogue with `DialogueBox`.  Extends `dialogue_demo` with the two features that turn the linear typewriter into a real RPG/visual-novel conversation: 1. **Localization** — the box is built from translation *keys* (`DialogueBox::localized`), and `DialogueSys","selftest":false,"headless":false,"wasm":false},{"name":"dialogue_demo","path":"examples/dialogue_demo.rs","loc":139,"kind":"demo","doc":"dialogue_demo — the `DialogueBox` primitive in real play.  A short multi-speaker conversation with a typewriter reveal. `DialogueSystem` (engine) ticks the typewriter and draws the active line; this example's own system feeds input: SPACE either completes the current line's reveal or advances to the","selftest":false,"headless":false,"wasm":false},{"name":"dialogue_portrait","path":"examples/dialogue_portrait.rs","loc":161,"kind":"demo","doc":"dialogue_portrait — per-line speaker portraits in a `DialogueBox`.  Same typewriter conversation as `dialogue_demo`, but each segment sets a `portrait` image via [`DialogueBox::with_portrait`]. `DialogueSystem` (engine) now draws that portrait to the left of the text and shifts the text right to cle","selftest":false,"headless":false,"wasm":false},{"name":"dialogue_quest","path":"examples/dialogue_quest.rs","loc":232,"kind":"demo","doc":"dialogue_quest — data-driven branching dialogue: RON tree + conditional choices + event hooks.  The capstone for the data-driven dialogue feature. Where `dialogue_branching` builds its conversation in code, this one **loads it from a RON file** (`dialogue_quest.dlg.ron`) via [`App::load_dialogue`] a","selftest":false,"headless":false,"wasm":false},{"name":"dialogue_style","path":"examples/dialogue_style.rs","loc":127,"kind":"demo","doc":"dialogue_style — restyling `DialogueSystem` via the `DialogueStyle` resource.  The same `DialogueBox` is drawn two ways: the engine default (absent the resource) and a custom `DialogueStyle` (different colors, font sizes, margins, and hint label) — restyling dialogue WITHOUT forking the engine. Pres","selftest":false,"headless":false,"wasm":false},{"name":"editor_docked_headless_shot","path":"examples/editor_docked_headless_shot.rs","loc":63,"kind":"demo","doc":"Headless **docked** editor screenshot — capture the full docked editor layout with **no window/display**.  The companion to `editor_headless_shot` (which captures the *overlay* editor): this drives the **docked** layout — top toolbar, left entity list, right inspector, bottom assets panel, and the g","selftest":false,"headless":true,"wasm":false},{"name":"editor_headless_shot","path":"examples/editor_headless_shot.rs","loc":44,"kind":"demo","doc":"Headless editor screenshot — capture the egui editor overlay with **no window/display**.  The companion to the headless *game* screenshot (`App::save_screenshot_headless`): that renders only the game scene, this also drives the egui **editor overlay** (EngineStats + Inspector + the keyboard-shortcut","selftest":false,"headless":true,"wasm":false},{"name":"floating_text","path":"examples/floating_text.rs","loc":275,"kind":"demo","doc":"`FloatingText` — pop rising, fading damage numbers at a world position, then despawn.  The genre-agnostic game-feel staple: hit something and a number floats up off it and fades out. Spawn a dedicated entity carrying a [`FloatingText`] (here via [`spawn_floating_text`]) and [`FloatingTextSystem`] dr","selftest":false,"headless":true,"wasm":false},{"name":"fov","path":"examples/fov.rs","loc":302,"kind":"demo","doc":"Field-of-view / fog-of-war demo — walk a torch-lit observer around a walled dungeon and watch walls cast shadows in real time.  [`FovMap`] runs recursive shadowcasting each time the observer moves: cells in the current line of sight render **bright**, cells you have explored but can no longer see re","selftest":false,"headless":true,"wasm":false},{"name":"frame_dt_cap","path":"examples/frame_dt_cap.rs","loc":218,"kind":"demo","doc":"`FrameConfig::max_dt` — the per-frame delta-time cap.  The main loop clamps each frame's `dt` to `FrameConfig::max_dt` (default **0.1 s**) so a single stall — a window drag, a debugger breakpoint, a backgrounded tab — can't hand systems a huge `dt` that tunnels physics or leaps animations. Before th","selftest":false,"headless":true,"wasm":false},{"name":"gamepad_probe","path":"examples/gamepad_probe.rs","loc":354,"kind":"demo","doc":"gamepad_probe — view the engine's gamepad input, and on macOS cross-check it against the GameController framework.  The engine's `GamepadState` is fed by **gilrs** (IOKit-HID) on Windows/Linux, and by the **GameController framework** on macOS — where gilrs can't read modern Bluetooth/USB Xbox & PS5 ","selftest":false,"headless":false,"wasm":false},{"name":"gen_anim_sheet","path":"examples/gen_anim_sheet.rs","loc":58,"kind":"demo","doc":"Asset generator for the `data_anim` example's animation spritesheet.  Produces `examples/games/data_anim/assets/anim.png`: a 4x4 (32px cell = 128x128) sheet. Each ROW is a distinct base color (a different clip); within a row the four COLUMNS move a white dot clockwise around the cell (top → right → ","selftest":false,"headless":false,"wasm":false},{"name":"gen_autotile_sheet","path":"examples/gen_autotile_sheet.rs","loc":72,"kind":"demo","doc":"Asset generator for the `dig_quest` Edge4 autotile sheet.  Produces `examples/games/dig_quest/assets/autotile.png`: a 16-tile (4x4, 32px cell = 128x128) sheet where the **tile index == the Edge4 neighbor bitmask** (N=1, E=2, S=4, W=8). A side's bit is SET when that neighbor is filled (connected), so","selftest":false,"headless":false,"wasm":false},{"name":"gen_blend_sheet","path":"examples/gen_blend_sheet.rs","loc":105,"kind":"demo","doc":"Asset generator for the `blend_locomotion` demo's spritesheet.  Produces `examples/assets/blend_locomotion.png`: a 4×3 grid (64px cells) where each **row** is a locomotion clip — idle (blue), walk (green), run (orange) — and each **column** is a frame. A little stick figure bobs vertically (small fo","selftest":false,"headless":false,"wasm":false},{"name":"gen_hex_autotile_sheet","path":"examples/gen_hex_autotile_sheet.rs","loc":144,"kind":"demo","doc":"Asset generator for the 64-tile hex autotile **blob** sheets.  The hexagonal analogue of `gen_autotile_sheet` (square Edge4, 16 tiles): produces two sheets where the **tile index == the 6-bit hex neighbor bitmask**, so tile `base + mask` lines up with `TilemapAutotile::hex_6(base)` / `hex_6_flat(bas","selftest":false,"headless":false,"wasm":false},{"name":"gen_multiterrain_sheet","path":"examples/gen_multiterrain_sheet.rs","loc":98,"kind":"demo","doc":"Asset generator for the `multi_terrain` example's 3-terrain Edge4 autotile sheet.  Produces `examples/games/multi_terrain/assets/terrains.png`: a 48-tile (16 cols × 3 rows, 32px cell = 512×96) sheet. Each ROW is one terrain (0 = grass, 1 = water, 2 = sand); each COLUMN is the Edge4 neighbor bitmask ","selftest":false,"headless":false,"wasm":false},{"name":"gen_platform_tiles","path":"examples/gen_platform_tiles.rs","loc":91,"kind":"demo","doc":"Asset generator for the platformer's seamless tileset.  The original `tiles.png` is a set of discrete object sprites with per-cell transparent margins, so it shows gaps when laid out as 1:1 `Tilemap` tiles. This produces `platform_tiles.png`: a seamless 4x4 (128x128, 32px cell) tileset whose ground ","selftest":false,"headless":false,"wasm":false},{"name":"gpu_particles","path":"examples/gpu_particles.rs","loc":164,"kind":"demo","doc":"GPU compute-shader particle demo.  `cargo run --example gpu_particles`  Spawns a `GpuParticleEmitter` at the mouse-click position, **built from a RON config** (`gpu_particles.ron`) via `ParticleConfigSet::gpu_emitter` — the RON→GPU counterpart to the CPU `emitter()` path. Each emitter rises, arcs ba","selftest":false,"headless":false,"wasm":false},{"name":"hdr_render_target","path":"examples/hdr_render_target.rs","loc":256,"kind":"demo","doc":"HDR (`Rgba16Float`) offscreen render target vs an ordinary 8-bit one — dogfoods [`App::create_render_target_with_format`](engine::App::create_render_target_with_format) and the format-matched sprite pipeline.  An off-screen \"scene\" of **over-bright** sprites (colour values `> 1.0` — a dim background","selftest":false,"headless":false,"wasm":true},{"name":"headless_screenshot","path":"examples/headless_screenshot.rs","loc":119,"kind":"demo","doc":"`App::save_screenshot_headless` — render a frame to a PNG with **no window and no display**.  Unlike every other example, this one never opens a window: it builds a scene, renders it headlessly into an offscreen GPU texture, reads the pixels back, and writes a PNG — then exits. It works with the mon","selftest":false,"headless":false,"wasm":false},{"name":"hello_sprite","path":"examples/hello_sprite.rs","loc":74,"kind":"demo","doc":"hello_sprite — the smallest \"image on screen\" example.  `basic.rs` draws a solid-color rectangle; this one shows the **asset workflow**: load a PNG from disk, then render it as a textured sprite. It is the recommended starting point for your own game — copy this file to `examples/my_game.rs` (any `e","selftest":false,"headless":false,"wasm":false},{"name":"hex_autotile","path":"examples/hex_autotile.rs","loc":135,"kind":"demo","doc":"hex_autotile — autotiling on a **hexagonal** tilemap (`Neighborhood::Hex6`).  Autotile masks are computed from the `tiles[row][col]` grid, so they work on any projection once the neighborhood matches the layout. This pairs `TilemapProjection::Hexagonal` (pointy-top, odd-r) with `Neighborhood::Hex6` ","selftest":false,"headless":false,"wasm":false},{"name":"hex_autotile_flat","path":"examples/hex_autotile_flat.rs","loc":132,"kind":"demo","doc":"hex_autotile_flat — autotiling on a **flat-top hexagonal** tilemap (`Neighborhood::Hex6Flat`).  Autotile masks are computed from the `tiles[row][col]` grid, so they work on any projection once the neighborhood matches the layout. This pairs `TilemapProjection::HexagonalFlat` (flat-top, odd-q) with `","selftest":false,"headless":false,"wasm":false},{"name":"hex_blob_autotile","path":"examples/hex_blob_autotile.rs","loc":143,"kind":"demo","doc":"hex_blob_autotile — **full 64-tile** pointy-top hex autotiling (`TilemapAutotile::hex_6`).  Where `hex_autotile` shows a 2-tile interior/edge rule, this is the *blob* tileset: a contiguous 64-tile atlas where tile `mask` draws a hexagon outlined on exactly the edges whose neighbor is absent. So **ev","selftest":false,"headless":false,"wasm":false},{"name":"hex_blob_autotile_flat","path":"examples/hex_blob_autotile_flat.rs","loc":140,"kind":"demo","doc":"hex_blob_autotile_flat — **full 64-tile** flat-top hex autotiling (`TilemapAutotile::hex_6_flat`).  The flat-top (odd-q) twin of `hex_blob_autotile`: a contiguous 64-tile atlas where tile `mask` draws a hexagon outlined on exactly the edges whose neighbor is absent, so every open side is bordered co","selftest":false,"headless":false,"wasm":false},{"name":"hex_tilemap","path":"examples/hex_tilemap.rs","loc":148,"kind":"demo","doc":"hex_tilemap — a **hexagonal** tilemap (`TilemapProjection::Hexagonal`).  Same `Tilemap` + `TilemapSystem` as the square/iso examples, built with `.with_projection(TilemapProjection::Hexagonal)` — a pointy-top hex grid in odd-r offset coordinates (odd rows shifted right by half a tile). Demonstrates ","selftest":false,"headless":false,"wasm":false},{"name":"hex_tilemap_flat","path":"examples/hex_tilemap_flat.rs","loc":148,"kind":"demo","doc":"hex_tilemap_flat — a **flat-top** hexagonal tilemap (`TilemapProjection::HexagonalFlat`).  The flat-top counterpart of `hex_tilemap` (which is pointy-top): odd-q offset coordinates, where odd **columns** are shifted down by half a tile. Same `Tilemap` + `TilemapSystem`, built with `.with_projection(","selftest":false,"headless":false,"wasm":false},{"name":"hit_flash","path":"examples/hit_flash.rs","loc":193,"kind":"demo","doc":"`HitFlash` — briefly flash a sprite white when it is hit, then fade it back.  The game-feel staple every action game re-implements: on taking a hit a sprite pops to white (or any color) for a fraction of a second and eases back to normal. Add a [`HitFlash`] to an entity with a [`Sprite`] and [`HitFl","selftest":false,"headless":true,"wasm":false},{"name":"hot_reload_asset_root","path":"examples/hot_reload_asset_root.rs","loc":109,"kind":"demo","doc":"Proof that F2 hot-reload fires for an asset whose file is **resolved under an asset root that is not the working directory** — the packaged / foreign-cwd layout. This is the one EW-008 acceptance clause the engine did not meet before: the `notify` watcher used to register the caller's *logical* path","selftest":false,"headless":false,"wasm":false},{"name":"input_buffer","path":"examples/input_buffer.rs","loc":244,"kind":"demo","doc":"`InputBuffer` — input buffering + coyote time, the two tricks that make a jump feel fair.  A jump pressed a few frames *before* landing should still fire the instant you touch down (**input buffering**); a jump pressed a few frames *after* walking off a ledge should still fire (**coyote time**). [`I","selftest":false,"headless":true,"wasm":false},{"name":"iso_tilemap","path":"examples/iso_tilemap.rs","loc":151,"kind":"demo","doc":"iso_tilemap — an **isometric** tilemap (`TilemapProjection::Isometric`).  Same `Tilemap` + `TilemapSystem` as the square examples, but the map is built with `.with_projection(TilemapProjection::Isometric)`, so cells lay out as a 2:1 diamond grid and `TilemapSystem` depth-sorts them back-to-front. De","selftest":false,"headless":false,"wasm":false},{"name":"juice_demo","path":"examples/juice_demo.rs","loc":237,"kind":"demo","doc":"juice_demo — game-feel building blocks in one place.  Demonstrates the Phase-2 \"juice\" features together, and rescues three older features that shipped without an example: * **TimeScale** hit-stop — SPACE briefly sets `TimeScale(0.06)` so the world freezes on impact. The freeze is timed with `RealDt","selftest":false,"headless":false,"wasm":false},{"name":"lighting_cap","path":"examples/lighting_cap.rs","loc":241,"kind":"demo","doc":"`LightingConfig` — the configurable point-light cap.  The 2D point-light pass renders at most `LightingConfig::max_lights` lights per frame (the nearest to the camera; distant ones are dropped, not arbitrary ones). Before this knob the cap was hardcoded to **16** — a hard limit a fork hit with no wa","selftest":false,"headless":true,"wasm":false},{"name":"loading_bar","path":"examples/loading_bar.rs","loc":163,"kind":"demo","doc":"Async asset loading + progress bar example (Phase 51).  - LoadingScene: loads several images via `load_image_async` while drawing a progress bar with `DrawRect`. - Automatically transitions to GameScene once loading completes.","selftest":false,"headless":false,"wasm":false},{"name":"loot_table","path":"examples/loot_table.rs","loc":304,"kind":"demo","doc":"Loot table — deterministic weighted drops with a live distribution histogram.  Composes [`Rng`] (a seedable, deterministic PRNG) with [`WeightedTable`] (weighted random selection) into the classic loot-drop / spawn-table loop. Four rarities are added to a `WeightedTable<usize>` with relative weights","selftest":false,"headless":true,"wasm":false},{"name":"maze_generation","path":"examples/maze_generation.rs","loc":310,"kind":"demo","doc":"Procedural maze generation — a perfect (spanning-tree) maze you can regenerate, braid, and walk.  [`generate_maze`] runs a recursive-backtracker walk over the odd-coordinate junction cells, knocking out the wall between each junction and a random unvisited neighbor. The result is a **spanning tree**","selftest":false,"headless":true,"wasm":false},{"name":"minimap","path":"examples/minimap.rs","loc":275,"kind":"demo","doc":"Minimap example (Phase 46): offscreen `RenderTarget`.  Renders the world normally with the main camera, and an `OffscreenCamera` builds a zoomed-out 256x256 minimap shown in the top-right corner.","selftest":false,"headless":false,"wasm":false},{"name":"mp_client","path":"examples/mp_client.rs","loc":287,"kind":"demo","doc":"Phase 27 — Multiplayer client demo  Start the server first, then run this client in multiple windows.  ``` # Terminal 1 cargo run --example mp_server  # Terminal 2, 3, ... cargo run --example mp_client ```  # Controls - WASD / Arrow keys: move player - White rectangle: yourself - Colored rectangle: ","selftest":false,"headless":false,"wasm":false},{"name":"mp_server","path":"examples/mp_server.rs","loc":213,"kind":"demo","doc":"Phase 27 — multiplayer relay server  ``` cargo run --example mp_server ```  Accepts WebSocket connections on 127.0.0.1:9001 and relays each client's position message to all other connected clients.  # Protocol (JSON text)  | Direction | Format | Meaning | |------|------|------| | Server → Client | `","selftest":false,"headless":false,"wasm":false},{"name":"music_crossfade","path":"examples/music_crossfade.rs","loc":246,"kind":"demo","doc":"Music crossfade demo.  Demonstrates [`AudioManager::crossfade`]: the old track fades out while the new one fades in simultaneously, producing a smooth overlap.  `cargo run --example music_crossfade`  **Controls** - Space : start Track A (looping) - X     : crossfade to the alternate track (A ↔ B) ov","selftest":false,"headless":false,"wasm":false},{"name":"nine_slice","path":"examples/nine_slice.rs","loc":178,"kind":"demo","doc":"`nine_slice` — demonstrates scalable 9-patch panels via [`NineSlice`].  A single 64×64 bordered texture is generated at startup, then drawn at many different sizes:  - Four [`NineSlice`] panels (wide bar, tall panel, small square, large panel) whose orange corners stay a fixed 16px while the teal ed","selftest":false,"headless":false,"wasm":false},{"name":"offscreen_material","path":"examples/offscreen_material.rs","loc":194,"kind":"demo","doc":"Offscreen **`ShaderMaterial`** into non-surface render targets — dogfoods the format-matched material pipeline (material pipelines are now keyed by `(frag-source hash, target format)`).  A single animated-plasma `ShaderMaterial` quad lives off-screen (layer 0) and is captured by two `OffscreenCamera","selftest":false,"headless":false,"wasm":false},{"name":"one_way_tolerance","path":"examples/one_way_tolerance.rs","loc":270,"kind":"demo","doc":"`CharacterController::one_way_tolerance` — the one-way-platform landing skin width.  A one-way platform keeps blocking a downward-moving character until its bottom sinks more than `one_way_tolerance` **physics units** below the platform's top surface, so a resting character does not jitter or slip t","selftest":false,"headless":true,"wasm":false},{"name":"packaged_assets","path":"examples/packaged_assets.rs","loc":251,"kind":"demo","doc":"Asset roots — why a packaged build no longer renders a magenta screen.  Every engine asset API is path-based, and a *relative* path used to be read straight through `std::fs`, which resolves against the **process working directory**. A shipped executable therefore only worked when launched from one ","selftest":false,"headless":true,"wasm":false},{"name":"parallax_scroll","path":"examples/parallax_scroll.rs","loc":277,"kind":"demo","doc":"Parallax scrolling demo.  A/D or ←/→ to move the player horizontally. Esc to quit.  Four background layers scroll at different speeds as the camera follows the player, making depth visible. Layer factors (horizontal): 0.10 — far sky (barely moves) 0.35 — distant mountains 0.65 — mid trees 1.10 — for","selftest":false,"headless":false,"wasm":false},{"name":"particle_spawn_cap","path":"examples/particle_spawn_cap.rs","loc":124,"kind":"demo","doc":"`ParticleEmitter::max_per_frame` — the per-frame spawn cap.  Two rain emitters with the **same** high `spawn_rate` (≈7680/s ⇒ 128 particles/frame at 60 fps) sit side by side. A continuous emitter spawns at most `max_per_frame` particles per frame as a runaway guard:  - **Left**  — default cap `64`: ","selftest":false,"headless":false,"wasm":false},{"name":"particles_showcase","path":"examples/particles_showcase.rs","loc":161,"kind":"demo","doc":"particles_showcase — the new `ParticleEmitter` depth knobs (gravity + emit shape).  Three emitters side by side: * **Fountain** — particles shoot up and arc back down under positive `gravity`. * **Fire** — negative (buoyant) `gravity` makes embers rise + accelerate, spawned over a `Circle` so the ba","selftest":false,"headless":false,"wasm":false},{"name":"positional_audio","path":"examples/positional_audio.rs","loc":292,"kind":"demo","doc":"Cross-platform **positional** audio via the [`Audio`](engine::Audio) facade — the **same code** on native **and** web. A looping sound source orbits a fixed point; you move the *listener* with the arrow keys and hear (and watch) the sound's volume fall off with distance and pan left/right with the x","selftest":false,"headless":false,"wasm":true},{"name":"procgen_dungeon","path":"examples/procgen_dungeon.rs","loc":213,"kind":"demo","doc":"Procedural dungeon generation — a BSP dungeon you can regenerate and walk.  [`generate_bsp_dungeon`] carves rooms into a binary-space-partition tree and connects siblings with corridors, so every room is reachable. Generation is deterministic from the seed, so **R** rolls a fresh seed and rebuilds a","selftest":false,"headless":true,"wasm":false},{"name":"render_format_query","path":"examples/render_format_query.rs","loc":205,"kind":"demo","doc":"`render_format_query` — ask the engine which texture formats this GPU can render into, via the [`RenderCapabilities`] resource, and branch accordingly.  Some formats are not usable as a color render target on every backend — most notably float formats like `Rgba16Float` on WebGL2, which need the `EX","selftest":false,"headless":false,"wasm":true},{"name":"render_plugin","path":"examples/render_plugin.rs","loc":290,"kind":"demo","doc":"`render_plugin` — custom GPU pass example  Demonstrates how to inject a custom wgpu render pass into the engine using [`RenderPlugin`] without forking the engine's `render()` function.  The plugin draws an animated vignette (dark border fade) over the scene each frame. It reads a [`Pulse`] resource ","selftest":false,"headless":false,"wasm":false},{"name":"render_target_filter","path":"examples/render_target_filter.rs","loc":186,"kind":"demo","doc":"`RenderTarget` sampler filter — `App::create_render_target_with_filter`.  The same tiny 40×40 scene is rendered into TWO render targets via two `OffscreenCamera`s, then each is displayed blown up to a 300×300 panel (7.5×). The only difference between the two RTs is the sampler filter used when the R","selftest":false,"headless":false,"wasm":false},{"name":"roguelike","path":"examples/roguelike.rs","loc":343,"kind":"demo","doc":"Roguelike slice — a seeded procedural dungeon explored under fog-of-war.  The capstone that composes two engine features into one playable loop: [`generate_bsp_dungeon`] carves a fresh, always-connected BSP dungeon from a seed, and [`FovMap`] fog-of-war reveals it only as you walk. The bridge betwee","selftest":false,"headless":true,"wasm":false},{"name":"ron_registry","path":"examples/ron_registry.rs","loc":202,"kind":"demo","doc":"Fork-friendly **custom RON-loaded config registry** — using the public [`RonRegistry`](engine::RonRegistry) + [`RonLoadable`](engine::RonLoadable).  The engine's particle / dialogue / animation-clip config registries are all thin wrappers over one generic registry. This example shows a *game* using ","selftest":false,"headless":false,"wasm":false},{"name":"rtl_text","path":"examples/rtl_text.rs","loc":91,"kind":"demo","doc":"RTL text + multi-font demo.  Loads **DejaVu Sans** (Latin) as [`FontData`] and the bundled **Noto Sans Hebrew** (OFL) as [`ExtraFonts`], then renders mixed Latin + Hebrew (right-to-left) text. Bidirectional shaping is done by cosmic-text (`Shaping::Advanced`) — this example demonstrates the two piec","selftest":false,"headless":false,"wasm":false},{"name":"runtime_policies","path":"examples/runtime_policies.rs","loc":89,"kind":"demo","doc":"","selftest":false,"headless":false,"wasm":false},{"name":"save_counter","path":"examples/save_counter.rs","loc":68,"kind":"demo","doc":"save_counter — cross-platform persistence with `write_ron` / `read_ron`.  Loads a launch counter at startup, increments it, and saves it back. The exact same code persists to a **file** on native and to **`localStorage`** on the web (wasm) — the engine's `save` module routes `write_ron` / `read_ron`","selftest":false,"headless":false,"wasm":false},{"name":"save_encrypted","path":"examples/save_encrypted.rs","loc":76,"kind":"demo","doc":"save_encrypted — cross-platform **encrypted** player save with `save` / `load` (AEAD).  Loads an encrypted launch counter at startup, increments it, and saves it back. Unlike `save_counter` (which uses plain-text `write_ron`), this uses `save` / `load`, which ChaCha20-Poly1305-encrypt the payload — ","selftest":false,"headless":false,"wasm":false},{"name":"save_migration","path":"examples/save_migration.rs","loc":213,"kind":"demo","doc":"Versioned save migration demo.  On startup this example: 1. Writes a simulated **old v1 save** (`PlayerSaveV1 { level: 7, score: 1200 }`) to a temp file using [`save_versioned`] tagged at schema version 1. 2. Loads it with [`load_migrated`] through a migrator whose step 1→2 inserts a `coins` field d","selftest":false,"headless":false,"wasm":false},{"name":"scene_transition","path":"examples/scene_transition.rs","loc":147,"kind":"demo","doc":"Scene transitions — fade / wipe / iris with automatic scene swapping.  Each numbered key transitions to the *next* level with a different [`TransitionStyle`]. The transition covers the screen, [`start_scene_transition`] swaps to the next level *while hidden* (a fresh background colour), then the sam","selftest":false,"headless":true,"wasm":false},{"name":"scripted_capture","path":"examples/scripted_capture.rs","loc":347,"kind":"demo","doc":"Scripted input + headless capture — verify a GUI with no window, display or OS permissions.  Checking that a screen still looks right normally needs a live, unlocked desktop and OS automation (on macOS: Accessibility + Screen-Recording permissions, `osascript` key codes, a synthetic-mouse helper). N","selftest":false,"headless":true,"wasm":false},{"name":"security_camera","path":"examples/security_camera.rs","loc":432,"kind":"demo","doc":"Security-camera stealth — dogfoods the engine's `RenderTarget` / `OffscreenCamera` in a real **playable game** (not a tech demo).  You cross a corridor toward the exit on the right. Partway across is a doorway that a guard watches — but the guard patrols a room that is **entirely offscreen** (off th","selftest":false,"headless":false,"wasm":false},{"name":"shader_material","path":"examples/shader_material.rs","loc":302,"kind":"demo","doc":"`shader_material` — demonstrates custom per-entity fragment shaders via [`ShaderMaterial`].  Three sprites are placed side by side, each with a distinct WGSL fragment shader:  1. **Hue cycle** — animates through the full hue wheel based on UV.x + elapsed time. 2. **Plasma ripple** — classic sin-wave","selftest":false,"headless":false,"wasm":false},{"name":"skeletal_puppet","path":"examples/skeletal_puppet.rs","loc":258,"kind":"demo","doc":"2D cutout skeletal animation demo.  Builds a humanoid puppet from colored rectangles only (no art assets required). Includes a depth-5 bone chain (hip→torso→upper_arm→forearm→hand) to exercise arbitrary-depth propagation in `HierarchySystem`.  Controls: Space = toggle idle ↔ wave, Esc = quit.  Run: ","selftest":false,"headless":false,"wasm":false},{"name":"slider_keyboard_step","path":"examples/slider_keyboard_step.rs","loc":157,"kind":"demo","doc":"`Slider::keyboard_step` — per-slider keyboard/gamepad nudge step.  A focused `Slider` moves by a fixed step on each ←/→ (or D-pad / left-stick) press. That step was hardcoded to `DEFAULT_SLIDER_STEP_FRAC` (5% of the range) — fine for a continuous volume slider, wrong for a slider that selects a few ","selftest":false,"headless":true,"wasm":false},{"name":"sm_crossfade","path":"examples/sm_crossfade.rs","loc":348,"kind":"demo","doc":"`AnimationStateMachine` crossfade demo — shows hard switch vs. smooth blend side by side.  Two characters share the same spritesheet and state machine layout (idle → walk → run driven by a \"speed\" float param). The LEFT character uses plain `add_transition` (hard clip switch, no blend); the RIGHT ch","selftest":false,"headless":false,"wasm":false},{"name":"solver_iterations","path":"examples/solver_iterations.rs","loc":195,"kind":"demo","doc":"`PhysicsWorld::set_solver_iterations` — the constraint-solver iteration count.  Each physics step runs the constraint solver a fixed number of iterations (rapier's default: **4**). More iterations converge contacts and **joints** harder — a long or heavy joint chain (a rope, a crane, a ragdoll) stre","selftest":false,"headless":true,"wasm":false},{"name":"split_screen","path":"examples/split_screen.rs","loc":287,"kind":"demo","doc":"Split-screen example (Phase 46): two `OffscreenCamera`s.  P1 (green) and P2 (blue) view different locations in a left/right split: - Left half: \"left_view\" RenderTarget (P1's view) - Right half: \"right_view\" RenderTarget (P2's view)","selftest":false,"headless":false,"wasm":false},{"name":"sprite_flip","path":"examples/sprite_flip.rs","loc":175,"kind":"demo","doc":"`SpriteFlip` — mirror a sprite across X / Y without swapping textures or negating scale.  Add a [`SpriteFlip`] component to any sprite-bearing entity (plain `Sprite`, `AtlasSprite`, or `ShaderMaterial`) and the renderer mirrors the sampled UV region in place — free, and correct for animation frames ","selftest":false,"headless":true,"wasm":false},{"name":"sprite_trail","path":"examples/sprite_trail.rs","loc":157,"kind":"demo","doc":"`SpriteTrail` — leave a fading afterimage behind a moving sprite.  The motion trail every dash / dodge / fast projectile wants: attach a [`SpriteTrail`] to a moving entity with a [`Sprite`] and [`SpriteTrailSystem`] drops a fading ghost copy behind it every few frames, each fading out and despawning","selftest":false,"headless":true,"wasm":false},{"name":"text_layers","path":"examples/text_layers.rs","loc":157,"kind":"demo","doc":"Text z-ordering — `DrawText::with_z` composites text **among** the UI rects.  Historically all text drew in one final pass on top of every UI rect, so an overlay (an open dropdown list, a tooltip, a panel) could never hide a label underneath — the label bled through. A [`DrawText`] with [`with_z`](D","selftest":false,"headless":true,"wasm":false},{"name":"text_measure","path":"examples/text_measure.rs","loc":449,"kind":"demo","doc":"Text measurement — size a panel from the text that will actually be drawn in it.  A tooltip/chip/bubble has to be as wide as its string, but the string's width is only known after shaping. The usual stand-in is a `chars × px` guess, which breaks as soon as scripts mix: at 15 px a Hangul glyph advanc","selftest":false,"headless":true,"wasm":false},{"name":"texture_format","path":"examples/texture_format.rs","loc":147,"kind":"demo","doc":"`texture_format` — demonstrates choosing a texture's pixel format via [`App::load_image_with_format`].  The same grayscale ramp PNG is loaded twice with **byte-identical** pixels but two different GPU formats, then drawn side by side:  - **Left (sRGB, the default):** loaded with [`App::load_image`].","selftest":false,"headless":false,"wasm":false},{"name":"tile_anim_stagger","path":"examples/tile_anim_stagger.rs","loc":167,"kind":"demo","doc":"`TileAnimationSet::stagger` — per-cell animation phase stagger.  Animated tiles of the same value don't all start on frame 0: each cell's start phase is `(row + col) × frame_time × stagger`, so neighbours ripple slightly out of sync instead of flashing in unison. That stagger factor used to be hardc","selftest":false,"headless":true,"wasm":false},{"name":"tilemap_layers","path":"examples/tilemap_layers.rs","loc":140,"kind":"demo","doc":"tilemap_layers — stack two orthographic tilemaps with `Tilemap::with_z`.  `cell_z()` gives every orthographic/hexagonal tile the same depth, the new per-map `Tilemap::z` (default `-1.0`). Two tilemaps with different `z` therefore layer: a background floor under a foreground decoration map.  To prove","selftest":false,"headless":false,"wasm":false},{"name":"timeline_cutscene","path":"examples/timeline_cutscene.rs","loc":460,"kind":"demo","doc":"Triggerable cutscene — dogfoods the engine's `Timeline` keyframe system in a real **playable** scene (not a unit test).  You move a character through a room toward a sealed gate. Walk into the glowing rune and a **cutscene** plays: the camera pans and zooms in on the gate, the two gate panels slide ","selftest":false,"headless":false,"wasm":false},{"name":"tonemap","path":"examples/tonemap.rs","loc":194,"kind":"demo","doc":"Engine **HDR tone-mapping** in the post-process pass — dogfoods [`PostProcessConfig`](engine::PostProcessConfig)'s new `hdr` / `tonemap` / `exposure` fields and the [`Tonemap`](engine::Tonemap) operators.  A row of squares of the **same warm hue** but increasing brightness (the rightmost are well ov","selftest":false,"headless":false,"wasm":false},{"name":"touch_demo","path":"examples/touch_demo.rs","loc":243,"kind":"demo","doc":"/ Phase 47 example: touch input + virtual joystick demo","selftest":false,"headless":false,"wasm":false},{"name":"trigger_zones","path":"examples/trigger_zones.rs","loc":297,"kind":"demo","doc":"`TriggerZone` — fire enter/stay/exit events when entities overlap a region.  The 2D \"Area2D\" pattern: a [`TriggerZone`] watches an area and emits a [`ZoneEvent`] whenever a tracked entity enters, stays in, or exits it — for pickups, damage fields, room/door triggers, aggro ranges, checkpoints — with","selftest":false,"headless":true,"wasm":false},{"name":"tween_sequence","path":"examples/tween_sequence.rs","loc":228,"kind":"demo","doc":"`tween_sequence` — demonstrates [`TweenSequence`] chained tweens.  A colored square traces a looping rectangular path using two independent [`TweenSequence`]s — one for x and one for y — with four different easings on each leg so the differences in motion feel are clearly visible:  ```text Right (Ea","selftest":false,"headless":false,"wasm":false},{"name":"ui_dropdown","path":"examples/ui_dropdown.rs","loc":201,"kind":"demo","doc":"`Dropdown` — a combobox for game UI (settings menus, loadout pickers).  Attach a [`Dropdown`] next to a [`UiNode`]; click it to open the item list, click an item to select (emits [`UiEvent::DropdownChanged`]), press anywhere else to close. The open list draws above — and absorbs the pointer over — e","selftest":false,"headless":true,"wasm":false},{"name":"ui_focus","path":"examples/ui_focus.rs","loc":127,"kind":"demo","doc":"ui_focus — keyboard focus navigation for UI widgets (`UiFocus` + `UiSystem`'s focus pass).  A column of widgets (button, checkbox, slider, text field, button). `UiSystem` now cycles keyboard focus across them: - **Tab / Shift+Tab** (or a gamepad **D-pad** / **left stick** Down / Up) move focus (a ri","selftest":false,"headless":false,"wasm":false},{"name":"ui_list_box","path":"examples/ui_list_box.rs","loc":187,"kind":"demo","doc":"`ListBox` — a scrollable, selectable list, one entity per list.  Attach a [`ListBox`] next to a [`UiNode`]; it holds all rows and the single selected index, renders fixed-height rows, and **scrolls** when the rows overflow the node. Click a visible row to select it — [`UiEvent::ListBoxChanged`] fire","selftest":false,"headless":true,"wasm":false},{"name":"ui_nav_deadzone","path":"examples/ui_nav_deadzone.rs","loc":261,"kind":"demo","doc":"`StickNavConfig` — tunable analog-stick deadzone for UI focus navigation.  When a gamepad is connected, the left stick drives UI focus the same way Tab / the D-pad do: pushing it Down/Up steps focus across the focusable widgets. To turn the continuous axis into discrete steps the engine edge-detects","selftest":false,"headless":true,"wasm":false},{"name":"ui_progress","path":"examples/ui_progress.rs","loc":191,"kind":"demo","doc":"`ProgressBar` — a read-only UI gauge for health / mana / loading / XP.  Attach a [`ProgressBar`] next to a [`UiNode`] and drive its `value` (`0.0..=1.0`) each frame; the [`UiSystem`] draws a background track + a fill scaled to the value. No input — unlike a [`Slider`](engine::Slider) the game owns t","selftest":false,"headless":true,"wasm":false},{"name":"ui_radio","path":"examples/ui_radio.rs","loc":150,"kind":"demo","doc":"`RadioGroup` — mutually exclusive options, one entity per group.  Attach a [`RadioGroup`] next to a [`UiNode`]; the node's rect divides into option rows (ring + label, the selected row's ring filled by a dot). Click a row to select it — [`UiEvent::RadioChanged`] fires only when the selection actuall","selftest":false,"headless":true,"wasm":false},{"name":"ui_rounded","path":"examples/ui_rounded.rs","loc":211,"kind":"demo","doc":"ui_rounded — rounded-corner UI primitives + a rounded keyboard-focus ring.  `DrawRect` gained two optional, default-off knobs rendered by a dedicated SDF UI shader: - **`with_corner_radius(r)`** rounds the rect's corners (0.0 = sharp, byte-identical to before), - **`with_border(w)`** draws only an i","selftest":false,"headless":true,"wasm":false},{"name":"ui_stepper","path":"examples/ui_stepper.rs","loc":169,"kind":"demo","doc":"`Stepper` — a numeric spinner: a value in `min..=max` stepped by flanking `-`/`+` buttons.  Attach a [`Stepper`] next to a [`UiNode`]; the node's rect is split into a `-` button, a centered value label, and a `+` button. Click a button to move the value by `step` (clamped to the bounds) — [`UiEvent:","selftest":false,"headless":true,"wasm":false},{"name":"ui_switch","path":"examples/ui_switch.rs","loc":167,"kind":"demo","doc":"`Switch` — a styled boolean toggle: a sliding track + knob, the switch-look alternative to a [`CheckBox`].  Attach a [`Switch`] next to a [`UiNode`]; clicking anywhere on the node flips it (like a [`CheckBox`]), the knob slides between left (off) and right (on), and [`UiEvent::SwitchToggled`] carrie","selftest":false,"headless":true,"wasm":false},{"name":"ui_tabs","path":"examples/ui_tabs.rs","loc":195,"kind":"demo","doc":"`TabBar` — equal-width tab headers, one active; content switching is the game's job.  Attach a [`TabBar`] next to a [`UiNode`]; the node's rect divides into equal-width headers. Click a header (or focus the bar and press **←/→**) to change the active tab — [`UiEvent::TabChanged`] fires only when it ","selftest":false,"headless":true,"wasm":false},{"name":"ui_tooltip","path":"examples/ui_tooltip.rs","loc":158,"kind":"demo","doc":"`Tooltip` — hover popups for game UI widgets.  Attach a [`Tooltip`] next to any [`UiNode`] widget (a [`Button`], [`ProgressBar`], [`Label`], …); rest the cursor on the widget and, after [`Tooltip::delay_secs`], the [`UiSystem`] fades a small popup in next to the cursor. Moving off the widget resets ","selftest":false,"headless":true,"wasm":false},{"name":"window_mode","path":"examples/window_mode.rs","loc":124,"kind":"demo","doc":"Engine **window mode control** — dogfoods [`WindowOptions`](engine::WindowOptions), an opt-in resource for window resizability, fullscreen mode, and aspect-ratio lock.  This demo opens a **16:9 aspect-locked** window (`lock_aspect: Some(16.0 / 9.0)`). Drag any edge or corner: the window grows and sh","selftest":false,"headless":false,"wasm":false},{"name":"ysort","path":"examples/ysort.rs","loc":199,"kind":"demo","doc":"`YSort` — depth-sort sprites by world Y for a top-down scene.  Overlapping top-down sprites need the one **lower on screen** to draw in front (it is nearer the camera). Add a [`YSort`] component and [`YSortSystem`] writes each entity's `Transform.z` from its `Transform.position.y` every frame, so th","selftest":false,"headless":true,"wasm":false},{"name":"zone_effects","path":"examples/zone_effects.rs","loc":279,"kind":"demo","doc":"Data-driven Zone→Effect bindings — author a level's zones, particles, AND reactions in RON.  This builds on `examples/data_trigger_zones.rs`: the same heal / damage / goal zones are loaded from RON ([`zone_effects_zones.ron`](./zone_effects_zones.ron)), but instead of the game wiring reactions in Ru","selftest":false,"headless":true,"wasm":false},{"name":"audio_facade","path":"examples/audio_facade/audio_facade.rs","loc":453,"kind":"demo","doc":"Cross-platform audio facade demo — the **same code** plays audio on native **and** web.  The engine's two audio backends (`AudioManager` on native, `WebAudio` on wasm) have different shapes, so a dual-target game used to write every audio call twice behind `#[cfg]` guards. The [`Audio`](engine::Audi","selftest":false,"headless":false,"wasm":true},{"name":"centered_text","path":"examples/centered_text/centered_text.rs","loc":160,"kind":"demo","doc":"`DrawText::centered` horizontal-centering visual check (wishlist **EW-001** regression demo).  Renders [`DrawText::centered`] labels at several **off-center** screen-x positions, each with a full-height vertical guide line drawn through that exact `position.x`. The fix (skeleton-engine v0.43.6) make","selftest":false,"headless":false,"wasm":true},{"name":"audio_reactive","path":"examples/audio_reactive/audio_reactive.rs","loc":645,"kind":"demo","doc":"Audio-reactive hooks — drive visuals from what the audio is actually doing.  [`Audio::levels`](engine::Audio::levels) reports a named channel's live loudness as [`AudioLevels`](engine::AudioLevels) (`rms` = perceived loudness, `peak` = transient level), and [`Audio::bands`](engine::Audio::bands) rep","selftest":true,"headless":false,"wasm":true},{"name":"embedded_atlas","path":"examples/embedded_atlas/embedded_atlas.rs","loc":326,"kind":"demo","doc":"Embedded texture atlas — a whole sprite sheet baked into the binary via `include_bytes!`.  [`App::load_atlas`] is path-based: it reads a sheet from disk, resolved against the [asset root](engine::asset_path). That is right for a game shipping an `assets/` folder next to its executable — but a jam en","selftest":false,"headless":true,"wasm":true},{"name":"embedded_image","path":"examples/embedded_image/embedded_image.rs","loc":265,"kind":"demo","doc":"Embedded images — a sprite that renders from `include_bytes!`, with no external asset file.  Every other image API in the engine is *path*-based: `App::load_image(\"assets/hero.png\")` reads a file, resolved against the [asset root](engine::asset_path). That is right for a game that ships an `assets/`","selftest":false,"headless":true,"wasm":true},{"name":"game_feel","path":"examples/game_feel/game_feel.rs","loc":601,"kind":"demo","doc":"Game-feel capstone — the juice toolkit + the widget suite composed in one small playable.  A tiny training arena that exercises the engine's game-feel helpers **together**, driven live by a real pause/settings menu built from the widget suite:  * [`InputBuffer`] — buffered + coyote jumps (jump the g","selftest":false,"headless":true,"wasm":true},{"name":"web_audio","path":"examples/web_audio/web_audio.rs","loc":502,"kind":"demo","doc":"Web audio demo + self-check — the playable example that exercises [`engine::WebAudio`].  [`WebAudio`](engine::WebAudio) is the wasm counterpart to the native rodio [`AudioManager`](engine::AudioManager): a small `AudioContext` wrapper with one-shot SFX, a single looping **music** channel (with track","selftest":false,"headless":false,"wasm":true},{"name":"wasm_save","path":"examples/wasm_save/wasm_save.rs","loc":181,"kind":"demo","doc":"wasm_save — self-check for the AEAD save/load path on the web (wasm `localStorage`).  v0.22.0 made the whole `save`/`load`/`save_versioned`/`load_migrated` family cross-platform: the ChaCha20-Poly1305 core is target-agnostic, and on wasm the encrypted blob is hex-encoded into `localStorage` (keyed b","selftest":false,"headless":false,"wasm":true},{"name":"wasm_failpaths","path":"examples/wasm_failpaths/wasm_failpaths.rs","loc":245,"kind":"demo","doc":"wasm_failpaths — a page that takes two failure paths **on purpose**, and reports what happened.  Every other browser smoke drives a path that is supposed to succeed, and passes when nothing goes wrong. That leaves a blind spot the engine has now been bitten by twice: a *failure* handler can be compl","selftest":false,"headless":false,"wasm":true},{"name":"wasm_failpaths_echo_server","path":"examples/wasm_failpaths/echo_server.rs","loc":73,"kind":"demo","doc":"Echo server for the `wasm_failpaths` browser check.  ```text cargo run --example wasm_failpaths_echo_server ```  Deliberately trivial: it echoes every text/binary frame straight back. That is all the `wasm_failpaths` page needs, because the property under test is **\"did the message arrive at all\"** ","selftest":false,"headless":false,"wasm":false},{"name":"platformer_game","path":"examples/games/platformer/platformer.rs","loc":670,"kind":"game","doc":"","selftest":false,"headless":false,"wasm":false},{"name":"scene_flow_game","path":"examples/games/scene_flow/scene_flow.rs","loc":903,"kind":"game","doc":"scene_flow_game — the scene **stack**: Menu → Play, with Pause and Result as overlays.  The only example that uses `SceneCmd::Push`/`Pop`. The distinction it exists to show is that `Replace` rebuilds the `World` while **`Push`/`Pop` reset nothing**: a pushed overlay suspends the scene beneath rather","selftest":true,"headless":false,"wasm":false},{"name":"maze_escape_game","path":"examples/games/maze_escape/maze_escape.rs","loc":683,"kind":"game","doc":"Top-down maze-escape playable example (candidate B from docs/NEXT_WORK.md).  Validates `PathGrid` + `BehaviorTree` + `SpatialGrid` working together for the first time in the engine. Engine-side gaps closed alongside this example: `BehaviorTree`/`Sequence`/`Selector` re-exported from `engine::`, `Spa","selftest":false,"headless":false,"wasm":false},{"name":"sokoban_game","path":"examples/games/sokoban/sokoban.rs","loc":492,"kind":"game","doc":"Sokoban playable example (candidate C from docs/NEXT_WORK.md).  A turn-based grid puzzle: push every box onto a goal. Validates discrete grid movement, multi-level progression, undo/redo, and progress save/load working together for the first time in the engine. Engine-side gap closed alongside this ","selftest":false,"headless":false,"wasm":false},{"name":"shooter_game","path":"examples/games/shooter/shooter.rs","loc":632,"kind":"game","doc":"Vertical shooter playable example (candidate D from docs/NEXT_WORK.md).  First example to stress `engine::Pool` (bullet churn), `Timer`-driven spawning (fire cooldown + enemy waves), `SpatialGrid`/`CollisionLayer` under many simultaneous entities, and the audio bus mixer — all at once. It also drive","selftest":false,"headless":false,"wasm":false},{"name":"survivor_game","path":"examples/games/survivor/survivor.rs","loc":1741,"kind":"game","doc":"Top-down twin-stick survival example (candidate F from docs/NEXT_WORK.md).  Where the shooter (candidate D) first stressed `engine::Pool`, `SpatialGrid` and `Timer`, this example adds the *depth* surfaces: **steering under many simultaneous entities** (`engine::Seek` + `SteeringSystem` driving ~100-","selftest":true,"headless":false,"wasm":false},{"name":"settings_menu_game","path":"examples/games/settings_menu/settings_menu.rs","loc":1308,"kind":"game","doc":"settings_menu_game — UI depth + localization + audio-bus dogfooding example.  Every game needs a settings screen and a dialogue box, yet none of `TextInput`, `Slider`, `CheckBox`, `ScrollView`, `Panel`/`LayoutSystem`, `LocaleResource`, or the cross-platform `Audio` facade's low-pass filter had playa","selftest":true,"headless":false,"wasm":false},{"name":"ui_layout_editor_game","path":"examples/games/ui_layout_editor/ui_layout_editor.rs","loc":249,"kind":"game","doc":"ui_layout_editor_game — editor persistence acceptance example.  Proves the full vision loop: arrange a menu/HUD in the docked editor (F2), click \"Save Scene\", restart the example, and the edited layout persists.  # Workflow 1. Run the example — you see a default menu (title + 3 buttons + volume slid","selftest":false,"headless":false,"wasm":false},{"name":"stat_editor_game","path":"examples/games/stat_editor_game/stat_editor.rs","loc":219,"kind":"game","doc":"stat_editor_game — Phase C acceptance example: `register_editable_component` + DataTable.  Proves the full editor integration loop for a game-side stats component: • `Stats` is visible and editable per-entity in the Inspector (F2 → select entity). • Editing `Stats.hp` in the Inspector immediately up","selftest":false,"headless":false,"wasm":false},{"name":"rpg_quest_game","path":"examples/games/rpg_quest/rpg_quest.rs","loc":1520,"kind":"game","doc":"rpg_quest — the RPG slice: a dialogue-driven quest that gates world access and persists.  `docs/VISION.md` names five genres its success criteria have to cover — platformer, shooter, **RPG**, puzzle, top-down action. Four had a playable game in `examples/games/`; this is the fifth. The dialogue syst","selftest":true,"headless":false,"wasm":false},{"name":"lit_dungeon_game","path":"examples/games/lit_dungeon/lit_dungeon.rs","loc":703,"kind":"game","doc":"Top-down \"lit dungeon\" playable example — dogfoods 2D lighting + PostProcess.  Validates `PointLight` / `AmbientLight` and `PostProcessConfig` together in real play for the first time (both were shipped but never exercised by a game; see `docs/NEXT_WORK.md`). The dungeon is almost pitch black: the p","selftest":false,"headless":false,"wasm":false},{"name":"coin_race_game","path":"examples/games/coin_race/coin_race.rs","loc":1082,"kind":"game","doc":"Coin race — a small competitive multiplayer game (engine networking dogfood)  Two or more players race to collect coins. The **server is authoritative**: you never delete a coin yourself, you send a `grab` claim and wait for the server to confirm who actually got it. First to the target score wins. ","selftest":true,"headless":false,"wasm":true},{"name":"coin_race_server","path":"examples/games/coin_race/server.rs","loc":430,"kind":"game","doc":"Coin race — authoritative game server  ```text # Terminal 1 cargo run --example coin_race_server  # Terminals 2, 3, ... cargo run --example coin_race_game ```  Unlike `mp_server` (a dumb position relay), this server is **authoritative**: it owns the coin field and the scoreboard. Clients never delet","selftest":true,"headless":false,"wasm":false},{"name":"predict_shooter_server","path":"examples/games/predict_shooter/server.rs","loc":518,"kind":"game","doc":"Client-prediction shooter — authoritative fixed-tick server.  ```text # Terminal 1 cargo run --example predict_shooter_server  # Terminals 2, 3, ... cargo run --example predict_shooter ```  Unlike `coin_race_server` (event-driven, relays positions a client computes itself), this server is the **auth","selftest":false,"headless":false,"wasm":false},{"name":"predict_shooter","path":"examples/games/predict_shooter/predict_shooter.rs","loc":1004,"kind":"game","doc":"Client-prediction shooter — client.  ```text # Terminal 1 cargo run --example predict_shooter_server  # Terminals 2, 3, ... cargo run --example predict_shooter ```  Demonstrates the three pillars of responsive game networking against the authoritative `predict_shooter_server`: - **client-side predic","selftest":true,"headless":false,"wasm":true},{"name":"orbital_dodger_server","path":"examples/games/orbital_dodger/server.rs","loc":351,"kind":"game","doc":"Orbital Dodger — authoritative hazard server.  ```text # Terminal 1 cargo run --example orbital_dodger_server  # Terminal 2 cargo run --example orbital_dodger ```  A deliberately simple broadcast server: it owns a field of drifting, spinning hazards, steps them on a fixed 60 Hz tick, and broadcasts ","selftest":false,"headless":false,"wasm":false},{"name":"orbital_dodger","path":"examples/games/orbital_dodger/orbital_dodger.rs","loc":915,"kind":"game","doc":"Orbital Dodger — client.  ```text # Terminal 1 cargo run --example orbital_dodger_server  # Terminal 2 cargo run --example orbital_dodger ```  An **interpolation-only** networked example: cross the field to the green vault while dodging the server's drifting, spinning hazards. The hazards are wholly","selftest":true,"headless":false,"wasm":true},{"name":"salvage_run_server","path":"examples/games/salvage_run/server.rs","loc":445,"kind":"game","doc":"Salvage Run — authoritative AOI-streaming server.  ```text # Terminal 1 cargo run --example salvage_run_server  # Terminal 2 cargo run --example salvage_run ```  The server owns a large world full of drifting entities of two kinds (slow salvage, roaming drones), steps them on a fixed 60 Hz tick, and","selftest":false,"headless":false,"wasm":false},{"name":"salvage_run","path":"examples/games/salvage_run/salvage_run.rs","loc":1110,"kind":"game","doc":"Salvage Run — client.  ```text # Terminal 1 cargo run --example salvage_run_server  # Terminal 2 cargo run --example salvage_run ```  An **area-of-interest (AOI) streaming** networked example: pilot a ship across a world far larger than the window, collecting drifting salvage while dodging roaming d","selftest":true,"headless":false,"wasm":true},{"name":"script_steering_game","path":"examples/games/script_steering/script_steering.rs","loc":204,"kind":"game","doc":"script_steering — demonstrates Arrive and Wander scripting bindings (Phase 38e).  # What to observe - **Cyan square (Arrive)**: follows your mouse cursor, decelerating smoothly as it closes in and stopping within 12 px. The target is written to the entity's Blackboard each frame by `TargetWriterSyst","selftest":false,"headless":false,"wasm":false},{"name":"dig_quest_game","path":"examples/games/dig_quest/dig_quest.rs","loc":525,"kind":"game","doc":"# dig_quest — runtime tilemap mutation + autotiling acceptance test  A top-down miner game that validates the engine's runtime tilemap mutation API and the `TilemapAutotile` component.  The player digs through a field of solid dirt to reach a buried gem.  ## Features exercised * `Tilemap::set_tile` ","selftest":false,"headless":false,"wasm":false},{"name":"multi_terrain_game","path":"examples/games/multi_terrain/multi_terrain.rs","loc":204,"kind":"game","doc":"Multi-terrain autotiling demo.  A map of three terrains — grass (1), water (2), sand (3) — each autotiling its own border against the others via [`TilemapAutotile::multi_edge_16`]. Move a cursor with the arrow keys and paint the cursor cell with `1`/`2`/`3` (grass/water/sand) or `0` (erase): `Tilema","selftest":false,"headless":false,"wasm":false},{"name":"data_anim_game","path":"examples/games/data_anim/data_anim.rs","loc":545,"kind":"game","doc":"Data-driven animation demo.  The sprite's animation clips are defined entirely in `assets/clips.ron` — NOT in code. `App::load_animation_clips` loads them into an `AnimationClipRegistry` (hot-reloaded via the asset watcher). Press `1`/`2`/`3` to switch clips by name. **Edit `clips.ron`** (change an ","selftest":true,"headless":false,"wasm":false},{"name":"data_particles_game","path":"examples/games/data_particles/data_particles.rs","loc":535,"kind":"game","doc":"Data-driven particles demo.  The particle emitters are defined entirely in `assets/particles.ron` — NOT in code. `App::load_particle_configs` loads them into a `ParticleConfigRegistry` (hot-reloaded via the asset watcher). Press `1`/`2`/`3` to switch emitters by name (fire / fountain / smoke). **Edi","selftest":true,"headless":false,"wasm":false},{"name":"tile_paint_game","path":"examples/games/tile_paint/tile_paint.rs","loc":157,"kind":"game","doc":"Tile-painting editor acceptance test.  Spawns a blank 20×15 tilemap with a 4-tile colour atlas (generated at runtime), then lets the user open the F2 docked editor and paint tiles directly on the map.  ## How to paint 1. Press **F2** to open the docked editor. 2. Click the tilemap entity in the left","selftest":false,"headless":false,"wasm":false},{"name":"beat_crawler_game","path":"examples/games/beat_crawler/beat_crawler.rs","loc":1199,"kind":"game","doc":"Beat Crawler — a dungeon crawler whose turn clock is the music itself.  The second capstone: where `roguelike` composed **two** features (procgen + fog-of-war), this composes the engine's newest surface into one playable loop, and does it *structurally* rather than decoratively — remove any one piec","selftest":true,"headless":false,"wasm":false}],"cats":{"core":{"label":"코어","hex":"#6680FF","hexL":"#2F4FD0"},"render":{"label":"렌더링","hex":"#FF6E6E","hexL":"#C4383F"},"ui":{"label":"UI","hex":"#FFA64D","hexL":"#A65E14"},"gameplay":{"label":"게임플레이","hex":"#4DE68A","hexL":"#1B7F46"},"data":{"label":"데이터·에셋","hex":"#B37DFF","hexL":"#6B2FBF"},"platform":{"label":"플랫폼 I/O","hex":"#4DE0F0","hexL":"#0F6E80"}},"cycles":[["asset","atlas","components","hierarchy","nine_slice","renderer"],["app","floating_text","input_script","text_measure"],["gpu_particle","particle"]]};
+
+/* ── theme ───────────────────────────────────────────────────────────── */
+const tb = document.getElementById('themebtn');
+tb.addEventListener('click', () => {
+  const cur = document.documentElement.getAttribute('data-theme');
+  const dark = cur ? cur === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.setAttribute('data-theme', dark ? 'light' : 'dark');
+});
+
+/* ── helpers ─────────────────────────────────────────────────────────── */
+const fmt = n => n.toLocaleString('en-US');
+const el = (tag, cls, txt) => { const e = document.createElement(tag);
+  if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+
+/* ── tabs ────────────────────────────────────────────────────────────── */
+const views = ['overview','modules','examples','verify'];
+function show(v){
+  if (!views.includes(v)) v = 'overview';
+  views.forEach(id => {
+    const s = document.getElementById(id);
+    if (id === v) s.setAttribute('data-active',''); else s.removeAttribute('data-active');
+  });
+  document.querySelectorAll('.tab[data-view]').forEach(b =>
+    b.setAttribute('aria-current', b.dataset.view === v ? 'page' : 'false'));
+  window.scrollTo(0,0);
+}
+document.querySelectorAll('.tab[data-view]').forEach(b =>
+  b.addEventListener('click', () => { location.hash = b.dataset.view; }));
+addEventListener('hashchange', () => show(location.hash.slice(1)));
+
+/* ── overview: plate ─────────────────────────────────────────────────── */
+const S = DATA.stats;
+const plate = [
+  ['모듈', S.modules, '최상위 · src/'],
+  ['소스', fmt(S.srcLoc), S.srcFiles + ' 파일'],
+  ['단위 테스트', fmt(S.unitTests), '#[test] · 인라인'],
+  ['의존 간선', S.edges, '모듈 → 모듈'],
+  ['예제', S.examples, '게임 ' + S.games + ' 타깃'],
+  ['pub use', 73, 'lib.rs 재export 구문'],
+];
+document.getElementById('plate').append(...plate.map(([k,v,s]) => {
+  const c = el('div','cell');
+  c.append(el('div','k',k), el('div','v',String(v)), el('div','s',s));
+  return c;
+}));
+
+/* ── overview: tree ──────────────────────────────────────────────────── */
+const TREE = [
+['skeleton-engine/','',''],
+['├── ','src/','엔진 라이브러리 — 273 파일 / 85,966줄'],
+['│   ├── ','app/','메인 루프 · 프레임 스케줄 · 도킹 에디터   52 파일 / 16,073줄'],
+['│   ├── ','ui/','위젯 22종 + 레이아웃 · 포커스 · 이벤트     39 파일 / 11,229줄'],
+['│   ├── ','renderer/','wgpu 스프라이트 · 텍스트 · 라이팅 · 블룸   31 파일 /  8,285줄'],
+['│   ├── ','audio/','rodio 버스 · 더킹 · 스펙트럼 (네이티브)    11 파일 /  4,226줄'],
+['│   ├── ','animation/','플레이어 · 블렌드 트리 · 상태 머신          9 파일 /  3,551줄'],
+['│   ├── ','physics/','rapier2d 래퍼 · 캐릭터 컨트롤러 (네이티브) 12 파일 /  3,323줄'],
+['│   ├── ','ecs/','월드 · 쿼리 · 이벤트 · 스케줄              15 파일 /  2,641줄'],
+['│   ├── ','tilemap/  dialogue/  input/  network/  asset/  scripting/  …',''],
+['│   └── ','lib.rs','공개 재export 73줄 — 무엇이 있는지 가장 빠른 지도'],
+['├── ','examples/','145 cargo 타깃 / 43,990줄 — 기능의 인수 테스트'],
+['│   ├── ','games/','완성형 소형 게임 22종 (+ 전용 서버 4)'],
+['│   └── ','*.rs','단일 기능 데모 109개'],
+['├── ','tests/','통합 테스트 9 파일 — render · per_frame_alloc · save · …'],
+['├── ','scripts/','verify.sh · 브라우저 스모크 · wasm 빌드   21개'],
+['├── ','docs/','32개 마크다운 — MODULE_MAP · PATTERNS · VERIFICATION'],
+['├── ','plans/','세션 계획 · 핸드오프 (git 추적)'],
+['├── ','engine_reflect_derive/','#[derive(Reflect)] 매크로 — 워크스페이스 멤버 / dev-dependency'],
+['└── ','assets/','번들 폰트 (한글 서브셋 포함)'],
+];
+document.getElementById('tree').innerHTML = TREE.map(([p,n,d]) => {
+  const pad = ' '.repeat(Math.max(1, 26 - (p.length + n.length)));
+  return `<i>${p}</i><b>${n}</b>${d ? pad + '<i>' + d + '</i>' : ''}`;
+}).join('\n');
+
+/* ── overview: pipeline ──────────────────────────────────────────────── */
+const PIPE = [
+ ['0','스크립트 입력 주입','시스템 실행 전, 지난 프레임 flush 뒤 — 스크립트 입력도 자기 프레임 안에서 just_pressed로 읽힌다','apply_input_script_frame()',0],
+ ['1','뷰포트 · 스케일 계산','물리 버퍼 크기와 DPR에서 논리 ViewportSize / DisplayScaleFactor를 유도','compute_viewport()',0],
+ ['2','egui 프레임 시작','에디터 오버레이용 컨텍스트를 연다','begin_egui_frame()',0],
+ ['3','스케줄 재계산','라벨/순서가 바뀌었을 때만 exec_order를 다시 위상 정렬','compute_order()',0],
+ ['4','시스템 루프','게임 시스템 + 내장 tail. TimeScale은 게임 시스템에만 적용되고 tail은 실 dt를 받는다','run_systems()',1],
+ ['5','카메라 갱신','추적 · 룩어헤드 · 흔들림','Camera',0],
+ ['6','에디터 일시정지 판정','Docked && paused면 게임 시스템만 얼리고 hierarchy/기즈모는 계속 돈다','EditorMode::Docked',0],
+ ['7','에디터 UI · egui 종료','','post_systems()',0],
+ ['8','입력 flush','다음 프레임의 just_pressed 경계','InputState',0],
+ ['9','씬 명령 처리','SceneChange — World 재구축, persistent 리소스만 살아남는다','SceneCmd',1],
+ ['10','페이드 · 전환 진행','','SceneTransition',0],
+ ['11','핫리로드 폴링','notify 감시 결과를 레지스트리에 반영 (네이티브)','AssetServer::poll_reloads',0],
+ ['12','에셋 GPU 업로드','디코드된 이미지를 텍스처로 밀어넣는다','merge_textures_delta()',0],
+ ['13','렌더','스프라이트 → 라이팅 → 포스트 → UI → egui, 대상 포맷별 파이프라인 캐시','app/render/frame.rs',1],
+];
+document.getElementById('pipe').append(...PIPE.map(([n,t,d,f,acc]) => {
+  const s = el('div','step' + (acc ? ' acc' : ''));
+  s.append(el('div','n',n));
+  const b = el('div');
+  b.append(el('div','t',t));
+  if (d) b.append(el('div','d',d));
+  b.append(el('div','f',f));
+  s.append(b);
+  return s;
+}));
+
+/* ── overview: category bars ─────────────────────────────────────────── */
+function renderBars(host, rows, colorFn){
+  host.textContent = '';
+  const max = Math.max(...rows.map(r => r[1]));
+  rows.forEach(r => {
+    const b = el('div','bar');
+    b.append(el('div','lbl', r[0]));
+    const tr = el('div','track'); const f = el('div','fill');
+    f.style.width = (r[1] / max * 100) + '%';
+    f.style.background = colorFn(r);
+    tr.append(f); b.append(tr);
+    b.append(el('div','val', r[2]));
+    host.append(b);
+  });
+}
+function catRows(){
+  const by = {};
+  DATA.mods.forEach(m => {
+    (by[m.cat] ||= {loc:0, n:0}); by[m.cat].loc += m.loc; by[m.cat].n++;
+  });
+  return Object.entries(DATA.cats)
+    .map(([k,v]) => [v.label, by[k].loc, fmt(by[k].loc) + '줄 · ' + by[k].n + '모듈', k])
+    .sort((a,b) => b[1] - a[1]);
+}
+renderBars(document.getElementById('catbars'), catRows(), r => 'var(--c-' + r[3] + ')');
+
+/* ── overview: dep facts ─────────────────────────────────────────────── */
+function topBy(key, n){
+  return [...DATA.mods].sort((a,b) => b[key].length - a[key].length).slice(0,n)
+    .map(m => m.id + '(' + m[key].length + ')').join('  ');
+}
+const leaves = DATA.mods.filter(m => m.deps.length === 0).map(m => m.id);
+const facts = [
+  ['가장 많이 쓰임', topBy('rdeps', 6)],
+  ['가장 많이 씀', topBy('deps', 6)],
+  ['순환 없는 잎', leaves.length + '개 — ' + leaves.join(' ')],
+  ['순환 묶음', DATA.cycles.map(c => c.join('↔')).join('\n')],
+];
+document.getElementById('depfacts').append(...facts.map(([k,v]) => {
+  const r = el('div','deprow'); r.append(el('span','k',k), el('span','vv',v)); return r;
+}));
+
+/* ── overview: external stack ────────────────────────────────────────── */
+const STACK = [
+  ['공통', 'winit 0.30 · wgpu 29(webgl) · glam 0.28 · bytemuck 1\nimage 0.25(png) · serde 1 · ron 0.8 · glyphon 0.11\negui 0.34 · rhai 1 · chacha20poly1305 0.10 · rand 0.8'],
+  ['네이티브 전용', 'rapier2d 0.22 · rodio 0.22 · gilrs 0.11 · notify 6\ntungstenite 0.29 · rayon 1 · dirs 5'],
+  ['macOS 전용', 'objc2 0.5 · objc2-game-controller 0.2\n(IOKit-HID가 못 읽는 최신 패드용 GC 백엔드)'],
+  ['wasm 전용', 'wasm-bindgen · js-sys · web-sys(AudioContext · WebSocket · Storage)\nweb-time 1 · getrandom(js)'],
+  ['dev', 'engine_reflect_derive(path) · serde_json 1 · ab_glyph 0.2 · env_logger 0.11'],
+];
+document.getElementById('stack').append(...STACK.map(([k,v]) => {
+  const r = el('div','deprow'); r.append(el('span','k',k), el('span','vv',v)); return r;
+}));
+
+/* ── overview: CI jobs ───────────────────────────────────────────────── */
+const CIJOBS = [
+  ['test', 'ubuntu',
+   'fmt · clippy · cargo test --all-targets · --doc · SELFTEST 인수 테스트 · 핫리로드 스모크 · release 빌드',
+   '두 단계 빼고 덮음', 'part'],
+  ['render', 'ubuntu',
+   'lavapipe(소프트웨어 Vulkan)로 렌더 테스트 + 네이티브 렌더 스모크 — 조용히 스킵하면 실패 처리',
+   '덮지 못함 — GPU 필요', 'no'],
+  ['wasm', 'ubuntu',
+   'wasm32 라이브러리 빌드 · wasm clippy · wasm 예제 빌드', '전부 덮음', 'yes'],
+  ['wasm-smokes', 'ubuntu',
+   'wasm-bindgen-cli(Cargo.lock에 핀) + Chrome으로 자체 판정 브라우저 스모크', '전부 덮음', 'yes'],
+  ['windows', 'windows', 'lib + bins 빌드 · MSVC 타깃의 windows 크레이트 버전 단일성 검사',
+   '덮지 못함 — 실행은 아무도 안 함', 'no'],
+  ['macos', 'macos', 'lib + bins 빌드', '덮지 못함 — 실행은 아무도 안 함', 'no'],
+  ['docs', 'ubuntu', 'cargo doc --no-deps', '전부 덮음', 'yes'],
+  ['package', 'ubuntu', 'cargo package --locked · publish --dry-run', '덮지 못함', 'no'],
+];
+document.getElementById('cijobs').append(...CIJOBS.map(([n,r,what,cov,kind]) => {
+  const tr = el('tr');
+  tr.append(el('td','id', n), el('td','desc', r));
+  tr.lastChild.style.color = 'var(--ink-3)';
+  tr.append(el('td','desc', what));
+  const c = el('td');
+  const t = el('span','tag' + (kind === 'yes' ? ' ok' : kind === 'no' ? ' native' : ''), cov);
+  t.style.whiteSpace = 'normal';
+  c.append(t);
+  tr.append(c);
+  return tr;
+}));
+
+/* ── modules table ───────────────────────────────────────────────────── */
+const mods = DATA.mods.map(m => ({...m, nd:m.deps.length, nr:m.rdeps.length}));
+let mSort = {key:'loc', dir:'desc'}, mQuery = '', mCats = new Set();
+
+const mcats = document.getElementById('mcats');
+Object.entries(DATA.cats).forEach(([k,v]) => {
+  const c = el('button','chip'); c.type = 'button'; c.setAttribute('aria-pressed','false');
+  const d = el('span','dot'); d.style.background = 'var(--c-' + k + ')';
+  c.append(d, document.createTextNode(v.label));
+  c.addEventListener('click', () => {
+    mCats.has(k) ? mCats.delete(k) : mCats.add(k);
+    c.setAttribute('aria-pressed', mCats.has(k));
+    drawMods();
+  });
+  mcats.append(c);
+});
+
+document.querySelectorAll('th[data-sort]').forEach(th =>
+  th.addEventListener('click', () => {
+    const k = th.dataset.sort;
+    mSort = {key:k, dir: mSort.key === k && mSort.dir === 'desc' ? 'asc' : 'desc'};
+    document.querySelectorAll('th[data-sort]').forEach(t => t.removeAttribute('data-dir'));
+    th.dataset.dir = mSort.dir;
+    drawMods();
+  }));
+document.getElementById('msearch').addEventListener('input', e => {
+  mQuery = e.target.value.trim().toLowerCase(); drawMods();
+});
+
+function drawMods(){
+  let rows = mods.filter(m =>
+    (!mCats.size || mCats.has(m.cat)) &&
+    (!mQuery || m.id.includes(mQuery) || m.desc.toLowerCase().includes(mQuery)));
+  const {key, dir} = mSort, sgn = dir === 'desc' ? -1 : 1;
+  rows.sort((a,b) => key === 'id'
+    ? sgn * a.id.localeCompare(b.id) : sgn * (a[key] - b[key]) || a.id.localeCompare(b.id));
+
+  const body = document.getElementById('mbody');
+  body.textContent = '';
+  rows.forEach(m => {
+    const tr = el('tr'); tr.tabIndex = 0;
+    const td0 = el('td','id');
+    const wrap = el('div','namecell');
+    const d = el('span','dot'); d.style.background = 'var(--c-' + m.cat + ')';
+    wrap.append(d, el('span',null,m.id));
+    if (m.gate === 'native') wrap.append(el('span','tag native','native'));
+    if (m.gate === 'wasm') wrap.append(el('span','tag wasm','wasm'));
+    if (m.vis === 'private') wrap.append(el('span','tag priv','crate'));
+    td0.append(wrap);
+    tr.append(td0,
+      el('td','n', fmt(m.loc)), el('td','n', String(m.files)),
+      el('td','n', String(m.tests)), el('td','n', String(m.nd)), el('td','n', String(m.nr)),
+      el('td','desc', m.desc));
+    const det = el('tr'); det.style.display = 'none';
+    const dtd = el('td'); dtd.colSpan = 7; dtd.style.background = 'var(--sunk)';
+    const dl = el('div','deplist');
+    const add = (k,v) => { const r = el('div','deprow');
+      r.append(el('span','k',k), el('span','vv', v || '—')); dl.append(r); };
+    add('의존 → ' + m.nd, m.deps.join('  '));
+    add('피의존 ← ' + m.nr, m.rdeps.join('  '));
+    add('외부 크레이트', m.ext.map(([n,c]) => n + '·' + c).join('  '));
+    dtd.append(dl); det.append(dtd);
+    const toggle = () => { det.style.display = det.style.display === 'none' ? '' : 'none'; };
+    tr.addEventListener('click', toggle);
+    tr.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ')
+      { e.preventDefault(); toggle(); } });
+    body.append(tr, det);
+  });
+  document.getElementById('mcount').textContent =
+    rows.length + ' / ' + mods.length + ' 모듈 · ' +
+    fmt(rows.reduce((s,m) => s + m.loc, 0)) + '줄';
+}
+document.querySelector('th[data-sort="loc"]').dataset.dir = 'desc';
+drawMods();
+
+/* ── examples table ──────────────────────────────────────────────────── */
+let eQuery = '', eFilters = new Set();
+const EF = [['game','게임'],['selftest','SELFTEST'],['headless','HEADLESS_SHOT'],['wasm','WASM']];
+const efh = document.getElementById('efilters');
+EF.forEach(([k,label]) => {
+  const c = el('button','chip', label); c.type = 'button';
+  c.setAttribute('aria-pressed','false');
+  c.addEventListener('click', () => {
+    eFilters.has(k) ? eFilters.delete(k) : eFilters.add(k);
+    c.setAttribute('aria-pressed', eFilters.has(k)); drawEx();
+  });
+  efh.append(c);
+});
+document.getElementById('esearch').addEventListener('input', e => {
+  eQuery = e.target.value.trim().toLowerCase(); drawEx();
+});
+let eSort = {key:'name', dir:'asc'};
+document.querySelectorAll('th[data-esort]').forEach(th =>
+  th.addEventListener('click', () => {
+    const k = th.dataset.esort;
+    eSort = {key:k, dir: eSort.key === k && eSort.dir === 'asc' ? 'desc' : 'asc'};
+    document.querySelectorAll('th[data-esort]').forEach(t => t.removeAttribute('data-dir'));
+    th.dataset.dir = eSort.dir;
+    drawEx();
+  }));
+
+function drawEx(){
+  let rows = DATA.examples.filter(x =>
+    (!eFilters.size || [...eFilters].every(f =>
+      f === 'game' ? x.kind === 'game' : x[f])) &&
+    (!eQuery || x.name.includes(eQuery) || x.doc.toLowerCase().includes(eQuery)));
+  const sgn = eSort.dir === 'asc' ? 1 : -1;
+  rows.sort((a,b) => eSort.key === 'name'
+    ? sgn * a.name.localeCompare(b.name) : sgn * (a.loc - b.loc));
+
+  const body = document.getElementById('ebody'); body.textContent = '';
+  rows.forEach(x => {
+    const tr = el('tr');
+    const td0 = el('td','id');
+    const w = el('div','namecell');
+    w.append(el('span',null,x.name));
+    if (x.kind === 'game') w.append(el('span','tag','game'));
+    td0.append(w, el('div','f', x.path));
+    td0.lastChild.style.cssText = 'font-size:10.5px;color:var(--ink-3);font-weight:400';
+    const tds = el('td');
+    if (x.selftest) tds.append(el('span','tag ok','SELFTEST'), document.createTextNode(' '));
+    if (x.headless) tds.append(el('span','tag','SHOT'), document.createTextNode(' '));
+    if (x.wasm) tds.append(el('span','tag wasm','WASM'));
+    tr.append(td0, el('td','n', fmt(x.loc)), tds, el('td','desc', x.doc.slice(0,150)));
+    body.append(tr);
+  });
+  document.getElementById('ecount').textContent =
+    rows.length + ' / ' + DATA.examples.length + ' 타깃 · ' +
+    fmt(rows.reduce((s,x) => s + x.loc, 0)) + '줄';
+}
+document.querySelector('th[data-esort="name"]').dataset.dir = 'asc';
+drawEx();
+
+show(location.hash.slice(1));
+</script>
+</body>
+</html>
