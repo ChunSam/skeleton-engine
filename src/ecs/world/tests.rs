@@ -798,6 +798,80 @@ fn take_without_readd_reports_neither_added_nor_changed() {
     assert!(world.get::<Health>(e).is_none());
 }
 
+/// `with_resource_mut` must not take the resource down with an unwind.
+///
+/// `App`'s default `SystemPanicPolicy::DisableSystemAndContinue` catches a system panic and
+/// keeps the frame loop running, so before this was fixed the session simply carried on with
+/// the resource permanently missing — and the only log line named the panicking system, never
+/// the resource that vanished.
+#[test]
+fn with_resource_mut_restores_the_resource_when_the_closure_panics() {
+    let mut world = World::new();
+    world.insert_resource(Health(7));
+
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        world.with_resource_mut::<Health, _>(|_h, _w| panic!("system blew up"));
+    }));
+
+    assert!(outcome.is_err(), "the panic must still reach the caller");
+    assert_eq!(
+        world.resource::<Health>().map(|h| h.0),
+        Some(7),
+        "the resource belongs back in the World, not dropped on the unwind path"
+    );
+}
+
+/// Inserting a fresh `R` through the closure's `&mut World` — a config/registry hot-reload,
+/// which is what that argument exists for — must win over the value taken at entry.
+#[test]
+fn with_resource_mut_keeps_a_replacement_inserted_by_the_closure() {
+    let mut world = World::new();
+    world.insert_resource(Health(1));
+
+    assert!(world.with_resource_mut::<Health, _>(|_old, w| {
+        w.insert_resource(Health(999));
+    }));
+
+    assert_eq!(
+        world.resource::<Health>().unwrap().0,
+        999,
+        "the unconditional re-insert used to clobber the reload back to the stale value"
+    );
+}
+
+/// A panic inside a registered clone closure must not unregister the type.
+///
+/// The registry used to hand the closure out by removing it from the map for the duration of
+/// the call, so the first panic lost the registration and every later `clone_entity` silently
+/// copied nothing. The second iteration is the assertion: it can only panic again if the
+/// registration survived the first one.
+#[test]
+fn clone_registration_survives_a_panic_in_the_clone_closure() {
+    struct PanicOnClone;
+    impl Clone for PanicOnClone {
+        fn clone(&self) -> Self {
+            panic!("clone blew up")
+        }
+    }
+
+    let mut world = World::new();
+    world.register_clone::<PanicOnClone>();
+    let src = world.spawn();
+    world.add_component(src, PanicOnClone);
+
+    for attempt in 0..2 {
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            world.clone_entity(src);
+        }));
+        assert!(
+            outcome.is_err(),
+            "attempt {attempt}: the registration must still be in place — the old \
+             remove → call → re-insert lost it on the first panic, after which this \
+             clone would silently copy nothing and report success"
+        );
+    }
+}
+
 /// `query_added` / `query_changed` collect from a `HashMap<Entity, _>`, so their order used to
 /// be seeded per process — the only public queries in the crate that were not reproducible.
 /// They now yield ascending `(index, generation)`.
