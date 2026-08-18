@@ -131,6 +131,13 @@ pub struct World {
     changed_this_tick: HashMap<Entity, HashSet<TypeId>>,
     /// Function registry used to clone components inside `clone_entity`.
     clone_registry: HashMap<TypeId, CloneComponentFn>,
+    /// Scratch for `move_entity`'s in-flight components. A per-call `HashMap` allocated on every
+    /// archetype transition *and* grew with the entity's width; this is `clear()`ed and reused.
+    move_scratch: Vec<(TypeId, ComponentBox)>,
+    /// Scratch for the archetype signature `add_component` / `remove_component` build to look up
+    /// their destination. On the common path that archetype already exists, so the `Vec` was
+    /// allocated only to be dropped one line later.
+    sig_scratch: Vec<TypeId>,
 }
 
 impl World {
@@ -152,6 +159,8 @@ impl World {
             added_this_tick: HashMap::new(),
             changed_this_tick: HashMap::new(),
             clone_registry: HashMap::new(),
+            move_scratch: Vec::new(),
+            sig_scratch: Vec::new(),
         }
     }
 
@@ -179,13 +188,16 @@ impl World {
 
     // ── Internal helpers ──────────────────────────────────────────────────────
 
-    fn get_or_create_archetype(&mut self, sig: Vec<TypeId>) -> ArchetypeId {
-        if let Some(&id) = self.archetype_index.get(&sig) {
+    /// Takes a slice, not an owned `Vec`: on the common path the archetype already exists, and an
+    /// owned signature would be allocated by the caller only to be dropped here one line later.
+    /// `Vec<T>: Borrow<[T]>`, so the map lookup works on the borrowed form unchanged.
+    fn get_or_create_archetype(&mut self, sig: &[TypeId]) -> ArchetypeId {
+        if let Some(&id) = self.archetype_index.get(sig) {
             return id;
         }
         let id = self.archetypes.len();
-        self.archetypes.push(Archetype::new(sig.clone()));
-        self.archetype_index.insert(sig, id);
+        self.archetypes.push(Archetype::new(sig.to_vec()));
+        self.archetype_index.insert(sig.to_vec(), id);
         id
     }
 
@@ -198,21 +210,39 @@ impl World {
         }
 
         let src_len = self.archetypes[src_arch_id].entities.len();
-        // Clone required: we need `type_set` keys to call `columns.get_mut()` on the same
-        // Archetype. Holding `&type_set` while also holding `&mut columns` would alias fields
-        // of the same struct, which the borrow checker disallows. split_at_mut cannot help
-        // here because both borrows are on the same Vec element.
-        let src_type_set: Vec<TypeId> = self.archetypes[src_arch_id].type_set.clone();
+        // `type_set` and `columns` are fields of the same Archetype, so a shared borrow of the
+        // first cannot coexist with the `&mut` the loop needs on the second — and `split_at_mut`
+        // does not help, since both borrows land on the same `Vec` element. This used to break
+        // that by *cloning* `type_set`, once for the source and once for the destination, on
+        // every transition: assembling an N-component entity re-copied the whole signature N
+        // times, so the per-component allocation cost climbed with the entity's width.
+        //
+        // `mem::take` breaks the same borrow for nothing. Between the take and the restore the
+        // archetype's `type_set` reads empty, which is safe here because the loop reaches only
+        // `columns` and nothing in this function calls out to code that could observe an
+        // Archetype. (Unlike the `with_resource_mut` case in v0.152.2, there is no user closure
+        // in the gap — the only way out is an `expect` firing, and that already means the
+        // archetype invariant this restores is broken.)
+        let src_type_set = std::mem::take(&mut self.archetypes[src_arch_id].type_set);
 
-        let mut extracted: HashMap<TypeId, ComponentBox> = HashMap::new();
+        // Reused scratch rather than a fresh `HashMap` per transition. That map held one entry
+        // per component the entity already carried, so it allocated every time and grew with the
+        // width — the second half of the same O(N^2) shape. A `Vec` also beats a `HashMap` for
+        // the handful of entries involved: the destination loop below scans it linearly.
+        let mut extracted = std::mem::take(&mut self.move_scratch);
+        debug_assert!(
+            extracted.is_empty(),
+            "move_entity: scratch left dirty by a previous call"
+        );
         for &tid in &src_type_set {
             let comp = self.archetypes[src_arch_id]
                 .columns
                 .get_mut(&tid)
                 .expect("move_entity: source column exists for every type in its type_set")
                 .swap_remove(src_row);
-            extracted.insert(tid, comp);
+            extracted.push((tid, comp));
         }
+        self.archetypes[src_arch_id].type_set = src_type_set;
 
         self.archetypes[src_arch_id].entities.swap_remove(src_row);
 
@@ -224,12 +254,11 @@ impl World {
         let dst_row = self.archetypes[target_arch_id].entities.len();
         self.archetypes[target_arch_id].entities.push(entity);
 
-        // Same borrow-checker constraint as src_type_set above: `type_set` and `columns`
-        // are fields of the same Archetype, so a shared ref to `type_set` cannot coexist
-        // with a mutable borrow of `columns`.
-        let dst_type_set: Vec<TypeId> = self.archetypes[target_arch_id].type_set.clone();
+        // Same borrow, same fix as the source side above.
+        let dst_type_set = std::mem::take(&mut self.archetypes[target_arch_id].type_set);
         for &tid in &dst_type_set {
-            if let Some(comp) = extracted.remove(&tid) {
+            if let Some(pos) = extracted.iter().position(|(t, _)| *t == tid) {
+                let (_, comp) = extracted.swap_remove(pos);
                 self.archetypes[target_arch_id]
                     .columns
                     .get_mut(&tid)
@@ -237,6 +266,13 @@ impl World {
                     .push(comp);
             }
         }
+        self.archetypes[target_arch_id].type_set = dst_type_set;
+
+        // Whatever is still in `extracted` belongs to a type the destination does not carry —
+        // a genuine removal. `clear()` drops those boxes (the old `HashMap` did it by going out
+        // of scope) and keeps the capacity for the next transition.
+        extracted.clear();
+        self.move_scratch = extracted;
 
         self.entity_location
             .insert(entity, (target_arch_id, dst_row));
