@@ -159,12 +159,9 @@ Two that have their own failure mode:
 the acceptance test, not an afterthought — if the API feels awkward while writing it, fix the API.
 
 **A filed diagnosis is a hypothesis, not a spec — the gate that row names is what settles it.**
-Five times between v0.150.7 and v0.152.5 a written-down cause was wrong and one measurement
-reversed it: a `NEXT_WORK` row specified a serde shape RON cannot express; a guard test "confirmed"
-a fix against a `World` missing the component it guarded; a row called a fix impossible that needed
-no new API; a version that read like a typo was real and older; and a row naming two `Vec` clones as
-an O(N²) cause had the constant half, not the scaling one. Re-derive before acting — **including
-your own claim from ten minutes ago**, which is the one case this has actually bitten.
+*(권고)* Five times between v0.150.7 and v0.152.5 a written-down cause was wrong and a single
+measurement reversed it (#459, #461, #462, #464, #473). Re-derive before acting — **including your
+own claim from ten minutes ago**, which is the one case this has actually bitten.
 
 **Where things go.** Unit tests live inline (`mod tests`), beside the code they cover. `plans/` is
 tracked — commit session plans and handoffs. `.claude/` is gitignored.
