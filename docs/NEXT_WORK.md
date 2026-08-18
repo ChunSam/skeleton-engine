@@ -25,17 +25,37 @@ A filed request preempts everything below.
 
 ## Open — engineering
 
-**Three items, all deliberately unscheduled** — each gated on a trigger, none on a decision. A
-backlog this short is the *expected* state, not a gap to fill: two programs closed in v0.150.7 and
-v0.151.1, and the board gate above is empty.
-Manufacturing work to fill it would be a new analysis — say so out loud and scope it, rather than
-letting it arrive as "the backlog said so".
+**Six items, all deliberately unscheduled** — each gated on a trigger, none on a decision. The
+three below are the standing ones; the three under *the 2026-08-18 ECS review's efficiency
+remainder* arrived together from one pass and are gated on measurement rather than on a caller.
+
+A backlog this short is still the *expected* state, not a gap to fill: two programs closed in
+v0.150.7 and v0.151.1, and the board gate above is empty. Manufacturing work to fill it would be a
+new analysis — say so out loud and scope it, rather than letting it arrive as "the backlog said so".
+The ECS rows below are **not** that: they came out of a review that shipped twelve fixes across
+v0.152.1–v0.152.4, and they are what that review deliberately did not do.
 
 | Item | State |
 |---|---|
 | **4th procgen mode** (drunkard's walk) | Unchanged, still the lowest marginal value: the engine cannot fail at it, so nothing is learned. `src/mapgen.rs` already ships three generators over one shared `DungeonMap` (BSP rooms, cellular cave, perfect maze), each with its own example and each guaranteed-connected by a different mechanism. |
 | **`add-facade-capability` skill** | n=5 now (the facade + native + wasm + policy-module shape has repeated that many times). Deferred; the next facade capability makes the case by itself. **Building it now would ship a skill with nothing to apply it to** — no facade capability is queued, so do it *alongside* the next one, not before. |
 | **Last-seen eviction helper** (`RemoteEntities` #5) | **n=1, gated on a 2nd staleness example** — the same bar that held `SnapshotBuffer` until its 2nd call site. `salvage_run`'s AOI streaming produces **removal-by-omission**: the server never sends a `Bye`, an entity just stops appearing in snapshots, so the client infers eviction from `last_seen` + timeout. Candidate shape (`touch(key, t)` / `expired(now - timeout) -> Vec<K>`) is written up in `docs/REMOTE_ENTITIES_DESIGN.md` § *5th example*, **flagged not built**. Surfaced here 2026-08-10 because that doc was its only home — the four sibling verdicts in the same section all resolved to *keep minimal / zero engine change*, and this is the one that did not. |
+
+### Open — the 2026-08-18 ECS review's efficiency remainder
+
+A full read of `src/ecs` (2,626 lines, 14 files) on 2026-08-18 produced 15 findings. **Twelve
+shipped** across v0.152.1–v0.152.4 — the take → put-back change-tracking bug, three panic-unsafe
+remove → call → reinsert pairs, two `HashMap`-seed determinism leaks, and four silent failures made
+loud. **One was a false positive** (see the closed row below). These three are the remainder, and
+they are remainder *by decision*: every one is an efficiency claim, and this repo's own habit —
+`tests/per_frame_alloc.rs`, the v0.151.1 debug-draw row — is that an efficiency claim ships with a
+number or not at all. Two of the three have a number already; the third does not.
+
+| Item | State |
+|---|---|
+| **Empty archetypes are never reclaimed** | `World::get_or_create_archetype` (`src/ecs/world.rs`) pushes onto `self.archetypes` and nothing ever removes an entry. Building an entity component-by-component — the only supported way, there is no bundle spawn — creates an archetype for *every prefix* of its signature, each left empty once the entity migrates onward. All **fourteen** `query*`/`par_query*` entry points (10 in `queries.rs`, 4 in `parallel.rs`) then run `arch.contains(tid)` — a binary search — across the whole Vec, every call, every frame. **Gated on a measurement that does not exist yet**: nobody has counted archetypes in a real game, so the size of the tail is unknown. Count first (`survivor` and `salvage_run` are the busiest), then decide between the one-line mitigation — adding `!arch.entities.is_empty()` to the filters — and actual reclamation. Do not ship the one-liner as if it were the fix; it hides the growth rather than bounding it. |
+| **`move_entity` costs 7 allocations per archetype transition** | Measured 2026-08-18 with a counting `GlobalAlloc`, archetypes already warm: a transition-causing `add_component` = **7 allocations**, `remove_component` = **5**, `spawn` + 4 components = **23**. Source is `World::move_entity` cloning `type_set` twice (`src_type_set` / `dst_type_set`) plus its `extracted` `HashMap`, and `add_component`'s own `new_sig`. The two `type_set` clones look removable with `std::mem::take` — nothing calls `contains` between take and restore — which would leave 5. **Gated on a test that would notice**: `tests/per_frame_alloc.rs` measures *steady-state* frames, where no entity changes archetype, so a spawn-heavy frame is not covered by anything. Write that case first; it is what makes the fix provable and what stops it regressing. |
+| **`query2`/`query3`/`query4`/`query_opt2` index where their neighbours zip** | the four of them use `arch.entities.iter().enumerate()` with `ca[i]`/`cb[i]`, so `query4` pays four bounds checks per entity per call that the compiler cannot elide across `HashMap`-obtained `Vec`s. `query`, `query_with`, `query_without` and `query2_mut` already use the zip form on the same data, so one file carries two spellings of one operation. `query2` backs most built-in per-frame systems. **The weakest of the three and the one to be most honest about**: the consistency argument is solid, the performance claim is unmeasured. It is a cleanup with a plausible win, not a known win — benchmark it or ship it as a cleanup, but do not write a number into the commit body that nobody produced. |
 
 ### Closed — do not reopen without new information
 
@@ -47,6 +67,7 @@ Kept verbatim rather than trimmed, because each carries a lesson whose only home
 |---|---|
 | **`<NAME>_SELFTEST` coverage** | **DONE — 10 of 21**, and the one real gap is now closed (`beat_crawler`, `survivor`, `data_anim`, `data_particles`, `salvage_run`, `predict_shooter`, `orbital_dodger`, `coin_race`, + `settings_menu` and `scene_flow` on 2026-08-06). The remaining 11 games' headline features are all visible in a screenshot (`sokoban`, `platformer`, `maze_escape`, `dig_quest`, `shooter`, `lit_dungeon`, `multi_terrain`, `tile_paint`, `ui_layout_editor`, `stat_editor_game`, `script_steering`), so chasing the number past 10 is effort against failures that are already visible. **Do not reopen this as a coverage target.** Durable findings from the four networked ones are in `docs/MODULE_MAP.md`'s `src/network.rs` row; the two that generalise beyond networking: **`InputState` has no public press setter**, so held input comes from `InputScript` (the `ENGINE_INPUT` replay path), keeping the real input read under test; and **assert an invariant, not an end state**, when a background process (a coin respawner, an entity spawner) can add to what you are counting. |
 | **`DialogueChoice.cond` cannot express a conjunction** | ✅ **CLOSED 2026-08-10 (v0.152.0)** — `cond_all` / `cond_any` ship alongside `cond`, and `rpg_quest`'s `can_buy_lantern` workaround is deleted. ⚠️ **This row's own fix shape was impossible**, which is why it is worth reading twice: it specified `All([…])`/`Any([…])` *variants* on `DialogueCond`, "additive if the single-cond form still parses" — and in RON 0.8 those are mutually exclusive. An externally tagged enum rewrites every existing `cond: (var: …)` into `cond: Cmp((var: …))`; `#[serde(untagged)]`, the usual way out, cannot even re-read its own serialized output. **One throwaway test settled it in a minute; no amount of reading would have.** Durable homes: `docs/PATTERNS.md` § *Extend a type that is authored in RON*, `docs/CHANGELOG.md` 0.152.0. **Do not reopen for arbitrary nesting** — `a && (b || c)` is expressible, deeper trees need a helper var, and no example has asked. |
+| **`System::name()`'s "anonymous" fallback** | ❌ **FALSE POSITIVE — the doc is correct, do not "fix" it.** The 2026-08-18 ECS review flagged `src/ecs/system.rs:10` (*An empty string displays as "anonymous"*) as documenting a fallback that does not exist. It does exist, in `src/app/editor/ui/mod.rs` as `tr("anonymous", "익명")` — and that is the only profiler renderer in the crate, so the doc holds for every path. The finding survived because the grep that "proved" absence was piped through `head` and truncated before reaching it. Recorded here because the next reviewer will grep for the bare literal and reach the same wrong conclusion: `rg -c 'anonymous' src/` (a count, not a listing) settles it. Same trap as `docs/VERIFICATION.md`'s trailing-`tail` rule, in a different tool. |
 | **2026-08-07 analysis §10** | ✅ **CLOSED 2026-08-10 (v0.151.1). The whole program is finished.** Step 0 of the plan never ran, and nothing recorded that until 2026-08-08; seven shipped across v0.150.1–v0.150.4, two docs/test hygiene items closed on 2026-08-09, the unmeasured v0.150.0 fixes were all measured by v0.150.7, and the last item — `src/app/render/debug_draw.rs:34` — closed in v0.151.1. Nothing from this analysis is open. **Do not reopen it as a source of work**; a new pass would be a new analysis. What it leaves behind is `tests/per_frame_alloc.rs` and the two habits in `docs/PATTERNS.md` / `docs/VERIFICATION.md`. |
 
 ### The 2026-08-07 analysis's unverified candidates — the closed record
@@ -304,30 +325,38 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
 > `docs/CHANGELOG.md` (what shipped) or `docs/PATTERNS.md` / `docs/VERIFICATION.md` (what was
 > learned). Without this rule the section regrows the history that was just split out.
 
-Closed 2026-08-10 — **`docs/HANDOFF.md` presented a frozen 2026-06-16 record as current state**
-(#464; docs-only, no version bump, so it has no CHANGELOG entry and the commit body is its detail).
-It now carries the historical marker `docs/ROADMAP.md` and `docs/PROGRAM_HISTORY.md` already had,
-and the two pointers that sent readers into it — `CLAUDE.md`'s orientation row and `FORKING.md`'s
-docs table — name the live files instead. Two things worth carrying:
+Closed 2026-08-18 — **a full read of `src/ecs` (2,626 lines, 14 files) produced 15 findings; 12
+shipped as four PATCH releases** (v0.152.1–v0.152.4, #466/#468/#469/#470), one was a false positive
+(recorded in *Closed — do not reopen*), and three efficiency items stayed open under *the
+2026-08-18 ECS review's efficiency remainder* above. A fifth PR (#467) fixed the CI that the work
+ran into. Detail is in `docs/CHANGELOG.md` 0.152.1–0.152.4 and the commit bodies. Three things
+worth carrying:
 
-- ⚠️ **The wrong-looking version was right, and "fixing" it would have *introduced* the error.**
-  The file says `v4.3.0` against a `Cargo.toml` at `0.152.0`, which reads as a typo. It is a real
-  and *older* version — see the version-line note under *Noted — not scheduled*. One command
-  settled it (`grep -n '^## 4\.3\.0' docs/CHANGELOG.md` → line 4931). **This is the fourth
-  consecutive session where re-deriving a claim beat trusting it** (`debug_draw.rs:34`,
-  `assets.rs:262`, the RON fix shape, this) — and the first where the claim being re-derived was
-  the session's *own*, asserted ten minutes earlier. Age is not what makes a claim worth checking.
-- **A commit that removes a concept leaves prose behind a few lines away.** `92e05fe` dropped
-  rust-survivors as a consumer and cleaned a dangling pointer at line 121, while line 23's
-  "uses this engine as a dependency" sat eight lines under its own contradiction at line 15. Same
-  family as the reverted null-sink experiment whose comment survived in `scripts/selftests.sh`:
-  **grep for the concept, not for the file you happened to be editing.**
+- ⚠️ **A conflict resolution is a tree nothing has ever verified.** #469's merge with `main` left
+  `tests.rs` uncompilable — git's auto-resolution put its `=======` boundary *inside* a test
+  function, so the "resolved" file had an unclosed delimiter. Hand-patching that is how a resolution
+  quietly loses a test; the file was rebuilt from both sides instead, after checking each was a pure
+  append (`head -n <base-len> <branch> | diff - <base>`). Then the gate was re-run: both branches
+  were green *before* the merge, and neither of those greens covers the tree the merge produced.
+- **The truncated-output trap has a second form, and it produced a false review finding.**
+  `rg 'anonymous' src/ | head` cut off before the one line that disproved the finding, so "this
+  fallback does not exist" was reported and was wrong. Landed in `docs/VERIFICATION.md`
+  § *Searching so the result means something* — with the `#464` concept-grep habit, which had been
+  sitting in this section with no durable home to roll off to.
+- **A CI comment that tells you to distrust it is telling the truth.** `ci.yml`'s header said the
+  required-check set was seven jobs excluding the browser smokes, then said "read the real list
+  rather than this comment — it is the thing that drifts". It had drifted: the API says eight,
+  browser smokes included, which is exactly why a wedged smoke job blocked the merge outright.
+  Checked with `gh api repos/…/branches/main/protection --jq '.required_status_checks.contexts'`.
 
-Rolled off this session, having served theirs: **the `DialogueChoice.cond` conjunction gap**
-(v0.152.0) — durable homes `docs/CHANGELOG.md` 0.152.0, the `src/dialogue/` row in
-`docs/MODULE_MAP.md`, and `docs/PATTERNS.md` § *Extend a type that is authored in RON* — and before
-it `debug_draw.rs:34` with the 2026-08-07 analysis program (v0.151.1), the RPG genre gap (v0.151.0)
-and the four unmeasured v0.150.0 allocation claims (v0.150.7).
+Rolled off this session, having served theirs: **the frozen `docs/HANDOFF.md`** (#464, docs-only).
+Its two lessons now have homes: the version-line note under *Noted — not scheduled* (which it
+already had), and "grep for the concept, not the file you were editing", moved to
+`docs/VERIFICATION.md` this session — it had none, so rolling the entry off on schedule would have
+deleted it. Before it the
+`DialogueChoice.cond` conjunction gap (v0.152.0), `debug_draw.rs:34` with the 2026-08-07 analysis
+program (v0.151.1), the RPG genre gap (v0.151.0) and the four unmeasured v0.150.0 allocation claims
+(v0.150.7).
 
 ⚠️ **Two programs ended here, and the file should stay small now.** The v0.150.x measurement program
 closed with v0.150.7 and the 2026-08-07 analysis with v0.151.1. Nothing from either is open. What
