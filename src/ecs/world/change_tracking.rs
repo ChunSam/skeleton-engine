@@ -45,10 +45,13 @@ impl World {
     ///
     /// Returns an empty iterator immediately (no allocation) when no additions have
     /// been recorded this tick — the common case in most frames.
+    ///
+    /// Entities are yielded in ascending `(index, generation)` order, so repeated runs over
+    /// identical input agree.
     pub fn query_added<T: 'static>(&self) -> impl Iterator<Item = (Entity, &T)> {
         let tid = TypeId::of::<T>();
         // Fast path: skip allocation entirely when the tracking set is empty.
-        let entities: Vec<Entity> = if self.added_this_tick.is_empty() {
+        let mut entities: Vec<Entity> = if self.added_this_tick.is_empty() {
             Vec::new()
         } else {
             self.added_this_tick
@@ -57,6 +60,13 @@ impl World {
                 .map(|(e, _)| *e)
                 .collect()
         };
+        // `added_this_tick` is a `HashMap<Entity, _>`, so collecting from it hands back a
+        // per-process-random order — these were the only public queries in the crate whose
+        // iteration order was not reproducible across runs. Every other query walks
+        // `self.archetypes` in Vec order, so a fork that assumes stable query order was right
+        // everywhere except here, and a reactive system that spawns, plays a sound, or resolves
+        // first-wins produced a different result on each launch from identical input.
+        entities.sort_unstable_by_key(|e| (e.index(), e.generation()));
         entities
             .into_iter()
             .filter_map(move |e| self.get::<T>(e).map(|c| (e, c)))
@@ -70,10 +80,13 @@ impl World {
     ///
     /// Returns an empty iterator immediately (no allocation) when no changes have
     /// been recorded this tick — the common case in most frames.
+    ///
+    /// Entities are yielded in ascending `(index, generation)` order, so repeated runs over
+    /// identical input agree.
     pub fn query_changed<T: 'static>(&self) -> impl Iterator<Item = (Entity, &T)> {
         let tid = TypeId::of::<T>();
         // Fast path: skip allocation entirely when the tracking set is empty.
-        let entities: Vec<Entity> = if self.changed_this_tick.is_empty() {
+        let mut entities: Vec<Entity> = if self.changed_this_tick.is_empty() {
             Vec::new()
         } else {
             self.changed_this_tick
@@ -82,6 +95,13 @@ impl World {
                 .map(|(e, _)| *e)
                 .collect()
         };
+        // `changed_this_tick` is a `HashMap<Entity, _>`, so collecting from it hands back a
+        // per-process-random order — these were the only public queries in the crate whose
+        // iteration order was not reproducible across runs. Every other query walks
+        // `self.archetypes` in Vec order, so a fork that assumes stable query order was right
+        // everywhere except here, and a reactive system that spawns, plays a sound, or resolves
+        // first-wins produced a different result on each launch from identical input.
+        entities.sort_unstable_by_key(|e| (e.index(), e.generation()));
         entities
             .into_iter()
             .filter_map(move |e| self.get::<T>(e).map(|c| (e, c)))

@@ -4,6 +4,40 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.152.3
+
+**Two ECS paths iterated a `HashMap` and leaked its per-process seed into the simulation.** Every
+other query in the crate walks `self.archetypes` in Vec order, so a fork that assumes query order
+is stable was right everywhere except these:
+
+| path | what varied per launch |
+|---|---|
+| `query_added` / `query_changed` | the entity order the iterator yields, directly |
+| `clone_entity` | the order components are copied → the archetype Vec order → **`query::<T>()` order for the whole World** |
+
+The second is the surprising one, because it looks local. `clone_entity` walks
+`clone_registry.keys()`, and each `add_component` in that loop moves the entity through a different
+intermediate archetype signature — so an unsorted order leaves `world.archetypes` in a different
+order, and every query iterates archetypes in exactly that order. One editor Duplicate was enough:
+measured 18/6 across 24 launches of an identical scenario. The sprite sort
+(`renderer/sprite/sort.rs`) is *stable*, so equal keys draw in query order, and `prefab.rs` resolves
+a parent tag by taking the first `query::<Tag>()` match — both silently pick up the variation, and
+an `ENGINE_INPUT` replay can diverge from the session it recorded.
+
+Both are now sorted: `query_added`/`query_changed` yield ascending `(index, generation)`, and
+`clone_entity` copies in `TypeId` order. Neither costs anything a caller notices — the change-
+tracking queries already allocated the `Vec` they now sort, and the clone sort is once per call.
+
+**`World::entities()` was a third, quieter case.** `despawn` fills the hole with `swap_remove`, so
+deleting one entity moves the last-spawned one into its slot — spawn five, despawn the second, get
+`[0, 4, 2, 3]`. The editor's entity panels and `do_save_scene` consumed that Vec verbatim, so
+deleting one entity made an unrelated hierarchy row jump and turned a one-entity change into a
+whole-file RON diff. The order is inherent to the storage and stays; the three consumers now sort
+by `Entity::index` (unique among live entities, so a total order), and the rustdoc says which order
+it returns and that presenting or persisting it means imposing your own.
+
+Both new tests were sabotage-checked: reverting either sort fails them on the first attempt.
+
 ## 0.152.1
 
 **The engine's own documented idiom was lying to change detection every frame.** `take_component`
