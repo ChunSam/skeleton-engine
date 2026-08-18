@@ -35,18 +35,41 @@ impl World {
     /// Hides the manual `remove_resource` / `insert_resource` dance. `R` is removed
     /// for the duration of `f`, so `f` must not assume `world.resource::<R>()` is
     /// available re-entrantly.
+    ///
+    /// Two guarantees the naive dance does not give you:
+    ///
+    /// - **A panic in `f` does not lose `R`.** The resource is restored before the panic is
+    ///   re-raised unchanged.
+    /// - **A replacement wins.** If `f` inserts a fresh `R` through its `&mut World`, that value
+    ///   is kept; the one taken at entry is dropped.
     pub fn with_resource_mut<R, F>(&mut self, f: F) -> bool
     where
         R: 'static,
         F: FnOnce(&mut R, &mut World),
     {
-        match self.remove_resource::<R>() {
-            Some(mut r) => {
-                f(&mut r, self);
-                self.insert_resource(r);
-                true
-            }
-            None => false,
+        let Some(mut r) = self.remove_resource::<R>() else {
+            return false;
+        };
+        // `r` lives OUTSIDE the World for the duration of `f`, so an unwind through `f` would
+        // drop it and delete session state for good. That is not hypothetical: `App`'s default
+        // `SystemPanicPolicy::DisableSystemAndContinue` catches a system panic and keeps the frame
+        // loop running, so the game would carry on for the rest of the session missing e.g.
+        // `PhysicsWorld` — with only the panicking system's name in the log and nothing anywhere
+        // naming the resource that vanished. Catch, restore, then re-raise the payload unchanged.
+        //
+        // Under `panic = "abort"` (the shipping profile) there is no unwind to catch and the
+        // process is already gone, so there is nothing left to lose either way.
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&mut r, self)));
+        // Only put `r` back if `f` did not install a replacement. Inserting a fresh `R` from
+        // inside the closure is exactly what the `&mut World` argument is for — a config or
+        // registry hot-reload — and the unconditional re-insert this used to do overwrote the new
+        // value with the stale one, silently turning the reload into a no-op.
+        if self.resource::<R>().is_none() {
+            self.insert_resource(r);
+        }
+        match outcome {
+            Ok(()) => true,
+            Err(payload) => std::panic::resume_unwind(payload),
         }
     }
 

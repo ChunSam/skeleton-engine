@@ -1,5 +1,6 @@
 use std::any::{Any, TypeId};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 
 // The `impl World` surface is split across themed submodules; this file holds the
 // data model (Entity / Archetype / World structs + type aliases) and the private
@@ -50,7 +51,9 @@ impl Entity {
 
 /// Storage unit for components. Requires `Send + Sync` to allow parallel queries.
 type ComponentBox = Box<dyn Any + Send + Sync>;
-type CloneComponentFn = Box<dyn Fn(&mut World, Entity, Entity) + Send + Sync>;
+/// `Arc`, not `Box`: `clone_component_by_typeid` hands itself a second handle rather than
+/// removing the entry from the registry for the duration of the call. See there for why.
+type CloneComponentFn = Arc<dyn Fn(&mut World, Entity, Entity) + Send + Sync>;
 
 // ─── Reflect registry helpers ────────────────────────────────────────────────
 
@@ -160,11 +163,17 @@ impl World {
         }
     }
 
-    /// Clones a single component by TypeId using the remove → call clone_fn → reinsert pattern.
+    /// Clones a single component by TypeId.
+    ///
+    /// The closure needs `&mut World` while it runs, which is why it cannot simply be borrowed
+    /// out of `self.clone_registry`. This used to take it out of the map and put it back
+    /// afterwards — a pattern that silently **unregisters the type for the rest of the session**
+    /// if the clone panics, since the re-insert never runs. `T::clone` is user code in a forked
+    /// engine, so that is reachable. Cloning the `Arc` costs one refcount bump, removes the map
+    /// churn, and leaves the registry untouched no matter how the call ends.
     fn clone_component_by_typeid(&mut self, src: Entity, dst: Entity, tid: TypeId) {
-        if let Some(clone_fn) = self.clone_registry.remove(&tid) {
+        if let Some(clone_fn) = self.clone_registry.get(&tid).cloned() {
             clone_fn(self, src, dst);
-            self.clone_registry.insert(tid, clone_fn);
         }
     }
 
