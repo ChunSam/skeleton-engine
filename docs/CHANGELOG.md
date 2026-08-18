@@ -4,6 +4,38 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.152.1
+
+**The engine's own documented idiom was lying to change detection every frame.** `take_component`
+→ mutate → `add_component` is what `BehaviorSystem` and `TimelineSystem` run over every AI and
+timeline entity, once per frame, and `src/behavior.rs` calls it "this ECS's documented idiom for
+ticking a component that needs `&mut World`". It re-registered the component as **first added this
+tick**, on every single frame:
+
+| after take → put-back | before | after |
+|---|---|---|
+| `query_added::<Timeline>()` | fires **every frame**, forever | silent |
+| `query_changed::<Timeline>()` | never fires | fires once per tick |
+| a `mark_changed` set earlier in the same frame | erased | preserved |
+
+So a one-shot initializer keyed on `query_added` re-ran forever, and a reactive UI keyed on
+`query_changed` never updated at all — the two exact use cases the rustdoc recommends those queries
+for.
+
+**The cause is that the round trip goes through the archetype.** `take_component` calls
+`remove_component` internally, which clears the component's TypeId from *both* tracking sets
+(that is correct for a real removal). The put-back then finds the archetype no longer carrying the
+type, takes `add_component`'s new-component branch, and lands in `added_this_tick`. Every step is
+locally right; only the pairing is wrong.
+
+`take_component` now records which bucket the component was in before the removal clears it, and
+`add_component`'s new-component branch honours it — a pre-existing component comes back as
+*changed*, one genuinely added this tick stays *added*. Per-frame allocation is unchanged: the
+single `HashSet` insert simply moves from the put-back to the take (`tests/per_frame_alloc.rs`).
+
+Three tests pin it, including the "on every frame, not just the first" loop that the existing
+add/replace/remove coverage (`src/ecs/world/tests.rs`) had no case for.
+
 ## 0.152.0
 
 **A two-term choice gate is writable in the tree, and the serde shape the backlog specified for it
