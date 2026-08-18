@@ -97,6 +97,44 @@ correct; a human runs that step.)
 
 ---
 
+## Searching so the result means something
+
+Traps 1–3 are one shape — a pipe that discards what you meant to read. That shape is not confined
+to exit codes, and both of these have cost a session.
+
+### A truncated search cannot prove absence
+
+`rg 'anonymous' src/ | head` reported ten unrelated hits and stopped. On 2026-08-18 a code review
+read that as "this fallback does not exist anywhere" and filed a finding against a rustdoc comment
+that was **correct** — the one line that disproved it — `tr("anonymous", "익명")` in
+`src/app/editor/ui/mod.rs` — sat below the cut. The finding survived into a written report and
+was withdrawn only because the claim was re-derived before acting on it.
+
+`head`/`tail` answer "show me some matches". They never answer "are there none". For absence, use a
+form whose whole output fits or whose result is a single value:
+
+```bash
+rg -c 'anonymous' src/          # per-file counts — nothing to truncate
+rg -q 'anonymous' src/; echo $? # 0 = found, 1 = not found
+```
+
+Same rule as Trap 1, one layer up: **if the thing you are about to conclude is "there is no X",
+nothing in the pipeline may be allowed to drop lines.**
+
+### Grep for the concept, not for the file you were editing
+
+A commit that removes a concept leaves prose behind a few lines away from where it looked. `92e05fe`
+dropped rust-survivors as a consumer and cleaned the dangling pointer at `docs/HANDOFF.md:121` —
+while line 23's "uses this engine as a dependency" sat eight lines *under* its own contradiction at
+line 15, and survived until #464. The reverted null-sink experiment did the same thing: the code
+went, its comment stayed in `scripts/selftests.sh`.
+
+Verifying a removal means searching the **repo** for the idea in every phrasing it might wear, not
+re-reading the file you happened to have open. The file you were editing is the one place you have
+already looked.
+
+---
+
 ## What each step does and does not cover
 
 ### The WASM step is lib+bins — examples are a separate, derived step
