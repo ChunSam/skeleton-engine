@@ -4,6 +4,48 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.152.4
+
+**Four ECS failures that were true but silent now say so.** None of these changes what correct
+code does; each one shortens the distance between a mistake and knowing about it.
+
+**`query2_mut` / `query3_mut` with a repeated type failed only when the data reached them.**
+`HashMap::get_disjoint_mut` panics on overlapping keys — but only once a matching archetype
+exists. So `world.query2_mut::<Transform, Transform>()` returned an empty iterator on an empty
+World and killed the system the moment one entity showed up: **a test could pass while the game
+died**, and the panic came from `hashbrown` naming neither the query nor the type. The check is now
+eager and pairwise, before the iterator is built.
+
+`assert` rather than `debug_assert`, deliberately: two `&mut` to one component is always a bug, and
+the cost is one `TypeId` compare per query *call*, not per entity. This is a behavior change — code
+that called `query2_mut::<A, A>()` and got away with it because no archetype matched will now panic
+every time. It was never going to survive its first entity.
+
+**A system ordered against its own label got no constraint and no warning.**
+`.label(X).after(X)` — the typo shape of "I meant `.after(Y)`" — passes the dangling-label check
+added in v0.146.0, because the label genuinely exists. The only edge it could produce points from
+the system to itself and is dropped, so the schedule silently falls back to insertion order: the
+exact class that warning was written to end, entering through the door it left open. It now warns,
+and says which reading applies when the label is shared with other systems (the barrier holds
+against *them*, never against itself).
+
+**`ScheduleError::Cycle` documented a contract it never met.** It says "the indices of the systems
+in the cycle"; it returns every system that never reached in-degree 0 — the cycle **plus everything
+downstream**. `App` printed that list verbatim, so a genuine two-system cycle in a forty-system
+schedule could name thirty innocent bystanders and the first thirty registrations you inspected
+were fine. The doc and all three `App` messages now say what the list is and how to narrow it.
+
+**`take_component` could leave a `Box<()>` inside a typed column.** It swaps the real value out for
+a unit placeholder and then removes the slot; the `?` between those two steps would exit with the
+placeholder still in a column whose archetype still advertises `T`. Every later `query::<T>()` would
+panic on `column holds type T` with nothing pointing back here, and `get::<T>` would report the
+component as simply gone. The column is keyed by `TypeId::of::<T>()` so the downcast cannot fail —
+that is now an `expect` that says so, not a `?` that turns a can't-happen into unrecoverable
+corruption.
+
+Seven tests. The eager-assert one is sabotage-checked: remove the assert and the empty-World case
+stops panicking ("test did not panic as expected"), which is precisely the old trap.
+
 ## 0.152.3
 
 **Two ECS paths iterated a `HashMap` and leaked its per-process seed into the simulation.** Every

@@ -67,6 +67,20 @@ impl World {
     ) -> impl Iterator<Item = (Entity, &mut A, &mut B)> {
         let ta = TypeId::of::<A>();
         let tb = TypeId::of::<B>();
+        // Eagerly, before the iterator is built, because the alternative fails only when the
+        // data happens to reach it: `get_disjoint_mut` panics on overlapping keys, but only
+        // once a matching archetype exists, so `query2_mut::<A, A>()` returned an empty
+        // iterator on an empty World and killed the system the moment one entity showed up.
+        // A test could pass and the game still die. `assert` rather than `debug_assert`: two
+        // `&mut` to one component is always a bug, the check is one TypeId compare per query
+        // call (not per entity), and std's own message names neither the query nor the type.
+        assert_ne!(
+            ta,
+            tb,
+            "query2_mut::<A, B>() requires two DISTINCT component types — both were {}. \
+             Two `&mut` to the same component would alias; use query_mut::<T>() for one type.",
+            std::any::type_name::<A>()
+        );
         self.archetypes
             .iter_mut()
             .filter(move |arch| arch.contains(ta) && arch.contains(tb))
@@ -102,6 +116,15 @@ impl World {
         let ta = TypeId::of::<A>();
         let tb = TypeId::of::<B>();
         let tc = TypeId::of::<C>();
+        // Eagerly and pairwise — see `query2_mut` for why this is not a `debug_assert`.
+        assert!(
+            ta != tb && ta != tc && tb != tc,
+            "query3_mut::<A, B, C>() requires three DISTINCT component types, got {} / {} / {}. \
+             Two `&mut` to the same component would alias.",
+            std::any::type_name::<A>(),
+            std::any::type_name::<B>(),
+            std::any::type_name::<C>()
+        );
         self.archetypes
             .iter_mut()
             .filter(move |arch| arch.contains(ta) && arch.contains(tb) && arch.contains(tc))

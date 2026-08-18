@@ -352,18 +352,22 @@ impl App {
                     match self.schedule_error_policy {
                         ScheduleErrorPolicy::LogAndFallback => {
                             log::error!(
-                                "system order circular dependency detected — falling back to insertion order (affected indices: {remaining:?})"
+                                "system order circular dependency detected — falling back to insertion order. Blocked \
+                                 systems (the cycle PLUS everything downstream of it, not the cycle \
+                                 alone): {remaining:?} — look for the mutual before/after pair among them"
                             );
                             self.exec_order = (0..self.systems.len()).collect();
                         }
                         ScheduleErrorPolicy::DisableRunOnCycle => {
                             log::error!(
-                                "system order circular dependency detected — skipping user system execution (affected indices: {remaining:?})"
+                                "system order circular dependency detected — skipping user system execution. Blocked \
+                                 systems (the cycle PLUS everything downstream of it, not the cycle \
+                                 alone): {remaining:?} — look for the mutual before/after pair among them"
                             );
                             self.exec_order.clear();
                         }
                         ScheduleErrorPolicy::PanicOnCycle => {
-                            panic!("system order circular dependency detected (affected indices: {remaining:?})");
+                            panic!("system order circular dependency detected. Blocked systems (the cycle PLUS everything downstream of it, not the cycle alone): {remaining:?} — look for the mutual before/after pair among them");
                         }
                     }
                 }

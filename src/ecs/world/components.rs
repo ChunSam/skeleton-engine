@@ -65,12 +65,22 @@ impl World {
             if !arch.contains(tid) {
                 return None;
             }
-            let col = arch.columns.get_mut(&tid)?;
+            let col = arch
+                .columns
+                .get_mut(&tid)
+                .expect("take_component: archetype contains this column (checked above)");
             // swap the real value for a unit placeholder
             let placeholder: ComponentBox = Box::new(());
             let extracted = std::mem::replace(&mut col[row], placeholder);
-            // Box<dyn Any+Send+Sync> → Box<T> → T
-            *extracted.downcast::<T>().ok()?
+            // `expect`, not `.ok()?`. The swap above already happened, so bailing out here would
+            // leave the placeholder sitting in a column whose archetype still advertises `T`:
+            // every later `query::<T>()` would panic on `column holds type T` and `get::<T>`
+            // would report the component as simply gone, with nothing pointing back here. The
+            // column is keyed by `TypeId::of::<T>()`, so the downcast cannot fail — say that
+            // out loud rather than converting a can't-happen into silent corruption.
+            *extracted
+                .downcast::<T>()
+                .expect("take_component: column keyed by TypeId::of::<T>() holds T")
         }; // archetypes borrow released
            // Step 2: remove the slot (which now holds the placeholder) from the archetype
         self.remove_component::<T>(entity);
