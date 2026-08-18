@@ -43,7 +43,14 @@ impl SystemConfig {
 /// Schedule computation error.
 #[derive(Debug, PartialEq)]
 pub enum ScheduleError {
-    /// Circular dependency. Contains the indices of the systems in the cycle.
+    /// Circular dependency. Contains every system that never became runnable — the cycle
+    /// **plus everything downstream of it**, because a system waiting on a cycle never reaches
+    /// in-degree 0 either.
+    ///
+    /// Do not read it as "these systems form the cycle": in a 40-system schedule a genuine
+    /// two-system cycle can name thirty innocent bystanders, and the first thirty registrations
+    /// you inspect will be fine. Narrow it by looking for the mutual `before`/`after` pair
+    /// *among* these indices.
     Cycle(Vec<usize>),
 }
 
@@ -86,6 +93,19 @@ pub fn compute_order(metas: &[SystemConfig]) -> Result<Vec<usize>, ScheduleError
                      that label — the constraint is being IGNORED and ordering falls back to \
                      insertion order. Register the target with \
                      `add_system_labeled(sys, SystemConfig::new().label({l:?}))`."
+                );
+            } else if m.label == Some(*l) {
+                // The other half of the same silent-ordering class, and the one the dangling
+                // check above waves through: the label DOES exist, so nothing looked wrong,
+                // but the only edge it could produce points from the system to itself and is
+                // dropped by the `s != i` guard below. `.label(X).after(X)` — the typo shape of
+                // "I meant `.after(Y)`" — therefore yields zero constraints and zero warnings.
+                log::warn!(
+                    "system #{i} carries label {l:?} and is ALSO ordered against it. A system \
+                     cannot run before or after itself, so that self-edge is dropped. If this \
+                     is a typo for another label, fix it; if you meant a barrier against the \
+                     OTHER systems sharing {l:?}, note the constraint holds only against them, \
+                     never against this one."
                 );
             }
         }
@@ -279,6 +299,66 @@ mod tests {
     ///
     /// Pinned as an assertion on the *edge*, not on insertion order: reversing the registration
     /// order is what tells the two cases apart.
+    /// A system ordered against **its own** label gets no constraint at all — the label exists,
+    /// so the dangling check waves it through, and the only edge it could make points from the
+    /// system to itself and is dropped. `.label(X).after(X)` is the typo shape of
+    /// "I meant `.after(Y)`", and it used to produce zero edges and zero diagnostics.
+    ///
+    /// Pinned on the edge, like the dangling case below: reversing registration order is what
+    /// tells "no constraint" apart from "constraint that happens to agree with insertion order".
+    #[test]
+    fn self_referencing_label_creates_no_constraint() {
+        // index 0 carries "layout" AND asks to run after "layout" — itself.
+        let metas = vec![meta_label_after("layout", "layout"), meta_label("other")];
+        let order = compute_order(&metas).unwrap();
+        assert_eq!(
+            order,
+            vec![0, 1],
+            "a self-edge must be dropped, leaving pure insertion order; got {order:?}"
+        );
+
+        // Same shape with the registration order flipped: still insertion order, i.e. still
+        // genuinely unconstrained rather than accidentally agreeing.
+        let metas = vec![meta_label("other"), meta_label_after("layout", "layout")];
+        let order = compute_order(&metas).unwrap();
+        assert_eq!(order, vec![0, 1], "got {order:?}");
+    }
+
+    /// A shared label is a barrier against the OTHER holders only. Two systems labeled
+    /// "render", the second also `.after("render")`: the edge from the first is real, the
+    /// self-edge is not, so the author's "after both" reading is half-true.
+    #[test]
+    fn shared_label_after_self_orders_against_the_other_holder_only() {
+        let metas = vec![meta_label("render"), meta_label_after("render", "render")];
+        let order = compute_order(&metas).unwrap();
+        let pos0 = order.iter().position(|&x| x == 0).unwrap();
+        let pos1 = order.iter().position(|&x| x == 1).unwrap();
+        assert!(
+            pos0 < pos1,
+            "the OTHER holder still orders it; got {order:?}"
+        );
+    }
+
+    /// `Cycle` reports every system that never became runnable, which is the cycle plus its
+    /// downstream — not the cycle alone. Pins the documented contract.
+    #[test]
+    fn cycle_reports_downstream_systems_too() {
+        // 0 <-> 1 is the cycle; 2 merely waits on it and is blocked by association.
+        let metas = vec![
+            meta_label_after("a", "b"),
+            meta_label_after("b", "a"),
+            meta_label_after("c", "a"),
+        ];
+        match compute_order(&metas) {
+            Err(ScheduleError::Cycle(blocked)) => assert_eq!(
+                blocked,
+                vec![0, 1, 2],
+                "index 2 is downstream, not part of the cycle, and is reported anyway"
+            ),
+            other => panic!("expected a cycle, got {other:?}"),
+        }
+    }
+
     #[test]
     fn dangling_after_label_creates_no_constraint() {
         // index 0 wants to run after "layout", but index 1 carries NO label.

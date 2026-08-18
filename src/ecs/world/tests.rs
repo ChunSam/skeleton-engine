@@ -958,3 +958,47 @@ fn clone_entity_leaves_the_same_query_order_every_time() {
         );
     }
 }
+
+/// `query2_mut` with one type twice must fail on the **empty** World too.
+///
+/// The failure used to be data-dependent: `HashMap::get_disjoint_mut` panics on overlapping
+/// keys, but only once a matching archetype exists, so this call returned an empty iterator
+/// here and killed the system the moment one entity appeared. A test could pass while the game
+/// died. The assert is eager, so both cases fail the same way.
+#[test]
+#[should_panic(expected = "requires two DISTINCT component types")]
+fn query2_mut_rejects_the_same_type_twice_on_an_empty_world() {
+    let mut world = World::new();
+    let _ = world.query2_mut::<Health, Health>().count();
+}
+
+#[test]
+#[should_panic(expected = "requires two DISTINCT component types")]
+fn query2_mut_rejects_the_same_type_twice_with_matching_entities() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.add_component(e, Health(1));
+    let _ = world.query2_mut::<Health, Health>().count();
+}
+
+#[test]
+#[should_panic(expected = "requires three DISTINCT component types")]
+fn query3_mut_rejects_a_repeated_type_on_an_empty_world() {
+    let mut world = World::new();
+    let _ = world.query3_mut::<Health, Position, Health>().count();
+}
+
+/// Distinct types still work — the assert must not fire on the legitimate call.
+#[test]
+fn query2_mut_still_accepts_distinct_types() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.add_component(e, Health(1));
+    world.add_component(e, Position { x: 0.0, y: 0.0 });
+    for (_e, h, p) in world.query2_mut::<Health, Position>() {
+        h.0 += 1;
+        p.x += 1.0;
+    }
+    assert_eq!(world.get::<Health>(e).unwrap().0, 2);
+    assert_eq!(world.get::<Position>(e).unwrap().x, 1.0);
+}
