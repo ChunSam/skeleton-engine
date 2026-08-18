@@ -7,10 +7,11 @@ name: CI
 # required checks, `strict`, and `enforce_admins`, so nothing arrives unverified anyway. On that
 # reasoning it was nearly deleted.
 #
-# ⚠️ The required set is SEVEN jobs, not six, and `Browser smokes (Chrome + swiftshader)` is NOT
-# among them (checked 2026-08-08 against the branch-protection API). Three docs claimed the browser
-# smokes "gate"; they run on every PR but do not block a merge. Read the real list rather than this
-# comment — it is the thing that drifts:
+# ⚠️ The required set is EIGHT jobs — every job in this file, `Browser smokes (Chrome + swiftshader)`
+# included (re-checked 2026-08-18 against the branch-protection API). This comment claimed SEVEN and
+# "browser smokes is NOT among them" from 2026-08-08 until then, which is precisely the drift it
+# warns about one line down. The practical consequence is not cosmetic: a wedged browser-smokes job
+# blocks the merge outright, it cannot be waved through. Read the real list, never this comment:
 #   gh api repos/ChunSam/skeleton-engine/branches/main/protection \
 #     --jq '.required_status_checks.contexts'
 #
@@ -39,10 +40,24 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  # ── 잡 타임아웃 ────────────────────────────────────────────────────────────
+  # Every job carries an explicit `timeout-minutes`. GitHub's default is 360, and on
+  # 2026-08-18 two runners wedged inside `apt-get` on the very first dependency step and
+  # sat there producing no output — the same apt script had already succeeded in `test`
+  # and `docs` on the same run, so it was the runner, not the script. Without a timeout
+  # the PR would have waited four hours for a red that told it nothing.
+  #
+  # Sized at roughly 3x the slowest cold-cache run observed: test 10m11s, windows 4m25s,
+  # wasm 3m00s, render 2m44s, docs 2m19s, macos 2m11s. `wasm-smokes` gets 45 because a
+  # cache miss makes it build `wasm-bindgen-cli` from source before it starts any smoke.
+  # These are hang detectors, not performance budgets — raise one if real work grows into
+  # it rather than trimming the work to fit.
+
   # ── 네이티브 빌드 + 테스트 ─────────────────────────────────────────────────
   test:
     name: Test (native)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -138,6 +153,7 @@ jobs:
   render:
     name: Render tests (lavapipe)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -200,6 +216,7 @@ jobs:
   wasm:
     name: Build (WASM)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -249,6 +266,7 @@ jobs:
   wasm-smokes:
     name: Browser smokes (Chrome + swiftshader)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -326,6 +344,7 @@ jobs:
   windows:
     name: Build (Windows / DX12)
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -370,6 +389,7 @@ jobs:
   macos:
     name: Build (macOS / Metal)
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -386,6 +406,7 @@ jobs:
   docs:
     name: Rustdoc
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -408,6 +429,7 @@ jobs:
   package:
     name: Package dry-run
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
