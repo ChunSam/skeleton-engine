@@ -44,8 +44,20 @@ impl World {
     /// Unlike `remove_component`, this transfers ownership of the component value.
     /// Use it when code like `BehaviorSystem` needs to borrow a component temporarily
     /// while still having mutable access to `World`.
+    ///
+    /// Putting the value back with [`add_component`](World::add_component) in the same tick is
+    /// reported as a **change**, not an addition — see the tracking note on the re-add branch of
+    /// `add_component`.
     pub fn take_component<T: Send + Sync + 'static>(&mut self, entity: Entity) -> Option<T> {
         let tid = TypeId::of::<T>();
+        // `take_component` is one half of the take → mutate → put-back idiom that
+        // `BehaviorSystem` and `TimelineSystem` run every frame, so note which change-tracking
+        // bucket the component sits in *before* the `remove_component` below clears both of
+        // them. `add_component` reads it back to classify the put-back correctly.
+        let was_added_this_tick = self
+            .added_this_tick
+            .get(&entity)
+            .is_some_and(|tids| tids.contains(&tid));
         // Step 1: swap the real value out with a Box<()> placeholder to gain ownership
         let value: T = {
             let (arch_id, row) = *self.entity_location.get(&entity)?;
@@ -62,6 +74,17 @@ impl World {
         }; // archetypes borrow released
            // Step 2: remove the slot (which now holds the placeholder) from the archetype
         self.remove_component::<T>(entity);
+        // Step 3: re-arm the bucket `remove_component` just cleared. A component that was
+        // already on the entity when the tick began comes back as *changed*; one that was
+        // genuinely new this tick stays *added* across the round trip. Costs the same single
+        // `HashSet` insert the `add_component` put-back used to pay, so per-frame allocation
+        // is unchanged (`tests/per_frame_alloc.rs`).
+        let bucket = if was_added_this_tick {
+            &mut self.added_this_tick
+        } else {
+            &mut self.changed_this_tick
+        };
+        bucket.entry(entity).or_default().insert(tid);
         Some(value)
     }
 
@@ -106,7 +129,19 @@ impl World {
             .get_mut(&tid)
             .expect("add_component: target archetype contains the newly added column")
             .push(Box::new(component));
-        self.added_this_tick.entry(entity).or_default().insert(tid);
+        // A component put back by `take_component` this tick is a *change*, not an addition.
+        // `take_component` leaves its TypeId in `changed_this_tick`, and the archetype move it
+        // performs is exactly what routes the put-back through this branch instead of the
+        // in-place one above. Without the check, the take → mutate → put-back idiom re-reported
+        // every ticked entity as newly added on *every* frame — so a one-shot init keyed on
+        // `query_added` ran forever — while `query_changed` never saw the write at all.
+        let put_back_this_tick = self
+            .changed_this_tick
+            .get(&entity)
+            .is_some_and(|tids| tids.contains(&tid));
+        if !put_back_this_tick {
+            self.added_this_tick.entry(entity).or_default().insert(tid);
+        }
     }
 
     /// Returns an immutable reference to an entity's component.

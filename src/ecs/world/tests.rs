@@ -728,3 +728,72 @@ fn query_changed_empty_tracking_yields_nothing() {
     world.clear_change_tracking();
     assert_eq!(world.query_changed::<u32>().count(), 0);
 }
+
+/// The take → mutate → put-back idiom is what `BehaviorSystem` (`src/behavior.rs:401`) and
+/// `TimelineSystem` (`src/timeline.rs:303`) run every frame, so it must report a **change**
+/// — on every frame, not just the first.
+///
+/// Before this was fixed, `take_component`'s internal `remove_component` cleared both tracking
+/// sets and the put-back then took `add_component`'s new-component branch, so `query_added`
+/// yielded every ticked entity on every single frame and `query_changed` yielded none.
+#[test]
+fn take_then_readd_reports_changed_not_added() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.add_component(e, Health(1));
+
+    for frame in 0..3 {
+        world.clear_change_tracking(); // App does this at the start of every frame
+        let mut h = world
+            .take_component::<Health>(e)
+            .expect("component is present");
+        h.0 += 1;
+        world.add_component(e, h);
+
+        assert_eq!(
+            world.query_added::<Health>().count(),
+            0,
+            "frame {frame}: a put-back component was already there — it is not newly added"
+        );
+        let changed: Vec<_> = world.query_changed::<Health>().collect();
+        assert_eq!(changed.len(), 1, "frame {frame}: the put-back is a change");
+        assert_eq!(changed[0].0, e);
+    }
+    assert_eq!(
+        world.get::<Health>(e).unwrap().0,
+        4,
+        "all three ticks landed"
+    );
+}
+
+/// A component that is genuinely new *this* tick keeps its "added" status across a
+/// take → put-back round trip rather than being downgraded to "changed".
+#[test]
+fn take_then_readd_keeps_added_for_a_component_added_this_tick() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.clear_change_tracking();
+
+    world.add_component(e, Health(1)); // first appearance, this tick
+    let h = world.take_component::<Health>(e).unwrap();
+    world.add_component(e, h);
+
+    assert_eq!(world.query_added::<Health>().count(), 1);
+    assert_eq!(world.query_changed::<Health>().count(), 0);
+}
+
+/// `take_component` with no put-back leaves no phantom entry: the tracked TypeId survives
+/// until the next `clear_change_tracking`, but both queries filter it out because the
+/// component is genuinely gone.
+#[test]
+fn take_without_readd_reports_neither_added_nor_changed() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.add_component(e, Health(1));
+    world.clear_change_tracking();
+
+    assert!(world.take_component::<Health>(e).is_some());
+    assert_eq!(world.query_added::<Health>().count(), 0);
+    assert_eq!(world.query_changed::<Health>().count(), 0);
+    assert!(world.get::<Health>(e).is_none());
+}
