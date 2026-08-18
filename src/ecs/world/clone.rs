@@ -3,6 +3,7 @@
 
 use super::{Entity, World};
 use std::any::TypeId;
+use std::sync::Arc;
 
 impl World {
     /// Registers component T so it can be cloned by `clone_entity`.
@@ -12,7 +13,7 @@ impl World {
     pub fn register_clone<T: Clone + Send + Sync + 'static>(&mut self) {
         self.clone_registry.insert(
             TypeId::of::<T>(),
-            Box::new(|world, src, dst| {
+            Arc::new(|world, src, dst| {
                 if let Some(comp) = world.get::<T>(src) {
                     let cloned = comp.clone();
                     world.add_component(dst, cloned);

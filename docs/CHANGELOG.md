@@ -4,6 +4,38 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.152.2
+
+**Three places took something out of the World, called into user code, and put it back — and none
+of them survived a panic in the middle.** The engine's default `SystemPanicPolicy` is
+`DisableSystemAndContinue`: `App` catches a system panic, disables that system, and keeps the frame
+loop running. That is deliberate, but it means an unwind through the gap in a remove → call →
+reinsert pair does not stop the game. It deletes state and the game plays on without it.
+
+| where | what an unwind through the closure destroyed |
+|---|---|
+| `World::with_resource_mut` | the resource itself — `PhysicsWorld`, `Audio`, a RON registry — gone for the session |
+| `World::clone_component_by_typeid` | the type's `clone_entity` registration, so every later clone silently copied nothing |
+
+The only log line in either case names the *panicking system*. Nothing anywhere names what went
+missing, so the symptom arrives later and somewhere else: physics quietly stops resolving, or the
+editor's Duplicate button produces an empty entity.
+
+`with_resource_mut` now restores the resource before re-raising the payload unchanged. The clone
+registry holds `Arc` rather than `Box`, so the call takes a second handle instead of emptying the
+map slot — one refcount bump, no map churn, and the registration is untouched however the call
+ends. (Under `panic = "abort"`, the shipping profile, there is no unwind to catch and the process
+is already gone, so neither guarantee costs anything there.)
+
+**`with_resource_mut` also silently discarded a replacement.** Inserting a fresh `R` through the
+closure's `&mut World` — a config or registry hot-reload, which is precisely what that argument
+exists for — was overwritten on return by the stale value taken at entry. No return value, no log:
+the reload just did nothing. The re-insert is now conditional, so a replacement wins.
+
+The clone-registry test is the interesting one: it clones twice through a `Clone` impl that panics
+and asserts the **second** attempt panics too. It can only do that if the first panic left the
+registration in place — sabotage-checked against the old code, where attempt 1 passes silently.
+
 ## 0.152.1
 
 **The engine's own documented idiom was lying to change detection every frame.** `take_component`
