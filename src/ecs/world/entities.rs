@@ -76,6 +76,18 @@ impl World {
         self.changed_this_tick.remove(&entity);
     }
 
+    /// All live entities, in **storage order, not spawn order**.
+    ///
+    /// `despawn` fills the hole with `swap_remove`, so deleting one entity moves the
+    /// last-spawned one into its slot: spawn five and despawn the second and this returns
+    /// indices `[0, 4, 2, 3]`. The order is stable between mutations but is not recoverable
+    /// spawn order — `Entity::index` is recycled too, so a caller cannot sort its way back to it.
+    ///
+    /// Anything that presents or persists this list should impose its own order.
+    /// `Entity::index` is unique among live entities, so `sort_unstable_by_key(|e| e.index())`
+    /// is a total order; the editor's entity panels and scene save do exactly that, which keeps
+    /// a hierarchy row from jumping when an unrelated entity is deleted and keeps a one-entity
+    /// change from churning the whole RON file.
     pub fn entities(&self) -> &[Entity] {
         &self.entities
     }

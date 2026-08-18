@@ -871,3 +871,90 @@ fn clone_registration_survives_a_panic_in_the_clone_closure() {
         );
     }
 }
+
+/// `query_added` / `query_changed` collect from a `HashMap<Entity, _>`, so their order used to
+/// be seeded per process — the only public queries in the crate that were not reproducible.
+/// They now yield ascending `(index, generation)`.
+#[test]
+fn change_tracking_queries_yield_entities_in_index_order() {
+    let mut world = World::new();
+    let spawned: Vec<Entity> = (0..8).map(|_| world.spawn()).collect();
+    for &e in &spawned {
+        world.add_component(e, Health(e.index()));
+    }
+
+    let added: Vec<u32> = world
+        .query_added::<Health>()
+        .map(|(e, _)| e.index())
+        .collect();
+    assert_eq!(
+        added,
+        (0..8).collect::<Vec<_>>(),
+        "ascending, not hash order"
+    );
+
+    world.clear_change_tracking();
+    for &e in &spawned {
+        world.add_component(e, Health(e.index() * 10)); // replace → changed
+    }
+    let changed: Vec<u32> = world
+        .query_changed::<Health>()
+        .map(|(e, _)| e.index())
+        .collect();
+    assert_eq!(changed, (0..8).collect::<Vec<_>>());
+}
+
+/// `clone_entity` walks `clone_registry.keys()`, and every `add_component` in that loop moves
+/// the entity through a different intermediate archetype signature — so an unsorted order left
+/// `world.archetypes` in a different Vec order per run, and `query::<T>()` iterates archetypes
+/// in exactly that order.
+///
+/// Each `HashMap` gets its own seed, so building the identical world several times *in one
+/// process* is enough to catch it: the unsorted version disagrees with itself here (measured
+/// 18/6 across 24 process launches before the fix), while the sorted one cannot.
+#[test]
+fn clone_entity_leaves_the_same_query_order_every_time() {
+    #[derive(Clone)]
+    struct C1(u32);
+    #[derive(Clone)]
+    struct C2;
+    #[derive(Clone)]
+    struct C3;
+    #[derive(Clone)]
+    struct C4;
+
+    fn build() -> Vec<u32> {
+        let mut world = World::new();
+        world.register_clone::<C1>();
+        world.register_clone::<C2>();
+        world.register_clone::<C3>();
+        world.register_clone::<C4>();
+
+        // Built back-to-front so the clone's intermediate signatures are genuinely new
+        // archetypes rather than ones this build already created.
+        let src = world.spawn();
+        world.add_component(src, C4);
+        world.add_component(src, C3);
+        world.add_component(src, C2);
+        world.add_component(src, C1(0));
+        world.clone_entity(src).expect("src is alive");
+
+        let x = world.spawn();
+        world.add_component(x, C1(10));
+        world.add_component(x, C2);
+        let y = world.spawn();
+        world.add_component(y, C1(20));
+        world.add_component(y, C3);
+
+        world.query::<C1>().map(|(_, c)| c.0).collect()
+    }
+
+    let first = build();
+    for attempt in 1..16 {
+        assert_eq!(
+            build(),
+            first,
+            "attempt {attempt}: clone_entity must leave one archetype order, not a per-map one"
+        );
+    }
+}
