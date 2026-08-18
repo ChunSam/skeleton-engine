@@ -4,6 +4,49 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.152.5
+
+**Building an entity was O(N²), and the backlog row that filed it had the cause half wrong.**
+An entity is assembled one `add_component` at a time — the only way, there is no bundle spawn — so
+every step past the first is an archetype transition through `World::move_entity`. That function
+cloned the source `type_set`, cloned the destination `type_set`, and built a fresh
+`HashMap<TypeId, ComponentBox>` of the components in flight, on **every** transition. Assembling an
+N-component entity therefore re-copied the whole signature N times, and the per-component
+allocation cost climbed with the entity's width:
+
+| entity width | allocs / entity | bytes / entity | allocs per component |
+|---|---|---|---|
+| 2 | 10.02 → **3.02** | 864 → **532** | 5.01 → **1.51** |
+| 4 | 23.02 → **6.02** | 1,680 → **716** | 5.75 → **1.50** |
+| 8 | 52.03 → **11.03** | 5,160 → **1,076** | 6.50 → **1.38** |
+
+The two `type_set` clones are now `std::mem::take` + restore — the borrow they existed to break
+(`type_set` and `columns` are fields of one `Archetype`) is broken just as well by moving the Vec
+out and putting it back, and nothing in the gap reads it or calls out to code that could. The
+extracted components go into a reused scratch `Vec` on `World` instead of a per-call `HashMap`; a
+linear scan beats hashing for the handful of entries involved. And `get_or_create_archetype` now
+takes `&[TypeId]`, so the callers build their signature into a second scratch rather than
+allocating a `Vec` that the common path drops one line later.
+
+**`docs/NEXT_WORK.md` filed this as "`mem::take` the two `type_set` clones, which would leave 5".**
+The clones were real, but they are the *constant* half — a `Vec` clone is one allocation whatever
+its length. The half that made the cost scale was the `HashMap`, which grows with the width. The
+row's own gate was "write the test that would notice, first", and doing that is what produced the
+5.01 → 5.75 → 6.50 curve that pointed at the right half. **The guess and the measurement disagreed
+about which line to change.**
+
+Two tests, because one is not enough and that took sabotage to learn. The **ratio** test asserts
+the shape — a wide entity may not cost meaningfully more per component than a narrow one — and
+catches the `HashMap` (fails at +31% when reverted) but *not* the constant-factor allocations,
+which barely move a ratio. The **budget** test catches those (3.01 and 3.51 against a 2.5 ceiling
+when each is reverted separately). Each of the three reverts was checked on its own; neither test
+alone covers the change.
+
+A single transition's reading is useless here, incidentally: the same operation measured 7
+allocations for the 256th entity and **17** for the 257th, because an archetype column `Vec`
+doubled on that push. Both tests average over a 512-entity batch, which amortises that to the ~0
+per transition it actually is.
+
 ## 0.152.4
 
 **Four ECS failures that were true but silent now say so.** None of these changes what correct

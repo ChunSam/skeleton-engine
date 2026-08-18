@@ -25,8 +25,8 @@ A filed request preempts everything below.
 
 ## Open — engineering
 
-**Six items, all deliberately unscheduled** — each gated on a trigger, none on a decision. The
-three below are the standing ones; the three under *the 2026-08-18 ECS review's efficiency
+**Five items, all deliberately unscheduled** — each gated on a trigger, none on a decision. The
+three below are the standing ones; the two under *the 2026-08-18 ECS review's efficiency
 remainder* arrived together from one pass and are gated on measurement rather than on a caller.
 
 A backlog this short is still the *expected* state, not a gap to fill: two programs closed in
@@ -46,15 +46,22 @@ v0.152.1–v0.152.4, and they are what that review deliberately did not do.
 A full read of `src/ecs` (2,626 lines, 14 files) on 2026-08-18 produced 15 findings. **Twelve
 shipped** across v0.152.1–v0.152.4 — the take → put-back change-tracking bug, three panic-unsafe
 remove → call → reinsert pairs, two `HashMap`-seed determinism leaks, and four silent failures made
-loud. **One was a false positive** (see the closed row below). These three are the remainder, and
-they are remainder *by decision*: every one is an efficiency claim, and this repo's own habit —
+loud. **One was a false positive** (see the closed row below). Three were the remainder, and they were
+remainder *by decision*: every one is an efficiency claim, and this repo's own habit —
 `tests/per_frame_alloc.rs`, the v0.151.1 debug-draw row — is that an efficiency claim ships with a
-number or not at all. Two of the three have a number already; the third does not.
+number or not at all.
+
+**One of the three closed the same day (v0.152.5), and this row's own reading of it was wrong.** It
+said the fix was `mem::take` on `move_entity`'s two `type_set` clones, "which would leave 5". The
+clones were real but they were the *constant* half; the half that made building an entity O(N²) was
+the fresh `HashMap` of extracted components, which grows with the entity's width. Measuring first —
+which is what the row's own gate demanded — showed per-component cost climbing 5.01 → 5.75 → 6.50
+as an entity widened, and the finished fix landed at **1.38–1.51, flat**. Writing the test first is
+what turned a guess into a number. Two remain:
 
 | Item | State |
 |---|---|
 | **Empty archetypes are never reclaimed** | `World::get_or_create_archetype` (`src/ecs/world.rs`) pushes onto `self.archetypes` and nothing ever removes an entry. Building an entity component-by-component — the only supported way, there is no bundle spawn — creates an archetype for *every prefix* of its signature, each left empty once the entity migrates onward. All **fourteen** `query*`/`par_query*` entry points (10 in `queries.rs`, 4 in `parallel.rs`) then run `arch.contains(tid)` — a binary search — across the whole Vec, every call, every frame. **Gated on a measurement that does not exist yet**: nobody has counted archetypes in a real game, so the size of the tail is unknown. Count first (`survivor` and `salvage_run` are the busiest), then decide between the one-line mitigation — adding `!arch.entities.is_empty()` to the filters — and actual reclamation. Do not ship the one-liner as if it were the fix; it hides the growth rather than bounding it. |
-| **`move_entity` costs 7 allocations per archetype transition** | Measured 2026-08-18 with a counting `GlobalAlloc`, archetypes already warm: a transition-causing `add_component` = **7 allocations**, `remove_component` = **5**, `spawn` + 4 components = **23**. Source is `World::move_entity` cloning `type_set` twice (`src_type_set` / `dst_type_set`) plus its `extracted` `HashMap`, and `add_component`'s own `new_sig`. The two `type_set` clones look removable with `std::mem::take` — nothing calls `contains` between take and restore — which would leave 5. **Gated on a test that would notice**: `tests/per_frame_alloc.rs` measures *steady-state* frames, where no entity changes archetype, so a spawn-heavy frame is not covered by anything. Write that case first; it is what makes the fix provable and what stops it regressing. |
 | **`query2`/`query3`/`query4`/`query_opt2` index where their neighbours zip** | the four of them use `arch.entities.iter().enumerate()` with `ca[i]`/`cb[i]`, so `query4` pays four bounds checks per entity per call that the compiler cannot elide across `HashMap`-obtained `Vec`s. `query`, `query_with`, `query_without` and `query2_mut` already use the zip form on the same data, so one file carries two spellings of one operation. `query2` backs most built-in per-frame systems. **The weakest of the three and the one to be most honest about**: the consistency argument is solid, the performance claim is unmeasured. It is a cleanup with a plausible win, not a known win — benchmark it or ship it as a cleanup, but do not write a number into the commit body that nobody produced. |
 
 ### Closed — do not reopen without new information
@@ -329,8 +336,11 @@ Closed 2026-08-18 — **a full read of `src/ecs` (2,626 lines, 14 files) produce
 shipped as four PATCH releases** (v0.152.1–v0.152.4, #466/#468/#469/#470), one was a false positive
 (recorded in *Closed — do not reopen*), and three efficiency items stayed open under *the
 2026-08-18 ECS review's efficiency remainder* above. A fifth PR (#467) fixed the CI that the work
-ran into. Detail is in `docs/CHANGELOG.md` 0.152.1–0.152.4 and the commit bodies. Three things
-worth carrying:
+ran into, and a seventh registered this backlog. **v0.152.5 then closed the first of the three
+remainder items** — `move_entity`'s allocations, where writing the gating test first proved the
+row's own diagnosis half wrong and the finished fix cut an 8-component entity from 52.03
+allocations / 5,160 bytes to 11.03 / 1,076. Detail is in `docs/CHANGELOG.md` 0.152.1–0.152.5 and
+the commit bodies. Three things worth carrying:
 
 - ⚠️ **A conflict resolution is a tree nothing has ever verified.** #469's merge with `main` left
   `tests.rs` uncompilable — git's auto-resolution put its `=======` boundary *inside* a test

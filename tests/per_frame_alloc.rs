@@ -41,7 +41,7 @@ use std::cell::Cell;
 
 use engine::{
     AnimEffectBindings, AnimEffectRegistry, AnimEffectSystem, AnimationEvent, Collider,
-    CollisionLayer, Color, DialogueBox, DialogueStyle, DialogueSystem, Effect, Events,
+    CollisionLayer, Color, DialogueBox, DialogueStyle, DialogueSystem, Effect, Entity, Events,
     HierarchySystem, HitFlash, Label, LayoutDir, LayoutSystem, LocaleData, LocaleResource,
     LocalizationSystem, LocalizedText, Panel, Parent, Particle, ParticleSystem, SpatialGrid,
     Sprite, System, Tag, Tilemap, TilemapAtlas, TilemapSystem, Transform, UiNode, UvRect, Vec2,
@@ -653,4 +653,184 @@ fn a_full_frame_including_change_tracking_reset_does_not_allocate() {
     let second = measure(|| frame(&mut world, &mut system));
     let worst = if first.0 >= second.0 { first } else { second };
     assert_no_steady_state_allocation("clear_change_tracking + HierarchySystem", worst);
+}
+
+// ── Archetype transitions ─────────────────────────────────────────────────────────────────────
+//
+// The one per-frame path `steady_state_frame` structurally cannot see. It measures frames where
+// nothing changes archetype; every allocation below happens *because* something does. A game that
+// spawns — bullets, particles-as-entities, enemies — pays this on live frames, and until now
+// nothing in this file would have noticed it growing.
+
+// The `f32` is load-bearing, not filler: a zero-sized component would make `Box::new` skip its
+// allocation entirely and the measurement would stop resembling a real component. `dead_code` is
+// allowed for the same reason `src/ecs/world/tests.rs` allows it — the field exists to give the
+// type a size, and the tests below assert on component *presence*, not on the value.
+#[allow(dead_code)]
+#[derive(Clone, Copy)]
+struct T1(f32);
+#[allow(dead_code)]
+#[derive(Clone, Copy)]
+struct T2(f32);
+#[allow(dead_code)]
+#[derive(Clone, Copy)]
+struct T3(f32);
+#[allow(dead_code)]
+#[derive(Clone, Copy)]
+struct T4(f32);
+#[allow(dead_code)]
+#[derive(Clone, Copy)]
+struct T5(f32);
+#[allow(dead_code)]
+#[derive(Clone, Copy)]
+struct T6(f32);
+#[allow(dead_code)]
+#[derive(Clone, Copy)]
+struct T7(f32);
+#[allow(dead_code)]
+#[derive(Clone, Copy)]
+struct T8(f32);
+
+fn add_nth(world: &mut World, e: Entity, n: usize) {
+    match n {
+        1 => world.add_component(e, T1(0.0)),
+        2 => world.add_component(e, T2(0.0)),
+        3 => world.add_component(e, T3(0.0)),
+        4 => world.add_component(e, T4(0.0)),
+        5 => world.add_component(e, T5(0.0)),
+        6 => world.add_component(e, T6(0.0)),
+        7 => world.add_component(e, T7(0.0)),
+        _ => world.add_component(e, T8(0.0)),
+    }
+}
+
+/// Spawn `count` entities, each built up to `width` components one `add_component` at a time —
+/// the only way an entity can be assembled (there is no bundle spawn), so every step past the
+/// first is an archetype transition.
+fn build_entities(world: &mut World, count: usize, width: usize) -> (usize, usize) {
+    measure(|| {
+        for _ in 0..count {
+            let e = world.spawn();
+            for n in 1..=width {
+                add_nth(world, e, n);
+            }
+        }
+    })
+}
+
+/// Allocations per *component added*, averaged over `BATCH` entities of the given width.
+///
+/// Averaging is not cosmetic. A single transition's reading is dominated by whichever archetype
+/// column `Vec` happened to double on that push — measured 7 allocations for the 256th entity and
+/// **17** for the 257th, same operation. Amortising over a batch turns that into the ~0 per
+/// transition it actually is and leaves `move_entity`'s own temporaries, which is what this test
+/// is about. The first batch is discarded so archetypes and their column capacity already exist.
+fn allocs_per_component(width: usize) -> f64 {
+    const BATCH: usize = 512;
+    let mut world = World::new();
+    build_entities(&mut world, BATCH, width);
+    let (allocs, _) = build_entities(&mut world, BATCH, width);
+    allocs as f64 / BATCH as f64 / width as f64
+}
+
+/// **An archetype transition must not get more expensive as the entity widens.**
+///
+/// `move_entity` cloned the source *and* destination `type_set` and built a fresh `HashMap` of
+/// the extracted components on every transition, so assembling an N-component entity re-copied
+/// the whole signature N times — O(N²) work to build one entity, and a per-component allocation
+/// count that climbed with N:
+///
+/// | width | allocs/entity | per component | after v0.152.5 |
+/// |-------|---------------|---------------|----------------|
+/// | 2     | 10.02         | 5.01          | 1.51           |
+/// | 4     | 23.02         | 5.75          | 1.50           |
+/// | 8     | 52.03         | 6.50          | 1.38           |
+///
+/// Reusing the scratch and taking the two `type_set`s instead of cloning them made the cost flat
+/// — an 8-component entity went from 52.03 allocations and 5,160 bytes to 11.03 and 1,076.
+///
+/// The assertion is the *shape*, not a magic number: a wide entity may not cost meaningfully more
+/// per component than a narrow one. An absolute budget would go stale on any unrelated change;
+/// this only fails if the per-transition cost starts scaling with width again.
+#[test]
+fn an_archetype_transition_does_not_get_more_expensive_as_the_entity_widens() {
+    let narrow = allocs_per_component(2);
+    let wide = allocs_per_component(8);
+
+    // Positive control, two ways. Zero is also what this reads if the path never ran, and a
+    // plausible-looking number is also what it reads if `add_component` silently no-opped.
+    let mut control = World::new();
+    build_entities(&mut control, 1, 8);
+    let e = control.entities()[0];
+    assert!(
+        control.has_component::<T1>(e) && control.has_component::<T8>(e),
+        "control failed — the fixture did not actually put components on the entity"
+    );
+    assert!(
+        narrow > 1.0,
+        "control failed — building an entity must allocate at least once per component, got \
+         {narrow:.2}. The measurement is not seeing the work."
+    );
+
+    assert!(
+        wide <= narrow * 1.15,
+        "an 8-component entity costs {wide:.2} allocations per component against {narrow:.2} for \
+         a 2-component one ({:.0}% more). A transition is re-copying something that scales with \
+         the archetype's width — check `move_entity`'s temporaries.",
+        (wide / narrow - 1.0) * 100.0
+    );
+}
+
+/// The ratio test above guards the *shape*; this guards the *constant*.
+///
+/// A `Vec` clone is one allocation whatever its length, so restoring `move_entity`'s two
+/// `type_set` clones — or the throwaway signature `add_component` used to hand
+/// `get_or_create_archetype` — adds a fixed cost per transition and leaves the ratio almost
+/// untouched. Sabotage-checked: reverting only the width-scaling half fails the ratio test at
+/// +31%, and reverting only the constant halves does not, which is exactly why both tests exist.
+///
+/// The ceiling is deliberately loose. Measured 1.38–1.51 depending on width, so 2.5 leaves room
+/// for an honest change to cost a little more without a red build, while any of the three
+/// reverted allocations puts it over.
+#[test]
+fn building_an_entity_stays_within_its_per_component_allocation_budget() {
+    const CEILING: f64 = 2.5;
+    for width in [2usize, 4, 8] {
+        let per_component = allocs_per_component(width);
+        assert!(
+            per_component > 0.5,
+            "control failed — width {width} measured {per_component:.2} allocations per \
+             component, which is too low to be measuring the work at all"
+        );
+        assert!(
+            per_component <= CEILING,
+            "a {width}-component entity costs {per_component:.2} allocations per component, over \
+             the {CEILING} ceiling. Something on the archetype-transition path started \
+             allocating again — `move_entity`'s temporaries or the signature built by \
+             `add_component` / `remove_component`."
+        );
+    }
+}
+
+/// The same claim in bytes, which is where an O(N²) copy shows up first: the counts above grow
+/// slowly because a `Vec` clone is one allocation whatever its length, while the bytes it moves
+/// are proportional to the width.
+#[test]
+fn archetype_transition_bytes_do_not_scale_with_entity_width() {
+    const BATCH: usize = 512;
+    fn bytes_per_component(width: usize) -> f64 {
+        let mut world = World::new();
+        build_entities(&mut world, BATCH, width);
+        let (_, bytes) = build_entities(&mut world, BATCH, width);
+        bytes as f64 / BATCH as f64 / width as f64
+    }
+
+    let narrow = bytes_per_component(2);
+    let wide = bytes_per_component(8);
+    assert!(narrow > 0.0, "control failed — no bytes measured at all");
+    assert!(
+        wide <= narrow * 1.25,
+        "an 8-component entity requests {wide:.0} bytes per component against {narrow:.0} for a \
+         2-component one. Bytes are where a per-transition copy of the whole signature shows up."
+    );
 }

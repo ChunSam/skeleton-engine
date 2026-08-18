@@ -16,14 +16,21 @@ impl World {
             return;
         }
 
-        let new_sig: Vec<TypeId> = self.archetypes[arch_id]
-            .type_set
-            .iter()
-            .copied()
-            .filter(|&t| t != tid)
-            .collect();
+        // Built into the reused `sig_scratch` rather than a fresh `Vec`: on the common path the
+        // destination archetype already exists, so the signature was allocated only to be
+        // dropped inside `get_or_create_archetype` one line later.
+        let mut new_sig = std::mem::take(&mut self.sig_scratch);
+        new_sig.clear();
+        new_sig.extend(
+            self.archetypes[arch_id]
+                .type_set
+                .iter()
+                .copied()
+                .filter(|&t| t != tid),
+        );
+        let new_arch_id = self.get_or_create_archetype(&new_sig);
+        self.sig_scratch = new_sig;
 
-        let new_arch_id = self.get_or_create_archetype(new_sig);
         self.move_entity(entity, new_arch_id);
         if let Some(s) = self.added_this_tick.get_mut(&entity) {
             s.remove(&tid);
@@ -122,15 +129,17 @@ impl World {
             return;
         }
 
-        let new_sig: Vec<TypeId> = {
-            let arch = &self.archetypes[arch_id];
-            let mut sig = arch.type_set.clone();
-            let pos = sig.binary_search(&tid).unwrap_err();
-            sig.insert(pos, tid);
-            sig
-        };
+        // Reused scratch — see the note in `remove_component`.
+        let mut new_sig = std::mem::take(&mut self.sig_scratch);
+        new_sig.clear();
+        new_sig.extend_from_slice(&self.archetypes[arch_id].type_set);
+        let pos = new_sig
+            .binary_search(&tid)
+            .expect_err("add_component: the archetype does not contain this type (checked above)");
+        new_sig.insert(pos, tid);
+        let new_arch_id = self.get_or_create_archetype(&new_sig);
+        self.sig_scratch = new_sig;
 
-        let new_arch_id = self.get_or_create_archetype(new_sig);
         self.move_entity(entity, new_arch_id);
 
         let (na, _) = self.entity_location[&entity];
