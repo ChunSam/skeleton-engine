@@ -14,6 +14,11 @@ const CIRCLE_SEGMENTS: u32 = 24;
 const MIN_STEP_THICKNESS: f32 = 0.5;
 /// Segments shorter than this are skipped (degenerate, nothing visible to draw).
 const MIN_SEGMENT_LEN: f32 = 0.001;
+/// Ceiling on the number of dots one segment may be filled with. `MIN_STEP_THICKNESS` bounds the
+/// *divisor*, which is not the same thing — a long enough segment overflows the count anyway. See
+/// the two guards in `push_line`. Past this many quads a debug overlay is unreadable regardless,
+/// so the fill spaces out instead of the frame dying.
+const MAX_LINE_STEPS: usize = 4096;
 
 impl App {
     pub(in crate::app) fn debug_shape_to_draw_rects(
@@ -29,7 +34,22 @@ impl App {
             |start: glam::Vec2, end: glam::Vec2, color: crate::color::Color, thickness: f32| {
                 let delta = end - start;
                 let len = delta.length();
-                if len < MIN_SEGMENT_LEN {
+                // ⚠️ **Degenerate or non-finite.** `len < MIN_SEGMENT_LEN` cannot stand alone: an
+                // infinity is not "short", and a NaN compares false against everything. The two
+                // then failed differently, which is why one guard covers both:
+                //   - **infinite `len` hung the frame.** `(inf / thickness).ceil() as usize`
+                //     **saturates to `usize::MAX`**, so `for i in 0..=steps` became a
+                //     2^64-iteration loop pushing a quad each time — a hang inside `render()`,
+                //     with the queue growing until the process died.
+                //   - **NaN `len` terminated and drew garbage.** The same cast sends NaN to *0*,
+                //     so the fill emitted exactly one quad at NaN coordinates into `UiQueue`.
+                // `DebugDraw::line` / `circle` / `cross` are public and take any `f32`, so a
+                // coordinate that came out of a divide reached both from ordinary play.
+                // The guard is on `len`, not on the endpoints: two finite endpoints far enough
+                // apart overflow `length()` on their own (it squares them), and an axis-aligned
+                // infinity skipped the fill entirely and drew one quad of infinite width instead.
+                // A segment with no finite extent has nothing to draw, so it draws nothing.
+                if len < MIN_SEGMENT_LEN || !len.is_finite() {
                     return;
                 }
                 let half = thickness / 2.0;
@@ -59,7 +79,14 @@ impl App {
                     return;
                 }
 
-                let steps = (len / thickness.max(MIN_STEP_THICKNESS)).ceil() as usize;
+                // Finite is not the same as bounded, and the guard above does not make it so.
+                // A `len` of 1e18 survives it and then asks for 9.4e17 iterations without
+                // saturating anything; a thin enough line saturates outright, since `len / 0.5`
+                // passes `usize::MAX` while `len` is still finite. Even an ordinary large world
+                // coordinate costs millions of quads in one frame. The cap is what makes
+                // termination a property of the loop rather than of its input.
+                let steps =
+                    ((len / thickness.max(MIN_STEP_THICKNESS)).ceil() as usize).min(MAX_LINE_STEPS);
                 for i in 0..=steps {
                     let t = i as f32 / steps.max(1) as f32;
                     let pos = start + delta * t;
@@ -313,5 +340,94 @@ mod tests {
     #[test]
     fn a_degenerate_segment_draws_nothing() {
         assert!(line(Vec2::new(5.0, 5.0), Vec2::new(5.0, 5.0), 1.5).is_empty());
+    }
+
+    // --- segments that cannot be stepped: the loop must still terminate ------------------
+    //
+    // Measured against the unfixed arithmetic, at 1.5 thickness (a standalone copy of the loop,
+    // counting instead of pushing, capped at 20M iterations):
+    //
+    //   diagonal 300px (control)      steps = 283                   terminated
+    //   infinite endpoint             steps = 18446744073709551615  hit the cap
+    //   finite 1e18 endpoint          steps =   942809024426934272  hit the cap
+    //   finite 3e19 (len overflows)   steps = 18446744073709551615  hit the cap
+    //   NaN endpoint                  steps = 0                     terminated, 1 quad at NaN
+    //
+    // So the tests below that name an infinity did not *fail* before the guards — they hung, and
+    // the growing `UiQueue` took the process with them. The NaN ones did terminate, drawing a
+    // single garbage quad, which is a different bug with the same cause and the same fix.
+    // `DebugDraw::line` / `circle` / `cross` are public and take any `f32`, so a coordinate that
+    // came out of a divide in game code reached all of it from ordinary play.
+
+    #[test]
+    fn a_non_finite_segment_draws_nothing() {
+        // Not axis-aligned, so it takes the dotted path — the one that saturates.
+        assert!(line(Vec2::ZERO, Vec2::splat(f32::INFINITY), 1.5).is_empty());
+        assert!(line(Vec2::ZERO, Vec2::splat(f32::NAN), 1.5).is_empty());
+        assert!(line(Vec2::splat(f32::NAN), Vec2::new(10.0, 20.0), 1.5).is_empty());
+    }
+
+    #[test]
+    fn an_axis_aligned_non_finite_segment_draws_nothing() {
+        // This one used to reach the *collapse* branch instead (`delta.y == 0.0` holds), where it
+        // pushed a single quad of infinite width rather than hanging. Also wrong, same cause.
+        assert!(line(Vec2::ZERO, Vec2::new(f32::INFINITY, 0.0), 1.5).is_empty());
+    }
+
+    #[test]
+    fn finite_endpoints_are_not_enough_the_guard_is_on_the_length() {
+        // Every endpoint below is finite, yet `len` is not: `length()` squares the components, so
+        // 3e19 overflows f32 on the way to the square root, and `MAX - (-MAX)` overflows in the
+        // subtraction before that. Guarding `start.is_finite() && end.is_finite()` would let both
+        // straight through into the loop.
+        assert!(line(Vec2::ZERO, Vec2::splat(3e19), 1.5).is_empty());
+        assert!(line(Vec2::splat(-f32::MAX), Vec2::splat(f32::MAX), 1.5).is_empty());
+    }
+
+    #[test]
+    fn a_huge_finite_segment_is_bounded_not_unbounded() {
+        // `len` here is ~1.4e18 — finite, so the guard above does not fire, and the cast does not
+        // even need to saturate for the loop to be unbounded in every practical sense: it asks for
+        // 9.4e17 iterations, each pushing a quad. (A thinner line does saturate outright —
+        // `len / 0.5` passes `usize::MAX` while `len` is still finite.) The cap is what turns
+        // termination into a property of the loop rather than of its input.
+        let items = line(Vec2::ZERO, Vec2::splat(1e18), 1.5);
+        assert_eq!(
+            items.len(),
+            MAX_LINE_STEPS + 1,
+            "capped at the step ceiling"
+        );
+        assert!(
+            items.iter().all(|r| r.x.is_finite() && r.y.is_finite()),
+            "a capped fill must not emit non-finite quads"
+        );
+    }
+
+    #[test]
+    fn a_non_finite_circle_terminates() {
+        // The circle builds its chords out of `push_line`, so a non-finite radius reached the
+        // same loop one level up.
+        for radius in [f32::INFINITY, f32::NAN] {
+            let items = quads(DebugShape::Circle {
+                center: Vec2::ZERO,
+                radius,
+                color: C,
+            });
+            assert!(
+                items.is_empty(),
+                "radius {radius}: got {} quads",
+                items.len()
+            );
+        }
+    }
+
+    #[test]
+    fn a_non_finite_cross_terminates() {
+        let items = quads(DebugShape::Cross {
+            pos: Vec2::splat(f32::NAN),
+            size: 20.0,
+            color: C,
+        });
+        assert!(items.is_empty(), "got {} quads", items.len());
     }
 }
