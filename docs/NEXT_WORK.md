@@ -25,9 +25,10 @@ A filed request preempts everything below.
 
 ## Open — engineering
 
-**Five items, all deliberately unscheduled** — each gated on a trigger, none on a decision. The
-three below are the standing ones; the two under *the 2026-08-18 ECS review's efficiency
-remainder* arrived together from one pass and are gated on measurement rather than on a caller.
+**Three items, all deliberately unscheduled** — each gated on a trigger, none on a decision, and
+all three are the standing ones below. **The 2026-08-18 ECS review's efficiency remainder is now
+empty**: its last two items closed on 2026-08-19, one by the measurement it was gated on and one by
+shipping (v0.152.6). That section is kept below as the record of what measuring did to it.
 
 A backlog this short is still the *expected* state, not a gap to fill: two programs closed in
 v0.150.7 and v0.151.1, and the board gate above is empty. Manufacturing work to fill it would be a
@@ -41,7 +42,7 @@ v0.152.1–v0.152.4, and they are what that review deliberately did not do.
 | **`add-facade-capability` skill** | n=5 now (the facade + native + wasm + policy-module shape has repeated that many times). Deferred; the next facade capability makes the case by itself. **Building it now would ship a skill with nothing to apply it to** — no facade capability is queued, so do it *alongside* the next one, not before. |
 | **Last-seen eviction helper** (`RemoteEntities` #5) | **n=1, gated on a 2nd staleness example** — the same bar that held `SnapshotBuffer` until its 2nd call site. `salvage_run`'s AOI streaming produces **removal-by-omission**: the server never sends a `Bye`, an entity just stops appearing in snapshots, so the client infers eviction from `last_seen` + timeout. Candidate shape (`touch(key, t)` / `expired(now - timeout) -> Vec<K>`) is written up in `docs/REMOTE_ENTITIES_DESIGN.md` § *5th example*, **flagged not built**. Surfaced here 2026-08-10 because that doc was its only home — the four sibling verdicts in the same section all resolved to *keep minimal / zero engine change*, and this is the one that did not. |
 
-### Open — the 2026-08-18 ECS review's efficiency remainder
+### Closed 2026-08-19 — the 2026-08-18 ECS review's efficiency remainder
 
 A full read of `src/ecs` (2,626 lines, 14 files) on 2026-08-18 produced 15 findings. **Twelve
 shipped** across v0.152.1–v0.152.4 — the take → put-back change-tracking bug, three panic-unsafe
@@ -49,7 +50,9 @@ remove → call → reinsert pairs, two `HashMap`-seed determinism leaks, and fo
 loud. **One was a false positive** (see the closed row below). Three were the remainder, and they were
 remainder *by decision*: every one is an efficiency claim, and this repo's own habit —
 `tests/per_frame_alloc.rs`, the v0.151.1 debug-draw row — is that an efficiency claim ships with a
-number or not at all.
+number or not at all. **All three now have their number, and all three are closed** — one shipped
+as a fix (v0.152.5), one closed by the measurement it was gated on, one shipped as a cleanup
+(v0.152.6). Nothing in this section is open.
 
 **One of the three closed the same day (v0.152.5), and this row's own reading of it was wrong.** It
 said the fix was `mem::take` on `move_entity`'s two `type_set` clones, "which would leave 5". The
@@ -57,12 +60,18 @@ clones were real but they were the *constant* half; the half that made building 
 the fresh `HashMap` of extracted components, which grows with the entity's width. Measuring first —
 which is what the row's own gate demanded — showed per-component cost climbing 5.01 → 5.75 → 6.50
 as an entity widened, and the finished fix landed at **1.38–1.51, flat**. Writing the test first is
-what turned a guess into a number. Two remain:
+what turned a guess into a number.
+
+**Both of the remaining two were measured on 2026-08-19, and the archetype row's stated mechanism
+was wrong as well** — a third consecutive reversal in this section, which is the point of the
+advisory rule in `CLAUDE.md`. Instrumentation and the `survivor` input script are kept in
+`.claude/instrumentation.patch` and `.claude/survivor_play.ron` (gitignored); the tree was returned
+byte-identical to HEAD afterwards.
 
 | Item | State |
 |---|---|
-| **Empty archetypes are never reclaimed** | `World::get_or_create_archetype` (`src/ecs/world.rs`) pushes onto `self.archetypes` and nothing ever removes an entry. Building an entity component-by-component — the only supported way, there is no bundle spawn — creates an archetype for *every prefix* of its signature, each left empty once the entity migrates onward. All **fourteen** `query*`/`par_query*` entry points (10 in `queries.rs`, 4 in `parallel.rs`) then run `arch.contains(tid)` — a binary search — across the whole Vec, every call, every frame. **Gated on a measurement that does not exist yet**: nobody has counted archetypes in a real game, so the size of the tail is unknown. Count first (`survivor` and `salvage_run` are the busiest), then decide between the one-line mitigation — adding `!arch.entities.is_empty()` to the filters — and actual reclamation. Do not ship the one-liner as if it were the fix; it hides the growth rather than bounding it. |
-| **`query2`/`query3`/`query4`/`query_opt2` index where their neighbours zip** | the four of them use `arch.entities.iter().enumerate()` with `ca[i]`/`cb[i]`, so `query4` pays four bounds checks per entity per call that the compiler cannot elide across `HashMap`-obtained `Vec`s. `query`, `query_with`, `query_without` and `query2_mut` already use the zip form on the same data, so one file carries two spellings of one operation. `query2` backs most built-in per-frame systems. **The weakest of the three and the one to be most honest about**: the consistency argument is solid, the performance claim is unmeasured. It is a cleanup with a plausible win, not a known win — benchmark it or ship it as a cleanup, but do not write a number into the commit body that nobody produced. |
+| **Empty archetypes are never reclaimed** | ✅ **MEASURED — do neither. Recommend closing.** The gate this row named ("nobody has counted archetypes in a real game") is now closed: all 22 game examples were run headlessly with a per-frame archetype dump. **The Vec is bounded and saturates.** `survivor` — driven through a real 1800-frame session by an input script (invulnerability on, `B` waves every 90 frames) rather than the 3.8 s death an unscripted capture gets — reaches **34 archetypes by frame ~150 and never gains another**, while its entities grow 2 → 665. `salvage_run` (against its live server, 109 streamed entities) reaches **4**. No other game exceeds 20. Nothing removes an entry, but the reachable set is the distinct signature *prefixes the game's own spawn code can produce*, which is a property of the code, not of runtime. **The row's mechanism was wrong.** The cost is not "a binary search across the whole Vec": a *non-matching* empty archetype is rejected by that search in a few ns. Only an empty archetype whose signature still **matches** costs anything — it passes the filter and pays two `HashMap<TypeId, _>` column lookups in the `flat_map` body to iterate zero entities, ≈**19 ns** each. `survivor` steady state: **115 filter passes per frame, 98 of them empty (85%)** → ≈**1.9 µs/frame**, **0.57%** of a 326 µs `App::update`. A/B with the one-line guard applied to all 14 sites: **328.2 µs guarded vs 326.3 µs baseline** (3 release runs each) — no measurable change, the ±1.4% run-to-run spread swamps it. ⚠️ An isolated micro-bench *did* show −17%, and it overstated the case: every prefix in that synthetic world contained the queried pair, so all 18 empty archetypes matched. Real games do not have that shape. **Do not reopen without a fork that actually has hundreds of entity kinds** — the scan is linear in archetype count, so a different regime would need re-measuring, but no game here is near it. |
+| **`query2`/`query3`/`query4`/`query_opt2` index where their neighbours zip** | ✅ **CLOSED 2026-08-19 (v0.152.6)** — `query2`/`query3`/`query4` now zip, so the file has one spelling of one operation. Measured against a copy of the exact spelling it replaced: **2131 → 1748 ns per 650-entity pass, −18%** (0.59 ns/entity), reproducing to ±0.2% across runs. ⚠️ **The percentage is not portable**: an earlier four-variant harness put the same change at −8.5%, and since runs within each harness agree to ±0.2%, the spread is code layout between harnesses, not noise. Direction and per-entity size are what generalise. It shipped as a cleanup — nobody has shown it moving `App::update`. `query_opt2` keeps its index by design (`B` is optional, so its column has no per-element iterator to zip); its mandatory pair zips anyway. ⚠️ Indexing panicked on an `entities`/column length desync where zip silently yields the shorter; six sites already had zip's behaviour, so this made the file consistent rather than adding the exposure — **a `debug_assert` across all ten sites is the follow-up if a desync is ever suspected**, and is deliberately not in this change. |
 
 ### Closed — do not reopen without new information
 
