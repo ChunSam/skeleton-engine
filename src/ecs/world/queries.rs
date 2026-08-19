@@ -168,13 +168,17 @@ impl World {
                     .columns
                     .get(&tb)
                     .expect("query2: archetype was filtered to contain column B");
-                arch.entities.iter().enumerate().map(move |(i, &e)| {
-                    (
-                        e,
-                        ca[i].downcast_ref::<A>().expect("column holds type A"),
-                        cb[i].downcast_ref::<B>().expect("column holds type B"),
-                    )
-                })
+                arch.entities
+                    .iter()
+                    .zip(ca.iter())
+                    .zip(cb.iter())
+                    .map(|((&e, a), b)| {
+                        (
+                            e,
+                            a.downcast_ref::<A>().expect("column holds type A"),
+                            b.downcast_ref::<B>().expect("column holds type B"),
+                        )
+                    })
             })
     }
 
@@ -201,14 +205,19 @@ impl World {
                     .columns
                     .get(&tc)
                     .expect("query3: archetype was filtered to contain column C");
-                arch.entities.iter().enumerate().map(move |(i, &e)| {
-                    (
-                        e,
-                        ca[i].downcast_ref::<A>().expect("column holds type A"),
-                        cb[i].downcast_ref::<B>().expect("column holds type B"),
-                        cc[i].downcast_ref::<C>().expect("column holds type C"),
-                    )
-                })
+                arch.entities
+                    .iter()
+                    .zip(ca.iter())
+                    .zip(cb.iter())
+                    .zip(cc.iter())
+                    .map(|(((&e, a), b), c)| {
+                        (
+                            e,
+                            a.downcast_ref::<A>().expect("column holds type A"),
+                            b.downcast_ref::<B>().expect("column holds type B"),
+                            c.downcast_ref::<C>().expect("column holds type C"),
+                        )
+                    })
             })
     }
 
@@ -242,15 +251,21 @@ impl World {
                     .columns
                     .get(&td)
                     .expect("query4: archetype was filtered to contain column D");
-                arch.entities.iter().enumerate().map(move |(i, &e)| {
-                    (
-                        e,
-                        ca[i].downcast_ref::<A>().expect("column holds type A"),
-                        cb[i].downcast_ref::<B>().expect("column holds type B"),
-                        cc[i].downcast_ref::<C>().expect("column holds type C"),
-                        cd[i].downcast_ref::<D>().expect("column holds type D"),
-                    )
-                })
+                arch.entities
+                    .iter()
+                    .zip(ca.iter())
+                    .zip(cb.iter())
+                    .zip(cc.iter())
+                    .zip(cd.iter())
+                    .map(|((((&e, a), b), c), d)| {
+                        (
+                            e,
+                            a.downcast_ref::<A>().expect("column holds type A"),
+                            b.downcast_ref::<B>().expect("column holds type B"),
+                            c.downcast_ref::<C>().expect("column holds type C"),
+                            d.downcast_ref::<D>().expect("column holds type D"),
+                        )
+                    })
             })
     }
 
@@ -307,11 +322,19 @@ impl World {
                     .get(&ta)
                     .expect("query_opt2: archetype was filtered to contain column A");
                 let cb = arch.columns.get(&tb);
-                arch.entities.iter().enumerate().map(move |(i, &e)| {
-                    let a = ca[i].downcast_ref::<A>().expect("column holds type A");
-                    let b = cb.map(|col| col[i].downcast_ref::<B>().expect("column holds type B"));
-                    (e, a, b)
-                })
+                // Only the mandatory pair can zip: `B` is optional, so its column is an
+                // `Option<&Vec<_>>` with no per-element iterator to zip against, and the row index
+                // is the one way to reach it. Zipping A anyway drops one bounds check of the two.
+                arch.entities
+                    .iter()
+                    .zip(ca.iter())
+                    .enumerate()
+                    .map(move |(i, (&e, a))| {
+                        let a = a.downcast_ref::<A>().expect("column holds type A");
+                        let b =
+                            cb.map(|col| col[i].downcast_ref::<B>().expect("column holds type B"));
+                        (e, a, b)
+                    })
             })
     }
 }

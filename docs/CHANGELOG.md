@@ -4,6 +4,38 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.152.6
+
+**`query2`/`query3`/`query4` now zip where they used to index, so `src/ecs/world/queries.rs` has
+one spelling of one operation instead of two.** Four of the ten iteration sites in that file walked
+`arch.entities.iter().enumerate()` and reached the columns as `ca[i]`/`cb[i]`, while `query`,
+`query_mut`, `query2_mut`, `query3_mut`, `query_with` and `query_without` already zipped the same
+data. `query4` paid four bounds checks per entity per call that the compiler cannot elide across
+`HashMap`-obtained `Vec`s, and `query2` backs most of the built-in per-frame systems.
+
+Measured on a World shaped like the one `survivor` actually reaches (34 archetypes, ~650 entities —
+see below), comparing the shipped zip form against a copy of the exact spelling it replaced:
+**2131 ns → 1748 ns per 650-entity pass, −383 ns (−18%)**, reproducing at −17.6 / −17.7 / −18.0%
+across runs. That is **0.59 ns per entity**.
+
+⚠️ **Read that percentage as a range, not a constant.** An earlier harness that timed four query
+variants side by side put the same change at −8.5%. Runs *within* each harness agree to ±0.2%, so
+the spread is between harnesses — different monomorphizations, different code layout — not noise.
+What is robust is the direction and the per-entity size; the exact figure is not portable, and
+nobody has shown this moving `App::update`, where it is a fraction of a per-frame microsecond.
+This ships as the cleanup it is.
+
+`query_opt2` keeps its index and is the one deliberate exception: `B` is optional, so its column is
+an `Option<&Vec<_>>` with no per-element iterator to zip against. Its mandatory pair zips anyway,
+dropping one of its two bounds checks, and a comment records why the rest cannot follow.
+
+⚠️ **This trades a loud failure for a quiet one, on a path where the invariant holds.** Indexing
+panics if `entities` and a column ever disagree in length; zip silently yields the shorter. The two
+are maintained together by `World::move_entity`, and six sites in this file already had zip's
+behaviour, so this makes the file consistent rather than introducing the exposure — but it is a
+real difference, and a deliberate `debug_assert` across all ten sites remains available if a
+desync is ever suspected.
+
 ## 0.152.5
 
 **Building an entity was O(N²), and the backlog row that filed it had the cause half wrong.**
