@@ -167,6 +167,10 @@ This is still the policy, and **nothing currently satisfies it**: the `examples/
 on 2026-08-19 and is being rebuilt. Until it is, every feature in `src/` is unexercised by real play
 — treat that as a standing debt, not as the rule having been relaxed.
 
+**A number pinned in prose is fixed by whoever changes it.** *(권고)* A stale baseline is worse
+than none — it reads as an unexplained gain. v0.153.0 moved the lib-test count 1432 → 1443 in two
+documents written hours earlier by the same session.
+
 **A filed diagnosis is a hypothesis, not a spec — the gate that row names is what settles it.**
 *(권고)* Five times between v0.150.7 and v0.152.5 a written-down cause was wrong and a single
 measurement reversed it (#459, #461, #462, #464, #473). Re-derive before acting — **including your
@@ -180,12 +184,15 @@ A release bump touches `Cargo.toml`, `Cargo.lock`, and `docs/CHANGELOG.md` toget
 changes take no version bump and no CHANGELOG entry.
 
 **Commits.** `type(scope): summary (vX.Y.Z)` — e.g. `feat(audio): …`, `fix(app): …`,
-`docs(patterns): …`. The `(#PR)` suffix is appended by the squash-merge, not typed. Bodies explain
-*why* and record real-device evidence CI cannot produce.
+`docs(patterns): …`. Bodies explain *why* and record real-device evidence CI cannot produce.
+The `(#PR)` suffix is appended by the squash-merge **only if you let the subject default** —
+`gh pr merge --subject` suppresses it and `main` is then unfixable without a force-push. To add to
+a squash message pass `--body`/`--body-file` alone.
 
 **Git.** Stage, commit, and push **only when explicitly asked**. Never `git reset --hard`,
 `git checkout --`, or force-push without prior confirmation, and never revert someone else's
-in-flight changes.
+in-flight changes. *(권고)* **Push a large deletion's branch as soon as it is committed, even if
+the PR waits** — pushing is not merging, so it breaks no merge-order agreement.
 
 **Confirm before:** removing or renaming public API, changing dependencies/versions, large
 refactors, deleting files. The verification scope is this repo only — do not build or modify
