@@ -125,15 +125,23 @@ pub(in crate::app) enum PaintTool {
 }
 
 /// How the docked editor's **Entities** list is ordered for display. Sorts a display-only copy —
-/// the world's entity order and the scene-save order are unaffected. `Insertion` (the default) is
-/// the historical raw-`entity_list` order, so the list is byte-identical until a sort is chosen.
+/// the world's entity order and the scene-save order are unaffected. `Index` (the default) is the
+/// order the caller hands in, which every call site builds by sorting `World::entities()` on
+/// `Entity::index`.
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(in crate::app) enum EntitySortMode {
-    /// World insertion order (the raw `entity_list`).
+    /// Ascending `Entity::index` — **not** spawn order, and no longer the raw `entity_list`.
+    ///
+    /// `World::entities()` is storage order and `despawn` swap_removes into the hole, so the raw
+    /// list reshuffles when an unrelated entity is deleted; sorting on the index is what stops a
+    /// hierarchy row from jumping. The tradeoff is that `World::spawn` recycles indices FIFO, so a
+    /// newly created entity can land anywhere in the list rather than at the end. This order is
+    /// stable, not chronological — nothing in the engine can reconstruct spawn order, which
+    /// `World::entities()`'s own doc spells out.
     #[default]
-    Insertion,
-    /// Alphabetical by display label (case-insensitive), ties keep insertion order.
+    Index,
+    /// Alphabetical by display label (case-insensitive), ties keep the incoming index order.
     Name,
     /// Grouped by entity kind (the same classification as the type-icon), then by name.
     Kind,
@@ -468,7 +476,7 @@ impl EditorState {
             paint_erase: false,
             component_clipboard: None,
             entity_filter: String::new(),
-            entity_sort: EntitySortMode::Insertion,
+            entity_sort: EntitySortMode::Index,
             entity_rename: None,
             show_grid: false,
             show_bounds: false,

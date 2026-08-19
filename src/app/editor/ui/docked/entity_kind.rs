@@ -93,9 +93,10 @@ pub(super) fn entity_type_icon(world: &crate::World, e: Entity) -> &'static str 
 }
 
 /// A display-only ordering of `entity_list` for the Entities tab. Sorts a **copy** — the world's
-/// entity order and the scene-save order are untouched. `Insertion` returns the raw order unchanged;
+/// entity order and the scene-save order are untouched. `Index` returns the incoming order
+/// unchanged — the caller has already sorted it on `Entity::index`, see [`EntitySortMode`];
 /// `Name` sorts case-insensitively by label; `Kind` groups by [`EntityKind`] (variant order) then by
-/// name. The sort is stable, so equal keys keep their insertion order.
+/// name. The sort is stable, so equal keys keep the incoming index order.
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) fn sorted_entity_list(
     entity_list: &[Entity],
@@ -105,9 +106,9 @@ pub(super) fn sorted_entity_list(
 ) -> Vec<Entity> {
     let mut v = entity_list.to_vec();
     let name_key = |e: Entity| entity_label(e, tag_map).to_lowercase();
-    // `sort_by_key` is stable, so within a sort group equal keys keep their insertion order.
+    // `sort_by_key` is stable, so within a sort group equal keys keep the incoming index order.
     match mode {
-        EntitySortMode::Insertion => {}
+        EntitySortMode::Index => {}
         EntitySortMode::Name => v.sort_by_key(|&e| name_key(e)),
         EntitySortMode::Kind => v.sort_by_key(|&e| (entity_kind(world, e), name_key(e))),
     }
@@ -194,8 +195,11 @@ mod icon_tests {
             })
             .collect();
         let tm = tag_map(&app, &ents);
-        let out = sorted_entity_list(&ents, EntitySortMode::Insertion, &app.world, &tm);
-        assert_eq!(out, ents, "Default sort is the raw entity_list order");
+        let out = sorted_entity_list(&ents, EntitySortMode::Index, &app.world, &tm);
+        assert_eq!(
+            out, ents,
+            "Default sort returns the incoming order unchanged"
+        );
     }
 
     #[test]

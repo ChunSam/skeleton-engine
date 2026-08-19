@@ -4,6 +4,43 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.152.8
+
+**A panicking component destructor could leave an entity pointing at another entity's row.**
+`move_entity` ends by dropping the components the destination archetype does not carry — user
+`Drop` code in a forked engine — and `App`'s default `SystemPanicPolicy::DisableSystemAndContinue`
+swallows a panic from there and keeps the frame loop running, so the World is *observed* after that
+unwind rather than taken down with it. v0.152.5 replaced the per-transition `HashMap` with a reused
+`Vec` and, with it, moved that drop from end-of-scope to an explicit `clear()` — ahead of the
+`entity_location` update it used to follow. An unwind in between left the moved entity recorded at
+the source row the same call had already `swap_remove`d, and the entity swapped into that slot
+answered `get::<T>` in its place. The location is now written first, so the unwind costs nothing
+but the scratch capacity.
+
+Sabotage-checked: with the old order the new test reads back the **other** entity's component
+(`Some(2)` where it asked for `Some(1)`), which is exactly the silent corruption. The two entities
+share an archetype on purpose — that is what makes the stale row hold real data rather than
+nothing, and it is the difference between a visible failure and a quiet one.
+
+**The editor's default entity order stopped being insertion order, and three doc comments did not
+notice.** v0.152.3 sorted `entity_list` on `Entity::index` at all three call sites so that deleting
+one entity no longer reshuffles the rest — but `EntitySortMode::Insertion` is a no-op branch
+downstream of that sort, so the variant name, its doc ("World insertion order (the raw
+`entity_list`)"), the enum's doc ("byte-identical until a sort is chosen") and
+`sorted_entity_list`'s doc all described an order the editor no longer produces. The variant is now
+`Index`, and its doc carries the tradeoff the rename exposes: `World::spawn` recycles indices FIFO,
+so a newly created entity can land anywhere in the list rather than at the end. **The order is
+stable, not chronological** — nothing in the engine can reconstruct spawn order, which
+`World::entities()`'s own doc already said. Internal enum (`pub(in crate::app)`), no public API
+change, no behaviour change: only the name and four comments move.
+
+**Not a bug, pinned so it is not refiled.** The same review read `take_component` → hand the value
+to another entity → `add_component` as losing an "added". Measured, it reports **changed** — and so
+does a plain in-place replace, because `query_added` means *first added this tick* and the entity
+carried the component when the tick began. `remove_component` is the deliberate outlier: it states
+the component is gone, so a later add is a real arrival. All three paths are now one test, because
+reading any one of them alone invites the same wrong conclusion again.
+
 ## 0.152.7
 
 **The zip-form iteration in `queries.rs` / `parallel.rs` gets its invariant back as a

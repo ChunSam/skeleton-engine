@@ -1030,3 +1030,132 @@ fn a_column_shorter_than_its_entities_is_caught_not_truncated() {
 
     let _ = world.query::<Position>().count();
 }
+
+/// A panicking component `Drop` must not be able to leave a half-moved entity behind.
+///
+/// `move_entity` finishes by dropping the components the destination archetype does not carry —
+/// user code in a forked engine — and `App`'s default `SystemPanicPolicy::DisableSystemAndContinue`
+/// swallows a panic from there and keeps the frame loop running, so the World is *observed* after
+/// the unwind. Until v0.152.8 that drop ran before `entity_location` was updated, so the unwind
+/// left the moved entity pointing at the source row the same call had already `swap_remove`d, and
+/// the entity swapped into that slot answered `get::<T>` in its place.
+///
+/// The two entities share an archetype on purpose: that is what makes the stale row hold *another
+/// entity's* data rather than nothing, which is the difference between a visible failure and
+/// silent corruption.
+#[test]
+fn a_panicking_drop_during_a_move_leaves_entity_locations_consistent() {
+    struct PanicOnDrop(bool);
+    impl Drop for PanicOnDrop {
+        fn drop(&mut self) {
+            if self.0 {
+                panic!("component destructor blew up");
+            }
+        }
+    }
+
+    let mut world = World::new();
+    let a = world.spawn();
+    world.add_component(a, PanicOnDrop(true));
+    world.add_component(a, Health(1));
+    let b = world.spawn();
+    world.add_component(b, PanicOnDrop(false));
+    world.add_component(b, Health(2));
+
+    // `PanicOnDrop` is absent from the destination archetype, so `move_entity` drops it here.
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        world.remove_component::<PanicOnDrop>(a);
+    }));
+    assert!(
+        outcome.is_err(),
+        "control failed — the destructor never ran, so this test is not measuring the unwind"
+    );
+
+    assert_eq!(
+        world.get::<Health>(a).map(|h| h.0),
+        Some(1),
+        "`a` read back another entity's row — its location was not written before the unwind"
+    );
+    assert_eq!(
+        world.get::<Health>(b).map(|h| h.0),
+        Some(2),
+        "`b` was swapped into the vacated row and must still answer for itself"
+    );
+    assert!(
+        world.get::<PanicOnDrop>(a).is_none(),
+        "the removal still happened"
+    );
+}
+
+/// What `query_added` means when a component is replaced mid-tick, pinned across all three paths
+/// that can do it — filed as a bug by the 2026-08-19 review of v0.152.1–v0.152.7, and reversed by
+/// running it.
+///
+/// `query_added` is documented as *first added* this tick. An entity that already carried `T` when
+/// the tick began and ends it carrying a different `T` is therefore a **change**, on both paths
+/// that keep the component conceptually present. `remove_component` is the deliberate outlier: it
+/// states the component is gone, so a later add really is a new arrival. That asymmetry is what
+/// separates `take_component`'s documented "borrow it temporarily" from an actual removal, and
+/// the three cases are pinned together because reading any one of them alone invites the same
+/// wrong conclusion again.
+#[test]
+fn a_mid_tick_replacement_reports_changed_but_a_removal_then_add_reports_added() {
+    // Path 1 — in-place replace. The reference the other two are measured against.
+    let mut world = World::new();
+    let e = world.spawn();
+    world.add_component(e, Health(1));
+    world.clear_change_tracking();
+    world.add_component(e, Health(2));
+    assert_eq!(
+        world.query_added::<Health>().count(),
+        0,
+        "replace: not a first appearance"
+    );
+    assert_eq!(
+        world.query_changed::<Health>().count(),
+        1,
+        "replace: a change"
+    );
+
+    // Path 2 — take, hand the value to another entity, then add a fresh one. Not a put-back, and
+    // the same net effect on `hero` as path 1, so it must classify the same way.
+    let mut world = World::new();
+    let hero = world.spawn();
+    let chest = world.spawn();
+    world.add_component(hero, Health(1));
+    world.clear_change_tracking();
+    let carried = world.take_component::<Health>(hero).expect("hero owns it");
+    world.add_component(chest, carried);
+    world.add_component(hero, Health(99));
+    let added: Vec<Entity> = world.query_added::<Health>().map(|(e, _)| e).collect();
+    let changed: Vec<Entity> = world.query_changed::<Health>().map(|(e, _)| e).collect();
+    assert_eq!(
+        added,
+        vec![chest],
+        "only `chest` carries Health for the first time this tick"
+    );
+    assert_eq!(
+        changed,
+        vec![hero],
+        "`hero` began the tick with Health and ends it with Health"
+    );
+    assert_eq!(
+        world.get::<Health>(hero).unwrap().0,
+        99,
+        "control: the fresh value actually landed"
+    );
+
+    // Path 3 — `remove_component` says GONE, so the later add is a real arrival.
+    let mut world = World::new();
+    let e = world.spawn();
+    world.add_component(e, Health(1));
+    world.clear_change_tracking();
+    world.remove_component::<Health>(e);
+    world.add_component(e, Health(2));
+    assert_eq!(
+        world.query_added::<Health>().count(),
+        1,
+        "a removal makes the re-add an addition"
+    );
+    assert_eq!(world.query_changed::<Health>().count(), 0);
+}

@@ -54,7 +54,11 @@ impl World {
     ///
     /// Putting the value back with [`add_component`](World::add_component) in the same tick is
     /// reported as a **change**, not an addition — see the tracking note on the re-add branch of
-    /// `add_component`.
+    /// `add_component`. Once the entity carried `T` at the start of the tick, that holds for *any*
+    /// `T` it gains later in the same tick, not just the value taken — nothing arriving afterwards
+    /// is a first appearance. A component that was itself new this tick stays *added* across the
+    /// round trip instead. [`remove_component`](World::remove_component) is the deliberate
+    /// contrast — it states the component is gone, so a later add does report as added.
     pub fn take_component<T: Send + Sync + 'static>(&mut self, entity: Entity) -> Option<T> {
         let tid = TypeId::of::<T>();
         // `take_component` is one half of the take → mutate → put-back idiom that

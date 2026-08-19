@@ -287,14 +287,24 @@ impl World {
         }
         self.archetypes[target_arch_id].type_set = dst_type_set;
 
-        // Whatever is still in `extracted` belongs to a type the destination does not carry —
-        // a genuine removal. `clear()` drops those boxes (the old `HashMap` did it by going out
-        // of scope) and keeps the capacity for the next transition.
-        extracted.clear();
-        self.move_scratch = extracted;
-
+        // BEFORE the drop below, not after. `extracted.clear()` runs a user `Drop` impl for every
+        // component the destination does not carry, and a panicking destructor is the only way out
+        // of this function that leaves a live World behind: `App`'s default
+        // `SystemPanicPolicy::DisableSystemAndContinue` swallows it and keeps the frame loop
+        // running. With the location already written, that unwind leaves every archetype and
+        // `entity_location` consistent and costs only the scratch capacity. Written after, it left
+        // `entity_location[entity]` pointing at the source row this call had already
+        // `swap_remove`d, so the next `get::<T>(entity)` read whichever entity was swapped into
+        // that slot. (The old `HashMap` dropped at end of scope — after this line; the v0.152.5
+        // rewrite to a reused `Vec` moved the drop earlier without moving this with it.)
         self.entity_location
             .insert(entity, (target_arch_id, dst_row));
+
+        // Whatever is still in `extracted` belongs to a type the destination does not carry —
+        // a genuine removal. `clear()` drops those boxes and keeps the capacity for the next
+        // transition.
+        extracted.clear();
+        self.move_scratch = extracted;
     }
 }
 
