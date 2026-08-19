@@ -4,6 +4,30 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.152.7
+
+**The zip-form iteration in `queries.rs` / `parallel.rs` gets its invariant back as a
+`debug_assert`.** v0.152.6 converted four sites from indexing to zip, and named this as the
+follow-up it deliberately did not bundle: indexing panicked if `entities` and a column ever
+disagreed in length, while **zip yields the shorter of the two** and would quietly drop entities
+from every query instead. Six sites already had that exposure before v0.152.6; this closes it for
+all fourteen at once — the ten in `queries.rs` and the four in `parallel.rs`, which zip the same
+data through rayon.
+
+`Archetype::debug_assert_columns_aligned` checks **every** column against `entities.len()`, not
+just the ones a given query asked for, and is called once per archetype at each iteration site. It
+is inside `#[cfg(debug_assertions)]`, so release builds compile out the loop as well as the assert
+and pay nothing. All 1,429 unit tests pass with it active, which is the first evidence that the
+invariant actually holds everywhere rather than being assumed to.
+
+The check ships with a test that makes it fail, because a check nobody has seen fire is a check
+nobody knows works. `a_column_shorter_than_its_entities_is_caught_not_truncated` reaches past the
+public API to pop a value off a column while leaving its entity in place — **no supported call can
+produce that state, which is precisely why the invariant needs a check rather than an argument** —
+and asserts the panic. Sabotage-verified: compiling the check out turns the test red with "test did
+not panic as expected", and the query it wraps then returns 0 entities instead of 1, which is the
+silent truncation this exists to prevent.
+
 ## 0.152.6
 
 **`query2`/`query3`/`query4` now zip where they used to index, so `src/ecs/world/queries.rs` has

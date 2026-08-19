@@ -1002,3 +1002,31 @@ fn query2_mut_still_accepts_distinct_types() {
     assert_eq!(world.get::<Health>(e).unwrap().0, 2);
     assert_eq!(world.get::<Position>(e).unwrap().x, 1.0);
 }
+
+/// The `debug_assert_columns_aligned` check added in v0.152.7 must actually fire.
+///
+/// Every iteration site zips `entities` against the columns, and zip yields the shorter of the
+/// two — so a column that fell behind would quietly drop entities from every query rather than
+/// fail. Four sites indexed until v0.152.6 and panicked on this; the check is what replaces that,
+/// and a check nobody has seen fail is a check nobody knows works.
+///
+/// Debug-only, because that is when `debug_assert!` is compiled in at all.
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "desynced from entities")]
+fn a_column_shorter_than_its_entities_is_caught_not_truncated() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.add_component(e, Position { x: 1.0, y: 2.0 });
+
+    // Reach past the public API on purpose: no supported call can produce this state, which is
+    // exactly why the invariant needs a check rather than an argument.
+    let (arch_id, _) = world.entity_location[&e];
+    world.archetypes[arch_id]
+        .columns
+        .get_mut(&TypeId::of::<Position>())
+        .expect("column present")
+        .pop();
+
+    let _ = world.query::<Position>().count();
+}

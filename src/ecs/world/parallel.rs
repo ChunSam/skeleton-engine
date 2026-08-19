@@ -28,6 +28,7 @@ impl World {
             .par_iter()
             .filter(|arch| arch.contains(tid))
             .for_each(|arch| {
+                arch.debug_assert_columns_aligned();
                 let col = arch
                     .columns
                     .get(&tid)
@@ -57,6 +58,7 @@ impl World {
             .par_iter()
             .filter(|arch| arch.contains(tid))
             .flat_map(|arch| {
+                arch.debug_assert_columns_aligned();
                 let col = arch
                     .columns
                     .get(&tid)
@@ -83,6 +85,7 @@ impl World {
             .par_iter()
             .filter(move |arch| arch.contains(ta) && arch.contains(tb))
             .for_each(|arch| {
+                arch.debug_assert_columns_aligned();
                 let ca = arch
                     .columns
                     .get(&ta)
@@ -120,6 +123,7 @@ impl World {
             .par_iter()
             .filter(move |arch| arch.contains(ta) && arch.contains(tb))
             .flat_map(|arch| {
+                arch.debug_assert_columns_aligned();
                 let ca = arch
                     .columns
                     .get(&ta)
