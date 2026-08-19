@@ -52,8 +52,8 @@ at until a game exists again:
 cannot be photographed** — an audio meter reads `0.0` in a captured frame while sounding correctly,
 and a networked game photographs `streaming 0 / 120` while the server is happily sending. Anything
 arriving on a wall clock (audio, sockets, file watchers) needs a loop paced off `Instant`. That is
-what the deleted `<NAME>_SELFTEST` acceptance tests existed for — a rebuilt game wanting the same
-coverage has to bring its own, and `scripts/selftests.sh` (their runner) is gone too.
+what the deleted `<NAME>_SELFTEST` acceptance tests existed for — a rebuilt game brings its own, and
+`scripts/selftests.sh` (their runner) is **back** as of 2026-08-19 to discover and run it.
 
 ---
 
@@ -95,11 +95,11 @@ have each cost a session; the ones that recur:
   `echo $? > /tmp/v.exit` and **read the file**, after `rm -f`-ing it first (a stale file matches instantly).
 - `;` does not short-circuit — branch on the captured code before committing.
 
-⚠️ **The acceptance layer is gone, and the gate got much weaker on 2026-08-19.** It used to also run
-`scripts/build_wasm_examples.sh` and `scripts/selftests.sh` (11 `<NAME>_SELFTEST` acceptance tests);
-both scripts were deleted with the examples they drove. What is left is `fmt`, `clippy`, the wasm
-build, `cargo test`, doctests, and `cargo doc`. **A green gate now proves much less than the same
-green gate proved before** — do not read it as the old bar.
+⚠️ **The acceptance layer is empty, and the gate got much weaker on 2026-08-19.** It used to also run
+`scripts/build_wasm_examples.sh` and `scripts/selftests.sh` (11 `<NAME>_SELFTEST` tests); both went
+with the examples. The runner is **back** (phase 0) and gates again, but with no games it is a no-op
+that says so — it enforces, it does not yet prove. What still measures anything: `fmt`, `clippy`, the
+wasm build, `cargo test`, doctests, `cargo doc`. **A green gate proves much less than it used to.**
 
 What the gate does **not** cover, so get it yourself:
 

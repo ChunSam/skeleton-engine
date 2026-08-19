@@ -24,15 +24,20 @@ What went with them, because it was built on them:
 
 | Deleted | Consequence |
 |---|---|
-| 11 `<NAME>_SELFTEST` acceptance tests + `scripts/selftests.sh` | no headless acceptance layer at all |
+| 11 `<NAME>_SELFTEST` acceptance tests + `scripts/selftests.sh` | the 11 tests are gone; **the runner is back** (phase 0, 2026-08-19) and enforces an empty set |
 | 16 `scripts/*_smoke.sh` (12 browser, 4 native) + the `wasm-smokes` CI job | nothing runs engine code in a browser; no render smokes |
 | `scripts/build_wasm_examples.sh` + the CI step calling it | an example's wasm path is unbuilt and unchecked |
 | `scripts/hot_reload_smoke.sh` + the `DATA_ANIM` / `DATA_PARTICLES` selftests | hot-reload has no coverage |
 
-⚠️ **Branch protection required the `Browser smokes (Chrome + swiftshader)` check**, which can no
-longer report. It must be dropped from the required contexts or every PR blocks. Verify with
+✅ **Branch protection is clean — re-verified 2026-08-19.** The required set is the seven jobs that
+still exist, and `Browser smokes (Chrome + swiftshader)` is not among them, so nothing is waiting on
+a check that can never report. Re-check with the API, never with this line:
 `gh api repos/ChunSam/skeleton-engine/branches/main/protection --jq '.required_status_checks.contexts'`
-— the answer should be seven entries, none of them browser smokes.
+
+⚠️ **Phase 5 puts the trap back.** Restoring the `wasm-smokes` job means re-adding its context to the
+required set — and a job added without its context is a check nobody is gated on, which is the
+mirror-image failure. Adding a *step* to an existing job (phase 0's runner) needs no protection
+change; adding a *job* does.
 
 Nothing was migrated into `tests/`. Before rebuilding a game, read `docs/PROGRAM_HISTORY.md` (what
 each one covered and why) and `docs/VERIFICATION.md` § *A skip is not a pass* (the runner shape —
@@ -401,9 +406,9 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
   audio chain passes on CI, but it delivers samples in bursts, so the meters with sub-second
   deadlines read silence. `snd-dummy` does not exist on the runner kernel. **Do not re-litigate
   without new information** — a runner image with a real or dummy ALSA card would be new
-  information; another sink tweak is not. ~~`SKELETON_REQUIRE_AUDIO=1` exists so a *local* run can
-  prove its audio checks ran rather than skipped.~~ **Dead as of v0.153.0** — only
-  `scripts/selftests.sh` read it, and both are deleted; re-create it with the rebuilt runner. ⚠️ **`scripts/selftests.sh`'s own header claimed
+  information; another sink tweak is not. `SKELETON_REQUIRE_AUDIO=1` exists so a *local* run can
+  prove its audio checks ran rather than skipped. **Dead from v0.153.0 until phase 0 restored it on
+  2026-08-19** — only `scripts/selftests.sh` has ever read it, so it lives and dies with that file. ⚠️ **`scripts/selftests.sh`'s own header claimed
   the opposite** ("CI provisions a PulseAudio null sink") from v0.143.10 until #426 on 2026-08-05 —
   the sentence was written for the null-sink experiment and survived its revert *in the same
   commit*. `ci.yml` and `docs/VERIFICATION.md` were right the whole time; only the file a reader

@@ -42,4 +42,10 @@ cargo test --doc
 echo "[verify] RUSTDOCFLAGS=-D warnings cargo doc --no-deps"
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
 
+# The `<NAME>_SELFTEST` acceptance tests. Locally these run MORE than they do in CI — a machine with
+# a sound card exercises the audio checks CI can only skip, and `SKELETON_REQUIRE_AUDIO=1` turns a
+# skipped one into a failure. A no-op until the first rebuilt game lands; self-arming after that.
+echo "[verify] ./scripts/selftests.sh"
+./scripts/selftests.sh
+
 echo "[verify] all checks passed ✓"

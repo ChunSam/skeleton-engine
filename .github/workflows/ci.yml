@@ -73,11 +73,11 @@ jobs:
       # near that. The `df` stays as a ~1 s canary — it is the number that decides whether the
       # cleanup ever has to come back, and it is what this removal was gated on in the first place.
       #
-      # `nproc` was added for a question that the examples-tree deletion closed by removing its
-      # subject: the selftest step's example build swung 152-292 s across runs with an identical
-      # cache key, and runner core count was the leading suspect. There is no example build any
-      # more. The two lines are kept as a cheap record of what machine a run got — if no job's
-      # timing is ever traced back to them again, delete them.
+      # `nproc` was added for a question the examples-tree deletion closed by removing its subject:
+      # the selftest step's example build swung 152-292 s across runs with an identical cache key,
+      # and runner core count was the leading suspect. The selftest step is back as of phase 0, but
+      # its example build is NOT — there are no games yet, so the step compiles nothing. The
+      # question reopens when phase 1 lands, and these two lines are what it will be answered with.
       - name: Runner capacity
         run: |
           df -h /
@@ -124,6 +124,22 @@ jobs:
       # --all-targets skips doctests; run them so fork-facing doc examples can't rot.
       - name: cargo test --doc
         run: cargo test --doc
+
+      # The `<NAME>_SELFTEST` acceptance tests, restored 2026-08-19 as phase 0 of the examples
+      # rebuild (plans/2026-08-19-examples-rebuild-plan.md). It is here BEFORE the first rebuilt
+      # game on purpose: the deleted tree shipped 22 games against 11 selftests because the runner
+      # arrived last, and a gate that cannot see the gap will not close it. Until phase 1 lands this
+      # step is a loud no-op; the moment `examples/<name>/<name>.rs` appears it fails unless that
+      # game carries a selftest, and then runs it.
+      #
+      # The device-free halves run fine here; the audio halves skip (no sound card), which the
+      # script tolerates while treating every OTHER skip as a failure. Same principle as the render
+      # job's SKELETON_REQUIRE_GPU — an environment opt-out must never read as a green pass.
+      #
+      # This is a STEP in an existing job, so branch protection is untouched. Restoring a whole job
+      # (phase 5's `wasm-smokes`) is the case that needs its required context re-added.
+      - name: Acceptance tests (<NAME>_SELFTEST)
+        run: ./scripts/selftests.sh
 
       - name: cargo build (release)
         run: cargo build --release
