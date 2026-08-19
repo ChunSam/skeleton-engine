@@ -104,6 +104,25 @@ impl Archetype {
     fn contains(&self, tid: TypeId) -> bool {
         self.type_set.binary_search(&tid).is_ok()
     }
+
+    /// Debug-only invariant: every column holds exactly as many values as `entities`.
+    ///
+    /// Every iteration site in `queries.rs` and `parallel.rs` zips `entities` against the columns,
+    /// and **zip yields the shorter of the two** — so a desync would silently drop entities from a
+    /// query rather than fail. Four of those sites indexed instead until v0.152.6, and indexing
+    /// panicked on exactly this; the check restores that loudness without the per-entity bounds
+    /// checks. Compiled out entirely in release.
+    #[inline]
+    fn debug_assert_columns_aligned(&self) {
+        #[cfg(debug_assertions)]
+        for (tid, col) in &self.columns {
+            debug_assert_eq!(
+                col.len(),
+                self.entities.len(),
+                "archetype column {tid:?} desynced from entities — zip iteration would truncate"
+            );
+        }
+    }
 }
 
 /// Central ECS storage.

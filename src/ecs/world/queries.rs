@@ -12,6 +12,7 @@ impl World {
             .iter()
             .filter(move |arch| arch.contains(tid))
             .flat_map(move |arch| {
+                arch.debug_assert_columns_aligned();
                 let col = arch
                     .columns
                     .get(&tid)
@@ -37,6 +38,7 @@ impl World {
             .iter_mut()
             .filter(move |arch| arch.contains(tid))
             .flat_map(move |arch| {
+                arch.debug_assert_columns_aligned();
                 // `entities` (immutable) and `columns` (mutable) are distinct fields of
                 // Archetype, so destructuring lets us borrow both disjointly at once.
                 let Archetype {
@@ -85,6 +87,7 @@ impl World {
             .iter_mut()
             .filter(move |arch| arch.contains(ta) && arch.contains(tb))
             .flat_map(move |arch| {
+                arch.debug_assert_columns_aligned();
                 // `entities` (read) and `columns` (write) are distinct fields → disjoint borrows.
                 let Archetype {
                     entities, columns, ..
@@ -129,6 +132,7 @@ impl World {
             .iter_mut()
             .filter(move |arch| arch.contains(ta) && arch.contains(tb) && arch.contains(tc))
             .flat_map(move |arch| {
+                arch.debug_assert_columns_aligned();
                 let Archetype {
                     entities, columns, ..
                 } = arch;
@@ -160,6 +164,7 @@ impl World {
             .iter()
             .filter(move |arch| arch.contains(ta) && arch.contains(tb))
             .flat_map(move |arch| {
+                arch.debug_assert_columns_aligned();
                 let ca = arch
                     .columns
                     .get(&ta)
@@ -193,6 +198,7 @@ impl World {
             .iter()
             .filter(move |arch| arch.contains(ta) && arch.contains(tb) && arch.contains(tc))
             .flat_map(move |arch| {
+                arch.debug_assert_columns_aligned();
                 let ca = arch
                     .columns
                     .get(&ta)
@@ -235,6 +241,7 @@ impl World {
                 arch.contains(ta) && arch.contains(tb) && arch.contains(tc) && arch.contains(td)
             })
             .flat_map(move |arch| {
+                arch.debug_assert_columns_aligned();
                 let ca = arch
                     .columns
                     .get(&ta)
@@ -277,6 +284,7 @@ impl World {
             .iter()
             .filter(move |arch| arch.contains(ta) && arch.contains(tb))
             .flat_map(move |arch| {
+                arch.debug_assert_columns_aligned();
                 let col = arch
                     .columns
                     .get(&ta)
@@ -296,6 +304,7 @@ impl World {
             .iter()
             .filter(move |arch| arch.contains(ta) && !arch.contains(tb))
             .flat_map(move |arch| {
+                arch.debug_assert_columns_aligned();
                 let col = arch
                     .columns
                     .get(&ta)
@@ -317,6 +326,7 @@ impl World {
             .iter()
             .filter(move |arch| arch.contains(ta))
             .flat_map(move |arch| {
+                arch.debug_assert_columns_aligned();
                 let ca = arch
                     .columns
                     .get(&ta)
