@@ -86,13 +86,14 @@ features = [
 ## 5. Linking
 
 The `objc2-*` crate's build emits the right `#[link]` for the framework, so
-`cargo build --example … ` / `cargo build --lib` link `GameController.framework`
+`cargo build --lib` links `GameController.framework`
 automatically — no `build.rs` or `-framework` flag needed.
 
 ## 6. Verify
 
-- `cargo build --lib` / `--example <name>` on macOS confirms the FFI compiles **and links**
+- `cargo build --lib` on macOS confirms the FFI compiles **and links**
   (≈ correct API usage).
 - CI is ubuntu and will **not** compile this path — run the macOS build locally, and verify
-  runtime behavior by hand/hardware (for the gamepad backend, `cargo run --example
-  gamepad_probe`). See the "CI is ubuntu only" rule in `CLAUDE.md`.
+  runtime behavior by hand/hardware. ⚠️ The `gamepad_probe` example that existed for exactly this
+  was deleted on 2026-08-19; there is currently no way to check a pad short of writing one.
+  See the "CI is ubuntu only" rule in `CLAUDE.md`.

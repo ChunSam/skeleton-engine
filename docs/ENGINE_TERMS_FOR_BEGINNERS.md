@@ -293,8 +293,8 @@ CPU 파티클은 구조가 단순하고 디버깅이 쉽다. GPU 파티클은 �
 | --- | --- | --- |
 | Render Target | 화면이 아닌 텍스처에 그리기 위한 대상 | `RenderTarget` |
 | Offscreen Rendering | 화면 밖 중간 텍스처에 먼저 그리는 것 | `OffscreenCamera`, `RenderTarget` |
-| Minimap | 월드를 작은 지도처럼 다시 그린 화면 | `examples/minimap.rs` |
-| Split Screen | 화면을 나눠 여러 카메라를 보여주는 방식 | `examples/split_screen.rs` |
+| Minimap | 월드를 작은 지도처럼 다시 그린 화면 | `src/renderer/` (예제는 2026-08-19에 삭제됨) |
+| Split Screen | 화면을 나눠 여러 카메라를 보여주는 방식 | `src/camera.rs` (예제는 2026-08-19에 삭제됨) |
 | Texture Binding | 렌더된 텍스처를 다시 스프라이트처럼 쓰는 연결 | `RenderTarget.bind_group` |
 
 렌더 텍스처는 미니맵, CCTV 화면, 포탈, 분할 화면처럼 "장면을 한 번 더 그려서 이미지처럼 사용"해야 할 때 필요하다.
@@ -525,4 +525,5 @@ CPU 파티클은 구조가 단순하고 디버깅이 쉽다. GPU 파티클은 �
 
 > `App`이 `World`를 가진다. `World` 안에는 `Entity`가 있고, 엔티티에는 `Transform`과 `Sprite` 같은 `Component`가 붙는다. `System`은 매 프레임 `Query`로 필요한 컴포넌트를 찾고, `dt`만큼 게임 상태를 갱신한다. 렌더러는 갱신된 `Transform`과 `Sprite`를 읽어 `Camera` 기준으로 화면에 그린다.
 
-다음 단계로는 `examples/basic.rs`를 읽으면서 위 용어가 실제 코드에서 어디에 나타나는지 확인하면 된다.
+다음 단계로는 `src/lib.rs`의 재export 목록과 `docs/MODULE_MAP.md`를 훑으면서 위 용어가 실제
+코드에서 어디에 나타나는지 확인하면 된다. (`examples/`는 2026-08-19에 통째로 삭제되어 비어 있다.)

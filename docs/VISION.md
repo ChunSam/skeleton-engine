@@ -42,11 +42,16 @@ The chosen path combines two things:
 - **Validate every feature through small, playable example games.**
 
 These are not separate tracks — they are one loop. The dogfooding vehicle is a growing
-set of **small playable example games**, one per genre/feature area, living in
-`examples/`. The repo now includes playable slices such as platformer, shooter,
-scene-flow, sokoban, maze escape, survivor, RPG (`rpg_quest` — as of v0.151.0 every genre named
-above has one), and settings/menu examples; future feature work should keep using those examples,
-or add a new one, to validate the API in play.
+set of **small playable example games**, one per genre/feature area, living in `examples/`.
+
+> ⚠️ **The loop is currently broken at the dogfooding end.** All 22 playable games and ~85 feature
+> demos were deleted on 2026-08-19 at the maintainer's request, to be rebuilt from scratch; the
+> `examples/` tree is empty. Between v0.151.0 and that date the repo had a playable slice for every
+> genre named above — platformer, shooter, RPG (`rpg_quest`), puzzle (`sokoban`), top-down action
+> (`survivor`, `maze_escape`) — plus scene-flow and settings/menu demos. Until they are rebuilt,
+> **no feature in this engine meets the acceptance bar the principles below state**, and saying so
+> is more useful than quietly lowering the bar. Past games are in git history and
+> `docs/PROGRAM_HISTORY.md` records what each covered.
 
 ### Operating principles
 

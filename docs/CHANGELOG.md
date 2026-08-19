@@ -4,6 +4,64 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.153.0
+
+**The `examples/` tree is deleted — 22 playable games and ~85 feature demos, 247 files.** Requested
+by the maintainer, to rebuild a smaller set of feature-test games from scratch. This is a deliberate
+removal of the engine's entire acceptance layer, not a cleanup, and the honest summary is that
+**a green gate now proves substantially less than it did at 0.152.8**.
+
+The engine library is untouched: no `src/` behaviour changed, and `cargo test` still runs 1,443 lib
+tests across 11 groups (it ran 152 groups before — the missing 141 were example targets, not lost
+coverage of `src/`).
+
+**What went with them, because it was built on them.** None of this was migrated into `tests/`:
+
+| Deleted | Consequence |
+|---|---|
+| 11 `<NAME>_SELFTEST` acceptance tests + `scripts/selftests.sh` | no headless acceptance layer at all |
+| 16 `scripts/*_smoke.sh` (12 browser, 4 native) + the `wasm-smokes` CI job | nothing runs engine code in a browser; no render smokes |
+| `scripts/build_wasm_examples.sh` + its CI step | an example's wasm path is unbuilt and unchecked |
+| `scripts/hot_reload_smoke.sh`, `DATA_ANIM` / `DATA_PARTICLES` selftests | hot-reload has no coverage |
+
+So: **no audio claim of any kind is gated** (Web Audio was, via `wasm_audio` / `audio_reactive`,
+until this release), nothing loads the engine in a browser, and `tests/render.rs` is now the whole
+of the render verification rather than a supplement to three smokes. `verify.sh` drops from seven
+steps to six; CI drops from eight jobs to seven, and **branch protection's required contexts were
+updated to match** — a required check for a deleted job can never report, and would have blocked
+every merge.
+
+**One asset was kept back.** `examples/assets/hex_tiles.png` (518 bytes) moved to
+`assets/hex_tiles.png`, because `tests/asset_root.rs` — the magenta-screen regression — resolves a
+real image by a relative path and would otherwise fail. It is the repo's only shipped image, and it
+is in `include` so `cargo package` still verifies.
+
+**Two dev-dependencies dropped out with their only consumers**: `serde_json` and `env_logger`,
+taking 19 crates out of `Cargo.lock`. `ab_glyph` and `engine_reflect_derive` stay — `src/debug_ui.rs`
+and `tests/derive_reflect.rs` still use them.
+
+**Docs were swept rather than left to rot**, the same rule v0.143.15 recorded. Fifteen living
+documents now state the gap instead of describing machinery that no longer exists, `docs/WASM_SMOKES.md`
+is deleted outright, and `docs/NEXT_WORK.md` carries rebuilding the tree as the one open item that
+is not gated on a trigger. **Dated records were deliberately left alone** — `CHANGELOG`,
+`PROGRAM_HISTORY`, `HANDOFF`, `ROADMAP`, the `CODE_ANALYSIS_*` snapshots and `plans/`: they record
+what was true when written, and editing them would be falsification rather than maintenance.
+
+`docs/VERIFICATION.md`'s sections on the selftest runner and the browser smokes are marked
+**[gone]** and kept on purpose. The traps in them are what rebuilding an acceptance layer runs
+into, and each was paid for once already — in particular **the runner's list must be derived, not
+hardcoded** (v0.143.9 shipped a green gate that had never run the selftest which was the entire
+point of that change), and **a skip must never read as a pass**.
+
+`docs/MODULE_MAP.md` keeps its ~49 `example <name>` citations rather than stripping them: they are
+the record of what used to prove each row, which is the first thing wanted when rebuilding. The
+file now says plainly that none of those paths exist.
+
+⚠️ **Nothing in this engine currently meets the VISION acceptance bar** ("a feature is not done
+until a small playable example exercises it in real play"). That is recorded as standing debt in
+`CLAUDE.md`, `docs/VISION.md` and `docs/NEXT_WORK.md` rather than treated as the rule having been
+relaxed. Every deleted file is recoverable from git history.
+
 ## 0.152.9
 
 Three bugs from a full read of the render subsystem (`src/renderer/**` + `src/app/render/**`,
@@ -57,6 +115,7 @@ number — misses the cache 100% of the time while it moves. Also: `BloomRendere
 its shader and four pipelines every frame of a window drag, and the GPU-particle renderer is never
 torn down, so one emitter buys a full-capacity compute dispatch and a `capacity * 6` vertex draw
 every frame for the rest of the process.
+
 
 ## 0.152.8
 

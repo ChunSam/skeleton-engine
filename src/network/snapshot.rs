@@ -24,7 +24,7 @@ const DEFAULT_SNAPSHOT_CAPACITY: usize = 8;
 /// position), [`Color`](crate::color::Color), etc. — and is **orthogonal** to
 /// [`RemoteEntities`](crate::RemoteEntities): that owns the `id → Entity` lifecycle, this owns the per-entity value
 /// history the renderer reads. A game keeps them as parallel maps (see
-/// `examples/games/orbital_dodger` and `examples/games/predict_shooter`).
+/// the since-deleted `orbital_dodger` and `predict_shooter` examples).
 ///
 /// ```
 /// # use engine::SnapshotBuffer;

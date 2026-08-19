@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name        = "skeleton-engine"
-version     = "0.152.9"
+version     = "0.153.0"
 edition     = "2021"
 description = "Lightweight 2D game engine — wgpu rendering, custom ECS, rapier2d physics"
 repository  = "https://github.com/ChunSam/skeleton-engine"
@@ -18,6 +18,7 @@ rust-version = "1.95"
 include     = [
     ".cargo/config.toml",
     "assets/fonts/**",
+    "assets/hex_tiles.png",
     "docs/CHANGELOG.md",
     "LICENSE",
     "README.md",
@@ -25,10 +26,6 @@ include     = [
     "ARCHITECTURE.html",
     "Cargo.toml",
     "Cargo.lock",
-    "examples/*.rs",
-    "examples/games/**",
-    "examples/wasm/build.sh",
-    "examples/wasm/index.html",
     "scripts/**",
     "src/**",
 ]
@@ -36,150 +33,6 @@ include     = [
 [lib]
 name = "engine"
 crate-type = ["cdylib", "rlib"]
-
-[[example]]
-name = "audio_facade"
-path = "examples/audio_facade/audio_facade.rs"
-
-[[example]]
-name = "centered_text"
-path = "examples/centered_text/centered_text.rs"
-
-[[example]]
-name = "audio_reactive"
-path = "examples/audio_reactive/audio_reactive.rs"
-
-[[example]]
-name = "embedded_atlas"
-path = "examples/embedded_atlas/embedded_atlas.rs"
-
-[[example]]
-name = "embedded_image"
-path = "examples/embedded_image/embedded_image.rs"
-
-[[example]]
-name = "game_feel"
-path = "examples/game_feel/game_feel.rs"
-
-[[example]]
-name = "web_audio"
-path = "examples/web_audio/web_audio.rs"
-
-[[example]]
-name = "wasm_save"
-path = "examples/wasm_save/wasm_save.rs"
-
-[[example]]
-name = "wasm_failpaths"
-path = "examples/wasm_failpaths/wasm_failpaths.rs"
-
-[[example]]
-name = "wasm_failpaths_echo_server"
-path = "examples/wasm_failpaths/echo_server.rs"
-
-[[example]]
-name = "platformer_game"
-path = "examples/games/platformer/platformer.rs"
-
-[[example]]
-name = "scene_flow_game"
-path = "examples/games/scene_flow/scene_flow.rs"
-
-[[example]]
-name = "maze_escape_game"
-path = "examples/games/maze_escape/maze_escape.rs"
-
-[[example]]
-name = "sokoban_game"
-path = "examples/games/sokoban/sokoban.rs"
-
-[[example]]
-name = "shooter_game"
-path = "examples/games/shooter/shooter.rs"
-
-[[example]]
-name = "survivor_game"
-path = "examples/games/survivor/survivor.rs"
-
-[[example]]
-name = "settings_menu_game"
-path = "examples/games/settings_menu/settings_menu.rs"
-
-[[example]]
-name = "ui_layout_editor_game"
-path = "examples/games/ui_layout_editor/ui_layout_editor.rs"
-
-[[example]]
-name = "stat_editor_game"
-path = "examples/games/stat_editor_game/stat_editor.rs"
-
-[[example]]
-name = "rpg_quest_game"
-path = "examples/games/rpg_quest/rpg_quest.rs"
-
-[[example]]
-name = "lit_dungeon_game"
-path = "examples/games/lit_dungeon/lit_dungeon.rs"
-
-[[example]]
-name = "coin_race_game"
-path = "examples/games/coin_race/coin_race.rs"
-
-[[example]]
-name = "coin_race_server"
-path = "examples/games/coin_race/server.rs"
-
-[[example]]
-name = "predict_shooter_server"
-path = "examples/games/predict_shooter/server.rs"
-
-[[example]]
-name = "predict_shooter"
-path = "examples/games/predict_shooter/predict_shooter.rs"
-
-[[example]]
-name = "orbital_dodger_server"
-path = "examples/games/orbital_dodger/server.rs"
-
-[[example]]
-name = "orbital_dodger"
-path = "examples/games/orbital_dodger/orbital_dodger.rs"
-
-[[example]]
-name = "salvage_run_server"
-path = "examples/games/salvage_run/server.rs"
-
-[[example]]
-name = "salvage_run"
-path = "examples/games/salvage_run/salvage_run.rs"
-
-[[example]]
-name = "script_steering_game"
-path = "examples/games/script_steering/script_steering.rs"
-
-[[example]]
-name = "dig_quest_game"
-path = "examples/games/dig_quest/dig_quest.rs"
-
-[[example]]
-name = "multi_terrain_game"
-path = "examples/games/multi_terrain/multi_terrain.rs"
-
-[[example]]
-name = "data_anim_game"
-path = "examples/games/data_anim/data_anim.rs"
-
-[[example]]
-name = "data_particles_game"
-path = "examples/games/data_particles/data_particles.rs"
-
-[[example]]
-name = "tile_paint_game"
-path = "examples/games/tile_paint/tile_paint.rs"
-
-[[example]]
-name = "beat_crawler_game"
-path = "examples/games/beat_crawler/beat_crawler.rs"
 
 [dependencies]
 winit    = "0.30.13"
@@ -202,12 +55,11 @@ rhai        = { version = "1", features = ["sync"] }
 # `#[derive(Reflect)]` lives in the `engine_reflect_derive` workspace crate. It is a
 # DEV-dependency (not a regular dep) so the published `skeleton-engine` crate does
 # not require the unpublished proc-macro on crates.io — otherwise `cargo package`
-# fails ("no matching package"). Examples and tests use the derive directly via
+# fails ("no matching package"). `tests/derive_reflect.rs` uses the derive directly via
 # `engine_reflect_derive::Reflect`; downstream games add the crate to their own
 # Cargo.toml the same way they add `engine`.
 [dev-dependencies]
 engine_reflect_derive = { path = "engine_reflect_derive" }
-serde_json = "1"
 ab_glyph = "0.2" # egui's rasterizer — used to assert the bundled Korean subset font carries Hangul
 
 # ── 네이티브 전용 (OS API 의존) ──────────────────────────────────────────────
@@ -231,10 +83,6 @@ objc2-game-controller = { version = "0.2", features = [
     "GCControllerAxisInput", "GCControllerDirectionPad", "GCControllerElement",
     "GCPhysicalInputProfile",
 ] }
-
-# 네이티브 예제에서 `log` 출력을 보기 위한 백엔드 (RUST_LOG 로 제어). wasm 은 제외.
-[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-env_logger = "0.11"
 
 # ── WASM 전용 ────────────────────────────────────────────────────────────────
 [target.'cfg(target_arch = "wasm32")'.dependencies]

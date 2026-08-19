@@ -335,7 +335,7 @@ impl App {
         // the textbook session state `docs/PATTERNS.md` already tells games to register, and the
         // failure mode is the worst in the family — losing this one does not revert a value, it
         // takes the output device with it. Audio then dies silently, and a game that clocks itself
-        // off `Audio::bands()` (`examples/games/beat_crawler`) stops progressing at all.
+        // off `Audio::bands()` (the since-deleted `beat_crawler` example) stops progressing at all.
         app.register_persistent::<crate::audio_facade::Audio>();
 
         // `AssetServer` and `ScriptRegistry` are **caches**, which `docs/PATTERNS.md` names

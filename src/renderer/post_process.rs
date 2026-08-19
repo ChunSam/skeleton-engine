@@ -64,7 +64,7 @@ pub struct PostProcessConfig {
     /// Enable the **real multi-pass bloom** (bright-pass → downsample/upsample mip pyramid →
     /// additive composite), instead of the cheap inline 4-tap. Requires `enabled: true`; pairs
     /// naturally with `hdr: true` so over-bright highlights glow. `false` (default) keeps the inline
-    /// bloom, so the OFF path is byte-identical to before. Example: `cargo run --example bloom`.
+    /// bloom, so the OFF path is byte-identical to before.
     pub bloom: bool,
     /// Pyramid depth for the real bloom pass — the number of mip levels the highlights are
     /// downsampled through (and accumulated back up). Higher = wider, softer glow. Clamped to

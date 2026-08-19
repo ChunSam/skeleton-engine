@@ -23,7 +23,7 @@ added as a dependency. Read `docs/VISION.md` once — it is the "why" every feat
 | "How should I work?" | `docs/AGENT_WORKFLOW.md` (scope/verify/report rules), `docs/AGENT_NOTES.md` (context + subagent heuristics) |
 | "What changed, and why?" | `docs/CHANGELOG.md` (release-facing), `plans/handoffs/` (session history). `docs/HANDOFF.md` is a **frozen** 2026-06-16 record on the pre-reset 10.x version line — not current state |
 | "What should I build next?" | `docs/NEXT_WORK.md` — the live backlog; **start with its board gate**. `docs/ROADMAP.md` for milestones, `docs/PROGRAM_HISTORY.md` for the finished candidate A–O program |
-| GPU render tests / wasm smokes | `docs/RENDER_TESTING.md`, `docs/WASM_SMOKES.md` |
+| GPU render tests | `docs/RENDER_TESTING.md` |
 | User-facing docs | `README.md`, `FORKING.md`, `REFERENCE.html` + `ARCHITECTURE.html` (Korean) |
 
 Exploration order: `rg`/`grep` for the symbol → `src/lib.rs` → the `MODULE_MAP` row → the file.
@@ -33,33 +33,39 @@ Read only what you need.
 
 ## Build & run
 
-Any `examples/*.rs` is auto-discovered as `cargo run --example <name>`; `hello_sprite` is the
-smallest. `cargo build --target wasm32-unknown-unknown` for wasm, `./scripts/build_wasm.sh` for a
-servable bundle in `dist/`.
+⚠️ **There are no examples.** The whole `examples/` tree — 22 playable games and ~85 feature demos —
+was deleted on 2026-08-19 at the user's request, to be rebuilt from scratch. `cargo build` /
+`cargo test` / `./scripts/verify.sh` are what remains. `cargo build --target
+wasm32-unknown-unknown` for wasm, `./scripts/build_wasm.sh` for a servable bundle in `dist/` (it
+builds the lib's own `run_demo` entry point in `src/lib.rs`, not an example).
 
-Headless, no window or display needed (native only) — the way to *see* what a change did:
+Read `docs/PROGRAM_HISTORY.md` and `docs/CHANGELOG.md` before rebuilding one — they record what each
+deleted game covered and why, and `git show HEAD:examples/<path>` still has every file.
 
-- `HEADLESS_SHOT=/tmp/x.png cargo run --example <name>` — writes a PNG, in the examples that opt in
-  (about 40% of them; `grep -l HEADLESS_SHOT examples/*.rs` to check).
-- `ENGINE_CAPTURE=<frame>:<path.png>[,…]` — any game: render headlessly at those frames, then exit.
+The engine's headless facilities are **in `src/` and still work**; they just have nothing to point
+at until a game exists again:
+
+- `ENGINE_CAPTURE=<frame>:<path.png>[,…]` — render headlessly at those frames, then exit.
 - `ENGINE_INPUT=<script.ron>` — replay a scripted `(frame, action)` input list (`src/input_script.rs`).
 
 ⚠️ A capture run advances at a fixed `1/60` dt as fast as the CPU allows, so **real-time signals
 cannot be photographed** — an audio meter reads `0.0` in a captured frame while sounding correctly,
 and a networked game photographs `streaming 0 / 120` while the server is happily sending. Anything
-arriving on a wall clock (audio, sockets, file watchers) needs a loop paced off `Instant`, which is
-what the `<NAME>_SELFTEST` acceptance tests are for.
+arriving on a wall clock (audio, sockets, file watchers) needs a loop paced off `Instant`. That is
+what the deleted `<NAME>_SELFTEST` acceptance tests existed for — a rebuilt game wanting the same
+coverage has to bring its own, and `scripts/selftests.sh` (their runner) is gone too.
 
 ---
 
 ## Verification
 
-`./scripts/verify.sh` is the gate — run it before calling anything done. It covers CI's `wasm` and
-`docs` jobs in full and its `test` job bar two steps. It is **not** all of CI; see the not-covered
-list below, and `grep -nE '^  [a-z_-]+:$|run:' .github/workflows/ci.yml` for the current split.
+`./scripts/verify.sh` is the gate — run it before calling anything done. With the examples tree gone
+it covers CI's `wasm` and `docs` jobs in full and its `test` job bar one step (`cargo build
+--release`). It is **not** all of CI; see the not-covered list below, and `grep -nE '^  [a-z_-]+:$|run:'
+.github/workflows/ci.yml` for the current split.
 
-**Run it when the change can move what it measures** — `src/`, `examples/`, `tests/`, a **dependency**
-in `Cargo.toml`, or a script the gate itself executes (`selftests.sh`, `build_wasm_examples.sh`).
+**Run it when the change can move what it measures** — `src/`, `tests/`, or a **dependency** in
+`Cargo.toml`.
 
 **Skip it — and say so in the report — when the change is confined to** prose (`docs/`, `plans/`,
 `*.md`, comments), `.github/workflows/`, or a bare version bump. Run `cargo check` to keep
@@ -75,11 +81,11 @@ SKELETON_MUTE=1 ./scripts/verify.sh …   # same run, silent speakers
 ```
 
 **`SKELETON_MUTE=1` silences a run without weakening it.** The gate plays real sound otherwise —
-`cargo test` alone fires 440/880 Hz tones, and `survivor` fires ~147. Mute is a final output gain
-applied *after* every measurement: level taps are **pre-volume**, so a muted run measures the same
-numbers (verified — `audio_reactive` reports rms `0.654` either way). The device is still opened
-and exercised, so it is not the same as having no sound card. It also passes `--mute-audio` to the
-browser audio smokes.
+`cargo test` fires 440/880 Hz tones from the audio unit tests. Mute is a final output gain applied
+*after* every measurement: level taps are **pre-volume**, so a muted run measures the same numbers.
+The device is still opened and exercised, so it is not the same as having no sound card. (The
+example-side evidence for this — `audio_reactive` reporting rms `0.654` either way — went with the
+examples; the mechanism is in `src/audio/playback.rs` and is unchanged.)
 
 **Read the exit code from an unpiped command.** `docs/VERIFICATION.md` documents seven traps that
 have each cost a session; the ones that recur:
@@ -89,27 +95,27 @@ have each cost a session; the ones that recur:
   `echo $? > /tmp/v.exit` and **read the file**, after `rm -f`-ing it first (a stale file matches instantly).
 - `;` does not short-circuit — branch on the captured code before committing.
 
-The gate now also runs `scripts/build_wasm_examples.sh` (every example with a `#[wasm_bindgen]`
-entry point, built for wasm32) and `scripts/selftests.sh` (every `<NAME>_SELFTEST`). **A skip is not
-a pass**: `selftests.sh` tolerates only "no audio device" and fails on any other opt-out, because a
-missing server binary silently drops the live networking checks.
+⚠️ **The acceptance layer is gone, and the gate got much weaker on 2026-08-19.** It used to also run
+`scripts/build_wasm_examples.sh` and `scripts/selftests.sh` (11 `<NAME>_SELFTEST` acceptance tests);
+both scripts were deleted with the examples they drove. What is left is `fmt`, `clippy`, the wasm
+build, `cargo test`, doctests, and `cargo doc`. **A green gate now proves much less than the same
+green gate proved before** — do not read it as the old bar.
 
 What the gate does **not** cover, so get it yourself:
 
-- **The `render` job** — `cargo test --test render` plus the `headless_screenshot` / `lighting_cap` /
-  `packaged_assets` smokes, all under `SKELETON_REQUIRE_GPU=1`. A machine with a GPU can run them.
+- **The `render` job** — `cargo test --test render` under `SKELETON_REQUIRE_GPU=1`. A machine with a
+  GPU can run it. (Its three companion smokes — `headless_screenshot` / `lighting_cap` /
+  `packaged_assets` — were examples and are gone.)
 - **`cargo build --release`** — the only check that the `lto = "thin"` shipping profile links. Same
-  for `scripts/hot_reload_smoke.sh` and the `package` job's `cargo package --locked`.
+  for the `package` job's `cargo package --locked`.
 - **macOS/Windows behaviour** — both have CI *build* jobs now, so the `cfg` branches compile; nothing
   ever runs them. Anything behavioural there still needs a local run.
-- **NATIVE audio playback, windowed playtest, gamepads** — the audio selftest halves skip in CI, so
-  every *native* audio claim still rests on a local device. **Web Audio is covered**: `wasm_audio`
-  and `audio_reactive` gate in CI, since Chrome renders the graph in software and needs no device.
-  (Hot-reload too — `DATA_ANIM_SELFTEST` / `DATA_PARTICLES_SELFTEST` do real `notify` watching.)
-- **Running on the web** — compiling for wasm is not running on wasm; for a runtime web claim, run
-  the matching `scripts/*_smoke.sh`. The **5 self-verdicting browser smokes gate** in the
-  `wasm-smokes` job (v0.143.17); the other 6 are byte-size-only and stay local. `grep smoke
-  .github/workflows/ci.yml` for which — do not trust a script header, they go stale.
+- **All audio playback, windowed playtest, gamepads, hot-reload** — these had example-driven
+  coverage and now have none at all. Web Audio *used* to gate in CI via the `wasm_audio` /
+  `audio_reactive` browser smokes; that job is deleted, so no audio claim of any kind is checked
+  anywhere but a unit test.
+- **Running on the web** — compiling for wasm is not running on wasm, and nothing loads the engine
+  in a browser any more. A runtime web claim currently has no automated backing at all.
 
 If you skip a verification step, **say so in the report**.
 
@@ -157,6 +163,9 @@ Two that have their own failure mode:
 
 **A feature is not done until a small playable example exercises it in real play.** The example is
 the acceptance test, not an afterthought — if the API feels awkward while writing it, fix the API.
+This is still the policy, and **nothing currently satisfies it**: the `examples/` tree was deleted
+on 2026-08-19 and is being rebuilt. Until it is, every feature in `src/` is unexercised by real play
+— treat that as a standing debt, not as the rule having been relaxed.
 
 **A filed diagnosis is a hypothesis, not a spec — the gate that row names is what settles it.**
 *(권고)* Five times between v0.150.7 and v0.152.5 a written-down cause was wrong and a single

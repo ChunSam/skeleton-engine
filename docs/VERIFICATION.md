@@ -5,11 +5,19 @@ session. This file holds the *why* behind it: the traps that have actually bitte
 cases where a green gate is not enough. Read it once; re-read it when a gate result
 surprises you.
 
+> ⚠️ **The examples tree was deleted on 2026-08-19, and with it more than half of what this file
+> describes.** The `<NAME>_SELFTEST` acceptance runner, the wasm-example build step, and all
+> sixteen `*_smoke.sh` scripts are gone; `verify.sh` is now fmt / clippy / wasm build / test /
+> doctest / doc. Sections about that machinery are marked **[gone]** and kept deliberately — the traps in
+> them are what rebuilding an acceptance layer runs into, and every one was paid for once already.
+> The traps under *Reading a gate's result* and *Searching so the result means something* are
+> unaffected and apply today.
+
 ---
 
 ## Reading a gate's result
 
-`./scripts/verify.sh` runs all seven checks in order. The **only** authoritative verdict is
+`./scripts/verify.sh` runs all six checks in order. The **only** authoritative verdict is
 its exit code, read from a command that is not piped:
 
 ```bash
@@ -60,9 +68,11 @@ grep -E 'running [0-9]+ tests' /tmp/v.log | head -1
 ```
 
 **Corroborate, don't just trust the number.** A green run should report roughly the expected
-`ok`-group and lib-test counts for the tree (152 groups / 1339 lib tests at v0.138.0; adding
-an example target adds a group, adding a test adds a test). A count that moved when your
-change should not have moved it is worth a look even when the exit code is `0`.
+`ok`-group and lib-test counts for the tree, and a count that moved when your change should not
+have moved it is worth a look even when the exit code is `0`. ⚠️ The old reference figures
+(152 groups / 1339 lib tests at v0.138.0) are void — most of those groups were example targets,
+deleted on 2026-08-19. The post-deletion baseline, measured on a green run at v0.153.0, is
+**11 `ok` groups / 1443 lib tests**.
 
 ### Trap 5 — a stale `.exit` file from a previous session
 
@@ -137,37 +147,35 @@ already looked.
 
 ## What each step does and does not cover
 
-### The WASM step is lib+bins — examples are a separate, derived step
+### The WASM step is lib+bins — examples were a separate, derived step **[gone]**
 
-Do **not** gate on `--target wasm32 --all-targets`: it fails on the native-only examples, and
-correctly so. There are more of them than the old note here listed — besides `platformer_game` /
-`mp_server` / `gpu_particles` (`rapier2d` / `tungstenite` / `GpuParticleEmitter`), the examples
-using native-only *engine* APIs also fail: `headless_screenshot`, `hot_reload_asset_root`,
-`tile_anim_stagger`, `slider_keyboard_step`, `ui_stepper`, `ui_tabs`.
+`cargo build --target wasm32-unknown-unknown` (lib+bins) is the library wasm gate, and with no
+examples in the tree it is now the whole of it.
 
-`cargo build --target wasm32-unknown-unknown` (lib+bins) is still the library wasm gate.
-**Since v0.143.8 the examples have their own step**: `scripts/build_wasm_examples.sh` builds the
-16 examples that declare a `#[wasm_bindgen]` entry point — the ones an `index.html` actually calls.
-The set is **derived from that entry point, not hardcoded**, so a new web example is picked up
-without anyone remembering to register it. It runs in CI's Build (WASM) job and in `verify.sh`.
+Do **not** gate on `--target wasm32 --all-targets` when examples come back. It fails on the
+native-only ones, correctly so: physics / sockets / GPU particles pull `rapier2d`, `tungstenite`
+and `GpuParticleEmitter`, and others call native-only *engine* APIs (headless screenshots,
+hot-reload). `scripts/build_wasm_examples.sh` existed for that — it built the examples declaring a
+`#[wasm_bindgen]` entry point, the set **derived from that entry point, not hardcoded**, so a new
+web example was picked up without anyone remembering to register it.
 
-**The consequence this closed:** an example could be broken for wasm indefinitely and the gate
+**The consequence that closed:** an example could be broken for wasm indefinitely and the gate
 stayed green. `embedded_image` was unbuildable for `wasm32` from the day it was added (it called
 the native-only `save_screenshot_headless` unconditionally) until v0.135.1 — and nothing *ran* it
-on the web until v0.143.4 gave it a browser harness and a render smoke.
+on the web until v0.143.4 gave it a browser harness and a render smoke. That hole is open again.
 
-An example with **no** wasm entry point is still not covered; if you want one built for wasm, it
-needs the entry point (which is also what makes it loadable) or an explicit build.
+### A skip is not a pass — `scripts/selftests.sh` **[gone]**
 
-### A skip is not a pass — `scripts/selftests.sh`
-
-The `<NAME>_SELFTEST` acceptance tests are the only defense against a headline feature degrading
+The `<NAME>_SELFTEST` acceptance tests were the only defense against a headline feature degrading
 gracefully into silence. Each was proven non-vacuous by sabotage when written — and until v0.143.8
-**nothing ran them again**: neither CI nor `verify.sh` contained the string `SELFTEST`.
+**nothing ran them again**: neither CI nor `verify.sh` contained the string `SELFTEST`. From
+v0.143.8 they ran in both, via `scripts/selftests.sh`. All of it went with the examples on
+2026-08-19; there is no acceptance layer at present. **Read this section before writing the first
+replacement**, because the runner's shape was not incidental:
 
-They now run in both, via `scripts/selftests.sh`. The reason that is a script rather than a list of
-`cargo run` lines is that **every one of these tests opts out with exit 0** when its environment
-cannot support a check, so the exit code alone cannot distinguish "passed" from "ran nothing":
+The reason it was a script rather than a list of `cargo run` lines is that **every one of these
+tests opts out with exit 0** when its environment cannot support a check, so the exit code alone
+cannot distinguish "passed" from "ran nothing":
 
 - `SKIP: no audio device` is tolerated **by default**, so a box without a sound card still passes.
   **`SKELETON_REQUIRE_AUDIO=1` makes it fatal.** CI does *not* set it — see below, CI has no usable
@@ -289,12 +297,13 @@ Unrelated but learned the same day: a **corrupt cargo cache** produced
 `collect2: fatal error: ld terminated with signal 7 [Bus error]` twice in a row on a runner with
 108 GB free. It is not disk. `gh cache delete` for the `Linux-cargo-*` keys cleared it.
 
-**The list is derived, not hardcoded** — an example is a selftest iff it reads a `<NAME>_SELFTEST`
-environment variable. The first version of the script hardcoded it, and the very next selftest to
-land (`ORBITAL_DODGER_SELFTEST`, v0.143.9) was not in the list: the gate went green having never run
-the test that was the entire point of that change. A registry you must remember to edit is a
-registry that silently shrinks — which is the same failure the script exists to prevent, one level
-up. `scripts/build_wasm_examples.sh` derives its set for the same reason.
+**The list must be derived, not hardcoded** — an example was a selftest iff it read a
+`<NAME>_SELFTEST` environment variable. The first version of the script hardcoded it, and the very
+next selftest to land (`ORBITAL_DODGER_SELFTEST`, v0.143.9) was not in the list: the gate went green
+having never run the test that was the entire point of that change. A registry you must remember to
+edit is a registry that silently shrinks — the same failure the script exists to prevent, one level
+up. `scripts/build_wasm_examples.sh` derived its set for the same reason. **This is the single most
+transferable lesson here; build any replacement runner the same way.**
 
 ### CI is ubuntu only
 
@@ -309,7 +318,8 @@ with `-D warnings` (especially `dead_code`); one OS misses the other's lints.
 A wasm build proves the code type-checks, not that it draws. v0.135.0 claimed
 `load_atlas_bytes` works on the web on the strength of a compile — which would not have
 caught a texture that decoded and never reached the GPU. For anything making a runtime
-claim about the web, run a render smoke (below).
+claim about the web you need a render smoke — and there is currently no such thing in the tree, so
+a runtime web claim cannot be backed at all right now.
 
 ### Don't narrow the bar
 
@@ -325,17 +335,23 @@ regressions that the full list catches.
 The `render` job renders `tests/render.rs` headlessly with Mesa **lavapipe** (software
 Vulkan) on the GPU-less ubuntu runner, asserting renderer-tolerant invariants
 (sprite / text / lighting / letterbox). `SKELETON_REQUIRE_GPU=1` hard-fails when no adapter
-is present; otherwise it skips cleanly, and it runs under `verify.sh` where a GPU exists.
-See **`docs/RENDER_TESTING.md`**.
+is present; otherwise it skips cleanly. See **`docs/RENDER_TESTING.md`**. Its three companion
+smokes (`headless_screenshot`, `lighting_cap`, `packaged_assets`) were examples and are gone, so
+`tests/render.rs` is now the entirety of the engine's render verification.
 
-### wasm smoke checks (5 gate in CI as of v0.143.17; the rest are local)
+### wasm smoke checks **[gone]**
 
-Each builds an example to wasm, serves it, and renders it in headless Chrome. Prerequisites
-are `rustup target add wasm32-unknown-unknown`, a matching `wasm-bindgen-cli`, and Chrome.
+⚠️ **All of these were deleted on 2026-08-19 with the examples they drove, and the `wasm-smokes`
+CI job with them. Nothing loads the engine in a browser any more.** The rest of this section is
+kept as the specification for rebuilding them — what each asserted, and which ones a green run did
+not actually prove. Historical text below; none of these scripts or examples exist.
 
-The `wasm-smokes` job runs the five that report a `*_CHECK: PASS` verdict — `wasm_save`,
+Each built an example to wasm, served it, and rendered it in headless Chrome. Prerequisites
+were `rustup target add wasm32-unknown-unknown`, a matching `wasm-bindgen-cli`, and Chrome.
+
+The `wasm-smokes` job ran the five that report a `*_CHECK: PASS` verdict — `wasm_save`,
 `render_format_query`, `bloom_web`, `wasm_audio`, `audio_reactive`. The others assert byte sizes
-only, so they stay local where a human can look at the frame. See `docs/WASM_SMOKES.md`.
+only, so they stayed local where a human can look at the frame.
 
 | Script | Asserts |
 |---|---|
@@ -347,8 +363,6 @@ only, so they stay local where a human can look at the frame. See `docs/WASM_SMO
 | `scripts/audio_reactive_smoke.sh` | `Audio::levels` reports a live level **and** `Audio::bands` a low-biased spectrum in a browser (the wasm `AnalyserNode` half shares almost no code with the native tap + FFT) |
 | `scripts/game_feel_web_smoke.sh`, `bloom_web_smoke.sh`, `hdr_web_smoke.sh`, `render_format_query_smoke.sh` | their example renders on the web |
 
-See **`docs/WASM_SMOKES.md`** for the full list and how to add one.
-
 A byte-size check alone is weak — it proves *something* drew, not that it drew *correctly*.
 Where a stronger structural assertion is available, pair the two: the two byte-source smokes
 (`embedded_atlas_smoke.sh`, `embedded_image_smoke.sh`) also assert no image file exists in the
@@ -359,11 +373,12 @@ Set the byte threshold by *measuring* the same page with the engine never drawin
 without `?autostart=1`), not by copying a number from a sibling script — a threshold below what
 the DOM alone paints passes on a frame the engine never touched.
 
-### Which smokes actually prove their claim, and which need your eyes
+### Which smokes actually prove their claim, and which need your eyes **[gone]**
 
-Nine of the fifteen assert something specific — a page verdict (`*_CHECK: PASS`), a pixel
-ratio, a reported failure. **Six are byte-size-only**, so a green run means "a frame drew",
-not "the right frame drew". For those, `SMOKE_KEEP=1` and *look*:
+Nine of the fifteen asserted something specific — a page verdict (`*_CHECK: PASS`), a pixel
+ratio, a reported failure. **Six were byte-size-only**, so a green run meant "a frame drew",
+not "the right frame drew". For those, `SMOKE_KEEP=1` and *look* — the distinction is the
+transferable part, and a rebuilt smoke should land in the first group, not the second:
 
 | Byte-size only — eyeball it | What only the screenshot can tell you |
 |---|---|
@@ -374,9 +389,9 @@ not "the right frame drew". For those, `SMOKE_KEEP=1` and *look*:
 | `embedded_atlas_smoke.sh` | the 12 tiles are the right tiles (its no-image-served check is structural, but grid maths are not covered) |
 | `embedded_image_smoke.sh` | the sprite is the *right* image and not the white fallback — the exact failure the verbatim-key invariant exists to prevent, and it still draws a non-blank frame |
 
-Sweeping all fifteen takes about fifteen minutes and is worth doing after any change to
-the render path, the asset path, or a `web/build.sh` — they are the only checks that run
-engine code in a browser at all.
+Sweeping all of them took about fifteen minutes and was worth doing after any change to
+the render path, the asset path, or a `web/build.sh` — they were the only checks that ran
+engine code in a browser at all, which is why their deletion leaves the web entirely unverified.
 
 ### Anything CI cannot exercise
 

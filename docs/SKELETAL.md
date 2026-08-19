@@ -1,6 +1,6 @@
 # Skeletal Animation (2D cutout)
 
-> Module: `src/skeletal.rs` · Re-exports in `src/lib.rs` · Demo: `examples/skeletal_puppet.rs`
+> Module: `src/skeletal.rs` · Re-exports in `src/lib.rs` · ⚠️ its demo (`examples/skeletal_puppet.rs`) was deleted 2026-08-19 with the examples tree
 
 2D **cutout (rigged)** skeletal animation, in the style of Spine/DragonBones. Bones are
 hierarchy entities (`Transform` + `Parent`); each visible part is a sprite attached to a
@@ -59,7 +59,7 @@ A bone entity's `Transform.scale` is used both for hierarchy composition **and**
 sprite quad size, and scale multiplies down the chain. To avoid runaway sizes, keep
 articulated **joint** bones at `scale = 1.0` (no sprite) and attach **leaf** visual
 sprites as children whose `scale` is the part's pixel size. The demo
-(`examples/skeletal_puppet.rs`) follows this pattern via its `add_visual` helper. A future
+(the deleted `skeletal_puppet` example) followed this pattern via its `add_visual` helper. A future
 revision may separate "bone length" from "attachment size" to remove this manual rule.
 
 ## Hierarchy depth
@@ -71,5 +71,6 @@ that capped at depth 3 — a limit surfaced precisely by building this demo.
 
 ## Demo
 
-`cargo run --example skeletal_puppet` — a humanoid puppet built from colored rectangles.
+There is no runnable demo at present — `skeletal_puppet` (a humanoid puppet built from colored
+rectangles) was deleted on 2026-08-19; recover it from git history if you want a starting point.
 Space toggles idle ↔ wave; Esc quits.

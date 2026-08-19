@@ -1,9 +1,0 @@
-// rpg_quest — enemy stats as a DataTable, loaded with `App::load_data_table("enemies", …)`.
-//
-// Edit a number here and restart to see it take effect: the slime is seeded from row 0, never from
-// a literal in the Rust source. `RPG_QUEST_SELFTEST` asserts the seeding actually happened by
-// checking the slime's hp against this file rather than against a hardcoded expectation, so a
-// regression that silently fell back to defaults reddens instead of passing.
-[
-    (name: "Cave Slime", hp: 24, strength: 4, bounty: 15),
-]

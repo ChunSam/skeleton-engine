@@ -3,6 +3,12 @@
 > Status: **minimal helper shipped** (`engine::RemoteEntities<K>`, `src/network.rs`, v4.2.x).
 > A *richer* version is **deliberately deferred** — this doc captures the context so the design
 > can be reconsidered later without re-deriving it. Chain: `networking-dogfood` (seq 3, Phase 2).
+>
+> ⚠️ **Every call site cited below was deleted on 2026-08-19** with the `examples/` tree, so the
+> helper now ships with **zero consumers** and every "revisit with a 3rd example" gate in this
+> document is unreachable. The evidence is preserved rather than deleted: it is what the design
+> was derived from, and a rebuilt networked game should be checked against it before anyone
+> concludes the minimal slice is still right. Recover the sources from git history.
 
 ## What shipped (the minimal slice)
 

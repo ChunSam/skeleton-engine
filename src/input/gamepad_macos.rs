@@ -6,7 +6,7 @@
 //! zero input reports. This module polls the GameController framework each frame and feeds the
 //! engine's [`GamepadState`] instead; `gilrs` is left uninitialized on macOS (see `App::new`).
 //!
-//! The bug and this backend's premise were confirmed empirically with `examples/gamepad_probe`
+//! The bug and this backend's premise were confirmed empirically with the `gamepad_probe` example
 //! (gilrs/HID reads all-zero while GameController reads full stick/button/trigger input).
 
 // Self-contained OS gate: the `mod` declaration in `input/mod.rs` is already cfg-gated, but

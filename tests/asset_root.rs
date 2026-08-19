@@ -1,7 +1,7 @@
 //! The regression test for the magenta-screen bug: a relative asset path must resolve no matter
 //! what the process working directory is.
 //!
-//! Before `asset_path`, `App::load_image("examples/assets/…")` read the file through `std::fs`,
+//! Before `asset_path`, `App::load_image("assets/…")` read the file through `std::fs`,
 //! which resolves a relative path against the **working directory**. Launch a packaged build from
 //! anywhere but the repo root and every texture load failed, the renderer substituted its magenta
 //! 1×1 fallback, and the window turned solid magenta.
@@ -20,7 +20,10 @@
 use engine::App;
 
 /// Loaded by a relative path, and known to exist in the repo.
-const RELATIVE_ASSET: &str = "examples/assets/hex_tiles.png";
+///
+/// This is the repo's only shipped image asset — it was kept back from `examples/assets/` when the
+/// examples tree was deleted, precisely because this test needs a real file on disk to resolve.
+const RELATIVE_ASSET: &str = "assets/hex_tiles.png";
 
 #[test]
 fn a_relative_asset_resolves_from_a_foreign_working_directory() {
