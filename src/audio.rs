@@ -39,7 +39,7 @@ pub use types::{AudioChannelState, AudioEffect};
 /// }
 /// ```
 ///
-/// See `examples/audio_fades.rs` for a complete stub-main pattern where the
+/// The `audio_fades` example showed a complete stub-main pattern where the
 /// `#[cfg(not(target_arch = "wasm32"))]` guard wraps the entire example body,
 /// and a no-op `fn main() {}` is compiled for WASM targets.
 ///

@@ -614,7 +614,7 @@ impl Audio {
     /// while the audio thread publishes in real time (about every 21 ms). Game time therefore runs
     /// far ahead of the sound: the smoothing release drains within a few milliseconds of wall clock
     /// and the captured frame almost always reads `0.0` even though the sound is playing correctly.
-    /// This is the same reason `examples/games/beat_crawler` shows "schedule (nothing heard)" in a
+    /// This is the same reason the (since-deleted) `beat_crawler` example showed "schedule (nothing heard)" in a
     /// capture. **Verify metering in real time** — a windowed run, or a headless loop paced off
     /// `Instant` — never from a captured PNG.
     pub fn levels(&self, channel: &str) -> crate::AudioLevels {

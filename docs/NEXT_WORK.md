@@ -2,7 +2,8 @@
 
 > Status: living document. Derived from `docs/VISION.md` (reset 2026-05-29), under its core loop:
 > **a feature is not done until a small, playable example game in `examples/` exercises it in real
-> play.**
+> play.** ⚠️ As of 2026-08-19 the `examples/` tree is empty, so **nothing in this engine currently
+> meets that bar** — see the top section below.
 >
 > **This file holds only what is still open.** The completed candidate A–O playable-examples program
 > and its release/hardening follow-ups moved to **`docs/PROGRAM_HISTORY.md`** on 2026-08-03 — they
@@ -12,6 +13,30 @@
 > Session narrative belongs in commit bodies and `docs/CHANGELOG.md`, durable lessons in
 > `docs/PATTERNS.md` / `docs/VERIFICATION.md`. What has no other home is the **decision backlog**
 > below — and that is exactly what kept getting buried.
+
+## ⚠️ Top of the backlog — rebuild the examples tree (opened 2026-08-19)
+
+**All 22 playable games and ~85 feature demos were deleted on 2026-08-19 at the maintainer's
+request, to rebuild a smaller set of feature-test games from scratch.** This is the one open item
+that is *not* gated on a trigger, and it outranks everything below it.
+
+What went with them, because it was built on them:
+
+| Deleted | Consequence |
+|---|---|
+| 11 `<NAME>_SELFTEST` acceptance tests + `scripts/selftests.sh` | no headless acceptance layer at all |
+| 16 `scripts/*_smoke.sh` (12 browser, 4 native) + the `wasm-smokes` CI job | nothing runs engine code in a browser; no render smokes |
+| `scripts/build_wasm_examples.sh` + the CI step calling it | an example's wasm path is unbuilt and unchecked |
+| `scripts/hot_reload_smoke.sh` + the `DATA_ANIM` / `DATA_PARTICLES` selftests | hot-reload has no coverage |
+
+⚠️ **Branch protection required the `Browser smokes (Chrome + swiftshader)` check**, which can no
+longer report. It must be dropped from the required contexts or every PR blocks. Verify with
+`gh api repos/ChunSam/skeleton-engine/branches/main/protection --jq '.required_status_checks.contexts'`
+— the answer should be seven entries, none of them browser smokes.
+
+Nothing was migrated into `tests/`. Before rebuilding a game, read `docs/PROGRAM_HISTORY.md` (what
+each one covered and why) and `docs/VERIFICATION.md` § *A skip is not a pass* (the runner shape —
+derived, never hardcoded — that this repo already paid for twice).
 
 ## Board gate — check this first, every session
 
@@ -45,7 +70,7 @@ did not fix*, not as a queue that has to be drained.
 |---|---|
 | **4th procgen mode** (drunkard's walk) | Unchanged, still the lowest marginal value: the engine cannot fail at it, so nothing is learned. `src/mapgen.rs` already ships three generators over one shared `DungeonMap` (BSP rooms, cellular cave, perfect maze), each with its own example and each guaranteed-connected by a different mechanism. |
 | **`add-facade-capability` skill** | n=5 now (the facade + native + wasm + policy-module shape has repeated that many times). Deferred; the next facade capability makes the case by itself. **Building it now would ship a skill with nothing to apply it to** — no facade capability is queued, so do it *alongside* the next one, not before. |
-| **Last-seen eviction helper** (`RemoteEntities` #5) | **n=1, gated on a 2nd staleness example** — the same bar that held `SnapshotBuffer` until its 2nd call site. `salvage_run`'s AOI streaming produces **removal-by-omission**: the server never sends a `Bye`, an entity just stops appearing in snapshots, so the client infers eviction from `last_seen` + timeout. Candidate shape (`touch(key, t)` / `expired(now - timeout) -> Vec<K>`) is written up in `docs/REMOTE_ENTITIES_DESIGN.md` § *5th example*, **flagged not built**. Surfaced here 2026-08-10 because that doc was its only home — the four sibling verdicts in the same section all resolved to *keep minimal / zero engine change*, and this is the one that did not. |
+| **Last-seen eviction helper** (`RemoteEntities` #5) | **n=0 as of 2026-08-19 — its one call site was deleted with the examples tree.** It was n=1, gated on a 2nd staleness example (the same bar that held `SnapshotBuffer` until its 2nd call site); the gate is now unreachable until a networked game is rebuilt. Keep the row: the shape below is the useful part, and re-deriving it costs more than reading it. Historical detail — `salvage_run`'s AOI streaming produces **removal-by-omission**: the server never sends a `Bye`, an entity just stops appearing in snapshots, so the client infers eviction from `last_seen` + timeout. Candidate shape (`touch(key, t)` / `expired(now - timeout) -> Vec<K>`) is written up in `docs/REMOTE_ENTITIES_DESIGN.md` § *5th example*, **flagged not built**. Surfaced here 2026-08-10 because that doc was its only home — the four sibling verdicts in the same section all resolved to *keep minimal / zero engine change*, and this is the one that did not. |
 
 ### Open — the 2026-08-19 render review's remainder
 
@@ -339,36 +364,37 @@ required-check decision above — closed on 2026-08-04, 2026-08-04, and 2026-08-
   correct `wc -m` that was already stale at merge). The durable form is the command:
   `for f in ~/.claude/skills/*/SKILL.md; do wc -m "$f"; done`.
 
-- **Eight directory-based examples silently drop out of `cargo package`.** `include` lists
-  `examples/*.rs`, not `examples/*/*.rs`, so `embedded_atlas`, `embedded_image`, `audio_facade`,
-  `centered_text`, `game_feel`, `web_audio` and `wasm_save` are warned-about-and-skipped. CI stays
-  green because a skipped target is a warning. **Do not "fix" this by widening `include`** — it
-  would break `cargo package`, since those examples `include_bytes!` from `examples/assets/`, which
-  is not packaged either, so the verification build would fail on a missing PNG. Fixing it properly
-  means packaging the assets too, and the engine is unpublished by design, so the payoff is zero.
-  Recorded so the next person who notices the warnings does not spend a session on them.
+- ~~**Eight directory-based examples silently drop out of `cargo package`.**~~ **Moot 2026-08-19** —
+  the examples are deleted and the `examples/**` entries are out of `include`. The lesson survives
+  the subject: `include` globs are per-level, so `examples/*.rs` never matched `examples/*/*.rs`,
+  and a skipped package target is a *warning*, so CI stayed green over it for months. If a rebuilt
+  example is ever meant to ship in the package, glob it explicitly and check `cargo package
+  --locked --list` actually contains it.
 
 ## Known-unfalsifiable checks — do not mistake these for guarantees
 
-- **`BEAT_CRAWLER_SELFTEST` exit `8`** ("the two meters are not independent") **cannot fail on
-  native.** Each meter is a tap on its own channel, so the spectrum read never sees the mixer
-  output — verified by firing the bass-heavy soundtrack as the impact clip and measuring no
-  change at all. It is a tripwire for the **wasm** topology, where several sources share one
-  `AnalyserNode`. Only its lower bound (the clock keeps working while impacts sound) guards
-  anything today.
+- ~~**`BEAT_CRAWLER_SELFTEST` exit `8`**~~ **deleted 2026-08-19 with the example.** Kept as a
+  worked example of the failure mode this section is for: the check ("the two meters are not
+  independent") **could not fail on native**, because each meter taps its own channel and the
+  spectrum read never sees the mixer output — verified by firing the bass-heavy soundtrack as the
+  impact clip and measuring no change at all. It was a tripwire for the **wasm** topology, where
+  several sources share one `AnalyserNode`. Ask of every check you rebuild: *on the platform I am
+  actually running it, can this assertion fail at all?*
 
 ## Standing risks
 
 Context for judging new work — not to-dos. Anything here that becomes actionable belongs in
 **Open — engineering** instead; that is where `<NAME>_SELFTEST` coverage went on 2026-08-03.
 
-- **NATIVE audio is outside CI, and v0.143.10 established that it stays that way — but "audio" was
-  always too broad a word for it.** v0.143.17 put **Web Audio** under gate: `wasm_audio` (38/38) and
-  `audio_reactive` (`rms=0.643`, bands `low=9.41` / `high=0.00` on a 110 Hz tone — real spectral
-  discrimination) both pass in CI, because Chrome renders the graph in software and no hardware
-  device is involved. The rule below is about **rodio/ALSA**, which does need one. Keep the two
-  apart: "audio cannot be tested in CI" is now false as stated, and the browser half is the
-  counter-example. Five CI runs
+- **NO audio of any kind is under CI as of 2026-08-19.** v0.143.10 established that **native**
+  (rodio/ALSA) audio stays outside CI — that part is unchanged and is what the rest of this bullet
+  is about. v0.143.17 had put **Web Audio** under gate — `wasm_audio` (38/38) and `audio_reactive`
+  (`rms=0.643`, bands `low=9.41` / `high=0.00` on a 110 Hz tone, real spectral discrimination) both
+  passed in CI because Chrome renders the graph in software with no hardware device — but those
+  were example-driven browser smokes and were deleted with the examples tree, along with the
+  `wasm-smokes` job. **The distinction is still worth keeping** ("audio cannot be tested in CI" is
+  false about the *browser* half and true about the native half), and rebuilding the browser audio
+  smoke is the cheapest way to get a gated audio claim back. Five CI runs
   tried a PulseAudio null sink (default and at 30 ms latency) and ALSA `snd-dummy`; the full table is
   in `docs/VERIFICATION.md`. Summary: a null sink *does* let rodio open a device and `beat_crawler`'s
   audio chain passes on CI, but it delivers samples in bursts, so the meters with sub-second

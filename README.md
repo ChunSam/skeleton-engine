@@ -2,7 +2,7 @@
 
 `skeleton-engine` is a lightweight Rust 2D game engine built on `wgpu`, a custom ECS, Rapier2D physics, input, UI, audio, particles, tilemaps, scripting, and WASM support.
 
-The package name is `skeleton-engine`; the library crate name is intentionally `engine`, so examples use `use engine::*`.
+The package name is `skeleton-engine`; the library crate name is intentionally `engine`, so all code uses `use engine::*`.
 
 ## Why skeleton-engine
 
@@ -21,6 +21,11 @@ Scope is **genre-agnostic 2D**: platformers, shooters, RPGs, puzzles, top-down a
 New features are validated through small, playable example games rather than in
 isolation. See [`docs/VISION.md`](docs/VISION.md) for the full rationale.
 
+> ⚠️ **The `examples/` tree is currently empty.** It was deleted on 2026-08-19 and is being
+> rebuilt from scratch, so there is nothing to `cargo run --example` right now. The engine
+> library itself is unaffected and builds and tests as before. Past examples are recoverable
+> from git history (`git log -- examples/`).
+
 ## Requirements
 
 - Rust 1.95 or newer (the CI toolchain is pinned to 1.95.0)
@@ -38,12 +43,12 @@ crate is `engine`, so all code uses `use engine::*`.
 git clone https://github.com/ChunSam/skeleton-engine
 cd skeleton-engine
 
-# 2. Run the smallest example — a textured sprite on screen
-cargo run --example hello_sprite
+# 2. Check that it builds
+cargo build
+cargo test
 
-# 3. Start your own game: copy an example and run it.
-#    Any file in examples/ is auto-discovered as `cargo run --example <name>`.
-cp examples/hello_sprite.rs examples/my_game.rs
+# 3. Start your own game. Create examples/my_game.rs with a `fn main`, add
+#    an [[example]] entry to Cargo.toml naming it, then:
 cargo run --example my_game
 ```
 
@@ -137,22 +142,16 @@ fn main() {
 }
 ```
 
-Run the smallest example — a textured sprite, the recommended starting point:
+Save that as `examples/my_game.rs`, register it in `Cargo.toml`, and run it:
 
-```sh
-cargo run --example hello_sprite
+```toml
+[[example]]
+name = "my_game"
+path = "examples/my_game.rs"
 ```
 
-`basic` is a slightly larger starting point (WASD movement, solid-color sprite):
-
 ```sh
-cargo run --example basic
-```
-
-Run the runtime policy configuration example:
-
-```sh
-cargo run --example runtime_policies
+cargo run --example my_game
 ```
 
 ## Checks

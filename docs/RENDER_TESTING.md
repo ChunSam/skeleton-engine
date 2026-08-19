@@ -8,6 +8,11 @@ Before this, every GPU pass (sprite / text / lighting / letterbox / post) was ex
 local macOS shell smokes (`scripts/headless_screenshot_smoke.sh`, `lighting_cap_smoke.sh`), because
 CI is ubuntu-only with **no GPU**. The fix has two halves:
 
+> ⚠️ **Those smokes were deleted on 2026-08-19** along with the examples they drove, so
+> `tests/render.rs` is no longer a *supplement* to them — it is the engine's entire render
+> verification, on CI and locally alike. Weigh that when deciding whether a render change needs a
+> new case here.
+
 1. **A software GPU on CI** — the `render` job in `.github/workflows/ci.yml` installs Mesa
    **lavapipe** (a CPU Vulkan driver), so `wgpu` gets an adapter and the real render path runs on
    the runner.

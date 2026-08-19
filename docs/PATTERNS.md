@@ -218,7 +218,7 @@ sm.fire_trigger("jump");           // for Trigger conditions (auto-consumed each
 
 Insertion order works, but it is implicit — reordering registrations silently breaks the
 constraints above. Every built-in system exposes a `LABEL` constant; declare ordering
-explicitly with `add_system_labeled` (demonstrated in `examples/games/platformer/`):
+explicitly with `add_system_labeled`:
 
 ```rust
 app.add_system_labeled(AnimationSystem, SystemConfig::new().label(AnimationSystem::LABEL));
@@ -243,7 +243,7 @@ Known ordering constraints expressed this way:
 
 Scenes order systems the same way (since v5): `Scene::on_enter` receives a
 `SystemRegistrar` whose `add_labeled` takes the same `SystemConfig` builder
-(demonstrated in `examples/games/settings_menu/` — `UiSystem` after `LayoutSystem`):
+(`UiSystem` after `LayoutSystem`):
 
 ```rust
 fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar) {
@@ -402,8 +402,10 @@ if let Some(audio) = Audio::new() {
 }
 ```
 
-`examples/games/beat_crawler` is why: its **turn clock** is `Audio::bands()`, so dropping the
-resource would not merely mute the game — it would stop the world from taking turns at all.
+The `beat_crawler` example was why: its **turn clock** was `Audio::bands()`, so dropping the
+resource would not merely mute the game — it would stop the world from taking turns at all. (That
+example was deleted with the rest of the tree on 2026-08-19; the decision it drove stands, and the
+regression test named at the end of this block is what now holds it.)
 
 > **Decided 2026-07-31 (v0.141.1), after the trigger fired.** `Audio` had been left game-side on
 > the argument that it is inserted *by the game*, and that auto-persisting everything a game
@@ -420,7 +422,7 @@ resource would not merely mute the game — it would stop the world from taking 
 > with no error and an `Audio`-clocked game stops progressing.
 >
 > **What would reopen this:** a game that genuinely wants its audio device torn down and rebuilt
-> per scene. None has; both engine examples that use `Audio` across scenes were already
+> per scene. None had; both engine examples that used `Audio` across scenes were already
 > hand-rolling the registration, which is what settled it. If one appears, the answer is an opt-out
 > (`App` builder flag) rather than reverting to the footgun.
 >
@@ -488,9 +490,11 @@ impl Default for FocusRingStyle {
    ```
    `Copy` + `.copied()` also sidesteps holding a `&World` borrow across the call that uses it.
 3. **Re-export** the type from its module and `src/lib.rs` (it is public API now).
-4. **Demonstrate the override in the example** (the VISION acceptance test) and add a unit
-   test asserting `Default` matches the historical value, so a future edit can't silently
-   change the out-of-the-box behavior.
+4. **Demonstrate the override in a playable example** (the VISION acceptance test). ⚠️ The
+   `examples/` tree was deleted on 2026-08-19, so this step is currently impossible — do the unit
+   test below and say in the report that the acceptance half is owed.
+5. **Add a unit test asserting `Default` matches the historical value**, so a future edit can't
+   silently change the out-of-the-box behavior.
 
 Additive — no public API removed; ship as a MINOR under the 0.x cadence.
 
@@ -539,7 +543,7 @@ for ev in world.resource::<Events<MyEvent>>().unwrap().read() { ... }
 `AnimationSystem` emits `AnimationEvent`, `TriggerZoneSystem` emits `ZoneEvent` — an
 example/game that reads any of these must still call `app.register_event::<E>()` at
 startup. An unregistered bus silently drops (or one-time-warns) every send, which
-presents as "the event never arrives" (bit `examples/ui_dropdown` in #324 — the HUD
+presents as "the event never arrives" (bit the `ui_dropdown` example in #324 — the HUD
 counter never moved; the engine was fine).
 
 ### Scene transitions

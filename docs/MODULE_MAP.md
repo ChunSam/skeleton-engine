@@ -14,6 +14,16 @@
 > **Adding a feature? Extend an existing row before adding one.** Rows are deliberately dense:
 > one row = one topic, however long. A row's length is not a problem — its *absence* is, because
 > then the next session re-explores the code to rediscover it.
+>
+> ⚠️ **Every `example <name>`, `<NAME>_SELFTEST` and `scripts/*_smoke.sh` citation below points at
+> a file that no longer exists.** The `examples/` tree and all sixteen smoke scripts were deleted
+> on 2026-08-19. The `src/` and `tests/` paths — what this file is actually for — are unaffected
+> and correct.
+>
+> The citations are kept on purpose rather than stripped: they are the record of *what used to
+> prove each row*, which is the first thing you want when rebuilding the acceptance layer. Recover
+> any of them with `git log --diff-filter=D --name-only -- examples/` then `git show
+> <commit>^:<path>`. Do not read one as "this is verified" — nothing in this file is, right now.
 
 | Looking for | File |
 |---------|------|

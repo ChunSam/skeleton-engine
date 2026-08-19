@@ -7,13 +7,15 @@ name: CI
 # required checks, `strict`, and `enforce_admins`, so nothing arrives unverified anyway. On that
 # reasoning it was nearly deleted.
 #
-# ⚠️ The required set is EIGHT jobs — every job in this file, `Browser smokes (Chrome + swiftshader)`
-# included (re-checked 2026-08-18 against the branch-protection API). This comment claimed SEVEN and
-# "browser smokes is NOT among them" from 2026-08-08 until then, which is precisely the drift it
-# warns about one line down. The practical consequence is not cosmetic: a wedged browser-smokes job
-# blocks the merge outright, it cannot be waved through. Read the real list, never this comment:
+# ⚠️ The required set is every job in this file — SEVEN since 2026-08-19, when deleting the
+# examples tree removed `Browser smokes (Chrome + swiftshader)`. **A required check for a job that
+# no longer exists can never report, so a PR waits on it forever.** If the query below still lists
+# browser smokes, branch protection has not been updated yet and every merge is blocked:
 #   gh api repos/ChunSam/skeleton-engine/branches/main/protection \
 #     --jq '.required_status_checks.contexts'
+# Read the real list, never this comment. It claimed SEVEN and "browser smokes is NOT among them"
+# from 2026-08-08 to 2026-08-18 while the API said otherwise — deleting a job is exactly the moment
+# that drift gets reintroduced.
 #
 # What that reasoning misses is **cache scope**. GitHub isolates caches by ref: a `pull_request` run
 # writes into the PR's own scope, readable only inside that PR, while every branch can read caches
@@ -48,10 +50,10 @@ jobs:
   # the PR would have waited four hours for a red that told it nothing.
   #
   # Sized at roughly 3x the slowest cold-cache run observed: test 10m11s, windows 4m25s,
-  # wasm 3m00s, render 2m44s, docs 2m19s, macos 2m11s. `wasm-smokes` gets 45 because a
-  # cache miss makes it build `wasm-bindgen-cli` from source before it starts any smoke.
-  # These are hang detectors, not performance budgets — raise one if real work grows into
-  # it rather than trimming the work to fit.
+  # wasm 3m00s, render 2m44s, docs 2m19s, macos 2m11s. These are hang detectors, not
+  # performance budgets — raise one if real work grows into it rather than trimming the
+  # work to fit. (Those numbers predate the examples-tree deletion, so every job is now
+  # faster than measured; they are kept as upper bounds rather than re-measured.)
 
   # ── 네이티브 빌드 + 테스트 ─────────────────────────────────────────────────
   test:
@@ -71,14 +73,11 @@ jobs:
       # near that. The `df` stays as a ~1 s canary — it is the number that decides whether the
       # cleanup ever has to come back, and it is what this removal was gated on in the first place.
       #
-      # `nproc` is here for a different open question. The selftest step's example build swings
-      # 152-292 s across runs with an identical cache key (full hit, both times) and identical
-      # code, while every *other* cargo step in the same job moves the opposite way — so it is not
-      # the cache and not a uniformly slow machine. Compiling example binaries is the most parallel
-      # thing this job does, which points at runner core count, and nothing in the log records it.
-      # Two lines here settle it over the next few runs instead of by argument. (v0.143.16 said
-      # "~21 example binaries" here; the real count was 142 — that figure was the number of *games
-      # with selftests*, not example targets. v0.143.18 narrows the build to the 9 + their servers.)
+      # `nproc` was added for a question that the examples-tree deletion closed by removing its
+      # subject: the selftest step's example build swung 152-292 s across runs with an identical
+      # cache key, and runner core count was the leading suspect. There is no example build any
+      # more. The two lines are kept as a cheap record of what machine a run got — if no job's
+      # timing is ever traced back to them again, delete them.
       - name: Runner capacity
         run: |
           df -h /
@@ -126,27 +125,13 @@ jobs:
       - name: cargo test --doc
         run: cargo test --doc
 
-      # The `<NAME>_SELFTEST` acceptance tests. Each was proven non-vacuous by sabotage when it was
-      # written, and then nothing ran them again — no CI step and no verify.sh step invoked one.
-      # The device-free halves run fine here; the audio halves skip (no sound card), which the
-      # script tolerates while treating every OTHER skip as a failure. Same principle as the render
-      # job's SKELETON_REQUIRE_GPU: an environment opt-out must never read as a green pass.
-      - name: cargo run --example <NAME>_SELFTEST (acceptance tests)
-        run: ./scripts/selftests.sh
-
-      # The one native smoke that needs no adapter. It covers a path the hot-reload selftests do not:
-      # DATA_ANIM/DATA_PARTICLES watch a direct path, while this watches a LOGICAL path under an
-      # asset root (EW-008) — the clause where `notify` used to register the caller's path and miss
-      # the real file.
-      - name: Native smoke — hot reload under an asset root
-        run: ./scripts/hot_reload_smoke.sh
-
       - name: cargo build (release)
         run: cargo build --release
 
   # ── GPU 렌더 테스트 (소프트웨어 GPU: Mesa lavapipe) ─────────────────────────
   # CI has no GPU, so the engine's render path was never exercised here — only by local macOS
-  # shell smokes. This job installs Mesa's software Vulkan driver (lavapipe) so wgpu gets a CPU
+  # shell smokes (deleted with the examples tree they drove; `tests/render.rs` is now the whole of
+  # it). This job installs Mesa's software Vulkan driver (lavapipe) so wgpu gets a CPU
   # adapter and `tests/render.rs` renders the real path headlessly. `SKELETON_REQUIRE_GPU=1` makes
   # a missing/unselected adapter a HARD failure (never a silent green skip), and the marker grep is
   # an independent second guard that the job actually rendered. See docs/RENDER_TESTING.md.
@@ -195,23 +180,6 @@ jobs:
           cargo test --test render -- --nocapture 2>&1 | tee render.log
           grep -q '\[render-test\] adapter=' render.log
 
-      # The three native smokes that render. They live HERE and not in the native job because they
-      # need an adapter, which only this job has. (Their headers used to say "CI is ubuntu-only and
-      # cannot render (no GPU)"; that stopped being true when this lavapipe job was added, and the
-      # headers have since been corrected — this note used to claim they still said the old thing.)
-      #
-      # Each is a real end-to-end run of an example, not a unit test: headless_screenshot writes a
-      # PNG through the real render path, lighting_cap renders at two different point-light caps, and
-      # packaged_assets launches the built binary from `/` to reproduce the packaged-build asset bug
-      # that `cargo run` from the checkout cannot.
-      - name: Native render smokes
-        env:
-          SKELETON_REQUIRE_GPU: "1"
-        run: |
-          ./scripts/headless_screenshot_smoke.sh
-          ./scripts/lighting_cap_smoke.sh
-          ./scripts/packaged_assets_smoke.sh
-
   # ── WASM 빌드 ─────────────────────────────────────────────────────────────
   wasm:
     name: Build (WASM)
@@ -234,106 +202,6 @@ jobs:
 
       - name: cargo clippy (wasm, lib only)
         run: cargo clippy --target wasm32-unknown-unknown --lib -- -D warnings
-
-      # The build above is lib + bins, so an example's wasm path was invisible to CI and CLAUDE.md
-      # had to ask contributors to build it by hand. This names the examples that carry a
-      # `#[wasm_bindgen]` entry point — the ones an index.html actually calls — and builds those.
-      # A blanket --examples cannot work: the native-only examples fail to compile for wasm on
-      # purpose (hot-reload, headless screenshots, servers, physics, GPU particles).
-      - name: cargo build (wasm examples)
-        run: ./scripts/build_wasm_examples.sh
-
-  # ── 브라우저 스모크 ────────────────────────────────────────────────────────
-  # "Compiling for wasm is not running on wasm." The job above proves the examples *build*; nothing
-  # in CI ever loaded one in a browser, so every runtime web claim rested on a local run.
-  #
-  # Two blockers that kept this out were stale by the time they were checked: the scripts already
-  # pass `--use-gl=angle --use-angle=swiftshader` (no GPU needed) and already auto-detect
-  # `google-chrome`, which ubuntu-latest ships. The real cost was `wasm-bindgen-cli`, and that is a
-  # prebuilt musl tarball rather than a `cargo install` from source.
-  #
-  # Scope is deliberate: only the browser smokes that *assert* something. Of the 15 `*_smoke.sh`,
-  # 9 self-verdict — 4 are native and already run (in `test` and `render`), leaving these 5. The
-  # other 6 browser smokes only check byte sizes and are documented as eyeball-it, so a green run
-  # would mean nothing; adding them would grow the gate without growing what it proves.
-  #
-  # The two audio ones ARE here, which contradicts "audio is outside CI" — correctly. That rule was
-  # measured against *native* rodio/ALSA, which needs a hardware device CI does not have. These are
-  # **Web Audio**: Chrome renders the graph in software, so no device is involved. Measured, not
-  # assumed — `wasm_audio` reports 38/38, and `audio_reactive` reports rms=0.643 with bands
-  # low=9.41 / high=0.00 on a 110 Hz tone, i.e. real spectral discrimination rather than a
-  # trivially-true assertion. Native audio claims still rest on a local device; browser ones do not.
-  wasm-smokes:
-    name: Browser smokes (Chrome + swiftshader)
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-
-      # Two smokes here also build a NATIVE binary — `wasm_smoke.sh` (the authoritative
-      # `coin_race_server`) and `wasm_failpaths_smoke.sh` (its echo server) — and a native build
-      # pulls in `alsa-sys`. The other five are pure wasm and need none of this. (Discovered the
-      # honest way: adding the first such smoke without this step failed with "Package alsa was
-      # not found in the pkg-config search path". The old note claiming the script was "byte-size
-      # only" was wrong about WHY it was kept local, but not wrong that it costs more.)
-      - name: Install system dependencies (native server build)
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y --no-install-recommends \
-            libasound2-dev libudev-dev libxkbcommon-dev \
-            libwayland-dev libx11-dev pkg-config
-
-      - name: Install Rust 1.95 + wasm32 target
-        uses: dtolnay/rust-toolchain@1.95.0
-        with:
-          targets: wasm32-unknown-unknown
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      # Derived from Cargo.lock, never hardcoded. Every one of these scripts says the CLI "MUST
-      # match the wasm-bindgen crate in Cargo.lock"; pinning a literal here would let a dependency
-      # bump drift silently and fail as an unreadable binding mismatch at page load.
-      - name: Install wasm-bindgen-cli (version pinned to Cargo.lock)
-        run: |
-          ver=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | grep '^version' | head -1 | cut -d'"' -f2)
-          if [ -z "$ver" ]; then echo "FAIL: could not read wasm-bindgen version from Cargo.lock" >&2; exit 1; fi
-          echo "wasm-bindgen from Cargo.lock: $ver"
-          url="https://github.com/rustwasm/wasm-bindgen/releases/download/${ver}/wasm-bindgen-${ver}-x86_64-unknown-linux-musl.tar.gz"
-          curl -sSfL "$url" | tar xz --strip-components=1 -C /usr/local/bin \
-            "wasm-bindgen-${ver}-x86_64-unknown-linux-musl/wasm-bindgen"
-          # Assert the binary matches the crate rather than trusting the download.
-          got=$(wasm-bindgen --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
-          echo "wasm-bindgen --version: $got"
-          if [ "$got" != "$ver" ]; then echo "FAIL: CLI $got != Cargo.lock $ver" >&2; exit 1; fi
-
-      # The scripts exit 2 for "environment" and 1 for a real assertion failure, so a missing
-      # browser would read as an infrastructure error rather than a broken engine. Fail loudly here
-      # instead, where the message says which it is.
-      - name: Assert Chrome is present
-        run: google-chrome --version
-
-      # SMOKE_DBG is pinned per script: wasm_save and audio_reactive both default to 9224, and a
-      # Chrome that outlives its script would make the next one read the wrong tab's title.
-      - name: Browser smokes (self-verdicting only)
-        run: |
-          SMOKE_DBG=9301 ./scripts/wasm_save_smoke.sh
-          SMOKE_DBG=9302 ./scripts/render_format_query_smoke.sh
-          SMOKE_DBG=9303 ./scripts/bloom_web_smoke.sh
-          SMOKE_DBG=9304 ./scripts/wasm_audio_smoke.sh
-          SMOKE_DBG=9305 ./scripts/audio_reactive_smoke.sh
-          # `wasm_smoke.sh` self-verdicts too (exit 1 on a blank frame or a server that never
-          # logged a connection), so the documented reason for keeping it local — "byte-size only"
-          # — was simply false. It is also the ONLY automated check that runs the wasm WebSocket
-          # path, which is why three latent wasm render bugs once survived for months.
-          SMOKE_DBG=9306 ./scripts/wasm_smoke.sh
-          # The only check in the tree that asserts a FAILURE path works. Everything above passes
-          # when nothing goes wrong, which is why two broken failure handlers shipped green
-          # (v0.150.1's 404 → `asset_failures()`, v0.150.2's send-before-open). This page takes
-          # both paths on purpose. ⚠️ It is sabotage-verified in BOTH directions — reverting
-          # either fix turns it red, and only the matching half — so if you change either one and
-          # this stays green, distrust the check, not the fix.
-          SMOKE_DBG=9307 ./scripts/wasm_failpaths_smoke.sh
 
   # ── Windows 빌드 ──────────────────────────────────────────────────────────
   # The other jobs are ubuntu/wasm only, so nothing here ever compiled the DX12
