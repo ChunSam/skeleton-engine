@@ -162,6 +162,26 @@ The keys differ slightly (`ShaderMaterial` keys by `(source-hash, format)` since
 also varies), so the shape is **duplicated deliberately rather than abstracted** — revisit a
 shared helper only if a fifth pipeline needs it.
 
+### The target's *size* is not `gpu.config` either
+
+The format rule above has a twin that is easier to miss, because getting it wrong produces a
+picture rather than a validation error. **A pass that renders into `scene_target` must take its
+dimensions from `scene_target`, not from `gpu.config`** — `gpu.config` describes the *surface*,
+and in docked-editor mode the surface is not what is being drawn into. Nothing fails; the geometry
+is simply computed for the wrong rectangle.
+
+`src/app/render/frame.rs` computes that size once, as `scene_target_w` / `scene_target_h` (the
+docked offscreen texture's size while docked, else the surface's), and every pass targeting
+`scene_target` reads it.
+
+⚠️ **The lesson is the naming, not the bug.** That value existed and was correct for two releases
+before v0.153.3 — but it was called `text_w` / `text_h`, because the text pass happened to be the
+first thing that needed it. The transition overlay needed exactly the same number, could not see
+that it was already in scope, and re-derived it from `gpu.config` — rendering `IrisIn` / `IrisOut`
+elliptical while docked. **A value named for its first caller is a value the second caller will
+re-derive, and re-derive wrongly.** Name it for what it *is*; a name that describes the consumer
+instead of the quantity is a latent duplicate.
+
 ### Mid-frame GPU upload rules (upload-once + range-draw, renderer pooling)
 
 `queue.write_buffer` executes at **submit time**, not call time — writing the same buffer
