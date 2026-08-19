@@ -33,17 +33,18 @@ Read only what you need.
 
 ## Build & run
 
-⚠️ **There are no examples.** The whole `examples/` tree — 22 playable games and ~85 feature demos —
-was deleted on 2026-08-19 at the user's request, to be rebuilt from scratch. `cargo build` /
-`cargo test` / `./scripts/verify.sh` are what remains. `cargo build --target
+⚠️ **One game exists.** The `examples/` tree — 22 games, ~85 demos — was deleted on 2026-08-19 at the
+user's request; `plans/2026-08-19-examples-rebuild-plan.md` rebuilds it as five and phase 1 landed
+`examples/platformer_game/` the same day (`cargo run --example platformer_game`, acceptance test
+`PLATFORMER_SELFTEST=1 …`). Four genres are still missing. `cargo build --target
 wasm32-unknown-unknown` for wasm, `./scripts/build_wasm.sh` for a servable bundle in `dist/` (it
 builds the lib's own `run_demo` entry point in `src/lib.rs`, not an example).
 
-Read `docs/PROGRAM_HISTORY.md` and `docs/CHANGELOG.md` before rebuilding one — they record what each
-deleted game covered and why, and `git show HEAD:examples/<path>` still has every file.
+Read `docs/PROGRAM_HISTORY.md` + `docs/CHANGELOG.md` before rebuilding one; `git show
+4edfd3f^:examples/<path>` still has every deleted file. A game at `examples/<name>/<name>.rs` needs
+an explicit `[[example]]` block in `Cargo.toml` — Cargo finds only `*.rs` and `*/main.rs`.
 
-The engine's headless facilities are **in `src/` and still work**; they just have nothing to point
-at until a game exists again:
+The engine's headless facilities are **in `src/` and still work**:
 
 - `ENGINE_CAPTURE=<frame>:<path.png>[,…]` — render headlessly at those frames, then exit.
 - `ENGINE_INPUT=<script.ron>` — replay a scripted `(frame, action)` input list (`src/input_script.rs`).
@@ -52,20 +53,19 @@ at until a game exists again:
 cannot be photographed** — an audio meter reads `0.0` in a captured frame while sounding correctly,
 and a networked game photographs `streaming 0 / 120` while the server is happily sending. Anything
 arriving on a wall clock (audio, sockets, file watchers) needs a loop paced off `Instant`. That is
-what the deleted `<NAME>_SELFTEST` acceptance tests existed for — a rebuilt game brings its own, and
-`scripts/selftests.sh` (their runner) is **back** as of 2026-08-19 to discover and run it.
+what `<NAME>_SELFTEST` acceptance tests exist for — every game carries one and `scripts/selftests.sh`
+discovers them by grepping for the variable.
 
 ---
 
 ## Verification
 
-`./scripts/verify.sh` is the gate — run it before calling anything done. With the examples tree gone
-it covers CI's `wasm` and `docs` jobs in full and its `test` job bar one step (`cargo build
---release`). It is **not** all of CI; see the not-covered list below, and `grep -nE '^  [a-z_-]+:$|run:'
-.github/workflows/ci.yml` for the current split.
+`./scripts/verify.sh` is the gate — run it before calling anything done. It covers CI's `wasm` and
+`docs` jobs in full and its `test` job bar one step (`cargo build --release`). It is **not** all of
+CI; see the not-covered list below, and `grep -nE '^  [a-z_-]+:$|run:' .github/workflows/ci.yml`.
 
-**Run it when the change can move what it measures** — `src/`, `tests/`, or a **dependency** in
-`Cargo.toml`.
+**Run it when the change can move what it measures** — `src/`, `tests/`, `examples/`, or a
+**dependency** in `Cargo.toml`.
 
 **Skip it — and say so in the report — when the change is confined to** prose (`docs/`, `plans/`,
 `*.md`, comments), `.github/workflows/`, or a bare version bump. Run `cargo check` to keep
@@ -95,17 +95,19 @@ have each cost a session; the ones that recur:
   `echo $? > /tmp/v.exit` and **read the file**, after `rm -f`-ing it first (a stale file matches instantly).
 - `;` does not short-circuit — branch on the captured code before committing.
 
-⚠️ **The acceptance layer is empty, and the gate got much weaker on 2026-08-19.** It used to also run
-`scripts/build_wasm_examples.sh` and `scripts/selftests.sh` (11 `<NAME>_SELFTEST` tests); both went
-with the examples. The runner is **back** (phase 0) and gates again, but with no games it is a no-op
-that says so — it enforces, it does not yet prove. What still measures anything: `fmt`, `clippy`, the
-wasm build, `cargo test`, doctests, `cargo doc`. **A green gate proves much less than it used to.**
+⚠️ **The acceptance layer is one game deep, and the gate got much weaker on 2026-08-19.** It used to
+run `scripts/build_wasm_examples.sh` (gone with the examples) and `scripts/selftests.sh` over 11
+`<NAME>_SELFTEST` tests; the runner is back and has one game — `PLATFORMER_SELFTEST`, 7 checks over
+physics, one-way platforms, tilemap collider resync, a joint and the animation state machine.
+Nothing else in `src/` has acceptance coverage. What else measures anything: `fmt`, `clippy`, the
+wasm build, `cargo test`, doctests, `cargo doc`. **A green gate still proves much less than it
+used to.**
 
 What the gate does **not** cover, so get it yourself:
 
 - **The `render` job** — `cargo test --test render` under `SKELETON_REQUIRE_GPU=1`. A machine with a
-  GPU can run it. (Its three companion smokes — `headless_screenshot` / `lighting_cap` /
-  `packaged_assets` — were examples and are gone.)
+  GPU can run it, as can `ENGINE_CAPTURE` against a game. (Its three companion smokes —
+  `headless_screenshot` / `lighting_cap` / `packaged_assets` — were examples and are gone.)
 - **`cargo build --release`** — the only check that the `lto = "thin"` shipping profile links. Same
   for the `package` job's `cargo package --locked`.
 - **macOS/Windows behaviour** — both have CI *build* jobs now, so the `cfg` branches compile; nothing
@@ -163,9 +165,8 @@ Two that have their own failure mode:
 
 **A feature is not done until a small playable example exercises it in real play.** The example is
 the acceptance test, not an afterthought — if the API feels awkward while writing it, fix the API.
-This is still the policy, and **nothing currently satisfies it**: the `examples/` tree was deleted
-on 2026-08-19 and is being rebuilt. Until it is, every feature in `src/` is unexercised by real play
-— treat that as a standing debt, not as the rule having been relaxed.
+Rebuilding as five games; **one exists**, so the platformer's subsystems are exercised and the rest
+of `src/` is not. That gap is a standing debt, not the rule being relaxed.
 
 **A number pinned in prose is fixed by whoever changes it.** *(권고)* A stale baseline is worse
 than none — it reads as an unexplained gain. v0.153.0 moved the lib-test count 1432 → 1443 in two

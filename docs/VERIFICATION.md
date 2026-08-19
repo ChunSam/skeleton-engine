@@ -72,10 +72,11 @@ grep -E 'running [0-9]+ tests' /tmp/v.log | head -1
 have moved it is worth a look even when the exit code is `0`. ⚠️ The old reference figures
 (152 groups / 1339 lib tests at v0.138.0) are void — most of those groups were example targets,
 deleted on 2026-08-19. The post-deletion baseline, measured on a green run at v0.153.3, is
-**11 `ok` groups / 1461 lib tests**. The trail, since two releases moved it without saying so:
+**12 `ok` groups / 1461 lib tests**. The trail, since two releases moved it without saying so:
 1443 at v0.153.0 → **1449 at v0.153.1** (#482 added 6 and did not update this line) → 1461 at
-v0.153.2 (+12). ⚠️ The group count is for an **examples-free** tree; each example target adds one
-`ok` group even when it contributes no `#[test]`, so the first rebuilt game moves 11.
+v0.153.2 (+12). The 12th group is `examples/platformer_game`: an example target adds one `ok` group
+even when it contributes no `#[test]` — its selftest is an env-var entry point, so the group reads
+`running 0 tests`. Every rebuilt game adds one more.
 
 ### Trap 5 — a stale `.exit` file from a previous session
 
@@ -182,8 +183,8 @@ gracefully into silence. Each was proven non-vacuous by sabotage when written �
 **nothing ran them again**: neither CI nor `verify.sh` contained the string `SELFTEST`. From
 v0.143.8 they ran in both, via `scripts/selftests.sh`. All of it went with the examples on
 2026-08-19. The **runner** returned the same day as phase 0 of the rebuild, carrying every rule
-below; the **tests** have not — there are no games, so it currently enforces an empty set. **Read
-this section before writing the first one**, because the runner's shape was not incidental:
+below, and phase 1's `PLATFORMER_SELFTEST` (7 checks) is the first rebuilt test it gates. **Read
+this section before writing the next one**, because the runner's shape was not incidental:
 
 The reason it was a script rather than a list of `cargo run` lines is that **every one of these
 tests opts out with exit 0** when its environment cannot support a check, so the exit code alone
@@ -219,6 +220,30 @@ The rule: **a skip condition must be sampled from a source the failure cannot pr
 meant probing the device with a throwaway `Audio::new()` *before the app is built*, so "no device"
 is answered by the hardware rather than by the machinery under test. Ask it of any check that can
 opt out: *if the thing I am testing were completely broken, could that alone make this check skip?*
+
+### Sabotage each half separately, and believe the half that stays green
+
+"Sabotage-verify every check" is the existing rule; phase 1's platformer selftest (2026-08-19) found
+the version of it that actually bites. **A two-sided check can have a side that no sabotage you tried
+has ever moved — and it reads exactly like a side that works.** Two cases from writing seven checks:
+
+- The one-way plank check asserts a drop *down* through it and a jump *up* through it. Every game-side
+  sabotage (plank not tagged one-way, `request_drop` never issued) turned the whole check red — but
+  always via the **down** half, so the up half had still never been seen to fire. Breaking the engine's
+  `!moving_down` clause, the obvious suspect, **also did not move it**: at this geometry the predicate's
+  position test alone (`char_bottom <= platform_top + tolerance`) already passes a character whose feet
+  are below the plank. Only making a one-way collider block outright, except during a drop, turned the
+  up half red on its own. That negative result is worth as much as the check: it says which engine
+  branch the check does *not* cover.
+- The blend-tree check first asked for **≥ 2 distinct clips and one crossfade**, and a blend tree pinned
+  to a constant parameter passed it — the tree still switches **once**, off the `AnimationPlayer`'s
+  starting clip, and that single switch supplies both the second clip and the crossfade. Counting
+  *switches* (≥ 4 over a full parameter sweep) is what the pinned sabotage cannot fake. The general
+  form: **"visited more than one value" is satisfied by any one-time initialization**; a check that a
+  thing keeps varying has to count the variations.
+
+The procedure this implies: for every clause of a check, name a sabotage that flips **that clause and
+not the others**, and if you cannot make one fire, say so in the comment rather than assuming it holds.
 
 ### Writing one: assert an invariant, not an end state
 

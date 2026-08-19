@@ -34,6 +34,14 @@ include     = [
 name = "engine"
 crate-type = ["cdylib", "rlib"]
 
+# Example games live at `examples/<name>/<name>.rs`, which Cargo does NOT auto-discover (it finds
+# `examples/*.rs` and `examples/*/main.rs`), so each game declares its target here. The layout is
+# the one settled in plans/2026-08-19-examples-rebuild-plan.md; `scripts/selftests.sh` reads these
+# blocks to map a source file to its cargo target.
+[[example]]
+name = "platformer_game"
+path = "examples/platformer_game/platformer_game.rs"
+
 [dependencies]
 winit    = "0.30.13"
 wgpu     = { version = "29", features = ["webgl"] }
