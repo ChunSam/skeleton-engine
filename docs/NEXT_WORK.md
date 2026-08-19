@@ -24,7 +24,7 @@ What went with them, because it was built on them:
 
 | Deleted | Consequence |
 |---|---|
-| 11 `<NAME>_SELFTEST` acceptance tests + `scripts/selftests.sh` | the 11 tests are gone; **the runner is back** (phase 0, 2026-08-19) and enforces an empty set |
+| 11 `<NAME>_SELFTEST` acceptance tests + `scripts/selftests.sh` | the 11 tests are gone; **the runner is back** (phase 0, 2026-08-19) and gates **1** rebuilt selftest — `PLATFORMER_SELFTEST`, 7 checks (phase 1, 2026-08-19) |
 | 16 `scripts/*_smoke.sh` (12 browser, 4 native) + the `wasm-smokes` CI job | nothing runs engine code in a browser; no render smokes |
 | `scripts/build_wasm_examples.sh` + the CI step calling it | an example's wasm path is unbuilt and unchecked |
 | `scripts/hot_reload_smoke.sh` + the `DATA_ANIM` / `DATA_PARTICLES` selftests | hot-reload has no coverage |
@@ -42,6 +42,23 @@ change; adding a *job* does.
 Nothing was migrated into `tests/`. Before rebuilding a game, read `docs/PROGRAM_HISTORY.md` (what
 each one covered and why) and `docs/VERIFICATION.md` § *A skip is not a pass* (the runner shape —
 derived, never hardcoded — that this repo already paid for twice).
+
+**Phase progress.** Phase 0 (the runner) and **phase 1 (`platformer_game`)** are done, both on
+2026-08-19. **Next is phase 2, `rpg_quest_game`** — the plan puts it before `survivor_game` because
+it owns the scene/persistence questions, which are the highest-risk area. Phases 3–5 follow
+(`survivor_game`, `puzzle_grid_game`, `netplay_game` + restoring the `wasm-smokes` job).
+
+⚠️ **The plan's line estimates are low by roughly 2×.** `platformer_game` came in at **1,779 lines**
+(1,433 of them code) against an estimated ~800: ~1,250 game, ~475 for seven selftest checks, ~50 for
+a deterministic asset generator. The plan's "5 games, ~4,000 lines" is therefore closer to ~8,000 if
+the other four land at this density — still a ~58% cut from the deleted tree's 19,154, but not the
+78% the plan claims. Nothing here is padding to cut; the estimate was optimistic, and the acceptance
+half (which the plan wanted designed first) is a quarter of the file on its own.
+
+What phase 1 leaves for the others, stated so it is not mistaken for coverage: **no wasm build**
+(rapier2d is native-only, so the platformer has no web target and the browser-smoke half of the plan
+is untouched), no audio, no GPU particles, no `FloatingText`, no `ShaderMaterial`, no scene
+transition, no editor. Its selftest is the only acceptance test in the repo.
 
 ## Board gate — check this first, every session
 

@@ -107,6 +107,29 @@ and the editor hook `register_editable_component` + Save Scene.
 persistence registry and the save file all answer the same question — what is allowed to be
 dropped — and the v0.139.1 audit showed that question is only answerable under real transitions.
 
+**Carry a docked-editor capture (added 2026-08-19, from the engine session).** This game is the only
+one of the five that has both a `SceneTransition` and the editor, so it is the only place the render
+review's *docked `IrisIn`/`IrisOut` draws elliptical* row can be settled — `TransitionRenderer::update`
+is handed `gpu.config` while `run_pass` targets the docked RT (`src/app/render/frame.rs:725`; the
+correct pair, `(text_w, text_h)`, is already computed 340 lines above and used by the text pass).
+
+⚠️ **The capture needs a control assertion or it proves nothing**, and this is exactly the trap
+`docs/VERIFICATION.md` § *Sabotage each half separately* describes: if the docked RT's aspect ratio
+happens to equal the surface's, the iris renders as a correct circle and the check passes green
+whether or not the bug is present. So the capture must **first assert the two aspect ratios actually
+differ** at the captured frame, then assert the iris is circular *in the docked RT's own pixel space*.
+
+**The fix landed first (v0.153.3), so this is a regression guard, not a demonstration** — run against
+any commit before it, the check is expected to be RED. The control assertion matters *more* now, not
+less: after the fix "the iris looks circular" is the passing condition, and on a window where the two
+aspect ratios coincide the pre-fix code produces a circle too, so a green run there proves nothing.
+The engine session's note on what the fix actually was is worth carrying: the correct value was
+already in the same function and the text pass was already using it, but it was **named** `text_w` /
+`text_h` when it meant *the scene target's physical size* — so it read as text-specific and nobody
+reused it. It is now `scene_target_w` / `scene_target_h`, with a comment saying any pass drawing into
+`scene_target` must use it rather than `gpu.config`. A misnamed value is a value that gets
+re-derived wrongly somewhere else.
+
 **Selftest (`RPG_QUEST_SELFTEST`)** — over `App::step_headless`, which crosses scene boundaries a
 hand-ticked schedule cannot:
 - a registered resource **survives** `Replace`, an **unregistered** one is **dropped**. Both
@@ -224,8 +247,8 @@ Deliberately runner-first. Building game 2 before the runner exists is how 11/22
 
 | Phase | Deliverable | Why here |
 |---|---|---|
-| 0 | `scripts/selftests.sh` rebuilt (derived list) + its CI step | Must exist before game 2, or drift starts immediately |
-| 1 | `platformer_game` + selftest | Densest single genre; proves the runner on a real target |
+| 0 | `scripts/selftests.sh` rebuilt (derived list) + its CI step | Must exist before game 2, or drift starts immediately — **done 2026-08-19** |
+| 1 | `platformer_game` + selftest | Densest single genre; proves the runner on a real target — **done 2026-08-19**, 1,779 lines and 7 checks (see `docs/NEXT_WORK.md` on the 2× line estimate) |
 | 2 | `rpg_quest_game` + selftest + save smoke | Owns the scene/persistence questions, the highest-risk area |
 | 3 | `survivor_game` + selftest | Needs the audio-probe pattern from phase 2's lessons |
 | 4 | `puzzle_grid_game` + selftest + render smoke | Cheapest game; good place to restore `build_wasm_examples.sh` |
