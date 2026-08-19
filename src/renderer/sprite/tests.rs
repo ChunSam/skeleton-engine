@@ -246,6 +246,91 @@ fn sprite_runs(entries: &[SpriteRenderEntry]) -> Vec<(String, usize)> {
     runs
 }
 
+/// A hidden `ShaderMaterial` entity stays in the **live** set while dropping out of the **drawn**
+/// list.
+///
+/// `SpriteRenderer::render` ends with `params_buffers.retain(|e, _| live.contains(e))`, so the
+/// live set is what keeps an entity's GPU params buffer and bind group alive. Until v0.153.2 the
+/// live set was derived from the drawn list, which meant hiding a material sprite destroyed both
+/// and showing it again rebuilt them — a GPU allocation per toggle of the editor's visibility
+/// checkbox. The two comments above that code already described the behaviour asserted here; the
+/// code was the half that was wrong.
+#[test]
+fn a_hidden_material_entity_keeps_its_gpu_buffers() {
+    use crate::components::Hidden;
+    use crate::ecs::World;
+    use crate::material::ShaderMaterial;
+
+    let mut world = World::new();
+    let shown = world.spawn();
+    world.add_component(shown, ShaderMaterial::new("// a", [0.0; 4]));
+    let hidden = world.spawn();
+    world.add_component(hidden, ShaderMaterial::new("// b", [1.0; 4]));
+    world.add_component(hidden, Hidden);
+
+    let mut live = std::collections::HashSet::new();
+    let mut drawn = Vec::new();
+    super::collect::split_material_entities(&world, &mut live, &mut drawn);
+
+    assert!(
+        live.contains(&hidden),
+        "a hidden material entity must stay live, or the retain frees its params buffer"
+    );
+    assert!(live.contains(&shown), "control: a shown entity is live too");
+    let drawn_ids: Vec<_> = drawn.iter().map(|(e, ..)| *e).collect();
+    assert_eq!(
+        drawn_ids,
+        vec![shown],
+        "control: the hidden entity must still be excluded from drawing"
+    );
+
+    // Despawning is what may free the buffers — the distinction the live set exists to draw.
+    world.despawn(shown);
+    super::collect::split_material_entities(&world, &mut live, &mut drawn);
+    assert!(
+        !live.contains(&shown),
+        "a despawned entity must leave the live set so its GPU buffers are reclaimed"
+    );
+    assert!(live.contains(&hidden), "still hidden, still live");
+
+    // Both outputs are cleared on entry, so a reused scratch set cannot accumulate stale entities.
+    assert_eq!(live.len(), 1);
+    assert!(drawn.is_empty());
+}
+
+/// The untextured-sprite fallback key is **interned**: every `Sprite` with no texture shares one
+/// `Arc<str>` instead of allocating its own, every frame.
+///
+/// Measured against the unfixed `unwrap_or_else(|| Arc::from(""))`, 1000 untextured sprites cost
+/// 1000 allocations / 16,000 bytes requested, with all 1000 pointers distinct; interned it is 0
+/// and 1. What is asserted here is **pointer identity**, not an allocation count: counting needs a
+/// `#[global_allocator]`, which lives in `tests/per_frame_alloc.rs` — and that binary cannot reach
+/// this path anyway, since building a `SpriteRenderer` needs a GPU device. Pointer identity is the
+/// property that makes the count zero, and it is checkable here.
+#[test]
+fn the_untextured_fallback_key_is_interned() {
+    let a = super::collect::empty_tex_key();
+    let b = super::collect::empty_tex_key();
+    assert!(
+        Arc::ptr_eq(&a, &b),
+        "every untextured sprite must share one Arc<str>, not allocate its own each frame"
+    );
+    assert_eq!(
+        &*a, "",
+        "the interned key must still be the empty string the texture cache looks up"
+    );
+
+    // Control: interning the *empty* key must not collapse distinct keys. A real texture path is
+    // its own allocation, and batching still separates it from the untextured run — which it does
+    // by contents, never by address, and that is what makes sharing the pointer safe.
+    let real: Arc<str> = Arc::from("assets/hero.png");
+    assert!(
+        !Arc::ptr_eq(&a, &real),
+        "a real texture key must not share the interned empty key's allocation"
+    );
+    assert_ne!(a.as_ref(), real.as_ref());
+}
+
 #[test]
 fn sort_uses_layer_and_z_before_texture_batching() {
     let mut entries = vec![

@@ -396,20 +396,52 @@ impl TextRenderer {
                 let bounds = d.bounds.map(|b| b * lb.px_scale * scale_factor);
                 let single_line = d.single_line_caret;
 
+                // ── Layout buffer size ────────────────────────────────────────
+                // Computed here rather than in the cache-miss branch below, because it is part of
+                // the cache key: `position`, the viewport, `bounds` and `anchor` reach shaping
+                // ONLY through these two values, and keying on them instead of on their inputs is
+                // what lets a moving centered text hit the cache (see `PlainTextCacheKey`).
+                //
+                // Single-line (TextInput): expand to unlimited width + no wrap, then scroll
+                // horizontally below. Otherwise wrap at the bounds width.
+                //
+                // For a centered DrawText (anchor = Center, position = text center), the position
+                // is typically near the middle of the viewport (e.g. w/2). Using `w - position.x`
+                // would give only half the viewport width, causing text to wrap prematurely.
+                // Instead we give the buffer the FULL viewport dimension and let the existing
+                // anchor-offset logic center the shaped text. For the default TopLeft anchor the
+                // old behavior is preserved.
+                let layout_w = if single_line.is_some() {
+                    None
+                } else {
+                    Some(layout_buffer_width(
+                        d.anchor,
+                        bounds.map(|b| b.x),
+                        w as f32,
+                        position.x,
+                    ))
+                };
+                let layout_h = Some(layout_buffer_height(
+                    d.anchor,
+                    bounds.map(|b| b.y),
+                    h as f32,
+                    position.y,
+                ));
+                let wrap = if single_line.is_some() {
+                    Wrap::None
+                } else {
+                    Wrap::WordOrGlyph
+                };
+
                 // ── Cache lookup (plain text only) ────────────────────────────
                 let plain_key: Option<PlainTextCacheKey> = if !d.rich {
                     Some(PlainTextCacheKey {
                         text: d.text.clone(),
                         scaled_size_bits: size.to_bits(),
-                        bounds_w_bits: bounds.map(|b| b.x.to_bits()),
-                        bounds_h_bits: bounds.map(|b| b.y.to_bits()),
-                        viewport_w: w,
-                        viewport_h: h,
-                        position_x_bits: position.x.to_bits(),
-                        position_y_bits: position.y.to_bits(),
-                        is_single_line: single_line.is_some(),
+                        layout_w_bits: layout_w.map(f32::to_bits),
+                        layout_h_bits: layout_h.map(f32::to_bits),
+                        no_wrap: matches!(wrap, Wrap::None),
                         align: d.align,
-                        anchor: d.anchor,
                     })
                 } else {
                     None
@@ -424,44 +456,17 @@ impl TextRenderer {
                     // Cache hit: reuse the already-shaped buffer.
                     buffer
                 } else {
-                    // Cache miss (or rich text): build and shape from scratch.
-                    //
-                    // Single-line (TextInput): expand to unlimited width + no wrap, then
-                    // scroll horizontally below. Otherwise wrap at the bounds width.
-                    //
-                    // For a centered DrawText (anchor = Center, position = text center),
-                    // the position is typically near the middle of the viewport (e.g. w/2).
-                    // Using `w - position.x` would give only half the viewport width, causing
-                    // text to wrap prematurely.  Instead we give the buffer the FULL viewport
-                    // dimension and let the existing anchor-offset logic center the shaped text.
-                    // For the default TopLeft anchor the old behavior is preserved.
-                    let width = if single_line.is_some() {
-                        None
-                    } else {
-                        Some(layout_buffer_width(
-                            d.anchor,
-                            bounds.map(|b| b.x),
-                            w as f32,
-                            position.x,
-                        ))
-                    };
+                    // Cache miss (or rich text): build and shape from scratch. Every field below
+                    // is a `PlainTextCacheKey` field — see that type's doc for why they must stay
+                    // in step.
                     shape_text(
                         &mut self.font_system,
                         &ShapeSpec {
                             text: &d.text,
                             size,
-                            width,
-                            height: Some(layout_buffer_height(
-                                d.anchor,
-                                bounds.map(|b| b.y),
-                                h as f32,
-                                position.y,
-                            )),
-                            wrap: if single_line.is_some() {
-                                Wrap::None
-                            } else {
-                                Wrap::WordOrGlyph
-                            },
+                            width: layout_w,
+                            height: layout_h,
+                            wrap,
                             align: d.align.to_glyphon(),
                             rich: d.rich,
                         },

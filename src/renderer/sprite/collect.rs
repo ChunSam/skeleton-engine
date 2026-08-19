@@ -1,4 +1,50 @@
+use std::sync::OnceLock;
+
 use super::*;
+
+/// The batching key an untextured [`Sprite`] (one with neither `image_handle` nor `texture`)
+/// collects under — the empty string, interned so every such sprite in every frame shares one
+/// allocation.
+///
+/// The obvious `unwrap_or_else(|| Arc::from(""))` allocates a **fresh `Arc<str>` per untextured
+/// sprite per frame**: measured at 1000 allocations / 16,000 bytes requested per 1000 sprites,
+/// with all 1000 pointers distinct. `Sprite::colored` — every rectangle, bar, and flat-colour
+/// panel — takes this path, so the cost scales with how much of a scene is untextured.
+///
+/// Sharing the pointer is invisible to everything downstream: the run-batching in
+/// [`draw`](super::draw) compares keys **by contents** (`texture_key.as_ref() == run_key`), never
+/// by address, and `bind_group_for_texture_key` looks up the same `&str`.
+pub(super) fn empty_tex_key() -> Arc<str> {
+    static EMPTY: OnceLock<Arc<str>> = OnceLock::new();
+    EMPTY.get_or_init(|| Arc::from("")).clone()
+}
+
+/// Split every `ShaderMaterial` entity into the two sets the renderer needs, in one pass:
+///
+/// - `live` — **all** of them, `Hidden` included. `SpriteRenderer::render` retains
+///   `params_buffers` against this set, so membership is what keeps an entity's GPU params buffer
+///   and bind group alive.
+/// - `drawn` — hidden entities excluded, as `(entity, source_hash, params)`. This becomes the
+///   draw entries.
+///
+/// Both are cleared first; `live` is a scratch field so its allocation is reused across frames.
+///
+/// Extracted as a free function over `&World` so the split can be unit-tested: it is otherwise
+/// reachable only through `SpriteRenderer`, which needs a GPU device to construct.
+pub(super) fn split_material_entities(
+    world: &World,
+    live: &mut std::collections::HashSet<crate::ecs::Entity>,
+    drawn: &mut Vec<(crate::ecs::Entity, u64, [f32; 4])>,
+) {
+    live.clear();
+    drawn.clear();
+    for (entity, mat) in world.query::<ShaderMaterial>() {
+        live.insert(entity);
+        if world.get::<crate::components::Hidden>(entity).is_none() {
+            drawn.push((entity, mat.source_hash(), mat.params));
+        }
+    }
+}
 
 impl SpriteRenderer {
     /// Walk the world and collect every renderable into `self.draw_entries` as
@@ -66,12 +112,13 @@ impl SpriteRenderer {
             }
             // Prefer image_handle path if present; fall back to the texture path.
             // path_arc() is an O(1) refcount bump; Arc::from(path()) would copy the string.
+            // The untextured fallback is interned — see `empty_tex_key`.
             let tex_key: Arc<str> = sprite
                 .image_handle
                 .as_ref()
                 .map(|h| h.path_arc())
                 .or_else(|| sprite.texture.clone())
-                .unwrap_or_else(|| Arc::from(""));
+                .unwrap_or_else(empty_tex_key);
             // Nine-slice: emit nine sub-quads (corners fixed-size, edges/center
             // stretched) instead of one. Only this new branch runs when a NineSlice
             // is present — ordinary sprites below remain byte-identical to before.
@@ -229,22 +276,22 @@ impl SpriteRenderer {
         // (cloning per-entity at query time would clone once per entity sharing a new
         // material; deduping at query time could hand the source to an entity that is
         // then culled, leaving the pipeline uncompiled).
-        // Hidden entities are excluded from drawing (but NOT from the live set below, so their GPU
-        // buffers are retained while hidden — only despawn/material-removal frees them).
-        let mat_ids: Vec<(crate::ecs::Entity, u64, [f32; 4])> = world
-            .query::<ShaderMaterial>()
-            .filter(|(e, _)| world.get::<crate::components::Hidden>(*e).is_none())
-            .map(|(e, mat)| (e, mat.source_hash(), mat.params))
-            .collect();
-
-        // live_material_entities_scratch: set of entities currently holding a ShaderMaterial.
-        // Populated from the full world-query result regardless of culling, so retaining
-        // params_buffers to this set at frame end removes GPU buffers only for
-        // despawned or material-removed entities. Field is cleared+reused each frame.
-        self.material.live_material_entities_scratch.clear();
-        self.material
-            .live_material_entities_scratch
-            .extend(mat_ids.iter().map(|(e, ..)| *e));
+        // Hidden entities are excluded from drawing, but NOT from the live set: their GPU buffers
+        // are retained while hidden, and only despawn/material-removal frees them.
+        //
+        // ⚠️ These are two different sets and the single pass below builds both. Deriving the live
+        // set from the drawn list — which is what the code did until v0.153.2, while these comments
+        // said otherwise — makes the `retain` at the end of `render()` destroy a hidden entity's
+        // params buffer and bind group, and rebuild them the moment it is shown again. That is a
+        // per-toggle GPU allocation for the editor's visibility checkbox and for any game that
+        // blinks a material sprite.
+        //
+        let mut mat_ids: Vec<(crate::ecs::Entity, u64, [f32; 4])> = Vec::new();
+        split_material_entities(
+            world,
+            &mut self.material.live_material_entities_scratch,
+            &mut mat_ids,
+        );
 
         // seen_new_hashes_scratch: hashes whose source has already been claimed by a
         // surviving entity this call — keeps frag_source clones to at most one per new

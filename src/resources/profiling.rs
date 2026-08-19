@@ -24,9 +24,20 @@ pub struct SystemProfile {
 }
 
 /// Renderer pass statistics.
+///
+/// ⚠️ **Sprite pass only.** Every field here is measured inside `SpriteRenderer`. The UI-primitive
+/// pass, the text pass and the post-process / lighting / bloom / GPU-particle passes contribute
+/// nothing to any of them, so these are not whole-frame totals — treat them as a sprite-workload
+/// gauge, which is what the Engine Stats panel labels them as.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RenderStats {
-    /// Number of texture switches (draw call count).
+    /// Draw calls issued by the **sprite pass**: one per contiguous same-texture sprite run, plus
+    /// one per `ShaderMaterial` entry.
+    ///
+    /// ⚠️ Not the frame's total. The UI-primitive pass issues one draw per texture run of its own
+    /// and does not count them, and the text pass draws through `glyphon`, whose internal draw
+    /// count the engine cannot observe at all. A number that claimed to be the total would be
+    /// wrong in both directions, so this one is scoped instead.
     pub draw_calls: u32,
     /// Number of sprite instances submitted to the GPU.
     pub sprites_rendered: u32,

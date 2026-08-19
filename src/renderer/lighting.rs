@@ -155,8 +155,14 @@ pub struct LightingRenderer {
     /// resize / texture recreation) or when the normal buffer is recreated. Avoids
     /// a `device.create_bind_group` call every frame on the submit path.
     cached_bind_group: Option<wgpu::BindGroup>,
-    /// Raw pointer address of the `TextureView` that `cached_bind_group` was built
-    /// from.  Used as a cheap identity check — `wgpu::TextureView` has no `PartialEq`.
+    /// Raw pointer address of the `&TextureView` that `cached_bind_group` was built from. Used as
+    /// a cheap identity check — `wgpu::TextureView` has no `PartialEq`.
+    ///
+    /// ⚠️ **This address does not identify the view.** It is the address of the caller's storage
+    /// slot, and `App::ensure_intermediate_texture` writes a replacement view into the same
+    /// `Option<(…)>` field without moving it — so a recreated intermediate can arrive at the very
+    /// same address. The check is a fast path for "same slot, same frame", not the invalidation
+    /// mechanism; [`invalidate_bind_group`](LightingRenderer::invalidate_bind_group) is.
     cached_scene_view_ptr: usize,
 }
 
@@ -351,6 +357,21 @@ impl LightingRenderer {
 
         // normal_view is new; the cached bind group references the old one.
         // Drop it so run_pass rebuilds it with the new normal and scene views.
+        self.invalidate_bind_group();
+    }
+
+    /// Drops the cached lighting bind group so the next `run_pass` rebuilds it against whatever
+    /// scene view it is handed.
+    ///
+    /// ⚠️ **Call this whenever the scene intermediate texture is recreated.** `run_pass` compares
+    /// the address of the `&TextureView` it receives, but that is the caller's storage slot rather
+    /// than the view itself (see `cached_scene_view_ptr`), so a recreated intermediate can land at
+    /// the same address and pass the check. Until v0.153.2 nothing called this on recreation, and
+    /// the cache was sound only because every path that replaced the intermediate happened to
+    /// resize or reconfigure the renderer too — a non-local invariant, and one whose failure mode
+    /// is silent: the pass samples last frame's texture and wgpu reports nothing, because a stale
+    /// bind group is a perfectly valid one.
+    pub fn invalidate_bind_group(&mut self) {
         self.cached_bind_group = None;
         self.cached_scene_view_ptr = 0;
     }

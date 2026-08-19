@@ -384,9 +384,11 @@ impl App {
                             });
                             let r = prof.render;
                             ui.collapsing(tr("Render", "렌더"), |ui| {
+                                // Scoped label: `RenderStats` measures the sprite pass only — the
+                                // UI-primitive and text passes issue draws it never sees.
                                 ui.label(format!(
                                     "{} {}",
-                                    tr("draw calls", "드로우 콜"),
+                                    tr("sprite draw calls", "스프라이트 드로우 콜"),
                                     r.draw_calls
                                 ));
                                 ui.label(format!(

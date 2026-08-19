@@ -74,6 +74,35 @@ pub struct GpuParticleRenderer {
     /// Owning it here keeps it advancing while still giving every emitter within a frame a
     /// disjoint slot (`collect_new_particles` shares one cursor across emitters).
     frame_cursor: u32,
+    /// Staging for [`upload_new_particles`](Self::upload_new_particles): one contiguous ring run,
+    /// copied out of the `(slot, particle)` pairs so it can go up in a single `write_buffer`.
+    /// Cleared and refilled per run; the allocation is reused across frames.
+    upload_scratch: Vec<GpuParticle>,
+    /// Upper bound, in seconds, on how much longer any already-spawned particle can live.
+    ///
+    /// Death happens on the GPU (the compute shader decrements each particle's `life` by `dt`), so
+    /// the CPU cannot ask whether the buffer still holds anything. It can bound it: no particle
+    /// outlives the longest `life` ever uploaded, so counting that value down by the same `dt` the
+    /// shader uses errs only in the safe direction — it can say "maybe alive" too long, never too
+    /// short. See [`has_live_particles`](Self::has_live_particles).
+    alive_for: f32,
+}
+
+/// Length of the run of consecutive ring slots starting at index `start`.
+///
+/// `collect_new_particles` advances **one shared cursor** by one per particle, so a frame's whole
+/// emission lands on consecutive slots and wraps at most once. Uploading run-by-run therefore
+/// costs at most two `queue.write_buffer` calls for the frame, where uploading particle-by-particle
+/// cost one per particle.
+///
+/// A wrap ends a run: the slot after `capacity - 1` is `0`, which is not `capacity`, so the
+/// comparison below splits there without needing to know the capacity.
+pub(crate) fn contiguous_run_len<T>(items: &[T], start: usize, slot: impl Fn(&T) -> u32) -> usize {
+    let mut end = start + 1;
+    while end < items.len() && slot(&items[end]) == slot(&items[end - 1]).wrapping_add(1) {
+        end += 1;
+    }
+    end - start
 }
 
 /// Builds the GPU-particle render pipeline for a given color-target `format`. Shared by
@@ -302,6 +331,8 @@ impl GpuParticleRenderer {
             camera_bind_group,
             particle_bind_group,
             frame_cursor: 0,
+            upload_scratch: Vec::new(),
+            alive_for: 0.0,
         }
     }
 
@@ -350,6 +381,46 @@ impl GpuParticleRenderer {
         {
             queue.write_buffer(&self.particle_buf, byte_offset, byte_data);
         }
+    }
+
+    /// Uploads a frame's freshly-spawned particles as `(ring slot, particle)` pairs — **one
+    /// `write_buffer` per contiguous run** rather than one per particle.
+    ///
+    /// The pairs come out of `collect_new_particles` in cursor order, which makes their slots
+    /// consecutive with at most one wrap, so a frame's emission is at most two range writes no
+    /// matter how many particles it spawned. Also records the longest lifetime uploaded, which is
+    /// what [`has_live_particles`](Self::has_live_particles) counts down.
+    pub fn upload_new_particles(&mut self, queue: &wgpu::Queue, new: &[(u32, GpuParticle)]) {
+        // `take` so the scratch can be filled and read while `&self` methods run against it.
+        let mut scratch = std::mem::take(&mut self.upload_scratch);
+        let mut i = 0;
+        while i < new.len() {
+            let len = contiguous_run_len(new, i, |(slot, _)| *slot);
+            scratch.clear();
+            scratch.extend(new[i..i + len].iter().map(|(_, p)| *p));
+            self.upload_particles(queue, &scratch, new[i].0);
+            i += len;
+        }
+        self.upload_scratch = scratch;
+
+        let longest = new.iter().map(|(_, p)| p.life).fold(0.0_f32, f32::max);
+        if longest > self.alive_for {
+            self.alive_for = longest;
+        }
+    }
+
+    /// Whether a particle spawned earlier may still be alive — a conservative bound, never a
+    /// false "no". Used to keep simulating and drawing after the last emitter despawned, and to
+    /// stop once the buffer can only hold dead particles.
+    pub fn has_live_particles(&self) -> bool {
+        self.alive_for > 0.0
+    }
+
+    /// Advances the liveness bound by one frame. Call with the **same `dt` passed to
+    /// [`dispatch_compute`](Self::dispatch_compute)**, immediately after it, so the CPU-side bound
+    /// and the shader's own `life -= dt` stay in lockstep.
+    pub fn advance_lifetimes(&mut self, dt: f32) {
+        self.alive_for = (self.alive_for - dt).max(0.0);
     }
 
     /// Updates particle positions and lifetimes via the compute shader.
@@ -452,5 +523,48 @@ mod tests {
     #[test]
     fn gpu_particle_size_is_stable() {
         assert_eq!(std::mem::size_of::<GpuParticle>(), 80);
+    }
+
+    /// How many `write_buffer` calls a frame's emission costs — the run count.
+    fn runs(slots: &[u32]) -> Vec<(u32, usize)> {
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < slots.len() {
+            let len = contiguous_run_len(slots, i, |s| *s);
+            out.push((slots[i], len));
+            i += len;
+        }
+        out
+    }
+
+    /// A frame's emission occupies consecutive ring slots, so it uploads as **one** range write —
+    /// not one per particle, which is what the render stage used to do.
+    #[test]
+    fn a_whole_emission_uploads_as_one_run() {
+        assert_eq!(runs(&[10, 11, 12, 13, 14]), vec![(10, 5)]);
+    }
+
+    /// Wrapping the ring splits it into exactly two — still not one per particle. Slot
+    /// `capacity - 1` is followed by `0`, and `0 != capacity`, so the split needs no capacity
+    /// argument to find.
+    #[test]
+    fn a_wrap_splits_the_emission_into_two_runs() {
+        // capacity 16: … 14, 15, then wrap to 0, 1
+        assert_eq!(runs(&[14, 15, 0, 1]), vec![(14, 2), (0, 2)]);
+    }
+
+    /// Degenerate inputs: nothing to upload, and a single particle.
+    #[test]
+    fn empty_and_single_emissions_are_handled() {
+        assert_eq!(runs(&[]), vec![]);
+        assert_eq!(runs(&[7]), vec![(7, 1)]);
+    }
+
+    /// Control: the run-splitting is real, not a function that always returns one run. Slots that
+    /// genuinely are not consecutive must not be merged into a single write — doing so would
+    /// overwrite the particles in between.
+    #[test]
+    fn non_consecutive_slots_are_never_merged() {
+        assert_eq!(runs(&[3, 9, 10, 40]), vec![(3, 1), (9, 2), (40, 1)]);
     }
 }
