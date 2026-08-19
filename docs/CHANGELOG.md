@@ -4,6 +4,60 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.153.1
+
+**A non-finite debug-draw coordinate hung the frame.** `debug_shape_to_draw_rects` fills a
+non-axis-aligned segment with `thickness x thickness` dots, and `DrawRect` has no rotation, so the
+step count comes from `(len / thickness).ceil() as usize`. Rust's float-to-int casts **saturate**:
+an infinite `len` becomes `usize::MAX`, and `for i in 0..=steps` turned into a 2^64-iteration loop
+pushing a `DrawRect` into `UiQueue` each time — a hang inside `render()`, with the queue growing
+until the process died. `DebugDraw::line` / `circle` / `cross` are public and take any `f32`, so a
+coordinate that came out of a divide in game code reached it from ordinary play. Same shape as the
+NaN `interleave_runs` hang fixed in 0.152.9, one module over, and the row that named it in
+`docs/NEXT_WORK.md` is now closed.
+
+Measured against the unfixed arithmetic at the default 1.5 thickness — a standalone copy of the
+loop that counts instead of pushing, capped at 20M iterations:
+
+| Segment | `steps` | Outcome |
+|---|---|---|
+| diagonal 300 px (control) | 283 | terminated |
+| infinite endpoint | 18446744073709551615 | hit the cap |
+| finite `1e18` endpoint | 942809024426934272 | hit the cap |
+| finite `3e19` endpoint (`length()` overflows) | 18446744073709551615 | hit the cap |
+| NaN endpoint | 0 | terminated, **one quad at NaN coordinates** |
+
+⚠️ **Two findings, not one, and the row only named the first.** A NaN does *not* hang — the same
+cast sends it to `0`, so the fill emitted a single garbage quad into `UiQueue` instead. And a
+**finite** `len` is not safe either: `1e18` asks for 9.4e17 iterations without saturating anything,
+which is unbounded in every practical sense, while a thinner line saturates outright (`len / 0.5`
+passes `usize::MAX` while `len` is still finite). So the fix is two guards, each load-bearing for a
+case the other misses:
+
+- `len` must be finite — checked on the **length**, not on the endpoints. Two finite endpoints far
+  enough apart overflow `length()` on their own, since it squares them (`3e19`), and
+  `MAX - (-MAX)` overflows in the subtraction before that. A segment with no finite extent has
+  nothing to draw, so it now draws nothing. This also removes a second wrong output: an
+  axis-aligned infinity skipped the fill entirely and drew one quad of *infinite width*.
+- the step count is capped at `MAX_LINE_STEPS` (4096), which makes termination a property of the
+  loop rather than of its input. Past 4096 quads a debug overlay is unreadable regardless, so an
+  enormous segment's dots space out instead of the frame dying.
+
+Well-formed input is unchanged: the eleven existing tests are untouched and green, including the
+0.151.1 axis-aligned collapse and the 283-step diagonal control that sits three orders of magnitude
+below the cap. Six tests added, for 17.
+
+⚠️ Sabotage-checked only through the paths that fail *bounded* — the others hang by construction,
+which is the bug. Dropping the finiteness guard was verified against the axis-aligned infinity
+(collapse branch: one infinite-width quad, no loop) and it failed red; the cap was verified by
+shrinking it to 64, which broke the diagonal control that must step 283 times. Both reverted
+byte-identical (sha256). The pair that would prove the hang itself cannot be run in-suite: they do
+not fail, they consume the machine.
+
+No GPU and no example needed — `debug_shape_to_draw_rects` is a pure function over `DebugShape`, so
+this is fully covered in-crate. `cargo test` and the full `./scripts/verify.sh` gate are the whole
+of the evidence; nothing here rests on the `render` job.
+
 ## 0.153.0
 
 **The `examples/` tree is deleted — 22 playable games and ~85 feature demos, 247 files.** Requested
