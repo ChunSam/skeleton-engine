@@ -71,8 +71,8 @@ grep -E 'running [0-9]+ tests' /tmp/v.log | head -1
 `ok`-group and lib-test counts for the tree, and a count that moved when your change should not
 have moved it is worth a look even when the exit code is `0`. ⚠️ The old reference figures
 (152 groups / 1339 lib tests at v0.138.0) are void — most of those groups were example targets,
-deleted on 2026-08-19. The post-deletion baseline, measured on a green run at v0.152.8, is
-**11 `ok` groups / 1432 lib tests**.
+deleted on 2026-08-19. The post-deletion baseline, measured on a green run at v0.153.0, is
+**11 `ok` groups / 1443 lib tests**.
 
 ### Trap 5 — a stale `.exit` file from a previous session
 

@@ -11,7 +11,7 @@ by the maintainer, to rebuild a smaller set of feature-test games from scratch. 
 removal of the engine's entire acceptance layer, not a cleanup, and the honest summary is that
 **a green gate now proves substantially less than it did at 0.152.8**.
 
-The engine library is untouched: no `src/` behaviour changed, and `cargo test` still runs 1,432 lib
+The engine library is untouched: no `src/` behaviour changed, and `cargo test` still runs 1,443 lib
 tests across 11 groups (it ran 152 groups before — the missing 141 were example targets, not lost
 coverage of `src/`).
 
