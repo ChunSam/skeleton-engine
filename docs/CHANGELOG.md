@@ -4,6 +4,37 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.153.3
+
+**The docked transition overlay used the surface aspect.** `TransitionRenderer::update` was handed
+`gpu.config.width / height` while `run_pass` targets `scene_target` — which in docked mode is the
+offscreen game-viewport texture, not the surface. The round `IrisIn` / `IrisOut` masks were
+therefore corrected for the wrong shape and rendered **elliptical while docked**. Only the iris
+styles carry an aspect at all; fade and wipe are axis-aligned and looked fine either way, which is
+why it went unnoticed.
+
+The correct value was already in the same function, 340 lines up: the size used for the text passes,
+which target `scene_target` for exactly the same reason. It is now named for what it is —
+`scene_target_w` / `scene_target_h` instead of `text_w` / `text_h` — with a comment saying that any
+pass rendering *into* `scene_target` must use it rather than `gpu.config`, since `gpu.config`
+describes the surface even when nothing is targeting the surface.
+
+⚠️ **Not verified on a screen, and no test covers it.** The bug is only observable when the docked
+RT's aspect differs from the surface's, so it needs a docked capture with that difference asserted
+as a control — otherwise the check passes vacuously, which is the failure mode
+`docs/VERIFICATION.md` § *A skip is not a pass* exists for. That capture is scoped into the
+examples-rebuild plan's `rpg_quest_game` phase; the fix ships first because that phase has no date.
+
+The generalisable half is in `docs/PATTERNS.md` § *The target's size is not `gpu.config` either*:
+the value was correct and in scope for two releases, but named `text_w` / `text_h` after the first
+pass that needed it, so the second pass could not see it and re-derived it wrongly. **A value named
+for its first caller is a value the second caller will re-derive.**
+
+**Also: the `docs/VERIFICATION.md` lib-test baseline had the wrong attribution.** It read 1443 →
+1461 as one jump belonging to v0.153.2. The real trail is 1443 (v0.153.0) → **1449 (v0.153.1** —
+#482 added 6 and did not update the line**)** → 1461 (v0.153.2, +12). Corrected, with a note that
+the group count is for an examples-free tree and moves with the first rebuilt game.
+
 ## 0.153.2
 
 **Eight items off the 2026-08-19 render review — the ones a read or a measurement could settle.**

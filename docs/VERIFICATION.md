@@ -71,7 +71,7 @@ grep -E 'running [0-9]+ tests' /tmp/v.log | head -1
 `ok`-group and lib-test counts for the tree, and a count that moved when your change should not
 have moved it is worth a look even when the exit code is `0`. ⚠️ The old reference figures
 (152 groups / 1339 lib tests at v0.138.0) are void — most of those groups were example targets,
-deleted on 2026-08-19. The post-deletion baseline, measured on a green run at v0.153.2, is
+deleted on 2026-08-19. The post-deletion baseline, measured on a green run at v0.153.3, is
 **12 `ok` groups / 1461 lib tests**. The trail, since two releases moved it without saying so:
 1443 at v0.153.0 → **1449 at v0.153.1** (#482 added 6 and did not update this line) → 1461 at
 v0.153.2 (+12). The 12th group is `examples/platformer_game`: an example target adds one `ok` group

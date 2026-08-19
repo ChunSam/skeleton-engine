@@ -381,10 +381,13 @@ impl App {
             .resource_mut::<crate::renderer::TextQueue>()
             .map(|q| q.take_layered())
             .unwrap_or_default();
-        // Physical pixel size of the text viewport — the docked offscreen texture in docked
-        // mode, else the surface size. Shared by the layered batches here and step 4.7.
+        // Physical pixel size of `scene_target` — the docked offscreen texture in docked mode,
+        // else the surface. Every pass that *renders into* `scene_target` and needs its
+        // dimensions must use this and not `gpu.config`, which describes the surface even when
+        // the pass is not targeting it: the layered text batches here, the HUD text at step 4.7,
+        // and the transition overlay at step 5.
         #[cfg(not(target_arch = "wasm32"))]
-        let (text_w, text_h) = if is_docked_with_rt {
+        let (scene_target_w, scene_target_h) = if is_docked_with_rt {
             self.render
                 .docked_scene_texture
                 .as_ref()
@@ -394,7 +397,7 @@ impl App {
             (gpu.config.width, gpu.config.height)
         };
         #[cfg(target_arch = "wasm32")]
-        let (text_w, text_h) = (gpu.config.width, gpu.config.height);
+        let (scene_target_w, scene_target_h) = (gpu.config.width, gpu.config.height);
         if !ui_rects.is_empty() || !ui_images.is_empty() || !layered_texts.is_empty() {
             if let Some(sr) = &mut self.render.sprite_renderer {
                 // The UI-primitive pass picks a pipeline matching `scene_format`, so it renders
@@ -472,8 +475,8 @@ impl App {
                                     render_view,
                                     scene_format,
                                     batch,
-                                    text_w,
-                                    text_h,
+                                    scene_target_w,
+                                    scene_target_h,
                                     text_scale,
                                     text_lb,
                                 );
@@ -668,7 +671,7 @@ impl App {
         // Step 4.7: HUD/text pass — the remaining (z-None, always-on-top) texts, drawn onto
         // scene_target after post and lighting. In normal mode scene_target == final_view; in
         // docked mode it's the offscreen texture so text renders into the game viewport (not
-        // over the editor chrome). `text_w`/`text_h` were computed with the layered batches at
+        // over the editor chrome). `scene_target_w`/`_h` were computed with the layered batches at
         // step 2.7 (docked offscreen size in docked mode, else the surface size).
         if let Some(tr) = &mut self.render.text_renderer {
             tr.render(
@@ -677,8 +680,8 @@ impl App {
                 &mut enc,
                 scene_target,
                 &mut self.world,
-                text_w,
-                text_h,
+                scene_target_w,
+                scene_target_h,
             );
             // One per-frame text cleanup after the LAST batch: shaped-cache eviction, atlas
             // trims, pooled-renderer reset, generation bump.
@@ -723,7 +726,13 @@ impl App {
                     .resource::<crate::scene_transition::SceneTransition>(),
             ) {
                 if t.coverage > 0.001 {
-                    let aspect = gpu.config.width as f32 / gpu.config.height.max(1) as f32;
+                    // ⚠️ The aspect must be `scene_target`'s, not the surface's — `run_pass` below
+                    // targets `scene_target`, which in docked mode is the offscreen game-viewport
+                    // texture. Until v0.153.3 this read `gpu.config`, so while docked the round
+                    // `IrisIn`/`IrisOut` masks were corrected for the wrong shape and rendered
+                    // elliptical. Only the iris styles carry an aspect at all; fade and wipe are
+                    // axis-aligned and looked fine, which is why it went unnoticed.
+                    let aspect = scene_target_w as f32 / scene_target_h.max(1) as f32;
                     let c = t.color;
                     tr.update(
                         &gpu.queue,
