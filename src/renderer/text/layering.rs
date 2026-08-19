@@ -24,6 +24,14 @@ pub(crate) struct Run {
 ///
 /// The run counts consume both lists exactly once: `sum(surfaces) == surface_zs.len()` and
 /// `sum(texts) == text_zs.len()`.
+///
+/// ⚠️ **Every iteration consumes at least one text**, even when the z comparisons say otherwise.
+/// A NaN compares false against everything, so a single non-finite z on *either* side left both
+/// `partition_point`s at 0 and this loop pushed `Run { surfaces: 0, texts: 0 }` forever — a hang
+/// inside the render loop, with `runs` growing until the process died. A NaN has no meaningful
+/// place in a z order, so it is drawn in a batch of its own rather than dropped; the `.max(t + 1)`
+/// below is what guarantees that. It also bounds the damage if a caller ever violates the sorted
+/// precondition, since `partition_point` on unsorted input can return 0 just as easily.
 pub(crate) fn interleave_runs(surface_zs: &[f32], text_zs: &[f32]) -> Vec<Run> {
     let mut runs = Vec::new();
     let mut s = 0; // next surface not yet drawn
@@ -32,9 +40,10 @@ pub(crate) fn interleave_runs(surface_zs: &[f32], text_zs: &[f32]) -> Vec<Run> {
         let tz = text_zs[t];
         // Surfaces that must precede this text: z <= tz.
         let s2 = surface_zs[s..].partition_point(|&z| z <= tz) + s;
-        // Texts in this batch: everything below the next (strictly higher) surface.
+        // Texts in this batch: everything below the next (strictly higher) surface — but never
+        // fewer than one, so `t` always advances and the loop always terminates (see the ⚠️ above).
         let t2 = match surface_zs.get(s2) {
-            Some(&next_sz) => text_zs[t..].partition_point(|&z| z < next_sz) + t,
+            Some(&next_sz) => (text_zs[t..].partition_point(|&z| z < next_sz) + t).max(t + 1),
             None => text_zs.len(),
         };
         runs.push(Run {
@@ -149,6 +158,64 @@ mod tests {
                 Run {
                     surfaces: 1,
                     texts: 3
+                },
+                Run {
+                    surfaces: 1,
+                    texts: 0
+                },
+            ]
+        );
+    }
+
+    // --- non-finite z: the loop must still terminate -----------------------------------
+    //
+    // These call `interleave_runs` directly, so before the `.max(t + 1)` fix they did not fail —
+    // they hung, and the growing `runs` Vec took the process with them. That is also exactly what
+    // happened inside the render loop, which is why the guard is on the function rather than on
+    // its callers: `DrawText::with_z` / `DrawRect::with_z` are public and take any `f32`.
+
+    #[test]
+    fn a_non_finite_text_z_terminates() {
+        // One UI rect and one text whose z came out non-finite (a divide in game code).
+        let runs = interleave_runs(&[10.0], &[f32::NAN]);
+        assert_eq!(totals(&runs), (1, 1), "both lists must still be consumed");
+        assert!(
+            runs.iter().all(|r| r.surfaces > 0 || r.texts > 0),
+            "an empty run means the loop failed to advance: {runs:?}"
+        );
+    }
+
+    #[test]
+    fn a_non_finite_surface_z_terminates() {
+        // Same hang from the other side: a `DrawRect::with_z(NAN)`.
+        let runs = interleave_runs(&[f32::NAN], &[1.0]);
+        assert_eq!(totals(&runs), (1, 1));
+        assert!(
+            runs.iter().all(|r| r.surfaces > 0 || r.texts > 0),
+            "{runs:?}"
+        );
+    }
+
+    #[test]
+    fn non_finite_z_mixed_with_real_ones_consumes_everything() {
+        // A NaN in the middle of an otherwise ordinary frame must not swallow or duplicate its
+        // neighbours — every surface and every text is still drawn exactly once.
+        let surface_zs = [0.0, 0.5, f32::NAN, 90.0];
+        let text_zs = [0.0, f32::NAN, 1.0, 90.0];
+        let runs = interleave_runs(&surface_zs, &text_zs);
+        assert_eq!(totals(&runs), (surface_zs.len(), text_zs.len()));
+    }
+
+    #[test]
+    fn infinities_are_ordered_normally() {
+        // ±inf compares like any other float (unlike NaN), so it needs no special handling —
+        // pinned so the NaN guard above is not mistaken for an "any non-finite" workaround.
+        assert_eq!(
+            interleave_runs(&[f32::NEG_INFINITY, f32::INFINITY], &[0.0]),
+            vec![
+                Run {
+                    surfaces: 1,
+                    texts: 1
                 },
                 Run {
                     surfaces: 1,
