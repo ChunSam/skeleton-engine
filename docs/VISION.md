@@ -52,6 +52,15 @@ set of **small playable example games**, one per genre/feature area, living in `
 > **no feature in this engine meets the acceptance bar the principles below state**, and saying so
 > is more useful than quietly lowering the bar. Past games are in git history and
 > `docs/PROGRAM_HISTORY.md` records what each covered.
+>
+> **The rebuild covers all five genres with four genre-games, not five** — decided 2026-08-19,
+> recorded here so the list above does not read as an unclosed gap. `survivor_game` carries
+> *both* shooter and top-down action: the two exist to put the engine under **count** pressure
+> (pool churn, spatial-grid rebuilds, steering for ~200 agents, the 16-light cap), and that is one
+> world, not two. So the mapping that changes is *one game per genre*, not the genre list itself —
+> nothing named above is dropped. The full proposal, its four settled decisions and its phasing are
+> in `plans/2026-08-19-examples-rebuild-plan.md`; splitting the two back apart is a later edit
+> there, not a redesign.
 
 ### Operating principles
 

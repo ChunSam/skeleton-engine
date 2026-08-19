@@ -142,7 +142,10 @@ went, its comment stayed in `scripts/selftests.sh`.
 v0.153.0 did it again, in this very file. Deleting the examples tree swept every reference to
 `scripts/selftests.sh` — but **`SKELETON_REQUIRE_AUDIO`, the flag that script alone read**, survived
 in two live paragraphs describing it as an available tool. A file-name grep cannot find the names a
-deleted file *owned*. Enumerate those separately: env vars, flags, and coined terms.
+deleted file *owned*. Enumerate those separately: env vars, flags, and coined terms. (Restoring the
+script on 2026-08-19 made those paragraphs true again, which does not retire the lesson — it ran
+the other way that day, and every paragraph asserting the flag was *dead* had to be found the same
+way, by its name rather than its file.)
 
 Verifying a removal means searching the **repo** for the idea in every phrasing it might wear, not
 re-reading the file you happened to have open. The file you were editing is the one place you have
@@ -169,14 +172,15 @@ stayed green. `embedded_image` was unbuildable for `wasm32` from the day it was 
 the native-only `save_screenshot_headless` unconditionally) until v0.135.1 — and nothing *ran* it
 on the web until v0.143.4 gave it a browser harness and a render smoke. That hole is open again.
 
-### A skip is not a pass — `scripts/selftests.sh` **[gone]**
+### A skip is not a pass — `scripts/selftests.sh` **[rebuilt 2026-08-19]**
 
 The `<NAME>_SELFTEST` acceptance tests were the only defense against a headline feature degrading
 gracefully into silence. Each was proven non-vacuous by sabotage when written — and until v0.143.8
 **nothing ran them again**: neither CI nor `verify.sh` contained the string `SELFTEST`. From
 v0.143.8 they ran in both, via `scripts/selftests.sh`. All of it went with the examples on
-2026-08-19; there is no acceptance layer at present. **Read this section before writing the first
-replacement**, because the runner's shape was not incidental:
+2026-08-19. The **runner** returned the same day as phase 0 of the rebuild, carrying every rule
+below; the **tests** have not — there are no games, so it currently enforces an empty set. **Read
+this section before writing the first one**, because the runner's shape was not incidental:
 
 The reason it was a script rather than a list of `cargo run` lines is that **every one of these
 tests opts out with exit 0** when its environment cannot support a check, so the exit code alone
@@ -191,9 +195,13 @@ cannot distinguish "passed" from "ran nothing":
   naive CI step would drop exactly the checks that cover the most, and report success. This was
   measured, not assumed: with `predict_shooter_server` hidden, the raw exit code is **0**.
 
-So the script builds `--examples` first, then greps each run's output and fails on any non-audio
-skip. Same principle as the render job's `SKELETON_REQUIRE_GPU=1`: an environment opt-out must
-never read as a green pass.
+So the script builds the selftest targets and their sibling servers — the old one built
+`--examples`, which was the native job's largest single cost — then greps each run's output and
+fails on any non-audio skip. Same principle as the render job's `SKELETON_REQUIRE_GPU=1`: an
+environment opt-out must never read as a green pass. The rebuild adds two rules the old runner had
+no way to enforce, because it arrived after its games rather than before them: **every
+`examples/<name>/<name>.rs` must carry a selftest** (the exemption that left 11 of 22 unverified),
+and **a run that exits 0 having printed no `ok:` or `SKIP:` verdict fails as vacuous**.
 
 **The subtler version, one level in: a skip condition the failure itself can forge.** The runner
 above polices skips it can *see*. It cannot police a check that decides to skip for the wrong
@@ -294,10 +302,11 @@ tap publishes and then goes stale in the gaps. Checks that sample over *seconds*
 sub-second deadlines land in the gaps. Those deadlines are calibrated against real hardware and
 loosening them would discard the guarantee they exist to make, so they were left alone.
 
-**So every audio claim still rests on a local device**, and as of v0.153.0 there is no longer a
-tool for making that local run prove itself: `SKELETON_REQUIRE_AUDIO=1` was read by
-`scripts/selftests.sh` alone, and both went with the examples tree. **The flag is dead** — 0 hits
-in `src/` and `scripts/` — so a rebuilt runner has to re-create it rather than assume it. Anything
+**So every audio claim still rests on a local device**, and the tool for making that local run
+prove itself is back: `SKELETON_REQUIRE_AUDIO=1` turns a tolerated audio skip into a failure, and
+the rebuilt `scripts/selftests.sh` reads it again as of 2026-08-19. It was dead between v0.153.0
+deleting that script and phase 0 restoring it — the flag has never lived anywhere else, so it dies
+with that one file every time. Anything
 that would change the CI answer — a runner image with a real or dummy ALSA card, or a different
 sink whose delivery is continuous — is new information.
 
