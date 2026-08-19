@@ -1,14 +1,25 @@
 use glyphon::Buffer;
 
-use super::queue::{TextAlign, TextAnchor};
+use super::queue::TextAlign;
 
 /// Cache key for a plain (non-rich) shaped text buffer.
 ///
-/// All layout-affecting inputs are included. `f32` fields are stored as their
-/// bit patterns so the key is `Eq + Hash` without precision issues — two
-/// DrawTexts that are bit-identical will always share a buffer, and any field
-/// that changes (e.g. size, position used for buffer-width computation) produces
-/// a different key and a cache miss.
+/// **This key is [`ShapeSpec`](super::renderer::ShapeSpec), field for field.** That is the whole
+/// design rule, and it is what makes the cache both correct and useful: `shape_text` is a pure
+/// function of a `ShapeSpec` and the (fixed) `FontSystem`, so two draws with equal specs *must*
+/// shape identically, and two draws with different specs *may* not. Anything that is not a
+/// `ShapeSpec` field does not belong here — if it mattered to shaping it would be one.
+///
+/// `f32` fields are stored as bit patterns so the key is `Eq + Hash` without precision issues.
+///
+/// ⚠️ **The layout `width`/`height` are the computed values, not the inputs they came from.**
+/// A `DrawText`'s `position`, the viewport size, its `bounds` and its `anchor` reach shaping
+/// **only** through `layout_buffer_width`/`_height`, and those two functions ignore `position`
+/// entirely whenever `bounds` is set *or* the anchor is `Center` (their own tests
+/// `explicit_bounds_override_anchor` and `centered_no_bounds_uses_full_viewport_width` say so).
+/// Keying on `position` therefore missed on every frame a centered text *moved* while shaping the
+/// byte-identical buffer again — i.e. every `FloatingText`, which is the exact workload the cache
+/// was built for. Keying on the computed pair fixes that and subsumes all four inputs.
 ///
 /// Rich text is NOT cached here (span attrs are hard to hash; see
 /// `TextRenderer::shaped_buffer_cache`).
@@ -17,21 +28,22 @@ pub(super) struct PlainTextCacheKey {
     pub(super) text: String,
     /// Font size in pixels × scale_factor, as f32 bits.
     pub(super) scaled_size_bits: u32,
-    /// Scaled bounds, if set. `None` = no explicit bounds (buffer size derived from viewport).
-    pub(super) bounds_w_bits: Option<u32>, // None or Some(f32::to_bits())
-    pub(super) bounds_h_bits: Option<u32>,
-    /// Viewport dimensions (affect buffer size when no explicit bounds).
-    pub(super) viewport_w: u32,
-    pub(super) viewport_h: u32,
-    /// Position (affects buffer width/height for TopLeft anchor).
-    pub(super) position_x_bits: u32,
-    pub(super) position_y_bits: u32,
-    /// Whether the DrawText is in single-line mode (affects Wrap). The caret *byte offset* is
-    /// deliberately NOT part of the key: scroll is always recomputed from the shaped buffer after
-    /// a cache hit (via `caret_x`), so two carets over identical text safely share one buffer.
-    pub(super) is_single_line: bool,
+    /// Computed layout-buffer width, as f32 bits. `None` = unlimited (single-line, no wrap).
+    pub(super) layout_w_bits: Option<u32>,
+    /// Computed layout-buffer height, as f32 bits. `None` = unlimited.
+    pub(super) layout_h_bits: Option<u32>,
+    /// `Wrap::None` rather than `Wrap::WordOrGlyph` — the single-line (TextInput) path.
+    ///
+    /// Redundant with `layout_w_bits.is_none()` today, since the caller derives both from the same
+    /// `single_line`. It is kept explicit because it is a distinct `ShapeSpec` field: a future
+    /// unlimited-width *wrapping* spec would make them disagree, and the key must follow
+    /// `ShapeSpec`, not the current caller.
+    ///
+    /// The caret *byte offset* is deliberately NOT part of the key: scroll is always recomputed
+    /// from the shaped buffer after a cache hit (via `caret_x`), so two carets over identical text
+    /// safely share one buffer.
+    pub(super) no_wrap: bool,
     pub(super) align: TextAlign,
-    pub(super) anchor: TextAnchor,
 }
 
 pub(super) struct CachedBuffer {

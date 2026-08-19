@@ -492,19 +492,36 @@ impl App {
                 .query::<crate::gpu_particle::GpuParticleEmitter>()
                 .next()
                 .is_some();
+            // Capacity is tunable via an optional GpuParticleConfig resource (default 4096).
+            let want_capacity = self
+                .world
+                .resource::<crate::gpu_particle::GpuParticleConfig>()
+                .copied()
+                .unwrap_or_default()
+                .capacity;
+            // A capacity change now takes effect. The buffer length, the compute dispatch size and
+            // the vertex count are all baked in at construction, so honouring a new capacity means
+            // rebuilding — dropping the renderer here and letting the branch below recreate it.
+            // Until v0.153.2 the resource was read *only* when the renderer was first created, so
+            // a game that raised the cap after its first emitter appeared stayed silently pinned
+            // to the old one for the rest of the process.
+            //
+            // ⚠️ The rebuild discards particles already in flight. That is the cost of the change
+            // taking effect at all; a capacity change is a deliberate, rare config edit.
+            if self
+                .render
+                .gpu_particle_renderer
+                .as_ref()
+                .is_some_and(|gpr| gpr.capacity() != want_capacity)
+            {
+                self.render.gpu_particle_renderer = None;
+            }
             if has_emitters && self.render.gpu_particle_renderer.is_none() {
-                // Capacity is tunable via an optional GpuParticleConfig resource (default 4096).
-                let capacity = self
-                    .world
-                    .resource::<crate::gpu_particle::GpuParticleConfig>()
-                    .copied()
-                    .unwrap_or_default()
-                    .capacity;
                 self.render.gpu_particle_renderer =
                     Some(crate::renderer::gpu_particle::GpuParticleRenderer::new(
                         &gpu.device,
                         gpu.config.format,
-                        capacity,
+                        want_capacity,
                     ));
             }
             if let Some(gpr) = self.render.gpu_particle_renderer.as_mut() {
@@ -530,20 +547,38 @@ impl App {
                     &mut frame_cursor,
                 );
                 gpr.set_frame_cursor(frame_cursor);
-                for (slot, p) in &new_particles {
-                    gpr.upload_particles(&gpu.queue, std::slice::from_ref(p), *slot);
+                // One write_buffer per contiguous ring run, not one per particle: the shared
+                // cursor above hands out consecutive slots, so a frame's emission is at most two
+                // range writes however many particles it spawned.
+                gpr.upload_new_particles(&gpu.queue, &new_particles);
+
+                // Simulate and draw while there is anything to simulate. The renderer itself is
+                // deliberately KEPT once built — its pipelines and buffer are a cache, and
+                // rebuilding them every time a game's emitters blink off would trade a per-frame
+                // cost for a shader recompile — but an idle renderer must not keep paying for a
+                // `capacity/64` compute dispatch and a `capacity * 6` vertex draw every frame for
+                // the rest of the process. At the default capacity that was 64 workgroups and
+                // 24,576 vertices with no emitters and no live particles, forever.
+                //
+                // ⚠️ NOT gated on `has_emitters` alone: the frame after the last emitter despawns,
+                // particles it spawned earlier are still alive and must keep moving and drawing.
+                // That is what `has_live_particles` bounds.
+                if has_emitters || gpr.has_live_particles() {
+                    gpr.dispatch_compute(&mut enc, &gpu.queue, self.last_dt);
+                    // Same dt as the dispatch, immediately after it: the shader decrements each
+                    // particle's `life` by exactly this much, so the CPU-side bound tracks it.
+                    gpr.advance_lifetimes(self.last_dt);
+                    gpr.render(
+                        &gpu.queue,
+                        render_view,
+                        &mut enc,
+                        &self.world,
+                        logical_w,
+                        logical_h,
+                        scene_format,
+                        clip_scale,
+                    );
                 }
-                gpr.dispatch_compute(&mut enc, &gpu.queue, self.last_dt);
-                gpr.render(
-                    &gpu.queue,
-                    render_view,
-                    &mut enc,
-                    &self.world,
-                    logical_w,
-                    logical_h,
-                    scene_format,
-                    clip_scale,
-                );
             }
         }
 

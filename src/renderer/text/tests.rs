@@ -345,19 +345,65 @@ fn rich_text_parser_strips_supported_tags() {
 
 // ─── Shaped-buffer cache key tests ───────────────────────────────────────
 
-fn base_key() -> PlainTextCacheKey {
-    PlainTextCacheKey {
+/// The inputs `build_batch` has in hand when it builds a key.
+#[derive(Clone)]
+struct KeyInputs {
+    text: String,
+    size: f32,
+    anchor: TextAnchor,
+    bounds: Option<(f32, f32)>,
+    viewport: (f32, f32),
+    position: (f32, f32),
+    single_line: bool,
+    align: TextAlign,
+}
+
+/// A `DrawText` of `"hello"` at 24 px in an 800×600 viewport at position (10, 20),
+/// TopLeft-anchored with no bounds — i.e. a derived layout size of `(800-10, 600-20)`.
+fn base_inputs() -> KeyInputs {
+    KeyInputs {
         text: "hello".to_string(),
-        scaled_size_bits: 24.0_f32.to_bits(),
-        bounds_w_bits: None,
-        bounds_h_bits: None,
-        viewport_w: 800,
-        viewport_h: 600,
-        position_x_bits: 10.0_f32.to_bits(),
-        position_y_bits: 20.0_f32.to_bits(),
-        is_single_line: false,
-        align: TextAlign::Left,
+        size: 24.0,
         anchor: TextAnchor::TopLeft,
+        bounds: None,
+        viewport: (800.0, 600.0),
+        position: (10.0, 20.0),
+        single_line: false,
+        align: TextAlign::Left,
+    }
+}
+
+fn base_key() -> PlainTextCacheKey {
+    key_for(base_inputs())
+}
+
+/// Build a `PlainTextCacheKey` the way `build_batch` does: the layout size is **derived** through
+/// `layout_buffer_width`/`_height`, not stored as the anchor/bounds/viewport/position it came from.
+///
+/// The tests below go through this helper — and it calls the same two pure functions the renderer
+/// calls — so what they assert is the end-to-end hit/miss behaviour of a `DrawText`, not just
+/// struct field equality.
+fn key_for(i: KeyInputs) -> PlainTextCacheKey {
+    let (vw, vh) = i.viewport;
+    let (px, py) = i.position;
+    let layout_w = if i.single_line {
+        None
+    } else {
+        Some(layout_buffer_width(i.anchor, i.bounds.map(|b| b.0), vw, px))
+    };
+    let layout_h = Some(layout_buffer_height(
+        i.anchor,
+        i.bounds.map(|b| b.1),
+        vh,
+        py,
+    ));
+    PlainTextCacheKey {
+        text: i.text.clone(),
+        scaled_size_bits: i.size.to_bits(),
+        layout_w_bits: layout_w.map(f32::to_bits),
+        layout_h_bits: layout_h.map(f32::to_bits),
+        no_wrap: i.single_line,
+        align: i.align,
     }
 }
 
@@ -382,61 +428,160 @@ fn cache_key_miss_when_size_differs() {
     assert_ne!(k, base_key());
 }
 
+/// Setting bounds changes the layout size, so it still misses — via the derived width now.
 #[test]
-fn cache_key_miss_when_bounds_w_differs() {
-    let mut k = base_key();
-    k.bounds_w_bits = Some(200.0_f32.to_bits()); // None → Some(200.0)
-    assert_ne!(k, base_key());
+fn cache_key_miss_when_bounds_differ() {
+    let mut i = base_inputs();
+    i.bounds = Some((200.0, 100.0));
+    assert_ne!(key_for(i), base_key());
 }
 
+/// Unlimited width (single-line) must not collide with a zero-width layout buffer — the key uses
+/// `Option`, not a 0 sentinel.
 #[test]
-fn cache_key_miss_when_bounds_h_differs() {
-    let mut k = base_key();
-    k.bounds_h_bits = Some(100.0_f32.to_bits()); // None → Some(100.0)
-    assert_ne!(k, base_key());
+fn cache_key_unlimited_width_differs_from_zero_width() {
+    let unlimited = {
+        let mut i = base_inputs();
+        i.single_line = true;
+        key_for(i)
+    };
+    let zero = {
+        let mut i = base_inputs();
+        i.bounds = Some((0.0, 100.0));
+        key_for(i)
+    };
+    assert_ne!(
+        unlimited.layout_w_bits, zero.layout_w_bits,
+        "None (unlimited) must not equal Some(0.0)"
+    );
+    assert_ne!(unlimited, zero);
 }
 
-/// Bounds of 0.0 must not collide with "no bounds" — uses Option, not a 0 sentinel.
+/// A viewport resize still misses when it changes the derived layout size…
 #[test]
-fn cache_key_zero_bounds_differs_from_no_bounds() {
-    let mut k = base_key();
-    k.bounds_w_bits = Some(0.0_f32.to_bits()); // Some(0.0), distinct from None
-    assert_ne!(k, base_key(), "Some(0.0) bounds must not equal None bounds");
+fn cache_key_miss_when_a_resize_changes_the_layout_size() {
+    let mut i = base_inputs();
+    i.viewport = (1280.0, 600.0);
+    assert_ne!(key_for(i), base_key());
 }
 
+/// …but not when explicit bounds pin the layout size, because then the viewport never reaches
+/// shaping at all. The old key stored the viewport directly and re-shaped anyway.
 #[test]
-fn cache_key_miss_when_viewport_differs() {
-    let mut k = base_key();
-    k.viewport_w = 1280;
-    assert_ne!(k, base_key());
+fn cache_key_survives_a_resize_when_bounds_pin_the_layout_size() {
+    let bounded = |vw: f32, vh: f32| {
+        let mut i = base_inputs();
+        i.bounds = Some((200.0, 100.0));
+        i.viewport = (vw, vh);
+        key_for(i)
+    };
+    assert_eq!(
+        bounded(800.0, 600.0),
+        bounded(1280.0, 720.0),
+        "bounded text shapes into the same buffer regardless of viewport size"
+    );
 }
 
+/// **The reason this key changed.** A `DrawText::centered` — every `FloatingText` — lays out into
+/// the full viewport, so `layout_buffer_width`/`_height` ignore its position entirely. Moving it
+/// must therefore reuse one shaped buffer instead of re-shaping the identical string every frame,
+/// which is the exact workload the cache exists for.
 #[test]
-fn cache_key_miss_when_position_differs() {
-    let mut k = base_key();
-    k.position_x_bits = 50.0_f32.to_bits();
-    assert_ne!(k, base_key());
+fn a_moving_centered_text_keeps_one_shaped_buffer() {
+    let centered_at = |px: f32, py: f32| {
+        let mut i = base_inputs();
+        i.anchor = TextAnchor::Center;
+        i.position = (px, py);
+        key_for(i)
+    };
+    assert_eq!(
+        centered_at(400.0, 300.0),
+        centered_at(412.0, 288.5),
+        "a centered text that moved must hit the cache — its layout buffer did not change"
+    );
+
+    // Control: the property is *derived*, not blanket "position never matters". A TopLeft-anchored
+    // no-bounds draw sizes its buffer as `viewport - position`, so moving it genuinely re-shapes.
+    let top_left_at = |px: f32, py: f32| {
+        let mut i = base_inputs();
+        i.position = (px, py);
+        key_for(i)
+    };
+    assert_ne!(
+        top_left_at(10.0, 20.0),
+        top_left_at(50.0, 20.0),
+        "TopLeft text must still miss when moving — its layout width really did change"
+    );
+}
+
+/// The **premise** of the test above, checked against real shaping rather than assumed: a centered
+/// no-bounds text that moves produces a byte-identical glyph layout, so serving it from the cache
+/// cannot change a pixel. Shapes twice through the same path the renderer uses (CPU-only) and
+/// compares every glyph's position and advance.
+#[test]
+fn a_centered_text_shapes_identically_wherever_it_is() {
+    let glyphs = |px: f32, py: f32| {
+        let buf = shape_no_bounds(
+            "Critical hit!",
+            TextAlign::Center,
+            TextAnchor::Center,
+            24.0,
+            800.0,
+            600.0,
+            px,
+            py,
+        );
+        buf.layout_runs()
+            .flat_map(|r| {
+                r.glyphs
+                    .iter()
+                    .map(|g| (g.glyph_id, g.x.to_bits(), g.y.to_bits(), g.w.to_bits()))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>()
+    };
+    let a = glyphs(400.0, 300.0);
+    let b = glyphs(412.0, 288.5);
+    assert!(!a.is_empty(), "control: the test text must actually shape");
+    assert_eq!(
+        a, b,
+        "a centered text's shaped glyphs must not depend on where it is drawn"
+    );
+}
+
+/// The anchor itself is not in the key, and must not be: it only selects *how* the layout size is
+/// derived (already keyed) and then shifts where the shaped text is drawn, via an `anchor_offset`
+/// recomputed from the buffer after every cache hit. Two anchors that land on the same layout size
+/// shape the same buffer.
+#[test]
+fn cache_key_ignores_anchor_once_the_layout_size_matches() {
+    let centered = {
+        let mut i = base_inputs();
+        i.anchor = TextAnchor::Center;
+        i.position = (400.0, 300.0);
+        i
+    };
+    // TopLeft at position 0 derives the same full-viewport layout size as Center does anywhere.
+    let top_left_at_origin = {
+        let mut i = base_inputs();
+        i.position = (0.0, 0.0);
+        i
+    };
+    assert_eq!(key_for(centered), key_for(top_left_at_origin));
 }
 
 #[test]
 fn cache_key_miss_when_align_differs() {
-    let mut k = base_key();
-    k.align = TextAlign::Center;
-    assert_ne!(k, base_key());
-}
-
-#[test]
-fn cache_key_miss_when_anchor_differs() {
-    let mut k = base_key();
-    k.anchor = TextAnchor::Center;
-    assert_ne!(k, base_key());
+    let mut i = base_inputs();
+    i.align = TextAlign::Center;
+    assert_ne!(key_for(i), base_key());
 }
 
 #[test]
 fn cache_key_miss_when_single_line_differs() {
-    let mut k = base_key();
-    k.is_single_line = true;
-    assert_ne!(k, base_key());
+    let mut i = base_inputs();
+    i.single_line = true;
+    assert_ne!(key_for(i), base_key());
 }
 
 /// Eviction: entries with a generation older than the current frame's generation

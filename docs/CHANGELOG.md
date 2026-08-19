@@ -4,6 +4,102 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.153.2
+
+**Eight items off the 2026-08-19 render review — the ones a read or a measurement could settle.**
+Seven are numbered below; the eighth is the `RenderStats` scoping at the end. No GPU was required
+for any of them, which is how they were picked; the rows needing the `render` job, a docked
+screenshot or a windowed drag are still open in `docs/NEXT_WORK.md`.
+
+**1. Every untextured sprite allocated its own batching key, every frame.** The fallback for a
+`Sprite` with neither `image_handle` nor `texture` was `unwrap_or_else(|| Arc::from(""))`, which
+builds a fresh `Arc<str>` per sprite per frame. Measured with a counting allocator against a
+standalone copy of the expression:
+
+| | allocations | bytes requested | distinct pointers |
+|---|---|---|---|
+| before, 1000 untextured sprites | 1000 | 16,000 | 1000 |
+| after | 0 | 0 | 1 |
+| control: a real texture path | 0 | 0 | 1 |
+
+(The `NEXT_WORK` row said 32 KB; that is the allocator's bucket, not the requested size. 16 bytes
+per `Arc<str>` header × 1000 is what the layout actually asks for.) The key is now interned in a
+`OnceLock`. Sharing the pointer is invisible downstream: run-batching compares keys **by contents**
+(`texture_key.as_ref() == run_key`), never by address.
+
+**2. The shaped-text cache missed on every frame a centered text moved.** `PlainTextCacheKey`
+included `position`, but `layout_buffer_width`/`_height` ignore position entirely whenever `bounds`
+is set *or* the anchor is `Center` — so `DrawText::centered`, i.e. **every `FloatingText`**,
+re-shaped a byte-identical buffer every frame it moved. That is the exact workload the cache was
+built for.
+
+The key is now `ShapeSpec` field-for-field: text, size, the **computed** layout width/height, wrap
+and align. `shape_text` is a pure function of a `ShapeSpec` and the `FontSystem`, so that key is
+exactly right — and `position`, the viewport, `bounds` and `anchor` all drop out of it, because
+those four reach shaping *only* through the computed width/height. Two consequences beyond the
+headline: bounded text now survives a window resize in the cache, and two anchors that land on the
+same layout size share one shaping. Verified two ways — the key tests moved with the key, and a new
+test shapes "Critical hit!" at two positions with the real font and compares every glyph's id,
+position and advance.
+
+**3. Hiding a `ShaderMaterial` entity destroyed its GPU buffers and rebuilt them on unhide.**
+`render()` ends with `params_buffers.retain(|e, _| live.contains(e))`, and the live set was built
+from the *drawn* list, which excludes `Hidden`. The two comments sitting directly above that code
+already said hidden entities stay live and only despawn frees them; the code was the half that was
+wrong. Both sets now come from one pass over the query, split into a free function
+(`split_material_entities`) so a test can reach it — `SpriteRenderer` cannot be built without a GPU.
+Cost of the old behaviour: a params buffer + bind group destroyed and recreated per toggle of the
+editor's visibility checkbox.
+
+**4. A same-frame format + light-cap change lost the cap for one frame.** `setup_lighting`'s
+exclusive `match` arms meant a frame that switched to HDR *and* raised `LightingConfig::max_lights`
+took the format arm alone — and `reconfigure` rebuilds preserving the current cap. The next frame's
+cap arm fixed it: self-healing, one frame late. The three fix-ups are independent and are now
+applied as independent steps, decided by a pure `lighting_fixups` function (five tests, including
+the control that an unchanged frame rebuilds nothing). Order matters and needs no re-checking:
+`reconfigure` already rebuilds at the new size, `set_max_lights` preserves size and format, and
+`resize` early-returns when the size matches.
+
+**5. An idle GPU-particle renderer kept dispatching and drawing forever.** It is created on the
+first `GpuParticleEmitter` and nothing ever stops it, so a `capacity/64` compute dispatch and a
+`capacity * 6` vertex draw ran every frame for the rest of the process — 64 workgroups and 24,576
+vertices at the default capacity, with no emitters and no live particles. The pass now runs only
+while there is something to simulate. The renderer itself is deliberately **kept**: its pipelines
+and buffer are a cache, and tearing it down would trade a per-frame cost for a shader recompile
+every time a game's emitters blink off.
+
+⚠️ The gate is *not* `has_emitters` — the frame after the last emitter despawns, particles it
+spawned are still alive and must keep moving. Liveness is bounded CPU-side: particles die on the
+GPU, but none outlives the longest `life` ever uploaded, so counting that down by the same `dt` the
+shader uses errs only towards "maybe alive".
+
+**6. One `queue.write_buffer` per new particle.** `collect_new_particles` advances one shared cursor
+by one per particle, so a frame's emission lands on consecutive ring slots and wraps at most once —
+the whole emission is at most **two** range writes, not one per particle. Uploads are now grouped
+into contiguous runs (four tests, including a control that non-consecutive slots are never merged,
+which would overwrite the particles in between).
+
+Also in this area: `GpuParticleConfig::capacity` was read only when the renderer was first created,
+so a game that raised the cap after its first emitter appeared stayed pinned to the old value for
+the rest of the process. A capacity change now rebuilds. ⚠️ The rebuild discards particles in
+flight — that is the cost of the setting taking effect at all.
+
+**7. The lighting bind-group cache keyed on a reference's address.** `cached_scene_view_ptr` stores
+`scene_view as *const _ as usize`, but that is the address of the caller's `Option<(…)>` **slot**,
+which `ensure_intermediate_texture` writes a replacement view into without moving. It was sound
+only because every path that replaced the intermediate also resized or reconfigured the renderer —
+a non-local invariant whose failure mode is silent, since a stale bind group is a perfectly valid
+one and wgpu reports nothing. Recreating the intermediate now invalidates the cache explicitly
+(`LightingRenderer::invalidate_bind_group`); the pointer check remains as a same-frame fast path.
+Latent, not reachable today — this makes it local rather than standing.
+
+**Also: `RenderStats` is documented as sprite-pass-only**, and the Engine Stats panel now says
+"sprite draw calls". `draw_calls` counts sprite runs plus `ShaderMaterial` entries; the UI-primitive
+pass issues draws it never sees, and the text pass draws through `glyphon`, whose internal draw
+count the engine cannot observe at all. Counting the UI pass would mean adding a parameter to the
+public `render_ui_primitives_from_slices`, and it still could not produce a true frame total — so
+the number is scoped instead of made to look complete.
+
 ## 0.153.1
 
 **A non-finite debug-draw coordinate hung the frame.** `debug_shape_to_draw_rects` fills a
