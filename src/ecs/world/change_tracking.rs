@@ -39,6 +39,12 @@ impl World {
 
     /// Returns only entities whose component T was *first added* this tick.
     ///
+    /// **First** is literal: an entity that already carried `T` when the tick began never appears
+    /// here, however the value is replaced mid-tick — in place, or via
+    /// [`take_component`](World::take_component) and a fresh `add_component`. Both report through
+    /// `query_changed`. Only [`remove_component`](World::remove_component) resets that, because it
+    /// states the component is gone.
+    ///
     /// **Note:** allocates a `Vec<Entity>` on every call to collect the matching set before
     /// returning the iterator. Intended for low-frequency use (e.g. one-shot init logic);
     /// avoid calling in hot per-frame loops with many entities.

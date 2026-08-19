@@ -82,13 +82,13 @@ pub(in crate::app) fn entities_tab_body(
         }
     });
 
-    // Sort control: order the displayed list by raw insertion (Default) / name (A–Z) / kind (Type).
+    // Sort control: order the displayed list by entity index (Default) / name (A–Z) / kind (Type).
     // Display-only — the world's entity order and scene-save order are untouched.
     ui.horizontal(|ui| {
         ui.label(tr("Sort:", "정렬:"));
         let mut mode = app.editor.entity_sort;
         for (m, en, ko) in [
-            (EntitySortMode::Insertion, "Default", "기본"),
+            (EntitySortMode::Index, "Default", "기본"),
             (EntitySortMode::Name, "A–Z", "이름"),
             (EntitySortMode::Kind, "Type", "종류"),
         ] {
