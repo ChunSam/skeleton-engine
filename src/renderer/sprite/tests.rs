@@ -1,4 +1,4 @@
-use super::textures::file_texture_aliases;
+use super::textures::{file_texture_aliases, reload_format};
 use super::ui_primitives::{sorted_ui_primitives, UiPrimitiveKind};
 use super::*;
 
@@ -114,6 +114,57 @@ fn file_texture_aliases_include_requested_and_canonical_paths() {
 fn file_texture_aliases_preserve_missing_or_synthetic_keys() {
     let aliases = file_texture_aliases("__missing_or_synthetic_texture_key__");
     assert_eq!(aliases, vec!["__missing_or_synthetic_texture_key__"]);
+}
+
+// --- hot-reload format preservation ------------------------------------------------------
+//
+// `reload_texture` used to call `Texture::from_path`, which hardcodes `Rgba8UnormSrgb`. A data
+// texture uploaded linear through `load_texture_with_format` therefore came back from an edit
+// with an sRGB decode attached — the file looked right on the run that loaded it and wrong on
+// every run after a save. Building a real cache entry needs a GPU, so the policy is tested here
+// through the injected lookup and only `t.texture.format()` is left to the device.
+
+#[test]
+fn a_reload_keeps_a_linear_data_texture_linear() {
+    let aliases = file_texture_aliases("normal_map.png");
+    let format = reload_format(&aliases, |k| {
+        (k == "normal_map.png").then_some(wgpu::TextureFormat::Rgba8Unorm)
+    });
+    assert_eq!(
+        format,
+        wgpu::TextureFormat::Rgba8Unorm,
+        "a hot-reload must not re-upload a linear data texture as sRGB"
+    );
+}
+
+#[test]
+fn a_reload_keeps_an_srgb_colour_texture_srgb() {
+    // The common case, pinned so the fix cannot invert into "linear for everything".
+    let aliases = file_texture_aliases("hero.png");
+    let format = reload_format(&aliases, |_| Some(wgpu::TextureFormat::Rgba8UnormSrgb));
+    assert_eq!(format, wgpu::TextureFormat::Rgba8UnormSrgb);
+}
+
+#[test]
+fn an_uncached_path_reloads_as_srgb() {
+    // Nothing cached under any alias → the historical `from_path` default, unchanged.
+    let aliases = file_texture_aliases("never_loaded.png");
+    assert_eq!(
+        reload_format(&aliases, |_| None),
+        wgpu::TextureFormat::Rgba8UnormSrgb
+    );
+}
+
+#[test]
+fn a_reload_finds_the_format_under_any_alias() {
+    // `load_texture` registers a texture under both the requested path and its canonical key,
+    // and `reload_texture` adds every cache key that canonicalises to the same asset. The
+    // requested path is not guaranteed to be the one that hits.
+    let aliases = vec!["a/b.png".to_string(), "/canonical/a/b.png".to_string()];
+    let format = reload_format(&aliases, |k| {
+        (k == "/canonical/a/b.png").then_some(wgpu::TextureFormat::Rgba8Unorm)
+    });
+    assert_eq!(format, wgpu::TextureFormat::Rgba8Unorm);
 }
 
 fn material(layer: i32, z: f32, order: usize, entity_id: u32) -> SpriteRenderEntry {

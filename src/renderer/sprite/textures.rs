@@ -15,6 +15,23 @@ pub(super) fn file_texture_aliases(path: &str) -> Vec<String> {
     aliases
 }
 
+/// The pixel format a hot-reload must re-upload with: whatever the live texture already carries,
+/// falling back to `Rgba8UnormSrgb` when nothing is cached under any alias yet.
+///
+/// Split from [`TextureCache::reload_texture`] and handed a lookup rather than the map so the
+/// *policy* is unit-testable — building a real cache entry needs a GPU device, which CI's `test`
+/// job does not have, and this is the half that was wrong. `format_of` is
+/// `|k| cache.get(k).map(|t| t.texture.format())` at the call site.
+pub(super) fn reload_format(
+    aliases: &[String],
+    format_of: impl Fn(&str) -> Option<wgpu::TextureFormat>,
+) -> wgpu::TextureFormat {
+    aliases
+        .iter()
+        .find_map(|key| format_of(key))
+        .unwrap_or(wgpu::TextureFormat::Rgba8UnormSrgb)
+}
+
 pub(crate) struct TextureCache {
     pub(crate) white_texture: Texture,
     pub(crate) texture_cache: HashMap<String, Arc<Texture>>,
@@ -103,16 +120,27 @@ impl TextureCache {
             }
         }
 
-        let tex = Arc::new(Texture::from_path(
+        // Reload in the format the live texture was uploaded with, not the `from_path` default.
+        // `Texture::from_path` hardcodes `Rgba8UnormSrgb`, so a **data** texture — a normal map,
+        // mask, height or lookup table, uploaded linear via `load_texture_with_format` — came back
+        // from a hot-reload with an sRGB decode attached to it. Silently, and only after the first
+        // edit, so the run that verified the asset was not the run that broke it. No new state is
+        // needed to fix it: the GPU texture already knows its own format.
+        let format = reload_format(&aliases, |key| {
+            self.texture_cache.get(key).map(|t| t.texture.format())
+        });
+
+        let tex = Arc::new(Texture::from_path_with_format(
             device,
             queue,
             &self.texture_layout,
             path,
+            format,
         ));
         for alias in aliases {
             self.texture_cache.insert(alias, Arc::clone(&tex));
         }
-        log::info!("texture hot-reload: {path}");
+        log::info!("texture hot-reload: {path} ({format:?})");
     }
 
     pub(crate) fn register_render_target(&mut self, key: &str, bg: Arc<wgpu::BindGroup>) {

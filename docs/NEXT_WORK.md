@@ -30,19 +30,52 @@ all three are the standing ones below. **The 2026-08-18 ECS review's efficiency 
 empty**: its last two items closed on 2026-08-19, one by the measurement it was gated on and one by
 shipping (v0.152.6). That section is kept below as the record of what measuring did to it. The
 follow-up review of that work left nine small items of its own — they have their own section below
-and are **not** gated the way these three are.
+and are **not** gated the way these three are. Neither is the 2026-08-19 **render** review, which
+added a section of its own after shipping three fixes as v0.152.9.
 
 A backlog this short is still the *expected* state, not a gap to fill: two programs closed in
 v0.150.7 and v0.151.1, and the board gate above is empty. Manufacturing work to fill it would be a
 new analysis — say so out loud and scope it, rather than letting it arrive as "the backlog said so".
 The ECS rows below are **not** that: they came out of a review that shipped twelve fixes across
-v0.152.1–v0.152.4, and they are what that review deliberately did not do.
+v0.152.1–v0.152.4, and they are what that review deliberately did not do. The render rows are the
+same kind of residue, from a review the user asked for — read them as *what a full read found and
+did not fix*, not as a queue that has to be drained.
 
 | Item | State |
 |---|---|
 | **4th procgen mode** (drunkard's walk) | Unchanged, still the lowest marginal value: the engine cannot fail at it, so nothing is learned. `src/mapgen.rs` already ships three generators over one shared `DungeonMap` (BSP rooms, cellular cave, perfect maze), each with its own example and each guaranteed-connected by a different mechanism. |
 | **`add-facade-capability` skill** | n=5 now (the facade + native + wasm + policy-module shape has repeated that many times). Deferred; the next facade capability makes the case by itself. **Building it now would ship a skill with nothing to apply it to** — no facade capability is queued, so do it *alongside* the next one, not before. |
 | **Last-seen eviction helper** (`RemoteEntities` #5) | **n=1, gated on a 2nd staleness example** — the same bar that held `SnapshotBuffer` until its 2nd call site. `salvage_run`'s AOI streaming produces **removal-by-omission**: the server never sends a `Bye`, an entity just stops appearing in snapshots, so the client infers eviction from `last_seen` + timeout. Candidate shape (`touch(key, t)` / `expired(now - timeout) -> Vec<K>`) is written up in `docs/REMOTE_ENTITIES_DESIGN.md` § *5th example*, **flagged not built**. Surfaced here 2026-08-10 because that doc was its only home — the four sibling verdicts in the same section all resolved to *keep minimal / zero engine change*, and this is the one that did not. |
+
+### Open — the 2026-08-19 render review's remainder
+
+A full read of the render subsystem (`src/renderer/**` + `src/app/render/**`, 10,549 lines across
+41 files, WGSL included) on 2026-08-19. **Three shipped as v0.152.9** — the `interleave_runs` NaN
+hang, the draw queues surviving a skipped frame, and the hot-reload sRGB downgrade. The rest is
+below, split by what settles it. **None is gated on a decision**; they are ordered by how cheaply
+each can be proven, not by how much they are worth.
+
+The efficiency rows are the ones to be careful with. This repo's own habit — see the closed section
+below — is that an efficiency claim that has not been measured is a hypothesis, and five of them
+reversed under measurement between v0.150.7 and v0.152.5. Two rows here **are** measured and say so;
+treat the rest as unproven until the named instrument runs.
+
+| Item | Where | What settles it |
+|---|---|---|
+| **`Arc::from("")` per untextured sprite per frame.** The `unwrap_or_else` fallback for a `Sprite` with no texture allocates a fresh `Arc<str>` every frame, per sprite. **Measured: 1000 allocations / 32 KB per 1000 sprites, pointers all distinct.** `Sprite::colored` is common across the examples. A cached `Arc<str>` field removes it. | `src/renderer/sprite/collect.rs:74` | Measured already |
+| **The shaped-text cache keys on `position` where position provably cannot affect layout.** `layout_buffer_width`/`_height` ignore it whenever `bounds` is set *or* the anchor is `Center` — the file's own `centered_no_bounds_uses_full_viewport_width` and `explicit_bounds_override_anchor` tests say so. So `DrawText::centered` — i.e. every `FloatingText` (`src/floating_text.rs:225`) — misses the cache on **every frame it moves**, which is the exact case the cache was built for. Key on the computed `(width, height)` instead. `cache_key_miss_when_position_differs` blesses the current behaviour and would need to move with it. | `src/renderer/text/cache.rs:26`, `src/renderer/text/renderer.rs:406` | Read off the two pure functions; no GPU needed |
+| **The UI-primitive path allocates 4 `Vec`s + a `String` per image, per frame.** `sorted_ui_primitives` builds a `Vec<UiPrimitive>` and then `zs`/`keys`/`instances`, and `DrawImage::texture_key()` returns an owned `String`. Every frame with a HUD or a debug draw pays it. The sprite path solved the same problem with scratch fields. | `src/renderer/sprite/ui_primitives.rs:55`, `:149`, `src/renderer/ui.rs:151` | Needs a GPU (`prepare_ui_primitives` takes a device) — the render job, or extract the sort |
+| **`BloomRenderer::resize` recompiles the shader and all four pipelines.** `*self = Self::new(…)` rebuilds everything, but only the mip pyramid and its bind groups depend on size. During a live window drag that is a full pipeline rebuild per frame. `PostProcessRenderer::resize` already does the narrow thing. | `src/renderer/bloom.rs:265` | Read; a timing claim needs a windowed drag |
+| **The GPU-particle renderer is never torn down.** It is created on the first `GpuParticleEmitter` and nothing ever sets it back to `None`, so a `capacity/64` compute dispatch and a `capacity * 6` vertex draw run every frame for the rest of the process — 64 workgroups and 24,576 vertices at the default capacity, with no emitters and no live particles. Also: `GpuParticleConfig::capacity` is read only at creation, so a later change is silently ignored. | `src/app/render/frame.rs:454`, `src/app/render_state.rs:56` | Read; cost needs the render job |
+| **One `queue.write_buffer` per new particle.** `collect_new_particles` advances a ring cursor by one per particle, so the slots are contiguous (`src/gpu_particle.rs:179`) and the whole emission is at most two range writes. | `src/app/render/frame.rs:487` | Read |
+| **The docked transition overlay uses the surface aspect.** `TransitionRenderer::update` is handed `gpu.config.width / height` while `run_pass` targets the docked RT, so `IrisIn`/`IrisOut` render elliptical while docked. | `src/app/render/frame.rs:650` | A docked screenshot |
+| **`live_material_entities_scratch` excludes `Hidden`, and two comments above it say it does not.** The `retain` at the end of `SpriteRenderer::render` therefore destroys a hidden `ShaderMaterial` entity's params buffer + bind group and recreates them when it is shown again. Decide which of the two is right — the comments read like the intent — then make them agree. | `src/renderer/sprite/collect.rs:232` | Read |
+| **`setup_lighting`'s arm order swallows a same-frame cap change.** A simultaneous format + `max_lights` change takes the `reconfigure` arm, which preserves the old `max_lights`; the next frame's arm 3 fixes it. Self-healing, one frame late. | `src/app/render/post_lighting.rs:120` | Read |
+| **`load_texture_with_format` ignores `format` on a cache hit** — the cache key has no format, so a path can only ever hold one, silently. The v0.152.9 hot-reload fix depends on that being true, so changing it means revisiting `reload_format`. | `src/renderer/sprite/textures.rs:48` | Read |
+| **A non-finite debug-draw coordinate hangs the frame.** `(len / thickness).ceil() as usize` saturates to `usize::MAX` on an infinite length, and `for i in 0..=steps` then never ends. Same shape as the NaN bug v0.152.9 fixed, one module over. | `src/app/render/debug_draw.rs:62` | A unit test (pure function) |
+| **The lighting bind-group cache keys on a reference's address.** `cached_scene_view_ptr` stores `scene_view as *const _ as usize`, but that is the address of the `RenderState` **slot**, which `ensure_intermediate_texture` writes a new view into without moving. It is sound today only because every path that replaces the intermediate also resizes or reconfigures the renderer — a non-local invariant, and the failure mode if it ever breaks is silently sampling last frame's texture, not a validation error. | `src/renderer/lighting.rs:479` | Read; latent, not currently reachable |
+| **`RenderStats::draw_calls` counts only the sprite pass.** The UI-primitive and text passes issue draws without incrementing it, so the Engine Stats panel under-reports. Either count them or scope the field's doc. | `src/renderer/sprite/draw.rs:77` | Read |
+| **Smaller, no home of their own**: `upload_particles` drops an out-of-range write with no log (`src/renderer/gpu_particle.rs:340`); `custom_pipelines` and `rt_cache` are never evicted (`material.rs:15`, `textures.rs:21`); the offscreen camera swap is the remove → call → reinsert pattern v0.152.2 fixed three times elsewhere (`offscreen.rs:57`); nine-slice sub-quads are LOD-culled individually, so `CullConfig::min_pixel_size` can drop a panel's corners while its centre stays (`collect.rs:98`); `Texture::from_rgba_with_format` builds a fresh identical sampler per texture (`texture.rs:217`). | — | Read |
 
 ### Open — the 2026-08-19 follow-up review's remainder
 

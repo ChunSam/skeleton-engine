@@ -26,10 +26,42 @@ impl App {
         submit_egui(render, gpu, final_view, true);
     }
 
+    /// Drop this frame's accumulated draw queues without drawing them.
+    ///
+    /// `render()` drains `DebugDraw` / `UiQueue` / `UiImageQueue` / `TextQueue` *as it draws them*,
+    /// midway through the frame — so a frame that returns before reaching that point leaves them
+    /// filled, and the next frame's systems push on top. The queues are per-frame by contract, so
+    /// a return that draws nothing must still empty them; otherwise they grow for as long as the
+    /// condition lasts. Two of the three early returns can last indefinitely:
+    ///
+    /// - the surface handing back `Occluded` every frame — a **minimized** window,
+    /// - the docked editor's central rect staying degenerate (window shrunk below the panel
+    ///   margins, or the panels collapsed), which returns the warm-up placeholder forever.
+    ///
+    /// The third (no `GpuContext` yet) is bounded: it is the wasm-only gap before the async
+    /// adapter request resolves, since native exits the event loop when GPU init fails.
+    fn discard_frame_draw_queues(world: &mut crate::ecs::World) {
+        if let Some(d) = world.resource_mut::<DebugDraw>() {
+            d.clear();
+        }
+        if let Some(q) = world.resource_mut::<UiQueue>() {
+            q.clear();
+        }
+        if let Some(q) = world.resource_mut::<UiImageQueue>() {
+            q.clear();
+        }
+        if let Some(q) = world.resource_mut::<crate::renderer::TextQueue>() {
+            q.clear();
+        }
+    }
+
     pub(in crate::app) fn render(&mut self) -> Result<(), wgpu::CurrentSurfaceTexture> {
         let gpu = match self.gpu.as_mut() {
             Some(g) => g,
-            None => return Ok(()),
+            None => {
+                Self::discard_frame_draw_queues(&mut self.world);
+                return Ok(());
+            }
         };
 
         // ── Docked editor: manage the game-scene offscreen texture ────────────
@@ -124,6 +156,9 @@ impl App {
         {
             use crate::app::editor::EditorMode;
             if self.editor.mode == EditorMode::Docked && docked_render_view.is_none() {
+                // Nothing will be drawn this frame, so this frame's queues must still be emptied —
+                // a degenerate central rect keeps this branch live indefinitely.
+                Self::discard_frame_draw_queues(&mut self.world);
                 return Self::present_docked_placeholder(
                     &mut self.render,
                     self.window.as_deref(),
@@ -139,7 +174,13 @@ impl App {
                 let (frame, suboptimal) = match surface.get_current_texture() {
                     wgpu::CurrentSurfaceTexture::Success(t) => (t, false),
                     wgpu::CurrentSurfaceTexture::Suboptimal(t) => (t, true),
-                    e => return Err(e),
+                    // No swapchain texture, so nothing is drawn — but the frame's queues still
+                    // have to go, or a minimized window (`Occluded` every frame) grows them for
+                    // as long as it stays minimized.
+                    e => {
+                        Self::discard_frame_draw_queues(&mut self.world);
+                        return Err(e);
+                    }
                 };
                 let view = frame
                     .texture
@@ -774,5 +815,101 @@ impl App {
             // Genuine errors (Validation, etc.) still surface as errors.
             Err(e) => log::error!("render error: {e:?}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ecs::World;
+    use crate::renderer::{DrawImage, DrawText, TextQueue};
+    use glam::Vec2;
+
+    /// Fill all four per-frame draw queues the way a frame's systems would.
+    fn world_with_a_frame_of_draws() -> World {
+        let mut world = World::new();
+        let mut debug = DebugDraw::new();
+        debug.rect(Vec2::ZERO, Vec2::splat(10.0), [1.0, 0.0, 0.0, 1.0]);
+        debug.rect_filled(Vec2::ZERO, Vec2::splat(4.0), [0.0, 1.0, 0.0, 1.0]);
+        world.insert_resource(debug);
+
+        let mut rects = UiQueue::default();
+        rects.push(DrawRect::new(0.0, 0.0, 8.0, 8.0, [1.0; 4]));
+        world.insert_resource(rects);
+
+        let mut images = UiImageQueue::default();
+        images.push(DrawImage::textured(0.0, 0.0, 8.0, 8.0, "icon.png"));
+        world.insert_resource(images);
+
+        let mut texts = TextQueue::default();
+        texts.push(DrawText::new("hud", Vec2::ZERO, 16.0, [1.0; 4]));
+        world.insert_resource(texts);
+        world
+    }
+
+    /// Is each queue empty? Ordered: debug shapes, debug filled rects, UI rects, UI images, texts.
+    /// Reported as one array so a failure names the queue that survived instead of a bare `false`.
+    fn emptiness(world: &World) -> [bool; 5] {
+        let debug = world.resource::<DebugDraw>().unwrap();
+        [
+            debug.shapes().is_empty(),
+            debug.filled_rects.is_empty(),
+            world.resource::<UiQueue>().unwrap().is_empty(),
+            world.resource::<UiImageQueue>().unwrap().is_empty(),
+            world.resource::<TextQueue>().unwrap().is_empty(),
+        ]
+    }
+
+    /// A frame that draws nothing must still consume its queues.
+    ///
+    /// `render()` empties these as a side effect of drawing them, so its three early returns
+    /// used to leave a frame's worth of draws in place. Two of those returns can repeat forever
+    /// (a minimized window; a docked editor whose central rect is degenerate), and the queues
+    /// grew by one frame's draws every frame for as long as they did.
+    #[test]
+    fn discarding_a_frame_empties_every_draw_queue() {
+        let mut world = world_with_a_frame_of_draws();
+        // Control: the fixture really did fill all five, so a green assertion below means something.
+        assert_eq!(
+            emptiness(&world),
+            [false; 5],
+            "fixture must fill every queue first"
+        );
+
+        App::discard_frame_draw_queues(&mut world);
+
+        assert_eq!(emptiness(&world), [true; 5]);
+    }
+
+    /// Repeating the discard is what actually bounds the leak: N skipped frames must leave the
+    /// queues where one skipped frame did, not N times fuller.
+    #[test]
+    fn repeated_skipped_frames_do_not_accumulate() {
+        let mut world = World::new();
+        world.insert_resource(UiQueue::default());
+        world.insert_resource(TextQueue::default());
+        for _ in 0..100 {
+            // One frame of game systems pushing their HUD...
+            world
+                .resource_mut::<UiQueue>()
+                .unwrap()
+                .push(DrawRect::new(0.0, 0.0, 8.0, 8.0, [1.0; 4]));
+            world
+                .resource_mut::<TextQueue>()
+                .unwrap()
+                .push(DrawText::new("hud", Vec2::ZERO, 16.0, [1.0; 4]));
+            // ...followed by a frame that returns before drawing anything.
+            App::discard_frame_draw_queues(&mut world);
+        }
+        assert!(world.resource::<UiQueue>().unwrap().is_empty());
+        assert!(world.resource::<TextQueue>().unwrap().is_empty());
+    }
+
+    /// The queues are ordinary resources, so a World without them (a scene mid-reset, a
+    /// stripped fork) must not panic on the skip path.
+    #[test]
+    fn discarding_with_no_queues_registered_is_a_noop() {
+        let mut world = World::new();
+        App::discard_frame_draw_queues(&mut world);
     }
 }

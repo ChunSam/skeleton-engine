@@ -4,6 +4,60 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.152.9
+
+Three bugs from a full read of the render subsystem (`src/renderer/**` + `src/app/render/**`,
+10,549 lines). All three share a shape: each is a state a game can reach and then *stay* in, where
+the engine keeps running and gets quietly worse rather than failing.
+
+**A single NaN z hung the render loop.** `interleave_runs` splits a frame into alternating
+UI-surface and layered-text runs by walking two z-sorted lists. Every comparison against a NaN is
+false, so one non-finite z on *either* side left both `partition_point`s at 0, the text cursor never
+advanced, and the loop pushed `Run { surfaces: 0, texts: 0 }` forever — a hang inside `render()`,
+with the run `Vec` growing until the process died. `DrawText::with_z` and `DrawRect::with_z` are
+public and take any `f32`, so a z that came out of a divide reached it from ordinary game code. Each
+iteration now consumes at least one text; a NaN has no meaningful place in a z order, so it draws in
+a batch of its own rather than being dropped. ⚠️ Sabotage-checked differently from usual: with the
+guard removed the new tests do not *fail*, they **do not terminate** — which is the bug, and why the
+old test suite could not have caught it. Well-ordered input is byte-identical (the seven existing
+tests are untouched), and ±inf needs no special case — it orders like any other float, pinned.
+
+**A frame that drew nothing kept its draw queues.** `render()` drains `DebugDraw` / `UiQueue` /
+`UiImageQueue` / `TextQueue` *as it draws them*, midway through the frame, so its three early
+returns left a full frame of draws in place for the next frame's systems to push on top of. Two of
+those returns can repeat indefinitely: the surface handing back `Occluded` every frame — a
+**minimized window** — and the docked editor's central rect staying degenerate, which happens when
+the window shrinks below the panel margins or the panels collapse, and returns the warm-up
+placeholder forever. Both grew the queues by one frame's draws every frame for as long as they
+lasted; a minimized game with a HUD leaked until it was restored. All three returns now discard the
+frame's queues first. (The third — no `GpuContext` yet — was already bounded: it is the wasm-only
+gap before the async adapter resolves, since native exits the event loop when GPU init fails.)
+
+**A texture hot-reload re-uploaded linear data textures as sRGB.** `reload_texture` called
+`Texture::from_path`, which hardcodes `Rgba8UnormSrgb`. A normal map, mask, height or lookup table
+uploaded linear through `load_texture_with_format` therefore came back from an edit with an sRGB
+decode attached to it — silently, and only after the first save, so the run that verified the asset
+was never the run that broke it. No new state was needed: the live GPU texture already knows its own
+format, so the reload asks it. The colour-art path (the common case) is unchanged, and a path that
+was never cached still reloads as sRGB.
+
+⚠️ **Not covered by a test, and worth knowing:** the queue-discard call sites are exercised only
+through `App::render`, which needs a GPU and — for the docked case — a window, so the three returns
+themselves are unpinned; the tests cover the discard helper and that repeating it does not
+accumulate. Likewise only the *policy* half of the reload-format fix is tested (which alias wins,
+what the fallback is); building a real cache entry needs a device, so `texture.format()` itself
+rests on the GPU render job.
+
+**Left open by the same review** (filed, not fixed): the UI-primitive and text-shaping paths both
+allocate per frame in ways the v0.150.x program removed elsewhere — `Arc::from("")` per untextured
+sprite (measured: 1000 allocations / 32 KB per 1000 sprites, every frame), four `Vec`s per frame in
+`sorted_ui_primitives`, and a shaped-text cache key that includes `position` even where
+`layout_buffer_width`/`_height` provably ignore it, so `DrawText::centered` — every floating combat
+number — misses the cache 100% of the time while it moves. Also: `BloomRenderer::resize` recompiles
+its shader and four pipelines every frame of a window drag, and the GPU-particle renderer is never
+torn down, so one emitter buys a full-capacity compute dispatch and a `capacity * 6` vertex draw
+every frame for the rest of the process.
+
 ## 0.152.8
 
 **A panicking component destructor could leave an entity pointing at another entity's row.**
