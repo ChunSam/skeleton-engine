@@ -37,7 +37,7 @@ all five carry selftests where only 11 of 22 did.
 | # | Name | Genre | Lines (est.) | Selftest | Web |
 |---|---|---|---|---|---|
 | 1 | `platformer_game` | platformer | ~800 | ✅ | — (rapier2d is native-only) |
-| 2 | `survivor_game` | top-down action + shooter | ~900 | ✅ | — (GPU particles native-only) |
+| 2 | `survivor_game` | top-down action + shooter | ~900 | ✅ | ✅ **audio smoke** (GPU particles stay native-only) |
 | 3 | `rpg_quest_game` | RPG | ~1,000 | ✅ | ✅ save/localStorage smoke |
 | 4 | `puzzle_grid_game` | puzzle | ~600 | ✅ | ✅ render smoke |
 | 5 | `netplay_game` | networked (+ `netplay_server`) | ~900 | ✅ | ✅ render + WebSocket smoke |
@@ -179,11 +179,39 @@ The old tree's real failure was here, so this is designed first and the games ar
 5. **Sabotage-verify every check when you write it.** Break the thing; the check must go red, and
    only the matching half. A check nobody has seen fire is not a check.
 
-**Browser smokes: rebuild 3, not 12.** Only self-verdicting ones (`*_CHECK: PASS` read from the
+**Browser smokes: rebuild 4, not 12.** Only self-verdicting ones (`*_CHECK: PASS` read from the
 page title). The 6 byte-size-only smokes were documented as eyeball-it and are not worth rebuilding.
-- `rpg_quest_game` — AEAD `localStorage` save round-trip
-- `puzzle_grid_game` — non-blank render at DPR=2
-- `netplay_game` — renders **and** the WebSocket handshake really happened
+
+| Smoke | Asserts | Priority |
+|---|---|---|
+| **audio** (`survivor_game` web build, or a bare harness) | `Audio::levels` reports a live level **and** `Audio::bands` a low-biased spectrum | **1st — the only genuinely lost measured signal** |
+| `rpg_quest_game` | AEAD `localStorage` save round-trip | 2nd |
+| `netplay_game` | renders **and** the WebSocket handshake really happened | 3rd |
+| `puzzle_grid_game` | non-blank render at DPR=2 | 4th |
+
+**Audio is first, and this is measured rather than assumed.** Web Audio genuinely gated from
+v0.143.17 to v0.153.0 — `wasm_audio` reported 38/38 and `audio_reactive` reported `rms=0.643` with
+bands `low=9.41` / `high=0.00` on a 110 Hz tone, i.e. real spectral discrimination. Native
+rodio/ALSA cannot be tested in CI (v0.143.10, five runs, see `docs/VERIFICATION.md`), so the
+browser half was the *only* automated audio evidence in the tree. It is the one item where
+deletion removed a working measurement rather than an aspiration.
+
+**Two things this deliberately does NOT size up for** — both checked in code on 2026-08-19 rather
+than argued:
+
+- **The wasm queue-discard branch** (`gpu == None`, the async adapter warm-up window) is covered by
+  **any single wasm smoke**, structurally. `resumed()` sets `window` immediately on wasm and awaits
+  the adapter via `spawn_local`; `about_to_wait` requests a redraw every iteration;
+  `RedrawRequested` calls `step_frame_once` → `step_frame` → `update(dt)` with **no gpu gate**
+  (`src/app/render/frame.rs:710`). So every browser run pushes into the queues and early-returns in
+  `render` before the adapter resolves. Rebuilding one wasm smoke covers it; four is not better
+  than one here.
+- **Layered-text z-interleave** (`interleave_runs`, reached only when `take_layered()` is
+  non-empty) is **not** covered by any of the four above, and — verified — was **not covered by the
+  deleted gate either**. All seven CI-gating browser smokes had `with_z = 0` and zero widgets, so
+  the path never ran in a browser. Covering it needs a *different kind* of smoke — a **widget UI
+  example built for wasm** — not more of the same kind. Worth doing, but it closes a hole that
+  predates this deletion; do not file it as a regression.
 
 **Restore to CI, in this order:** `scripts/selftests.sh` (rebuilt, derived) → the `wasm-smokes`
 job → `scripts/build_wasm_examples.sh`. ⚠️ Restoring the `wasm-smokes` job means **adding its
