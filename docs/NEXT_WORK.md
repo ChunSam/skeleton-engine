@@ -400,8 +400,9 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
   audio chain passes on CI, but it delivers samples in bursts, so the meters with sub-second
   deadlines read silence. `snd-dummy` does not exist on the runner kernel. **Do not re-litigate
   without new information** — a runner image with a real or dummy ALSA card would be new
-  information; another sink tweak is not. `SKELETON_REQUIRE_AUDIO=1` exists so a *local* run can
-  prove its audio checks ran rather than skipped. ⚠️ **`scripts/selftests.sh`'s own header claimed
+  information; another sink tweak is not. ~~`SKELETON_REQUIRE_AUDIO=1` exists so a *local* run can
+  prove its audio checks ran rather than skipped.~~ **Dead as of v0.153.0** — only
+  `scripts/selftests.sh` read it, and both are deleted; re-create it with the rebuilt runner. ⚠️ **`scripts/selftests.sh`'s own header claimed
   the opposite** ("CI provisions a PulseAudio null sink") from v0.143.10 until #426 on 2026-08-05 —
   the sentence was written for the null-sink experiment and survived its revert *in the same
   commit*. `ci.yml` and `docs/VERIFICATION.md` were right the whole time; only the file a reader

@@ -139,6 +139,11 @@ while line 23's "uses this engine as a dependency" sat eight lines *under* its o
 line 15, and survived until #464. The reverted null-sink experiment did the same thing: the code
 went, its comment stayed in `scripts/selftests.sh`.
 
+v0.153.0 did it again, in this very file. Deleting the examples tree swept every reference to
+`scripts/selftests.sh` — but **`SKELETON_REQUIRE_AUDIO`, the flag that script alone read**, survived
+in two live paragraphs describing it as an available tool. A file-name grep cannot find the names a
+deleted file *owned*. Enumerate those separately: env vars, flags, and coined terms.
+
 Verifying a removal means searching the **repo** for the idea in every phrasing it might wear, not
 re-reading the file you happened to have open. The file you were editing is the one place you have
 already looked.
@@ -289,9 +294,12 @@ tap publishes and then goes stale in the gaps. Checks that sample over *seconds*
 sub-second deadlines land in the gaps. Those deadlines are calibrated against real hardware and
 loosening them would discard the guarantee they exist to make, so they were left alone.
 
-**So every audio claim still rests on a local device**, and `SKELETON_REQUIRE_AUDIO=1` is the tool
-for making that local run prove itself. Anything that would change this answer — a runner image with
-a real or dummy ALSA card, or a different sink whose delivery is continuous — is new information.
+**So every audio claim still rests on a local device**, and as of v0.153.0 there is no longer a
+tool for making that local run prove itself: `SKELETON_REQUIRE_AUDIO=1` was read by
+`scripts/selftests.sh` alone, and both went with the examples tree. **The flag is dead** — 0 hits
+in `src/` and `scripts/` — so a rebuilt runner has to re-create it rather than assume it. Anything
+that would change the CI answer — a runner image with a real or dummy ALSA card, or a different
+sink whose delivery is continuous — is new information.
 
 Unrelated but learned the same day: a **corrupt cargo cache** produced
 `collect2: fatal error: ld terminated with signal 7 [Bus error]` twice in a row on a runner with
