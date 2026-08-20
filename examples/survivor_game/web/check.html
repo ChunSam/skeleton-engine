@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- The verdict is written HERE, by `web_check_survivor`. `scripts/survivor_audio_web_smoke.sh`
+       reads it live over Chrome's DevTools /json endpoint, so this starting value must not already
+       look like a verdict — it must not contain the token AUDIO_CHECK. -->
+  <title>Survivor Web Audio — running…</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0d0d0d;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      min-height: 100vh; font-family: system-ui, sans-serif; color: #888;
+    }
+    #game-canvas { display: block; border: 1px solid #333; background: #0a0d14; }
+    #status { margin-top: 10px; font-size: 13px; max-width: 60ch; text-align: center; }
+    #status code { color: #b0d0ff; }
+  </style>
+</head>
+<body>
+  <canvas id="game-canvas" width="1024" height="640" tabindex="0"></canvas>
+  <p id="status">Loading WASM…</p>
+  <script type="module">
+    import init, { web_check_survivor } from "./pkg/survivor_game.js";
+    const status = document.getElementById("status");
+    try {
+      await init();
+      status.innerHTML =
+        'Playing a 110 Hz tone and asserting <code>Audio::levels</code> reports a live level and ' +
+        '<code>Audio::bands</code> a low-biased spectrum. The verdict goes to the page title. ' +
+        'Opened by hand rather than by the smoke script? Click the page first — the smoke runs ' +
+        'Chrome with <code>--autoplay-policy=no-user-gesture-required</code>, which you do not have.';
+      web_check_survivor();
+    } catch (e) {
+      // A load failure must still produce a verdict, or the script cannot tell "the page broke"
+      // from "the page is still thinking" — both read as no title.
+      document.title = "AUDIO_CHECK: FAIL — wasm init threw: " + String(e).replace(/"/g, "'");
+      status.textContent = "Error: " + e;
+      console.error(e);
+    }
+  </script>
+</body>
+</html>

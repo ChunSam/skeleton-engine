@@ -264,7 +264,7 @@ Deliberately runner-first. Building game 2 before the runner exists is how 11/22
 | 3 | `survivor_game` + selftest | Needs the audio-probe pattern from phase 2's lessons — **done 2026-08-20**, 7 checks + the nearest-light render test; 1,590 lines |
 | 4 | `puzzle_grid_game` + selftest + render smoke | Cheapest game; good place to restore `build_wasm_examples.sh` — **done 2026-08-20**, 7 checks + the script (derived list, two-sided NATIVE_ONLY check); 1,193 lines |
 | 5a | `netplay_game` + `netplay_server` + selftest | Most infrastructure per line — **done 2026-08-21**, 7 checks over all four folded techniques; 3,006 lines across client/server/protocol, the only game that is two binaries |
-| 5b | restore the `wasm-smokes` job **and its branch-protection context** | The last open item. 4 browser smokes (audio first — the only measured signal the deletion actually lost). ⚠️ Adding a *job* without its required-check context is a check nobody is gated on |
+| 5b | restore the `wasm-smokes` job **and its branch-protection context** | **done 2026-08-21** — 2 of the 4 planned smokes (audio + wasm WebSocket), the two with no coverage anywhere; context re-added in the same change. Caught the #494 wasm entry point on its first run. Save round-trip and DPR render deferred — both have native equivalents |
 
 ## What this deliberately does NOT cover
 

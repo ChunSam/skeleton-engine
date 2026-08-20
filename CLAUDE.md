@@ -95,12 +95,12 @@ have each cost a session; the ones that recur:
   `echo $? > /tmp/v.exit` and **read the file**, after `rm -f`-ing it first (a stale file matches instantly).
 - `;` does not short-circuit — branch on the captured code before committing.
 
-⚠️ **The acceptance layer is back to full depth.** `scripts/selftests.sh` and
+⚠️ **The acceptance layer is back to full depth, browser included.** `selftests.sh` and
 `build_wasm_examples.sh` both died in the 2026-08-19 deletion and are back — **35 checks across five
-games**, plus 4 of 6 example targets proven to compile for the web; networking is covered again
-(phase 5, two live clients). **Still uncovered anywhere: anything actually *running* on wasm** —
-compiling for it is not running on it — and audio, whose one check skips on any box with no device
-(all of CI). Else: `fmt`, `clippy`, the wasm build, `cargo test`, doctests, `cargo doc`.
+games**, 4 of 6 example targets compiling for the web, and (2026-08-21) a **`wasm-smokes` CI job**
+loading the engine in headless Chrome: Web Audio levels+spectrum, and the wasm WebSocket path.
+⚠️ Those smokes need Chrome so **CI gates them, not `verify.sh`**. Native audio still skips with no
+device (all of CI). Else: `fmt`, `clippy`, the wasm build, `cargo test`, doctests, `cargo doc`.
 
 What the gate does **not** cover, so get it yourself:
 
@@ -115,8 +115,8 @@ What the gate does **not** cover, so get it yourself:
   coverage and now have none at all. Web Audio *used* to gate in CI via the `wasm_audio` /
   `audio_reactive` browser smokes; that job is deleted, so no audio claim of any kind is checked
   anywhere but a unit test.
-- **Running on the web** — compiling for wasm is not running on wasm, and nothing loads the engine
-  in a browser any more. A runtime web claim currently has no automated backing at all.
+- **The `wasm-smokes` job** — `scripts/*_web_smoke.sh`, which need Chrome. ⚠️ Still no
+  **pixel-level** browser check: a wgpu canvas readback needs a surface config that does not ship.
 
 If you skip a verification step, **say so in the report**.
 

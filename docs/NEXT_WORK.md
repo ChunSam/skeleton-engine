@@ -50,11 +50,33 @@ phases 2-4 on 2026-08-20, and **phase 5's game landed 2026-08-21**: `netplay_gam
 `netplay_server`, 7 selftest checks. The gate now runs **35 checks across 5 games**, plus two render
 tests (docked-iris, nearest-light-cull) and `build_wasm_examples.sh`.
 
-**What is left is phase 5b, and only that**: restore the `wasm-smokes` CI job — 4 browser smokes
-(audio first, then the RPG save round-trip, the netplay handshake, a DPR=2 render) — **and re-add
-its branch-protection context in the same change**, or it becomes a job nobody is gated on, which
-is the mirror image of the failure v0.153.0 hit. Until then **compiling for wasm is still not
-running on wasm**: no browser has loaded this engine since 2026-08-19.
+✅ **Phase 5b landed 2026-08-21 — the rebuild is closed.** The `wasm-smokes` job is back with
+**2 of the planned 4** browser smokes, and its branch-protection context was re-added in the same
+change. A browser loads this engine again for the first time since 2026-08-19.
+
+| Smoke | Asserts | State |
+|---|---|---|
+| `survivor_audio_web_smoke.sh` | `Audio::levels` live **and** `Audio::bands` low-biased | ✅ rms 0.5621, low 2.733 vs high 0.009 on a 110 Hz tone |
+| `netplay_web_smoke.sh` | the WebSocket handshake completed and entities streamed in | ✅ 23 entities over a browser socket |
+| RPG save round-trip (AEAD `localStorage`) | the wasm save branch | ⬜ not built — the machinery now exists, so it is one page + one script |
+| puzzle render at DPR=2 | a non-blank frame | ⬜ not built, and see the pixel caveat below |
+
+⚠️ **Two of four is a deliberate stop, not an oversight.** The two built are the ones with no
+coverage anywhere: Web Audio (the only *working measurement* the deletion removed) and the wasm
+WebSocket path (`src/network/wasm_impl.rs` is a separate implementation from the native client and
+had not executed a line since the deletion). The save round-trip has a native equivalent that runs
+every gate, and the DPR render is the weakest of the four.
+
+⚠️ **There is still no pixel-level browser check, and there is a reason.** Reading a wgpu canvas
+back needs `preserveDrawingBuffer`, which changes how the surface is configured — so such a check
+would be measuring a configuration the game does not ship. Stated as a decision rather than left as
+an implied gap.
+
+✅ **The job caught a real defect immediately.** `netplay_game`'s wasm entry point shipped in #494 as
+`#[no_mangle] pub extern "C"` instead of `#[wasm_bindgen]`. It compiled, `build_wasm_examples.sh`
+went green, and the generated JS contained **zero** occurrences of the function the page imports —
+the game could not start at all. That is precisely the gap between "compiles for wasm" and "runs on
+wasm", and no build gate can close it.
 
 ✅ **`scripts/build_wasm_examples.sh` is back** (phase 4). The list is derived from Cargo.toml's
 `[[example]]` blocks, and a game that cannot build for wasm declares `NATIVE_ONLY` in its own
@@ -77,10 +99,10 @@ double-release guard, `SceneCmd::Replace` discarding App-registered systems, and
 see. **Fixing it needs a dev-dependency** (`env_logger`, examples-only, invisible to the published
 crate) plus one line per game, so it is a maintainer decision rather than a drive-by.
 
-⚠️ **Still uncovered after five games**: **audio beyond a single metered tone, and anything
-actually *running* on wasm.** The audio check skips wherever there is no device, i.e. every CI
-runner. Compiling for wasm is not running on wasm — no browser has loaded any of this since the
-deletion, which is exactly what phase 5b restores.
+⚠️ **Still uncovered after five games and two browser smokes**: **native audio on CI**, and any
+**pixel-level** claim about the browser. The native audio check skips wherever there is no device,
+i.e. every CI runner — the browser half (restored in phase 5b) is once again the only automated
+audio evidence in the repo, exactly as it was from v0.143.17 to v0.153.0.
 
 ✅ **Networking is covered, and natively.** `NETPLAY_SELFTEST` runs 7 checks over the four
 techniques the deleted `coin_race` / `predict_shooter` / `orbital_dodger` / `salvage_run` each owned
