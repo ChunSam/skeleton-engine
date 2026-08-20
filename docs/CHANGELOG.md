@@ -4,6 +4,95 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.154.0
+
+**`TextCacheStats` — the shaped-text cache is finally observable, and v0.153.2's claim is now
+checked.** That release stopped `PlainTextCacheKey` from including `position`, so a moving
+`DrawText::centered` — every `FloatingText` — is served from the cache instead of re-shaping a
+byte-identical buffer every frame. Its tests pinned the *key*; nothing could see the effect,
+because `shaped_buffer_cache` is a private field with no accessor and nothing counted anything.
+
+New per-frame resource, published by `App` after the frame's last text pass:
+
+```rust
+pub struct TextCacheStats { pub hits: u32, pub misses: u32 }   // + total()
+```
+
+⚠️ **Deliberately its own resource, not fields on `RenderStats`** — v0.153.2 documented that type
+as sprite-pass-only, and hanging text counters on it would have made that sentence false in the
+same week.
+
+**The check is `tests/render.rs::text_cache_hits_a_moving_centered_text`, and its controls are the
+point.** `hits > 0` is vacuous: a static HUD line satisfies it, on the pre-v0.153.2 code too. The
+test drives three plain draws per frame — one **moving** centered, one **static**, one whose
+**content** changes — and asserts the exact split, so the moving text's hit is what carries the
+claim:
+
+| | fixed (v0.153.2 key) | sabotaged (position back in the key) |
+|---|---|---|
+| hits | **2** | 1 |
+| misses | **1** (the content-changing line only) | 2 |
+
+The sabotaged column is measured, not predicted: `position` was reinstated in the key, the test
+failed with `hits=1 misses=2` and the message that names the cause, and the change was reverted.
+A third assertion requires `hits + misses > 0`, since zero total means the text pass never ran and
+every other assertion would pass for the wrong reason.
+
+Warm-up is named rather than left implicit — frame 1 is all-miss by definition, so the test reads
+the last of six frames (`docs/CHANGELOG.md` § *"A warm-up is part of the property, not setup
+noise"*).
+
+`TextRenderer::cache_stats()` is public for anyone driving the renderer directly; read it **before**
+`end_frame`, which resets the counters with the rest of the frame boundary.
+
+---
+
+**The UI-primitive pass stopped allocating per image, per frame.** `prepare_ui_primitives` built
+four fresh `Vec`s every frame and `DrawImage::texture_key()` copied the path bytes into a new
+`String` once per image. Measured with a counting allocator, one steady-state frame:
+
+| Frame | Before | After |
+|---|---|---|
+| 8 images + 24 rects (a HUD) | 13 allocations / 16,800 B | **2 / 640 B** |
+| 40 images + 60 rects | 45 / 45,230 B | **2 / 2,000 B** |
+| 30 rects, no images | 5 / 16,056 B | **2 / 600 B** |
+
+Three changes, and the first is the one that scales:
+
+⚠️ **BREAKING: `DrawImage.texture` is now `Option<Arc<str>>`, and `texture_key()` returns
+`Option<Arc<str>>`.** This is the transition `Sprite.texture` already made, for the same reason and
+with the same comment in-tree ("`path_arc()` is an O(1) refcount bump; `Arc::from(path())` would
+copy the string") — the sprite collect path had it and the UI path had not followed. The
+constructors take `impl Into<Arc<str>>`, so `DrawImage::textured(x, y, w, h, "icon.png")` and the
+`String` form both still compile; what breaks is assigning to or reading the field as a `String`.
+Nothing in the repo did — all three rebuilt games use `TextQueue` or `Sprite::textured` — so this
+is the cheapest moment it will ever be to change.
+
+**`primitives` and `instances` are scratch fields now.** `keys` and `zs` are deliberately not: they
+*are* the returned `PreparedUiPrimitives`, which the caller holds until the frame's last range is
+drawn. Making them scratch too needs the buffers handed back after drawing, and an API you have to
+remember to call is one where forgetting silently restores the cost. Those two are the residual 2
+allocations — **constant, and independent of how much UI is on screen**.
+
+**Both z-sorts moved from `sort_by` to `sort_unstable_by`** — the UI primitives and, in the same
+shape, `sort_render_entries` for every sprite in the frame. Both comparators end in `order`, which
+is handed out from a single per-frame counter, so each is a strict total order and stability cannot
+change the result; the outputs were compared element-by-element across every size measured.
+
+⚠️ The stable sort's temporary allocation depends on element **size as well as count**, which is
+not the rule a first reading suggests. Measured allocations for one `sort_by`:
+
+| element size \ count | 16 | 32 | 64 | 200 | 1000 |
+|---|---|---|---|---|---|
+| 16 B | 0 | 0 | 0 | 0 | 1 |
+| 48 B | 0 | 0 | 0 | 1 | 1 |
+| 112 B | 0 | **1** | 1 | 1 | 1 |
+| 208 B | 0 | **1** | 1 | 1 | 1 |
+
+A 16-byte proxy says "safe below 1000" and would have been the wrong thing to write down;
+`UiPrimitive` and `SpriteRenderEntry` are both in the large rows, so both were paying it at
+ordinary frame sizes. `sort_unstable_by` read 0 in every cell.
+
 ## 0.153.3
 
 **The docked transition overlay used the surface aspect.** `TransitionRenderer::update` was handed

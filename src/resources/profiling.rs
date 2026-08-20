@@ -45,6 +45,48 @@ pub struct RenderStats {
     pub sprites_culled: u32,
 }
 
+/// Per-frame shaped-text cache counters — how many plain [`DrawText`](crate::DrawText)s this frame
+/// were served from the cross-frame shaped-buffer cache, and how many had to be re-shaped.
+///
+/// Written by `App` after the frame's last text pass and **reset every frame**, so it always
+/// describes the frame that just finished. Rich text is not cached and is counted in neither field.
+///
+/// ⚠️ **Deliberately its own resource, not a field on [`RenderStats`]** — that type is documented
+/// as sprite-pass-only, and hanging text counters on it would make that sentence false.
+///
+/// # Writing a check against it
+///
+/// The obvious assertion is vacuous. **`hits > 0` is satisfied by a static HUD**, and was
+/// satisfied before v0.153.2 too — the property that release actually changed is that a text whose
+/// **position** moves every frame still hits, because position provably cannot affect layout for a
+/// centered or bounds-set draw. So:
+///
+/// - Drive a **moving** `DrawText::centered` and require the miss count to stop rising once the
+///   cache is warm. Name the warm-up window explicitly and exclude it — frame 1 is all-miss by
+///   definition, and a check that leaves the window implicit regresses silently when it changes
+///   (`docs/CHANGELOG.md` § *"A warm-up is part of the property, not setup noise"*).
+/// - Pair it with a text whose **content** changes every frame, which must miss every frame.
+///   Without that control, a counter that never increments `misses` passes.
+/// - `hits + misses > 0` is the only external sign the instrument ran at all. Assert it, and say so
+///   in the message, or the next reader deletes it as redundant.
+///
+/// `tests/render.rs::text_cache_hits_a_moving_centered_text` is that check.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TextCacheStats {
+    /// Plain draws served from the shaped-buffer cache this frame.
+    pub hits: u32,
+    /// Plain draws that had to be shaped from scratch this frame.
+    pub misses: u32,
+}
+
+impl TextCacheStats {
+    /// Plain draws seen this frame — `hits + misses`. Zero means the text pass saw nothing, which
+    /// is not the same as a perfect cache.
+    pub fn total(self) -> u32 {
+        self.hits + self.misses
+    }
+}
+
 /// Complete profiler data. Updated every frame by `App` and read by the Engine Stats panel.
 #[derive(Debug, Clone, Default)]
 pub struct ProfilerData {

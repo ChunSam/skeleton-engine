@@ -384,10 +384,20 @@ fn ui_primitives_sort_by_z_type_then_queue_order() {
         DrawImage::textured(0.0, 0.0, 30.0, 30.0, "image-c.png").with_z(1.0),
     ];
 
-    let order: Vec<String> = sorted_ui_primitives(&rects, &images)
+    // The scratch buffer is deliberately pre-dirtied: `sorted_ui_primitives` clears it, and a
+    // frame that forgot to would leak the previous frame's primitives into this one's draw order.
+    let mut primitives = Vec::new();
+    sorted_ui_primitives(&mut primitives, &rects, &[]);
+    assert!(
+        !primitives.is_empty(),
+        "control: the first pass must fill the scratch"
+    );
+    sorted_ui_primitives(&mut primitives, &rects, &images);
+
+    let order: Vec<String> = primitives
         .iter()
         .map(|primitive| match primitive.kind {
-            UiPrimitiveKind::Image => primitive.texture_key.clone().unwrap(),
+            UiPrimitiveKind::Image => primitive.texture_key.clone().unwrap().to_string(),
             UiPrimitiveKind::Rect => format!("rect-{}", primitive.order),
         })
         .collect();

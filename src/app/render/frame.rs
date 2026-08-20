@@ -673,6 +673,7 @@ impl App {
         // docked mode it's the offscreen texture so text renders into the game viewport (not
         // over the editor chrome). `scene_target_w`/`_h` were computed with the layered batches at
         // step 2.7 (docked offscreen size in docked mode, else the surface size).
+        let mut text_cache_stats: Option<crate::resources::TextCacheStats> = None;
         if let Some(tr) = &mut self.render.text_renderer {
             tr.render(
                 &gpu.device,
@@ -683,9 +684,18 @@ impl App {
                 scene_target_w,
                 scene_target_h,
             );
+            // Read the cache counters BEFORE `end_frame` resets them — this is the frame's last
+            // text pass, so they now cover every batch the frame ran.
+            text_cache_stats = Some(tr.cache_stats());
             // One per-frame text cleanup after the LAST batch: shaped-cache eviction, atlas
             // trims, pooled-renderer reset, generation bump.
             tr.end_frame();
+        }
+        // Published as a resource so a game (or `tests/render.rs`) can see whether a moving text is
+        // being re-shaped every frame. `insert_resource` rather than `resource_mut` so it survives
+        // a scene reset, which drops every non-persistent resource.
+        if let Some(stats) = text_cache_stats {
+            self.world.insert_resource(stats);
         }
 
         // Step 5 (pre): Fade overlay pass (topmost game-scene pass, before egui)

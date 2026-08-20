@@ -19,7 +19,7 @@ pub(super) struct UiPrimitive {
     pub(super) z: f32,
     pub(super) kind: UiPrimitiveKind,
     pub(super) order: usize,
-    pub(super) texture_key: Option<String>,
+    pub(super) texture_key: Option<Arc<str>>,
     pub(super) instance: UiInstanceRaw,
 }
 
@@ -52,8 +52,18 @@ pub(super) fn ui_quad_instance(
     }
 }
 
-pub(super) fn sorted_ui_primitives(rects: &[DrawRect], images: &[DrawImage]) -> Vec<UiPrimitive> {
-    let mut primitives = Vec::with_capacity(rects.len() + images.len());
+/// Sorts `rects` + `images` into one z-ordered stream, reusing `primitives` as scratch.
+///
+/// Takes the buffer rather than returning one: this runs every frame, so the `Vec` is a field on
+/// `SpriteRenderer` that is cleared and refilled (the convention in `docs/PATTERNS.md`
+/// § *Per-frame scratch buffers*).
+pub(super) fn sorted_ui_primitives(
+    primitives: &mut Vec<UiPrimitive>,
+    rects: &[DrawRect],
+    images: &[DrawImage],
+) {
+    primitives.clear();
+    primitives.reserve(rects.len() + images.len());
 
     primitives.extend(images.iter().enumerate().map(|(order, image)| UiPrimitive {
         z: image.z,
@@ -87,14 +97,17 @@ pub(super) fn sorted_ui_primitives(rects: &[DrawRect], images: &[DrawImage]) -> 
         ),
     }));
 
-    primitives.sort_by(|a, b| {
+    // `sort_unstable_by`, not `sort_by`: the comparator ends in `order`, which is unique within a
+    // kind while `sort_rank` already separates the kinds — so this is a strict total order and
+    // stability cannot change the result. The stable sort allocates a temporary buffer whose
+    // threshold depends on element size AND count, and `UiPrimitive` is large enough to cross it
+    // at ~32 primitives; the unstable sort never allocates. Measured identical output.
+    primitives.sort_unstable_by(|a, b| {
         a.z.partial_cmp(&b.z)
             .unwrap_or(Ordering::Equal)
             .then_with(|| a.kind.sort_rank().cmp(&b.kind.sort_rank()))
             .then_with(|| a.order.cmp(&b.order))
     });
-
-    primitives
 }
 
 /// One frame's UI primitives, sorted by z and already uploaded to the shared instance buffer —
@@ -105,7 +118,7 @@ pub(super) fn sorted_ui_primitives(rects: &[DrawRect], images: &[DrawImage]) -> 
 /// one upload are how the z-interleaved text layering slices the surface list.
 pub struct PreparedUiPrimitives {
     /// Texture-key per instance (sorted order) — drives the per-run bind group inside a range.
-    keys: Vec<Option<String>>,
+    keys: Vec<Option<Arc<str>>>,
     /// Z per instance (ascending) — the surface half of the text-layering interleave.
     pub(crate) zs: Vec<f32>,
 }
@@ -146,14 +159,27 @@ impl SpriteRenderer {
         };
         queue.write_buffer(&self.ui_camera_buf, 0, bytemuck::bytes_of(&cam));
 
-        let primitives = sorted_ui_primitives(rects, images);
-        let zs: Vec<f32> = primitives.iter().map(|p| p.z).collect();
+        // `primitives` and `instances` never leave this function, so they are scratch fields
+        // cleared and refilled each frame (`docs/PATTERNS.md` § *Per-frame scratch buffers*).
+        //
+        // ⚠️ `keys` and `zs` DO leave — they are the returned `PreparedUiPrimitives`, which the
+        // caller holds until the frame's last range is drawn — so they are still built fresh here.
+        // That is 2 allocations per frame, constant, and it does NOT scale with how much UI is on
+        // screen; what scaled was the per-image `String` (now an `Arc<str>` bump) and the stable
+        // sort's temporary. Making these two scratch as well needs the buffers handed back after
+        // drawing, and that is a footgun API — forget the call and the win silently disappears.
+        let mut primitives = std::mem::take(&mut self.ui_primitives_scratch);
+        let mut instances = std::mem::take(&mut self.ui_instances_scratch);
+        sorted_ui_primitives(&mut primitives, rects, images);
         let mut keys = Vec::with_capacity(primitives.len());
-        let mut instances = Vec::with_capacity(primitives.len());
-        for p in primitives {
-            keys.push(p.texture_key);
+        let mut zs = Vec::with_capacity(primitives.len());
+        instances.clear();
+        for p in &primitives {
+            keys.push(p.texture_key.clone());
+            zs.push(p.z);
             instances.push(p.instance);
         }
+        self.ui_primitives_scratch = primitives;
 
         if instances.len() > self.ui_instance_capacity {
             self.ui_instance_capacity = instances.len().next_power_of_two();
@@ -168,6 +194,7 @@ impl SpriteRenderer {
             queue.write_buffer(&self.ui_instance_buf, 0, bytemuck::cast_slice(&instances));
         }
 
+        self.ui_instances_scratch = instances;
         PreparedUiPrimitives { keys, zs }
     }
 

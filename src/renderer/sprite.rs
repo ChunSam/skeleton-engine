@@ -86,6 +86,11 @@ pub struct SpriteRenderer {
     // Each collection is cleared at the top of `render()` and refilled.
     draw_entries: Vec<SpriteRenderEntry>,
     sprite_instances_scratch: Vec<InstanceRaw>,
+    /// Scratch: the UI-primitive z-sort buffer and its instance staging. Both are confined to
+    /// `prepare_ui_primitives`, so unlike the returned `keys`/`zs` they can be reused across
+    /// frames — cleared and refilled, never reallocated in steady state.
+    ui_primitives_scratch: Vec<ui_primitives::UiPrimitive>,
+    ui_instances_scratch: Vec<UiInstanceRaw>,
     /// Scratch: AtlasSprite query results (entity, index, color, atlas handle).
     /// Promoted from a per-frame local `Vec` — cleared and refilled each frame.
     atlas_entries_scratch: Vec<(
@@ -356,6 +361,8 @@ impl SpriteRenderer {
             ui_instance_buf,
             ui_instance_capacity: ui_capacity,
             draw_entries: Vec::new(),
+            ui_primitives_scratch: Vec::new(),
+            ui_instances_scratch: Vec::new(),
             sprite_instances_scratch: Vec::new(),
             atlas_entries_scratch: Vec::new(),
             texture_cache,
