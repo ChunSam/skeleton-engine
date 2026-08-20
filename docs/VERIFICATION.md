@@ -71,13 +71,43 @@ grep -E 'running [0-9]+ tests' /tmp/v.log | head -1
 `ok`-group and lib-test counts for the tree, and a count that moved when your change should not
 have moved it is worth a look even when the exit code is `0`. ⚠️ The old reference figures
 (152 groups / 1339 lib tests at v0.138.0) are void — most of those groups were example targets,
-deleted on 2026-08-19. The post-deletion baseline, measured on a green run at v0.153.3, is
-**15 `ok` groups / 1461 lib tests**. The trail, since two releases moved it without saying so:
-1443 at v0.153.0 → **1449 at v0.153.1** (#482 added 6 and did not update this line) → 1461 at
-v0.153.2 (+12). Groups 12-15 are the rebuilt games (`platformer_game`, `rpg_quest_game`,
-`survivor_game`, `puzzle_grid_game`): an example target adds one `ok` group even when it contributes
-no `#[test]` — its selftest is an env-var entry point, so the group reads `running 0 tests`. Every
-rebuilt game adds one more; the lib count does not move with them.
+deleted on 2026-08-19.
+
+⚠️ **A group count means nothing without the command that produced it, and writing the command
+down is not enough.** Two sessions disagreed by exactly one group on 2026-08-21. `grep -c 'test
+result: ok'` over **`verify.sh`'s log** — the command three lines above, and the one these figures
+are stated in — counts the **doctest** group too; `cargo test --all-targets` does not run doctests
+and reports one fewer. Neither is wrong. They answer different questions.
+
+The command block was already sitting right above the number and the mis-count happened anyway,
+because knowing that `--all-targets` skips doctests is not the same as *remembering that this figure
+did not*. So the rule is not "write the command down" — it already was. It is: **state what the
+number includes, next to the number**, in the words below. Otherwise the next person re-derives it
+with a near-enough tool and concludes the document is stale when it is correct — which is what
+happened here, where a `--all-targets` count of 14 was offered as proof that a correct `15` was
+already wrong, and the correct figure came within one reply of being "fixed" away.
+
+The post-deletion baseline is **17 `ok` groups — doctests included, from `verify.sh`'s log** — at
+`netplay_game`'s landing (2026-08-21); 15 before it, and 16 by a `--all-targets` count today.
+
+Lib tests: 1443 at v0.153.0 → **1449 at v0.153.1** (#482 added 6 and did not update this line) →
+1461 at v0.153.2 (+12) → **1467 at v0.154.1** (#493 added 6 and did not update this line either —
+twice now, in the very paragraph that records the first time).
+
+The groups are ordered lib → integration → examples → doctests, so today: **1** lib, **2-10** the
+nine `tests/*.rs` integration binaries, **11-16** the example targets, **17** doctests. An example
+target adds one `ok` group **even when it contributes no `#[test]`** — its selftest is an env-var
+entry point, so the group reads `running 0 tests`, which is what `platformer_game`, `rpg_quest_game`,
+`survivor_game` and `puzzle_grid_game` all do.
+
+⚠️ **A game is not always one group.** `netplay_game` is two binaries — a client and its
+`netplay_server` — so phase 5 added **two** groups, and both carry real unit tests (14 and 21),
+because their netcode is pure functions over a shared `protocol.rs` that each compiles its own copy
+of. The lib count does not move with any of them: example tests are not lib tests. **Count the
+`[[example]]` blocks, not the games** — and note that the previous version of this paragraph said
+"groups 12-15 are the rebuilt games" when they were 11-14, an off-by-one that survived because
+nobody had cause to index into the list until a game arrived that broke the one-game-one-group
+assumption.
 
 ### Trap 5 — a stale `.exit` file from a previous session
 
@@ -286,6 +316,65 @@ has ever moved — and it reads exactly like a side that works.** Two cases from
 
 The procedure this implies: for every clause of a check, name a sabotage that flips **that clause and
 not the others**, and if you cannot make one fire, say so in the comment rather than assuming it holds.
+
+### A sabotage that fails the wrong check has not verified anything
+
+Phase 5's networked selftest (2026-08-21) ran **13 sabotages against 7 checks** and every one turned
+the gate red — but one of them turned the *wrong* check red, and that is a different result from a
+pass.
+
+`NETPLAY_SELFTEST` check 2 has two halves: an entity the server stopped mentioning must be evicted,
+and one it is still sending must **never** be dropped, not even for a frame. The obvious sabotage for
+the second half — evict everything, every frame — exits **1**, not 2, because check 1 (which streams
+three entities in and looks at them one tick later) sees them vanish first and fails earlier. Check 2's
+second half was still unverified while the run looked like proof.
+
+The fix is a sabotage narrow enough that only the target check can see it: evict anything not mentioned
+**this very frame**. An entity ingested this frame survives, so check 1 stays green, and the failure
+lands where it belongs (`the entity the server is still sending was evicted on frame 1`). The rule this
+generalises to: **read the exit code, not just its redness.** A sabotage matrix where every row says
+"red" and the rows disagree with the checks they were aimed at is a matrix that has verified the
+earliest check thirteen times.
+
+The full matrix, all of which now fail on the intended check:
+
+| Check | Sabotage | Exit |
+|---|---|---|
+| 1 stream-in | `ingest` spawns only some kinds | 1 |
+| 2 eviction fires | cutoff pushed to infinity (the flattering failure) | 2 |
+| 2 eviction is not over-eager | cutoff shortened to one frame (**must be this narrow**) | 2 |
+| 2 map coherence | `forget` leaves the interpolation buffer behind | 2 |
+| 3 reconciliation happens | the `reconcile` call removed | 3 |
+| 3 reconciliation replays | replay loop removed — snaps to the server (the rubber-band) | 3 |
+| 4 display interpolates | render time moved to the present | 4 |
+| 4 collision reads the display | collision switched to the newest snapshot | 4 |
+| 5 a claim does not delete | pickup deleted + scored on touch | 5 |
+| 5 `Taken` does delete | the `Taken` arm emptied | 5 |
+| 5 `Taken` credits its `by` | the `by` field ignored | 5 |
+| 6 first-claim-wins | the server's already-taken guard removed | 6 |
+| 7 per-client AOI | the server's radius filter replaced with `true` | 7 |
+
+Two of these are worth keeping in mind beyond this game, because both are **flattering** — the broken
+version looks *better* than the correct one and every frame is fine:
+
+- **Deleting a pickup the moment you touch it** is instant and needs no round trip. It is only wrong
+  with a second player, and then both scoreboards are internally consistent and disagree with each
+  other. What catches it is not a score but the invariant *points awarded == pickups removed*, which
+  is why check 6 drives two clients and counts across both.
+- **Eviction being dead** makes the HUD's "streaming N" climb impressively. Nothing announces a
+  departure — the server just stops mentioning things — so there is no missing message to notice.
+
+### A missing sibling binary must fail, not skip
+
+Measured on the deleted tree and re-measured on the rebuilt one. A networked selftest spawns a sibling
+`<game>_server` resolved from its own `current_exe()` directory, and `cargo run --example netplay_game`
+does not build it. The deleted tree treated that as a skip: **with the server hidden, the raw exit code
+was 0** — silently dropping the two checks that covered the most.
+
+`netplay_game` now exits **8** with the server absent (verified 2026-08-21 by moving the binary aside),
+and `scripts/selftests.sh` independently builds every `*_server` target it finds in Cargo.toml's
+`[[example]]` blocks *and* treats any non-audio `SKIP:` as a failure. Both halves are wanted: the runner
+protects the gate, and the exit code protects anyone running the binary directly.
 
 ### Writing one: assert an invariant, not an end state
 
