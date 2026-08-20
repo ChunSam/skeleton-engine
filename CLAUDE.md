@@ -164,17 +164,18 @@ Two that have their own failure mode:
 
 **A feature is not done until a small playable example exercises it in real play.** The example is
 the acceptance test, not an afterthought — if the API feels awkward while writing it, fix the API.
-Rebuilding as five games; **four exist**, so their subsystems are exercised and the rest is not.
-That gap is a standing debt, not the rule being relaxed.
+Rebuilding as five games; **four exist**, so the rest is a standing debt, not the rule relaxed.
 
 **A number pinned in prose is fixed by whoever changes it.** *(권고)* A stale baseline is worse
 than none — it reads as an unexplained gain. v0.153.0 moved the lib-test count 1432 → 1443 in two
 documents written hours earlier by the same session.
 
-**A filed diagnosis is a hypothesis, not a spec — the gate that row names is what settles it.**
-*(권고)* Five times between v0.150.7 and v0.152.5 a written-down cause was wrong and a single
-measurement reversed it (#459, #461, #462, #464, #473). Re-derive before acting — **including your
-own claim from ten minutes ago**, which is the one case this has actually bitten.
+**A filed diagnosis is a hypothesis — and so is the gate the row names to settle it.** *(권고)*
+Five times in v0.150.7–v0.152.5 a written-down cause was wrong and one measurement reversed it
+(#459, #461, #462, #464, #473). On 2026-08-20 the *gate* was wrong twice: "needs a GPU" named a
+pure function, "needs a game" named what `tests/render.rs` already drove. Both over-estimated the
+cost, which is how a row stays deferred without anyone noticing. Re-derive both before acting —
+**including your own claim from ten minutes ago**, which is the one case this has actually bitten.
 
 **Where things go.** Unit tests live inline (`mod tests`), beside the code they cover. `plans/` is
 tracked — commit session plans and handoffs. `.claude/` is gitignored.
