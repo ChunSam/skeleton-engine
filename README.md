@@ -21,10 +21,13 @@ Scope is **genre-agnostic 2D**: platformers, shooters, RPGs, puzzles, top-down a
 New features are validated through small, playable example games rather than in
 isolation. See [`docs/VISION.md`](docs/VISION.md) for the full rationale.
 
-> ⚠️ **The `examples/` tree is currently empty.** It was deleted on 2026-08-19 and is being
-> rebuilt from scratch, so there is nothing to `cargo run --example` right now. The engine
-> library itself is unaffected and builds and tests as before. Past examples are recoverable
-> from git history (`git log -- examples/`).
+> ⚠️ **The `examples/` tree is being rebuilt.** It was deleted on 2026-08-19 and is coming back as
+> five feature-test games; **two are in** — `cargo run --example platformer_game` and
+> `cargo run --example rpg_quest_game`. Each self-verdicts headlessly with
+> `<NAME>_SELFTEST=1 cargo run --example <name>`. The other three (top-down action, puzzle,
+> networked) are not written yet; the ~85 single-feature demos are not coming back. The engine
+> library itself was never affected. Past examples are recoverable from git history
+> (`git log -- examples/`).
 
 ## Requirements
 

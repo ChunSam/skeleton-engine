@@ -2,8 +2,9 @@
 
 > Status: living document. Derived from `docs/VISION.md` (reset 2026-05-29), under its core loop:
 > **a feature is not done until a small, playable example game in `examples/` exercises it in real
-> play.** ⚠️ As of 2026-08-19 the `examples/` tree is empty, so **nothing in this engine currently
-> meets that bar** — see the top section below.
+> play.** ⚠️ The tree was deleted on 2026-08-19 and is being rebuilt as five games; **two exist**
+> (`platformer_game`, `rpg_quest_game`), so the subsystems they name meet that bar and the rest of
+> `src/` does not — see the top section below.
 >
 > **This file holds only what is still open.** The completed candidate A–O playable-examples program
 > and its release/hardening follow-ups moved to **`docs/PROGRAM_HISTORY.md`** on 2026-08-03 — they
