@@ -31,6 +31,12 @@ cargo build --target wasm32-unknown-unknown
 echo "[verify] cargo clippy --target wasm32-unknown-unknown --lib -- -D warnings"
 cargo clippy --target wasm32-unknown-unknown --lib -- -D warnings
 
+# The build above is lib + bins ONLY. Between v0.153.0 and v0.154.x an example could stop compiling
+# for the web with every job green, because nothing built one. This restores that coverage.
+# ⚠️ Building is not running: no browser loads any of this. That is the `wasm-smokes` job (phase 5).
+echo "[verify] ./scripts/build_wasm_examples.sh"
+./scripts/build_wasm_examples.sh
+
 echo "[verify] cargo test --all-targets"
 cargo test --all-targets
 
