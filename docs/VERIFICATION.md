@@ -155,6 +155,33 @@ Verifying a removal means searching the **repo** for the idea in every phrasing 
 re-reading the file you happened to have open. The file you were editing is the one place you have
 already looked.
 
+### Never cite `docs/CHANGELOG.md` by line number — it decays with nobody touching it
+
+Two rules above already govern numbers in prose: *a number pinned in prose is fixed by whoever
+changes it*, and *a citation that cannot settle the claim is a defect*. Both assume **someone
+changed something**. A line number into `docs/CHANGELOG.md` needs no such help: every release
+prepends, so every line below the new entry moves, and a citation that was exact when written is
+wrong by the next release without a single edit to the text it points at.
+
+On 2026-08-20 a peer session cited `docs/CHANGELOG.md:1090` for the warm-up-window precedent. It was
+exact when read. By the time it was checked, v0.153.2 (+96 CHANGELOG lines) and v0.153.3 (+31) had
+landed, and the paragraph had moved to **1217** — the drift is 96 + 31 = 127, to the line. Line 1090
+by then held an unrelated entry about `core.fileMode`, which is the dangerous part: the citation did
+not dangle, it silently **re-pointed at other content**. Nothing was committed carrying the stale
+number, so this cost a message rather than a session — the next one may not be so cheap.
+
+Cite by heading or by a quoted phrase, which `grep` still finds at any depth:
+
+```bash
+# ✅ survives any number of releases
+# docs/CHANGELOG.md § "A warm-up is part of the property, not setup noise"
+grep -n 'A warm-up is part of the property' docs/CHANGELOG.md
+```
+
+This is specific to append-at-the-top files — `docs/CHANGELOG.md` is the one in this repo. A line
+number into a source file is stable until someone edits that file, and the rules above cover that
+case.
+
 ---
 
 ## What each step does and does not cover
