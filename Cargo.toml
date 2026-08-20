@@ -22,8 +22,6 @@ include     = [
     "docs/CHANGELOG.md",
     "LICENSE",
     "README.md",
-    "REFERENCE.html",
-    "ARCHITECTURE.html",
     "Cargo.toml",
     "Cargo.lock",
     "scripts/**",

@@ -181,8 +181,7 @@ python3 -m http.server --directory dist 8080
 
 ## Documentation
 
-- [`REFERENCE.html`](REFERENCE.html) in the repository root contains the public API reference and subsystem examples. _(written in Korean)_
-- [`ARCHITECTURE.html`](ARCHITECTURE.html) explains the maintainer-oriented engine structure and frame flow. _(written in Korean)_
+- The Korean HTML docs (`REFERENCE.html`, `ARCHITECTURE.html`, `STRUCTURE.html`, `DEPENDENCY_GRAPH.html`) were **deleted on 2026-08-20** and will be rewritten. They described the examples tree removed in v0.153.0 — 145 cargo targets that no longer exist — and a stale reference is worse than none. Until they return: [`src/lib.rs`](src/lib.rs) is the public API list, and [`docs/MODULE_MAP.md`](docs/MODULE_MAP.md) is the "where is X?" table.
 - [`FORKING.md`](FORKING.md) is the English getting-started guide for building your own game on the engine.
 - Contributor handoff and agent notes live in the repository, outside the crates.io package.
 

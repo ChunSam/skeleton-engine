@@ -24,7 +24,7 @@ added as a dependency. Read `docs/VISION.md` once — it is the "why" every feat
 | "What changed, and why?" | `docs/CHANGELOG.md` (release-facing), `plans/handoffs/` (session history). `docs/HANDOFF.md` is a **frozen** 2026-06-16 record on the pre-reset 10.x version line — not current state |
 | "What should I build next?" | `docs/NEXT_WORK.md` — the live backlog; **start with its board gate**. `docs/ROADMAP.md` for milestones, `docs/PROGRAM_HISTORY.md` for the finished candidate A–O program |
 | GPU render tests | `docs/RENDER_TESTING.md` |
-| User-facing docs | `README.md`, `FORKING.md`, `REFERENCE.html` + `ARCHITECTURE.html` (Korean) |
+| User-facing docs | `README.md`, `FORKING.md`. The four Korean HTML docs were deleted 2026-08-20 — they described the pre-deletion examples tree and are to be rewritten |
 
 Exploration order: `rg`/`grep` for the symbol → `src/lib.rs` → the `MODULE_MAP` row → the file.
 Read only what you need.

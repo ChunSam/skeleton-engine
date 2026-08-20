@@ -1,7 +1,7 @@
 # Forking skeleton-engine
 
 A short, practical guide to building **your own game** on the engine. For the full API
-reference see [`REFERENCE.html`](REFERENCE.html) _(Korean)_; for the architecture and
+reference see [`src/lib.rs`](src/lib.rs) and [`docs/MODULE_MAP.md`](docs/MODULE_MAP.md); for the architecture and
 agent notes see [`CLAUDE.md`](CLAUDE.md) and [`docs/`](docs/).
 
 ## The model: fork, don't depend
@@ -137,4 +137,4 @@ and went with them, so nothing checks the engine in a real browser or in real pl
 - **`docs/VISION.md`** — why the engine exists and how features get accepted (every feature
   is validated by a small playable example — a bar nothing currently meets, see above).
 - **`docs/PATTERNS.md`** — architecture patterns and task recipes.
-- **`REFERENCE.html`** — full API reference with examples _(Korean)_.
+- **`src/lib.rs`** — the public API re-export list, which is the fastest map of what exists. (The Korean `REFERENCE.html` was deleted on 2026-08-20 for describing an examples tree that no longer exists; it will be rewritten.)
