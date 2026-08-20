@@ -134,6 +134,22 @@ impl SpriteRenderer {
                     };
                 let rot = glam::Vec2::from_angle(rotation);
                 let color = sprite.color.to_array();
+                // ── LOD is a decision about the SPRITE, not about its nine pieces ──────
+                // `CullConfig::min_pixel_size` is documented as "sprites whose screen-space size
+                // (min(w, h) in pixels) is below this value are skipped", and a nine-slice panel
+                // is one sprite. Testing each sub-quad instead measured the *border* width for
+                // eight of the nine: a corner is `border x border` and an edge is `border` on its
+                // short axis, both independent of how big the panel is. So any `min_pixel_size`
+                // above the border shredded every panel at every size — a 500x300 panel with an
+                // 8 px border under `min_pixel_size: 16.0` lost its four corners and four edges
+                // and drew as a bare centre quad.
+                //
+                // Tested once, here, against the panel. The frustum test below stays per-sub-quad:
+                // that one asks "is this piece on screen", which is a real per-piece question.
+                if !is_above_lod(panel_size) {
+                    stats.sprites_culled += 1;
+                    continue;
+                }
                 for sq in nine_slice_subquads(panel_size, uv, &ns) {
                     let center = pos + rot.rotate(sq.local_center);
                     let model = Mat4::from_scale_rotation_translation(
@@ -151,7 +167,9 @@ impl SpriteRenderer {
                         tex_key.clone(),
                         InstanceRaw::single(model, color, sq.uv),
                         is_visible,
-                        is_above_lod,
+                        // Already decided for the whole panel above; a second, per-piece LOD test
+                        // is exactly the bug.
+                        &|_| true,
                         stats,
                         &mut next_order,
                         &mut self.draw_entries,
@@ -286,18 +304,23 @@ impl SpriteRenderer {
         // per-toggle GPU allocation for the editor's visibility checkbox and for any game that
         // blinks a material sprite.
         //
-        let mut mat_ids: Vec<(crate::ecs::Entity, u64, [f32; 4])> = Vec::new();
         split_material_entities(
             world,
             &mut self.material.live_material_entities_scratch,
-            &mut mat_ids,
+            &mut self.material.drawn_material_entities_scratch,
         );
 
         // seen_new_hashes_scratch: hashes whose source has already been claimed by a
         // surviving entity this call — keeps frag_source clones to at most one per new
         // pipeline. Field is cleared+reused each frame.
         self.material.seen_new_hashes_scratch.clear();
-        for (entity, hash, params) in mat_ids {
+        // Indexed rather than `for … in &self.material.drawn_material_entities_scratch`: the body
+        // needs `&mut self.material` (for `seen_new_hashes_scratch` and `params_buffers`) and
+        // `&mut self.draw_entries`, which an iterator borrowing the same struct would forbid. The
+        // element is `Copy`, so the index read ends its borrow immediately and no `mem::take` /
+        // put-back dance is needed.
+        for i in 0..self.material.drawn_material_entities_scratch.len() {
+            let (entity, hash, params) = self.material.drawn_material_entities_scratch[i];
             let uv = world.get::<UvRect>(entity).copied().unwrap_or(UvRect::FULL);
             // SpriteFlip mirrors the sampled UV region (absent/default = no flip).
             let flip = world

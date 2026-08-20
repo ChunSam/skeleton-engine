@@ -1,4 +1,4 @@
-use super::textures::{file_texture_aliases, reload_format};
+use super::textures::{file_texture_aliases, reload_format, rt_registration, RtRegistration};
 use super::ui_primitives::{sorted_ui_primitives, UiPrimitiveKind};
 use super::*;
 
@@ -412,5 +412,43 @@ fn ui_primitives_sort_by_z_type_then_queue_order() {
             "rect-0",
             "rect-2",
         ]
+    );
+}
+
+// ── register_render_target: the steady-state frame must not allocate a key ────────────────────
+
+/// `render_offscreen_targets` re-registers every offscreen target's bind group **every frame**,
+/// handing over an `Arc::clone` of the very object already cached. That has to be recognised as
+/// a no-op, or the cache pays a `String` allocation per target per frame to replace an entry
+/// with an identical one.
+#[test]
+fn re_registering_the_same_bind_group_is_a_no_op() {
+    let bg = std::sync::Arc::new(7u32);
+    let cached = std::sync::Arc::clone(&bg);
+    assert_eq!(
+        rt_registration(Some(&cached), &bg),
+        RtRegistration::Unchanged,
+        "the same bind group arriving again must not touch the map"
+    );
+}
+
+/// The control that keeps the fast path honest: a render target that was rebuilt (resized, or
+/// its format changed) hands over a **different** bind group under the same name, and the cache
+/// must take it. Treating that as unchanged would sample a destroyed texture.
+#[test]
+fn a_rebuilt_render_target_replaces_its_bind_group() {
+    let old = std::sync::Arc::new(7u32);
+    // Equal by value, different object — exactly the case `Arc::ptr_eq` exists to separate, and
+    // the one a `==` comparison would get wrong.
+    let rebuilt = std::sync::Arc::new(7u32);
+    assert_eq!(
+        rt_registration(Some(&old), &rebuilt),
+        RtRegistration::Replace,
+        "a new bind group under a known name must overwrite, even if it compares equal"
+    );
+    assert_eq!(
+        rt_registration(None, &rebuilt),
+        RtRegistration::Insert,
+        "control: a name the cache has never seen is the one case that owns a new key"
     );
 }

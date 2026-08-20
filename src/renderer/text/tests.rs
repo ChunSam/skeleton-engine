@@ -3,7 +3,7 @@
 use glam::Vec2;
 use glyphon::{cosmic_text::Align, Attrs, Buffer, Family, Metrics, Shaping, Wrap};
 
-use super::cache::PlainTextCacheKey;
+use super::cache::{PlainTextCacheKey, TextInterner};
 use super::queue::{DrawText, TextAlign, TextAnchor, TextQueue};
 use super::renderer::{
     build_font_system, layout_buffer_height, layout_buffer_width, shaped_center_x,
@@ -398,7 +398,7 @@ fn key_for(i: KeyInputs) -> PlainTextCacheKey {
         py,
     ));
     PlainTextCacheKey {
-        text: i.text.clone(),
+        text: i.text.as_str().into(),
         scaled_size_bits: i.size.to_bits(),
         layout_w_bits: layout_w.map(f32::to_bits),
         layout_h_bits: layout_h.map(f32::to_bits),
@@ -417,7 +417,7 @@ fn cache_key_hit_when_identical() {
 #[test]
 fn cache_key_miss_when_text_differs() {
     let mut k = base_key();
-    k.text = "world".to_string();
+    k.text = "world".into();
     assert_ne!(k, base_key());
 }
 
@@ -594,7 +594,7 @@ fn cache_eviction_removes_stale_entries() {
         std::collections::HashMap::new();
     let k1 = base_key();
     let mut k2 = base_key();
-    k2.text = "other".to_string();
+    k2.text = "other".into();
     // k1 was used this frame (gen == current), k2 was not (gen == old).
     cache.insert(k1.clone(), current_gen);
     cache.insert(k2.clone(), current_gen - 1);
@@ -606,6 +606,71 @@ fn cache_eviction_removes_stale_entries() {
         "current-frame entry should be retained"
     );
     assert!(!cache.contains_key(&k2), "stale entry should be evicted");
+}
+
+/// The interner's whole reason to exist: a string the cache has already seen must come back as
+/// the **same allocation**, so building a `PlainTextCacheKey` to probe the cache copies no text.
+///
+/// Pointer identity is the instrument, not `assert_eq!` on the contents - two separately
+/// allocated `Arc<str>`s with equal text compare equal, which is exactly the failure this test
+/// exists to catch (the same reason v0.150.6 pinned `image_assets_for_gpu` with `ptr::eq`).
+#[test]
+fn interning_a_repeated_string_returns_the_same_allocation() {
+    let mut interner = TextInterner::default();
+    let first = interner.intern("Score: 1200");
+    let second = interner.intern("Score: 1200");
+    assert!(
+        std::sync::Arc::ptr_eq(&first, &second),
+        "a repeated string must reuse one allocation - this is the per-frame copy the cache key \
+         used to pay on every hit"
+    );
+
+    // Control: the interner is not just handing back whatever it was given last. A different
+    // string must be a different allocation, or the test above would pass on a broken one-slot
+    // cache that ignores its argument.
+    let other = interner.intern("Score: 1300");
+    assert!(
+        !std::sync::Arc::ptr_eq(&first, &other),
+        "control: distinct strings must not share an allocation"
+    );
+    assert_eq!(
+        &*other, "Score: 1300",
+        "control: and the text must be right"
+    );
+    assert_eq!(interner.len(), 2, "control: both strings are held");
+}
+
+/// The interner is a cache, so it needs an eviction rule or it is the unbounded-growth bug in a
+/// new place. The rule is refcount-based: a string survives exactly as long as some cache key
+/// still names it.
+#[test]
+fn the_interner_drops_only_strings_no_key_refers_to() {
+    let mut interner = TextInterner::default();
+    let live = interner.intern("still drawn");
+    let dead = interner.intern("stopped being drawn");
+    assert_eq!(interner.len(), 2);
+
+    // `dead`'s only other holder goes away - as a cache key does when `end_frame` evicts its
+    // entry. `live` stands in for a key the cache kept.
+    drop(dead);
+    interner.evict_unreferenced();
+
+    assert_eq!(
+        interner.len(),
+        1,
+        "a string no key refers to any more must be dropped"
+    );
+    let again = interner.intern("still drawn");
+    assert!(
+        std::sync::Arc::ptr_eq(&live, &again),
+        "control: the referenced string survived the eviction as the SAME allocation - an \
+         eviction that dropped it would silently reintroduce the per-frame copy"
+    );
+
+    // And the dropped one really was dropped, rather than merely uncounted.
+    let revived = interner.intern("stopped being drawn");
+    assert_eq!(&*revived, "stopped being drawn");
+    assert_eq!(interner.len(), 2, "control: re-interning re-adds it");
 }
 
 /// A supplied `FontData` must become the family the engine actually shapes with.

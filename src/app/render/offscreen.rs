@@ -54,6 +54,23 @@ impl App {
             rt_info
         {
             // ① Swap camera — if no prior camera existed remove it after render, otherwise restore
+            //
+            // ⚠️ This is NOT the remove → call → reinsert shape v0.152.2 fixed in
+            // `with_resource_mut` and `clone_component_by_typeid`, though it reads like it. Two
+            // things separate it, both checked rather than assumed:
+            //
+            //   • Nothing is removed. `Camera` is `Copy`, so this saves a copy and overwrites;
+            //     the World holds a camera throughout, never a hole.
+            //   • The gap is not survivable-by-design. What made v0.152.2's gap dangerous was
+            //     `SystemPanicPolicy::DisableSystemAndContinue` catching a *system* panic and
+            //     running on with the state gone. The render stage has no `catch_unwind` above
+            //     it — the only ones in the crate are per-system (`app/schedule.rs`) and gilrs
+            //     polling (`app/window.rs`) — so a panic between ① and ⑤ takes the process with
+            //     it and there is no "after" to be corrupted.
+            //
+            // The loop body is also straight-line between the two: no `?`, no `continue`, no
+            // early `return`. If any of that changes, this becomes a real hole — a leaked
+            // offscreen camera would silently become the main camera for the rest of the session.
             let saved_cam = world.resource::<crate::camera::Camera>().copied();
             world.insert_resource(cam);
 

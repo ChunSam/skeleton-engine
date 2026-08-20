@@ -4,6 +4,123 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.154.1
+
+Six rows from the 2026-08-19 render review's remainder. **Two of the six turned out not to be
+what they were filed as**, which is the release's most reusable finding — see the last section.
+
+### A nine-slice panel was LOD-culled as nine sprites instead of one
+
+`CullConfig::min_pixel_size` documents itself as skipping *sprites* below a screen size. A
+nine-slice panel is one sprite, but `collect_draw_entries` ran the LOD test on each of the nine
+sub-quads it is drawn with — and eight of those measure the **border**, not the panel: a corner
+is `border x border`, an edge is `border` on its short axis. The border does not grow with the
+panel, so any `min_pixel_size` above it stripped the frame off a panel of *any* size:
+
+| panel | border | `min_pixel_size` | pieces drawn (before) | after |
+|---|---|---|---|---|
+| 500x300 | 8 px | 16.0 | **1** (bare centre, no edges or corners) | 9 |
+| 5000x3000 | 8 px | 16.0 | **1** | 9 |
+
+That second row is the shape of it — the bug does not scale away, because size was never what
+got measured. The panel is now LOD-tested once, against itself; the frustum test stays
+per-sub-quad, since "is this piece on screen" is a real per-piece question. A panel genuinely
+below the threshold is still culled whole.
+
+Pinned by `nine_slice::tests::a_pieces_size_does_not_track_the_panels`, which asserts the exact
+`survivors == 1` the old rule produced, plus its complement so the fix is not "nine-slice ignores
+LOD". The premise was already in-tree and unread: `corner_keeps_border_size_independent_of_panel_size`
+had been asserting the very independence that makes the bug work.
+
+### Two per-frame allocations, both measured
+
+**The shaped-text cache key copied its text on every lookup — including every hit.**
+`PlainTextCacheKey` owned a `String`, and the lookup path has to *build* a key before it can probe
+the map (`HashMap::remove` takes `&Q where K: Borrow<Q>`, and no `Q` borrows a struct that owns
+its text). So v0.153.2's win — hits became the common case for moving text — was being paid for
+with one string copy per plain `DrawText` per frame regardless. The key now holds `Arc<str>`, and
+a `TextInterner` hands back an owned one from a `&str` probe. Steady-state frame, all hits,
+standalone counting allocator over the key-construction + probe path:
+
+| frame | before | after |
+|---|---|---|
+| 6 static HUD lines | 6 allocs / 63 B | **0 / 0** |
+| 40 `FloatingText` | 40 allocs / 74 B | **0 / 0** |
+| 12 dialogue lines (~60 chars) | 12 allocs / 686 B | **0 / 0** |
+
+⚠️ **The miss path is what rejected the obvious design.** The two-level
+`HashMap<Arc<str>, HashMap<ShapeKey, _>>` that suggests itself also reads 0 on hits — and **13**
+on a control frame of six all-new strings, against the `String` key's 7, because every new string
+also allocates an inner map. The interner reads 8 there: parity plus one amortised table growth.
+A score readout changes its text every frame, so the miss path is not a corner case, and a design
+that had only been checked on hits would have shipped a 2x regression on it. Interning is not
+free either — it needs an eviction rule, and it has one: a string is dropped once no cache key
+refers to it (`Arc::strong_count == 1`), checked strictly after the buffer cache evicts its own
+entries.
+
+Both halves are pinned by `Arc::ptr_eq`, not `assert_eq!` — two separately allocated `Arc<str>`s
+with equal text compare equal, which is exactly the failure the tests exist to catch. Both were
+sabotage-verified red (an always-allocating `intern`; a no-op eviction) and restored.
+
+**`mat_ids` was a fresh `Vec` per frame** in the material collect path — now
+`drawn_material_entities_scratch`, cleared and refilled like its `live`/`seen` siblings. The
+consuming loop is indexed rather than iterated: the body needs `&mut self.material` and
+`&mut self.draw_entries`, and the element is `Copy`, so no `mem::take` put-back dance is needed.
+Free either way in a scene with no `ShaderMaterial`.
+
+### A per-frame `String` the review did not spot
+
+Reading the "`rt_cache` is never evicted" row turned up something better than the row.
+`register_render_target` is called **once per offscreen render target per frame** by
+`render_offscreen_targets`, always with an `Arc::clone` of the bind group already cached — and it
+did `insert(key.to_string(), bg)` unconditionally, allocating a `String` every frame to overwrite
+an entry with an identical one. It now compares by pointer identity first. The genuine-rebuild
+case (a resized or reformatted target hands over a *different* bind group under the same name)
+still replaces, which a value comparison would have got wrong. Decided by a generic free function
+so a test can reach it without a GPU, the same split `reload_format` uses.
+
+### An out-of-range particle upload said nothing
+
+`GpuParticleRenderer::upload_particles` is `pub`, and dropped a write past the end of the buffer
+in silence — a game writing its own emitter saw particles that never appeared, with nothing
+anywhere saying why. Dropping the write is still right (`queue.write_buffer` past the end is a
+validation error, and the engine's own ring path never gets there); it now logs the offset, the
+required size and the capacity. Not rate-limited, deliberately: a caller in this state is wrong
+every frame, which is how the text pass already treats a failed render.
+
+### Two rows that were not what they said, and one that was not worth doing
+
+**The offscreen camera swap is not the `remove -> call -> reinsert` hole v0.152.2 fixed**, though
+it reads like it. `Camera` is `Copy`, so the code saves a copy and overwrites — the World never
+holds a hole. And what made v0.152.2's gap dangerous was `SystemPanicPolicy::DisableSystemAndContinue`
+catching a *system* panic and continuing with the state gone; the render stage has no
+`catch_unwind` above it (the crate's only two are per-system and gilrs polling), so a panic there
+takes the process and there is no "after" to corrupt. No change, but the reasoning is now in the
+file, along with the condition that would make it real — an early exit appearing between the swap
+and the restore.
+
+**`custom_pipelines` and `rt_cache` are not leaks.** `custom_pipelines` is keyed by *source* hash,
+so it grows with the number of distinct shader sources a session compiles — not with entities,
+time, or scene loads — and holding them across a scene reset is the point, since rebuilding one is
+a shader recompile. `rt_cache` mirrors `RenderState::render_targets`, and *that* map has no removal
+path at all, so it cannot outgrow its source; if destroying a render target ever becomes a thing,
+the fix belongs upstream. Both now say so where they are declared.
+
+**The per-texture sampler stays.** It is a *load*-time cost, not per-frame, and removing it needs
+either a new public constructor taking a borrowed sampler or a device-keyed cache — API surface a
+skeleton engine has to carry, bought with no measurement. Noted in place that `wgpu::Sampler` is
+`Clone`, so one shared sampler cloned into each `Texture` is the whole fix if a real ceiling (a
+D3D12 descriptor heap under a high texture count) ever forces it. Confirming that needs a Windows
+runtime, which this repo does not have.
+
+### The habit these keep re-teaching
+
+Three of the six rows above were filed with a cause that a read or a measurement then changed —
+following #459, #461, #462, #464, #473 and v0.154.0's own "needs a game" and "needs a GPU". The
+one worth naming this time is narrower: **checking a fix only on the path it was written for is
+how a regression ships.** The interner's hit path was green on the first design tried; it was the
+*control* — the workload the change was not aimed at — that rejected it.
+
 ## 0.154.0
 
 **`TextCacheStats` — the shaped-text cache is finally observable, and v0.153.2's claim is now

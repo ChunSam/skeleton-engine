@@ -376,11 +376,29 @@ impl GpuParticleRenderer {
         }
         let byte_offset = offset as u64 * std::mem::size_of::<GpuParticle>() as u64;
         let byte_data = bytemuck::cast_slice(particles);
-        if byte_offset + byte_data.len() as u64
-            <= self.particle_capacity as u64 * std::mem::size_of::<GpuParticle>() as u64
-        {
-            queue.write_buffer(&self.particle_buf, byte_offset, byte_data);
+        let capacity_bytes =
+            self.particle_capacity as u64 * std::mem::size_of::<GpuParticle>() as u64;
+        if byte_offset + byte_data.len() as u64 > capacity_bytes {
+            // Dropping the write is the right thing — `queue.write_buffer` past the end is a
+            // validation error, and the engine's own ring path never gets here. But dropping it
+            // *silently* is not: this is `pub`, so a game writing its own emitter sees particles
+            // that simply never appear, with nothing anywhere saying why.
+            //
+            // Not rate-limited, deliberately. A caller in this state is wrong every frame and
+            // should be told every frame, which is how the text pass already treats a failed
+            // render. The alternative needs interior mutability for a `&self` method, and buying
+            // that to make a bug quieter is the wrong trade.
+            log::warn!(
+                "gpu particle upload out of range — {} particles at slot {offset} need {} bytes \
+                 but the buffer holds {} ({} particles); dropping the write",
+                particles.len(),
+                byte_offset + byte_data.len() as u64,
+                capacity_bytes,
+                self.particle_capacity,
+            );
+            return;
         }
+        queue.write_buffer(&self.particle_buf, byte_offset, byte_data);
     }
 
     /// Uploads a frame's freshly-spawned particles as `(ring slot, particle)` pairs — **one

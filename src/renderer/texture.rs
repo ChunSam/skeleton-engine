@@ -215,6 +215,16 @@ impl Texture {
         );
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         // Nearest filtering = crisp pixel art (sprite/atlas textures).
+        //
+        // One sampler per texture, and every one of them identical. Left that way on purpose:
+        // this runs at *load* time, not per frame, and de-duplicating it means either a new
+        // public constructor taking a borrowed sampler or a device-keyed cache — real API
+        // surface for a skeleton engine to carry, bought with no measurement behind it. If it
+        // ever needs doing, `wgpu::Sampler` is `Clone` (an Arc-backed handle), so one shared
+        // sampler cloned into each `Texture` is the whole fix and the `pub sampler` field keeps
+        // working unchanged. The case that would force it is a backend with a hard sampler
+        // ceiling (D3D12's descriptor heap) under a texture count high enough to reach it —
+        // which needs that box to confirm, and this repo has no Windows runtime coverage.
         let sampler = super::common::create_clamp_sampler(device, None, wgpu::FilterMode::Nearest);
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("texture bind group"),

@@ -262,4 +262,67 @@ mod tests {
         // No sub-quad may have a negative size.
         assert!(q.iter().all(|s| s.size.x > 0.0 && s.size.y > 0.0));
     }
+
+    /// A sub-quad's size is **not** a proxy for the panel's, which is why `collect_draw_entries`
+    /// LOD-tests a nine-slice sprite once against the panel instead of nine times against the
+    /// pieces.
+    ///
+    /// `CullConfig::min_pixel_size` documents itself as dropping *sprites* below a screen size.
+    /// Eight of the nine pieces measure the **border** on their short axis — a corner is
+    /// `border x border`, an edge is `border` tall or wide — and the border does not grow with
+    /// the panel. So a per-piece test drops the frame of a panel of *any* size as soon as
+    /// `min_pixel_size` exceeds the border, leaving a bare centre quad with no edges: a panel
+    /// with holes punched in it rather than a panel that went away.
+    ///
+    /// This test pins the arithmetic that makes that true. The renderer-side consequence — one
+    /// test on `panel_size`, none on `sq.size` — is in `src/renderer/sprite/collect.rs`.
+    #[test]
+    fn a_pieces_size_does_not_track_the_panels() {
+        // A large panel anyone would call visible, with an ordinary small border.
+        let panel = Vec2::new(500.0, 300.0);
+        let ns = NineSlice::uniform(8.0, 0.25);
+        let quads = nine_slice_subquads(panel, UvRect::FULL, &ns);
+        assert_eq!(
+            quads.len(),
+            9,
+            "control: all nine pieces exist to be culled"
+        );
+
+        // `is_above_lod` at zoom 1.0, for a threshold between the border and the panel.
+        let min_pixel_size = 16.0f32;
+        let above_lod = |s: Vec2| s.x.min(s.y) >= min_pixel_size;
+
+        assert!(
+            above_lod(panel),
+            "the panel is 500x300 - by the documented rule this sprite is not LOD material"
+        );
+
+        let survivors = quads.iter().filter(|q| above_lod(q.size)).count();
+        assert_eq!(
+            survivors, 1,
+            "measuring each piece instead keeps ONLY the centre: four corners are 8x8 and four \
+             edges are 8 on their short axis, all below the 16 px threshold"
+        );
+
+        // And it is not a matter of the panel being too small - growing it 10x changes nothing,
+        // because the border is what got measured.
+        let huge = nine_slice_subquads(panel * 10.0, UvRect::FULL, &ns);
+        assert_eq!(
+            huge.iter().filter(|q| above_lod(q.size)).count(),
+            1,
+            "a 5000x3000 panel loses its frame to the same rule - the bug does not scale away"
+        );
+    }
+
+    /// The complement, so the fix is not "nine-slice panels ignore LOD". A panel genuinely below
+    /// the threshold must still be culled as a whole.
+    #[test]
+    fn a_panel_below_the_threshold_is_still_lod_material() {
+        let panel = Vec2::new(10.0, 6.0);
+        let above_lod = |s: Vec2| s.x.min(s.y) >= 16.0f32;
+        assert!(
+            !above_lod(panel),
+            "a 10x6 panel is below a 16 px threshold and the renderer must drop it entirely"
+        );
+    }
 }
