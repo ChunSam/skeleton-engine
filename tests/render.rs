@@ -1243,3 +1243,148 @@ fn docked_iris_is_a_circle_in_the_docked_target() {
          {surface_aspect:.3}), hole {hole_w}x{hole_h} (roundness {roundness:.3})"
     );
 }
+
+/// When the light cap bites, the light **nearest the camera** is the one that survives.
+///
+/// `lighting_cap_lights_more_when_raised` proves the cap changes *how many* lights render; it says
+/// nothing about *which*. Before `select_nearest_lights` the renderer kept the first N in query
+/// order, so a scene could drop the light the player is standing under and keep one off-screen —
+/// which looks like "the torch went out" and nothing else.
+///
+/// `survivor_game` is what makes this reachable in play: every enemy carries a `PointLight`, so a
+/// live wave runs at ~27 lights against a cap of 16 (its selftest asserts that pressure exists, so
+/// this check always has something to cull). The selection itself is a private function whose only
+/// observable is pixels, which is why the check lives here rather than in the game.
+///
+/// ⚠️ Two-sided by construction: the same far light must go dark when it loses the cull and light
+/// up when the cap is raised to admit it. Asserting only "the near one is lit" would pass on a
+/// renderer that lit *everything* and never culled at all.
+#[test]
+fn nearest_light_survives_the_cap() {
+    /// Builds a floor plus one light at `near` and a row of lights along the right edge.
+    fn scene(max_lights: usize) -> (App, Vec2, Vec2) {
+        let (w, h) = (480u32, 320u32);
+        let mut app = App::new();
+        app.world.insert_resource(WindowConfig {
+            title: "render-test: nearest light".into(),
+            width: w,
+            height: h,
+            clear_color: [0.0, 0.0, 0.0, 1.0],
+        });
+        // Grey floor for the lights to reveal — lighting multiplies the scene.
+        let tile = 40.0;
+        for r in 0..(h as f32 / tile).ceil() as i32 {
+            for c in 0..(w as f32 / tile).ceil() as i32 {
+                let e = app.world.spawn();
+                app.world.add_component(
+                    e,
+                    Transform {
+                        position: Vec2::new(
+                            c as f32 * tile + tile * 0.5,
+                            r as f32 * tile + tile * 0.5,
+                        ),
+                        scale: Vec2::splat(tile - 2.0),
+                        rotation: 0.0,
+                        z: -1.0,
+                    },
+                );
+                app.world.add_component(e, Sprite::colored(0.5, 0.5, 0.5));
+            }
+        }
+
+        let light = |app: &mut App, at: Vec2| {
+            let e = app.world.spawn();
+            app.world.add_component(
+                e,
+                Transform {
+                    position: at,
+                    scale: Vec2::splat(1.0),
+                    rotation: 0.0,
+                    z: 0.0,
+                },
+            );
+            app.world.add_component(
+                e,
+                PointLight {
+                    color: Color::rgb(1.0, 1.0, 1.0),
+                    radius: 70.0,
+                    intensity: 1.4,
+                    light_height: 0.5,
+                },
+            );
+        };
+
+        // ⚠️ The cull anchor is the **viewport centre in world space**, not `camera.position`
+        // (which is the top-left corner). Measured the hard way: the first version of this scene
+        // put "near" at (70,70) and "far" at (w-70,h-70), which are exact mirror images of that
+        // centre — equidistant, so the selection between them was arbitrary and the far cluster
+        // won. The near light now sits *on* the anchor.
+        let near = Vec2::new(w as f32 * 0.5, h as f32 * 0.5);
+        let far = Vec2::new(w as f32 - 50.0, h as f32 - 50.0);
+        light(&mut app, near);
+        for i in 0..12 {
+            light(&mut app, far + Vec2::new(0.0, (i as f32 - 6.0) * 4.0));
+        }
+
+        app.world.insert_resource(AmbientLight {
+            color: Color::rgb(0.5, 0.55, 0.75),
+            intensity: 0.06,
+        });
+        app.world.insert_resource(LightingConfig { max_lights });
+        app.world.insert_resource(Camera::new(Vec2::ZERO, 1.0));
+        (app, near, far)
+    }
+
+    /// Lit-pixel count in a 40 px box around `at`.
+    fn lit_around(px: &[u8], w: u32, h: u32, at: Vec2) -> usize {
+        let (x0, y0) = (
+            (at.x as u32).saturating_sub(20),
+            (at.y as u32).saturating_sub(20),
+        );
+        let (x1, y1) = ((at.x as u32 + 20).min(w - 1), (at.y as u32 + 20).min(h - 1));
+        let mut n = 0;
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                if px_rgb(px, w, x, y).iter().copied().max().unwrap_or(0) > 60 {
+                    n += 1;
+                }
+            }
+        }
+        n
+    }
+
+    // Cap of 1: only the nearest light may survive.
+    let (mut capped, near, far) = scene(1);
+    let Some((w, h, px_capped)) = render_or_skip(&mut capped, 4) else {
+        return;
+    };
+    let near_lit = lit_around(&px_capped, w, h, near);
+    let far_lit = lit_around(&px_capped, w, h, far);
+
+    // Control: with room for all 13, the far cluster must light the same spot — otherwise "dark"
+    // above would mean "there was never a light there", not "it lost the cull".
+    let (mut roomy, _, _) = scene(16);
+    let (_, _, px_roomy) =
+        render_or_skip(&mut roomy, 4).expect("adapter present after first render");
+    let far_lit_roomy = lit_around(&px_roomy, w, h, far);
+
+    println!(
+        "{MARKER} nearest-light cull: cap1 near={near_lit} far={far_lit}, cap16 far={far_lit_roomy}"
+    );
+    assert!(
+        far_lit_roomy > 200,
+        "the control failed: with a cap of 16 the far cluster still did not light its own \
+         neighbourhood ({far_lit_roomy} lit px). This check cannot tell culling from an unlit \
+         scene."
+    );
+    assert!(
+        near_lit > 200,
+        "the light nearest the camera did not survive a cap of 1 — only {near_lit} lit px around \
+         it, while the far cluster shows {far_lit}. The cull is keeping the wrong lights."
+    );
+    assert!(
+        far_lit * 4 < far_lit_roomy,
+        "a cap of 1 still lit the far cluster ({far_lit} px against {far_lit_roomy} uncapped) — \
+         the cap is not actually culling"
+    );
+}

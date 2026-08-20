@@ -44,19 +44,24 @@ Nothing was migrated into `tests/`. Before rebuilding a game, read `docs/PROGRAM
 each one covered and why) and `docs/VERIFICATION.md` § *A skip is not a pass* (the runner shape —
 derived, never hardcoded — that this repo already paid for twice).
 
-**Phase progress.** Phase 0 (the runner) and phase 1 (`platformer_game`) landed 2026-08-19; **phase
-2 (`rpg_quest_game`) landed 2026-08-20** with 7 selftest checks plus a docked-editor render test.
-**Next is phase 3, `survivor_game`** — and it is the one the engine session is waiting on: GPU
-particles, `FloatingText`, bloom and `RenderTarget` are all on its required list, and v0.153.2
-changed all four without a game to run them. Phases 4–5 follow (`puzzle_grid_game`, `netplay_game`
-+ restoring the `wasm-smokes` job).
+**Phase progress.** Phases 0-1 landed 2026-08-19; **phases 2 (`rpg_quest_game`) and 3
+(`survivor_game`) landed 2026-08-20**, with 7 selftest checks each plus two render tests
+(docked-iris, nearest-light-cull). The gate now runs **21 checks across 3 games**. **Next is phase 4,
+`puzzle_grid_game`** — the cheapest of the five, and where the plan puts the restoration of
+`scripts/build_wasm_examples.sh`. Phase 5 (`netplay_game` + the `wasm-smokes` job and its
+branch-protection context) closes it.
 
-⚠️ **The plan's line estimates are low by roughly 2×.** `platformer_game` came in at **1,779 lines**
-(1,433 of them code) against an estimated ~800: ~1,250 game, ~475 for seven selftest checks, ~50 for
-a deterministic asset generator. The plan's "5 games, ~4,000 lines" is therefore closer to ~8,000 if
-the other four land at this density — still a ~58% cut from the deleted tree's 19,154, but not the
-78% the plan claims. Nothing here is padding to cut; the estimate was optimistic, and the acceptance
-half (which the plan wanted designed first) is a quarter of the file on its own.
+⚠️ **Still uncovered after three games**, so it is not mistaken for progress: **audio beyond a
+single metered tone, anything on wasm, and all networking.** `survivor_game` is the first game to
+make a sound at all, and its one audio check skips on a box with no device — which is every CI
+runner. The browser half of the plan (4 smokes, audio first) has not started.
+
+⚠️ **The plan's line estimates are low by roughly 2×, and three games now say so.**
+`platformer_game` 1,779 lines against ~800 estimated; `rpg_quest_game` 1,885 against ~1,000;
+`survivor_game` 1,590 against ~900. The plan's "5 games, ~4,000 lines" is closer to ~7,500 at this
+density — still a ~61% cut from the deleted tree's 19,154, but not the 78% the plan claims. Nothing
+here is padding to cut; the estimate was optimistic, and the acceptance half (which the plan wanted
+designed first) is a quarter to a third of each file.
 
 **Phase 2 closed the docked-transition row by measurement.** `tests/render.rs`'s
 `docked_iris_is_a_circle_in_the_docked_target` photographs a mid-transition `IrisIn` through
