@@ -89,12 +89,13 @@ A filed request preempts everything below.
 
 ## Open — engineering
 
-**Three items, all deliberately unscheduled** — each gated on a trigger, none on a decision, and
-all three are the standing ones below. **The 2026-08-18 ECS review's efficiency remainder is now
+**Four items, all deliberately unscheduled** — each gated on a trigger, none on a decision. Three
+are the long-standing ones; the fourth (`TextCacheStats`, added 2026-08-20) is gated on the same
+kind of trigger, a first caller. **The 2026-08-18 ECS review's efficiency remainder is now
 empty**: its last two items closed on 2026-08-19, one by the measurement it was gated on and one by
 shipping (v0.152.6). That section is kept below as the record of what measuring did to it. The
 follow-up review of that work left nine small items of its own — they have their own section below
-and are **not** gated the way these three are. Neither is the 2026-08-19 **render** review, which
+and are **not** gated the way these four are. Neither is the 2026-08-19 **render** review, which
 added a section of its own after shipping three fixes as v0.152.9.
 
 A backlog this short is still the *expected* state, not a gap to fill: two programs closed in
@@ -109,6 +110,7 @@ did not fix*, not as a queue that has to be drained.
 |---|---|
 | **4th procgen mode** (drunkard's walk) | Unchanged, still the lowest marginal value: the engine cannot fail at it, so nothing is learned. `src/mapgen.rs` already ships three generators over one shared `DungeonMap` (BSP rooms, cellular cave, perfect maze), each with its own example and each guaranteed-connected by a different mechanism. |
 | **`add-facade-capability` skill** | n=5 now (the facade + native + wasm + policy-module shape has repeated that many times). Deferred; the next facade capability makes the case by itself. **Building it now would ship a skill with nothing to apply it to** — no facade capability is queued, so do it *alongside* the next one, not before. |
+| **`TextCacheStats`** — shaped-text cache hit/miss counters | **Shape agreed 2026-08-20, deliberately not built: there is no caller yet.** v0.153.2 made a moving `DrawText::centered` hit the shaped-buffer cache instead of re-shaping every frame. The *key* change is tested; the **end-to-end effect has never been observed**, and cannot be — `shaped_buffer_cache` is a private field, nothing counts hits or misses, and no public accessor exists. Agreed shape: a small `TextCacheStats { hits, misses }` resource reset in `TextRenderer::end_frame` (which already owns the frame boundary, where it bumps the cache generation). ⚠️ **Not fields on `RenderStats`** — v0.153.2 documented that type as *sprite-pass only*, and adding text counters would make that sentence false the same week. ⚠️ **The check needs three controls or it passes vacuously**: (1) "hits > 0" is satisfied by a *static* HUD, on the pre-v0.153.2 code too — the claim is that a text whose **position changes every frame** still hits, so after warm-up the miss count must stop rising; (2) a text whose **content** changes every frame must miss every frame, or a counter that never increments misses passes; (3) `hits + misses > 0` is the only externally visible sign the instrument ran at all — say so in the assertion message, or the next reader deletes it as redundant. Fix the warm-up boundary explicitly and exclude it: frame 1 is all-miss by definition, and a check that does not name the window regresses silently when the window changes (`docs/CHANGELOG.md` § *"A warm-up is part of the property, not setup noise"*). Build it **with** the first caller — the examples-rebuild plan's `survivor_game` phase, which requires `FloatingText` — not before; shipping it now adds one more unexercised public API to a tree that already has that debt. |
 | **Last-seen eviction helper** (`RemoteEntities` #5) | **n=0 as of 2026-08-19 — its one call site was deleted with the examples tree.** It was n=1, gated on a 2nd staleness example (the same bar that held `SnapshotBuffer` until its 2nd call site); the gate is now unreachable until a networked game is rebuilt. Keep the row: the shape below is the useful part, and re-deriving it costs more than reading it. Historical detail — `salvage_run`'s AOI streaming produces **removal-by-omission**: the server never sends a `Bye`, an entity just stops appearing in snapshots, so the client infers eviction from `last_seen` + timeout. Candidate shape (`touch(key, t)` / `expired(now - timeout) -> Vec<K>`) is written up in `docs/REMOTE_ENTITIES_DESIGN.md` § *5th example*, **flagged not built**. Surfaced here 2026-08-10 because that doc was its only home — the four sibling verdicts in the same section all resolved to *keep minimal / zero engine change*, and this is the one that did not. |
 
 ### Open — the 2026-08-19 render review's remainder
