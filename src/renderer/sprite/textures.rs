@@ -32,9 +32,51 @@ pub(super) fn reload_format(
         .unwrap_or(wgpu::TextureFormat::Rgba8UnormSrgb)
 }
 
+/// What [`TextureCache::register_render_target`] should do with an incoming bind group.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum RtRegistration {
+    /// Already cached, and the same object — do nothing. This is the steady-state answer, and
+    /// the reason the enum exists.
+    Unchanged,
+    /// Cached under this name, but a different bind group: the render target was rebuilt
+    /// (resized, reformatted). Overwrite in place, reusing the key already in the map.
+    Replace,
+    /// Not cached yet — the only path that needs to own a copy of the name.
+    Insert,
+}
+
+/// Decides that, given what the cache holds for a name and what is being registered.
+///
+/// Split out and made generic purely so it is testable: building a real `Arc<wgpu::BindGroup>`
+/// needs a GPU device, which CI's `test` job does not have — the same reason `reload_format`
+/// above takes a lookup instead of the map.
+///
+/// ⚠️ The point is `Unchanged`. `register_render_target` is called **once per offscreen render
+/// target per frame** from `render_offscreen_targets`, always with an `Arc::clone` of the same
+/// bind group the `RenderTarget` already holds, and it used to `insert(key.to_string(), bg)`
+/// unconditionally — one `String` allocation per target per frame, to overwrite an entry with
+/// an identical one. Pointer identity is what distinguishes that from a genuine rebuild;
+/// comparing the bind groups by value would not, and there is nothing to compare anyway.
+pub(super) fn rt_registration<T>(existing: Option<&Arc<T>>, incoming: &Arc<T>) -> RtRegistration {
+    match existing {
+        Some(cached) if Arc::ptr_eq(cached, incoming) => RtRegistration::Unchanged,
+        Some(_) => RtRegistration::Replace,
+        None => RtRegistration::Insert,
+    }
+}
+
 pub(crate) struct TextureCache {
     pub(crate) white_texture: Texture,
     pub(crate) texture_cache: HashMap<String, Arc<Texture>>,
+    /// Bind groups for offscreen render targets, by target name — what makes an RT sampleable
+    /// through `Sprite.texture`.
+    ///
+    /// **Also never evicted, and also not the leak it was filed as.** It mirrors
+    /// `RenderState::render_targets` one-for-one, and *that* map has no removal path at all: a
+    /// render target created by `create_render_target` lives for the session. So this cannot
+    /// outgrow its source, and the thing worth fixing — if a game ever needs to destroy a render
+    /// target — is upstream, in `render_targets`, not here. Evicting here alone would only drop a
+    /// bind group for a target that is still live.
     pub(crate) rt_cache: HashMap<String, Arc<wgpu::BindGroup>>,
     pub(crate) texture_layout: wgpu::BindGroupLayout,
 }
@@ -144,7 +186,17 @@ impl TextureCache {
     }
 
     pub(crate) fn register_render_target(&mut self, key: &str, bg: Arc<wgpu::BindGroup>) {
-        self.rt_cache.insert(key.to_string(), bg);
+        match rt_registration(self.rt_cache.get(key), &bg) {
+            RtRegistration::Unchanged => {}
+            RtRegistration::Replace => {
+                if let Some(slot) = self.rt_cache.get_mut(key) {
+                    *slot = bg;
+                }
+            }
+            RtRegistration::Insert => {
+                self.rt_cache.insert(key.to_string(), bg);
+            }
+        }
     }
 
     pub(super) fn bind_group_for_texture_key(&self, key: Option<&str>) -> &wgpu::BindGroup {

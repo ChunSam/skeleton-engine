@@ -11,7 +11,7 @@ use wgpu::{
 use crate::ecs::World;
 use crate::resources::{DisplayScaleFactor, Letterbox};
 
-use super::cache::{CachedBuffer, PlainTextCacheKey};
+use super::cache::{CachedBuffer, PlainTextCacheKey, TextInterner};
 use super::queue::{DrawText, TextAnchor, TextQueue};
 use super::rich_text::parse_rich_text;
 
@@ -66,6 +66,10 @@ pub struct TextRenderer {
     /// Entries not accessed in the current frame are evicted by [`end_frame`](Self::end_frame)
     /// (generation-based, mirroring the `atlas.trim()` per-frame pattern). Rich text is NOT cached.
     shaped_buffer_cache: std::collections::HashMap<PlainTextCacheKey, CachedBuffer>,
+    /// One `Arc<str>` per distinct cached string, so building a lookup key copies no text.
+    /// See [`TextInterner`] for the measurement that put it here, and for why the alternative
+    /// two-level map was rejected.
+    text_interner: TextInterner,
     /// Monotonically increasing frame counter used to evict stale cache entries.
     cache_generation: u64,
     /// This frame's shaped-buffer cache hits/misses, accumulated across **every** batch (a frame
@@ -152,6 +156,7 @@ impl TextRenderer {
                 used: 0,
             }],
             shaped_buffer_cache: std::collections::HashMap::new(),
+            text_interner: TextInterner::default(),
             cache_hits: 0,
             cache_misses: 0,
             cache_generation: 0,
@@ -196,6 +201,9 @@ impl TextRenderer {
         let gen = self.cache_generation;
         self.shaped_buffer_cache
             .retain(|_k, v| v.last_used_gen == gen);
+        // Strictly after the retain above: a string stops being referenced only once the last
+        // key naming it is gone, and that is what the retain decides.
+        self.text_interner.evict_unreferenced();
         for pool in &mut self.pools {
             pool.atlas.trim();
             pool.used = 0;
@@ -459,7 +467,9 @@ impl TextRenderer {
                 // ── Cache lookup (plain text only) ────────────────────────────
                 let plain_key: Option<PlainTextCacheKey> = if !d.rich {
                     Some(PlainTextCacheKey {
-                        text: d.text.clone(),
+                        // `intern`, not `clone`: on every frame after the first this is a
+                        // refcount bump, so a cache hit copies no text at all.
+                        text: self.text_interner.intern(&d.text),
                         scaled_size_bits: size.to_bits(),
                         layout_w_bits: layout_w.map(f32::to_bits),
                         layout_h_bits: layout_h.map(f32::to_bits),

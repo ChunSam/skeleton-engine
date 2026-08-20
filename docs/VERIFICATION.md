@@ -356,6 +356,40 @@ same pass over the pixels located the three guide columns at x=191/479/767 at lu
 against a 68.7 background, which is what makes the zero mean anything. **Before reporting a
 before/after image as unchanged, assert where the subject is in it.**
 
+### Writing one: measure the path the change was NOT aimed at
+
+Every trap above is about a check that cannot fail. This one is about a check that passes, is
+correct, and still lets a regression through — because it only ever looked where the fix was
+pointed.
+
+v0.154.1 removed a per-frame `String` copy from the shaped-text cache's lookup key. The obvious
+design is a two-level `HashMap<Arc<str>, HashMap<ShapeKey, _>>`, and on the workload the row named
+— a frame of cache **hits** — it measured perfectly: 6/40/12 allocations down to **0**, three
+different frame shapes, all green. Shipping there would have been entirely defensible.
+
+The control was a frame of six **all-new** strings, which is the miss path the change was not
+about — a score readout that changes its text every frame:
+
+| | hits (the aimed-at path) | misses (the control) |
+|---|---|---|
+| `String` key (before) | 6–40 allocs | 7 allocs |
+| two-level map | **0** | **13** ← 2x worse |
+| `Arc<str>` interner | **0** | 8 (parity + one amortised table growth) |
+
+The two-level map allocates an inner map per new string. Nothing about the hit measurements could
+have revealed that, because a hit never creates one. The interner shipped instead.
+
+**So: for any change that makes one path cheaper, measure the path it makes *more expensive*.**
+There almost always is one — a cache trades misses for hits, a pool trades churn for footprint, a
+fast path trades a branch for the slow path. Name the trade and put a number on the other side of
+it before believing the win. This is the efficiency-work sibling of the positive control: the
+positive control asks *did the code run*, this asks *what did it cost somewhere else*.
+
+⚠️ **A design chosen before measuring is the same hypothesis every filed diagnosis is.** The
+two-level map was written into the plan for this batch, agreed, and then rejected by its own
+control an hour later. Re-deriving your own ten-minute-old decision is the case `CLAUDE.md` says
+has actually bitten, and this is one more.
+
 ### Audio in CI was attempted and does not work — do not re-litigate without new information
 
 Five CI runs went into this in v0.143.10 and the answer was no. Recorded so the next person does not
