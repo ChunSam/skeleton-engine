@@ -92,7 +92,14 @@ The post-deletion baseline is **17 `ok` groups — doctests included, from `veri
 
 Lib tests: 1443 at v0.153.0 → **1449 at v0.153.1** (#482 added 6 and did not update this line) →
 1461 at v0.153.2 (+12) → **1467 at v0.154.1** (#493 added 6 and did not update this line either —
-twice now, in the very paragraph that records the first time).
+twice now, in the very paragraph that records the first time) → **1473 at v0.154.2** (+6, and #495
+updated it here, in the same PR, having read the two entries before it).
+
+⚠️ **Measured in this tree after the rebase, not carried over from the PR that moved it.** #494 and
+#495 were both open against the same base; the agreement was that whichever landed second would
+re-measure rather than copy the other's figure across, because two indirect estimates agreeing is a
+different claim from a number this tree actually produces. `1473` and the `17` above are both from
+the `verify.sh` run on the merge result.
 
 The groups are ordered lib → integration → examples → doctests, so today: **1** lib, **2-10** the
 nine `tests/*.rs` integration binaries, **11-16** the example targets, **17** doctests. An example

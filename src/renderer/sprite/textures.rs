@@ -65,6 +65,45 @@ pub(super) fn rt_registration<T>(existing: Option<&Arc<T>>, incoming: &Arc<T>) -
     }
 }
 
+/// What [`TextureCache::load_texture_with_format`] should do about the format it was handed.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum CachedFormat {
+    /// Nothing cached under any alias — upload it at the requested format.
+    Load,
+    /// Already cached at the requested format. Reuse, silently.
+    Reuse,
+    /// Already cached at a **different** format. Reuse anyway, and say so.
+    ReuseWrongFormat { cached: wgpu::TextureFormat },
+}
+
+/// Decides that from the format the cache already holds for the path (under any alias) and the
+/// one being asked for.
+///
+/// ⚠️ **A path holding exactly one format is correct, not a limitation waiting to be lifted.**
+/// The obvious "fix" — put the format in the cache key — cannot work: the sampling side reaches a
+/// texture through [`TextureCache::bind_group_for_texture_key`], whose only input is the string on
+/// `Sprite.texture`. A key carrying a format would have nothing to match against, so one path
+/// would map to two textures with no way for a sprite to choose. Lifting this means changing how
+/// sprites *name* textures, which is a design change and not a bug fix.
+///
+/// What was wrong was the silence. The second load was already ignored; nothing said so, so a
+/// normal map registered through `App::load_image_with_format` after the same file had been
+/// pulled in as ordinary sRGB colour came back sRGB-decoded and looked subtly wrong, with no
+/// diagnostic anywhere. The two calls that collide are usually in different files.
+///
+/// Split out and taking a plain `Option<TextureFormat>` for the same reason as `reload_format`
+/// above: building a real cache entry needs a GPU device, which CI's `test` job does not have.
+pub(super) fn cached_format_verdict(
+    cached: Option<wgpu::TextureFormat>,
+    requested: wgpu::TextureFormat,
+) -> CachedFormat {
+    match cached {
+        None => CachedFormat::Load,
+        Some(f) if f == requested => CachedFormat::Reuse,
+        Some(f) => CachedFormat::ReuseWrongFormat { cached: f },
+    }
+}
+
 pub(crate) struct TextureCache {
     pub(crate) white_texture: Texture,
     pub(crate) texture_cache: HashMap<String, Arc<Texture>>,
@@ -112,10 +151,23 @@ impl TextureCache {
         format: wgpu::TextureFormat,
     ) {
         let aliases = file_texture_aliases(path);
-        if let Some(existing) = aliases
+        let existing = aliases
             .iter()
-            .find_map(|key| self.texture_cache.get(key).cloned())
-        {
+            .find_map(|key| self.texture_cache.get(key).cloned());
+        if let Some(existing) = existing {
+            // The format is checked across the whole alias set, not just the spelling handed in:
+            // "assets/hero.png" and "hero.png" are one cache entry, so a conflict between two
+            // spellings of one file is exactly the case that used to pass unnoticed.
+            if let CachedFormat::ReuseWrongFormat { cached } =
+                cached_format_verdict(Some(existing.texture.format()), format)
+            {
+                log::warn!(
+                    "texture '{path}' is already loaded as {cached:?}; the request for {format:?} \
+                     is ignored — one path holds one format, because a sprite names a texture by \
+                     path alone. Give the linear copy its own path, or load it with the format \
+                     the first time it is referenced."
+                );
+            }
             for alias in aliases {
                 self.texture_cache
                     .entry(alias)
