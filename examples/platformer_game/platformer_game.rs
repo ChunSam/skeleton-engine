@@ -37,6 +37,10 @@
 //!   The player owns the SM (its states come from physics); the walker owns the blend tree (its clip
 //!   comes from one scalar, its speed).
 //!
+//! NATIVE_ONLY: rapier2d has no wasm backend, so this game has no web target
+//! `scripts/build_wasm_examples.sh` reads that line and skips it — and fails if it ever starts
+//! building for wasm, because a stale declaration hides the regression the script exists to catch.
+//!
 //! # assets/tiles.png
 //!
 //! A 4×4 grid of 32 px cells where **the cell index is the edge-4 neighbour mask**

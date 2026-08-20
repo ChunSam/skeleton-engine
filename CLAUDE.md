@@ -33,12 +33,12 @@ Read only what you need.
 
 ## Build & run
 
-⚠️ **Three games exist.** The `examples/` tree — 22 games, ~85 demos — was deleted on 2026-08-19 at
-the user's request; `plans/2026-08-19-examples-rebuild-plan.md` rebuilds it as five.
-`platformer_game`, `rpg_quest_game` and `survivor_game` are in; puzzle and networked are not. Each
-runs with `cargo run --example <name>` and self-verdicts with `<NAME>_SELFTEST=1`. `cargo build
---target wasm32-unknown-unknown` for wasm, `./scripts/build_wasm.sh` for a servable bundle in
-`dist/` (it builds the lib's own `run_demo` entry point, not an example).
+⚠️ **Four games exist.** The `examples/` tree — 22 games, ~85 demos — was deleted on 2026-08-19 at
+the user's request; `plans/2026-08-19-examples-rebuild-plan.md` rebuilds it as five. Only
+`netplay_game` is missing. Each runs with `cargo run --example <name>` and self-verdicts with
+`<NAME>_SELFTEST=1`; `scripts/build_wasm_examples.sh` builds the three that are not native-only.
+`./scripts/build_wasm.sh` makes a servable bundle in `dist/` (the lib's own `run_demo`, not an
+example). ⚠️ **No game installs a logger**, so the engine's `warn!`/`error!` output goes nowhere.
 
 Read `docs/PROGRAM_HISTORY.md` + `docs/CHANGELOG.md` before rebuilding one; `git show
 4edfd3f^:examples/<path>` still has every deleted file. A game at `examples/<name>/<name>.rs` needs
@@ -97,9 +97,8 @@ have each cost a session; the ones that recur:
 
 ⚠️ **The acceptance layer is three games deep, and the gate got much weaker on 2026-08-19.** It
 used to run `scripts/build_wasm_examples.sh` (gone with the examples) and `scripts/selftests.sh`
-over 11 `<NAME>_SELFTEST` tests; the runner is back with **21 checks across three games** — physics,
-one-way platforms, collider resync, joints, animation state machines, the scene stack, persistence,
-save migration, locale, hot reload, A*, pool churn, the light cap, steering, seeded runs. **wasm and networking still have no acceptance coverage at all**, and audio has one
+over 11 `<NAME>_SELFTEST` tests; both are back — **28 checks across four games**, plus
+`build_wasm_examples.sh` proving 3 of 4 games still compile for the web. **wasm and networking still have no acceptance coverage at all**, and audio has one
 check that skips wherever there is no device (all of CI). What else measures anything: `fmt`,
 `clippy`, the wasm build, `cargo test`, doctests, `cargo doc`.
 
@@ -165,7 +164,7 @@ Two that have their own failure mode:
 
 **A feature is not done until a small playable example exercises it in real play.** The example is
 the acceptance test, not an afterthought — if the API feels awkward while writing it, fix the API.
-Rebuilding as five games; **three exist**, so their subsystems are exercised and the rest is not.
+Rebuilding as five games; **four exist**, so their subsystems are exercised and the rest is not.
 That gap is a standing debt, not the rule being relaxed.
 
 **A number pinned in prose is fixed by whoever changes it.** *(권고)* A stale baseline is worse

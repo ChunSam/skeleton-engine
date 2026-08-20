@@ -48,6 +48,10 @@ path = "examples/rpg_quest_game/rpg_quest_game.rs"
 name = "survivor_game"
 path = "examples/survivor_game/survivor_game.rs"
 
+[[example]]
+name = "puzzle_grid_game"
+path = "examples/puzzle_grid_game/puzzle_grid_game.rs"
+
 [dependencies]
 winit    = "0.30.13"
 wgpu     = { version = "29", features = ["webgl"] }

@@ -216,6 +216,13 @@ jobs:
       - name: cargo build --target wasm32-unknown-unknown
         run: cargo build --target wasm32-unknown-unknown
 
+      # A STEP in this existing job, not a new job — so branch protection is untouched (adding a
+      # job without its required context is a check nobody is gated on). The lib build above does
+      # not cover examples; this builds every game that does not declare itself native-only, and
+      # fails on a stale declaration too.
+      - name: Example games build for wasm
+        run: ./scripts/build_wasm_examples.sh
+
       - name: cargo clippy (wasm, lib only)
         run: cargo clippy --target wasm32-unknown-unknown --lib -- -D warnings
 

@@ -44,22 +44,40 @@ Nothing was migrated into `tests/`. Before rebuilding a game, read `docs/PROGRAM
 each one covered and why) and `docs/VERIFICATION.md` § *A skip is not a pass* (the runner shape —
 derived, never hardcoded — that this repo already paid for twice).
 
-**Phase progress.** Phases 0-1 landed 2026-08-19; **phases 2 (`rpg_quest_game`) and 3
-(`survivor_game`) landed 2026-08-20**, with 7 selftest checks each plus two render tests
-(docked-iris, nearest-light-cull). The gate now runs **21 checks across 3 games**. **Next is phase 4,
-`puzzle_grid_game`** — the cheapest of the five, and where the plan puts the restoration of
-`scripts/build_wasm_examples.sh`. Phase 5 (`netplay_game` + the `wasm-smokes` job and its
-branch-protection context) closes it.
+**Phase progress.** Phases 0-1 landed 2026-08-19; **phases 2-4 landed 2026-08-20** —
+`rpg_quest_game`, `survivor_game`, `puzzle_grid_game`, 7 selftest checks each, plus two render tests
+(docked-iris, nearest-light-cull). The gate now runs **28 checks across 4 games**. **Only phase 5 is
+left**: `netplay_game` + its server, and restoring the `wasm-smokes` job — which must re-add its
+branch-protection context in the same change, or it becomes a check nobody is gated on.
 
-⚠️ **Still uncovered after three games**, so it is not mistaken for progress: **audio beyond a
-single metered tone, anything on wasm, and all networking.** `survivor_game` is the first game to
-make a sound at all, and its one audio check skips on a box with no device — which is every CI
-runner. The browser half of the plan (4 smokes, audio first) has not started.
+✅ **`scripts/build_wasm_examples.sh` is back** (phase 4). The list is derived from Cargo.toml's
+`[[example]]` blocks, and a game that cannot build for wasm declares `NATIVE_ONLY` in its own
+source. That declaration is checked **both ways** — an undeclared failure fails, and a declaration
+on a game that *does* build also fails, because a stale claim hides the regression the script exists
+to catch. Currently 3 of 4 games build for wasm; `platformer_game` is native-only (rapier2d). It
+runs in `verify.sh` **and** as a step in CI's existing `Build (WASM)` job, so `CLAUDE.md`'s claim
+that the gate covers that job in full stays true.
+
+⚠️ **No game installs a logger, so 88 engine `error!`/`warn!` sites are invisible** (found
+2026-08-20 while an `ENGINE_INPUT` script silently did nothing — one bad key name, and the engine's
+`log::error!("ENGINE_INPUT: {err}")` went nowhere). `env_logger` was dropped in v0.153.0 with its
+only consumers, and nothing replaced it. This matters beyond convenience: `docs/MODULE_MAP.md`
+describes asset failures as **loud** (`error!` plus `asset_failures()`), and half of that is
+currently mute. The same goes for the unregistered-event-bus warning, `Pool::release`'s
+double-release guard, `SceneCmd::Replace` discarding App-registered systems, and
+`TriggerZoneSystem`'s missing-grid notice — every one of them is a warning a game author is meant to
+see. **Fixing it needs a dev-dependency** (`env_logger`, examples-only, invisible to the published
+crate) plus one line per game, so it is a maintainer decision rather than a drive-by.
+
+⚠️ **Still uncovered after four games**: **audio beyond a single metered tone, anything actually
+*running* on wasm, and all networking.** Compiling for wasm is not running on wasm — no browser
+loads any of this, which is the `wasm-smokes` job in phase 5. The audio check skips wherever there
+is no device, i.e. every CI runner.
 
 ⚠️ **The plan's line estimates are low by roughly 2×, and three games now say so.**
 `platformer_game` 1,779 lines against ~800 estimated; `rpg_quest_game` 1,885 against ~1,000;
-`survivor_game` 1,590 against ~900. The plan's "5 games, ~4,000 lines" is closer to ~7,500 at this
-density — still a ~61% cut from the deleted tree's 19,154, but not the 78% the plan claims. Nothing
+`survivor_game` 1,590 against ~900; `puzzle_grid_game` 1,193 against ~600. The plan's "5 games,
+~4,000 lines" is closer to ~7,500 at this density — still a ~61% cut from the deleted tree's 19,154, but not the 78% the plan claims. Nothing
 here is padding to cut; the estimate was optimistic, and the acceptance half (which the plan wanted
 designed first) is a quarter to a third of each file.
 
