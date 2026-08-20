@@ -40,7 +40,7 @@ all five carry selftests where only 11 of 22 did.
 | 2 | `survivor_game` | top-down action + shooter | ~900 | ✅ | ✅ **audio smoke** (GPU particles stay native-only) |
 | 3 | `rpg_quest_game` | RPG | ~1,000 | ✅ | ✅ save/localStorage smoke |
 | 4 | `puzzle_grid_game` | puzzle | ~600 | ✅ | ✅ render smoke |
-| 5 | `netplay_game` | networked (+ `netplay_server`) | ~900 | ✅ | ✅ render + WebSocket smoke |
+| 5 | `netplay_game` | networked (+ `netplay_server`) | ~900 → **3,006 actual** | ✅ | ✅ render + WebSocket smoke (phase 5b) |
 
 ⚠️ **This ships four of VISION's five genres**: `survivor_game` covers both "shooter" and
 "top-down action". **Decided 2026-08-19** — both exist to put the engine under *count* pressure
@@ -182,6 +182,17 @@ absent, not skip — `cargo run --example netplay_game` does not build `netplay_
 that lets that skip drops exactly the checks that cover the most. That was measured on the old
 tree: with the server hidden, the raw exit code was **0**.
 
+✅ **Shipped 2026-08-21 with 7 checks.** 1-5 are device-free (stream-in; removal-by-omission, both
+halves; prediction wired to the ship *and* reconciliation replaying rather than snapping;
+interpolation *and* collision reading the drawn position; claim-does-not-delete). 6-7 spawn the real
+server on an OS-assigned port and drive **two clients at once**. A missing server binary exits **8**.
+All 13 sabotages were verified to fire on the intended check — one had to be narrowed to get there,
+which is recorded in `docs/VERIFICATION.md` § *A sabotage that fails the wrong check has not
+verified anything*. Two design notes worth carrying forward: the wire format is **RON** (`serde_json`
+is not a dependency; `ron` already is), and check 4 needed a hazard faster than any real one, because
+at real speeds the drawn/newest gap is smaller than the collision reach and the check could not
+discriminate.
+
 ---
 
 ## The acceptance layer — the part that matters more than the games
@@ -252,7 +263,8 @@ Deliberately runner-first. Building game 2 before the runner exists is how 11/22
 | 2 | `rpg_quest_game` + selftest + save smoke | Owns the scene/persistence questions, the highest-risk area — **done 2026-08-20**, 7 checks + the docked-iris render test; 1,885 lines |
 | 3 | `survivor_game` + selftest | Needs the audio-probe pattern from phase 2's lessons — **done 2026-08-20**, 7 checks + the nearest-light render test; 1,590 lines |
 | 4 | `puzzle_grid_game` + selftest + render smoke | Cheapest game; good place to restore `build_wasm_examples.sh` — **done 2026-08-20**, 7 checks + the script (derived list, two-sided NATIVE_ONLY check); 1,193 lines |
-| 5 | `netplay_game` + server + smoke; restore `wasm-smokes` job **and its branch-protection context** | Most infrastructure per line |
+| 5a | `netplay_game` + `netplay_server` + selftest | Most infrastructure per line — **done 2026-08-21**, 7 checks over all four folded techniques; 3,006 lines across client/server/protocol, the only game that is two binaries |
+| 5b | restore the `wasm-smokes` job **and its branch-protection context** | The last open item. 4 browser smokes (audio first — the only measured signal the deletion actually lost). ⚠️ Adding a *job* without its required-check context is a check nobody is gated on |
 
 ## What this deliberately does NOT cover
 

@@ -52,6 +52,17 @@ path = "examples/survivor_game/survivor_game.rs"
 name = "puzzle_grid_game"
 path = "examples/puzzle_grid_game/puzzle_grid_game.rs"
 
+[[example]]
+name = "netplay_game"
+path = "examples/netplay_game/netplay_game.rs"
+
+# The sibling server. `netplay_game`'s selftest spawns this binary from its own `current_exe()`
+# directory, so `scripts/selftests.sh` builds every `*_server` target it finds here — a name that
+# does not end in `_server` would be missed and the live checks would fail as "server not built".
+[[example]]
+name = "netplay_server"
+path = "examples/netplay_game/server.rs"
+
 [dependencies]
 winit    = "0.30.13"
 wgpu     = { version = "29", features = ["webgl"] }

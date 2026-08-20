@@ -2,9 +2,10 @@
 
 > Status: living document. Derived from `docs/VISION.md` (reset 2026-05-29), under its core loop:
 > **a feature is not done until a small, playable example game in `examples/` exercises it in real
-> play.** ⚠️ The tree was deleted on 2026-08-19 and is being rebuilt as five games; **two exist**
-> (`platformer_game`, `rpg_quest_game`), so the subsystems they name meet that bar and the rest of
-> `src/` does not — see the top section below.
+> play.** ⚠️ The tree was deleted on 2026-08-19 and rebuilt as five games; **all five exist** as
+> of 2026-08-21 (`platformer_game`, `rpg_quest_game`, `survivor_game`, `puzzle_grid_game`,
+> `netplay_game`), so the subsystems they name meet that bar and the rest of `src/` does not — see
+> the top section below.
 >
 > **This file holds only what is still open.** The completed candidate A–O playable-examples program
 > and its release/hardening follow-ups moved to **`docs/PROGRAM_HISTORY.md`** on 2026-08-03 — they
@@ -25,9 +26,9 @@ What went with them, because it was built on them:
 
 | Deleted | Consequence |
 |---|---|
-| 11 `<NAME>_SELFTEST` acceptance tests + `scripts/selftests.sh` | the 11 tests are gone; **the runner is back** (phase 0, 2026-08-19) and gates **1** rebuilt selftest — `PLATFORMER_SELFTEST`, 7 checks (phase 1, 2026-08-19) |
+| 11 `<NAME>_SELFTEST` acceptance tests + `scripts/selftests.sh` | the 11 tests are gone; **the runner is back** (phase 0, 2026-08-19) and gates **5** rebuilt selftests — 35 checks, 7 per game (phases 1-5, 2026-08-19 → 2026-08-21) |
 | 16 `scripts/*_smoke.sh` (12 browser, 4 native) + the `wasm-smokes` CI job | nothing runs engine code in a browser; no render smokes |
-| `scripts/build_wasm_examples.sh` + the CI step calling it | an example's wasm path is unbuilt and unchecked |
+| `scripts/build_wasm_examples.sh` + the CI step calling it | **back** (phase 4) — 4 of the 6 example targets build for wasm, 2 declared native-only |
 | `scripts/hot_reload_smoke.sh` + the `DATA_ANIM` / `DATA_PARTICLES` selftests | hot-reload has no coverage |
 
 ✅ **Branch protection is clean — re-verified 2026-08-19.** The required set is the seven jobs that
@@ -44,17 +45,24 @@ Nothing was migrated into `tests/`. Before rebuilding a game, read `docs/PROGRAM
 each one covered and why) and `docs/VERIFICATION.md` § *A skip is not a pass* (the runner shape —
 derived, never hardcoded — that this repo already paid for twice).
 
-**Phase progress.** Phases 0-1 landed 2026-08-19; **phases 2-4 landed 2026-08-20** —
-`rpg_quest_game`, `survivor_game`, `puzzle_grid_game`, 7 selftest checks each, plus two render tests
-(docked-iris, nearest-light-cull). The gate now runs **28 checks across 4 games**. **Only phase 5 is
-left**: `netplay_game` + its server, and restoring the `wasm-smokes` job — which must re-add its
-branch-protection context in the same change, or it becomes a check nobody is gated on.
+**Phase progress — the rebuild is done bar the browser half.** Phases 0-1 landed 2026-08-19,
+phases 2-4 on 2026-08-20, and **phase 5's game landed 2026-08-21**: `netplay_game` +
+`netplay_server`, 7 selftest checks. The gate now runs **35 checks across 5 games**, plus two render
+tests (docked-iris, nearest-light-cull) and `build_wasm_examples.sh`.
+
+**What is left is phase 5b, and only that**: restore the `wasm-smokes` CI job — 4 browser smokes
+(audio first, then the RPG save round-trip, the netplay handshake, a DPR=2 render) — **and re-add
+its branch-protection context in the same change**, or it becomes a job nobody is gated on, which
+is the mirror image of the failure v0.153.0 hit. Until then **compiling for wasm is still not
+running on wasm**: no browser has loaded this engine since 2026-08-19.
 
 ✅ **`scripts/build_wasm_examples.sh` is back** (phase 4). The list is derived from Cargo.toml's
 `[[example]]` blocks, and a game that cannot build for wasm declares `NATIVE_ONLY` in its own
 source. That declaration is checked **both ways** — an undeclared failure fails, and a declaration
 on a game that *does* build also fails, because a stale claim hides the regression the script exists
-to catch. Currently 3 of 4 games build for wasm; `platformer_game` is native-only (rapier2d). It
+to catch. Currently **4 of 6 example targets build for wasm**; the two declared native-only are
+`platformer_game` (rapier2d has no wasm backend) and `netplay_server` (it is a TCP server —
+tungstenite and `std::net` cannot be a browser tab, and this one is not a limitation to lift). It
 runs in `verify.sh` **and** as a step in CI's existing `Build (WASM)` job, so `CLAUDE.md`'s claim
 that the gate covers that job in full stays true.
 
@@ -69,17 +77,31 @@ double-release guard, `SceneCmd::Replace` discarding App-registered systems, and
 see. **Fixing it needs a dev-dependency** (`env_logger`, examples-only, invisible to the published
 crate) plus one line per game, so it is a maintainer decision rather than a drive-by.
 
-⚠️ **Still uncovered after four games**: **audio beyond a single metered tone, anything actually
-*running* on wasm, and all networking.** Compiling for wasm is not running on wasm — no browser
-loads any of this, which is the `wasm-smokes` job in phase 5. The audio check skips wherever there
-is no device, i.e. every CI runner.
+⚠️ **Still uncovered after five games**: **audio beyond a single metered tone, and anything
+actually *running* on wasm.** The audio check skips wherever there is no device, i.e. every CI
+runner. Compiling for wasm is not running on wasm — no browser has loaded any of this since the
+deletion, which is exactly what phase 5b restores.
 
-⚠️ **The plan's line estimates are low by roughly 2×, and three games now say so.**
-`platformer_game` 1,779 lines against ~800 estimated; `rpg_quest_game` 1,885 against ~1,000;
-`survivor_game` 1,590 against ~900; `puzzle_grid_game` 1,193 against ~600. The plan's "5 games,
-~4,000 lines" is closer to ~7,500 at this density — still a ~61% cut from the deleted tree's 19,154, but not the 78% the plan claims. Nothing
-here is padding to cut; the estimate was optimistic, and the acceptance half (which the plan wanted
-designed first) is a quarter to a third of each file.
+✅ **Networking is covered, and natively.** `NETPLAY_SELFTEST` runs 7 checks over the four
+techniques the deleted `coin_race` / `predict_shooter` / `orbital_dodger` / `salvage_run` each owned
+alone; checks 6-7 spawn the real `netplay_server` on an OS-assigned port and drive **two clients at
+once**, because a contested pickup has no meaning with one. All 13 sabotages were verified to fire,
+and to fire on the matching check only — the table is in `docs/VERIFICATION.md`.
+
+⚠️ **A missing server binary is now a FAILURE (exit 8), not a skip.** The deleted tree measured the
+alternative: with the server hidden the raw exit code was **0**, silently dropping the two checks
+that covered the most. `scripts/selftests.sh` also treats any non-audio SKIP as a failure, so this
+is belt and braces — the belt matters because running the binary directly bypasses the runner.
+
+⚠️ **The plan's line estimates were low by roughly 2×, and all five games said so — final
+tally.** `platformer_game` 1,783 lines against ~800 estimated; `rpg_quest_game` 1,885 against
+~1,000; `survivor_game` 1,590 against ~900; `puzzle_grid_game` 1,193 against ~600; `netplay_game`
+3,006 across three files (1,855 client + 753 server + 398 shared protocol) against ~900. The plan's
+"5 games, ~4,000 lines" came in at **9,457** — still a **51%** cut from the deleted tree's 19,154,
+but not the 78% the plan claimed. Nothing here was padding to cut; the estimate was optimistic, and
+the acceptance half (which the plan wanted designed first) is a quarter to a third of each file.
+`netplay_game` is the extreme case at 2.4× **because it is two binaries** — a client, an
+authoritative server, and a wire protocol both compile their own copy of.
 
 **Phase 2 closed the docked-transition row by measurement.** `tests/render.rs`'s
 `docked_iris_is_a_circle_in_the_docked_target` photographs a mid-transition `IrisIn` through

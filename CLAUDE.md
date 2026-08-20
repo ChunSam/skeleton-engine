@@ -33,11 +33,11 @@ Read only what you need.
 
 ## Build & run
 
-⚠️ **Four games exist.** The `examples/` tree — 22 games, ~85 demos — was deleted on 2026-08-19 at
-the user's request; `plans/2026-08-19-examples-rebuild-plan.md` rebuilds it as five. Only
-`netplay_game` is missing. Each runs with `cargo run --example <name>` and self-verdicts with
-`<NAME>_SELFTEST=1`; `scripts/build_wasm_examples.sh` builds the three that are not native-only.
-`./scripts/build_wasm.sh` makes a servable bundle in `dist/` (the lib's own `run_demo`, not an
+⚠️ **All five games exist** (2026-08-21). The `examples/` tree — 22 games, ~85 demos — was deleted
+2026-08-19 and rebuilt as five by `plans/2026-08-19-examples-rebuild-plan.md`. Each runs with `cargo
+run --example <name>` and self-verdicts with `<NAME>_SELFTEST=1` (`netplay_game` needs
+`netplay_server` too); `build_wasm_examples.sh` builds the 4 of 6 targets that are not native-only,
+and `./scripts/build_wasm.sh` makes a servable `dist/` bundle (the lib's own `run_demo`, not an
 example). ⚠️ **No game installs a logger**, so the engine's `warn!`/`error!` output goes nowhere.
 
 Read `docs/PROGRAM_HISTORY.md` + `docs/CHANGELOG.md` before rebuilding one; `git show
@@ -95,12 +95,12 @@ have each cost a session; the ones that recur:
   `echo $? > /tmp/v.exit` and **read the file**, after `rm -f`-ing it first (a stale file matches instantly).
 - `;` does not short-circuit — branch on the captured code before committing.
 
-⚠️ **The acceptance layer is three games deep, and the gate got much weaker on 2026-08-19.** It
-used to run `scripts/build_wasm_examples.sh` (gone with the examples) and `scripts/selftests.sh`
-over 11 `<NAME>_SELFTEST` tests; both are back — **28 checks across four games**, plus
-`build_wasm_examples.sh` proving 3 of 4 games still compile for the web. **wasm and networking still have no acceptance coverage at all**, and audio has one
-check that skips wherever there is no device (all of CI). What else measures anything: `fmt`,
-`clippy`, the wasm build, `cargo test`, doctests, `cargo doc`.
+⚠️ **The acceptance layer is back to full depth.** `scripts/selftests.sh` and
+`build_wasm_examples.sh` both died in the 2026-08-19 deletion and are back — **35 checks across five
+games**, plus 4 of 6 example targets proven to compile for the web; networking is covered again
+(phase 5, two live clients). **Still uncovered anywhere: anything actually *running* on wasm** —
+compiling for it is not running on it — and audio, whose one check skips on any box with no device
+(all of CI). Else: `fmt`, `clippy`, the wasm build, `cargo test`, doctests, `cargo doc`.
 
 What the gate does **not** cover, so get it yourself:
 
