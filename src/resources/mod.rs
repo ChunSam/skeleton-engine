@@ -20,6 +20,6 @@ pub use display::{
 };
 pub use fonts::{ExtraFonts, FontData};
 pub use lifecycle::{FadeTransition, GameState, LoadProgress, PanickedSystems, ShouldQuit};
-pub use profiling::{ProfilerData, RenderStats, SelectedEntity, SystemProfile};
+pub use profiling::{ProfilerData, RenderStats, SelectedEntity, SystemProfile, TextCacheStats};
 pub use render::{AmbientLight, CullConfig, LightingConfig, DEFAULT_MAX_LIGHTS};
 pub use time::{FrameConfig, RealDt, TimeScale};

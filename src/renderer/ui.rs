@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::asset::{Handle, ImageAsset};
 use crate::color::Color;
 use crate::renderer::uv::UvRect;
@@ -60,13 +62,18 @@ pub struct DrawImage {
     pub h: f32,
     pub color: Color,
     pub z: f32,
-    pub texture: Option<String>,
+    /// Texture file path (`None` renders a solid-color quad).
+    ///
+    /// `Arc<str>` rather than `String` for the same reason [`Sprite::texture`](crate::Sprite)
+    /// is: the UI pass reads this key **every frame, per image**, and cloning a `String` there
+    /// copies the bytes each time. Cloning an `Arc<str>` is a refcount bump.
+    pub texture: Option<Arc<str>>,
     pub image_handle: Option<Handle<ImageAsset>>,
     pub uv: UvRect,
 }
 
 impl DrawImage {
-    pub fn textured(x: f32, y: f32, w: f32, h: f32, path: impl Into<String>) -> Self {
+    pub fn textured(x: f32, y: f32, w: f32, h: f32, path: impl Into<Arc<str>>) -> Self {
         Self {
             x,
             y,
@@ -99,7 +106,7 @@ impl DrawImage {
         y: f32,
         w: f32,
         h: f32,
-        path: impl Into<String>,
+        path: impl Into<Arc<str>>,
         handle: Option<Handle<ImageAsset>>,
     ) -> Self {
         Self {
@@ -148,10 +155,15 @@ impl DrawImage {
         self
     }
 
-    pub fn texture_key(&self) -> Option<String> {
+    /// The batching key this image draws under — its handle path, else its texture path.
+    ///
+    /// Both arms are O(1) refcount bumps. Until v0.154.0 this returned an owned `String` and both
+    /// arms **copied the path bytes, once per image per frame**; the sprite collect path had
+    /// already moved to `Arc<str>` for exactly that reason and this one had not followed.
+    pub fn texture_key(&self) -> Option<Arc<str>> {
         self.image_handle
             .as_ref()
-            .map(|h| h.path().to_string())
+            .map(|h| h.path_arc())
             .or_else(|| self.texture.clone())
     }
 }

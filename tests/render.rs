@@ -259,6 +259,115 @@ impl System for TextHud {
     }
 }
 
+/// Pushes three plain `DrawText`s per frame, chosen so the shaped-buffer cache's behaviour is
+/// separable: one that **moves**, one that is **static**, and one whose **content** changes.
+struct CachePressureText {
+    frame: u32,
+}
+impl System for CachePressureText {
+    fn run(&mut self, world: &mut World, _dt: f32) {
+        self.frame += 1;
+        let f = self.frame as f32;
+        if let Some(tq) = world.resource_mut::<TextQueue>() {
+            // (1) MOVING, centered — the case v0.153.2 changed. `layout_buffer_width`/`_height`
+            // ignore position for a Center anchor, so this must hit the cache every frame after
+            // the first despite never being in the same place twice.
+            tq.push(DrawText::centered(
+                "+1",
+                Vec2::new(200.0 + f * 3.0, 120.0 - f * 2.0),
+                32.0,
+                [255, 220, 120, 255],
+            ));
+            // (2) STATIC — hits for a boring reason. Present so a failure distinguishes "the cache
+            // is broken" from "the moving case is broken".
+            tq.push(DrawText::new(
+                "WAVE 2",
+                Vec2::new(16.0, 16.0),
+                24.0,
+                [240, 240, 240, 255],
+            ));
+            // (3) CONTENT CHANGES every frame — must miss every frame. Without it, a counter that
+            // never increments `misses` would satisfy every other assertion here.
+            tq.push(DrawText::new(
+                format!("frame {}", self.frame),
+                Vec2::new(16.0, 48.0),
+                24.0,
+                [200, 220, 255, 255],
+            ));
+        }
+    }
+    fn name(&self) -> &'static str {
+        "CachePressureText"
+    }
+}
+
+/// A **moving** centered text is served from the shaped-buffer cache — the property v0.153.2
+/// introduced, measured end to end for the first time.
+///
+/// Before that release `PlainTextCacheKey` included `position`, so `DrawText::centered` — every
+/// `FloatingText` — missed on every frame it moved and re-shaped a byte-identical buffer. The unit
+/// tests pin the *key*; this pins what the key was for.
+///
+/// ⚠️ **The controls are the point.** `hits > 0` alone is satisfied by the static line, on the old
+/// code too. What discriminates is the exact split: with position back in the key the moving text
+/// would miss as well, and `misses` would read 2 instead of 1.
+///
+/// The warm-up is named rather than left implicit: frame 1 is all-miss by definition (an empty
+/// cache), so the assertions read the **last** frame of a multi-frame run, and the run is long
+/// enough that a one-frame transient cannot be what is being measured.
+#[test]
+fn text_cache_hits_a_moving_centered_text() {
+    let mut app = App::new();
+    app.world.insert_resource(WindowConfig {
+        title: "render-test: text cache".into(),
+        width: 480,
+        height: 240,
+        clear_color: [0.05, 0.05, 0.07, 1.0],
+    });
+    app.world.insert_resource(FontData(
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/fonts/DejaVuSans.ttf"
+        ))
+        .to_vec(),
+    ));
+    app.add_system(CachePressureText { frame: 0 });
+
+    // 6 frames: frame 1 warms the cache, 2..=6 are steady state. The resource is rewritten every
+    // frame, so after the run it holds frame 6 alone — well clear of the warm-up.
+    let Some(_) = render_or_skip(&mut app, 6) else {
+        return;
+    };
+    let stats = *app
+        .world
+        .resource::<engine::TextCacheStats>()
+        .expect("App must publish TextCacheStats after a frame with text");
+    println!(
+        "{MARKER} text cache hits={} misses={}",
+        stats.hits, stats.misses
+    );
+
+    // Control: the instrument ran. Zero total means the text pass saw nothing — which would make
+    // every assertion below pass for the wrong reason.
+    assert!(
+        stats.total() > 0,
+        "no plain text reached the cache at all (hits+misses=0) — the pass did not run, so this \
+         test proves nothing about caching"
+    );
+    assert_eq!(
+        stats.misses, 1,
+        "exactly one draw (the frame-counter line, whose CONTENT changes) may miss in steady \
+         state; {} missed. Two means the MOVING centered text is being re-shaped every frame — \
+         i.e. position is back in the cache key.",
+        stats.misses
+    );
+    assert_eq!(
+        stats.hits, 2,
+        "the moving centered text and the static line must both hit; got {}",
+        stats.hits
+    );
+}
+
 /// Text renders to a non-blank frame. Injects the bundled DejaVu Sans so the result does not depend
 /// on the CI runner's (sparse) system fonts — on native, an empty `FontData` falls back to system
 /// fonts, which a lean runner may lack.

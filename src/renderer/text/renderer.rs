@@ -68,6 +68,13 @@ pub struct TextRenderer {
     shaped_buffer_cache: std::collections::HashMap<PlainTextCacheKey, CachedBuffer>,
     /// Monotonically increasing frame counter used to evict stale cache entries.
     cache_generation: u64,
+    /// This frame's shaped-buffer cache hits/misses, accumulated across **every** batch (a frame
+    /// runs one text pass per z-interleaved run plus the final HUD pass) and reset by
+    /// [`end_frame`](Self::end_frame). Surfaced to games as
+    /// [`TextCacheStats`](crate::TextCacheStats); see that type for how to check it without the
+    /// assertion passing vacuously.
+    cache_hits: u32,
+    cache_misses: u32,
 }
 
 /// Build a cosmic-text [`FontSystem`] loading `font_data` (if non-empty) plus every blob in
@@ -145,6 +152,8 @@ impl TextRenderer {
                 used: 0,
             }],
             shaped_buffer_cache: std::collections::HashMap::new(),
+            cache_hits: 0,
+            cache_misses: 0,
             cache_generation: 0,
         }
     }
@@ -169,7 +178,21 @@ impl TextRenderer {
     /// Ends the frame's text rendering: evicts shaped-buffer cache entries not used this frame,
     /// trims every pool's atlas, resets the per-frame batch counters, and advances the cache
     /// generation. Called once per frame by the render orchestration, after the last text pass.
+    /// This frame's shaped-buffer cache hits/misses so far.
+    ///
+    /// Read it **before** [`end_frame`](Self::end_frame), which resets the counters along with the
+    /// rest of the frame boundary. `App` copies it into the [`TextCacheStats`](crate::TextCacheStats)
+    /// resource at exactly that point.
+    pub fn cache_stats(&self) -> crate::resources::TextCacheStats {
+        crate::resources::TextCacheStats {
+            hits: self.cache_hits,
+            misses: self.cache_misses,
+        }
+    }
+
     pub fn end_frame(&mut self) {
+        self.cache_hits = 0;
+        self.cache_misses = 0;
         let gen = self.cache_generation;
         self.shaped_buffer_cache
             .retain(|_k, v| v.last_used_gen == gen);
@@ -451,6 +474,16 @@ impl TextRenderer {
                 let cached = plain_key
                     .as_ref()
                     .and_then(|k| self.shaped_buffer_cache.remove(k));
+
+                // Counted here rather than at the `remove` above so rich text — which is never
+                // cached and never keyed — lands in neither column.
+                if plain_key.is_some() {
+                    if cached.is_some() {
+                        self.cache_hits += 1;
+                    } else {
+                        self.cache_misses += 1;
+                    }
+                }
 
                 let buf = if let Some(CachedBuffer { buffer, .. }) = cached {
                     // Cache hit: reuse the already-shaped buffer.
