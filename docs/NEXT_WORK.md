@@ -31,15 +31,23 @@ What went with them, because it was built on them:
 | `scripts/build_wasm_examples.sh` + the CI step calling it | **back** (phase 4) — 4 of the 6 example targets build for wasm, 2 declared native-only |
 | `scripts/hot_reload_smoke.sh` + the `DATA_ANIM` / `DATA_PARTICLES` selftests | hot-reload has no coverage |
 
-✅ **Branch protection is clean — re-verified 2026-08-19.** The required set is the seven jobs that
-still exist, and `Browser smokes (Chrome + swiftshader)` is not among them, so nothing is waiting on
-a check that can never report. Re-check with the API, never with this line:
+✅ **Branch protection is clean — re-verified 2026-08-21, after phase 5b restored the eighth job.**
+**8 CI jobs, 8 required contexts, exact correspondence in both directions**, so neither failure mode
+exists: no job without a required context (a check nobody is gated on) and no context without a job
+(which blocks every merge — the v0.153.0 failure). Re-check with the API, never with this line:
 `gh api repos/ChunSam/skeleton-engine/branches/main/protection --jq '.required_status_checks.contexts'`
 
-⚠️ **Phase 5 puts the trap back.** Restoring the `wasm-smokes` job means re-adding its context to the
-required set — and a job added without its context is a check nobody is gated on, which is the
-mirror-image failure. Adding a *step* to an existing job (phase 0's runner) needs no protection
-change; adding a *job* does.
+⚠️ **Check it in both directions, and against the workflow rather than by eye.** "The list looks
+right" is how the drift at the bottom of this file survived. The correspondence above was verified
+by diffing the `name:` of every job in `.github/workflows/ci.yml` against the API's context list —
+both set differences empty. That is two lines of script and it is the only form of this check that
+cannot be satisfied by a list that merely looks plausible.
+
+⚠️ **`Browser smokes (Chrome + swiftshader)` was added with the additive endpoint**
+(`POST …/protection/required_status_checks/contexts`), not by PUT-ing the whole protection object.
+The full PUT resets every field it does not carry, so a hand-built body silently drops `strict`,
+`enforce_admins`, or the force-push and deletion bars. Confirmed unchanged afterwards: `strict`
+true, `enforce_admins` true, force-pushes and deletions still barred.
 
 Nothing was migrated into `tests/`. Before rebuilding a game, read `docs/PROGRAM_HISTORY.md` (what
 each one covered and why) and `docs/VERIFICATION.md` § *A skip is not a pass* (the runner shape —
