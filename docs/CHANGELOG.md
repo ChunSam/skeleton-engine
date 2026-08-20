@@ -4,6 +4,63 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.154.2
+
+The last two rows of the 2026-08-19 render review. **The review's remainder is now empty.**
+
+### `BloomRenderer::resize` recompiled the shader and all four pipelines
+
+`resize` was `*self = Self::new(…)`. Only the mip pyramid and the bind groups reading it depend on
+the size; the shader module, bind-group layout, pipeline layout, sampler, two uniform buffers and
+**four render pipelines** do not. A live window drag rebuilt all of them once per frame the drag
+produced. `PostProcessRenderer::resize` already did the narrow thing — this now matches it.
+
+The size-dependent half moved into a `Pyramid` struct with its own `build`, and `resize` rebuilds
+exactly that. ⚠️ **The split is enforced by construction, not by care**: the shader module and the
+pipeline layout are locals of `new` and do not exist afterwards, so `resize` *cannot* rebuild a
+pipeline even by mistake. A format change still takes the wide path — that is what `reconfigure` is
+for, and it still rebuilds everything, correctly.
+
+`prefilter_ub` deliberately survives a resize even though its `texel` is size-derived: `update`
+rewrites the whole struct from `self.width`/`self.height` every frame and the frame calls `update`
+immediately before `run`, so assigning the new size *before* rebuilding is what keeps it honest.
+
+**No timing claim is made here.** What is claimed is countable by reading — one shader compile and
+four `create_render_pipeline` calls per resize event, now zero. Quantifying the wall-clock saving
+needs a real windowed drag, which this repo has no automated way to produce; the row said so and
+that half is still true.
+
+The pyramid arithmetic came out as a pure `pyramid_dims(width, height)`, which is the only part of
+the bloom renderer testable without a GPU (`BloomRenderer::new` takes a `wgpu::Device`). Four tests:
+the exact 1920x1080 chain, the `MAX_BLOOM_ITERATIONS` cap binding on a huge scene *with a control
+that the last level is still healthy* (so the cap, not degeneracy, is what stopped it), resize being
+a pure function of the new size, and — sabotage-verified red by dropping the `.max(1)` — that a
+degenerate scene still yields one non-zero mip, since `mips[0]` is indexed unconditionally.
+
+### A second pixel format for one texture path was ignored in silence
+
+`load_texture_with_format` returns early on a cache hit and never looks at `format`. So a file
+already pulled in as ordinary sRGB colour, then registered as a **linear data texture** (normal map,
+mask, LUT) through `App::load_image_with_format`, came back sRGB-decoded and looked subtly wrong,
+with no diagnostic anywhere. The two calls that collide are usually in different files.
+
+⚠️ **One format per path is correct, and the obvious fix does not work.** Putting the format in the
+cache key cannot: the sampling side reaches a texture through `bind_group_for_texture_key`, whose
+only input is the string on `Sprite.texture`. A key carrying a format would have nothing to match
+against, so one path would map to two textures with no way for a sprite to choose. Lifting this
+means changing how sprites *name* textures — a design change, not a bugfix. So the ignoring stays;
+the silence goes. The conflict is detected across the whole **alias set**, so two spellings of one
+file (`assets/hero.png` and `hero.png` are one cache entry) collide visibly too.
+
+`reload_format` needed no revisiting after all — the row warned it might, because v0.152.9's
+hot-reload fix depends on a path holding one format. It still does; that invariant is now stated
+and enforced rather than merely true.
+
+Decided by a pure `cached_format_verdict`, split out for the reason `reload_format` was: a real
+cache entry needs a GPU. Both directions of the conflict are tested (an sRGB request against a
+cached linear texture is just as wrong), with controls that an agreeing format and an uncached path
+stay silent — without those, a function that warned on every load would pass.
+
 ## 0.154.1
 
 Six rows from the 2026-08-19 render review's remainder. **Two of the six turned out not to be

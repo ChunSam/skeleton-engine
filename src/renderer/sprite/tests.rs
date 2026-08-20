@@ -1,4 +1,7 @@
-use super::textures::{file_texture_aliases, reload_format, rt_registration, RtRegistration};
+use super::textures::{
+    cached_format_verdict, file_texture_aliases, reload_format, rt_registration, CachedFormat,
+    RtRegistration,
+};
 use super::ui_primitives::{sorted_ui_primitives, UiPrimitiveKind};
 use super::*;
 
@@ -450,5 +453,51 @@ fn a_rebuilt_render_target_replaces_its_bind_group() {
         rt_registration(None, &rebuilt),
         RtRegistration::Insert,
         "control: a name the cache has never seen is the one case that owns a new key"
+    );
+}
+
+// ── load_texture_with_format: a second format for one path is ignored, but no longer silently ──
+
+const SRGB: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+const LINEAR: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+
+/// The case that used to pass unnoticed: a file already pulled in as ordinary sRGB colour, then
+/// registered again as a linear data texture (a normal map, mask or LUT) via
+/// `App::load_image_with_format`. The second request is ignored — one path holds one format,
+/// because a sprite names a texture by path alone — and the caller now gets told.
+#[test]
+fn a_second_format_for_a_loaded_path_is_reported() {
+    assert_eq!(
+        cached_format_verdict(Some(SRGB), LINEAR),
+        CachedFormat::ReuseWrongFormat { cached: SRGB },
+        "asking for linear on an already-sRGB path must be reported, not swallowed"
+    );
+    // The other direction is just as wrong and must report too — an sRGB request against a
+    // cached linear texture would sRGB-decode data bytes that are not colour.
+    assert_eq!(
+        cached_format_verdict(Some(LINEAR), SRGB),
+        CachedFormat::ReuseWrongFormat { cached: LINEAR },
+        "the conflict is symmetric — neither direction is the benign one"
+    );
+}
+
+/// The controls, without which the test above would pass on a function that reports every load.
+/// A warning on the ordinary path would fire once per pending texture at GPU init.
+#[test]
+fn an_agreeing_or_absent_format_is_silent() {
+    assert_eq!(
+        cached_format_verdict(Some(SRGB), SRGB),
+        CachedFormat::Reuse,
+        "control: the same format twice is the normal case — it must not warn"
+    );
+    assert_eq!(
+        cached_format_verdict(Some(LINEAR), LINEAR),
+        CachedFormat::Reuse,
+        "control: and that holds for a linear texture reloaded as linear"
+    );
+    assert_eq!(
+        cached_format_verdict(None, LINEAR),
+        CachedFormat::Load,
+        "control: an uncached path is a plain upload, never a conflict"
     );
 }
