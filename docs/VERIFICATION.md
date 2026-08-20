@@ -152,6 +152,20 @@ script on 2026-08-19 made those paragraphs true again, which does not retire the
 the other way that day, and every paragraph asserting the flag was *dead* had to be found the same
 way, by its name rather than its file.)
 
+⚠️ **The concept grep has a file-type blind spot, and it is easy to walk into twice in one day.**
+2026-08-20: phase 2 of the examples rebuild swept "the `examples/` tree is empty" out of
+`docs/NEXT_WORK.md`, `docs/VISION.md`, `README.md` and `FORKING.md` — a correct concept grep, run as
+`grep -rn '…' docs/*.md README.md FORKING.md`. It found four of eight. The other four are
+**`REFERENCE.html`, `STRUCTURE.html`, `ARCHITECTURE.html` and `DEPENDENCY_GRAPH.html`**, which
+`CLAUDE.md`'s own orientation table lists as the user-facing docs. `STRUCTURE.html` still described
+145 cargo targets and 43,990 lines of examples, and pointed at `scripts/build_wasm_examples.sh`,
+deleted in v0.153.0; `REFERENCE.html` still linked 15 example paths that no longer exist.
+
+The rule: **name the concept, then drop every path and extension filter** — `grep -rn '<concept>' .`
+first, narrow after. A repo whose docs are half Markdown and half generated HTML will answer
+`--include='*.md'` truthfully and incompletely, and an incomplete answer to "did I get them all?"
+reads exactly like a complete one.
+
 Verifying a removal means searching the **repo** for the idea in every phrasing it might wear, not
 re-reading the file you happened to have open. The file you were editing is the one place you have
 already looked.
