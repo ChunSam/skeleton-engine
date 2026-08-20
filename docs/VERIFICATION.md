@@ -72,11 +72,12 @@ grep -E 'running [0-9]+ tests' /tmp/v.log | head -1
 have moved it is worth a look even when the exit code is `0`. ⚠️ The old reference figures
 (152 groups / 1339 lib tests at v0.138.0) are void — most of those groups were example targets,
 deleted on 2026-08-19. The post-deletion baseline, measured on a green run at v0.153.3, is
-**12 `ok` groups / 1461 lib tests**. The trail, since two releases moved it without saying so:
+**13 `ok` groups / 1461 lib tests**. The trail, since two releases moved it without saying so:
 1443 at v0.153.0 → **1449 at v0.153.1** (#482 added 6 and did not update this line) → 1461 at
-v0.153.2 (+12). The 12th group is `examples/platformer_game`: an example target adds one `ok` group
-even when it contributes no `#[test]` — its selftest is an env-var entry point, so the group reads
-`running 0 tests`. Every rebuilt game adds one more.
+v0.153.2 (+12). Groups 12 and 13 are `examples/platformer_game` and `examples/rpg_quest_game`: an
+example target adds one `ok` group even when it contributes no `#[test]` — its selftest is an
+env-var entry point, so the group reads `running 0 tests`. Every rebuilt game adds one more; the
+lib count does not move with them.
 
 ### Trap 5 — a stale `.exit` file from a previous session
 

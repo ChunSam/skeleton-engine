@@ -1,0 +1,10 @@
+// Item table for `rpg_quest_game`, read through `DataTableRegistry` and hot-reloaded on change.
+//
+// The lantern's `price` is the value the merchant's `cond_all` gate compares the player's gold
+// against — edit it while the game runs and the shop line changes without a rebuild. The selftest
+// rewrites this file on disk and waits, on a wall clock, for the registry to catch up.
+[
+    (id: "lantern", price: 10, weight: 2),
+    (id: "rope", price: 4, weight: 3),
+    (id: "ore", price: 25, weight: 8),
+]
