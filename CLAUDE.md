@@ -33,12 +33,12 @@ Read only what you need.
 
 ## Build & run
 
-⚠️ **Two games exist.** The `examples/` tree — 22 games, ~85 demos — was deleted on 2026-08-19 at
+⚠️ **Three games exist.** The `examples/` tree — 22 games, ~85 demos — was deleted on 2026-08-19 at
 the user's request; `plans/2026-08-19-examples-rebuild-plan.md` rebuilds it as five.
-`examples/platformer_game/` (phase 1) and `examples/rpg_quest_game/` (phase 2) are in; three genres
-are still missing. Each runs with `cargo run --example <name>` and self-verdicts with
-`<NAME>_SELFTEST=1`. `cargo build --target wasm32-unknown-unknown` for wasm, `./scripts/build_wasm.sh`
-for a servable bundle in `dist/` (it builds the lib's own `run_demo` entry point, not an example).
+`platformer_game`, `rpg_quest_game` and `survivor_game` are in; puzzle and networked are not. Each
+runs with `cargo run --example <name>` and self-verdicts with `<NAME>_SELFTEST=1`. `cargo build
+--target wasm32-unknown-unknown` for wasm, `./scripts/build_wasm.sh` for a servable bundle in
+`dist/` (it builds the lib's own `run_demo` entry point, not an example).
 
 Read `docs/PROGRAM_HISTORY.md` + `docs/CHANGELOG.md` before rebuilding one; `git show
 4edfd3f^:examples/<path>` still has every deleted file. A game at `examples/<name>/<name>.rs` needs
@@ -95,13 +95,13 @@ have each cost a session; the ones that recur:
   `echo $? > /tmp/v.exit` and **read the file**, after `rm -f`-ing it first (a stale file matches instantly).
 - `;` does not short-circuit — branch on the captured code before committing.
 
-⚠️ **The acceptance layer is two games deep, and the gate got much weaker on 2026-08-19.** It used
-to run `scripts/build_wasm_examples.sh` (gone with the examples) and `scripts/selftests.sh` over 11
-`<NAME>_SELFTEST` tests; the runner is back with 14 checks across two games — physics, one-way
-platforms, collider resync, a joint, the animation state machine, and the scene stack, persistence
-registry, save migration, locale switch, data-table hot reload and A*. Audio, wasm, GPU particles
-and networking still have **no** acceptance coverage. What else measures anything: `fmt`, `clippy`,
-the wasm build, `cargo test`, doctests, `cargo doc`.
+⚠️ **The acceptance layer is three games deep, and the gate got much weaker on 2026-08-19.** It
+used to run `scripts/build_wasm_examples.sh` (gone with the examples) and `scripts/selftests.sh`
+over 11 `<NAME>_SELFTEST` tests; the runner is back with **21 checks across three games** — physics,
+one-way platforms, collider resync, joints, animation state machines, the scene stack, persistence,
+save migration, locale, hot reload, A*, pool churn, the light cap, steering, seeded runs. **wasm and networking still have no acceptance coverage at all**, and audio has one
+check that skips wherever there is no device (all of CI). What else measures anything: `fmt`,
+`clippy`, the wasm build, `cargo test`, doctests, `cargo doc`.
 
 What the gate does **not** cover, so get it yourself:
 
@@ -165,8 +165,8 @@ Two that have their own failure mode:
 
 **A feature is not done until a small playable example exercises it in real play.** The example is
 the acceptance test, not an afterthought — if the API feels awkward while writing it, fix the API.
-Rebuilding as five games; **two exist**, so their subsystems are exercised and the rest of `src/` is
-not. That gap is a standing debt, not the rule being relaxed.
+Rebuilding as five games; **three exist**, so their subsystems are exercised and the rest is not.
+That gap is a standing debt, not the rule being relaxed.
 
 **A number pinned in prose is fixed by whoever changes it.** *(권고)* A stale baseline is worse
 than none — it reads as an unexplained gain. v0.153.0 moved the lib-test count 1432 → 1443 in two
