@@ -20,7 +20,7 @@ this document or a separate `docs/*.md`.
 | Single-file edit | Handle directly in the main session when requirements are clear. |
 | Multi-file feature | Narrow down and read related files first; split exploration/implementation/review into subagents if needed. |
 | Public API change | Check `src/lib.rs` re-exports, examples, and doc impact. |
-| Docs/release impact | Update whichever of `REFERENCE.html`, `README.md`, `docs/CHANGELOG.md`, `docs/HANDOFF.md` is needed. |
+| Docs/release impact | Update whichever of `README.md`, `docs/CHANGELOG.md`, `docs/MODULE_MAP.md` is needed. |
 | Risky work | Do not proceed without prior confirmation. |
 
 Risky work includes public API removal/rename, dependency/version changes, large refactors, file deletion, and destructive Git operations.
@@ -61,7 +61,7 @@ You do not always have to run the full gate for every task. But if you skip any 
 
 When public API, usage, examples, or release notes are affected, update docs alongside.
 
-- Public API descriptions or example changes: `REFERENCE.html`
+- Public API descriptions or example changes: `src/lib.rs` re-exports + the `docs/MODULE_MAP.md` row
 - User getting-started steps, requirements, or check commands: `README.md`
 - Changes visible to release users: `docs/CHANGELOG.md`
 - Dev history, architecture decisions, handoff notes: `docs/HANDOFF.md`

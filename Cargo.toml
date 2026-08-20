@@ -22,8 +22,6 @@ include     = [
     "docs/CHANGELOG.md",
     "LICENSE",
     "README.md",
-    "REFERENCE.html",
-    "ARCHITECTURE.html",
     "Cargo.toml",
     "Cargo.lock",
     "scripts/**",
@@ -41,6 +39,10 @@ crate-type = ["cdylib", "rlib"]
 [[example]]
 name = "platformer_game"
 path = "examples/platformer_game/platformer_game.rs"
+
+[[example]]
+name = "rpg_quest_game"
+path = "examples/rpg_quest_game/rpg_quest_game.rs"
 
 [dependencies]
 winit    = "0.30.13"

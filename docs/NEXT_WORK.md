@@ -2,8 +2,9 @@
 
 > Status: living document. Derived from `docs/VISION.md` (reset 2026-05-29), under its core loop:
 > **a feature is not done until a small, playable example game in `examples/` exercises it in real
-> play.** ⚠️ As of 2026-08-19 the `examples/` tree is empty, so **nothing in this engine currently
-> meets that bar** — see the top section below.
+> play.** ⚠️ The tree was deleted on 2026-08-19 and is being rebuilt as five games; **two exist**
+> (`platformer_game`, `rpg_quest_game`), so the subsystems they name meet that bar and the rest of
+> `src/` does not — see the top section below.
 >
 > **This file holds only what is still open.** The completed candidate A–O playable-examples program
 > and its release/hardening follow-ups moved to **`docs/PROGRAM_HISTORY.md`** on 2026-08-03 — they
@@ -43,10 +44,12 @@ Nothing was migrated into `tests/`. Before rebuilding a game, read `docs/PROGRAM
 each one covered and why) and `docs/VERIFICATION.md` § *A skip is not a pass* (the runner shape —
 derived, never hardcoded — that this repo already paid for twice).
 
-**Phase progress.** Phase 0 (the runner) and **phase 1 (`platformer_game`)** are done, both on
-2026-08-19. **Next is phase 2, `rpg_quest_game`** — the plan puts it before `survivor_game` because
-it owns the scene/persistence questions, which are the highest-risk area. Phases 3–5 follow
-(`survivor_game`, `puzzle_grid_game`, `netplay_game` + restoring the `wasm-smokes` job).
+**Phase progress.** Phase 0 (the runner) and phase 1 (`platformer_game`) landed 2026-08-19; **phase
+2 (`rpg_quest_game`) landed 2026-08-20** with 7 selftest checks plus a docked-editor render test.
+**Next is phase 3, `survivor_game`** — and it is the one the engine session is waiting on: GPU
+particles, `FloatingText`, bloom and `RenderTarget` are all on its required list, and v0.153.2
+changed all four without a game to run them. Phases 4–5 follow (`puzzle_grid_game`, `netplay_game`
++ restoring the `wasm-smokes` job).
 
 ⚠️ **The plan's line estimates are low by roughly 2×.** `platformer_game` came in at **1,779 lines**
 (1,433 of them code) against an estimated ~800: ~1,250 game, ~475 for seven selftest checks, ~50 for
@@ -54,6 +57,21 @@ a deterministic asset generator. The plan's "5 games, ~4,000 lines" is therefore
 the other four land at this density — still a ~58% cut from the deleted tree's 19,154, but not the
 78% the plan claims. Nothing here is padding to cut; the estimate was optimistic, and the acceptance
 half (which the plan wanted designed first) is a quarter of the file on its own.
+
+**Phase 2 closed the docked-transition row by measurement.** `tests/render.rs`'s
+`docked_iris_is_a_circle_in_the_docked_target` photographs a mid-transition `IrisIn` through
+`screenshot_editor_docked_headless_rgba` and measures the hole's width against its height. Verified
+both ways: against a pre-v0.153.3 aspect it reports `hole 236x372 (ratio 0.634)`, and at a window
+size where the docked RT and the surface happen to share an aspect its **control** assertion fires
+instead of passing vacuously. It lives in the render job rather than the selftest because it needs a
+GPU, and the selftest runner tolerates no skips.
+
+⚠️ **Two of phase 2's checks were wrong first, and both were the same shape** — a half no sabotage
+moved. The persistence check's "dropped" half passed even with `SceneVisits` wrongly registered,
+because `on_enter` re-inserted it unconditionally (fixed: scenes seed-if-absent). The Push/Pop check
+passed with `SceneCmd::Pop` sabotaged into `Replace`, because it drove `App::pop_scene` directly
+rather than the game's Escape handler (fixed: it now drives the input script). Both are the trap
+`docs/VERIFICATION.md` § *Sabotage each half separately* names; it is now three-for-three.
 
 What phase 1 leaves for the others, stated so it is not mistaken for coverage: **no wasm build**
 (rapier2d is native-only, so the platformer has no web target and the browser-smoke half of the plan
@@ -125,7 +143,7 @@ treat the rest as unproven until the named instrument runs.
 | **`BloomRenderer::resize` recompiles the shader and all four pipelines.** `*self = Self::new(…)` rebuilds everything, but only the mip pyramid and its bind groups depend on size. During a live window drag that is a full pipeline rebuild per frame. `PostProcessRenderer::resize` already does the narrow thing. | `src/renderer/bloom.rs:265` | Read; a timing claim needs a windowed drag |
 | ~~**The GPU-particle renderer is never torn down.**~~ **DONE v0.153.2 — by stopping the work, not the renderer.** The per-frame cost was the point, and the pass now runs only while there is something to simulate. Tearing the renderer *down* was rejected: its pipelines and buffer are a cache, so a game whose emitters blink off would trade a per-frame cost for a shader recompile. ⚠️ The gate is **not** `has_emitters` — the frame after the last emitter despawns, its particles are still alive. Death happens on the GPU, so liveness is bounded CPU-side by counting the longest uploaded `life` down by the same `dt` the shader uses, which errs only towards "maybe alive". The capacity half is fixed too: a `GpuParticleConfig` change now rebuilds (discarding particles in flight). | `src/app/render/frame.rs:454`, `src/app/render_state.rs:56` | ~~Read; cost needs the render job~~ — read; the *saving* still needs the render job to quantify |
 | ~~**One `queue.write_buffer` per new particle.**~~ **DONE v0.153.2.** The row's reasoning held exactly: uploads are grouped into contiguous ring runs, so an emission is one write, or two across a wrap. Four tests, including the control that non-consecutive slots are never merged — merging them would overwrite the particles in between. | `src/app/render/frame.rs:487` | ~~Read~~ — read + 4 tests |
-| ~~**The docked transition overlay uses the surface aspect.**~~ **FIXED v0.153.3, NOT YET PROVEN — the row's own gate has not run.** The diagnosis held exactly, and the correct value turned out to be in the same function already (the text passes' target size, now renamed `scene_target_w`/`_h` and documented as "what any pass rendering into `scene_target` must use"). ⚠️ It is still owed a docked capture, and that capture needs a **control**: the bug is only observable when the docked RT's aspect differs from the surface's, so a capture taken at a window size where they coincide passes vacuously. Scoped into the examples-rebuild plan's `rpg_quest_game` phase, with the aspect-difference assertion written into the spec; the fix shipped ahead of it because that phase has no date. Re-open this row if the capture disagrees. | `src/app/render/frame.rs:650` | ~~A docked screenshot~~ — still a docked screenshot, now as a regression guard rather than a discovery |
+| ~~**The docked transition overlay uses the surface aspect.**~~ **CLOSED 2026-08-20 — fixed v0.153.3, proven by the capture the row asked for.** The diagnosis held exactly, and the correct value turned out to be in the same function already: the text pass's target size, which was *named* `text_w`/`text_h` and therefore read as text-specific, so the transition re-derived it from `gpu.config` instead. Renamed `scene_target_w`/`_h` with a comment saying any pass drawing into `scene_target` must use it; the general lesson is in `docs/PATTERNS.md` § *The target's size is not `gpu.config` either*. The gate is `tests/render.rs::docked_iris_is_a_circle_in_the_docked_target` (phase 2 of the examples rebuild): it captures a mid-`IrisIn` docked frame and measures the hole's chords — **296x296, roundness 1.000** at a 1000x460 window whose docked viewport is 392x372. ⚠️ Both halves are sabotage-verified: against the pre-v0.153.3 aspect it reports **236x372 (ratio 0.634)**, and at a window size where the docked RT and the surface share an aspect (1382x200 -> viewport 774x112) the **control** assertion fires rather than passing vacuously. | `src/app/render/frame.rs:725` | ~~A docked screenshot~~ — done, in the render job (it needs a GPU, and the selftest runner tolerates no skips) |
 | ~~**`live_material_entities_scratch` excludes `Hidden`, and two comments above it say it does not.**~~ **DONE v0.153.2 — the comments were right.** Keeping a hidden entity's buffers is the cheaper behaviour and was the stated intent; the code was the half that was wrong. Both sets now come from one pass, split into a free function so a test can reach it — `SpriteRenderer` needs a GPU to construct, so the fix was otherwise unprovable. | `src/renderer/sprite/collect.rs:232` | ~~Read~~ — read + a test over `&World` |
 | ~~**`setup_lighting`'s arm order swallows a same-frame cap change.**~~ **DONE v0.153.2.** The exclusive `match` arms became independent steps decided by a pure `lighting_fixups`. The ordering needs no re-checking and the doc says why: `reconfigure` already rebuilds at the new size, `set_max_lights` preserves size and format, `resize` early-returns on a match. Five tests, including the control that an unchanged frame rebuilds nothing. | `src/app/render/post_lighting.rs:120` | ~~Read~~ — read + 5 tests |
 | **`load_texture_with_format` ignores `format` on a cache hit** — the cache key has no format, so a path can only ever hold one, silently. The v0.152.9 hot-reload fix depends on that being true, so changing it means revisiting `reload_format`. | `src/renderer/sprite/textures.rs:48` | Read |

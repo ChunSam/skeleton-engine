@@ -1134,3 +1134,112 @@ fn hidden_component_suppresses_sprite() {
         "Hidden green quad still rendered: {right:?}"
     );
 }
+
+/// A docked `IrisIn` must be a **circle in the docked render target's own pixel space**.
+///
+/// Until v0.153.3 `TransitionRenderer::update` was handed `gpu.config`'s aspect while `run_pass`
+/// targeted the docked offscreen RT, so the iris was aspect-corrected for the wrong rectangle and
+/// drew elliptical while docked. Nothing failed — the mask simply had the wrong shape, which is why
+/// it survived two releases: only a picture can catch it.
+///
+/// ⚠️ **The control assertion is the load-bearing half.** The bug is observable *only* when the
+/// docked RT's aspect differs from the surface's; at a window size where they coincide, the buggy
+/// code draws a perfect circle too and a green run here would prove nothing. So this first asserts
+/// the two aspects really do differ at capture time, and only then that the hole is round. Written
+/// after the fix, so it is a regression guard: run it against any commit before v0.153.3 and the
+/// roundness assertion is expected to fail.
+///
+/// Geometry: the shader computes `dx = (uv.x - 0.5) * aspect`, `dy = uv.y - 0.5`. In pixels that is
+/// `dx = (px - w/2)/h` when `aspect == w/h` — a circle. With the surface's aspect instead, the x
+/// term is scaled by `surface_aspect / target_aspect` and the hole becomes an ellipse by exactly
+/// that ratio, which is what the width/height comparison below measures.
+#[test]
+fn docked_iris_is_a_circle_in_the_docked_target() {
+    // Deliberately wide: the docked side panels take a fixed pixel width, so a wide window leaves a
+    // central strip whose aspect is far from the window's. That gap is what makes the bug visible.
+    let (w, h) = (1000u32, 460u32);
+    let mut app = App::new();
+    app.world.insert_resource(WindowConfig {
+        title: "docked iris".into(),
+        width: w,
+        height: h,
+        // Saturated green for the uncovered scene, exactly as the post-process test does.
+        clear_color: [0.0, 0.85, 0.25, 1.0],
+    });
+    // Mid-transition, held still: `speed` is tiny so the eight captured frames barely advance it.
+    let mut transition = engine::SceneTransition::new(engine::TransitionStyle::IrisIn, 10_000.0);
+    transition.coverage = 0.45;
+    transition.color = Color::rgb(0.85, 0.05, 0.85); // magenta: absent from egui chrome and the scene
+    app.world.insert_resource(transition);
+
+    let Some((rw, rh, px)) = editor_render_or_skip(&mut app, 8, true) else {
+        return;
+    };
+    assert_eq!((rw, rh), (w, h), "read-back size mismatch");
+
+    let is_green = |p: [u8; 3]| p[1] as i32 > p[0] as i32 + 40 && p[1] as i32 > p[2] as i32 + 40;
+    let is_overlay = |p: [u8; 3]| p[0] as i32 > p[1] as i32 + 40 && p[2] as i32 > p[1] as i32 + 40;
+
+    // The docked game viewport = every pixel the scene pass wrote, covered or not.
+    let (mut vx0, mut vy0, mut vx1, mut vy1) = (u32::MAX, u32::MAX, 0u32, 0u32);
+    for y in 0..rh {
+        for x in 0..rw {
+            let p = px_rgb(&px, rw, x, y);
+            if is_green(p) || is_overlay(p) {
+                vx0 = vx0.min(x);
+                vy0 = vy0.min(y);
+                vx1 = vx1.max(x);
+                vy1 = vy1.max(y);
+            }
+        }
+    }
+    assert!(
+        vx1 > vx0 && vy1 > vy0,
+        "found no docked game viewport at all — neither the scene nor the transition overlay \
+         reached the central panel"
+    );
+    let (vw, vh) = ((vx1 - vx0 + 1) as f32, (vy1 - vy0 + 1) as f32);
+    let target_aspect = vw / vh;
+    let surface_aspect = w as f32 / h as f32;
+
+    // ── Control: the two aspects must actually differ, or the check below is vacuous ──────────
+    let ratio = target_aspect / surface_aspect;
+    assert!(
+        (ratio - 1.0).abs() > 0.05,
+        "the docked viewport ({vw}x{vh}, aspect {target_aspect:.3}) has essentially the same \
+         aspect as the surface ({surface_aspect:.3}) — at this window size the bug is invisible \
+         and a passing roundness check proves nothing. Widen the window or adjust the panels."
+    );
+
+    // ── The iris hole, measured through the viewport's centre ─────────────────────────────────
+    let cx = (vx0 + vx1) / 2;
+    let cy = (vy0 + vy1) / 2;
+    let hole_w = (vx0..=vx1)
+        .filter(|x| is_green(px_rgb(&px, rw, *x, cy)))
+        .count() as f32;
+    let hole_h = (vy0..=vy1)
+        .filter(|y| is_green(px_rgb(&px, rw, cx, *y)))
+        .count() as f32;
+    assert!(
+        hole_w > 8.0 && hole_h > 8.0,
+        "the iris left no measurable hole (w={hole_w}, h={hole_h}) — coverage may have run to 1.0 \
+         before the capture, or the overlay never drew"
+    );
+
+    // A circle in pixel space: equal chords through the centre. The tolerance is generous because
+    // the shader softens the edge (`softness = 0.01`) and lavapipe and Metal disagree on the last
+    // LSB — but the bug this guards produces a ratio of `surface_aspect / target_aspect`, which at
+    // this window size is far outside it.
+    let roundness = hole_w / hole_h;
+    assert!(
+        (roundness - 1.0).abs() < 0.12,
+        "the docked iris is an ellipse, not a circle: hole {hole_w}x{hole_h} (ratio \
+         {roundness:.3}). The transition was aspect-corrected for the surface ({surface_aspect:.3}) \
+         instead of the docked target ({target_aspect:.3}); their ratio is {ratio:.3}, which is \
+         what an elliptical hole would show."
+    );
+    println!(
+        "{MARKER} docked iris: viewport {vw}x{vh} (aspect {target_aspect:.3} vs surface \
+         {surface_aspect:.3}), hole {hole_w}x{hole_h} (roundness {roundness:.3})"
+    );
+}

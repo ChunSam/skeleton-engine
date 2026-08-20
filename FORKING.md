@@ -1,7 +1,7 @@
 # Forking skeleton-engine
 
 A short, practical guide to building **your own game** on the engine. For the full API
-reference see [`REFERENCE.html`](REFERENCE.html) _(Korean)_; for the architecture and
+reference see [`src/lib.rs`](src/lib.rs) and [`docs/MODULE_MAP.md`](docs/MODULE_MAP.md); for the architecture and
 agent notes see [`CLAUDE.md`](CLAUDE.md) and [`docs/`](docs/).
 
 ## The model: fork, don't depend
@@ -23,16 +23,19 @@ engine code directly under `src/`, and grow it into your own engine. There is no
 | `src/lib.rs` | the public API re-export list (the fastest map of what exists) |
 | `docs/MODULE_MAP.md` | module map: "where do I find X?" table for every subsystem (grep it) |
 | `CLAUDE.md` | agent quick reference: conventions, the verify gate, task checklists |
-| `examples/` | your games go here — **currently empty**, see the note below |
+| `examples/` | your games go here — two rebuilt games live here; see the note below |
 | `assets/` | assets shipped with the engine itself (fonts, one test PNG) |
 | `docs/` | VISION, PATTERNS, NEXT_WORK, CHANGELOG (English) |
 | `scripts/verify.sh` | the local CI-equivalent gate — run before you commit |
 
 ## Start your own game
 
-> ⚠️ **There is nothing to copy from.** The `examples/` tree — 22 playable games and ~85 feature
-> demos — was deleted on 2026-08-19 and is being rebuilt. Every one of them is still in git history
-> if you want a reference: `git log --diff-filter=D --name-only -- examples/` to find a file, then
+> **Two games to copy from, where there used to be 22.** The old tree — 22 playable games and ~85
+> feature demos — was deleted on 2026-08-19 and is being rebuilt as five. `examples/platformer_game/`
+> (physics, tilemap, animation state machine) and `examples/rpg_quest_game/` (scenes, save, dialogue,
+> UI, localization) are the current references, and each carries a headless acceptance test worth
+> reading alongside it. The deleted ones are still in git history if you want a wider sample:
+> `git log --diff-filter=D --name-only -- examples/` to find a file, then
 > `git show <commit>^:examples/<path>` to read it.
 
 Write `examples/my_game.rs` with a `fn main`, then register it in `Cargo.toml`:
@@ -49,8 +52,10 @@ cargo run --example my_game
 
 Two other layouts:
 
-- **Multi-file game** → `examples/games/my_game/my_game.rs` plus its own assets directory, pointed
-  at by the same `[[example]]` block.
+- **Game with assets** → `examples/my_game/my_game.rs` plus its own `assets/` directory, pointed at
+  by the same `[[example]]` block. This is the layout the rebuilt games use; note that Cargo does
+  **not** auto-discover it (it finds `examples/*.rs` and `examples/*/main.rs`), which is why the
+  block is required rather than optional.
 - **A binary** → put it in `src/bin/my_game.rs` and `cargo run --bin my_game`.
 
 ## The shape of a game
@@ -132,4 +137,4 @@ and went with them, so nothing checks the engine in a real browser or in real pl
 - **`docs/VISION.md`** — why the engine exists and how features get accepted (every feature
   is validated by a small playable example — a bar nothing currently meets, see above).
 - **`docs/PATTERNS.md`** — architecture patterns and task recipes.
-- **`REFERENCE.html`** — full API reference with examples _(Korean)_.
+- **`src/lib.rs`** — the public API re-export list, which is the fastest map of what exists. (The Korean `REFERENCE.html` was deleted on 2026-08-20 for describing an examples tree that no longer exists; it will be rewritten.)

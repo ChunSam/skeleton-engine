@@ -1,0 +1,46 @@
+// Town props for `rpg_quest_game`, spawned through `spawn_scene_def`rather than by code — the
+// layout is data, so the editor's Save Scene can round-trip it.
+SceneDef(
+    version: 3,
+    entities: [
+        EntityDef(
+            tag: Some("ground"),
+            transform: Some(Transform(
+                position: (480.0, 420.0),
+                scale: (960.0, 260.0),
+                rotation: 0.0,
+                z: -1.0,
+            )),
+            sprite: Some(Sprite(
+                texture: None,
+                color: (r: 0.16, g: 0.20, b: 0.17, a: 1.0),
+            )),
+        ),
+        EntityDef(
+            tag: Some("stall"),
+            transform: Some(Transform(
+                position: (560.0, 250.0),
+                scale: (150.0, 70.0),
+                rotation: 0.0,
+                z: -0.5,
+            )),
+            sprite: Some(Sprite(
+                texture: None,
+                color: (r: 0.42, g: 0.30, b: 0.20, a: 1.0),
+            )),
+        ),
+        EntityDef(
+            tag: Some("mine_mouth"),
+            transform: Some(Transform(
+                position: (820.0, 300.0),
+                scale: (96.0, 120.0),
+                rotation: 0.0,
+                z: -0.5,
+            )),
+            sprite: Some(Sprite(
+                texture: None,
+                color: (r: 0.10, g: 0.09, b: 0.12, a: 1.0),
+            )),
+        ),
+    ],
+)

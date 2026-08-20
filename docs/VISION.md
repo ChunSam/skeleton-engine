@@ -44,14 +44,15 @@ The chosen path combines two things:
 These are not separate tracks — they are one loop. The dogfooding vehicle is a growing
 set of **small playable example games**, one per genre/feature area, living in `examples/`.
 
-> ⚠️ **The loop is currently broken at the dogfooding end.** All 22 playable games and ~85 feature
-> demos were deleted on 2026-08-19 at the maintainer's request, to be rebuilt from scratch; the
-> `examples/` tree is empty. Between v0.151.0 and that date the repo had a playable slice for every
-> genre named above — platformer, shooter, RPG (`rpg_quest`), puzzle (`sokoban`), top-down action
-> (`survivor`, `maze_escape`) — plus scene-flow and settings/menu demos. Until they are rebuilt,
-> **no feature in this engine meets the acceptance bar the principles below state**, and saying so
-> is more useful than quietly lowering the bar. Past games are in git history and
-> `docs/PROGRAM_HISTORY.md` records what each covered.
+> ⚠️ **The loop is half rebuilt at the dogfooding end.** All 22 playable games and ~85 feature demos
+> were deleted on 2026-08-19 at the maintainer's request, to be rebuilt from scratch. **Two of the
+> five are back**: `platformer_game` (phase 1, 2026-08-19) and `rpg_quest_game` (phase 2,
+> 2026-08-20). Between v0.151.0 and the deletion the repo had a playable slice for every genre named
+> above — platformer, shooter, RPG (`rpg_quest`), puzzle (`sokoban`), top-down action (`survivor`,
+> `maze_escape`) — plus scene-flow and settings/menu demos. Until the remaining three land, **only
+> the subsystems those two games name meet the acceptance bar the principles below state** — audio,
+> wasm, GPU particles and networking do not — and saying so is more useful than quietly lowering the
+> bar. Past games are in git history and `docs/PROGRAM_HISTORY.md` records what each covered.
 >
 > **The rebuild covers all five genres with four genre-games, not five** — decided 2026-08-19,
 > recorded here so the list above does not read as an unclosed gap. `survivor_game` carries

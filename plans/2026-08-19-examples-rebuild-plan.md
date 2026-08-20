@@ -249,7 +249,7 @@ Deliberately runner-first. Building game 2 before the runner exists is how 11/22
 |---|---|---|
 | 0 | `scripts/selftests.sh` rebuilt (derived list) + its CI step | Must exist before game 2, or drift starts immediately — **done 2026-08-19** |
 | 1 | `platformer_game` + selftest | Densest single genre; proves the runner on a real target — **done 2026-08-19**, 1,779 lines and 7 checks (see `docs/NEXT_WORK.md` on the 2× line estimate) |
-| 2 | `rpg_quest_game` + selftest + save smoke | Owns the scene/persistence questions, the highest-risk area |
+| 2 | `rpg_quest_game` + selftest + save smoke | Owns the scene/persistence questions, the highest-risk area — **done 2026-08-20**, 7 checks + the docked-iris render test; 1,885 lines |
 | 3 | `survivor_game` + selftest | Needs the audio-probe pattern from phase 2's lessons |
 | 4 | `puzzle_grid_game` + selftest + render smoke | Cheapest game; good place to restore `build_wasm_examples.sh` |
 | 5 | `netplay_game` + server + smoke; restore `wasm-smokes` job **and its branch-protection context** | Most infrastructure per line |

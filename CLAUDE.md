@@ -24,7 +24,7 @@ added as a dependency. Read `docs/VISION.md` once — it is the "why" every feat
 | "What changed, and why?" | `docs/CHANGELOG.md` (release-facing), `plans/handoffs/` (session history). `docs/HANDOFF.md` is a **frozen** 2026-06-16 record on the pre-reset 10.x version line — not current state |
 | "What should I build next?" | `docs/NEXT_WORK.md` — the live backlog; **start with its board gate**. `docs/ROADMAP.md` for milestones, `docs/PROGRAM_HISTORY.md` for the finished candidate A–O program |
 | GPU render tests | `docs/RENDER_TESTING.md` |
-| User-facing docs | `README.md`, `FORKING.md`, `REFERENCE.html` + `ARCHITECTURE.html` (Korean) |
+| User-facing docs | `README.md`, `FORKING.md`. The four Korean HTML docs were deleted 2026-08-20 — they described the pre-deletion examples tree and are to be rewritten |
 
 Exploration order: `rg`/`grep` for the symbol → `src/lib.rs` → the `MODULE_MAP` row → the file.
 Read only what you need.
@@ -33,12 +33,12 @@ Read only what you need.
 
 ## Build & run
 
-⚠️ **One game exists.** The `examples/` tree — 22 games, ~85 demos — was deleted on 2026-08-19 at the
-user's request; `plans/2026-08-19-examples-rebuild-plan.md` rebuilds it as five and phase 1 landed
-`examples/platformer_game/` the same day (`cargo run --example platformer_game`, acceptance test
-`PLATFORMER_SELFTEST=1 …`). Four genres are still missing. `cargo build --target
-wasm32-unknown-unknown` for wasm, `./scripts/build_wasm.sh` for a servable bundle in `dist/` (it
-builds the lib's own `run_demo` entry point in `src/lib.rs`, not an example).
+⚠️ **Two games exist.** The `examples/` tree — 22 games, ~85 demos — was deleted on 2026-08-19 at
+the user's request; `plans/2026-08-19-examples-rebuild-plan.md` rebuilds it as five.
+`examples/platformer_game/` (phase 1) and `examples/rpg_quest_game/` (phase 2) are in; three genres
+are still missing. Each runs with `cargo run --example <name>` and self-verdicts with
+`<NAME>_SELFTEST=1`. `cargo build --target wasm32-unknown-unknown` for wasm, `./scripts/build_wasm.sh`
+for a servable bundle in `dist/` (it builds the lib's own `run_demo` entry point, not an example).
 
 Read `docs/PROGRAM_HISTORY.md` + `docs/CHANGELOG.md` before rebuilding one; `git show
 4edfd3f^:examples/<path>` still has every deleted file. A game at `examples/<name>/<name>.rs` needs
@@ -95,13 +95,13 @@ have each cost a session; the ones that recur:
   `echo $? > /tmp/v.exit` and **read the file**, after `rm -f`-ing it first (a stale file matches instantly).
 - `;` does not short-circuit — branch on the captured code before committing.
 
-⚠️ **The acceptance layer is one game deep, and the gate got much weaker on 2026-08-19.** It used to
-run `scripts/build_wasm_examples.sh` (gone with the examples) and `scripts/selftests.sh` over 11
-`<NAME>_SELFTEST` tests; the runner is back and has one game — `PLATFORMER_SELFTEST`, 7 checks over
-physics, one-way platforms, tilemap collider resync, a joint and the animation state machine.
-Nothing else in `src/` has acceptance coverage. What else measures anything: `fmt`, `clippy`, the
-wasm build, `cargo test`, doctests, `cargo doc`. **A green gate still proves much less than it
-used to.**
+⚠️ **The acceptance layer is two games deep, and the gate got much weaker on 2026-08-19.** It used
+to run `scripts/build_wasm_examples.sh` (gone with the examples) and `scripts/selftests.sh` over 11
+`<NAME>_SELFTEST` tests; the runner is back with 14 checks across two games — physics, one-way
+platforms, collider resync, a joint, the animation state machine, and the scene stack, persistence
+registry, save migration, locale switch, data-table hot reload and A*. Audio, wasm, GPU particles
+and networking still have **no** acceptance coverage. What else measures anything: `fmt`, `clippy`,
+the wasm build, `cargo test`, doctests, `cargo doc`.
 
 What the gate does **not** cover, so get it yourself:
 
@@ -165,8 +165,8 @@ Two that have their own failure mode:
 
 **A feature is not done until a small playable example exercises it in real play.** The example is
 the acceptance test, not an afterthought — if the API feels awkward while writing it, fix the API.
-Rebuilding as five games; **one exists**, so the platformer's subsystems are exercised and the rest
-of `src/` is not. That gap is a standing debt, not the rule being relaxed.
+Rebuilding as five games; **two exist**, so their subsystems are exercised and the rest of `src/` is
+not. That gap is a standing debt, not the rule being relaxed.
 
 **A number pinned in prose is fixed by whoever changes it.** *(권고)* A stale baseline is worse
 than none — it reads as an unexplained gain. v0.153.0 moved the lib-test count 1432 → 1443 in two
