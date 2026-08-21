@@ -111,10 +111,10 @@ What the gate does **not** cover, so get it yourself:
   for the `package` job's `cargo package --locked`.
 - **macOS/Windows behaviour** — both have CI *build* jobs now, so the `cfg` branches compile; nothing
   ever runs them. Anything behavioural there still needs a local run.
-- **All audio playback, windowed playtest, gamepads, hot-reload** — these had example-driven
-  coverage and now have none at all. Web Audio *used* to gate in CI via the `wasm_audio` /
-  `audio_reactive` browser smokes; that job is deleted, so no audio claim of any kind is checked
-  anywhere but a unit test.
+- **Windowed playtest, gamepads, hot-reload** — had example-driven coverage, now none at all.
+  **Native** audio is nearly there too: its one selftest check skips wherever there is no device.
+  ⚠️ Web Audio gates in CI again since 2026-08-21 (`survivor_audio_web_smoke.sh`), so — as from
+  v0.143.17 to v0.153.0 — the browser is once more the only place any audio claim is checked.
 - **The `wasm-smokes` job** — `scripts/*_web_smoke.sh`, which need Chrome. ⚠️ Still no
   **pixel-level** browser check: a wgpu canvas readback needs a surface config that does not ship.
 
