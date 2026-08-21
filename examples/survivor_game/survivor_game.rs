@@ -1152,11 +1152,127 @@ fn build_app() -> App {
     app
 }
 
+// Only the wasm entry points use this. Gated so a native build does not compile a module it
+// cannot reach — and so `cargo clippy --all-targets -D warnings` has nothing dead to complain
+// about, which is how the two constants above were caught.
+#[cfg(target_arch = "wasm32")]
+#[path = "../shared/web_check.rs"]
+mod web_check;
+
 fn main() {
     if std::env::var("SURVIVOR_SELFTEST").is_ok() {
         std::process::exit(self_test());
     }
     build_app().run();
+}
+
+// ── The web build ───────────────────────────────────────────────────────────────────────────────
+
+/// The meter the browser audio check drives. Separate from [`KILL_METER`] on purpose: kills fire on
+/// their own schedule, so measuring them would make the check's result depend on whether an enemy
+/// happened to die inside the window.
+#[cfg(target_arch = "wasm32")]
+const WEB_METER: &str = "webcheck";
+
+/// A deliberately **low** tone. The band assertion below is "the spectrum leans low", which is only
+/// meaningful against a signal that actually is low — 110 Hz is the frequency the deleted
+/// `audio_reactive` browser smoke used when it measured `low=9.41 / high=0.00`, and reusing it
+/// keeps this comparable to the number that was lost.
+#[cfg(target_arch = "wasm32")]
+const WEB_TONE_HZ: f32 = 110.0;
+
+/// Plays the game in a browser. Called from `web/index.html`.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn run_survivor_game() {
+    build_app().run();
+}
+
+/// Runs the game **and** the Web Audio check, publishing its verdict to `document.title` for
+/// `scripts/survivor_audio_web_smoke.sh`.
+///
+/// # Why this is the first browser smoke rebuilt
+///
+/// Deleting the examples tree on 2026-08-19 removed a lot of aspiration and exactly one *working
+/// measurement*: Web Audio genuinely gated from v0.143.17 to v0.153.0. Native rodio/ALSA cannot be
+/// tested in CI (five runs, v0.143.10 — the table is in `docs/VERIFICATION.md`), so the browser
+/// half was the only automated audio evidence the repo ever had, and since the deletion there has
+/// been none of any kind.
+///
+/// # The two halves, and why one is not enough
+///
+/// - **A live level.** `Audio::levels(WEB_METER).rms > 0` says sound reached the meter.
+/// - **A low-biased spectrum.** `Audio::bands` must lean toward the low end for a 110 Hz tone.
+///
+/// The level alone would pass on a backend that reports a plausible number without analysing
+/// anything, and the spectrum alone would pass on one that fills a fixed curve. Together they say
+/// the analyser is looking at *this* signal. That is the property the deleted smoke measured, and
+/// it is why it caught things a "did the page load" check never would.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn web_check_survivor() {
+    use web_check::{Step, WebCheck};
+
+    let mut app = build_app();
+
+    // Enough time for the AudioContext to unlock and for a few analysis windows to publish. The
+    // deadline is generous because a CI runner under load is slower than a desktop, and the cost of
+    // being generous is only paid when something is already broken.
+    const DEADLINE: f32 = 20.0;
+    // Let the app warm up before making noise — on wasm the adapter resolves asynchronously and
+    // the first frames run with no GPU at all.
+    const FIRE_AT: f32 = 1.0;
+
+    let mut fired = false;
+    let mut best_rms = 0.0_f32;
+    let mut bands = [0.0_f32; 8];
+
+    app.add_system(WebCheck::new("AUDIO_CHECK", DEADLINE, move |world, t| {
+        let Some(audio) = world.resource_mut::<engine::Audio>() else {
+            // `Audio::new()` returned None — in a browser that is a real failure, not the
+            // "no device" skip the native selftest allows. A tab always has Web Audio.
+            return Step::fail("no Audio resource — Audio::new() failed in the browser");
+        };
+
+        if !fired {
+            if t < FIRE_AT {
+                return Step::Pending;
+            }
+            audio.enable_analysis(WEB_METER);
+            audio.enable_spectrum(WEB_METER);
+            audio.play_tone_metered(WEB_METER, WEB_TONE_HZ, 6.0, 0.9, "sfx");
+            fired = true;
+            return Step::Pending;
+        }
+
+        best_rms = best_rms.max(audio.levels(WEB_METER).rms);
+        let mut now = [0.0_f32; 8];
+        audio.bands(WEB_METER, &mut now);
+        // Keep the strongest spectrum seen rather than the newest: the bands are smoothed and the
+        // tone is finite, so sampling only the last frame can land after it has decayed.
+        if now.iter().sum::<f32>() > bands.iter().sum::<f32>() {
+            bands = now;
+        }
+
+        let low = bands[0] + bands[1] + bands[2];
+        let high = bands[5] + bands[6] + bands[7];
+
+        if best_rms > 0.0 && low > 0.0 && low > high * 2.0 {
+            return Step::pass(format!(
+                "rms {best_rms:.4}, low {low:.3} vs high {high:.3} on a {WEB_TONE_HZ:.0} Hz tone"
+            ));
+        }
+        // Report what is currently visible, so a timeout says WHICH half never arrived. Without
+        // this every sabotage of this check produces the same 'no verdict' message, and a matrix
+        // where every row fails identically has verified the deadline rather than the assertions —
+        // the trap in docs/VERIFICATION.md § A sabotage that fails the wrong check.
+        Step::Waiting(format!(
+            "rms {best_rms:.4} (want above 0) and low {low:.3} vs high {high:.3} (want low at \
+             least 2x high)"
+        ))
+    }));
+
+    app.run();
 }
 
 // ── Acceptance test ─────────────────────────────────────────────────────────────────────────────

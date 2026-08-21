@@ -226,6 +226,90 @@ jobs:
       - name: cargo clippy (wasm, lib only)
         run: cargo clippy --target wasm32-unknown-unknown --lib -- -D warnings
 
+  # ── 브라우저 스모크 ────────────────────────────────────────────────────────
+  # Restored 2026-08-21 (phase 5b of plans/2026-08-19-examples-rebuild-plan.md). Between the
+  # 2026-08-19 deletion and this job, NOTHING loaded the engine in a browser: the `wasm` job proves
+  # the code compiles for wasm32, which is a different claim from "it runs". That gap shipped a real
+  # defect three days later — `netplay_game`'s wasm entry point was `#[no_mangle] pub extern "C"`
+  # instead of `#[wasm_bindgen]`, so it compiled, `build_wasm_examples.sh` went green, and the
+  # generated JS contained **zero** occurrences of the function the page imports. The game could not
+  # start at all and no gate could tell.
+  #
+  # ⚠️ ADDING THIS JOB REQUIRES ADDING ITS CONTEXT TO BRANCH PROTECTION, in the same change. A job
+  # nobody is gated on is the mirror image of v0.153.0's failure (a required context for a deleted
+  # job, which blocks every merge). The context name is this job's `name:` verbatim:
+  #     Browser smokes (Chrome + swiftshader)
+  # Verify with:
+  #     gh api repos/ChunSam/skeleton-engine/branches/main/protection \
+  #       --jq '.required_status_checks.contexts'
+  wasm-smokes:
+    name: Browser smokes (Chrome + swiftshader)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # `netplay_web_smoke.sh` builds and runs the NATIVE `netplay_server` alongside the browser —
+      # a browser tab cannot listen on a socket, so the server half has to be native. A native build
+      # of this crate pulls in alsa-sys, hence the desktop headers. The audio smoke is pure wasm and
+      # needs none of this; it is here for the networked one. (Discovered the honest way in the
+      # deleted job: adding the first server-spawning smoke without this step failed with "Package
+      # alsa was not found in the pkg-config search path".)
+      - name: Install system dependencies (native server build)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libudev-dev libxkbcommon-dev \
+            libwayland-dev libx11-dev pkg-config
+
+      - name: Install Rust 1.95 + wasm32 target
+        uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      # Derived from Cargo.lock, never hardcoded. A CLI/crate mismatch does not fail at build time —
+      # it fails at page load as an unreadable binding error, so pinning a literal here would let a
+      # dependency bump drift silently and surface as "the smoke is flaky".
+      - name: Install wasm-bindgen-cli (version pinned to Cargo.lock)
+        run: |
+          ver=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | grep '^version' | head -1 | cut -d'"' -f2)
+          if [ -z "$ver" ]; then echo "FAIL: could not read wasm-bindgen version from Cargo.lock" >&2; exit 1; fi
+          echo "wasm-bindgen from Cargo.lock: $ver"
+          url="https://github.com/rustwasm/wasm-bindgen/releases/download/${ver}/wasm-bindgen-${ver}-x86_64-unknown-linux-musl.tar.gz"
+          curl -sSfL "$url" | tar xz --strip-components=1 -C /usr/local/bin \
+            "wasm-bindgen-${ver}-x86_64-unknown-linux-musl/wasm-bindgen"
+          # Assert the binary matches the crate rather than trusting the download.
+          got=$(wasm-bindgen --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+          echo "wasm-bindgen --version: $got"
+          if [ "$got" != "$ver" ]; then echo "FAIL: CLI $got != Cargo.lock $ver" >&2; exit 1; fi
+
+      # The smokes exit 2 for "environment" and 1 for a real assertion failure, so a missing browser
+      # would read as infrastructure rather than a broken engine. Fail here instead, where the
+      # message says which it is.
+      - name: Assert Chrome is present
+        run: google-chrome --version
+
+      # SMOKE_DBG is pinned per script: a Chrome that outlived its script would leave its DevTools
+      # port up, and the next smoke would read the WRONG TAB'S TITLE — which passes or fails for
+      # reasons that have nothing to do with what it is testing.
+      #
+      # SKELETON_MUTE=1 silences the speakers without weakening the measurement: the engine's level
+      # taps are pre-volume, so a muted run reports the same numbers. (The runner has no sound card
+      # anyway; this keeps the CI invocation identical to the one a human runs locally.)
+      - name: Browser smokes (self-verdicting only)
+        env:
+          SKELETON_MUTE: "1"
+        run: |
+          # The Web Audio measurement the deletion lost: a live level AND a low-biased spectrum.
+          SMOKE_PORT=8090 SMOKE_DBG=9310 ./scripts/survivor_audio_web_smoke.sh
+          # The only automated check of the engine's wasm WebSocket path. It also catches the class
+          # of defect the `wasm` build job structurally cannot see — an entry point that compiles
+          # but exports no JS binding, which shipped in #494 and made the game unstartable.
+          SMOKE_PORT=8091 SMOKE_DBG=9311 ./scripts/netplay_web_smoke.sh
+
   # ── Windows 빌드 ──────────────────────────────────────────────────────────
   # The other jobs are ubuntu/wasm only, so nothing here ever compiled the DX12
   # backend. That let a dependency conflict hide: an audio stack pulling an older

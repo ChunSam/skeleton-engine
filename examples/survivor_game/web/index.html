@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Survivor — skeleton-engine (wasm)</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0d0d0d;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      min-height: 100vh; font-family: system-ui, sans-serif; color: #888;
+    }
+    #game-canvas { display: block; border: 1px solid #333; background: #0a0d14; }
+    #status { margin-top: 10px; font-size: 13px; }
+    #status code { color: #b0d0ff; }
+  </style>
+</head>
+<body>
+  <canvas id="game-canvas" width="1024" height="640" tabindex="0"></canvas>
+  <p id="status">Loading WASM…</p>
+  <script type="module">
+    import init, { run_survivor_game } from "./pkg/survivor_game.js";
+    const status = document.getElementById("status");
+    try {
+      await init();
+      status.innerHTML =
+        'Click the canvas, then <code>WASD</code> to move — firing is automatic. ' +
+        'Audio needs that click: a browser keeps the <code>AudioContext</code> suspended until a ' +
+        'user gesture.';
+      run_survivor_game();
+      // winit needs keyboard focus on the canvas to receive input.
+      document.getElementById("game-canvas").focus();
+    } catch (e) {
+      status.textContent = "Error: " + e;
+      console.error(e);
+    }
+  </script>
+</body>
+</html>

@@ -556,7 +556,30 @@ is present; otherwise it skips cleanly. See **`docs/RENDER_TESTING.md`**. Its th
 smokes (`headless_screenshot`, `lighting_cap`, `packaged_assets`) were examples and are gone, so
 `tests/render.rs` is now the entirety of the engine's render verification.
 
-### wasm smoke checks **[gone]**
+### wasm smoke checks **[rebuilt 2026-08-21]**
+
+> ⚠️ **Two of the twelve are back, and the section below describes the deleted twelve.** The
+> `wasm-smokes` job now runs `scripts/survivor_audio_web_smoke.sh` (Web Audio: a live level **and** a
+> low-biased spectrum — measured rms 0.5621, low 2.733 vs high 0.009 on a 110 Hz tone) and
+> `scripts/netplay_web_smoke.sh` (the wasm WebSocket path: the handshake completed and 23 entities
+> streamed in over a browser socket). Both self-verdict through `document.title`, read live over
+> Chrome's DevTools endpoint, and both are sabotage-verified — 4 and 3 sabotages respectively, each
+> landing on the intended half.
+>
+> ⚠️ **The job re-added its branch-protection context in the same change.** A job without its
+> required context is a check nobody is gated on, which is the mirror image of the v0.153.0 failure
+> (a required context for a *deleted* job, which blocks every merge).
+>
+> ✅ **It caught something on its first run.** `netplay_game`'s wasm entry point shipped in #494 as
+> `#[no_mangle] pub extern "C"` rather than `#[wasm_bindgen]`. It compiled, `build_wasm_examples.sh`
+> went green, and the generated JS held **zero** occurrences of the function the page imports — the
+> game could not start. No build gate can see that; only loading the page can.
+>
+> ⚠️ **Still no pixel-level browser check.** A wgpu canvas readback needs `preserveDrawingBuffer`,
+> which configures the surface differently from the one that ships, so the check would measure
+> something the game does not do. A named gap, not an implied one.
+
+The historical record of the deleted twelve follows.
 
 ⚠️ **All of these were deleted on 2026-08-19 with the examples they drove, and the `wasm-smokes`
 CI job with them. Nothing loads the engine in a browser any more.** The rest of this section is

@@ -798,10 +798,119 @@ fn main() {
 #[cfg(target_arch = "wasm32")]
 fn main() {}
 
-/// Entry point for the wasm harness.
+// Only `web_check_netplay` uses this — gated so a native build does not compile a module it
+// cannot reach.
 #[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub extern "C" fn run_netplay_game() {
+#[path = "../shared/web_check.rs"]
+mod web_check;
+
+/// Runs the client **and** the browser check, publishing its verdict to `document.title` for
+/// `scripts/netplay_web_smoke.sh`.
+///
+/// # What this covers that nothing else does
+///
+/// This is the only automated check in the tree that runs the engine's **wasm WebSocket path**.
+/// `src/network/wasm_impl.rs` is a completely separate implementation from the native
+/// tungstenite client — different queueing, different overflow policy, different open semantics —
+/// and since the 2026-08-19 deletion nothing has executed a line of it. The two native↔wasm
+/// contracts recorded in `docs/MODULE_MAP.md` (a send before the socket opens, and the inbound
+/// overflow policy) were both fixed in v0.150.2 *because* a browser smoke existed to catch them.
+///
+/// # Three things, in the order they can fail
+///
+/// 1. **`Connected` arrives** — the handshake really happened. A page that renders a perfectly good
+///    empty world looks identical to one whose socket never opened.
+/// 2. **A snapshot arrives and spawns entities** — the protocol round-trips through the browser's
+///    socket, not just through a native one. `ClientMsg::Join` is sent *before* the socket opens,
+///    which is ordinary code on both targets only because of the v0.150.2 fix; before it, that
+///    packet vanished on the web alone.
+/// 3. **The server's authority reaches the ship** — `have_authority` means a `Snap` carried a
+///    position and ack, i.e. the full client→server→client loop closed in a browser.
+///
+/// ⚠️ **This does not assert that anything was drawn.** Reading pixels back out of a wgpu canvas
+/// needs `preserveDrawingBuffer`, which changes how the surface is configured — so a check for it
+/// would be measuring a different configuration than the one the game ships. Said plainly rather
+/// than implied: the browser render path still has no pixel-level gate.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn web_check_netplay() {
+    use web_check::{Step, WebCheck};
+
+    let mut app = build_app();
+    let addr = server_addr();
+    app.world
+        .insert_resource(NetworkClient::connect(&format!("ws://{addr}")));
+    if let Some(client) = app.world.resource::<NetworkClient>() {
+        if let Ok(text) = ron::to_string(&ClientMsg::Join) {
+            client.send_text(text);
+        }
+    }
+
+    // Generous: a CI runner has to start the native server, and the handshake plus one snapshot
+    // interval is all this needs once it is up.
+    const DEADLINE: f32 = 25.0;
+
+    app.add_system(WebCheck::new("NETPLAY_CHECK", DEADLINE, move |world, _t| {
+        // `NetplayClient` is a system, not a resource, so its state is not reachable from here.
+        // Read the same evidence it reads instead — the event bus and the spawned entities — which
+        // is stronger anyway: it asserts what actually arrived rather than what the client
+        // remembers about it.
+        let connected = world
+            .resource::<Events<NetworkEvent>>()
+            .map(|bus| {
+                bus.read()
+                    .iter()
+                    .any(|e| matches!(e, NetworkEvent::Connected))
+            })
+            .unwrap_or(false);
+        if connected {
+            CONNECTED.with(|c| c.set(true));
+        }
+        let ever_connected = CONNECTED.with(|c| c.get());
+
+        // Entities streamed in from a snapshot. The world starts with the background and the ship;
+        // anything beyond that came over the socket.
+        let sprites = world.query::<Sprite>().count();
+        let streamed = sprites.saturating_sub(BASE_SPRITES.with(|b| b.get()));
+
+        if ever_connected && streamed > 0 {
+            return Step::pass(format!(
+                "handshake completed and {streamed} entities streamed in over the browser socket"
+            ));
+        }
+        Step::Waiting(format!(
+            "connected {ever_connected}, {streamed} streamed entities (want connected plus at              least one)"
+        ))
+    }));
+
+    // Count what the world holds before the socket delivers anything, so `streamed` means
+    // "arrived over the network" rather than "exists".
+    BASE_SPRITES.with(|b| b.set(app.world.query::<Sprite>().count()));
+    app.run();
+}
+
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    /// Sticky: `Events` is drained every frame, so `Connected` is visible for exactly one frame and
+    /// a probe that only looked at the current frame would miss it almost every time.
+    static CONNECTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Sprites present before any snapshot — the background tiles plus the local ship.
+    static BASE_SPRITES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Entry point for the wasm harness, called from `web/index.html`.
+///
+/// ⚠️ This must be `#[wasm_bindgen]`, not `#[no_mangle] pub extern "C"`. Both compile, and
+/// `scripts/build_wasm_examples.sh` goes green either way — but only the former makes
+/// `wasm-bindgen` emit a JS binding, so with the latter the page has nothing to import and the
+/// game cannot start at all. Measured when this was wrong (it shipped that way in #494): the
+/// generated `netplay_game.js` contained **zero** occurrences of this function's name.
+///
+/// That is the whole reason the `wasm-smokes` job exists. Compiling for wasm is not running on
+/// wasm, and the build gate cannot tell the difference.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn run_netplay_game() {
     run();
 }
 
