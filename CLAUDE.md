@@ -69,11 +69,11 @@ CI; see the not-covered list below, and `grep -nE '^  [a-z_-]+:$|run:' .github/w
 
 **Skip it — and say so in the report — when the change is confined to** prose (`docs/`, `plans/`,
 `*.md`, comments), `.github/workflows/`, or a bare version bump. Run `cargo check` to keep
-`Cargo.lock` honest and let **the PR's own CI run be the gate**: it re-runs everything on a clean
-machine. A `ci.yml` change is the clearest case — the local gate *cannot* run CI, so it proves
-nothing there. A bright line, not a judgement call: touching both makes it a source change. (Three
-docs/CI-only PRs each paid ~6 min for a gate that could not fail. ⚠️ Since 2026-08-21 CI also runs
-the browser smokes, so a docs PR costs more there than the gate it skips.)
+`Cargo.lock` honest and let **the PR's own CI run be the gate**: it re-runs everything anyway, on a
+clean machine. A `ci.yml` change is the clearest case — the local gate *cannot* run CI, so it proves
+nothing there. This is a bright line, not a judgement call: if a change touches both, it is a source
+change. (The rule exists because three consecutive docs/CI-only PRs each paid ~6 min for a gate that
+could not have failed.)
 
 ```sh
 ./scripts/verify.sh > /tmp/v.log 2>&1; echo "VERIFY_EXIT=$?"
