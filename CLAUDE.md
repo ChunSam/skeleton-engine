@@ -115,8 +115,8 @@ What the gate does **not** cover, so get it yourself:
   **Native** audio is nearly there too: its one selftest check skips wherever there is no device.
   ⚠️ Web Audio gates in CI again since 2026-08-21 (`survivor_audio_web_smoke.sh`), so — as from
   v0.143.17 to v0.153.0 — the browser is once more the only place any audio claim is checked.
-- **The `wasm-smokes` job** — `scripts/*_web_smoke.sh`, which need Chrome. ⚠️ Still no
-  **pixel-level** browser check: a wgpu canvas readback needs a surface config that does not ship.
+- **The `wasm-smokes` job** — `scripts/*_web_smoke.sh`; the `_web_` infix is the contract, not a
+  count. ⚠️ Still no **pixel-level** check: a canvas readback needs a surface config that never ships.
 
 If you skip a verification step, **say so in the report**.
 

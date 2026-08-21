@@ -63,6 +63,25 @@ path = "examples/netplay_game/netplay_game.rs"
 name = "netplay_server"
 path = "examples/netplay_game/server.rs"
 
+# ── Not a game ──────────────────────────────────────────────────────────────────────────────────
+# `wasm_failpaths` is a browser harness that takes two failure paths on purpose. It is deliberately
+# `main.rs` rather than `wasm_failpaths.rs`: `scripts/selftests.sh` defines a *game* as
+# `examples/<name>/<name>.rs` and requires every game to carry a `<NAME>_SELFTEST`, and this has no
+# native behaviour to test — both defects live in `#[cfg(target_arch = "wasm32")]` code, so a native
+# selftest could only print a skip, and "a skip is not a pass". It is gated by
+# `scripts/wasm_failpaths_web_smoke.sh` in the `wasm-smokes` CI job instead.
+#
+# The block is still needed even though Cargo auto-discovers `examples/*/main.rs`, because
+# `scripts/build_wasm_examples.sh` derives its list from these blocks — without one, the page that
+# exists only to run in a browser would never be checked to build for one.
+[[example]]
+name = "wasm_failpaths"
+path = "examples/wasm_failpaths/main.rs"
+
+[[example]]
+name = "wasm_failpaths_echo_server"
+path = "examples/wasm_failpaths/echo_server.rs"
+
 [dependencies]
 winit    = "0.30.13"
 wgpu     = { version = "29", features = ["webgl"] }

@@ -76,20 +76,35 @@ change. A browser loads this engine again for the first time since 2026-08-19.
 | `netplay_web_smoke.sh` | the WebSocket handshake completed and entities streamed in | ✅ 23 entities over a browser socket |
 | RPG save round-trip (AEAD `localStorage`) | the wasm save branch | ⬜ not built — the machinery now exists, so it is one page + one script |
 | puzzle render at DPR=2 | a non-blank frame | ⬜ not built, and see the pixel caveat below |
-| **a failure-path smoke** | that a *broken* path is handled — a 404 reaching `asset_failures()`, a send before the socket opens | ⬜ not built, and **not in the plan's four either** |
+| `wasm_failpaths_web_smoke.sh` | that a *broken* path is handled — a 404 reaching `asset_failures()` **and** a send before the socket opens surviving | ✅ both, verified by **reinstating** v0.150.1 and v0.150.2 |
 
-⚠️ **The failure-path smoke is the one nobody planned.** The deleted `wasm_failpaths` was the only
-check in the tree that took a wrong turn on purpose, and the plan's four replacements are all
-success paths — so this gap survived being written down twice. It is the shape that matters: every
-other smoke passes when nothing goes wrong, which is exactly how v0.150.1's broken 404 →
-`asset_failures()` and v0.150.2's send-before-open both shipped green. `git show
-4edfd3f^:examples/wasm_failpaths/` still has the page it used.
+✅ **The failure-path smoke was the one nobody planned, and it is now built** (2026-08-21).
+Every other check in the tree passes when nothing goes wrong — which is exactly how v0.150.1's
+broken 404 → `asset_failures()` and v0.150.2's send-before-open both shipped green, both
+compile-verified only. `examples/wasm_failpaths/` takes both paths on purpose against a native echo
+server.
 
-⚠️ **Two of four is a deliberate stop, not an oversight.** The two built are the ones with no
-coverage anywhere: Web Audio (the only *working measurement* the deletion removed) and the wasm
-WebSocket path (`src/network/wasm_impl.rs` is a separate implementation from the native client and
-had not executed a line since the deletion). The save round-trip has a native equivalent that runs
-every gate, and the DPR render is the weakest of the four.
+⚠️ **Its sabotage verification is the strongest in the tree, because the bugs are real.** Rather
+than inventing breakage, both historical defects were **reinstated in `src/`** and each reddened
+the smoke on *its own half* while the other half kept reporting `true`:
+
+| Reinstated | What the page reported |
+|---|---|
+| v0.150.1 (`record_failure` removed) | `asset_failures saw the 404: false · the pre-open send came back: true` |
+| v0.150.2 (CONNECTING queue removed) | `asset_failures saw the 404: true · the pre-open send came back: false` |
+
+⚠️ **It is `main.rs`, not `wasm_failpaths.rs`, and that is deliberate.** `scripts/selftests.sh`
+defines a *game* as `examples/<name>/<name>.rs` and requires every game to carry a selftest; this is
+a harness with no native behaviour, so a native selftest could only print a skip — and "a skip is
+not a pass" is the rule that layout enforces. It still carries an explicit `[[example]]` block,
+because `build_wasm_examples.sh` derives its list from those and a page that exists only to run in a
+browser must at minimum be checked to build for one.
+
+⚠️ **Three of four planned, plus one unplanned, is a deliberate stop.** The three built are the ones
+with no coverage anywhere: Web Audio (the only *working measurement* the deletion removed), the wasm
+WebSocket path (a separate implementation that had not executed a line since the deletion), and the
+failure paths. The save round-trip has a native equivalent that runs every gate, and the DPR render
+is the weakest of the four.
 
 ⚠️ **There is still no pixel-level browser check, and there is a reason.** Reading a wgpu canvas
 back needs `preserveDrawingBuffer`, which changes how the surface is configured — so such a check
@@ -436,7 +451,7 @@ check itself, and that is exactly where rot hides.
 **Both follow-ups are closed** (v0.150.3). The gap was that the wasm halves of v0.150.1 and
 v0.150.2 were compile-verified only, because nothing drove them — a 404 was never requested and a
 pre-open send was never made. `examples/wasm_failpaths` now does both on purpose and
-`scripts/wasm_failpaths_smoke.sh` reads the verdict; it gates in the `wasm-smokes` job. It is
+`scripts/wasm_failpaths_web_smoke.sh` reads the verdict; it gates in the `wasm-smokes` job. It is
 sabotage-verified in both directions, each half reddening only for its own defect.
 
 ⚠️ **The standing lesson, which outlived the two items:** every other browser smoke passes when

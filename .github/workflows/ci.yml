@@ -309,6 +309,12 @@ jobs:
           # of defect the `wasm` build job structurally cannot see — an entry point that compiles
           # but exports no JS binding, which shipped in #494 and made the game unstartable.
           SMOKE_PORT=8091 SMOKE_DBG=9311 ./scripts/netplay_web_smoke.sh
+          # The only check in the tree that takes a FAILURE path on purpose. Everything above
+          # passes when nothing goes wrong, which is how v0.150.1's broken 404 -> asset_failures()
+          # and v0.150.2's send-before-open both shipped green. ⚠️ Sabotage-verified by
+          # REINSTATING both bugs: each reddens this smoke on its own half and leaves the other
+          # half reporting true, so a failure here names which handler broke.
+          SMOKE_PORT=8092 SMOKE_DBG=9312 ./scripts/wasm_failpaths_web_smoke.sh
 
   # ── Windows 빌드 ──────────────────────────────────────────────────────────
   # The other jobs are ubuntu/wasm only, so nothing here ever compiled the DX12
