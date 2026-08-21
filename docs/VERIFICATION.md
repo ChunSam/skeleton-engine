@@ -530,13 +530,69 @@ verify an OS-gated change. The macOS gamepad backend (v0.47.0) was merged on gre
 **plus** a local build **plus** a hardware pad check. Build **both** cfg branches locally
 with `-D warnings` (especially `dead_code`); one OS misses the other's lints.
 
+### A required check is only real once its job is on `main`
+
+Both directions of this have now been paid for, and they are the same bug.
+
+**v0.153.0** deleted the `wasm-smokes` job and left its context required. A context whose job no
+longer exists can never report, so every PR waited on it forever.
+
+**2026-08-21** restored the job and added its context *before the job landed on `main`*. Same dead
+check, opposite direction: `pull_request` workflows run from the PR's merge ref, so a job defined
+only on a feature branch reports on that PR and on nothing else. #496 was `MERGEABLE` (its own
+branch defined the job) while any PR cut from `main` would have waited forever — and that asymmetry
+is what hid it, because the only PR anyone was looking at was the one that worked.
+
+**The order is: merge the job, then add the context.** The window between them is a job nobody is
+gated on, which is the mild failure. The window the other way round blocks the repo.
+
+⚠️ **And verify against `origin/main`, not your working tree.** The correspondence check that missed
+this was the right check pointed at the wrong branch:
+
+```bash
+# WRONG — measures the branch that adds the job, which is 8/8 by construction
+grep -E '^    name:' .github/workflows/ci.yml
+
+# RIGHT — measures what branch protection actually guards
+git show origin/main:.github/workflows/ci.yml   # diff its job names against:
+gh api repos/ChunSam/skeleton-engine/branches/main/protection \
+  --jq '.required_status_checks.contexts'
+```
+
+Both set differences must be empty. A count that matches is not enough — 8 and 8 matched here while
+the two sets disagreed on a member.
+
+⚠️ **Change contexts with the additive endpoints, never a full PUT.**
+`POST`/`DELETE …/protection/required_status_checks/contexts` touch only the list. `PUT …/protection`
+resets every field the body omits, silently dropping `strict`, `enforce_admins`, or the force-push
+and deletion bars.
+
 ### Compiling for wasm is not running on wasm
 
 A wasm build proves the code type-checks, not that it draws. v0.135.0 claimed
 `load_atlas_bytes` works on the web on the strength of a compile — which would not have
-caught a texture that decoded and never reached the GPU. For anything making a runtime
-claim about the web you need a render smoke — and there is currently no such thing in the tree, so
-a runtime web claim cannot be backed at all right now.
+caught a texture that decoded and never reached the GPU.
+
+**The sharpest case is 2026-08-21, because the failure was total and every gate stayed green.**
+`netplay_game`'s wasm entry point shipped in #494 as `#[no_mangle] pub extern "C"` instead of
+`#[wasm_bindgen]`. It compiled. `cargo build --target wasm32-unknown-unknown` passed.
+`scripts/build_wasm_examples.sh` — which exists specifically to check example wasm builds — passed.
+And the generated JS contained **zero** occurrences of the function `index.html` imports, so the
+game could not start at all:
+
+```
+before the fix:  grep -c 'run_netplay_game' pkg/netplay_game.js  →  0
+after the fix:   export function run_netplay_game() { … }
+```
+
+Nothing in a build gate can see that, because from the compiler's point of view nothing is wrong.
+Only loading the page finds it, which is what the restored `wasm-smokes` job does (phase 5b) — and
+it found this on its first run.
+
+⚠️ **Still true after phase 5b**: the browser smokes assert audio analysis and the WebSocket path,
+**not pixels**. Reading a wgpu canvas back needs `preserveDrawingBuffer`, which configures the
+surface differently from the one the game ships, so such a check would measure something that does
+not happen in play. A render claim about the web still has no automated backing.
 
 ### Don't narrow the bar
 

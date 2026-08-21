@@ -37,11 +37,19 @@ exists: no job without a required context (a check nobody is gated on) and no co
 (which blocks every merge — the v0.153.0 failure). Re-check with the API, never with this line:
 `gh api repos/ChunSam/skeleton-engine/branches/main/protection --jq '.required_status_checks.contexts'`
 
-⚠️ **Check it in both directions, and against the workflow rather than by eye.** "The list looks
-right" is how the drift at the bottom of this file survived. The correspondence above was verified
-by diffing the `name:` of every job in `.github/workflows/ci.yml` against the API's context list —
-both set differences empty. That is two lines of script and it is the only form of this check that
-cannot be satisfied by a list that merely looks plausible.
+⚠️ **Check it in both directions, and against `origin/main`'s workflow — not your working tree.**
+"The list looks right" is how the drift at the bottom of this file survived, and getting the
+*reference* wrong is how phase 5b briefly blocked every merge. Use:
+`git show origin/main:.github/workflows/ci.yml` and diff its job `name:`s against the API's context
+list, both set differences empty.
+
+⚠️ **Order matters: land the job on `main` FIRST, then add the context.** `pull_request` workflows
+run from the PR's merge ref, so a job that exists only on a feature branch reports on *that* PR and
+on nothing else. Adding its required context first leaves every PR cut from `main` waiting forever
+on a check its `ci.yml` cannot produce — the same dead-check state as a context for a *deleted* job,
+reached from the opposite direction. That happened on 2026-08-21: the correspondence was checked
+against the branch that *added* the job rather than against `main`, so it read 8/8 while `main`
+still had 7. Only the PR carrying the job could merge, which is also what hid it.
 
 ⚠️ **`Browser smokes (Chrome + swiftshader)` was added with the additive endpoint**
 (`POST …/protection/required_status_checks/contexts`), not by PUT-ing the whole protection object.
