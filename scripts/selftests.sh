@@ -45,7 +45,9 @@
 #    `snd-dummy` were both measured over five runs in v0.143.10 — the table is in
 #    docs/VERIFICATION.md — and neither works. The audio halves skip in CI by design, so every
 #    NATIVE audio claim still rests on a local device. The browser half was the only automated
-#    audio measurement the repo ever had; rebuilding that smoke is a later phase, not this one.
+#    audio measurement the repo ever had, and it is BACK as of 2026-08-21: the `wasm-smokes` CI job
+#    runs scripts/survivor_audio_web_smoke.sh, which asserts a live level AND a low-biased spectrum
+#    in headless Chrome. So audio is checked somewhere again — just never here, and never natively.
 #
 # 4. AN EMPTY TREE IS A NO-OP, NOT A PASS. Until phase 1 lands there are no games, and a runner
 #    that hard-failed on that would sit red for weeks while telling nobody anything new. It says so
