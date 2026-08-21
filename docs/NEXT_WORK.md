@@ -76,6 +76,14 @@ change. A browser loads this engine again for the first time since 2026-08-19.
 | `netplay_web_smoke.sh` | the WebSocket handshake completed and entities streamed in | ✅ 23 entities over a browser socket |
 | RPG save round-trip (AEAD `localStorage`) | the wasm save branch | ⬜ not built — the machinery now exists, so it is one page + one script |
 | puzzle render at DPR=2 | a non-blank frame | ⬜ not built, and see the pixel caveat below |
+| **a failure-path smoke** | that a *broken* path is handled — a 404 reaching `asset_failures()`, a send before the socket opens | ⬜ not built, and **not in the plan's four either** |
+
+⚠️ **The failure-path smoke is the one nobody planned.** The deleted `wasm_failpaths` was the only
+check in the tree that took a wrong turn on purpose, and the plan's four replacements are all
+success paths — so this gap survived being written down twice. It is the shape that matters: every
+other smoke passes when nothing goes wrong, which is exactly how v0.150.1's broken 404 →
+`asset_failures()` and v0.150.2's send-before-open both shipped green. `git show
+4edfd3f^:examples/wasm_failpaths/` still has the page it used.
 
 ⚠️ **Two of four is a deliberate stop, not an oversight.** The two built are the ones with no
 coverage anywhere: Web Audio (the only *working measurement* the deletion removed) and the wasm
@@ -195,7 +203,7 @@ did not fix*, not as a queue that has to be drained.
 | **4th procgen mode** (drunkard's walk) | Unchanged, still the lowest marginal value: the engine cannot fail at it, so nothing is learned. `src/mapgen.rs` already ships three generators over one shared `DungeonMap` (BSP rooms, cellular cave, perfect maze), each with its own example and each guaranteed-connected by a different mechanism. |
 | **`add-facade-capability` skill** | n=5 now (the facade + native + wasm + policy-module shape has repeated that many times). Deferred; the next facade capability makes the case by itself. **Building it now would ship a skill with nothing to apply it to** — no facade capability is queued, so do it *alongside* the next one, not before. |
 | ~~**`TextCacheStats`** — shaped-text cache hit/miss counters~~ | **DONE v0.154.0 — and it did not need the caller after all.** The row said to build it alongside `survivor_game`'s `FloatingText`, on the reasoning that nothing else could exercise it. That was wrong in one direction: `tests/render.rs` drives real multi-frame text through a real `TextRenderer`, so the whole check — moving draw, static draw, content-changing draw, warm-up window, all three controls — fits in a render test with **no game involved**. Built as its own resource (not a `RenderStats` field, which is documented sprite-pass-only), reset in `TextRenderer::end_frame`. ⚠️ The check was **seen to fail**: reinstating `position` in the cache key gives `hits=1 misses=2` against the fixed `hits=2 misses=1`. The lesson worth keeping is that "needs a game" deserves the same re-derivation as any other filed diagnosis — the render harness reaches further than the row assumed. |
-| **Last-seen eviction helper** (`RemoteEntities` #5) | **n=0 as of 2026-08-19 — its one call site was deleted with the examples tree.** It was n=1, gated on a 2nd staleness example (the same bar that held `SnapshotBuffer` until its 2nd call site); the gate is now unreachable until a networked game is rebuilt. Keep the row: the shape below is the useful part, and re-deriving it costs more than reading it. Historical detail — `salvage_run`'s AOI streaming produces **removal-by-omission**: the server never sends a `Bye`, an entity just stops appearing in snapshots, so the client infers eviction from `last_seen` + timeout. Candidate shape (`touch(key, t)` / `expired(now - timeout) -> Vec<K>`) is written up in `docs/REMOTE_ENTITIES_DESIGN.md` § *5th example*, **flagged not built**. Surfaced here 2026-08-10 because that doc was its only home — the four sibling verdicts in the same section all resolved to *keep minimal / zero engine change*, and this is the one that did not. |
+| **Last-seen eviction helper** (`RemoteEntities` #5) | **Back to n=1 as of 2026-08-21** — `netplay_game` implements exactly this shape (`last_seen: HashMap<NetId, f64>` + `AOI_EVICT_SECS`, `evict_stale` in `examples/netplay_game/netplay_game.rs`), so the gate is reachable again and the row is once more waiting on a **2nd** call site, the same bar that held `SnapshotBuffer`. It read n=0 from 2026-08-19, when its one call site went with the examples tree. ⚠️ The rebuild plan *predicted* this — "**Bonus:** AOI streaming restores the `RemoteEntities` last-seen eviction gate" — and the row still went stale for a day, because phase 5a updated the sections it was editing and not the one a different section had forecast. A row that names its own trigger does not update itself. Historical detail — `salvage_run`'s AOI streaming produces **removal-by-omission**: the server never sends a `Bye`, an entity just stops appearing in snapshots, so the client infers eviction from `last_seen` + timeout. Candidate shape (`touch(key, t)` / `expired(now - timeout) -> Vec<K>`) is written up in `docs/REMOTE_ENTITIES_DESIGN.md` § *5th example*, **flagged not built**. Surfaced here 2026-08-10 because that doc was its only home — the four sibling verdicts in the same section all resolved to *keep minimal / zero engine change*, and this is the one that did not. |
 
 ### Open — the 2026-08-19 render review's remainder
 
@@ -438,18 +446,26 @@ and if a new failure path gets a handler, it belongs in `wasm_failpaths`, not in
 
 ## Open — process
 
-Nothing open. **The required-check question closed on 2026-08-08**: `Browser smokes (Chrome +
-swiftshader)` is now the **eighth** required context, so the only automated check that exercises
-the wasm WebSocket path — and, since v0.150.3, the only one that asserts a *failure* path — can
-actually block a merge. Verified against the branch-protection API before and after: the other
-settings (`strict`, `enforce_admins`, force-push and deletion bans) are byte-identical, only the
-context list changed. Re-read the real list rather than trusting this paragraph:
+Nothing open. **The required-check question closed on 2026-08-08** and was answered a second
+time on 2026-08-21: `Browser smokes (Chrome + swiftshader)` is the **eighth** required context, so
+the only automated check that exercises the wasm WebSocket path can actually block a merge. Both
+times, verified against the branch-protection API before and after: the other settings (`strict`,
+`enforce_admins`, force-push and deletion bans) are byte-identical, only the context list changed.
+Re-read the real list rather than trusting this paragraph:
 `gh api repos/ChunSam/skeleton-engine/branches/main/protection --jq '.required_status_checks.contexts'`
 
-⚠️ **Expect ~8 min to merge, not ~4.** That job is the slowest in CI and is now on the critical
-path. Reverting is one command (`-X DELETE` on the same endpoint) if the cost stops being worth it.
-Measured on the two PRs that followed: 5 m 33 s and 5 m 37 s for that job against 4 m 3 s and
-3 m 53 s for `Test (native)`, so it is the critical path but the ~8 min estimate was pessimistic.
+⚠️ **This paragraph used to add "and, since v0.150.3, the only one that asserts a *failure* path".
+That is no longer true of anything.** The smoke it described was `wasm_failpaths`, deleted in
+v0.153.0 and **not** rebuilt in phase 5b — which restored two smokes (Web Audio, the WebSocket
+handshake), both of which assert a *success* path. Nothing in the tree now takes a failure path on
+purpose. That is a real gap, not a wording fix: it is how v0.150.1's broken 404 →
+`asset_failures()` and v0.150.2's send-before-open both shipped green.
+
+⚠️ **No longer the critical path — re-measured 2026-08-21.** On the first `main` run of the
+rebuilt job: **3 m 15 s** for the browser smokes against **3 m 45 s** for `Test (native)`. The old
+figures (5 m 33 s / 5 m 37 s against 4 m 3 s / 3 m 53 s) were the *pre-deletion* job, which ran
+seven smokes; the rebuilt one runs two. Reverting is still one command (`-X DELETE` on the same
+endpoint) if the cost stops being worth it — but the cost is currently not what decides it.
 
 ⚠️ **A repo-settings change leaves no trace in the tree, so this row went stale invisibly.** It was
 closed here on 2026-08-08, and the copy on `main` still said "seven contexts, and the browser-smokes

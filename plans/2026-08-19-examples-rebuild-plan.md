@@ -223,6 +223,14 @@ page title). The 6 byte-size-only smokes were documented as eyeball-it and are n
 | `netplay_game` | renders **and** the WebSocket handshake really happened | 3rd |
 | `puzzle_grid_game` | non-blank render at DPR=2 | 4th |
 
+⚠️ **This table of four is missing a kind, noticed 2026-08-21 after phase 5b shipped.** All four
+assert a *success* path. The deleted tree had one that did not — `wasm_failpaths` took a 404 and a
+send-before-open **on purpose** and asserted the failure was handled — and it is not on this list,
+so the omission survived being written down and then implemented. Everything above passes when
+nothing goes wrong, which is how v0.150.1's broken `asset_failures()` and v0.150.2's
+send-before-open both shipped green. Recover the page with
+`git show 4edfd3f^:examples/wasm_failpaths/`.
+
 **Audio is first, and this is measured rather than assumed.** Web Audio genuinely gated from
 v0.143.17 to v0.153.0 — `wasm_audio` reported 38/38 and `audio_reactive` reported `rms=0.643` with
 bands `low=9.41` / `high=0.00` on a 110 Hz tone, i.e. real spectral discrimination. Native
