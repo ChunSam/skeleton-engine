@@ -283,6 +283,34 @@ add_dynamic_circle() / add_dynamic_box() / add_static_box()
 remove_body()
 ```
 
+### Split a decision out of GPU-typed code so a test can reach it
+
+A decision buried in a method that holds `wgpu` types is untestable: CI's `test` job has no device,
+so constructing the owner to exercise the decision is impossible. **Pull the decision out as a free
+function taking plain data.** Six of these exist now (`reload_format`, `rt_registration`, `cached_format_verdict`, `split_material_entities`, `lighting_fixups`, `pyramid_dims`), and the same three shapes keep working:
+
+| Shape | Example | Why |
+|---|---|---|
+| Take a **lookup closure**, not the map | `reload_format(aliases, format_of)` | the map's values need a device; a `Fn(&str) -> Option<Format>` does not |
+| Make it **generic** so the caller never names a `wgpu` type | `rt_registration<T>(Option<&Arc<T>>, &Arc<T>)` | the test passes `Arc<u32>`; production passes `Arc<BindGroup>` |
+| Return an **enum verdict**, not `bool` | `CachedFormat::{Load, Reuse, ReuseWrongFormat}` | every branch becomes assertable, and the third one is the bug |
+
+Each also splits *one* pass into two outputs where that was the real bug — `split_material_entities`
+fills the drawn list and the live set from a single walk, because deriving one from the other is
+what v0.153.2 fixed.
+
+⚠️ **Do not believe a backlog row that says "needs a GPU".** It was wrong twice on 2026-08-20 —
+`sorted_ui_primitives` and `DrawImage::texture_key` take no device at all, and `TextCacheStats` was
+already reachable from `tests/render.rs`. Worse, `docs/NEXT_WORK.md` then carried a standing
+paragraph asserting the render review's whole remainder "is exactly what needs hardware"; every row
+under it closed headlessly on 2026-08-21. The error runs one way — **over**-estimating the cost —
+which quietly parks a row as "later" instead of failing loudly. `grep` the signature first: no
+`&wgpu::Device` means no GPU.
+
+What genuinely stays out of reach: anything whose *observable effect* is on the GPU. The lighting
+bind-group cache's pointer check (`src/renderer/lighting.rs`) has no test for exactly that reason —
+the failure needs a device to see, and no split changes that.
+
 ### Shared policy for cfg-split backends (drift prevention)
 
 When the native and wasm backends each compute the **same derived value**, put the *formula* in
