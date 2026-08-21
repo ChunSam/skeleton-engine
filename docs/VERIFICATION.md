@@ -87,8 +87,10 @@ with a near-enough tool and concludes the document is stale when it is correct �
 happened here, where a `--all-targets` count of 14 was offered as proof that a correct `15` was
 already wrong, and the correct figure came within one reply of being "fixed" away.
 
-The post-deletion baseline is **17 `ok` groups — doctests included, from `verify.sh`'s log** — at
-`netplay_game`'s landing (2026-08-21); 15 before it, and 16 by a `--all-targets` count today.
+The post-deletion baseline is **19 `ok` groups — doctests included, from `verify.sh`'s log** — as
+of the failure-path smoke (2026-08-21); 18 by a `--all-targets` count. The trail this session:
+**15** before `netplay_game`, **17** after it (two binaries), **19** after `wasm_failpaths` (two
+more).
 
 Lib tests: 1443 at v0.153.0 → **1449 at v0.153.1** (#482 added 6 and did not update this line) →
 1461 at v0.153.2 (+12) → **1467 at v0.154.1** (#493 added 6 and did not update this line either —
@@ -102,13 +104,15 @@ different claim from a number this tree actually produces. `1473` and the `17` a
 the `verify.sh` run on the merge result.
 
 The groups are ordered lib → integration → examples → doctests, so today: **1** lib, **2-10** the
-nine `tests/*.rs` integration binaries, **11-16** the example targets, **17** doctests. An example
+nine `tests/*.rs` integration binaries, **11-18** the example targets, **19** doctests. An example
 target adds one `ok` group **even when it contributes no `#[test]`** — its selftest is an env-var
 entry point, so the group reads `running 0 tests`, which is what `platformer_game`, `rpg_quest_game`,
-`survivor_game` and `puzzle_grid_game` all do.
+`survivor_game`, `puzzle_grid_game` and both `wasm_failpaths` targets all do.
 
-⚠️ **A game is not always one group.** `netplay_game` is two binaries — a client and its
-`netplay_server` — so phase 5 added **two** groups, and both carry real unit tests (14 and 21),
+⚠️ **A group is not always a game, and a game is not always one group.** `netplay_game` is two
+binaries — a client and its `netplay_server` — so phase 5 added **two** groups, and both carry real
+unit tests (14 and 21). `wasm_failpaths` is two binaries and **not a game at all** (a browser
+harness plus its echo server, both `running 0 tests`),
 because their netcode is pure functions over a shared `protocol.rs` that each compiles its own copy
 of. The lib count does not move with any of them: example tests are not lib tests. **Count the
 `[[example]]` blocks, not the games** — and note that the previous version of this paragraph said
@@ -630,6 +634,23 @@ smokes (`headless_screenshot`, `lighting_cap`, `packaged_assets`) were examples 
 > `#[no_mangle] pub extern "C"` rather than `#[wasm_bindgen]`. It compiled, `build_wasm_examples.sh`
 > went green, and the generated JS held **zero** occurrences of the function the page imports — the
 > game could not start. No build gate can see that; only loading the page can.
+>
+> ✅ **A third landed 2026-08-21: `wasm_failpaths_smoke.sh`, the only check in the tree that takes
+> a failure path on purpose.** A 404 asset fetch must reach `asset_failures()`, and a `send_text`
+> issued while the socket is still `CONNECTING` must survive and be echoed back. Both are the
+> defects fixed in v0.150.1 / v0.150.2, which shipped **compile-verified only** because nothing
+> could reach them.
+>
+> ⚠️ **Its sabotage verification did not invent breakage — it reinstated the real bugs.** Removing
+> `record_failure` from the wasm fetch path, and removing the CONNECTING queue from
+> `try_send_text`, each reddened the smoke on **its own half** while the other half kept reporting
+> `true`. That is the strongest form this check can take: the sabotage is not a proxy for the
+> failure, it *is* the failure, restored.
+>
+> ⚠️ **The gap was in the shape of the list, not in anyone's diligence.** The rebuild plan's four
+> browser smokes were chosen by subsystem — audio, save, network, render — and all four happened to
+> be success paths. Nothing about a coverage list organised by *what it touches* asks "which of
+> these fails on purpose?", so the omission survived being written down and then implemented.
 >
 > ⚠️ **Still no pixel-level browser check.** A wgpu canvas readback needs `preserveDrawingBuffer`,
 > which configures the surface differently from the one that ships, so the check would measure

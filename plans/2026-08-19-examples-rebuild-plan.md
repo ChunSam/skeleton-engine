@@ -223,13 +223,19 @@ page title). The 6 byte-size-only smokes were documented as eyeball-it and are n
 | `netplay_game` | renders **and** the WebSocket handshake really happened | 3rd |
 | `puzzle_grid_game` | non-blank render at DPR=2 | 4th |
 
-⚠️ **This table of four is missing a kind, noticed 2026-08-21 after phase 5b shipped.** All four
-assert a *success* path. The deleted tree had one that did not — `wasm_failpaths` took a 404 and a
-send-before-open **on purpose** and asserted the failure was handled — and it is not on this list,
-so the omission survived being written down and then implemented. Everything above passes when
+⚠️ **This table of four was missing a kind, noticed 2026-08-21 after phase 5b shipped — and the
+fifth is now built.** All four above assert a *success* path. The deleted tree had one that did not
+— `wasm_failpaths` took a 404 and a send-before-open **on purpose** — and it was not on this list,
+so the omission survived being written down *and then implemented*. Everything above passes when
 nothing goes wrong, which is how v0.150.1's broken `asset_failures()` and v0.150.2's
-send-before-open both shipped green. Recover the page with
-`git show 4edfd3f^:examples/wasm_failpaths/`.
+send-before-open both shipped green.
+
+| 5 | `wasm_failpaths` (+ a native echo server) | a 404 reaches `asset_failures()`; a send issued while the socket is CONNECTING survives | **built 2026-08-21** |
+
+The lesson is about the *list*, not the item: four entries chosen by subsystem (audio, save,
+network, render) all happened to be success paths, and nothing in the shape of that table asked
+"which of these fails on purpose?". A coverage list organised by *what it touches* will not notice
+it is missing a *kind*.
 
 **Audio is first, and this is measured rather than assumed.** Web Audio genuinely gated from
 v0.143.17 to v0.153.0 — `wasm_audio` reported 38/38 and `audio_reactive` reported `rms=0.643` with

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- The verdict is written HERE, by `web_check_failpaths`. `scripts/wasm_failpaths_smoke.sh`
+       reads it live over Chrome's DevTools /json endpoint, so this starting value must not already
+       contain the token FAILPATH_CHECK. -->
+  <title>wasm failure paths — running…</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0d0d0d;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      min-height: 100vh; font-family: system-ui, sans-serif; color: #888;
+    }
+    #game-canvas { display: block; border: 1px solid #333; background: #0a0d14; }
+    #status { margin-top: 10px; font-size: 13px; max-width: 68ch; text-align: center; }
+    #status code { color: #b0d0ff; }
+    #status b { color: #ffb0a0; }
+  </style>
+</head>
+<body>
+  <canvas id="game-canvas" width="800" height="600" tabindex="0"></canvas>
+  <p id="status">Loading WASM…</p>
+  <script type="module">
+    import init, { web_check_failpaths } from "./pkg/wasm_failpaths.js";
+    const status = document.getElementById("status");
+    try {
+      await init();
+      status.innerHTML =
+        'Taking two failure paths <b>on purpose</b>: a <code>404</code> asset fetch that must reach ' +
+        '<code>asset_failures()</code>, and a <code>send_text</code> issued while the socket is ' +
+        'still <code>CONNECTING</code> that must survive and come back. Needs ' +
+        '<code>cargo run --example wasm_failpaths_echo_server</code> on ' +
+        '<code>127.0.0.1:9007</code>. A magenta square and a 404 in the network log are expected — ' +
+        'that is the point. The verdict goes to the page title.';
+      web_check_failpaths();
+    } catch (e) {
+      // A load failure must still produce a verdict, or the script cannot tell "the page broke"
+      // from "the page is still thinking" — both read as no title.
+      document.title = "FAILPATH_CHECK: FAIL — wasm init threw: " + String(e).replace(/"/g, "'");
+      status.textContent = "Error: " + e;
+      console.error(e);
+    }
+  </script>
+</body>
+</html>
