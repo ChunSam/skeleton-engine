@@ -33,8 +33,8 @@
 #   Google Chrome or Chromium (set $CHROME to override auto-detection)
 #
 # Usage:
-#   scripts/wasm_failpaths_smoke.sh
-#   SMOKE_PORT=8092 SMOKE_DBG=9312 scripts/wasm_failpaths_smoke.sh
+#   scripts/wasm_failpaths_web_smoke.sh
+#   SMOKE_PORT=8092 SMOKE_DBG=9312 scripts/wasm_failpaths_web_smoke.sh
 #
 # Exit codes: 0 = pass · 1 = a failure path is not reported · 2 = environment
 set -uo pipefail

@@ -14,7 +14,7 @@
 //! `#[cfg(target_arch = "wasm32")]` code, so a native selftest could only ever print a skip — and
 //! "a skip is not a pass" is the rule that layout exists to enforce. Cargo auto-discovers
 //! `examples/*/main.rs`, and an explicit `[[example]]` block in `Cargo.toml` puts it in front of
-//! `scripts/build_wasm_examples.sh`. It **is** gated — by `scripts/wasm_failpaths_smoke.sh` in the
+//! `scripts/build_wasm_examples.sh`. It **is** gated — by `scripts/wasm_failpaths_web_smoke.sh` in the
 //! `wasm-smokes` CI job, which is a stronger gate than a native selftest could be here.
 //!
 //! # The two paths
@@ -38,7 +38,7 @@
 //! # then open http://localhost:8092
 //! ```
 //!
-//! or just `scripts/wasm_failpaths_smoke.sh`, which does all of it headlessly.
+//! or just `scripts/wasm_failpaths_web_smoke.sh`, which does all of it headlessly.
 
 // Only `web_check_failpaths` uses this; gated so a native build does not compile a module it
 // cannot reach.
@@ -68,7 +68,7 @@ const ECHO_URL: &str = "ws://127.0.0.1:9007";
 const DEADLINE_SECS: f32 = 25.0;
 
 /// Runs both deliberate failures and publishes the verdict to `document.title`, where
-/// `scripts/wasm_failpaths_smoke.sh` reads it over Chrome's DevTools endpoint.
+/// `scripts/wasm_failpaths_web_smoke.sh` reads it over Chrome's DevTools endpoint.
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub fn web_check_failpaths() {
@@ -158,7 +158,7 @@ fn main() {
          #[cfg(target_arch = \"wasm32\")] code, so there is nothing to reproduce natively.\n\
          \n\
          Run it with:\n  \
-           scripts/wasm_failpaths_smoke.sh\n\
+           scripts/wasm_failpaths_web_smoke.sh\n\
          \n\
          or by hand:\n  \
            cargo run --example wasm_failpaths_echo_server\n  \

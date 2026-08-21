@@ -69,7 +69,7 @@ path = "examples/netplay_game/server.rs"
 # `examples/<name>/<name>.rs` and requires every game to carry a `<NAME>_SELFTEST`, and this has no
 # native behaviour to test — both defects live in `#[cfg(target_arch = "wasm32")]` code, so a native
 # selftest could only print a skip, and "a skip is not a pass". It is gated by
-# `scripts/wasm_failpaths_smoke.sh` in the `wasm-smokes` CI job instead.
+# `scripts/wasm_failpaths_web_smoke.sh` in the `wasm-smokes` CI job instead.
 #
 # The block is still needed even though Cargo auto-discovers `examples/*/main.rs`, because
 # `scripts/build_wasm_examples.sh` derives its list from these blocks — without one, the page that

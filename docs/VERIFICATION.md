@@ -177,6 +177,29 @@ rg -q 'anonymous' src/; echo $? # 0 = found, 1 = not found
 Same rule as Trap 1, one layer up: **if the thing you are about to conclude is "there is no X",
 nothing in the pipeline may be allowed to drop lines.**
 
+### After fixing a claim, re-grep it and confirm zero
+
+The rule above finds every copy of a claim. This one is about the step after: **run the same search
+again once you have fixed it.**
+
+On 2026-08-21 a single stale sentence — "no audio claim of any kind is checked anywhere but a unit
+test" — lived in four places. It was found by grepping the claim (the right move), and then **two of
+the four were fixed**: `CLAUDE.md` and `scripts/selftests.sh`. The copies in the memory file and its
+index survived, and were caught only because a second session went looking.
+
+That failure is a different animal from the other near-misses of the same day. Using the wrong tool,
+the wrong tree, or the wrong comparison are all mistakes you cannot see from the inside — nothing
+about a `--all-targets` count announces that it skips doctests. This one you **can** see from the
+inside, with the tool already in your hand: the grep that found four hits will report zero when the
+job is done, and non-zero when it is not. It costs one command.
+
+```bash
+rg -c 'no audio claim of any kind'   # before: 4 files. after: no matches.
+```
+
+So the prescription is not "ask what you are searching" — it is **"a fix is not finished until the
+search that found the problem comes back empty."**
+
 ### Grep for the concept, not for the file you were editing
 
 A commit that removes a concept leaves prose behind a few lines away from where it looked. `92e05fe`
@@ -635,7 +658,7 @@ smokes (`headless_screenshot`, `lighting_cap`, `packaged_assets`) were examples 
 > went green, and the generated JS held **zero** occurrences of the function the page imports — the
 > game could not start. No build gate can see that; only loading the page can.
 >
-> ✅ **A third landed 2026-08-21: `wasm_failpaths_smoke.sh`, the only check in the tree that takes
+> ✅ **A third landed 2026-08-21: `wasm_failpaths_web_smoke.sh`, the only check in the tree that takes
 > a failure path on purpose.** A 404 asset fetch must reach `asset_failures()`, and a `send_text`
 > issued while the socket is still `CONNECTING` must survive and be echoed back. Both are the
 > defects fixed in v0.150.1 / v0.150.2, which shipped **compile-verified only** because nothing

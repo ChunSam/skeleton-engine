@@ -314,7 +314,7 @@ jobs:
           # and v0.150.2's send-before-open both shipped green. ⚠️ Sabotage-verified by
           # REINSTATING both bugs: each reddens this smoke on its own half and leaves the other
           # half reporting true, so a failure here names which handler broke.
-          SMOKE_PORT=8092 SMOKE_DBG=9312 ./scripts/wasm_failpaths_smoke.sh
+          SMOKE_PORT=8092 SMOKE_DBG=9312 ./scripts/wasm_failpaths_web_smoke.sh
 
   # ── Windows 빌드 ──────────────────────────────────────────────────────────
   # The other jobs are ubuntu/wasm only, so nothing here ever compiled the DX12

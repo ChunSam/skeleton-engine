@@ -76,7 +76,7 @@ change. A browser loads this engine again for the first time since 2026-08-19.
 | `netplay_web_smoke.sh` | the WebSocket handshake completed and entities streamed in | ✅ 23 entities over a browser socket |
 | RPG save round-trip (AEAD `localStorage`) | the wasm save branch | ⬜ not built — the machinery now exists, so it is one page + one script |
 | puzzle render at DPR=2 | a non-blank frame | ⬜ not built, and see the pixel caveat below |
-| `wasm_failpaths_smoke.sh` | that a *broken* path is handled — a 404 reaching `asset_failures()` **and** a send before the socket opens surviving | ✅ both, verified by **reinstating** v0.150.1 and v0.150.2 |
+| `wasm_failpaths_web_smoke.sh` | that a *broken* path is handled — a 404 reaching `asset_failures()` **and** a send before the socket opens surviving | ✅ both, verified by **reinstating** v0.150.1 and v0.150.2 |
 
 ✅ **The failure-path smoke was the one nobody planned, and it is now built** (2026-08-21).
 Every other check in the tree passes when nothing goes wrong — which is exactly how v0.150.1's
@@ -451,7 +451,7 @@ check itself, and that is exactly where rot hides.
 **Both follow-ups are closed** (v0.150.3). The gap was that the wasm halves of v0.150.1 and
 v0.150.2 were compile-verified only, because nothing drove them — a 404 was never requested and a
 pre-open send was never made. `examples/wasm_failpaths` now does both on purpose and
-`scripts/wasm_failpaths_smoke.sh` reads the verdict; it gates in the `wasm-smokes` job. It is
+`scripts/wasm_failpaths_web_smoke.sh` reads the verdict; it gates in the `wasm-smokes` job. It is
 sabotage-verified in both directions, each half reddening only for its own defect.
 
 ⚠️ **The standing lesson, which outlived the two items:** every other browser smoke passes when
