@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name        = "skeleton-engine"
-version     = "0.154.2"
+version     = "0.154.3"
 edition     = "2021"
 description = "Lightweight 2D game engine — wgpu rendering, custom ECS, rapier2d physics"
 repository  = "https://github.com/ChunSam/skeleton-engine"
@@ -109,6 +109,21 @@ rhai        = { version = "1", features = ["sync"] }
 [dev-dependencies]
 engine_reflect_derive = { path = "engine_reflect_derive" }
 ab_glyph = "0.2" # egui's rasterizer — used to assert the bundled Korean subset font carries Hangul
+
+# The games install this so the engine's `warn!`/`error!` sites are not discarded — see
+# `examples/shared/logging.rs` for why a plain `env_logger::init()` would not have been enough.
+# Native-only on purpose: on wasm `log` needs a browser sink this repo does not depend on, and the
+# module documents that gap rather than pretending to close it.
+#
+# `default-features = false` is a measured choice, not a reflex. The three configurations were
+# resolved and counted: defaults-off + `auto-color` + `humantime` pulls **21** new packages (the
+# anstream family, plus jiff and defmt for timestamps), `auto-color` alone **15**, and bare
+# defaults-off **6**. All three print the same thing where it matters —
+# `[ERROR engine::input_script] …`, level and module included — so the extra 15 buy colour and a
+# timestamp. Level directives (`RUST_LOG=warn`, `RUST_LOG=engine::audio=debug`) parse without any
+# feature; only the optional `RUST_LOG=warn/pattern` message filter would need more.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+env_logger = { version = "0.11", default-features = false }
 
 # ── 네이티브 전용 (OS API 의존) ──────────────────────────────────────────────
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

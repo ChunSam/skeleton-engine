@@ -786,8 +786,17 @@ fn run() {
     app.run();
 }
 
+// The engine reports trouble through `log`, which discards everything until a binary installs
+// a logger. Every game installs the same one; the module explains what that buys and what it
+// still does not cover in a browser. Gated to match the `main` below — this is the only game
+// whose native entry point is itself gated, and an ungated `mod` here would be dead code on wasm.
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "../shared/logging.rs"]
+mod logging;
+
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
+    logging::init();
     if std::env::var("NETPLAY_SELFTEST").is_ok() {
         std::process::exit(self_test());
     }

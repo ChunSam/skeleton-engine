@@ -38,7 +38,7 @@ Read only what you need.
 run --example <name>` and self-verdicts with `<NAME>_SELFTEST=1` (`netplay_game` needs
 `netplay_server` too); `build_wasm_examples.sh` builds the 4 of 6 targets that are not native-only,
 and `./scripts/build_wasm.sh` makes a servable `dist/` bundle (the lib's own `run_demo`, not an
-example). ⚠️ **No game installs a logger**, so the engine's `warn!`/`error!` output goes nowhere.
+example). **Every game installs a logger** (v0.154.3) — ⚠️ natively only; a browser discards it.
 
 Read `docs/PROGRAM_HISTORY.md` + `docs/CHANGELOG.md` before rebuilding one; `git show
 4edfd3f^:examples/<path>` still has every deleted file. A game at `examples/<name>/<name>.rs` needs
