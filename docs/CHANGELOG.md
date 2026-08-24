@@ -4,6 +4,49 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.155.1
+
+### `NETPLAY_SELFTEST` check 7 was flaky, and it was the check's own fault
+
+Check 7 — two pilots claiming the same salvage — failed roughly one run in seven, always the same
+way: `the server granted none — scores 0 / 0`. It reddened `Test (native)`, a **required** context,
+on PRs that had nothing to do with netplay.
+
+**The message named the wrong half of the system.** It offered "either the claim never reached the
+server, or its distance validation refused a legitimate one", and the answer was neither: the client
+never *sent* a claim.
+
+The check stages its contested moment by writing `prediction.pos` directly onto the pickup, for both
+pilots, on the same frame. That position is not backed by any input the server will ever ack — and
+the client's frame drains the network **first**, where `reconcile` overwrites `prediction.pos`
+wholesale with "authoritative position + replayed pending inputs". Snapshots arrive every ~83 ms
+against a ~16 ms frame, so about one teleport in five was erased before `pump_claims` ran three
+steps later in the same frame. The pickup was then ~76 px away, far outside `CLAIM_RADIUS`, and no
+claim was ever sent.
+
+The fix pumps claims at the staged instant instead of waiting for the next frame — which is what the
+comment above it already claimed was happening ("push both onto it on the SAME frame"). It is the
+same method the frame calls; the only thing chosen is *when*.
+
+⚠️ **A second, differently-shaped flake was one slow machine away.** `try_claim` measures from the
+server's own copy of the ship, which lags the client's prediction by the input round trip. Measured
+at `APPROACH = 70`: the server saw **76.5 px** and **96.7 px** against a reach of **120**. A
+legitimate claim was passing with 23 px to spare. `APPROACH` is now **40**, which keeps the
+"arriving does not auto-claim" property (still well outside `CLAIM_RADIUS` = 24) and roughly doubles
+the margin that actually decides the outcome.
+
+The failure message now separates "no claim was sent" (client-side) from "claims were sent and
+refused" (the server's `try_claim`), using the client's own `claim_sent` record.
+
+**Evidence.** The mechanism was proven by forcing it — assigning `prediction.pos = server_pos` right
+after the teleport fails **3 runs out of 3** with exactly the observed signature. With the fix, that
+same forced reconcile, moved to the only place it can occur in reality (after the claim), **passes
+3 out of 3**. Natural rate went from ~15% to **0 failures in 60 runs**.
+
+⚠️ **The first probe hid the bug.** Instrumenting the server's `try_claim` with `eprintln!` and
+inheriting its stderr produced **65 clean runs**, then reverting the probe reproduced the failure on
+run 17 of 25. Counting clean runs is not what settled this; forcing the race is.
+
 ## 0.155.0
 
 The nine items the 2026-08-19 follow-up review deliberately did not do. **That remainder is now

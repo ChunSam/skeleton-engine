@@ -1711,9 +1711,17 @@ fn self_test() -> i32 {
         // Contest the pickups nearest the spawn, so the flight is short and both pilots are
         // guaranteed to have them streaming.
         const ROUNDS: usize = 2;
-        // Just outside CLAIM_RADIUS, so arriving does not claim — the contest has to be the
-        // simultaneous push below, not a race won by whoever got there first.
-        const APPROACH: f32 = 70.0;
+        // Just outside CLAIM_RADIUS (24 px), so arriving does not claim — the contest has to be
+        // the simultaneous push below, not a race won by whoever got there first.
+        //
+        // ⚠️ It also has to leave room on the *server* side, which is the half that decides.
+        // `try_claim` measures from the server's own copy of the ship, and that copy lags the
+        // client's prediction by the input round trip. Measured at APPROACH = 70: the server saw
+        // **76.5 px** and **96.7 px** against a `CLAIM_RADIUS + CLAIM_SLACK` reach of **120** — a
+        // legitimate claim was passing with 23 px to spare, and a slower machine would have turned
+        // that into a second, differently-shaped flake. 40 keeps the "does not auto-claim"
+        // property (still well outside 24) and roughly doubles the margin that matters.
+        const APPROACH: f32 = 40.0;
         let mut contested = 0usize;
 
         for _ in 0..ROUNDS {
@@ -1753,6 +1761,29 @@ fn self_test() -> i32 {
             // on the SAME frame; this is the contested moment, and with one pilot it cannot exist.
             a.client.prediction.pos = target;
             b.client.prediction.pos = target;
+
+            // ⚠️ **Claim here, not on the next frame.** This line is the whole reason check 7 was
+            // flaky (~15% of runs, 2026-08-24 → diagnosed 2026-08-25).
+            //
+            // The position above is written directly, so it is not backed by any input the server
+            // will ever ack — and `run_live`'s frame drains the network FIRST, where `reconcile`
+            // overwrites `prediction.pos` wholesale with "authoritative position + replayed
+            // pending inputs". A snapshot arrives every `1/SNAPSHOT_HZ` (~83 ms) against a ~16 ms
+            // frame, so roughly one teleport in five was erased before `pump_claims` ran three
+            // steps later in the same frame. The pickup was then ~76 px away — far outside
+            // `CLAIM_RADIUS` — so no claim was ever *sent*, and the failure read as "the server
+            // granted none", which points at the server's distance validation and is the wrong
+            // half of the system entirely.
+            //
+            // Verified by forcing the race: assigning `prediction.pos = server_pos` right here
+            // fails 3 runs out of 3 with exactly the observed signature (exit 6, zero claims).
+            //
+            // Pumping claims explicitly makes the contested moment what the comment above already
+            // claims it is — the same instant for both pilots, with no frame boundary in between.
+            // It is the same method the frame calls three steps after reconciliation; the only
+            // thing being chosen here is *when*.
+            a.client.pump_claims(&mut a.app.world);
+            b.client.pump_claims(&mut b.app.world);
             run_live(&mut [&mut a, &mut b], 1.0);
             contested += 1;
         }
@@ -1783,13 +1814,30 @@ fn self_test() -> i32 {
         let taken = a.client.taken_seen.clone();
         let points = a.client.score + b.client.score;
         if taken.is_empty() {
+            // ⚠️ Separate "no claim was sent" from "the claim was refused" before blaming either.
+            // These are opposite halves of the system and the message used to offer both, which
+            // sent the 2026-08-25 investigation at the server's distance validation when the
+            // client had never opened its mouth. `claim_sent` is the client's own record.
+            let sent = a.client.claim_sent.len() + b.client.claim_sent.len();
+            let detail = if sent == 0 {
+                "neither pilot SENT a claim — this is a client-side problem. The predicted \
+                 position is what `pump_claims` measures from, and something reset it between \
+                 the push and the pump (`reconcile` overwrites it wholesale on every snapshot)."
+                    .to_string()
+            } else {
+                format!(
+                    "{sent} claim(s) were sent and none was granted — this is the server's \
+                     `try_claim`, which measures from ITS copy of the ship, not the predicted \
+                     one. Reach is {:.0} px.",
+                    CLAIM_RADIUS + CLAIM_SLACK
+                )
+            };
             return finish(
                 &mut child,
                 6,
                 Some(format!(
                     "two pilots sat on {contested} pickup(s) together and the server granted \
-                     none — scores {} / {}. Either the claim never reached the server, or its \
-                     distance validation refused a legitimate one.",
+                     none — scores {} / {}. {detail}",
                     a.client.score, b.client.score
                 )),
             );
