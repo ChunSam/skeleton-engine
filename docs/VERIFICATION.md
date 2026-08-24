@@ -5,20 +5,27 @@ session. This file holds the *why* behind it: the traps that have actually bitte
 cases where a green gate is not enough. Read it once; re-read it when a gate result
 surprises you.
 
-> ⚠️ **The examples tree was deleted on 2026-08-19, and with it more than half of what this file
-> describes.** The `<NAME>_SELFTEST` acceptance runner, the wasm-example build step, and all
-> sixteen `*_smoke.sh` scripts are gone; `verify.sh` is now fmt / clippy / wasm build / test /
-> doctest / doc. Sections about that machinery are marked **[gone]** and kept deliberately — the traps in
-> them are what rebuilding an acceptance layer runs into, and every one was paid for once already.
-> The traps under *Reading a gate's result* and *Searching so the result means something* are
-> unaffected and apply today.
+> ⚠️ **The examples tree was deleted on 2026-08-19 and the acceptance layer was rebuilt over the
+> following two days — this banner described the gap and outlived it.** What is back: the
+> `<NAME>_SELFTEST` runner (`scripts/selftests.sh`, phase 0) driving **five** games,
+> `scripts/build_wasm_examples.sh` (phase 4), and the `wasm-smokes` CI job (phase 5b). What is not:
+> thirteen of the sixteen `*_smoke.sh` scripts — **three** exist, all browser, all self-verdicting
+> (`survivor_audio_web_smoke.sh`, `netplay_web_smoke.sh`, `wasm_failpaths_web_smoke.sh`).
+>
+> Sections are marked **[gone]** or **[rebuilt]** accordingly. The **[gone]** ones are kept
+> deliberately — their traps are what rebuilding an acceptance layer runs into, and every one was
+> paid for once already. The traps under *Reading a gate's result* and *Searching so the result
+> means something* were never affected and apply today.
 
 ---
 
 ## Reading a gate's result
 
-`./scripts/verify.sh` runs all six checks in order. The **only** authoritative verdict is
-its exit code, read from a command that is not piped:
+`./scripts/verify.sh` runs every check in order — deliberately not counted here, because the
+count has changed with every rebuild of the acceptance layer and a wrong one reads as authority
+(`grep '^echo "\[verify\]' scripts/verify.sh | grep -vc 'all checks passed'` if you need it —
+the plain `-c` counts the closing summary line as a step). The **only** authoritative
+verdict is its exit code, read from a command that is not piped:
 
 ```bash
 ./scripts/verify.sh > /tmp/verify.log 2>&1; echo "VERIFY_EXIT=$?"
@@ -153,6 +160,19 @@ correct; a human runs that step.)
 
 ---
 
+### Trap 8 — a conflict resolution is a tree nothing has ever verified
+
+Both branches were green **before** the merge, and neither of those greens covers the tree the
+merge produced. A green gate on your branch says nothing about the merged result.
+
+#469 is the worked example: git's auto-resolution put a `=======` boundary *inside* a test
+function, so the "resolved" `tests.rs` had an unclosed delimiter and could not compile. Hand-patching
+that is how a resolution quietly loses a test — the file was rebuilt from both sides instead, after
+checking each was a pure append (`head -n <base-len> <branch> | diff - <base>`).
+
+**Re-run the gate on the merged tree, not on either parent**, and when a resolution touches test
+files, confirm what survived rather than trusting the diff to look plausible.
+
 ## Searching so the result means something
 
 Traps 1–3 are one shape — a pipe that discards what you meant to read. That shape is not confined
@@ -265,22 +285,29 @@ case.
 
 ## What each step does and does not cover
 
-### The WASM step is lib+bins — examples were a separate, derived step **[gone]**
+### The WASM step is lib+bins — examples are a separate, derived step **[rebuilt 2026-08-20]**
 
-`cargo build --target wasm32-unknown-unknown` (lib+bins) is the library wasm gate, and with no
-examples in the tree it is now the whole of it.
+`cargo build --target wasm32-unknown-unknown` (lib+bins) is the library wasm gate. It is **not** the
+whole of it: `scripts/build_wasm_examples.sh` covers the example targets, and runs both in
+`verify.sh` and as a step in CI's `Build (WASM)` job.
 
-Do **not** gate on `--target wasm32 --all-targets` when examples come back. It fails on the
-native-only ones, correctly so: physics / sockets / GPU particles pull `rapier2d`, `tungstenite`
-and `GpuParticleEmitter`, and others call native-only *engine* APIs (headless screenshots,
-hot-reload). `scripts/build_wasm_examples.sh` existed for that — it built the examples declaring a
-`#[wasm_bindgen]` entry point, the set **derived from that entry point, not hardcoded**, so a new
-web example was picked up without anyone remembering to register it.
+Do **not** gate on `--target wasm32 --all-targets`. It fails on the native-only targets, correctly
+so: physics and sockets pull `rapier2d` and `tungstenite`, and some examples call native-only
+*engine* APIs. `build_wasm_examples.sh` exists for that. Its list is **derived** from Cargo.toml's
+`[[example]]` blocks, and a target that cannot build for the web declares `NATIVE_ONLY` in its own
+source — ⚠️ **checked in both directions**, so an undeclared failure fails *and* a `NATIVE_ONLY`
+claim on a target that does build fails too. A stale claim would hide the regression the script
+exists to catch. Currently 4 of 6 targets build for wasm; `platformer_game` (rapier2d) and
+`netplay_server` (a TCP server) are the two declared native-only.
 
-**The consequence that closed:** an example could be broken for wasm indefinitely and the gate
+**The consequence this closes:** an example could be broken for wasm indefinitely and the gate
 stayed green. `embedded_image` was unbuildable for `wasm32` from the day it was added (it called
 the native-only `save_screenshot_headless` unconditionally) until v0.135.1 — and nothing *ran* it
-on the web until v0.143.4 gave it a browser harness and a render smoke. That hole is open again.
+on the web until v0.143.4 gave it a browser harness and a render smoke.
+
+⚠️ **Building is still not running**, and that gap has its own section below — #494 shipped a wasm
+entry point as `#[no_mangle] pub extern "C"` instead of `#[wasm_bindgen]`; it compiled, this script
+went green, and the generated JS contained zero occurrences of the function the page imports.
 
 ### A skip is not a pass — `scripts/selftests.sh` **[rebuilt 2026-08-19]**
 
@@ -572,6 +599,17 @@ is what hid it, because the only PR anyone was looking at was the one that worke
 
 **The order is: merge the job, then add the context.** The window between them is a job nobody is
 gated on, which is the mild failure. The window the other way round blocks the repo.
+
+⚠️ **A comment that tells you to distrust it is telling the truth.** `ci.yml`'s header described
+the required-check set as seven jobs excluding the browser smokes, and closed with "read the real
+list rather than this comment — it is the thing that drifts". It had drifted: the API said eight,
+browser smokes included. Branch protection lives in repo settings and leaves **no trace in the
+tree**, so no diff can ever correct a sentence about it. Every claim in this repo about which
+checks are required is stale until re-read from the API:
+
+```bash
+gh api repos/ChunSam/skeleton-engine/branches/main/protection --jq '.required_status_checks.contexts'
+```
 
 ⚠️ **And verify against `origin/main`, not your working tree.** The correspondence check that missed
 this was the right check pointed at the wrong branch:
