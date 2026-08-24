@@ -306,9 +306,30 @@ treat the rest as unproven until the named instrument runs.
 A review of everything v0.152.1–v0.152.7 changed (`25c49e5..13ce809`; 88 src lines, 484 test lines)
 produced 13 findings. **Two shipped as v0.152.8** — the `move_entity` drop-order unwind hole and the
 editor's `EntitySortMode::Insertion` that no longer meant insertion. **One was a false positive**
-(the row above). The **nine below were deliberately not done**: none changes what correct code does,
-and bundling them would have buried the two that do. Each is one edit; take them opportunistically
-when next in the file, not as a program.
+(the row above).
+
+✅ **The nine below all shipped as v0.155.0 on 2026-08-24, and this section is now empty.** They
+were held back because none changes what correct code does and bundling them would have buried the
+two that did; once those shipped, the reason to keep them apart was gone. **Do not reopen this
+section as a source of work** — a new pass over that diff would be a new review.
+
+⚠️ **Two of the nine were worth more than "one edit each" implied, and both for the same reason:
+the row named a symptom and the fix needed a measurement.**
+
+- **The ratio tests.** The row said a spawn-only baseline "would make them mean what they say" and
+  estimated ~0.13 of the 0.226 allocation allowance was structural. Measured, `spawn()` costs
+  **0.010 allocations** per entity — the real distortion is ~0.004, negligible. But it costs **188
+  bytes**, and on the *bytes* test that was decisive: subtracting it moved the healthy ratio from
+  0.506 to 0.645 and, crucially, the reading under the bug the test names from 0.881 to 1.172. The
+  old 1.25 bar could not fail on its own stated cause. It is 1.0 now and does.
+- **`World::entities_sorted`.** Filed as a choice between an engine API and an editor-local helper.
+  It resolved itself on reading: the policy is prescribed in the doc comment on `World::entities`,
+  so the helper belongs beside it, and no `lib.rs` or `MODULE_MAP` change was needed because
+  `World` is already exported.
+
+The transferable half is the one this file keeps re-learning: **a filed diagnosis is a hypothesis,
+and so is its size**. Both estimates above were right in kind and wrong by more than an order of
+magnitude, in opposite directions.
 
 | Item | Where |
 |---|---|

@@ -83,13 +83,32 @@ impl World {
     /// indices `[0, 4, 2, 3]`. The order is stable between mutations but is not recoverable
     /// spawn order — `Entity::index` is recycled too, so a caller cannot sort its way back to it.
     ///
-    /// Anything that presents or persists this list should impose its own order.
-    /// `Entity::index` is unique among live entities, so `sort_unstable_by_key(|e| e.index())`
-    /// is a total order; the editor's entity panels and scene save do exactly that, which keeps
-    /// a hierarchy row from jumping when an unrelated entity is deleted and keeps a one-entity
-    /// change from churning the whole RON file.
+    /// Anything that presents or persists this list should impose its own order — use
+    /// [`entities_sorted`](Self::entities_sorted), which is that order.
     pub fn entities(&self) -> &[Entity] {
         &self.entities
+    }
+
+    /// All live entities in a **stable, presentable order**: [`entities`](Self::entities) sorted by
+    /// [`Entity::index`].
+    ///
+    /// `Entity::index` is unique among live entities, so this is a total order. It is what any
+    /// caller that *presents* or *persists* the entity list wants, and for the same reason in both
+    /// cases: storage order reshuffles on `despawn`, so a hierarchy row jumps when an unrelated
+    /// entity is deleted, and a one-entity change churns the whole RON file.
+    ///
+    /// ⚠️ **Not recovered spawn order, and it cannot be.** `Entity::index` is recycled, so a
+    /// recycled slot sorts by where it sits now, not by when it was spawned. This is a *stable*
+    /// order, not a *historical* one.
+    ///
+    /// Allocates — it is a sorted copy. Every caller was already doing `entities().to_vec()`
+    /// before sorting, so this costs what the copy-paste it replaces cost; it exists because the
+    /// policy was prescribed in prose here and re-implemented identically at three call sites,
+    /// which is a rule the type system was not carrying.
+    pub fn entities_sorted(&self) -> Vec<Entity> {
+        let mut sorted = self.entities.to_vec();
+        sorted.sort_unstable_by_key(|e| e.index());
+        sorted
     }
 
     /// Returns true if the entity is alive (false if despawned or never created).

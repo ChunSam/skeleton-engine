@@ -98,8 +98,16 @@ impl World {
         // Step 3: re-arm the bucket `remove_component` just cleared. A component that was
         // already on the entity when the tick began comes back as *changed*; one that was
         // genuinely new this tick stays *added* across the round trip. Costs the same single
-        // `HashSet` insert the `add_component` put-back used to pay, so per-frame allocation
-        // is unchanged (`tests/per_frame_alloc.rs`).
+        // `HashSet` insert the `add_component` put-back used to pay, so per-frame allocation is
+        // unchanged.
+        //
+        // ⚠️ That last sentence used to cite `tests/per_frame_alloc.rs`, which has never covered
+        // this path (`grep -c 'take_component' tests/per_frame_alloc.rs` → 0). The accounting is
+        // still right — it is one `HashSet` insert either way, readable here — but it is *reasoned*,
+        // not measured, and a citation to a file that does not test it made it look measured. What
+        // would settle it: a case in that file taking and re-adding a component on an entity
+        // already carrying it, asserting the round trip allocates no more than the bare
+        // `add_component` put-back.
         let bucket = if was_added_this_tick {
             &mut self.added_this_tick
         } else {

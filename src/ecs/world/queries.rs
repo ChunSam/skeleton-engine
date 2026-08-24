@@ -120,14 +120,26 @@ impl World {
         let tb = TypeId::of::<B>();
         let tc = TypeId::of::<C>();
         // Eagerly and pairwise — see `query2_mut` for why this is not a `debug_assert`.
-        assert!(
-            ta != tb && ta != tc && tb != tc,
-            "query3_mut::<A, B, C>() requires three DISTINCT component types, got {} / {} / {}. \
-             Two `&mut` to the same component would alias.",
-            std::any::type_name::<A>(),
-            std::any::type_name::<B>(),
-            std::any::type_name::<C>()
-        );
+        //
+        // The message names the colliding PAIR, not all three types. Printing three names and
+        // leaving the reader to spot the duplicate is the eyeballing `query2_mut`'s message was
+        // written to remove, and it is worse here: with three long paths (`game::comp::Position`
+        // and friends) the repeat is genuinely easy to miss. The check is pairwise already, so the
+        // pair is known at the point of failure — say it.
+        if let Some((x, y, name)) = if ta == tb {
+            Some(("A", "B", std::any::type_name::<A>()))
+        } else if ta == tc {
+            Some(("A", "C", std::any::type_name::<A>()))
+        } else if tb == tc {
+            Some(("B", "C", std::any::type_name::<B>()))
+        } else {
+            None
+        } {
+            panic!(
+                "query3_mut::<A, B, C>() requires three DISTINCT component types, but {x} and {y} \
+                 are both `{name}`. Two `&mut` to the same component would alias."
+            );
+        }
         self.archetypes
             .iter_mut()
             .filter(move |arch| arch.contains(ta) && arch.contains(tb) && arch.contains(tc))

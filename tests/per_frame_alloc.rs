@@ -733,6 +733,43 @@ fn allocs_per_component(width: usize) -> f64 {
     allocs as f64 / BATCH as f64 / width as f64
 }
 
+/// What `spawn()` alone costs, per entity — allocations and bytes.
+///
+/// ⚠️ **This is what the two ratio tests below have to subtract to mean what they say.**
+/// `build_entities` measures one `spawn()` plus `width` transitions and divides by `width`, so the
+/// fixed spawn cost enters every reading as `spawn / width` — a term that *shrinks* as the entity
+/// widens. A wide entity therefore reads cheaper per component than a narrow one before
+/// `move_entity` is measured at all, and that structural discount was being spent out of the same
+/// allowance the assertion offers for real regressions.
+///
+/// Same warm-up discipline as the measurements it corrects: the first batch is discarded so the
+/// entity table and the empty archetype already have capacity.
+fn spawn_baseline() -> (f64, f64) {
+    const BATCH: usize = 512;
+    let mut world = World::new();
+    let spawn_batch = |w: &mut World| {
+        measure(|| {
+            for _ in 0..BATCH {
+                w.spawn();
+            }
+        })
+    };
+    spawn_batch(&mut world);
+    let (allocs, bytes) = spawn_batch(&mut world);
+    (allocs as f64 / BATCH as f64, bytes as f64 / BATCH as f64)
+}
+
+/// Allocations per component of the **transitions only**, with the per-entity `spawn()` cost
+/// removed. This is the quantity the width-scaling claim is actually about.
+fn transition_allocs_per_component(width: usize) -> f64 {
+    const BATCH: usize = 512;
+    let mut world = World::new();
+    build_entities(&mut world, BATCH, width);
+    let (allocs, _) = build_entities(&mut world, BATCH, width);
+    let (spawn_allocs, _) = spawn_baseline();
+    (allocs as f64 / BATCH as f64 - spawn_allocs) / width as f64
+}
+
 /// **An archetype transition must not get more expensive as the entity widens.**
 ///
 /// `move_entity` cloned the source *and* destination `type_set` and built a fresh `HashMap` of
@@ -752,10 +789,16 @@ fn allocs_per_component(width: usize) -> f64 {
 /// The assertion is the *shape*, not a magic number: a wide entity may not cost meaningfully more
 /// per component than a narrow one. An absolute budget would go stale on any unrelated change;
 /// this only fails if the per-transition cost starts scaling with width again.
+///
+/// ⚠️ **Measured with `spawn()` subtracted** — see `spawn_baseline`. Dividing the fixed per-entity
+/// spawn cost by `width` handed the wide reading a discount that grew with width, so part of
+/// `wide < narrow` was structural and was being paid out of the same allowance this assertion
+/// offers for genuine regressions. The test still catches width-scaling either way (it was
+/// sabotage-checked before and after), but it now measures the thing it names.
 #[test]
 fn an_archetype_transition_does_not_get_more_expensive_as_the_entity_widens() {
-    let narrow = allocs_per_component(2);
-    let wide = allocs_per_component(8);
+    let narrow = transition_allocs_per_component(2);
+    let wide = transition_allocs_per_component(8);
 
     // Positive control, two ways. Zero is also what this reads if the path never ran, and a
     // plausible-looking number is also what it reads if `add_component` silently no-opped.
@@ -767,9 +810,10 @@ fn an_archetype_transition_does_not_get_more_expensive_as_the_entity_widens() {
         "control failed — the fixture did not actually put components on the entity"
     );
     assert!(
-        narrow > 1.0,
-        "control failed — building an entity must allocate at least once per component, got \
-         {narrow:.2}. The measurement is not seeing the work."
+        narrow > 0.5,
+        "control failed — a transition must allocate, got {narrow:.2} per component. The \
+         measurement is not seeing the work. (The bar is below 1.0 because this is the \
+         spawn-subtracted figure; `allocs_per_component` is the one that reads above 1.)"
     );
 
     assert!(
@@ -786,8 +830,18 @@ fn an_archetype_transition_does_not_get_more_expensive_as_the_entity_widens() {
 /// A `Vec` clone is one allocation whatever its length, so restoring `move_entity`'s two
 /// `type_set` clones — or the throwaway signature `add_component` used to hand
 /// `get_or_create_archetype` — adds a fixed cost per transition and leaves the ratio almost
-/// untouched. Sabotage-checked: reverting only the width-scaling half fails the ratio test at
-/// +31%, and reverting only the constant halves does not, which is exactly why both tests exist.
+/// untouched. Sabotage-checked, and the three tests split the work cleanly — re-verified
+/// 2026-08-24, each figure produced by reinstating the named half in `move_entity`:
+///
+/// | Reinstated | allocation ratio | bytes ratio | budget |
+/// |---|---|---|---|
+/// | the width-scaling half (fresh scratch per transition) | **FAILS, +31%** | passes | passes |
+/// | the constant halves (both `type_set` clones) | passes | **FAILS, +17%** | passes |
+///
+/// That is why there are three and not one: a `Vec` clone is **one** allocation whatever its
+/// length, so the constant halves are invisible to a per-component *count* and show up only in
+/// *bytes*. ⚠️ The bytes half only became able to fail them when `spawn()` was subtracted from
+/// both readings — see `spawn_baseline`.
 ///
 /// The ceiling is deliberately loose. Measured 1.38–1.51 depending on width, so 2.5 leaves room
 /// for an honest change to cost a little more without a red build, while any of the three
@@ -818,19 +872,34 @@ fn building_an_entity_stays_within_its_per_component_allocation_budget() {
 #[test]
 fn archetype_transition_bytes_do_not_scale_with_entity_width() {
     const BATCH: usize = 512;
+    // Spawn-subtracted, for the reason in `spawn_baseline`: the fixed per-entity cost divided
+    // by `width` is a discount that grows with width, and it lands on the side the assertion is
+    // trying to bound.
     fn bytes_per_component(width: usize) -> f64 {
         let mut world = World::new();
         build_entities(&mut world, BATCH, width);
         let (_, bytes) = build_entities(&mut world, BATCH, width);
-        bytes as f64 / BATCH as f64 / width as f64
+        let (_, spawn_bytes) = spawn_baseline();
+        (bytes as f64 / BATCH as f64 - spawn_bytes) / width as f64
     }
 
     let narrow = bytes_per_component(2);
     let wide = bytes_per_component(8);
     assert!(narrow > 0.0, "control failed — no bytes measured at all");
+    // The bar is 1.0 — "a wide entity must not cost MORE bytes per component than a narrow one",
+    // which is literally what this test is named for, rather than a tuned tolerance.
+    //
+    // ⚠️ **It is reachable only because `spawn()` is subtracted above.** `spawn` costs a flat 188
+    // bytes per entity, and dividing that by `width` handed the wide reading a discount that grew
+    // with width. On the raw figures the healthy ratio is 0.506 and the ratio with both `type_set`
+    // clones reinstated — the exact bug the message names — is 0.881, so a 1.0 bar would have
+    // passed it and the old 1.25 bar was never within reach of failing. Corrected, the same two
+    // readings are 0.645 and 1.172, and the bar separates them.
     assert!(
-        wide <= narrow * 1.25,
+        wide <= narrow,
         "an 8-component entity requests {wide:.0} bytes per component against {narrow:.0} for a \
-         2-component one. Bytes are where a per-transition copy of the whole signature shows up."
+         2-component one ({:.0}% more). Bytes are where a per-transition copy of the whole \
+         signature shows up first.",
+        (wide / narrow - 1.0) * 100.0
     );
 }

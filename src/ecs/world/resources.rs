@@ -42,6 +42,17 @@ impl World {
     ///   re-raised unchanged.
     /// - **A replacement wins.** If `f` inserts a fresh `R` through its `&mut World`, that value
     ///   is kept; the one taken at entry is dropped.
+    ///
+    /// ⚠️ **Read those two together, not separately.** The restore is *conditional on `R` being
+    /// absent at exit*, and that condition decides both cases where the guarantees meet:
+    ///
+    /// - **Replace, then panic — the replacement wins.** `R` is present, so it is not overwritten,
+    ///   and every mutation `f` made to the value it was handed is dropped with that value. "A
+    ///   panic does not lose `R`" means the slot is never left empty; it does not mean the entry
+    ///   value survives.
+    /// - **A deliberate `remove_resource::<R>()` inside `f` is undone.** An empty slot at exit is
+    ///   indistinguishable from "nothing replaced it", so the value taken at entry goes back in.
+    ///   Remove `R` from outside this helper if you need it to stay removed.
     pub fn with_resource_mut<R, F>(&mut self, f: F) -> bool
     where
         R: 'static,

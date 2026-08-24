@@ -248,11 +248,13 @@ impl World {
         // per component the entity already carried, so it allocated every time and grew with the
         // width — the second half of the same O(N^2) shape. A `Vec` also beats a `HashMap` for
         // the handful of entries involved: the destination loop below scans it linearly.
+        // ⚠️ No `debug_assert!(extracted.is_empty())` here, deliberately — one used to sit on this
+        // line and could not fire. The restore at the end of this function is unconditionally
+        // preceded by `clear()`, and the only other way out is an unwind, which leaves the field
+        // holding the empty `Vec` this `take` just put there. So the scratch is empty on entry by
+        // construction, from both exits. It read as a re-entrancy guard, which it could not be:
+        // `move_entity` takes `&mut self` and the gap contains no user code to re-enter through.
         let mut extracted = std::mem::take(&mut self.move_scratch);
-        debug_assert!(
-            extracted.is_empty(),
-            "move_entity: scratch left dirty by a previous call"
-        );
         for &tid in &src_type_set {
             let comp = self.archetypes[src_arch_id]
                 .columns

@@ -4,6 +4,92 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.155.0
+
+The nine items the 2026-08-19 follow-up review deliberately did not do. **That remainder is now
+empty.** None of them changed what correct code does, which is why they were held back — bundling
+them would have buried the two that did (v0.152.8). Those shipped, so these could finally travel
+together.
+
+MINOR rather than PATCH for one reason: `World::entities_sorted` is new public API.
+
+### `World::entities_sorted` — the sort policy the type system was not carrying
+
+`entities().to_vec()` followed by `sort_unstable_by_key(|e| e.index())` was copy-pasted at **three**
+call sites and prescribed by a fourth place — the doc comment on `World::entities` itself. Storage
+order reshuffles on `despawn` (`swap_remove` fills the hole), so anything that *presents* or
+*persists* the list has to impose its own order or a hierarchy row jumps when an unrelated entity is
+deleted and a one-entity change churns a whole RON file.
+
+⚠️ It is a *stable* order, not a *historical* one: `Entity::index` is recycled, so a recycled slot
+sorts by where it sits now, not by when it was spawned. Pinned by a test whose control asserts the
+documented reshuffle actually happened — without it the test passes on a `World` that never
+reshuffles, i.e. it tests the fixture rather than the sort.
+
+### `query3_mut` now names the colliding pair
+
+It printed all three type names and left the reader to spot the duplicate — the eyeballing
+`query2_mut`'s message was written to remove, and worse with three long paths. The check was already
+pairwise, so the pair is known where it fails. One test per collision position (A/B, A/C, B/C),
+because a message that hardcoded any single pair would pass a test that only ever collides there.
+
+### The self-label warning no longer fires on the barrier idiom
+
+`.label(X).after(X)` warned whether or not another system shared the label. Sharing it is the
+deliberate barrier idiom — the constraint is real, it just holds against the other holders — and the
+same release's own test blesses it. Warning on both shapes teaches authors to ignore the message,
+which costs exactly the case it exists for: sole holder, zero edges, nothing ordered. `by_label` is
+built thirty lines above, so `len() == 1` separates them for free, and the message is sharper for
+knowing which case it is in.
+
+### Two allocation tests now measure what they are named for
+
+Both archetype-transition ratio tests divided a fixed per-entity `spawn()` cost by `width`, so the
+fixed term entered every reading as `spawn / width` — a discount that *grows* with width. Part of
+`wide < narrow` was therefore structural, spent out of the same allowance the assertion offers for
+real regressions. Both now subtract a measured `spawn_baseline()`.
+
+⚠️ **The filed diagnosis was right in kind and wrong in size, in both directions.** It predicted
+~0.13 of the 0.226 allocation allowance was structural. Measured, `spawn()` costs **0.010
+allocations** per entity, so the real distortion there is ~0.004 — negligible, because the entity
+table is amortised over the batch. But it costs **188 bytes** per entity, and the *bytes* test is
+where that mattered enormously: the healthy ratio reads 0.506 raw against 0.645 corrected.
+
+That correction is what made the bytes test able to fail at all. Its bar is now **1.0** — "a wide
+entity must not cost more bytes per component than a narrow one", which is literally its name rather
+than a tuned tolerance. Re-verified by reinstating each half in `move_entity`:
+
+| Reinstated | allocation ratio | bytes ratio |
+|---|---|---|
+| the width-scaling half (fresh scratch per transition) | **FAILS, +31%** | passes |
+| the constant halves (both `type_set` clones) | passes | **FAILS, +17%** |
+
+⚠️ On the old 1.25 bar the second row **passed at 0.881** — the bytes test could not fail on the
+exact bug its own message names. A `Vec` clone is one allocation whatever its length, so the
+constant halves are invisible to a per-component count and show up only in bytes.
+
+### Documentation that was wrong rather than merely thin
+
+- **`with_resource_mut`'s two guarantees contradicted each other** on the combination neither
+  mentioned: replace-then-panic. The restore is conditional on the slot being empty, so the
+  replacement wins and every mutation made to the value handed to `f` is dropped with it — "a panic
+  does not lose `R`" means the slot is never left empty, not that the entry value survives. Also
+  now stated: a deliberate `remove_resource::<R>()` inside `f` is undone by the restore. Both
+  combinations were untested and now are not.
+- **A `debug_assert!` that could not fire** (`move_entity`: "scratch left dirty by a previous
+  call"). The restore is unconditionally preceded by `clear()`, and an unwind leaves the field
+  holding the empty `Vec` the `mem::take` put there — empty on entry from both exits. It read as a
+  re-entrancy guard it could not be. Replaced with the comment explaining why it cannot be dirty.
+- **A cost claim cited a test file that never covered it.** `take_component`'s put-back cited
+  `tests/per_frame_alloc.rs`; `grep -c 'take_component'` there is 0. The accounting is right and
+  readable in place, but it is reasoned, not measured, and the citation made it look measured. The
+  comment now says which it is and what would settle it.
+- **A test's doc was attached to the wrong test.** Four paragraphs about the *dangling*-label case
+  sat on `self_referencing_label_creates_no_constraint`, while `dangling_after_label_creates_no_constraint`
+  had none. Moved.
+- **v0.152.4's one breaking change had no ⚠️ marker**, in a file that uses one for far softer
+  caveats twice in the same release. Marked, in place, dated.
+
 ## 0.154.3
 
 The engine talks; until now nothing in the tree was listening.
@@ -764,9 +850,14 @@ died**, and the panic came from `hashbrown` naming neither the query nor the typ
 eager and pairwise, before the iterator is built.
 
 `assert` rather than `debug_assert`, deliberately: two `&mut` to one component is always a bug, and
-the cost is one `TypeId` compare per query *call*, not per entity. This is a behavior change — code
-that called `query2_mut::<A, A>()` and got away with it because no archetype matched will now panic
-every time. It was never going to survive its first entity.
+the cost is one `TypeId` compare per query *call*, not per entity.
+
+⚠️ **Breaking.** Code that called `query2_mut::<A, A>()` and got away with it because no archetype
+matched will now panic every time, including on an empty World. It was never going to survive its
+first entity — but the failure moves from "the day an entity appears" to "immediately", which is the
+point, and is the kind of change this file marks. (The marker was missing until 2026-08-24; the
+prose said all of this in full, and this file uses ⚠️ for far softer caveats twice in the same
+release.)
 
 **A system ordered against its own label got no constraint and no warning.**
 `.label(X).after(X)` — the typo shape of "I meant `.after(Y)`" — passes the dangling-label check
