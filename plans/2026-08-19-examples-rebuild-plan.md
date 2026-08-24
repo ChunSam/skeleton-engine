@@ -1,8 +1,12 @@
 # Examples rebuild — design proposal
 
 > Written 2026-08-19, immediately after v0.153.0 deleted the whole `examples/` tree (22 playable
-> games + ~85 feature demos, 247 files, 19,154 lines of games). **Nothing here is built yet.**
-> This is a proposal to argue with, not a spec — see the CLAUDE.md rule about filed diagnoses.
+> games + ~85 feature demos, 247 files, 19,154 lines of games). ✅ **Built and closed 2026-08-21.**
+> All five games exist, the runner and the wasm-example build step are back, and the `wasm-smokes`
+> job gates two browser smokes; the phase table below records what each phase actually cost.
+> ⚠️ It was written as a proposal to argue with, not a spec, and the argument it lost is in the
+> table: the line estimates came in **~2× low** across all five games. Read it as a record of a
+> plan and its outcome, not as a spec to implement.
 
 ## The problem the old tree actually had
 

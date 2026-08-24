@@ -558,6 +558,19 @@ required-check decision above — closed on 2026-08-04, 2026-08-04, and 2026-08-
   costlier failure), and an inline `-m` message containing a literal command-position delete
   alongside the gate name still trips it — **put that text in a file** rather than fighting the hook.
 
+- **The four Korean HTML docs are promised in `README.md` and `FORKING.md` and were tracked
+  nowhere until 2026-08-24.** `REFERENCE.html`, `ARCHITECTURE.html`, `STRUCTURE.html` and
+  `DEPENDENCY_GRAPH.html` were deleted 2026-08-20 (in #488) for describing an examples tree that no
+  longer existed — 145 cargo targets that are gone. Both user-facing docs say they "will be
+  rewritten", which is a commitment with no row behind it; this bullet is the row. ⚠️ **Not
+  scheduled, and rewriting them is not a docs chore** — they described 145 targets and the tree now
+  has 8, so the rewrite is a fresh pass over `src/lib.rs` and `docs/MODULE_MAP.md`, not a revision
+  of anything recoverable. `git show 52f6307^:REFERENCE.html` still has the deleted files if a
+  structure is worth reusing; the *content* is the part that expired. Until they return the
+  substitutes named in `README.md` are the honest answer: `src/lib.rs` for the public API,
+  `docs/MODULE_MAP.md` for "where is X?". **If they are not going to be rewritten, delete the
+  promise from both files** — that is the cheaper resolution and an equally good one.
+
 - **The rest of the `.claude/` inventory** (gitignored, so these lines are the only tracked record
   that any of it exists; rolled off *Recently closed* on 2026-08-05 but kept here for that reason).
   Two more hooks in `.claude/settings.local.json`, both proven to fire by sabotage and checked
@@ -638,41 +651,30 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
 > `docs/CHANGELOG.md` (what shipped) or `docs/PATTERNS.md` / `docs/VERIFICATION.md` (what was
 > learned). Without this rule the section regrows the history that was just split out.
 
-Closed 2026-08-18 — **a full read of `src/ecs` (2,626 lines, 14 files) produced 15 findings; 12
-shipped as four PATCH releases** (v0.152.1–v0.152.4, #466/#468/#469/#470), one was a false positive
-(recorded in *Closed — do not reopen*), and three efficiency items stayed open under *the
-2026-08-18 ECS review's efficiency remainder* above. A fifth PR (#467) fixed the CI that the work
-ran into, and a seventh registered this backlog. **v0.152.5 then closed the first of the three
-remainder items** — `move_entity`'s allocations, where writing the gating test first proved the
-row's own diagnosis half wrong and the finished fix cut an 8-component entity from 52.03
-allocations / 5,160 bytes to 11.03 / 1,076. Detail is in `docs/CHANGELOG.md` 0.152.1–0.152.5 and
-the commit bodies. Three things worth carrying:
+Closed 2026-08-24 — **the logger nothing was listening to** (v0.154.3, #502). The engine's 86
+`error!`/`warn!` sites had gone nowhere since v0.153.0 deleted `env_logger` with its only callers;
+all five games now install one, defaulting to `warn` rather than `env_logger`'s own `error` (which
+would still have dropped every `warn!` site, including the bug that found this). Detail in
+`docs/CHANGELOG.md` 0.154.3. Two things worth carrying past the roll-off:
 
-- ⚠️ **A conflict resolution is a tree nothing has ever verified.** #469's merge with `main` left
-  `tests.rs` uncompilable — git's auto-resolution put its `=======` boundary *inside* a test
-  function, so the "resolved" file had an unclosed delimiter. Hand-patching that is how a resolution
-  quietly loses a test; the file was rebuilt from both sides instead, after checking each was a pure
-  append (`head -n <base-len> <branch> | diff - <base>`). Then the gate was re-run: both branches
-  were green *before* the merge, and neither of those greens covers the tree the merge produced.
-- **The truncated-output trap has a second form, and it produced a false review finding.**
-  `rg 'anonymous' src/ | head` cut off before the one line that disproved the finding, so "this
-  fallback does not exist" was reported and was wrong. Landed in `docs/VERIFICATION.md`
-  § *Searching so the result means something* — with the `#464` concept-grep habit, which had been
-  sitting in this section with no durable home to roll off to.
-- **A CI comment that tells you to distrust it is telling the truth.** `ci.yml`'s header said the
-  required-check set was seven jobs excluding the browser smokes, then said "read the real list
-  rather than this comment — it is the thing that drifts". It had drifted: the API says eight,
-  browser smokes included, which is exactly why a wedged smoke job blocked the merge outright.
-  Checked with `gh api repos/…/branches/main/protection --jq '.required_status_checks.contexts'`.
+- **The browser half is still open** and is recorded where the row was, not here — on wasm the
+  install is a no-op and `log` needs a browser sink this repo does not depend on.
+- ⚠️ **A required check can be flaky, and the cost lands on an unrelated PR.** `NETPLAY_SELFTEST`
+  check 7 reddened `Test (native)` on #502, which touches netplay only by adding one line to its
+  `main`. Measuring both sides cleared the change (3/16 and 1/8 with the logger, 1/8 without) and
+  filed the flake as its own row under *Open — engineering*. **Measure before re-running**: a
+  re-run that goes green proves nothing on its own, and is how a real regression gets buried.
 
-Rolled off this session, having served theirs: **the frozen `docs/HANDOFF.md`** (#464, docs-only).
-Its two lessons now have homes: the version-line note under *Noted — not scheduled* (which it
-already had), and "grep for the concept, not the file you were editing", moved to
-`docs/VERIFICATION.md` this session — it had none, so rolling the entry off on schedule would have
-deleted it. Before it the
-`DialogueChoice.cond` conjunction gap (v0.152.0), `debug_draw.rs:34` with the 2026-08-07 analysis
-program (v0.151.1), the RPG genre gap (v0.151.0) and the four unmeasured v0.150.0 allocation claims
-(v0.150.7).
+Rolled off this session, having served theirs: **the 2026-08-18 `src/ecs` review** (15 findings, 12
+shipped as v0.152.1–v0.152.5). Its durable homes were checked one by one rather than assumed, and
+two of its three lessons had none — rolling it off on schedule would have deleted them, which is the
+failure this rule caused once already. Both were written into `docs/VERIFICATION.md` first: *a
+conflict resolution is a tree nothing has ever verified* is now **Trap 8**, and *a CI comment that
+tells you to distrust it is telling the truth* is now an addendum under *A required check is only
+real once its job is on `main`*. The third (the truncated-output trap's second form) already had a
+home and needed nothing. Before it the frozen `docs/HANDOFF.md` (#464), the `DialogueChoice.cond`
+conjunction gap (v0.152.0), `debug_draw.rs:34` with the 2026-08-07 analysis program (v0.151.1), the
+RPG genre gap (v0.151.0) and the four unmeasured v0.150.0 allocation claims (v0.150.7).
 
 ⚠️ **Two programs ended here, and the file should stay small now.** The v0.150.x measurement program
 closed with v0.150.7 and the 2026-08-07 analysis with v0.151.1. Nothing from either is open. What
