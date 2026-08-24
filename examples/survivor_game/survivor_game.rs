@@ -1159,7 +1159,14 @@ fn build_app() -> App {
 #[path = "../shared/web_check.rs"]
 mod web_check;
 
+// The engine reports trouble through `log`, which discards everything until a binary installs
+// a logger. Every game installs the same one; the module explains what that buys and what it
+// still does not cover in a browser.
+#[path = "../shared/logging.rs"]
+mod logging;
+
 fn main() {
+    logging::init();
     if std::env::var("SURVIVOR_SELFTEST").is_ok() {
         std::process::exit(self_test());
     }

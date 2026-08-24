@@ -1256,7 +1256,14 @@ fn build_app() -> App {
     app
 }
 
+// The engine reports trouble through `log`, which discards everything until a binary installs
+// a logger. Every game installs the same one; the module explains what that buys and what it
+// still does not cover in a browser.
+#[path = "../shared/logging.rs"]
+mod logging;
+
 fn main() {
+    logging::init();
     if std::env::var("PLATFORMER_GEN_ASSETS").is_ok() {
         generate_tileset(TILES_PATH);
         return;

@@ -4,6 +4,60 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.154.3
+
+The engine talks; until now nothing in the tree was listening.
+
+### Every game installs a logger
+
+The engine reports trouble through `log::warn!` / `log::error!` — **86 sites** as of this release
+(`grep -rnE '(log::)?(error|warn)!\(' src --include='*.rs' | grep -vE ':\s*(//|\*)' | wc -l`). The
+`log` crate routes those to whatever logger the **binary** installs, and a binary that installs none
+discards them. `env_logger` left the tree in v0.153.0 along with its only callers, and the five
+rebuilt games never replaced it, so from 2026-08-19 to now **every warning the engine emitted went
+nowhere**.
+
+That is not a convenience gap. `docs/MODULE_MAP.md` describes asset failures as *loud* — `error!`
+plus `asset_failures()` — and half of that was mute. So were the unregistered-event-bus warning
+(which presents as "the event never arrives" while the engine is behaving perfectly),
+`Pool::release`'s double-release guard, `SceneCmd::Replace` discarding App-registered systems, and
+`TriggerZoneSystem`'s missing-grid notice. Every one of them is addressed to a game author and none
+reached one.
+
+`examples/shared/logging.rs` is now included by all five games and called first thing in `main`.
+`env_logger` returns as a **native-only dev-dependency**, so the published crate is untouched. Its
+features were counted rather than guessed: defaults-off + `auto-color` + `humantime` resolves **21**
+new packages, `auto-color` alone **15**, bare defaults-off **6**. All three print
+`[ERROR engine::input_script] …` — level and module included — so the extra 15 buy colour and a
+timestamp, and the lean one ships.
+
+⚠️ **`env_logger::init()` on its own would not have fixed this.** Its default filter is `error`,
+which still drops all **72** `warn!` sites. The default here is `warn`, with `RUST_LOG` overriding
+as usual.
+
+⚠️ **The browser half is deliberately still open.** On wasm this is a no-op: `log` needs a
+browser sink (`console_log` or equivalent) that this repo does not depend on, and adding one is a
+dependency decision rather than a drive-by. The engine's `console_error_panic_hook` covers *panics*
+in a browser and nothing else, so the gap is exactly the non-fatal half — named in the module and in
+`docs/NEXT_WORK.md` rather than left implied.
+
+The two servers (`netplay_server`, `wasm_failpaths_echo_server`) get nothing, and that is correct:
+they use no engine code at all (`std::net` + `tungstenite`), so they have no engine log site to
+surface.
+
+**How it was found, and how it was proven.** Found on 2026-08-20 when an `ENGINE_INPUT` script
+silently did nothing — one bad key name, `log::error!("ENGINE_INPUT: {err}")` fired exactly as
+designed, and the run looked like a script that simply had no effect. Proven by reproducing that
+run, three ways, on `puzzle_grid_game` under `ENGINE_CAPTURE` (⚠️ the **selftest** path cannot show
+this — `apply_input_script_env` is called from `src/app/window.rs`, which a headless `step()` loop
+never enters):
+
+| Run | Result |
+|---|---|
+| bad `ENGINE_INPUT`, logger installed | `ERROR engine::input_script] ENGINE_INPUT: … No such file or directory` |
+| bad `ENGINE_INPUT`, `logging::init()` commented out (**sabotage**) | **0** matching lines |
+| no `ENGINE_INPUT`, logger installed (**control**) | **0** `ERROR` lines — it is not printing unconditionally |
+
 ## 0.154.2
 
 The last two rows of the 2026-08-19 render review. **The review's remainder is now empty.**

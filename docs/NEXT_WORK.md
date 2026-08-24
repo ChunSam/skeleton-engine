@@ -127,16 +127,34 @@ tungstenite and `std::net` cannot be a browser tab, and this one is not a limita
 runs in `verify.sh` **and** as a step in CI's existing `Build (WASM)` job, so `CLAUDE.md`'s claim
 that the gate covers that job in full stays true.
 
-⚠️ **No game installs a logger, so 88 engine `error!`/`warn!` sites are invisible** (found
-2026-08-20 while an `ENGINE_INPUT` script silently did nothing — one bad key name, and the engine's
-`log::error!("ENGINE_INPUT: {err}")` went nowhere). `env_logger` was dropped in v0.153.0 with its
-only consumers, and nothing replaced it. This matters beyond convenience: `docs/MODULE_MAP.md`
-describes asset failures as **loud** (`error!` plus `asset_failures()`), and half of that is
-currently mute. The same goes for the unregistered-event-bus warning, `Pool::release`'s
-double-release guard, `SceneCmd::Replace` discarding App-registered systems, and
-`TriggerZoneSystem`'s missing-grid notice — every one of them is a warning a game author is meant to
-see. **Fixing it needs a dev-dependency** (`env_logger`, examples-only, invisible to the published
-crate) plus one line per game, so it is a maintainer decision rather than a drive-by.
+✅ **Every game installs a logger — DONE v0.154.3, natively.** The engine's `error!`/`warn!` sites
+had nowhere to go from v0.153.0 (which deleted `env_logger` along with its only callers) until now.
+`examples/shared/logging.rs` is included by all five games and called first thing in `main`;
+`env_logger` returns as a **native-only dev-dependency**, so the published crate is untouched.
+
+⚠️ **A plain `env_logger::init()` would not have fixed it** — its default filter is `error`, which
+still drops every `warn!` site, including the unregistered-event-bus warning that presents as "the
+event never arrives" while the engine is fine. The default is `warn`, `RUST_LOG` overrides.
+
+⚠️ **The row's own count was stale and is not re-pinned.** It said 88; the number is **86** at
+v0.154.3 (30 `error!` + 72 `warn!` minus comment lines). Since it moves with every release, the
+durable form is the command, not the figure:
+`grep -rnE '(log::)?(error|warn)!\(' src --include='*.rs' | grep -vE ':\s*(//|\*)' | wc -l`
+
+⚠️ **The browser half is still open, deliberately.** On wasm the install is a no-op: `log` needs a
+browser sink (`console_log` or equivalent) this repo does not depend on, and adding one is a
+dependency decision. `console_error_panic_hook` covers *panics* in a browser and nothing else, so
+what is still invisible there is exactly the non-fatal half — which is also the half the three
+browser smokes would most want to read. **This is the open remainder of this row**; take it with the
+next wasm dependency decision, not before.
+
+⚠️ **The selftest path cannot prove any of this, and that shaped the verification.**
+`apply_input_script_env` is called from `src/app/window.rs`, which a headless `step()` loop never
+enters — the first attempt at a proof ran `PUZZLE_GRID_SELFTEST=1` with a broken `ENGINE_INPUT` and
+saw nothing, which looked like the fix failing and was the harness never taking the path. Proven
+under `ENGINE_CAPTURE` instead, three ways: the broken run logs the `ERROR`; commenting out
+`logging::init()` (**sabotage**) returns it to 0 lines; and a healthy run logs 0 `ERROR` lines
+(**control** — it is not printing unconditionally).
 
 ⚠️ **Still uncovered after five games and two browser smokes**: **native audio on CI**, and any
 **pixel-level** claim about the browser. The native audio check skips wherever there is no device,
