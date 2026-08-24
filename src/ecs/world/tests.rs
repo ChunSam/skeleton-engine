@@ -798,6 +798,39 @@ fn take_without_readd_reports_neither_added_nor_changed() {
     assert!(world.get::<Health>(e).is_none());
 }
 
+/// `entities_sorted` is a total order where `entities` is storage order.
+///
+/// The fixture is the one `World::entities`' own doc uses: spawn five, despawn the second, and
+/// storage order becomes `[0, 4, 2, 3]` because `despawn` fills the hole with `swap_remove`. That
+/// reshuffle is what made an editor hierarchy row jump when an unrelated entity was deleted, and
+/// what churned a whole RON file on a one-entity change.
+///
+/// The unsorted half is asserted too, deliberately: without it this passes just as well on a
+/// `World` that never reshuffles, which would make it a test of the fixture rather than of the
+/// sort.
+#[test]
+fn entities_sorted_imposes_a_total_order_on_storage_order() {
+    let mut world = World::new();
+    let spawned: Vec<Entity> = (0..5).map(|_| world.spawn()).collect();
+    world.despawn(spawned[1]);
+
+    let storage: Vec<u32> = world.entities().iter().map(|e| e.index()).collect();
+    assert_eq!(
+        storage,
+        vec![0, 4, 2, 3],
+        "control failed — storage order is not the documented reshuffle, so this fixture is not \
+         exercising the sort"
+    );
+
+    let sorted: Vec<u32> = world.entities_sorted().iter().map(|e| e.index()).collect();
+    assert_eq!(sorted, vec![0, 2, 3, 4]);
+    assert_eq!(
+        world.entities_sorted().len(),
+        world.entities().len(),
+        "sorting must not add or drop an entity"
+    );
+}
+
 /// `with_resource_mut` must not take the resource down with an unwind.
 ///
 /// `App`'s default `SystemPanicPolicy::DisableSystemAndContinue` catches a system panic and
@@ -836,6 +869,54 @@ fn with_resource_mut_keeps_a_replacement_inserted_by_the_closure() {
         world.resource::<Health>().unwrap().0,
         999,
         "the unconditional re-insert used to clobber the reload back to the stale value"
+    );
+}
+
+/// The two documented guarantees meet here, and the combination was untested: `f` replaces `R`
+/// **and then panics**.
+///
+/// The restore is conditional on the slot being empty, so the replacement stands and the value
+/// handed to `f` — mutations included — is dropped. Worth pinning because reading either guarantee
+/// alone predicts the opposite: "a panic does not lose `R`" sounds like the entry value comes back.
+#[test]
+fn with_resource_mut_replacement_survives_a_later_panic() {
+    let mut world = World::new();
+    world.insert_resource(Health(1));
+
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        world.with_resource_mut::<Health, _>(|old, w| {
+            old.0 = 42; // mutating the taken value...
+            w.insert_resource(Health(999)); // ...then replacing it outright
+            panic!("system blew up after the reload");
+        });
+    }));
+
+    assert!(outcome.is_err(), "the panic must still reach the caller");
+    assert_eq!(
+        world.resource::<Health>().unwrap().0,
+        999,
+        "the replacement wins; the restore only fires into an empty slot"
+    );
+}
+
+/// A deliberate `remove_resource::<R>()` inside `f` does **not** stick — the helper cannot tell it
+/// from "nothing replaced it" and puts the entry value back.
+///
+/// Documented rather than fixed: distinguishing the two would need the closure to report intent,
+/// and removing `R` from outside the helper already does the job.
+#[test]
+fn with_resource_mut_undoes_a_deliberate_removal_inside_the_closure() {
+    let mut world = World::new();
+    world.insert_resource(Health(7));
+
+    assert!(world.with_resource_mut::<Health, _>(|_h, w| {
+        w.remove_resource::<Health>();
+    }));
+
+    assert_eq!(
+        world.resource::<Health>().map(|h| h.0),
+        Some(7),
+        "the restore cannot distinguish a deliberate removal from an untouched slot"
     );
 }
 
@@ -981,11 +1062,30 @@ fn query2_mut_rejects_the_same_type_twice_with_matching_entities() {
     let _ = world.query2_mut::<Health, Health>().count();
 }
 
+/// Each collision position must name **its own** pair.
+///
+/// One test per position, because a message that hardcoded any single pair would pass a test that
+/// only ever collides in that position — and the whole point of naming the pair is to spare the
+/// reader from spotting a repeat among three long type paths.
 #[test]
-#[should_panic(expected = "requires three DISTINCT component types")]
+#[should_panic(expected = "A and C are both `engine::ecs::world::tests::Health`")]
 fn query3_mut_rejects_a_repeated_type_on_an_empty_world() {
     let mut world = World::new();
     let _ = world.query3_mut::<Health, Position, Health>().count();
+}
+
+#[test]
+#[should_panic(expected = "A and B are both `engine::ecs::world::tests::Health`")]
+fn query3_mut_names_the_first_pair_when_a_and_b_collide() {
+    let mut world = World::new();
+    let _ = world.query3_mut::<Health, Health, Position>().count();
+}
+
+#[test]
+#[should_panic(expected = "B and C are both `engine::ecs::world::tests::Health`")]
+fn query3_mut_names_the_last_pair_when_b_and_c_collide() {
+    let mut world = World::new();
+    let _ = world.query3_mut::<Position, Health, Health>().count();
 }
 
 /// Distinct types still work — the assert must not fire on the legitimate call.

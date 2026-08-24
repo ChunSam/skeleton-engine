@@ -118,8 +118,7 @@ pub(in crate::app) fn do_save_scene(app: &mut App) {
     // Sorted, not raw: `World::entities()` is storage order, and `despawn` swap_removes into
     // the hole. Saving it verbatim meant deleting one entity reshuffled the rest, so a
     // one-entity change produced a whole-file RON diff.
-    let mut entity_list: Vec<Entity> = app.world.entities().to_vec();
-    entity_list.sort_unstable_by_key(|e| e.index());
+    let entity_list: Vec<Entity> = app.world.entities_sorted();
     let tag_map: HashMap<Entity, String> = app
         .world
         .query::<Tag>()

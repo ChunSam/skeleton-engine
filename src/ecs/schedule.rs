@@ -94,18 +94,26 @@ pub fn compute_order(metas: &[SystemConfig]) -> Result<Vec<usize>, ScheduleError
                      insertion order. Register the target with \
                      `add_system_labeled(sys, SystemConfig::new().label({l:?}))`."
                 );
-            } else if m.label == Some(*l) {
+            } else if m.label == Some(*l) && by_label[l].len() == 1 {
                 // The other half of the same silent-ordering class, and the one the dangling
                 // check above waves through: the label DOES exist, so nothing looked wrong,
                 // but the only edge it could produce points from the system to itself and is
                 // dropped by the `s != i` guard below. `.label(X).after(X)` — the typo shape of
                 // "I meant `.after(Y)`" — therefore yields zero constraints and zero warnings.
+                //
+                // ⚠️ The `len() == 1` is what makes this a diagnostic rather than noise. Ordering
+                // against a label you *share* is the deliberate barrier idiom — the constraint is
+                // real, it just holds against the other holders and not against yourself, which
+                // `shared_label_after_self_orders_against_the_other_holder_only` blesses. Warning
+                // on both shapes taught authors to ignore the message, which costs exactly the
+                // case it exists for: sole holder, zero edges, nothing ordered. `by_label` is
+                // already built above, so telling them apart is a lookup.
                 log::warn!(
-                    "system #{i} carries label {l:?} and is ALSO ordered against it. A system \
-                     cannot run before or after itself, so that self-edge is dropped. If this \
-                     is a typo for another label, fix it; if you meant a barrier against the \
-                     OTHER systems sharing {l:?}, note the constraint holds only against them, \
-                     never against this one."
+                    "system #{i} is the ONLY system carrying label {l:?} and is also ordered \
+                     against it. A system cannot run before or after itself, so that self-edge \
+                     is dropped and this constraint orders NOTHING — the schedule falls back to \
+                     insertion order. This is the `.label(X).after(X)` typo shape of \
+                     `.after(Y)`; name the other system's label instead."
                 );
             }
         }
@@ -287,18 +295,6 @@ mod tests {
         );
     }
 
-    /// An `after` naming a label **no registered system carries** creates no constraint at all.
-    ///
-    /// This is the shape of the trap `compute_order` now warns about. `add`/`add_system` attach
-    /// `SystemConfig::default()`, whose `label` is `None` — a `LABEL` constant is just a
-    /// `&'static str`, not a self-registering identity. So the extremely natural
-    /// `systems.add(LayoutSystem); systems.add_labeled(UiSystem, SystemConfig::new()
-    /// .after(LayoutSystem::LABEL))` produced **zero** edges, and the ordering held only by the
-    /// accident of insertion order. The engine's own rustdoc taught that form, and four examples
-    /// copied it.
-    ///
-    /// Pinned as an assertion on the *edge*, not on insertion order: reversing the registration
-    /// order is what tells the two cases apart.
     /// A system ordered against **its own** label gets no constraint at all — the label exists,
     /// so the dangling check waves it through, and the only edge it could make points from the
     /// system to itself and is dropped. `.label(X).after(X)` is the typo shape of
@@ -306,6 +302,10 @@ mod tests {
     ///
     /// Pinned on the edge, like the dangling case below: reversing registration order is what
     /// tells "no constraint" apart from "constraint that happens to agree with insertion order".
+    ///
+    /// ⚠️ This is the **sole-holder** shape, which is the one `compute_order` warns about. Sharing
+    /// the label with another system is the barrier idiom and produces a real edge — see
+    /// `shared_label_after_self_orders_against_the_other_holder_only`.
     #[test]
     fn self_referencing_label_creates_no_constraint() {
         // index 0 carries "layout" AND asks to run after "layout" — itself.
@@ -359,6 +359,18 @@ mod tests {
         }
     }
 
+    /// An `after` naming a label **no registered system carries** creates no constraint at all.
+    ///
+    /// This is the shape of the trap `compute_order` now warns about. `add`/`add_system` attach
+    /// `SystemConfig::default()`, whose `label` is `None` — a `LABEL` constant is just a
+    /// `&'static str`, not a self-registering identity. So the extremely natural
+    /// `systems.add(LayoutSystem); systems.add_labeled(UiSystem, SystemConfig::new()
+    /// .after(LayoutSystem::LABEL))` produced **zero** edges, and the ordering held only by the
+    /// accident of insertion order. The engine's own rustdoc taught that form, and four examples
+    /// copied it.
+    ///
+    /// Pinned as an assertion on the *edge*, not on insertion order: reversing the registration
+    /// order is what tells the two cases apart.
     #[test]
     fn dangling_after_label_creates_no_constraint() {
         // index 0 wants to run after "layout", but index 1 carries NO label.

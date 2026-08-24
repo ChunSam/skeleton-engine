@@ -246,8 +246,7 @@ impl App {
                 // Build the data that both overlay and docked modes need. Sorted, not raw:
                 // `World::entities()` is storage order, so a `despawn` swap_removes the
                 // last-spawned entity into the hole and an unrelated row visibly jumps.
-                let mut entity_list: Vec<Entity> = self.world.entities().to_vec();
-                entity_list.sort_unstable_by_key(|e| e.index());
+                let entity_list: Vec<Entity> = self.world.entities_sorted();
                 let tag_map: HashMap<Entity, String> = self
                     .world
                     .query::<Tag>()
@@ -303,8 +302,7 @@ impl App {
                 // ── Build entity/tag data only when the overlay is visible ───────────
                 // Avoids a Vec + HashMap allocation every frame when the debug overlay
                 // is closed (is_enabled() == false).
-                let mut entity_list: Vec<Entity> = self.world.entities().to_vec();
-                entity_list.sort_unstable_by_key(|e| e.index()); // see the docked branch above
+                let entity_list: Vec<Entity> = self.world.entities_sorted(); // see the docked branch above
                 let tag_map: HashMap<Entity, String> = self
                     .world
                     .query::<Tag>()
