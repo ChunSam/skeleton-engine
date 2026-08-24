@@ -160,6 +160,26 @@ correct; a human runs that step.)
 
 ---
 
+### A probe that changes timing can hide the bug you added it to find
+
+Instrumenting `netplay_server`'s claim path with `eprintln!` (and inheriting its stderr so the lines
+were visible) turned a ~15% flake into **65 consecutive clean runs**. Reverting the probe reproduced
+the failure on run 17 of 25. The probe was not in a hot loop — it fired about four times per run —
+and it still moved the race.
+
+Two rules came out of it:
+
+- **Probe into memory, print at the end.** A `Vec` pushed at the moment of interest and dumped after
+  the measurement window costs nothing during the race. That version reproduced the failure at the
+  original rate on run 18 of 30, and carried the numbers that settled it.
+- **Counting clean runs never proves a race is fixed.** 60 green runs said exactly as much as the 65
+  green runs from the probe that was hiding the bug. What proves it is **forcing** the race: the
+  suspected interleaving was written directly into the test, which failed 3/3 before the fix and
+  passed 3/3 after, with the forced event moved to the only position it can occupy in reality.
+
+The general form is the one this file keeps repeating in other clothes: a green result is evidence
+only once you have shown the thing can go red.
+
 ### Trap 8 — a conflict resolution is a tree nothing has ever verified
 
 Both branches were green **before** the merge, and neither of those greens covers the tree the
