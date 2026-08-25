@@ -582,6 +582,60 @@ two-level map was written into the plan for this batch, agreed, and then rejecte
 control an hour later. Re-deriving your own ten-minute-old decision is the case `CLAUDE.md` says
 has actually bitten, and this is one more.
 
+### Writing one: if the check stages its own precondition, assert the staging happened
+
+A check that manufactures the situation it tests has two jobs, and the second one is easy to skip.
+`NETPLAY_SELFTEST` check 6 needs *two* pilots claiming *one* pickup on one frame, so it teleports
+both onto it and pumps their claims. It then asserted the outcome — points awarded == pickups
+removed — and never asserted the setup.
+
+That gap is not theoretical. `pump_claims` latches `claim_sent`, and only a `Taken` clears it, so a
+single premature claim during the approach flight removed that pilot from the contest **for good**.
+One claimant is not a contest: the server's first-claim-wins guard — the entire thing the check
+exists to protect — is never asked anything, the invariant holds for the wrong reason, and the
+success line still printed *"two pilots flew onto 2 pickup(s) and claimed together"*.
+
+**Ask of every staged check: what would it print if the staging silently failed?** If the answer is
+"the same thing", the staging needs its own assertion.
+
+⚠️ **And assert the PRE-condition, not just the post-condition.** The first fix here checked only
+that both pilots held the pickup id in `claim_sent` *after* the staged pump — and its sabotage
+passed clean, because a pilot latched out during the flight holds that id too. That is what
+"latched" means: the post-condition is *satisfied by the failure it was written to detect*. The
+working form is two assertions around the pump — neither pilot may hold the id before it, both must
+after — and they sabotage separately, each naming its own cause. **A guard you have not watched go
+red is a guess**, and this one looked completely reasonable for the twenty minutes before the
+sabotage ran.
+
+⚠️ **A margin that a frame of movement can cross is not a margin.** The same check picked its
+approach distance by looking at one side only, and v0.155.1 halved it to 40 px to widen the *server*
+margin. The stop test runs before the frame moves the ship, and `read_move` does not normalise, so a
+diagonal closes at `PLAYER_SPEED * sqrt(2)` — one 35 ms iteration, on runners that sleep 16 ms per
+iteration. Where two margins are squeezing one constant, widen the gap instead of sliding along it:
+letting the ships stand still for four snapshots removed the round-trip lag from the server's copy
+and gave both sides more room than either setting had.
+
+### Writing one: when the only observable is a diagnostic, assert the diagnostic
+
+A change whose whole point is *what it tells the author* has nothing for an ordinary assertion to
+grip. v0.155.0 taught `compute_order` to warn only when a self-ordered label has a **sole** holder,
+because warning on the shared-label barrier idiom too had taught authors to ignore the message.
+`compute_order` returns the same order for both shapes — plain insertion order, since neither yields
+a self-edge — so every test in the file was blind to the guard, and deleting it left the suite green.
+
+Install a capturing `log::Log` in the test module and assert on the messages. Three things it needs:
+
+- **Arm it only inside the window.** A process-global sink that records everything accumulates the
+  whole binary's warnings; gate on an `AtomicBool` so `enabled()` is false the rest of the time.
+- **Serialize the windows.** `cargo test` is threaded and the sink is global.
+- **Filter by something unique to the test.** The gate above does not stop *other* tests from
+  logging into an open window. The first draft here asserted on message text alone and read 2 where
+  it wanted 1 — a sibling test was running the same label name at the same moment. Probe labels
+  nobody else uses (`self-order-probe-sole`) make the count immune to scheduling.
+
+Sabotage both directions: dropping the guard must make the quiet case noisy, and inverting it must
+make the noisy case quiet. One test covers both.
+
 ### Audio in CI was attempted and does not work — do not re-litigate without new information
 
 Five CI runs went into this in v0.143.10 and the answer was no. Recorded so the next person does not

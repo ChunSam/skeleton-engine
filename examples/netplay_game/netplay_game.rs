@@ -1711,17 +1711,31 @@ fn self_test() -> i32 {
         // Contest the pickups nearest the spawn, so the flight is short and both pilots are
         // guaranteed to have them streaming.
         const ROUNDS: usize = 2;
-        // Just outside CLAIM_RADIUS (24 px), so arriving does not claim — the contest has to be
-        // the simultaneous push below, not a race won by whoever got there first.
+        // This distance is squeezed from BOTH sides, and picking it by looking at one side is how
+        // v0.155.1 traded one flake for the shape of another.
         //
-        // ⚠️ It also has to leave room on the *server* side, which is the half that decides.
-        // `try_claim` measures from the server's own copy of the ship, and that copy lags the
-        // client's prediction by the input round trip. Measured at APPROACH = 70: the server saw
-        // **76.5 px** and **96.7 px** against a `CLAIM_RADIUS + CLAIM_SLACK` reach of **120** — a
-        // legitimate claim was passing with 23 px to spare, and a slower machine would have turned
-        // that into a second, differently-shaped flake. 40 keeps the "does not auto-claim"
-        // property (still well outside 24) and roughly doubles the margin that matters.
-        const APPROACH: f32 = 40.0;
+        // *Below* it is `CLAIM_RADIUS` (24 px): dip inside that during the flight and
+        // `Client::run`'s own `pump_claims` fires, which both claims early AND latches
+        // `claim_sent`, so the staged push below becomes a no-op for that pilot. ⚠️ The stop test
+        // runs BEFORE the frame moves the ship, so the margin has to cover a whole frame of
+        // travel — and `read_move` does not normalise, so a diagonal closes at
+        // `PLAYER_SPEED * sqrt(2)` ≈ 452 px/s. At APPROACH = 40 that is one 35 ms iteration, on
+        // runners that sleep 16 ms per iteration and already lost a race to an 83 ms snapshot gap.
+        //
+        // *Above* it is the server's reach, `CLAIM_RADIUS + CLAIM_SLACK` = 120 px, measured from
+        // the server's own copy of the ship — which lags the client's prediction by the input
+        // round trip. Measured at APPROACH = 70 mid-flight: the server saw **76.5** and **96.7**
+        // px, i.e. 23 px of margin on a legitimate claim.
+        //
+        // 70 with `SETTLE` below beats 40 on both counts. Stopping the ships and letting a few
+        // snapshots land removes the lag term instead of paying for it out of the lower margin:
+        // the server converges on ~70 px (50 px of reach to spare, against 23) while the client
+        // keeps the full 46 px of travel room (~102 ms, against ~35).
+        const APPROACH: f32 = 70.0;
+        // Long enough for the server's copy to catch up with a stopped ship: SNAPSHOT_HZ is 12, so
+        // this is ~4 snapshots. It is not a guess about scheduling — the ships are not moving, so
+        // the only thing being waited on is the round trip.
+        const SETTLE: f64 = 0.35;
         let mut contested = 0usize;
 
         for _ in 0..ROUNDS {
@@ -1737,8 +1751,8 @@ fn self_test() -> i32 {
                         .partial_cmp(&here.distance(**q))
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
-                .map(|(_, pos)| *pos);
-            let Some(target) = target else {
+                .map(|((_, id), pos)| (*id, *pos));
+            let Some((target_id, target)) = target else {
                 break;
             };
 
@@ -1756,13 +1770,19 @@ fn self_test() -> i32 {
                 );
             }
 
+            // Let the ships stand still until the server's copy catches up with them. Nothing is
+            // moving, so this waits out the input round trip and nothing else — and it is what
+            // buys the claim below its margin against the server's 120 px reach without spending
+            // the client's margin against `CLAIM_RADIUS`. See `APPROACH`.
+            run_live(&mut [&mut a, &mut b], SETTLE);
+
             // Both pilots are now within APPROACH px of the salvage — inside the server's
             // CLAIM_SLACK, so a claim from here is one the server should honour. Push both onto it
             // on the SAME frame; this is the contested moment, and with one pilot it cannot exist.
             a.client.prediction.pos = target;
             b.client.prediction.pos = target;
 
-            // ⚠️ **Claim here, not on the next frame.** This line is the whole reason check 7 was
+            // ⚠️ **Claim here, not on the next frame.** This line is the whole reason check 6 was
             // flaky (~15% of runs, 2026-08-24 → diagnosed 2026-08-25).
             //
             // The position above is written directly, so it is not backed by any input the server
@@ -1782,8 +1802,53 @@ fn self_test() -> i32 {
             // claims it is — the same instant for both pilots, with no frame boundary in between.
             // It is the same method the frame calls three steps after reconciliation; the only
             // thing being chosen here is *when*.
+            // ⚠️ **Assert the contest happened, rather than assuming the staging worked** — and
+            // assert it on BOTH sides of the pump, because one side alone cannot see it.
+            //
+            // `pump_claims` skips any pickup already in `claim_sent`, and only a `Taken` clears
+            // that set. So a single premature claim during the flight — a dip inside
+            // `CLAIM_RADIUS` when a slow frame overshoots the stop distance — latches that pilot
+            // out of this contest for good. One claimant is not a contest: the server's
+            // first-claim-wins guard is never asked anything, and the invariant below then holds
+            // for the wrong reason.
+            //
+            // ⚠️ **Checking only AFTER the pump does not catch it**, and the first draft of this
+            // guard did exactly that and was proven useless by its own sabotage: a latched-out
+            // pilot has the id in `claim_sent` too — that is what "latched" means — so the
+            // post-condition is satisfied by the very failure it was written to detect. The
+            // PRE-condition is the half that carries the information.
+            let early = (
+                a.client.claim_sent.contains(&target_id),
+                b.client.claim_sent.contains(&target_id),
+            );
+            if early.0 || early.1 {
+                return finish(
+                    &mut child,
+                    6,
+                    Some(format!(
+                        "pickup {target_id} was already claimed during the approach flight (a: {}, b: {}), so the staged moment cannot be contested — `pump_claims` skips what is already in `claim_sent`. The flight stops {APPROACH} px out, clear of the {CLAIM_RADIUS} px claim radius; a frame long enough to close that gap in one step lands here.",
+                        early.0, early.1,
+                    )),
+                );
+            }
+
             a.client.pump_claims(&mut a.app.world);
             b.client.pump_claims(&mut b.app.world);
+
+            if !a.client.claim_sent.contains(&target_id)
+                || !b.client.claim_sent.contains(&target_id)
+            {
+                return finish(
+                    &mut child,
+                    6,
+                    Some(format!(
+                        "the staged push did not make both pilots claim pickup {target_id} (a: {}, b: {}). The pre-check above passed, so neither had claimed it already and `pump_claims` measured a distance it should not have — it reads `prediction.pos`, which was just written onto the pickup.",
+                        a.client.claim_sent.contains(&target_id),
+                        b.client.claim_sent.contains(&target_id),
+                    )),
+                );
+            }
+
             run_live(&mut [&mut a, &mut b], 1.0);
             contested += 1;
         }
