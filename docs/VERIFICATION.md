@@ -193,6 +193,27 @@ checking each was a pure append (`head -n <base-len> <branch> | diff - <base>`).
 **Re-run the gate on the merged tree, not on either parent**, and when a resolution touches test
 files, confirm what survived rather than trusting the diff to look plausible.
 
+### Trap 9 — a red required check on your branch is not proof your change caused it
+
+`Test (native)` went red on #502, a PR whose only contact with netplay was one line added to its
+`main`. The obvious readings are both wrong and both expensive: **re-run until green** buries a real
+defect, and **revert the change** throws away work that was innocent.
+
+Measure instead, and measure *both sides* — the same binary with your change and without it:
+
+```
+with logging::init()      3/16 and 1/8 failures
+with it commented out     1/8 failures        <- same rate, same failure text
+```
+
+That took about two minutes and settled it. The flake was pre-existing and had simply never landed
+on a PR anybody was watching; it was filed as its own row and fixed a day later (v0.155.1), where
+the cause turned out to be neither of the two the failure message proposed.
+
+**A re-run is legitimate only after the measurement, never instead of it** — and when you do re-run
+on the strength of "known flake", the evidence for that claim should be in the repo at the moment
+you merge, not only in the session transcript.
+
 ## Searching so the result means something
 
 Traps 1–3 are one shape — a pipe that discards what you meant to read. That shape is not confined
