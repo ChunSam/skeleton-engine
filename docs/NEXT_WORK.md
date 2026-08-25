@@ -27,9 +27,9 @@ What went with them, because it was built on them:
 | Deleted | Consequence |
 |---|---|
 | 11 `<NAME>_SELFTEST` acceptance tests + `scripts/selftests.sh` | the 11 tests are gone; **the runner is back** (phase 0, 2026-08-19) and gates **5** rebuilt selftests — 35 checks, 7 per game (phases 1-5, 2026-08-19 → 2026-08-21) |
-| 16 `scripts/*_smoke.sh` (12 browser, 4 native) + the `wasm-smokes` CI job | nothing runs engine code in a browser; no render smokes |
-| `scripts/build_wasm_examples.sh` + the CI step calling it | **back** (phase 4) — 4 of the 6 example targets build for wasm, 2 declared native-only |
-| `scripts/hot_reload_smoke.sh` + the `DATA_ANIM` / `DATA_PARTICLES` selftests | hot-reload has no coverage |
+| 16 `scripts/*_smoke.sh` (12 browser, 4 native) + the `wasm-smokes` CI job | the 16 are gone; **the job is back** (phase 5b, 2026-08-21) gating **3** rebuilt `*_web_smoke.sh` — Web Audio, the wasm WebSocket path, and the failure paths. Still no render smokes |
+| `scripts/build_wasm_examples.sh` + the CI step calling it | **back** (phase 4) — 5 of the 8 example targets build for wasm, 3 declared native-only |
+| `scripts/hot_reload_smoke.sh` + the `DATA_ANIM` / `DATA_PARTICLES` selftests | **covered again** — `RPG_QUEST_SELFTEST` check 6 rewrites a data table on disk and waits on wall clock for the running game to read 42. Animation and particle reload have no equivalent |
 
 ✅ **Branch protection is clean — re-verified 2026-08-21, after phase 5b restored the eighth job.**
 **8 CI jobs, 8 required contexts, exact correspondence in both directions**, so neither failure mode
@@ -121,9 +121,10 @@ wasm", and no build gate can close it.
 `[[example]]` blocks, and a game that cannot build for wasm declares `NATIVE_ONLY` in its own
 source. That declaration is checked **both ways** — an undeclared failure fails, and a declaration
 on a game that *does* build also fails, because a stale claim hides the regression the script exists
-to catch. Currently **4 of 6 example targets build for wasm**; the two declared native-only are
-`platformer_game` (rapier2d has no wasm backend) and `netplay_server` (it is a TCP server —
-tungstenite and `std::net` cannot be a browser tab, and this one is not a limitation to lift). It
+to catch. Currently **5 of 8 example targets build for wasm**; the three declared native-only are
+`platformer_game` (rapier2d has no wasm backend), `netplay_server` and `wasm_failpaths_echo_server`
+(both TCP servers — tungstenite and `std::net` cannot be a browser tab, and that is not a limitation
+to lift). It
 runs in `verify.sh` **and** as a step in CI's existing `Build (WASM)` job, so `CLAUDE.md`'s claim
 that the gate covers that job in full stays true.
 
@@ -510,12 +511,13 @@ times, verified against the branch-protection API before and after: the other se
 Re-read the real list rather than trusting this paragraph:
 `gh api repos/ChunSam/skeleton-engine/branches/main/protection --jq '.required_status_checks.contexts'`
 
-⚠️ **This paragraph used to add "and, since v0.150.3, the only one that asserts a *failure* path".
-That is no longer true of anything.** The smoke it described was `wasm_failpaths`, deleted in
-v0.153.0 and **not** rebuilt in phase 5b — which restored two smokes (Web Audio, the WebSocket
-handshake), both of which assert a *success* path. Nothing in the tree now takes a failure path on
-purpose. That is a real gap, not a wording fix: it is how v0.150.1's broken 404 →
-`asset_failures()` and v0.150.2's send-before-open both shipped green.
+✅ **The failure-path gap this paragraph opened is closed.** It once added "and, since v0.150.3,
+the only one that asserts a *failure* path", which v0.153.0 falsified by deleting `wasm_failpaths`;
+phase 5b restored two *success*-path smokes (Web Audio, the WebSocket handshake) and left the gap
+standing. That gap was how v0.150.1's broken 404 → `asset_failures()` and v0.150.2's
+send-before-open both shipped green. **`wasm_failpaths_web_smoke.sh` was rebuilt on 2026-08-21** and
+takes both paths on purpose — the sabotage table at the top of this file reinstated both defects and
+watched each redden its own half.
 
 ⚠️ **No longer the critical path — re-measured 2026-08-21.** On the first `main` run of the
 rebuilt job: **3 m 15 s** for the browser smokes against **3 m 45 s** for `Test (native)`. The old
@@ -626,15 +628,15 @@ required-check decision above — closed on 2026-08-04, 2026-08-04, and 2026-08-
 Context for judging new work — not to-dos. Anything here that becomes actionable belongs in
 **Open — engineering** instead; that is where `<NAME>_SELFTEST` coverage went on 2026-08-03.
 
-- **NO audio of any kind is under CI as of 2026-08-19.** v0.143.10 established that **native**
-  (rodio/ALSA) audio stays outside CI — that part is unchanged and is what the rest of this bullet
-  is about. v0.143.17 had put **Web Audio** under gate — `wasm_audio` (38/38) and `audio_reactive`
-  (`rms=0.643`, bands `low=9.41` / `high=0.00` on a 110 Hz tone, real spectral discrimination) both
-  passed in CI because Chrome renders the graph in software with no hardware device — but those
-  were example-driven browser smokes and were deleted with the examples tree, along with the
-  `wasm-smokes` job. **The distinction is still worth keeping** ("audio cannot be tested in CI" is
-  false about the *browser* half and true about the native half), and rebuilding the browser audio
-  smoke is the cheapest way to get a gated audio claim back. Five CI runs
+- **Only the BROWSER half of audio is under CI — restored 2026-08-21, and the native half never
+  will be.** v0.143.10 established that **native** (rodio/ALSA) audio stays outside CI; that part is
+  unchanged and is what the rest of this bullet is about. v0.143.17 had put **Web Audio** under gate
+  (`wasm_audio` 38/38, `audio_reactive` `rms=0.643` with bands `low=9.41` / `high=0.00` on a 110 Hz
+  tone), those smokes died with the examples tree on 2026-08-19, and phase 5b put the claim back
+  with `survivor_audio_web_smoke.sh` — rms 0.5621, low 2.733 vs high 0.009 on the same 110 Hz tone.
+  It passes in CI because Chrome renders the graph in software with no hardware device, which is
+  exactly what the native half cannot do. **The distinction is the point** ("audio cannot be tested
+  in CI" is false about the *browser* half and true about the native half). Five CI runs
   tried a PulseAudio null sink (default and at 30 ms latency) and ALSA `snd-dummy`; the full table is
   in `docs/VERIFICATION.md`. Summary: a null sink *does* let rodio open a device and `beat_crawler`'s
   audio chain passes on CI, but it delivers samples in bursts, so the meters with sub-second
@@ -648,17 +650,15 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
   commit*. `ci.yml` and `docs/VERIFICATION.md` were right the whole time; only the file a reader
   actually opens was wrong. **When an experiment is reverted, grep for prose that described it** —
   the revert diff will not show you the comment three files away.
-- **5 of the 16 `scripts/*_smoke.sh` stay local, deliberately.** The other **11 run in CI**: 4 native
-  in v0.143.11, 5 self-verdicting browser ones in v0.143.17, `wasm_smoke.sh` in #450 — which had
-  been counted among the byte-size-only ones and was not; it self-verdicts, and it is the only
-  automated exercise of the wasm WebSocket *success* path — and `wasm_failpaths_smoke.sh` in
-  v0.150.3, the only one that asserts a **failure** path. The remaining 5 (`centered_text`,
-  `embedded_atlas`, `embedded_image`, `game_feel_web`, `hdr_web`) assert only byte sizes and are
-  documented as eyeball-it — a green run would prove nothing. Reopen only if one gains a real
-  assertion.
-  ✅ **"run in CI" now *is* "gate"** for the browser six: their job became a required check on
-  2026-08-08 (see *Open — process*). This line said the opposite until #456 on 2026-08-09. Count
-  before quoting a number here; it has now been wrong twice:
+- **All 3 `scripts/*_web_smoke.sh` run in CI, and the local-only tier is empty.** The old tree had
+  16 smokes of which 5 (`centered_text`, `embedded_atlas`, `embedded_image`, `game_feel_web`,
+  `hdr_web`) stayed local because they asserted byte sizes only — a green run proved nothing. All 16
+  died on 2026-08-19; each of the three rebuilt ones self-verdicts, so the tier that existed to hold
+  eyeball-it checks has nothing left in it. **Keep it empty** — a smoke that cannot fail on its own
+  stated cause belongs nowhere, not in a tier that excuses it.
+  ✅ **"run in CI" *is* "gate"**: `Browser smokes (Chrome + swiftshader)` became a required context
+  on 2026-08-08, went with the job on 2026-08-19, and was re-added with it on 2026-08-21 (see
+  *Open — process*). Count before quoting a number here; this line has now been wrong three times:
   `grep -cE '^\s*[^#]*scripts/[a-z_]*_smoke\.sh' .github/workflows/ci.yml`
 - **A headless capture cannot photograph a meter** — fixed dt, no wall clock. Three sessions have
   now reached for `ENGINE_CAPTURE` before remembering this.
@@ -671,21 +671,19 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
 > `docs/CHANGELOG.md` (what shipped) or `docs/PATTERNS.md` / `docs/VERIFICATION.md` (what was
 > learned). Without this rule the section regrows the history that was just split out.
 
-Closed 2026-08-24 — **the logger nothing was listening to** (v0.154.3, #502). The engine's 86
-`error!`/`warn!` sites had gone nowhere since v0.153.0 deleted `env_logger` with its only callers;
-all five games now install one, defaulting to `warn` rather than `env_logger`'s own `error` (which
-would still have dropped every `warn!` site, including the bug that found this). Detail in
-`docs/CHANGELOG.md` 0.154.3. Two things worth carrying past the roll-off:
+Closed 2026-08-24 and 2026-08-25 — **the nine follow-up-review items** (v0.155.0) and **the
+`NETPLAY_SELFTEST` check 7 flake** (v0.155.1). Neither is summarised here, because both are already
+written where the work was: the nine are struck through under *Open — the 2026-08-19 follow-up
+review's remainder*, the flake in the *Open — engineering* table, each with the part of its own
+filed diagnosis that turned out wrong. Detail in `docs/CHANGELOG.md` 0.155.0 and 0.155.1.
 
-- **The browser half is still open** and is recorded where the row was, not here — on wasm the
-  install is a no-op and `log` needs a browser sink this repo does not depend on.
-- ⚠️ **A required check can be flaky, and the cost lands on an unrelated PR.** `NETPLAY_SELFTEST`
-  check 7 reddened `Test (native)` on #502, which touches netplay only by adding one line to its
-  `main`. Measuring both sides cleared the change (3/16 and 1/8 with the logger, 1/8 without) and
-  filed the flake as its own row under *Open — engineering*. **Measure before re-running**: a
-  re-run that goes green proves nothing on its own, and is how a real regression gets buried.
-
-Rolled off this session, having served theirs: **the 2026-08-18 `src/ecs` review** (15 findings, 12
+Rolled off this session, having served theirs: **the logger nothing was listening to** (v0.154.3,
+#502). Its two carried lessons were checked into durable homes rather than assumed into them — the
+**browser half is still open** and lives on its own row at the top of this file (on wasm the install
+is a no-op; `log` needs a browser sink this repo does not depend on), and **measure before
+re-running a red required check** is now `docs/VERIFICATION.md` **Trap 9**, both-sides measurement
+(3/16 and 1/8 with the logger, 1/8 without) written out in full. Rolled off before it, on the same
+rule: **the 2026-08-18 `src/ecs` review** (15 findings, 12
 shipped as v0.152.1–v0.152.5). Its durable homes were checked one by one rather than assumed, and
 two of its three lessons had none — rolling it off on schedule would have deleted them, which is the
 failure this rule caused once already. Both were written into `docs/VERIFICATION.md` first: *a

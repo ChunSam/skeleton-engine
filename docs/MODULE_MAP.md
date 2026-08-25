@@ -15,15 +15,21 @@
 > one row = one topic, however long. A row's length is not a problem — its *absence* is, because
 > then the next session re-explores the code to rediscover it.
 >
-> ⚠️ **Every `example <name>`, `<NAME>_SELFTEST` and `scripts/*_smoke.sh` citation below points at
-> a file that no longer exists.** The `examples/` tree and all sixteen smoke scripts were deleted
-> on 2026-08-19. The `src/` and `tests/` paths — what this file is actually for — are unaffected
-> and correct.
+> ⚠️ **Most `example <name>` and `scripts/*_smoke.sh` citations below point at a file that no longer
+> exists.** The `examples/` tree and all sixteen smoke scripts were deleted on 2026-08-19; **five
+> games and three `scripts/*_web_smoke.sh` came back** by 2026-08-21, so a handful of rows do cite
+> live files. The `src/` and `tests/` paths — what this file is actually for — are unaffected and
+> correct throughout.
+>
+> ⚠️ **Three `<NAME>_SELFTEST` names resolve again against different games** — `SURVIVOR_SELFTEST`,
+> `RPG_QUEST_SELFTEST` and `NETPLAY_SELFTEST` all exist in the rebuilt tree, asserting different
+> checks against different code than the rows below describe. A name that resolves is the worse
+> case, because it reads as current: check the game the row names, not the variable.
 >
 > The citations are kept on purpose rather than stripped: they are the record of *what used to
 > prove each row*, which is the first thing you want when rebuilding the acceptance layer. Recover
-> any of them with `git log --diff-filter=D --name-only -- examples/` then `git show
-> <commit>^:<path>`. Do not read one as "this is verified" — nothing in this file is, right now.
+> a deleted one with `git log --diff-filter=D --name-only -- examples/` then `git show
+> <commit>^:<path>`. Do not read any of them as "this is verified" without grepping the tree first.
 
 | Looking for | File |
 |---------|------|

@@ -125,16 +125,18 @@ Run the local gate — it mirrors CI (fmt, clippy, wasm build, tests, doc links)
 ./scripts/verify.sh
 ```
 
-Run it as-is; a non-zero exit means something is broken. ⚠️ It is weaker than it looks right now:
-the browser smokes and the `<NAME>_SELFTEST` acceptance tests were driven by the deleted examples
-and went with them, so nothing checks the engine in a real browser or in real play.
+Run it as-is; a non-zero exit means something is broken. It runs the `<NAME>_SELFTEST` acceptance
+tests too — 35 checks across the five rebuilt games — so a change that breaks real play fails here,
+not later. ⚠️ It is still not all of CI: the three browser smokes need Chrome, so **CI** gates
+those, and a windowed playtest and gamepads have no automated coverage anywhere.
 
 ## Where to read more
 
 - **`src/lib.rs`** — the public surface, at a glance.
 - **`docs/MODULE_MAP.md`** — the "where is X?" module map (72 rows; grep it rather than reading it whole).
 - **`CLAUDE.md`** — project conventions and the verify gate.
-- **`docs/VISION.md`** — why the engine exists and how features get accepted (every feature
-  is validated by a small playable example — a bar nothing currently meets, see above).
+- **`docs/VISION.md`** — why the engine exists and how features get accepted (every feature is
+  validated by a small playable example — a bar the five rebuilt games meet for what they cover,
+  and nothing else does).
 - **`docs/PATTERNS.md`** — architecture patterns and task recipes.
 - **`src/lib.rs`** — the public API re-export list, which is the fastest map of what exists. (The Korean `REFERENCE.html` was deleted on 2026-08-20 for describing an examples tree that no longer exists; it will be rewritten.)
