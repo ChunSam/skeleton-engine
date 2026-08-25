@@ -219,6 +219,65 @@ mod tests {
         }
     }
 
+    /// Captures `log` output for the duration of a closure.
+    ///
+    /// `compute_order`'s self-label handling has exactly one observable — a `log::warn!` — so a
+    /// test that only looks at the returned order cannot see it. Both shapes return plain
+    /// insertion order (neither produces a self-edge), which is why the guard that tells them
+    /// apart shipped with nothing able to fail on it.
+    mod warn_capture {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::{Mutex, OnceLock};
+
+        static SINK: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        static GATE: Mutex<()> = Mutex::new(());
+        // Off outside a capture window, so the rest of the test binary's warnings are dropped
+        // rather than accumulating in a process-global `Vec`.
+        static ARMED: AtomicBool = AtomicBool::new(false);
+
+        struct Capture;
+        static CAPTURE: Capture = Capture;
+
+        impl log::Log for Capture {
+            fn enabled(&self, _: &log::Metadata) -> bool {
+                ARMED.load(Ordering::Relaxed)
+            }
+            fn log(&self, record: &log::Record) {
+                if ARMED.load(Ordering::Relaxed) {
+                    SINK.lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push(record.args().to_string());
+                }
+            }
+            fn flush(&self) {}
+        }
+
+        /// Runs `f` and returns every message logged while it ran.
+        pub fn during(f: impl FnOnce()) -> Vec<String> {
+            // One window at a time — the sink is process-global and `cargo test` is threaded.
+            let _gate = GATE.lock().unwrap_or_else(|e| e.into_inner());
+            static INSTALLED: OnceLock<bool> = OnceLock::new();
+            let installed = *INSTALLED.get_or_init(|| {
+                if log::set_logger(&CAPTURE).is_ok() {
+                    log::set_max_level(log::LevelFilter::Warn);
+                    true
+                } else {
+                    false
+                }
+            });
+            assert!(
+                installed,
+                "another logger already owns this test binary's one slot — this helper needs it"
+            );
+            SINK.lock().unwrap_or_else(|e| e.into_inner()).clear();
+            ARMED.store(true, Ordering::Relaxed);
+            f();
+            ARMED.store(false, Ordering::Relaxed);
+            let out = SINK.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            out
+        }
+    }
+
     /// 1. Three unconstrained systems → insertion order preserved
     #[test]
     fn no_constraints_keeps_insertion_order() {
@@ -325,17 +384,65 @@ mod tests {
     }
 
     /// A shared label is a barrier against the OTHER holders only. Two systems labeled
-    /// "render", the second also `.after("render")`: the edge from the first is real, the
+    /// "render", one of them also `.after("render")`: the edge from the other holder is real, the
     /// self-edge is not, so the author's "after both" reading is half-true.
+    ///
+    /// ⚠️ **The `.after` holder is registered FIRST on purpose**, so the real edge has to *reverse*
+    /// insertion order to satisfy the assertion. Written the other way round — plain holder at
+    /// index 0 — `pos0 < pos1` is what insertion order alone produces, so the test would pass with
+    /// every edge in `compute_order` deleted and could not tell "the barrier works" from "nothing
+    /// was ordered". Same discipline as `self_referencing_label_creates_no_constraint` and
+    /// `dangling_after_label_creates_no_constraint`, which each flip for the same reason.
     #[test]
     fn shared_label_after_self_orders_against_the_other_holder_only() {
-        let metas = vec![meta_label("render"), meta_label_after("render", "render")];
+        // index 0 carries "render" AND asks to run after "render"; index 1 also carries "render".
+        let metas = vec![meta_label_after("render", "render"), meta_label("render")];
         let order = compute_order(&metas).unwrap();
-        let pos0 = order.iter().position(|&x| x == 0).unwrap();
-        let pos1 = order.iter().position(|&x| x == 1).unwrap();
+        assert_eq!(
+            order,
+            vec![1, 0],
+            "the OTHER holder orders it, so the edge must reverse insertion order; got {order:?}"
+        );
+    }
+
+    /// The sole-holder self-order is warned about; the shared-label barrier idiom is not.
+    ///
+    /// ⚠️ **This is the only test that can see `by_label[l].len() == 1` at all.** `compute_order`
+    /// returns the same order for both shapes — plain insertion order, since neither yields a
+    /// self-edge — so every other assertion in this file is blind to the guard, and it shipped in
+    /// v0.155.0 with nothing able to go red on it. Both directions are covered here: dropping the
+    /// guard makes the barrier case warn, and inverting it silences the sole-holder case.
+    #[test]
+    fn only_the_sole_holder_of_a_self_ordered_label_is_warned_about() {
+        // ⚠️ Probe labels nobody else uses. `cargo test` is threaded and the sink is
+        // process-global, so a window opened here also catches whatever `compute_order` calls in
+        // *other* tests happen to log — the first draft asserted on the message text alone and
+        // read 2 where it wanted 1, from a sibling test running "layout" at the same moment.
+        // Filtering on a label unique to this test makes the count immune to that.
+        const SOLO: &str = "self-order-probe-sole";
+        const SHARED: &str = "self-order-probe-shared";
+
+        let sole = warn_capture::during(|| {
+            let _ = compute_order(&[meta_label_after(SOLO, SOLO), meta_label("other")]);
+        });
+        assert_eq!(
+            sole.iter()
+                .filter(|m| m.contains(SOLO) && m.contains("is the ONLY system carrying label"))
+                .count(),
+            1,
+            "a sole holder ordered against its own label orders NOTHING and must say so exactly \
+             once; got {sole:?}"
+        );
+
+        let shared = warn_capture::during(|| {
+            let _ = compute_order(&[meta_label_after(SHARED, SHARED), meta_label(SHARED)]);
+        });
+        let about_shared: Vec<_> = shared.iter().filter(|m| m.contains(SHARED)).collect();
         assert!(
-            pos0 < pos1,
-            "the OTHER holder still orders it; got {order:?}"
+            about_shared.is_empty(),
+            "ordering against a label you SHARE is the deliberate barrier idiom and produces a \
+             real edge — warning on it is the noise that teaches authors to ignore the message; \
+             got {about_shared:?}"
         );
     }
 

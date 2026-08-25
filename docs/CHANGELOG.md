@@ -4,11 +4,66 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.155.2
+
+### Three checks that could not fail on what they were named for
+
+A review of the v0.154.3–v0.155.1 cluster — the one that reddened `Test (native)` twice, on PR #502
+and then on `main` at 6f2d9a1 — found no product bug. It found three checks that passed for reasons
+other than the ones they claim, which is the same failure in a different place.
+
+**`NETPLAY_SELFTEST` check 6 could stage an uncontested contest and still pass.** v0.155.1 lowered
+`APPROACH` from 70 px to 40 px to widen the server-side claim margin, and paid for it out of the
+client-side one without measuring that side. The stop test in `fly_to` runs *before* the frame moves
+the ship, and `read_move` does not normalise, so a diagonal closes at `PLAYER_SPEED * sqrt(2)` ≈ 452
+px/s: at 40 px a single 35 ms iteration lands inside `CLAIM_RADIUS`, against ~102 ms at 70 px. That
+matters because `pump_claims` latches `claim_sent` and only a `Taken` clears it — so one premature
+claim removes that pilot from the contest permanently, the server's first-claim-wins guard is never
+asked anything, and the check still printed "two pilots flew onto 2 pickup(s) and claimed together".
+
+Fixed on both sides rather than by trading one for the other. `APPROACH` goes back to 70 and the
+ships now **stand still for `SETTLE` (0.35 s, ~4 snapshots)** before the staged push, which removes
+the input-round-trip lag from the server's copy instead of paying for it: the server converges on
+~70 px of the 120 px reach (50 px spare, against the 23 px measured at v0.155.1) while the client
+keeps its full 46 px of travel room. And the contest is now **asserted on both sides of the pump**:
+neither pilot may hold `target_id` in `claim_sent` before it, and both must after. A degraded round
+is a red build naming the pilot that went missing, not a green one.
+
+⚠️ **The first draft of that assertion checked only the post-condition, and its own sabotage proved
+it useless** — a pilot latched out during the flight has the id in `claim_sent` too, because that is
+what "latched" means, so the check was satisfied by the exact failure it was written to detect. It
+passed the sabotage clean. The pre-condition is the half that carries the information; both halves
+are now sabotage-verified separately and each fires its own message (latch b before the pump → "was
+already claimed during the approach flight (a: false, b: true)"; skip b's pump → "the staged push
+did not make both pilots claim").
+
+**The `by_label[l].len() == 1` guard shipped with nothing able to fail on it.** v0.155.0 added it so
+the self-label warning fires for the sole-holder typo and stays quiet for the shared-label barrier
+idiom. `compute_order` returns identical output for both shapes — plain insertion order, since
+neither yields a self-edge — so every assertion in the file was blind to it, and deleting the guard
+left the whole suite green. The warning is now captured and asserted by a test-only `log::Log`
+(`warn_capture`), armed only inside its window and gated so `cargo test`'s threading cannot leak a
+sibling's message into it. Both directions are sabotage-verified: dropping the guard makes the
+barrier case warn, inverting it silences the sole-holder case.
+
+**`shared_label_after_self_orders_against_the_other_holder_only` could not see its own edge.** It
+registered the plain holder at index 0 and asserted `pos0 < pos1`, which is what insertion order
+produces on its own. Demonstrated rather than argued: with every `after` edge deleted from
+`compute_order`, the old assertion **passes** and the flipped one fails. The `.after` holder is now
+registered first, so the real edge has to reverse insertion order — the same discipline the two
+tests either side of it already document.
+
+Also: the netplay flake was **check 6**, not check 7. Check 7 is AOI streaming. The wrong number was
+in `docs/CHANGELOG.md` 0.155.1, two rows of `docs/NEXT_WORK.md` and the source comment, and would
+have sent the next reader to the wrong check.
+
+No library behaviour changed — the `src/` edits are inside `mod tests`.
+
 ## 0.155.1
 
-### `NETPLAY_SELFTEST` check 7 was flaky, and it was the check's own fault
+### `NETPLAY_SELFTEST` check 6 was flaky, and it was the check's own fault
 
-Check 7 — two pilots claiming the same salvage — failed roughly one run in seven, always the same
+Check 6 — two pilots claiming the same salvage — failed roughly one run in seven, always the same
 way: `the server granted none — scores 0 / 0`. It reddened `Test (native)`, a **required** context,
 on PRs that had nothing to do with netplay.
 
