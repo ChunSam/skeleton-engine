@@ -36,7 +36,7 @@ Read only what you need.
 ⚠️ **All five games exist** (2026-08-21). The `examples/` tree — 22 games, ~85 demos — was deleted
 2026-08-19 and rebuilt as five by `plans/2026-08-19-examples-rebuild-plan.md`. Each runs with `cargo
 run --example <name>` and self-verdicts with `<NAME>_SELFTEST=1` (`netplay_game` needs
-`netplay_server` too); `build_wasm_examples.sh` builds the 4 of 6 targets that are not native-only,
+`netplay_server` too); `build_wasm_examples.sh` builds the 5 of 8 targets that are not native-only,
 and `./scripts/build_wasm.sh` makes a servable `dist/` bundle (the lib's own `run_demo`, not an
 example). **Every game installs a logger** (v0.154.3) — ⚠️ natively only; a browser discards it.
 
@@ -97,8 +97,8 @@ have each cost a session; the ones that recur:
 
 ⚠️ **The acceptance layer is back to full depth, browser included.** `selftests.sh` and
 `build_wasm_examples.sh` both died in the 2026-08-19 deletion and are back — **35 checks across five
-games**, 4 of 6 example targets compiling for the web, and (2026-08-21) a **`wasm-smokes` CI job**
-loading the engine in headless Chrome: Web Audio levels+spectrum, and the wasm WebSocket path.
+games**, 5 of 8 targets compiling for the web, and (2026-08-21) a **`wasm-smokes` CI job** loading
+the engine in headless Chrome: Web Audio, the wasm WebSocket path, and two deliberate failure paths.
 ⚠️ Those smokes need Chrome so **CI gates them, not `verify.sh`**. Native audio still skips with no
 device (all of CI). Else: `fmt`, `clippy`, the wasm build, `cargo test`, doctests, `cargo doc`.
 
@@ -111,10 +111,10 @@ What the gate does **not** cover, so get it yourself:
   for the `package` job's `cargo package --locked`.
 - **macOS/Windows behaviour** — both have CI *build* jobs now, so the `cfg` branches compile; nothing
   ever runs them. Anything behavioural there still needs a local run.
-- **Windowed playtest, gamepads, hot-reload** — had example-driven coverage, now none at all.
-  **Native** audio is nearly there too: its one selftest check skips wherever there is no device.
-  ⚠️ Web Audio gates in CI again since 2026-08-21 (`survivor_audio_web_smoke.sh`), so — as from
-  v0.143.17 to v0.153.0 — the browser is once more the only place any audio claim is checked.
+- **Windowed playtest and gamepads** — had example-driven coverage, now none at all. Hot-reload got
+  its back: `RPG_QUEST_SELFTEST` check 6 drives a real file watcher over wall clock. **Native**
+  audio is the near miss — its selftest check skips wherever there is no device; ⚠️ Web Audio gates
+  in CI since 2026-08-21 (`survivor_audio_web_smoke.sh`), the only place an audio claim is checked.
 - **The `wasm-smokes` job** — `scripts/*_web_smoke.sh`; the `_web_` infix is the contract, not a
   count. ⚠️ Still no **pixel-level** check: a canvas readback needs a surface config that never ships.
 

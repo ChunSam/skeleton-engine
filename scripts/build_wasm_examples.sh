@@ -7,9 +7,10 @@
 # and every job stayed green.
 #
 # ⚠️ Compiling for wasm is still not running on wasm. This script proves a game *builds*; nothing
-# here loads it in a browser. Restoring that is the `wasm-smokes` job, which is phase 5 — and it
-# needs its branch-protection context re-added in the same change, or it becomes a check nobody is
-# gated on (the mirror image of the failure v0.153.0 hit).
+# here loads it in a browser. That is the `wasm-smokes` job, restored in phase 5b on 2026-08-21
+# together with its branch-protection context — the two have to move in one change, or the job
+# becomes a check nobody is gated on (the mirror image of the failure v0.153.0 hit). It caught a
+# real defect on its first run: a wasm entry point that compiled and exported nothing.
 #
 # ── Discovery, and why it is shaped this way ────────────────────────────────────────────────────
 #

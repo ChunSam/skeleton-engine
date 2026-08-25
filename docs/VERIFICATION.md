@@ -338,8 +338,9 @@ so: physics and sockets pull `rapier2d` and `tungstenite`, and some examples cal
 `[[example]]` blocks, and a target that cannot build for the web declares `NATIVE_ONLY` in its own
 source — ⚠️ **checked in both directions**, so an undeclared failure fails *and* a `NATIVE_ONLY`
 claim on a target that does build fails too. A stale claim would hide the regression the script
-exists to catch. Currently 4 of 6 targets build for wasm; `platformer_game` (rapier2d) and
-`netplay_server` (a TCP server) are the two declared native-only.
+exists to catch. Currently 5 of 8 targets build for wasm; `platformer_game` (rapier2d),
+`netplay_server` and `wasm_failpaths_echo_server` (both TCP servers) are the three declared
+native-only.
 
 **The consequence this closes:** an example could be broken for wasm indefinitely and the gate
 stayed green. `embedded_image` was unbuildable for `wasm32` from the day it was added (it called
@@ -760,10 +761,11 @@ smokes (`headless_screenshot`, `lighting_cap`, `packaged_assets`) were examples 
 
 The historical record of the deleted twelve follows.
 
-⚠️ **All of these were deleted on 2026-08-19 with the examples they drove, and the `wasm-smokes`
-CI job with them. Nothing loads the engine in a browser any more.** The rest of this section is
+⚠️ **All twelve were deleted on 2026-08-19 with the examples they drove, and the `wasm-smokes` CI
+job with them. The job and three browser smokes came back on 2026-08-21** (above) — but **none of
+the twelve below did**, and none of these scripts or examples exists. The rest of this section is
 kept as the specification for rebuilding them — what each asserted, and which ones a green run did
-not actually prove. Historical text below; none of these scripts or examples exist.
+not actually prove. Historical text follows.
 
 Each built an example to wasm, served it, and rendered it in headless Chrome. Prerequisites
 were `rustup target add wasm32-unknown-unknown`, a matching `wasm-bindgen-cli`, and Chrome.

@@ -44,15 +44,19 @@ The chosen path combines two things:
 These are not separate tracks — they are one loop. The dogfooding vehicle is a growing
 set of **small playable example games**, one per genre/feature area, living in `examples/`.
 
-> ⚠️ **The loop is half rebuilt at the dogfooding end.** All 22 playable games and ~85 feature demos
-> were deleted on 2026-08-19 at the maintainer's request, to be rebuilt from scratch. **Two of the
-> five are back**: `platformer_game` (phase 1, 2026-08-19) and `rpg_quest_game` (phase 2,
-> 2026-08-20). Between v0.151.0 and the deletion the repo had a playable slice for every genre named
-> above — platformer, shooter, RPG (`rpg_quest`), puzzle (`sokoban`), top-down action (`survivor`,
-> `maze_escape`) — plus scene-flow and settings/menu demos. Until the remaining three land, **only
-> the subsystems those two games name meet the acceptance bar the principles below state** — audio,
-> wasm, GPU particles and networking do not — and saying so is more useful than quietly lowering the
-> bar. Past games are in git history and `docs/PROGRAM_HISTORY.md` records what each covered.
+> ⚠️ **The loop is closed again at the dogfooding end, at a fifth of the old surface.** All 22
+> playable games and ~85 feature demos were deleted on 2026-08-19 at the maintainer's request, to be
+> rebuilt from scratch. **All five are back** as of 2026-08-21: `platformer_game` (phase 1),
+> `rpg_quest_game` (phase 2), `survivor_game` (phase 3), `puzzle_grid_game` (phase 4) and
+> `netplay_game` + `netplay_server` (phase 5), 35 acceptance checks between them, plus three browser
+> smokes under CI (phase 5b) that put Web Audio and the wasm WebSocket path back under gate. Between
+> v0.151.0 and the deletion the repo had a playable slice for every genre named above — platformer,
+> shooter, RPG (`rpg_quest`), puzzle (`sokoban`), top-down action (`survivor`, `maze_escape`) — plus
+> scene-flow and settings/menu demos. **Only the subsystems these five games name meet the
+> acceptance bar the principles below state**, and the ~85 demos covered subsystems they do not:
+> **gamepads and windowed play have no example driving them at all**, and the editor only sideways,
+> through one docked-transition render test. Saying so is more useful than quietly lowering the bar.
+> Past games are in git history and `docs/PROGRAM_HISTORY.md` records what each covered.
 >
 > **The rebuild covers all five genres with four genre-games, not five** — decided 2026-08-19,
 > recorded here so the list above does not read as an unclosed gap. `survivor_game` carries

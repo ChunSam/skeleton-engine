@@ -33,7 +33,8 @@ cargo clippy --target wasm32-unknown-unknown --lib -- -D warnings
 
 # The build above is lib + bins ONLY. Between v0.153.0 and v0.154.x an example could stop compiling
 # for the web with every job green, because nothing built one. This restores that coverage.
-# ⚠️ Building is not running: no browser loads any of this. That is the `wasm-smokes` job (phase 5).
+# ⚠️ Building is not running: no browser loads any of this. That is CI's `wasm-smokes` job, which
+# needs Chrome and so cannot run here — three `scripts/*_web_smoke.sh` since 2026-08-21.
 echo "[verify] ./scripts/build_wasm_examples.sh"
 ./scripts/build_wasm_examples.sh
 
