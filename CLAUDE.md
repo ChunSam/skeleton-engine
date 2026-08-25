@@ -170,12 +170,12 @@ Rebuilding as five games; **four exist**, so the rest is a standing debt, not th
 than none — it reads as an unexplained gain. v0.153.0 moved the lib-test count 1432 → 1443 in two
 documents written hours earlier by the same session.
 
-**A filed diagnosis is a hypothesis — and so is the gate the row names to settle it.** *(권고)*
-Five times in v0.150.7–v0.152.5 a written-down cause was wrong and one measurement reversed it
-(#459, #461, #462, #464, #473). On 2026-08-20 the *gate* was wrong twice: "needs a GPU" named a
-pure function, "needs a game" named what `tests/render.rs` already drove. Both over-estimated the
-cost, which is how a row stays deferred without anyone noticing. Re-derive both before acting —
-**including your own claim from ten minutes ago**, which is the one case this has actually bitten.
+**A filed diagnosis is a hypothesis — so is the gate it names, and so is its size.** *(권고)*
+Five times in v0.150.7–v0.152.5 a written cause was wrong and one measurement reversed it (#459,
+#461, #462, #464, #473). The *gate* was wrong twice on 2026-08-20 — "needs a GPU" named a pure
+function — which over-estimates cost and is how a row stays deferred unnoticed. The *size* was
+wrong twice on 2026-08-25: 0.13 estimated against 0.004 measured, and decisive in the half it
+never mentioned. Re-derive all three, **including your own claim from ten minutes ago**.
 
 **Where things go.** Unit tests live inline (`mod tests`), beside the code they cover. `plans/` is
 tracked — commit session plans and handoffs. `.claude/` is gitignored.
