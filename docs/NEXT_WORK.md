@@ -675,54 +675,34 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
 > **Roll-off rule:** an entry stays here for **one session**, then goes. Its durable home is
 > `docs/CHANGELOG.md` (what shipped) or `docs/PATTERNS.md` / `docs/VERIFICATION.md` (what was
 > learned). Without this rule the section regrows the history that was just split out.
+>
+> ⚠️ **Open the home and read it before rolling an entry off — citing it from memory is how this
+> rule nearly ate its own lessons.** The 2026-08-18 `src/ecs` review came one session from going
+> out with two of its three lessons homed nowhere; both were written into `docs/VERIFICATION.md`
+> first (Trap 8, and the addendum under *A required check is only real once its job is on `main`*).
+> Rolling off on schedule is the default, not an obligation: an entry whose lesson lives nowhere
+> else **stays until it does**.
 
-Closed 2026-08-24 and 2026-08-25 — **the nine follow-up-review items** (v0.155.0) and **the
-`NETPLAY_SELFTEST` check 6 flake** (v0.155.1). Neither is summarised here, because both are already
-written where the work was: the nine are struck through under *Open — the 2026-08-19 follow-up
-review's remainder*, the flake in the *Open — engineering* table, each with the part of its own
-filed diagnosis that turned out wrong. Detail in `docs/CHANGELOG.md` 0.155.0 and 0.155.1.
+**Nothing here.** The 2026-08-24/25 entries — v0.155.0 (the nine follow-up-review items), v0.155.1
+(the `NETPLAY_SELFTEST` check 6 flake) and v0.155.2 (the three checks that could not fail) — rolled
+off on 2026-08-28, each home opened and read rather than assumed:
 
-Closed 2026-08-25 — **a review of that cluster, and the three checks it found that could not fail**
-(v0.155.2). It was scoped by CI rather than by module: `Test (native)` went red twice on 2026-08-24,
-on PR #502 and then on `main` at 6f2d9a1, and both were the same check-6 flake v0.155.1 closed. **No
-product bug was found.** What was found is one shape three times over — a check that passes for a
-reason other than the one it names. `NETPLAY_SELFTEST` check 6 could stage an uncontested contest
-and still print "claimed together"; `compute_order`'s sole-holder guard had no observable a test
-could reach, because the only thing it changes is a `log::warn!`; and the test added to bless the
-barrier idiom asserted an order that insertion order already produces. Both new lessons are in
-`docs/VERIFICATION.md` § *Writing one: if the check stages its own precondition…* and § *Writing one:
-when the only observable is a diagnostic…*.
+| What it carried | Home, verified 2026-08-28 |
+|---|---|
+| What shipped, all three releases | `docs/CHANGELOG.md` §§ 0.155.0, 0.155.1, 0.155.2 |
+| A check that stages its own precondition must assert the staging happened | `docs/VERIFICATION.md` § *Writing one: if the check stages its own precondition, assert the staging happened* |
+| When the only observable is a diagnostic, assert the diagnostic | `docs/VERIFICATION.md` § *Writing one: when the only observable is a diagnostic, assert the diagnostic* |
+| **When two margins squeeze one constant, widen the gap rather than sliding along it** | `docs/VERIFICATION.md`, closing the first of those two sections |
+| The flake was **check 6**, not check 7 — check 7 is AOI streaming | `docs/CHANGELOG.md` § 0.155.2, and the doc comments in `examples/netplay_game/netplay_game.rs` |
 
-⚠️ **The netplay flake was `check 6`, not `check 7`** — check 7 is AOI streaming. The wrong number
-was in three documents and the source comment. Nothing behavioural turned on it; the cost is that
-anyone chasing it read the wrong check first.
-
-⚠️ **v0.155.1's own fix is the cautionary half.** It widened the margin it had measured (server-side,
-23 px) by narrowing the one it had not (client-side, from 46 px of frame travel to 16). Neither
-number was wrong; only one was looked at. v0.155.2 stops the ships for four snapshots instead, which
-gives both sides more room than either setting did — **when two margins squeeze one constant, widen
-the gap rather than sliding along it.**
-
-Rolled off this session, having served theirs: **the logger nothing was listening to** (v0.154.3,
-#502). Its two carried lessons were checked into durable homes rather than assumed into them — the
-**browser half is still open** and lives on its own row at the top of this file (on wasm the install
-is a no-op; `log` needs a browser sink this repo does not depend on), and **measure before
-re-running a red required check** is now `docs/VERIFICATION.md` **Trap 9**, both-sides measurement
-(3/16 and 1/8 with the logger, 1/8 without) written out in full. Rolled off before it, on the same
-rule: **the 2026-08-18 `src/ecs` review** (15 findings, 12
-shipped as v0.152.1–v0.152.5). Its durable homes were checked one by one rather than assumed, and
-two of its three lessons had none — rolling it off on schedule would have deleted them, which is the
-failure this rule caused once already. Both were written into `docs/VERIFICATION.md` first: *a
-conflict resolution is a tree nothing has ever verified* is now **Trap 8**, and *a CI comment that
-tells you to distrust it is telling the truth* is now an addendum under *A required check is only
-real once its job is on `main`*. The third (the truncated-output trap's second form) already had a
-home and needed nothing. Before it the frozen `docs/HANDOFF.md` (#464), the `DialogueChoice.cond`
-conjunction gap (v0.152.0), `debug_draw.rs:34` with the 2026-08-07 analysis program (v0.151.1), the
-RPG genre gap (v0.151.0) and the four unmeasured v0.150.0 allocation claims (v0.150.7).
+Nothing was summarised here on the way out, because the struck-through rows in *Open — engineering*
+and *Open — the 2026-08-19 follow-up review's remainder* already keep the part of each filed
+diagnosis that turned out **wrong** — which is the half worth re-reading later, not the fix.
 
 ⚠️ **Two programs ended here, and the file should stay small now.** The v0.150.x measurement program
 closed with v0.150.7 and the 2026-08-07 analysis with v0.151.1. Nothing from either is open. What
 survives them is instruments and habits, not work: `tests/per_frame_alloc.rs` settles an allocation
-claim in one command, and `docs/PATTERNS.md` carries the two rules they cost — a fail-path check is
-worthless until you revert the fix and watch it go red, and a measurement is worthless until a
-control proves the instrument can see anything at all.
+claim in one command, and the two rules they cost have homes of their own — **a measurement is
+worthless until a control proves the instrument can see anything at all** (`docs/PATTERNS.md`
+§ *Per-frame scratch buffers*), and **a fail-path check is worthless until you revert the fix and
+watch it go red** (`docs/VERIFICATION.md` § *Sabotage each half separately*).
