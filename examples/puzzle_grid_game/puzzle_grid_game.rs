@@ -1,6 +1,6 @@
 //! `puzzle_grid_game` — the puzzle genre-game of the rebuilt examples tree.
 //!
-//! Phase 4 of `plans/2026-08-19-examples-rebuild-plan.md`. The other three games move things;
+//! Phase 4 of `plans/2026-08-19-examples-rebuild-plan.md`. The other four games move things;
 //! this one **edits the world and takes it back**. The board is reconstructed from a snapshot on
 //! every undo, which is what makes `History` meaningful — and what makes autotile correctness
 //! *assertable*, because a wrong tile index after an undo is a visible difference rather than a

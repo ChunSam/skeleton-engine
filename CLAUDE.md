@@ -164,7 +164,7 @@ Two that have their own failure mode:
 
 **A feature is not done until a small playable example exercises it in real play.** The example is
 the acceptance test, not an afterthought — if the API feels awkward while writing it, fix the API.
-Rebuilding as five games; **four exist**, so the rest is a standing debt, not the rule relaxed.
+Rebuilt as five games (2026-08-21); the debt is now the `src/` they do not reach, not the rule relaxed.
 
 **A number pinned in prose is fixed by whoever changes it.** *(권고)* A stale baseline is worse
 than none — it reads as an unexplained gain. v0.153.0 moved the lib-test count 1432 → 1443 in two
