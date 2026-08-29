@@ -330,7 +330,7 @@ pub struct Hidden;
 ///     ..Default::default()
 /// });
 /// ```
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct PointLight {
     /// RGB color (0.0–1.0)
     pub color: Color,

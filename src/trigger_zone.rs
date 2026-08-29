@@ -29,7 +29,7 @@ use crate::components::Transform;
 use crate::ecs::{Entity, Events, System, World};
 
 /// The shape of a [`TriggerZone`], centered on its entity's [`Transform::position`].
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum TriggerShape {
     /// A circle of `radius` (matched via [`SpatialGrid::query_radius`]).
     Circle {
@@ -62,7 +62,7 @@ impl Default for TriggerShape {
 /// assert_eq!(zone.mask, CollisionLayer(1 << 2));
 /// assert!(zone.occupants.is_empty());
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TriggerZone {
     /// The zone's shape, centered on its `Transform.position`.
     pub shape: TriggerShape,
@@ -74,6 +74,7 @@ pub struct TriggerZone {
     /// Treat this as **read-only** from game code (poll it to see who is inside, e.g. via
     /// [`contains`](TriggerZone::contains)); the system overwrites it each frame and uses the
     /// previous value to derive the enter/exit transitions.
+    #[serde(skip)]
     pub occupants: Vec<Entity>,
 }
 

@@ -133,6 +133,22 @@ pub(super) fn register_core_component_metadata(world: &mut World) {
         registry.register::<crate::components::SpriteFlip>("SpriteFlip", None);
         registry.register::<crate::ysort::YSort>("YSort", None);
 
+        // The same gap, six more. All six are editor-addable via
+        // `register_default_components` and carry a ✕ remover, but were in neither this
+        // registry nor `EntityDef`'s named fields (`tag` / `transform` / `sprite`), so
+        // `serialize_entity` walked straight past them and Save Scene dropped them in
+        // silence — a PointLight or ParticleEmitter placed in the Inspector did not
+        // survive a reload. Runtime state is `#[serde(skip)]`ped at the type rather than
+        // here: `HitFlash::{elapsed, base}`, `SpriteTrail::elapsed`, and
+        // `TriggerZone::occupants`, which holds `Entity` handles that cannot survive a
+        // reload at all (they are generation-checked against a World that no longer exists).
+        registry.register::<crate::trigger_zone::TriggerZone>("TriggerZone", None);
+        registry.register::<crate::hit_flash::HitFlash>("HitFlash", None);
+        registry.register::<crate::sprite_trail::SpriteTrail>("SpriteTrail", None);
+        registry.register::<crate::animation::events::AnimationEvents>("AnimationEvents", None);
+        registry.register::<crate::particle::ParticleEmitter>("ParticleEmitter", None);
+        registry.register::<crate::components::PointLight>("PointLight", None);
+
         registry.register::<crate::ui::CheckBox>("CheckBox", None);
         registry.register::<crate::ui::ProgressBar>("ProgressBar", None);
         registry.register::<crate::ui::RadioGroup>("RadioGroup", None);

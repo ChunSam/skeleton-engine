@@ -595,3 +595,73 @@ fn world_reset_clears_editor_undo_history() {
         "undo history survived a world reset — its stale Entity handles now alias live entities"
     );
 }
+
+// ── The three-way name contract: adder ⇒ scene-serialisable ───────────────────
+
+/// Every component the Inspector's "+ Add Component" can add must survive a scene save.
+///
+/// A component is captured by a scene only if it is one of `EntityDef`'s named fields
+/// (`tag` / `transform` / `sprite`) or is registered in [`SerdeComponentRegistry`] —
+/// `serialize_entity` walks the registry and nothing else. Nothing tied the editor's
+/// factory map to that registry, so the two drifted twice: four components were fixed in
+/// `core_resources.rs` (see the comment above the `Hidden` registration) and six more were
+/// left behind, silently dropping a placed `PointLight` or `ParticleEmitter` on reload.
+///
+/// This test is the tie. It drives the **real serialization path** rather than the
+/// registry's bookkeeping: each factory is applied to a fresh entity and the component is
+/// required to come back out of `component_names_for`.
+#[test]
+fn every_editor_addable_component_survives_a_scene_save() {
+    use crate::app::App;
+    use crate::prefab::SerdeComponentRegistry;
+
+    /// Covered by `EntityDef`'s own named fields rather than the serde registry.
+    const NAMED_FIELDS: [&str; 3] = ["Tag", "Transform", "Sprite"];
+
+    let mut app = App::new();
+
+    // Take the factory map so the closures can borrow `world` mutably; put it back after.
+    let factories = std::mem::take(&mut app.editor.component_factories);
+    assert!(
+        !factories.is_empty(),
+        "control: App::new() must have populated the factory map — an empty map would \
+         make every assertion below vacuous"
+    );
+
+    let mut missing: Vec<String> = Vec::new();
+    let mut checked = 0usize;
+    for (name, factory) in &factories {
+        if NAMED_FIELDS.contains(&name.as_str()) {
+            continue;
+        }
+        let e = app.world.spawn();
+        factory(&mut app.world, e);
+
+        // `component_names_for` needs the registry by value while inspecting the world.
+        let registry = app
+            .world
+            .remove_resource::<SerdeComponentRegistry>()
+            .expect("App::new() inserts SerdeComponentRegistry");
+        let serialised = registry.component_names_for(&app.world, e);
+        app.world.insert_resource(registry);
+
+        checked += 1;
+        if !serialised.iter().any(|s| s == name) {
+            missing.push(name.clone());
+        }
+        app.world.despawn(e);
+    }
+    app.editor.component_factories = factories;
+
+    assert!(
+        checked >= 20,
+        "control: only {checked} components were checked — the skip list must not have \
+         swallowed the map"
+    );
+    missing.sort();
+    assert!(
+        missing.is_empty(),
+        "these components can be added in the Inspector but a scene cannot carry them, so \
+         Save Scene drops them in silence: {missing:?}"
+    );
+}

@@ -4,6 +4,60 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.155.3
+
+### The Inspector offered six components a scene could not carry
+
+`serialize_entity` walks the `SerdeComponentRegistry` and nothing else, so a component survives Save
+Scene only if it is registered there or is one of `EntityDef`'s three named fields (`tag`,
+`transform`, `sprite`). The editor's `register_default_components` offers **27** components in
+"+ Add Component", each with a matching ✕ remover. Six were in neither place:
+
+`TriggerZone` · `HitFlash` · `SpriteTrail` · `AnimationEvents` · `ParticleEmitter` · `PointLight`
+
+Place a `PointLight` in the Inspector, Ctrl+S, reload the scene — the light is gone, with no
+diagnostic. The ✕ remover made all six look fully supported.
+
+⚠️ **This is the same defect fixed once already, and the fix was incomplete.** The comment above the
+`Hidden` registration in `src/app/core_resources.rs` describes exactly this gap for `Hidden`,
+`RenderLayer`, `SpriteFlip` and `YSort`. Nothing tied the editor's factory map to the registry, so
+the remaining six were invisible and stayed behind.
+
+All six are registered now. Five needed `Serialize`/`Deserialize` (`AnimationEvents` already had
+them), which meant deciding per type what is *config* and what is *runtime state* — the same split
+`Sprite.image_handle` already documents. Runtime state is `#[serde(skip)]`ped at the type:
+`HitFlash::{elapsed, base}`, `SpriteTrail::elapsed`, and `TriggerZone::occupants` — the last holds
+`Entity` handles, which are generation-checked and cannot survive a reload at all. Three supporting
+types (`TriggerShape`, `CollisionLayer`, `EmitShape`) gained the same derives. No dependency
+changed: `serde`'s `rc` feature and `glam`'s `serde` feature were both already on, which is why
+`Sprite`'s `Option<Arc<str>>` already round-trips.
+
+**The contract is now a test, not a convention.**
+`editor::tests::every_editor_addable_component_survives_a_scene_save` takes the factory map, applies
+**every** factory to a fresh entity, and requires the component back out of `component_names_for` —
+the real serialization path, not the registry's bookkeeping. A future adder with no registration
+fails it by name.
+
+⚠️ **Sabotage-verified twice, and the second one is the useful one.** Removing the `PointLight`
+registration reddens it naming `["PointLight"]` — attribution, not just failure. Reverting all six
+registrations reproduces the pre-fix state and names exactly
+`["AnimationEvents", "HitFlash", "ParticleEmitter", "PointLight", "SpriteTrail", "TriggerZone"]`,
+which is what proves the test would have caught the original bug rather than merely passing beside
+it. The derive half needs no sabotage: removing it does not compile.
+
+Two controls guard the test itself — the factory map must be non-empty, and at least 20 components
+must actually be checked, so a skip list that swallowed the map would fail rather than pass.
+
+Also fixed: the comment documenting this very contract cited
+`core_resources::init_ui_serde_components`, a function that occurs **once in the whole tree — in
+that comment**. The real site is `register_core_component_metadata`. Anyone verifying the contract
+would have followed the pointer, found nothing, and been unable to tell "unenforced" from "pointer
+wrong".
+
+Found by a full read of `src/app/editor` (36 files, 9,792 lines), which had the lowest test density
+in the repo at 10.6 per 1k lines. The rest of that review is in `docs/NEXT_WORK.md`.
+
+
 ## 0.155.2
 
 ### Three checks that could not fail on what they were named for

@@ -48,7 +48,7 @@ const GHOST_Z_OFFSET: f32 = 0.1;
 /// assert_eq!(trail.lifetime, 0.3);
 /// assert_eq!(trail.start_alpha, 0.4);
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SpriteTrail {
     /// Seconds between ghost snapshots. `<= 0` emits one ghost every frame.
     pub interval: f32,
@@ -57,6 +57,7 @@ pub struct SpriteTrail {
     /// Ghost starting-alpha multiplier applied to the source sprite's alpha (`0.0..=1.0`).
     pub start_alpha: f32,
     /// Time since the last ghost was emitted (runtime state, advanced by [`SpriteTrailSystem`]).
+    #[serde(skip)]
     elapsed: f32,
 }
 

@@ -43,8 +43,10 @@ impl App {
             world.add_component(e, crate::components::PointLight::default());
         });
         // UI widget component factories — names must match the serde registration names
-        // used by `core_resources::init_ui_serde_components` so "+ Add Component" and
-        // scene save/load agree on the key strings.
+        // used by `core_resources::register_core_component_metadata` so "+ Add Component"
+        // and scene save/load agree on the key strings. That agreement is no longer a
+        // convention: `editor::tests::every_editor_addable_component_survives_a_scene_save`
+        // applies every factory below and requires the component back out of the registry.
         self.register_component("UiNode", |world, e| {
             world.add_component(e, crate::ui::UiNode::default());
         });

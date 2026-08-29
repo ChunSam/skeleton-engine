@@ -38,7 +38,7 @@ type EmitterSnapshot = (
 
 /// Shape over which a [`ParticleEmitter`] scatters newly-spawned particles, as an offset from the
 /// emitter's position. `Point` (the default) spawns them all exactly at the emitter.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub enum EmitShape {
     /// All particles spawn at the emitter position.
     #[default]
@@ -83,6 +83,7 @@ pub const DEFAULT_MAX_PER_FRAME: u32 = 64;
 /// Emitter component that spawns particles.
 ///
 /// Attach to an entity together with `Transform`; `ParticleSystem` will create particles.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ParticleEmitter {
     /// Particles spawned per second.
     pub spawn_rate: f32,
