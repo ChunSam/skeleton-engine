@@ -35,7 +35,7 @@ impl Collider {
 /// const LAYER_PLAYER: u32 = 1 << 0;
 /// const LAYER_ENEMY:  u32 = 1 << 1;
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CollisionLayer(pub u32);
 
 impl CollisionLayer {

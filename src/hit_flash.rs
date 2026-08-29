@@ -41,7 +41,7 @@ use crate::tween::Lerp;
 /// assert_eq!(flash.progress(), 0.0);
 /// assert!(!flash.is_finished());
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HitFlash {
     /// The color the sprite snaps to at the start of the flash (e.g. white for a "hit" pop).
     pub color: Color,
@@ -50,9 +50,11 @@ pub struct HitFlash {
     pub secs: f32,
     /// Elapsed time, advanced by [`HitFlashSystem`] (runtime state — read it via
     /// [`progress`](Self::progress)).
+    #[serde(skip)]
     elapsed: f32,
     /// The sprite's color captured when the flash began, faded back to as the flash ends.
     /// `None` until the first system run captures it.
+    #[serde(skip)]
     base: Option<Color>,
 }
 

@@ -102,7 +102,9 @@ more).
 Lib tests: 1443 at v0.153.0 → **1449 at v0.153.1** (#482 added 6 and did not update this line) →
 1461 at v0.153.2 (+12) → **1467 at v0.154.1** (#493 added 6 and did not update this line either —
 twice now, in the very paragraph that records the first time) → **1473 at v0.154.2** (+6, and #495
-updated it here, in the same PR, having read the two entries before it).
+updated it here, in the same PR, having read the two entries before it) → **1479 at v0.155.2**
+(+6 across v0.155.0–v0.155.2, and none of those three updated this line — the fourth time) →
+**1480 at v0.155.3** (+1, the editor save-contract test).
 
 ⚠️ **Measured in this tree after the rebase, not carried over from the PR that moved it.** #494 and
 #495 were both open against the same base; the agreement was that whichever landed second would
