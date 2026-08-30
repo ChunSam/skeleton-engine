@@ -105,7 +105,8 @@ twice now, in the very paragraph that records the first time) → **1473 at v0.1
 updated it here, in the same PR, having read the two entries before it) → **1479 at v0.155.2**
 (+6 across v0.155.0–v0.155.2, and none of those three updated this line — the fourth time) →
 **1480 at v0.155.3** (+1, the editor save-contract test) → **1481 at v0.155.4** (+1, the
-abandoned-drag regression test).
+abandoned-drag regression test) → **1483 at v0.155.5** (+2, the scene-load history regression and
+its control).
 
 ⚠️ **Measured in this tree after the rebase, not carried over from the PR that moved it.** #494 and
 #495 were both open against the same base; the agreement was that whichever landed second would

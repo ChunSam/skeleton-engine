@@ -4,6 +4,47 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.155.5
+
+### Ctrl+Z after a scene load resurrected an entity from the scene it replaced
+
+The editor's 📂 Load despawns every entity and respawns the file's contents, and it cleared the
+selection — but not the undo history. `EditorHistory::clear()` has **one** call site,
+`App::reset_scene`; the editor's own load path replaces the world by hand and never reaches it.
+
+Generation-checked handles make most stale commands harmless: `MoveEntity`, `ResizeEntity` and the
+rest resolve to `None` and do nothing. `DeleteEntity` is the exception, because resurrecting a dead
+entity is its **job** — its undo calls `spawn_entity_def` unconditionally. So: delete something,
+load a different scene, press Ctrl+Z, and an entity from the previous scene appears in the loaded
+one. No diagnostic, and the next save writes it to disk.
+
+Measured before the fix, driving the real `do_load_scene`:
+
+```
+PROBE after load:  ["FromNewScene"]
+PROBE undo stack len: 1
+PROBE after undo:  ["FromNewScene", "FromOldScene"]
+```
+
+`do_load_scene` now clears the history on the success path, which is what
+`EditorHistory::clear()`'s own doc has claimed all along — "called whenever entity identity stops
+being meaningful — a world reset **or a scene load**". The failed-load path deliberately does not:
+nothing was replaced, so the history is still valid.
+
+⚠️ **The test ships with a control, and the control is what makes it mean anything.** "Nothing was
+resurrected" would also be true if `DeleteEntity` undo had simply stopped working, so
+`control_pending_delete_still_undoes_without_a_load` stages the identical command with no load in
+between and requires the entity back. Sabotage-verified: restoring the missing `clear()` reddens
+the regression test by name — `Ctrl+Z after a load resurrected an entity from the replaced scene`
+— while the control keeps passing, so the two are independent rather than propping each other up.
+
+`copy_clipboard` is deliberately **not** cleared here even though `reset_scene` clears it: it holds
+`EntityDef` values rather than handles, so copying between scenes is a feature, not a hazard. That
+difference is now a backlog row rather than a silent divergence.
+
+Found by continuing the `src/app/editor` read-through; see `docs/NEXT_WORK.md`.
+
+
 ## 0.155.4
 
 ### A drag interrupted by the selection going away left the gizmo deaf
