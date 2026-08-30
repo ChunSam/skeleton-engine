@@ -244,17 +244,24 @@ did not fix*, not as a queue that has to be drained.
 ### Open — the 2026-08-28 `src/app/editor` review's remainder
 
 ⚠️ **This review is PARTIAL and the number is the point.** `src/app/editor` is 36 files /
-**9,792 lines** (9,195 non-test), and roughly **2,900** of them have been read — `state.rs`,
-`history.rs`, `docked_rt.rs`, `component_registry.rs`, the gesture paths of `ui/gizmo.rs`, plus
+**9,792 lines** (9,195 non-test), and roughly **3,400** of them have been read — `state.rs`,
+`history.rs`, `docked_rt.rs`, `component_registry.rs`, the gesture paths of `ui/gizmo.rs`, the stroke machinery of `ui/tile_paint.rs`, plus
 the cross-subsystem call sites they reach (`schedule.rs`, `render/docked.rs`, `window.rs`,
 `ui/docked/mod.rs`, `rename.rs`, `prefab.rs`, `core_resources.rs`). **Not yet read**:
-`ui/gizmo_math.rs`, the drawing half of `ui/gizmo.rs`, `ui/tile_paint.rs`, `ui/mod.rs`,
+`ui/gizmo_math.rs`, the drawing half of `ui/gizmo.rs`, the cell-set helpers and tests of
+`ui/tile_paint.rs`, `ui/mod.rs`,
 `loading.rs`, `ui/state_machine_panel.rs`, `ui/data_table_panel.rs`, the seven `ui/docked/*`
 files, `overlays.rs`, `prefab.rs`, `settings.rs`, `i18n.rs`, `theme.rs`.
 Finishing it is a continuation, not a new review.
 
 It was scoped by measurement, not by hunch: at **10.6 tests per 1k lines** the editor had the
 lowest density in the repo — the renderer sat at 10.7 before its own review found 21 items.
+
+⚠️ **Stale doc comments are the recurring shape here, not a one-off.** Three of this review's
+findings are a comment describing behaviour the code does not have — the `clear()` justification,
+the "until package 2" trio, and `update_tile_paint`'s claim that painting does not sync tile
+colliders (fixed in passing; `commit_paint_stroke` has synced since, and `loading.rs:9` said so
+all along). In a repo that cites its own docs as evidence, that is the finding, not the noise.
 
 **Two have shipped.** v0.155.3 — the six editor-addable components a scene could not carry.
 v0.155.4 — a drag abandoned by the selection going away left `rotate_active` set, and the press
@@ -271,13 +278,18 @@ shipped alone rather than riding along with the cleanups.
 | **`RtDebounce::reset` is not called on the exit it documents.** Its doc says "(called when exiting docked mode)". The not-docked branch guards it with `if docked_scene_texture.is_some()`, so exiting before the 3-frame debounce ever fires leaves `candidate`/`stable_count` alive across the mode change; re-entering at the same size then fires after 1–2 frames instead of the documented 3. | `src/app/render/docked.rs:210`, doc at `src/app/editor/docked_rt.rs:156` | A unit test, once the teardown condition is split out as a pure function — the `rt_registration` / `reload_format` pattern. One-line fix: hoist the `reset()` out of the `is_some()` block |
 | **(unproven) `EditorHistory` has no cap.** `push` appends forever; nothing trims. `PaintTiles` stores every changed cell as `(usize, usize, u32, u32)` = 24 B, and Bucket flood-fills a whole region in one stroke. | `src/app/editor/history.rs:72` | A measurement — paint N bucket strokes on a large tilemap and read the stack's heap size. **UNMEASURED**; the severity above is a hypothesis, not a number |
 
+| **(unproven) The stroke buffer is not tied to the entity it was painted on.** `paint_stroke` accumulates `(row, col, old, new)` with no entity, and `commit_paint_stroke(sel)` attributes the whole batch to whatever `sel` is at commit time. If the selection can move to a *different* `Tilemap` mid-stroke — undo/redo set the selection from the keyboard, which no `egui_wants_mouse` guard covers — the batch would be recorded against the wrong tilemap, and undo would then write one map's cells into another. **Not demonstrated**: the reachability of a mid-stroke selection change to a second `Tilemap` has not been shown. | `src/app/editor/ui/tile_paint.rs:330`, `:337` | A unit test driving `update_tile_paint` across a selection change — `App::new()` works headlessly, as `ui/gizmo.rs`'s tests show. Show the reachability first; if it is unreachable, say so and close the row |
+
 **Killed by reading — recorded so they are not re-chased.** Each looked real and is not:
 
 - **Stale `central_rect` after leaving Docked.** It is never cleared (only `EditorState::new` sets it `None`). Harmless: **every** reader is gated on `mode == Docked` — `window.rs:341`, `:400`, `:605`, `gizmo.rs:31`. All four checked.
 - **Entity-id reuse in the undo stack.** Generation-checked; stale handles fail safely. See the `clear()` row for what this *does* break.
 - **Adder/remover drift in the editor registry.** 27 adders, 28 removers, **zero** orphans; the extra remover is `Tag`, which has no adder by design and is re-addable through the rename box (`rename.rs:43` uses `add_component`).
+- **A paint/undo collider asymmetry.** `history.rs` syncs tile colliders on undo *and* redo, and `tile_paint.rs` appeared not to — which would have made redo produce a better world state than the original paint. It does sync, at `commit_paint_stroke`. The grep that "proved" the absence searched for the free function `sync_tilemap_entity_colliders` and missed the `App::sync_tilemap_colliders` wrapper the call actually uses.
 
-⚠️ **Three greps were wrong before the one that held, on the same file.** The name-contract diff read
+⚠️ **Five greps were wrong across this review, and each looked conclusive.** Four of them are
+recorded in the rows and bullets above; the fifth is the collider one just below. The pattern is
+always the same — a *narrower* pattern than the code, reported as an absence. The name-contract diff read
 "9 components unregistered", then 7, then 6 — a line-based pattern missed multi-line
 `registry.register::<T>(\n "Name",` calls, and a second version conflated the serde registry with
 `register_reflect_named`. What settled it was a per-name check **with a control**: the six score 0 in

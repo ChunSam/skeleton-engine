@@ -91,8 +91,11 @@ impl App {
     /// the atlas tile count. Each press→release stroke records every cell it actually
     /// changed and is committed to the editor history as a single
     /// [`EditorCmd::PaintTiles`](crate::app::editor::EditorCmd) so one Ctrl+Z reverts
-    /// the whole stroke. Painting is **visual-only**: tile colliders are not synced
-    /// (that is the app's responsibility via `sync_static_from_tilemap`).
+    /// the whole stroke. A committed stroke also resyncs static tile colliders via
+    /// [`App::sync_tilemap_colliders`], which is a no-op unless the tilemap opted in with a
+    /// `TilemapColliders` component — so undo, redo and the paint itself all leave physics
+    /// agreeing with the tiles. (This doc used to say the opposite, that painting was
+    /// visual-only and syncing was the app's job; `commit_paint_stroke` has done it since.)
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) fn update_tile_paint(
         &mut self,
