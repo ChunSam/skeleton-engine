@@ -84,7 +84,7 @@ impl App {
         window: Option<&winit::window::Window>,
         gpu: &GpuContext,
     ) -> Option<wgpu::TextureView> {
-        use crate::app::editor::docked_rt::docked_viewport;
+        use crate::app::editor::docked_rt::{docked_teardown, docked_viewport, DockedTeardown};
         use crate::app::editor::EditorMode;
 
         if editor.mode == EditorMode::Docked {
@@ -193,14 +193,18 @@ impl App {
                     docked_scene_texture,
                     ..
                 } = &mut *render;
-                if docked_scene_texture.is_some() {
+                // The debounce restarts on every non-docked frame; only the texture teardown is
+                // conditional. `docked_teardown` owns that asymmetry — hanging both off
+                // `is_some()` let a pending stable-frame count survive the mode change.
+                if docked_teardown(&mut editor.rt_debounce, docked_scene_texture.is_some())
+                    == DockedTeardown::FreeTexture
+                {
                     if let (Some(er), Some(old_id)) =
                         (egui_renderer.as_mut(), editor.docked_texture_id.take())
                     {
                         er.free_texture(&old_id);
                     }
                     *docked_scene_texture = None;
-                    editor.rt_debounce.reset();
                 }
             }
             None
