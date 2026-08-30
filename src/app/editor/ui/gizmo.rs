@@ -45,7 +45,11 @@ impl App {
             .unwrap_or(false);
 
         let Some(sel) = self.editor.inspector_selected else {
-            self.editor.gizmo_dragging = false;
+            // Every flag, not just `gizmo_dragging`: the selection can vanish mid-drag (Ctrl+Z
+            // over a `CreateEntity` sets it to `None`) and this return is then the only code
+            // that runs — the release handler is never reached again. See
+            // `EditorState::clear_drag_state`.
+            self.editor.clear_drag_state();
             return;
         };
 
@@ -131,11 +135,7 @@ impl App {
         }
 
         if egui_wants_mouse {
-            self.editor.gizmo_dragging = false;
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                self.editor.resize_handle_active = None;
-            }
+            self.editor.clear_drag_state();
             return;
         }
 
@@ -422,12 +422,7 @@ impl App {
                 }
             }
         } else {
-            self.editor.gizmo_dragging = false;
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                self.editor.resize_handle_active = None;
-                self.editor.rotate_active = false;
-            }
+            self.editor.clear_drag_state();
         }
     }
 
@@ -703,6 +698,78 @@ mod tests {
                 .abs()
                 < 1e-4,
             "undo reverted rotation to 0"
+        );
+    }
+
+    /// A drag interrupted by the selection going away must not leave the gizmo deaf.
+    ///
+    /// `EditorCmd::CreateEntity` undo sets the selection to `None`, and Ctrl+Z is reachable with
+    /// the mouse still held. `update_editor_gizmo` then returns at its `let Some(sel) … else`
+    /// arm on every subsequent frame, so the release handler never runs again. Before
+    /// `EditorState::clear_drag_state` that arm cleared `gizmo_dragging` and nothing else, so
+    /// `rotate_active` survived — and the press guard in `update_transform_gizmo_native`
+    /// requires all three flags clear, so every later gesture was silently refused.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn selection_lost_mid_drag_does_not_deafen_the_gizmo() {
+        fn select_fresh(
+            app: &mut crate::app::App,
+        ) -> (crate::ecs::Entity, crate::components::Transform) {
+            let e = app.world.spawn();
+            app.world.add_component(
+                e,
+                crate::components::Transform::new(glam::Vec2::ZERO, glam::Vec2::splat(20.0), 0.0),
+            );
+            app.editor.inspector_selected = Some(e);
+            app.editor.selected_entities = vec![e];
+            let tr = app
+                .world
+                .get::<crate::components::Transform>(e)
+                .cloned()
+                .unwrap();
+            (e, tr)
+        }
+
+        let mut app = crate::app::App::new();
+        let (e, tr) = select_fresh(&mut app);
+
+        // Press the rotation handle at (0, -26) — a drag is now in progress.
+        app.update_transform_gizmo_native(e, tr, glam::Vec2::new(0.0, -26.0), true, false, false);
+        assert!(
+            app.editor.rotate_active,
+            "precondition: the rotation drag must actually have started, or the rest of this \
+             test proves nothing"
+        );
+
+        // The selection vanishes mid-drag, and frames keep running.
+        app.editor.inspector_selected = None;
+        for _ in 0..5 {
+            app.update_editor_gizmo(&None);
+        }
+        assert!(
+            !app.editor.rotate_active,
+            "the abandoned drag left `rotate_active` set — the release handler is unreachable \
+             once the selection is gone, so nothing else will ever clear it"
+        );
+
+        // The observable consequence: a plain move press on a newly selected entity.
+        let (e2, tr2) = select_fresh(&mut app);
+        app.update_transform_gizmo_native(e2, tr2, glam::Vec2::ZERO, true, false, false);
+        assert!(
+            app.editor.gizmo_dragging,
+            "a press well inside the AABB was refused — the stale flag is still gating the \
+             press guard"
+        );
+
+        // Control: the identical press on a never-dragged App is accepted, so "refused" above
+        // could not have meant "the press coordinates were wrong".
+        let mut clean = crate::app::App::new();
+        let (c, trc) = select_fresh(&mut clean);
+        clean.update_transform_gizmo_native(c, trc, glam::Vec2::ZERO, true, false, false);
+        assert!(
+            clean.editor.gizmo_dragging,
+            "control: this press must be accepted on a clean App, or the assertion above is \
+             not measuring what it claims"
         );
     }
 }

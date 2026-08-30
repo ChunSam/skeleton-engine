@@ -244,19 +244,23 @@ did not fix*, not as a queue that has to be drained.
 ### Open — the 2026-08-28 `src/app/editor` review's remainder
 
 ⚠️ **This review is PARTIAL and the number is the point.** `src/app/editor` is 36 files /
-**9,792 lines** (9,195 non-test), and roughly **2,500** of them have been read — `state.rs`,
-`history.rs`, `docked_rt.rs`, `component_registry.rs`, plus the cross-subsystem call sites they
-reach (`schedule.rs`, `render/docked.rs`, `window.rs`, `ui/docked/mod.rs`, `rename.rs`,
-`prefab.rs`). **Not yet read**: `ui/gizmo.rs`, `ui/gizmo_math.rs`, `ui/tile_paint.rs`,
-`ui/mod.rs`, `loading.rs`, `ui/state_machine_panel.rs`, `ui/data_table_panel.rs`, the seven
-`ui/docked/*` files, `overlays.rs`, `prefab.rs`, `settings.rs`, `i18n.rs`, `theme.rs`.
+**9,792 lines** (9,195 non-test), and roughly **2,900** of them have been read — `state.rs`,
+`history.rs`, `docked_rt.rs`, `component_registry.rs`, the gesture paths of `ui/gizmo.rs`, plus
+the cross-subsystem call sites they reach (`schedule.rs`, `render/docked.rs`, `window.rs`,
+`ui/docked/mod.rs`, `rename.rs`, `prefab.rs`, `core_resources.rs`). **Not yet read**:
+`ui/gizmo_math.rs`, the drawing half of `ui/gizmo.rs`, `ui/tile_paint.rs`, `ui/mod.rs`,
+`loading.rs`, `ui/state_machine_panel.rs`, `ui/data_table_panel.rs`, the seven `ui/docked/*`
+files, `overlays.rs`, `prefab.rs`, `settings.rs`, `i18n.rs`, `theme.rs`.
 Finishing it is a continuation, not a new review.
 
 It was scoped by measurement, not by hunch: at **10.6 tests per 1k lines** the editor had the
 lowest density in the repo — the renderer sat at 10.7 before its own review found 21 items.
 
-**One shipped as v0.155.3** — the six editor-addable components a scene could not carry. That
-one was wrong *behaviour*; everything below is not, which is why it shipped alone.
+**Two have shipped.** v0.155.3 — the six editor-addable components a scene could not carry.
+v0.155.4 — a drag abandoned by the selection going away left `rotate_active` set, and the press
+guard then refused every later gesture (`EditorState::clear_drag_state` now owns that policy for
+all three abandon sites). Both were wrong *behaviour*; everything below is not, which is why each
+shipped alone rather than riding along with the cleanups.
 
 | Item | Where | What settles it |
 |---|---|---|
