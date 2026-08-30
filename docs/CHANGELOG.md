@@ -4,6 +4,48 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.155.4
+
+### A drag interrupted by the selection going away left the gizmo deaf
+
+`update_editor_gizmo` opens with `let Some(sel) = self.editor.inspector_selected else { … }`, and
+that arm cleared **one drag flag of three** — `gizmo_dragging`, but not `resize_handle_active` and
+not `rotate_active`.
+
+The selection can vanish mid-drag: `EditorCmd::CreateEntity` undo sets it to `None`, and Ctrl+Z is
+reachable with the mouse still held. From that frame on the early return is the *only* code that
+runs, so the release handler — the thing that would clear `rotate_active` — is unreachable
+forever. The press guard in `update_transform_gizmo_native` requires all three flags clear, so the
+gizmo then **silently refused every later gesture**: select another entity, press inside it to move
+it, nothing happens.
+
+It self-heals the moment egui takes the pointer (that path did clear all three), which is why it
+was survivable and easy to miss — clicking any editor panel fixes it.
+
+`EditorState::clear_drag_state` now owns the policy and all three abandon sites call it: the
+selection-lost arm, the `UiNode` branch, and the egui-takes-the-pointer branch. Each previously
+cleared its own subset — one, two, and three flags respectively — which is the drift the method
+exists to end. It also clears `gizmo_drag_start_pos` and `gizmo_drag_start_positions`, which were
+latent in the same way. The release path at the end of the rotation handler is untouched: that is
+a completed gesture, not an abandoned one, and it commits an undo entry.
+
+⚠️ **Measured before it was written, and with a control.** A probe drove the real entry point for
+five frames after clearing the selection and printed `rotate_active=true`; a plain move press on a
+freshly selected entity then reported `gizmo_dragging=false` while **the identical press on a clean
+`App` reported `true`**. Without that control, "the press was refused" would have been
+indistinguishable from "the probe used the wrong coordinates".
+
+**Sabotage-verified in both halves separately**, because the first assertion would otherwise mask
+the second: restoring the one-flag clear reddens the `rotate_active` assertion by name, and
+disabling that assertion so the run continues reddens the *consequence* assertion ("a press well
+inside the AABB was refused"). Both are live; neither is carried by the other. The test also keeps
+the control as its last assertion, so a future change that makes the press fail for an unrelated
+reason fails there instead of quietly passing.
+
+Found by continuing the `src/app/editor` read-through — see `docs/NEXT_WORK.md`, which records
+that the review is still partial and what remains unread.
+
+
 ## 0.155.3
 
 ### The Inspector offered six components a scene could not carry

@@ -428,6 +428,28 @@ pub(in crate::app) struct EditorState {
 }
 
 impl EditorState {
+    /// Abandon every in-progress gizmo gesture.
+    ///
+    /// Three sites drop a drag — the selection going away, the `UiNode` branch, and egui taking
+    /// the pointer — and each used to clear its own subset of the flags. The shortest of them
+    /// cleared **one of three**, so a drag interrupted by a selection change (`EditorCmd::
+    /// CreateEntity` undo sets the selection to `None` while the button is still held) left
+    /// `rotate_active` / `resize_handle_active` set with no path to the release handler that
+    /// would clear them. `update_transform_gizmo_native`'s press guard requires all three clear,
+    /// so the gizmo then refused every later gesture until egui happened to take the pointer.
+    ///
+    /// One method so the policy lives in one place rather than being re-remembered per site.
+    pub(in crate::app) fn clear_drag_state(&mut self) {
+        self.gizmo_dragging = false;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.resize_handle_active = None;
+            self.rotate_active = false;
+            self.gizmo_drag_start_pos = None;
+            self.gizmo_drag_start_positions.clear();
+        }
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) fn new() -> Self {
         Self {
