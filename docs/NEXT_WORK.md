@@ -244,8 +244,8 @@ did not fix*, not as a queue that has to be drained.
 ### Open — the 2026-08-28 `src/app/editor` review's remainder
 
 ⚠️ **This review is PARTIAL and the number is the point.** `src/app/editor` is 36 files /
-**9,792 lines** (9,195 non-test), and roughly **4,300** of them have been read — `state.rs`,
-`history.rs`, `docked_rt.rs`, `component_registry.rs`, the gesture paths of `ui/gizmo.rs`, the stroke machinery of `ui/tile_paint.rs`, `ui/docked/save_load.rs`, plus
+**9,792 lines** (9,195 non-test), and roughly **4,700** of them have been read — `state.rs`,
+`history.rs`, `docked_rt.rs`, `component_registry.rs`, the gesture paths of `ui/gizmo.rs`, the stroke machinery of `ui/tile_paint.rs`, `ui/docked/save_load.rs`, `ui/docked/entities_tab.rs`, plus
 the cross-subsystem call sites they reach (`schedule.rs`, `render/docked.rs`, `window.rs`,
 `ui/docked/mod.rs`, `rename.rs`, `prefab.rs`, `core_resources.rs`). **Not yet read**:
 `ui/gizmo_math.rs`, the drawing half of `ui/gizmo.rs`, the cell-set helpers and tests of
@@ -284,6 +284,8 @@ shipped alone rather than riding along with the cleanups.
 | **(unproven) The stroke buffer is not tied to the entity it was painted on.** `paint_stroke` accumulates `(row, col, old, new)` with no entity, and `commit_paint_stroke(sel)` attributes the whole batch to whatever `sel` is at commit time. If the selection can move to a *different* `Tilemap` mid-stroke — undo/redo set the selection from the keyboard, which no `egui_wants_mouse` guard covers — the batch would be recorded against the wrong tilemap, and undo would then write one map's cells into another. **Not demonstrated**: the reachability of a mid-stroke selection change to a second `Tilemap` has not been shown. | `src/app/editor/ui/tile_paint.rs:330`, `:337` | A unit test driving `update_tile_paint` across a selection change — `App::new()` works headlessly, as `ui/gizmo.rs`'s tests show. Show the reachability first; if it is unreachable, say so and close the row |
 
 | **`reset_scene` clears `copy_clipboard`; the editor's scene load does not.** Both replace the world, and after v0.155.5 both clear the undo history — but the clipboard divergence remains, unexplained on either side. It holds `EntityDef` **values**, not handles, so keeping it across a load is defensible (copy in one scene, paste in another) and clearing it on reset may simply be over-caution. Recorded as a divergence with no stated intent, not as a defect. | `src/app/scenes.rs:66` vs `src/app/editor/ui/docked/save_load.rs` | A decision, then one line either way. Whoever takes it should say in a comment which behaviour is intended |
+
+| **Deleting a parent in the editor makes its children jump, and leaves them pointing at a corpse.** 🗑 Delete is `world.despawn(sel)`, which is storage-level only — it does not touch `Parent` / `Children`, and the engine has **no recursive despawn at all** (`src/hierarchy.rs` exports `attach` / `detach` / `reparent` and nothing that removes a subtree). The children keep `Parent(<dead>)`. `HierarchySystem` survives it — `sort_into` treats an unresolvable parent as a root — but the composition arm then falls through to `GlobalTransform::from_transform(local)`, so a child at local `(16, 0)` under a parent at `(500, 300)` stops drawing at `(516, 300)` and starts drawing at `(16, 0)`. Scene save notices separately and logs "parent link dropped". ⚠️ **This is a decision, not a bug to patch**: cascade-delete the subtree, reparent to root preserving world position, or keep today's jump. Nobody would pick the third deliberately, which is why it is filed rather than left. | `src/app/editor/ui/docked/entities_tab.rs:45`, `src/hierarchy.rs:295` | The decision first. Then a unit test — `App::new()` is headless and `HierarchySystem` runs without a GPU, so parent-delete → child `GlobalTransform` is directly assertable |
 
 **Killed by reading — recorded so they are not re-chased.** Each looked real and is not:
 
