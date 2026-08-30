@@ -142,6 +142,14 @@ pub(in crate::app) fn do_load_scene(app: &mut App) {
             }
             app.editor.inspector_selected = None;
             app.editor.selected_entities.clear();
+            // Every `EditorCmd` stores raw `Entity` handles from the scene being replaced.
+            // Generation checks make most of them harmless no-ops, but `DeleteEntity`'s undo
+            // calls `spawn_entity_def` unconditionally — it is *meant* to resurrect a dead
+            // entity — so one Ctrl+Z after a load injects an entity from the previous scene
+            // into this one, silently, and the next save writes it to disk. `App::reset_scene`
+            // has cleared the history for exactly this reason since it was written; this path
+            // despawns and respawns the world itself and so never reached that code.
+            app.editor.cmd_history.clear();
             let count = scene_def.entities.len();
             crate::prefab::spawn_scene_def(&mut app.world, &scene_def);
             app.editor.editor_load_status = Some(format!(
@@ -159,3 +167,102 @@ pub(in crate::app) fn do_load_scene(app: &mut App) {
 // reflect_value_editor is defined in super (ui/mod.rs) without a cfg gate,
 // so both native and wasm can call it.  docked.rs calls it via `super::reflect_value_editor`
 // through `use super::*` at the top of this file.
+
+#[cfg(test)]
+#[cfg(not(target_arch = "wasm32"))]
+mod tests {
+    use crate::app::editor::EditorCmd;
+    use crate::app::App;
+    use crate::ecs::Entity;
+    use crate::prefab::Tag;
+
+    /// Stage the editor's "delete an entity" state: a `DeleteEntity` command on the undo
+    /// stack whose entity is already despawned. Returns the app and the tag it can restore.
+    fn app_with_a_pending_delete() -> App {
+        let mut app = App::new();
+        let e = app.world.spawn();
+        app.world.add_component(e, Tag("FromOldScene".into()));
+        app.world
+            .add_component(e, crate::components::Transform::default());
+        let def = crate::app::editor::prefab::entity_to_def(&app.world, e).expect("def");
+        app.editor
+            .cmd_history
+            .push(EditorCmd::DeleteEntity { entity: None, def });
+        app.world.despawn(e);
+        app
+    }
+
+    fn tags(app: &App) -> Vec<String> {
+        let mut v: Vec<String> = app.world.query::<Tag>().map(|(_, t)| t.0.clone()).collect();
+        v.sort();
+        v
+    }
+
+    fn write_scene(path: &str, tag: &str) {
+        let mut def = crate::prefab::SceneDef::default();
+        def.entities.push(crate::prefab::EntityDef {
+            tag: Some(tag.into()),
+            transform: Some(crate::components::Transform::default()),
+            ..Default::default()
+        });
+        def.save(std::path::Path::new(path)).expect("write scene");
+    }
+
+    /// Loading a scene must drop the undo history, or Ctrl+Z resurrects an entity from the
+    /// scene that was just replaced.
+    ///
+    /// `DeleteEntity`'s undo calls `spawn_entity_def` unconditionally — resurrecting a dead
+    /// entity is its whole job — so generation checks cannot save this one the way they save
+    /// `MoveEntity` and friends. Before the fix this test observed
+    /// `["FromNewScene", "FromOldScene"]` after a single undo.
+    #[test]
+    fn loading_a_scene_drops_the_undo_history() {
+        let dir = std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".into());
+        let path = format!("{dir}/load_drops_history_{}.ron", std::process::id());
+        write_scene(&path, "FromNewScene");
+
+        let mut app = app_with_a_pending_delete();
+        assert_eq!(
+            app.editor.cmd_history.undo_len(),
+            1,
+            "precondition: the history must hold a replayable command, or this test proves \
+             nothing about clearing it"
+        );
+
+        app.editor.editor_save_path = path.clone();
+        super::do_load_scene(&mut app);
+        assert_eq!(
+            tags(&app),
+            vec!["FromNewScene".to_string()],
+            "the load itself must replace the world"
+        );
+
+        let mut sel: Option<Entity> = app.editor.inspector_selected;
+        app.editor.cmd_history.undo(&mut app.world, &mut sel);
+        assert_eq!(
+            tags(&app),
+            vec!["FromNewScene".to_string()],
+            "Ctrl+Z after a load resurrected an entity from the replaced scene"
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Control: the same staged command DOES restore its entity when no load intervenes.
+    ///
+    /// Without this, the assertion above would also pass if `DeleteEntity` undo had simply
+    /// stopped working — "nothing was resurrected" would be indistinguishable from "undo is
+    /// broken".
+    #[test]
+    fn control_pending_delete_still_undoes_without_a_load() {
+        let mut app = app_with_a_pending_delete();
+        let mut sel: Option<Entity> = None;
+        app.editor.cmd_history.undo(&mut app.world, &mut sel);
+        assert_eq!(
+            tags(&app),
+            vec!["FromOldScene".to_string()],
+            "control: with no scene load in between, undo must bring the entity back — \
+             otherwise the sibling test is vacuous"
+        );
+    }
+}
