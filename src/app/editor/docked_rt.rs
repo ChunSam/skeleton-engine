@@ -185,10 +185,40 @@ impl RtDebounce {
         }
     }
 
-    /// Reset debounce state (called when exiting docked mode).
+    /// Reset debounce state. Called on every non-docked frame through [`docked_teardown`], which
+    /// is what makes "3 stable frames" the rule a *re-entered* docked session obeys too.
     pub fn reset(&mut self) {
         self.candidate = None;
         self.stable_count = 0;
+    }
+}
+
+/// What a non-Docked frame must do with the docked render-target state.
+#[derive(Debug, PartialEq, Eq)]
+pub enum DockedTeardown {
+    /// An offscreen texture exists: free its egui registration and drop it.
+    FreeTexture,
+    /// Nothing to free — every non-docked frame after the first, and the case this enum exists
+    /// for: a mode exit that happened before the debounce had ever fired.
+    Nothing,
+}
+
+/// What leaving (or being outside) Docked mode does to the render-target state.
+///
+/// **The debounce restart is unconditional; the texture teardown is not.** That asymmetry is the
+/// entire content of this function, and it is why the function mutates rather than returning a
+/// plan: the reset cannot be forgotten by a caller that only handles the texture.
+///
+/// Until v0.155.7 both hung off `docked_scene_texture.is_some()`, so an exit that happened before
+/// the debounce ever fired — no RT had been created yet — carried `candidate` and `stable_count`
+/// across the mode change. Re-entering at that same size then recreated the RT after **1–2**
+/// frames instead of the 3 [`RtDebounce`] documents, because the stale count was still counting.
+pub fn docked_teardown(debounce: &mut RtDebounce, has_texture: bool) -> DockedTeardown {
+    debounce.reset();
+    if has_texture {
+        DockedTeardown::FreeTexture
+    } else {
+        DockedTeardown::Nothing
     }
 }
 
@@ -239,6 +269,53 @@ mod tests {
     }
 
     // ── EditorMode transitions ─────────────────────────────────────────────
+
+    #[test]
+    fn leaving_docked_before_the_debounce_fires_restarts_the_count() {
+        // Enter docked and sit two frames at one size. The rule is three, so no RT was created.
+        let mut d = RtDebounce::default();
+        assert!(d.tick((800, 600), None).is_none());
+        assert!(d.tick((800, 600), None).is_none());
+
+        // Leave docked mode. No texture exists — the exact case that used to skip the reset and
+        // carry `stable_count = 2` into the next docked session.
+        assert_eq!(docked_teardown(&mut d, false), DockedTeardown::Nothing);
+
+        // Re-enter at the same size: the documented three stable frames, counted from the top.
+        assert!(
+            d.tick((800, 600), None).is_none(),
+            "frame 1 after re-entry — before v0.155.7 the stale count made this fire immediately"
+        );
+        assert!(d.tick((800, 600), None).is_none(), "frame 2 after re-entry");
+        assert_eq!(
+            d.tick((800, 600), None),
+            Some((800, 600)),
+            "frame 3 — control: the debounce still fires at all, so the two Nones above are the \
+             rule being obeyed rather than the debounce being broken"
+        );
+    }
+
+    #[test]
+    fn a_teardown_with_a_live_texture_restarts_the_debounce_too() {
+        // The half that always reset. It must keep doing so — the fix generalises this branch,
+        // it does not move the reset from one branch to the other.
+        let mut d = RtDebounce::default();
+        assert!(d.tick((800, 600), None).is_none());
+        assert!(d.tick((800, 600), None).is_none());
+        assert_eq!(docked_teardown(&mut d, true), DockedTeardown::FreeTexture);
+        assert!(d.tick((800, 600), None).is_none(), "frame 1 after re-entry");
+        assert!(d.tick((800, 600), None).is_none(), "frame 2 after re-entry");
+        assert_eq!(d.tick((800, 600), None), Some((800, 600)), "frame 3");
+    }
+
+    #[test]
+    fn only_the_texture_half_of_the_teardown_is_conditional() {
+        // Control against the over-correction: an unconditional *reset* must not drag the texture
+        // teardown along with it, which would free a registration that does not exist.
+        let mut d = RtDebounce::default();
+        assert_eq!(docked_teardown(&mut d, true), DockedTeardown::FreeTexture);
+        assert_eq!(docked_teardown(&mut d, false), DockedTeardown::Nothing);
+    }
 
     #[test]
     fn f1_transitions() {

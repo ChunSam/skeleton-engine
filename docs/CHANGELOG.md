@@ -4,6 +4,36 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.155.7
+
+### `RtDebounce::reset` was not called on the exit its doc names
+
+The docked render target is recreated only after its target size has been identical for three
+consecutive frames, and `RtDebounce::reset`'s doc said it was "called when exiting docked mode".
+The non-docked branch guarded both halves of the teardown with `docked_scene_texture.is_some()`,
+so an exit that happened before the debounce had ever fired — no RT created yet — carried
+`candidate` and `stable_count` across the mode change. Re-entering at that same size then found
+the count still at 1 or 2 and recreated the RT after **1–2** frames rather than 3.
+
+`docked_rt::docked_teardown` now owns the asymmetry: the debounce restart is unconditional, the
+texture teardown is not. It mutates rather than returning a plan, so a caller that only handles the
+texture cannot forget the reset — the same reason `rt_registration` and `reload_format` are shaped
+the way they are, one step further.
+
+⚠️ **Reachability is the weak half of this row, and it is stated rather than implied.** The stale
+count survives only when *no* RT exists at the exit, and every teardown after the first RT resets
+correctly — so it takes leaving docked mode within two frames of a still-unstable target size.
+That is ~33 ms at 60 fps and a third of a second in a debug build at 6 fps, which is where the
+editor is actually driven. What is true regardless of frame rate is that the doc claimed a call the
+code did not make.
+
+Three tests over the split-out decision, sabotage-verified by reinstating the pre-fix shape (both
+halves hanging off `has_texture`): `leaving_docked_before_the_debounce_fires_restarts_the_count`
+goes red on its first re-entry frame (exit 101), **alone** — the live-texture path and the
+"only the texture half is conditional" control both stay green, so neither is propping it up. Its
+own control is the third re-entry frame, which must still fire: two `None`s are the rule being
+obeyed only if the debounce is working at all.
+
 ## 0.155.6
 
 ### A window too small for a central panel published a 1x1 viewport nothing rendered at
