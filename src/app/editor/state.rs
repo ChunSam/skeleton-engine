@@ -278,8 +278,10 @@ pub(in crate::app) struct EditorState {
     /// The central viewport rect expressed as `(x, y, width, height)` in logical
     /// points.  `None` until the first docked frame computes it.
     ///
-    /// **Package 2 contract**: write this field from the real egui panel rects once
-    /// side panels are laid out.  The docked scene render reads it every frame.
+    /// Written every docked frame from the real egui panel bounds (`ui/docked::draw`, the
+    /// central panel's own response rect), so `None` means the first frames of a session and
+    /// nothing else — `docked_rt::docked_viewport` stands in with fallback margins there, and
+    /// both the scene render and the published `ViewportSize` read it through that one call.
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) central_rect: Option<egui::Rect>,
 
