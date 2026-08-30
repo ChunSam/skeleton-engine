@@ -1,5 +1,6 @@
-/// Placeholder margins (logical points) used to compute the central rect
-/// until package 2 replaces them with real egui panel sizes.
+/// Fallback margins (logical points) for the frames before the docked UI has published a real
+/// panel rect — the first frames of a session, and only those: `ui/docked` writes
+/// `EditorState::central_rect` from the real egui panel bounds every docked frame thereafter.
 ///
 /// | Side   | Logical points |
 /// |--------|---------------|
@@ -7,10 +8,15 @@
 /// | Right  | 300           |
 /// | Top    | 36            |
 /// | Bottom | 160           |
-pub const MARGIN_LEFT: f32 = 260.0;
-pub const MARGIN_RIGHT: f32 = 300.0;
-pub const MARGIN_TOP: f32 = 36.0;
-pub const MARGIN_BOTTOM: f32 = 160.0;
+///
+/// **Deliberately private.** The subtraction is the policy, and it used to live in two places —
+/// `App::compute_viewport` re-derived it by hand and disagreed with the renderer on windows too
+/// small to hold a central panel (v0.155.6). Reach it through [`docked_viewport`], which is now
+/// the only door: nothing outside this module can spell the formula a second time.
+const MARGIN_LEFT: f32 = 260.0;
+const MARGIN_RIGHT: f32 = 300.0;
+const MARGIN_TOP: f32 = 36.0;
+const MARGIN_BOTTOM: f32 = 160.0;
 
 /// Number of consecutive stable frames required before the RT is recreated.
 const STABLE_FRAMES: u8 = 3;
@@ -19,7 +25,7 @@ const STABLE_FRAMES: u8 = 3;
 /// minus the fixed placeholder margins.
 ///
 /// Returns `None` when either dimension would be zero or negative.
-pub fn compute_central_rect(window_logical_w: f32, window_logical_h: f32) -> Option<egui::Rect> {
+fn compute_central_rect(window_logical_w: f32, window_logical_h: f32) -> Option<egui::Rect> {
     let x = MARGIN_LEFT;
     let y = MARGIN_TOP;
     let w = window_logical_w - MARGIN_LEFT - MARGIN_RIGHT;
@@ -35,7 +41,7 @@ pub fn compute_central_rect(window_logical_w: f32, window_logical_h: f32) -> Opt
 
 /// Convert a logical-point rect to its physical-pixel size using the display
 /// scale factor.  Returns `None` when either dimension rounds to zero.
-pub fn rect_to_physical(rect: egui::Rect, scale: f32) -> Option<(u32, u32)> {
+fn rect_to_physical(rect: egui::Rect, scale: f32) -> Option<(u32, u32)> {
     let pw = (rect.width() * scale).round() as u32;
     let ph = (rect.height() * scale).round() as u32;
     if pw == 0 || ph == 0 {
@@ -43,6 +49,32 @@ pub fn rect_to_physical(rect: egui::Rect, scale: f32) -> Option<(u32, u32)> {
     } else {
         Some((pw, ph))
     }
+}
+
+/// The docked scene viewport for this frame — the logical rect **and** its physical pixel
+/// size — or `None` when the window leaves no room for one.
+///
+/// **One decision, two consumers.** `Renderer::prepare_docked_scene_view` sizes the offscreen
+/// render target from the physical half and skips the scene render when this is `None`;
+/// `App::compute_viewport` publishes the logical half as `ViewportSize` and holds the previous
+/// value when this is `None`. Both must reach the same verdict from the same inputs: a
+/// `ViewportSize` published for a frame that is never rendered describes a viewport no frame
+/// matches. A hand-rolled second copy of the margin subtraction did exactly that until v0.155.6
+/// — below 561x197 logical points it published a **1x1** viewport while the renderer drew
+/// nothing.
+///
+/// Sources, in order: the real egui central-panel rect once `ui/docked` has published one
+/// (`EditorState::central_rect`), else [`compute_central_rect`]'s placeholder margins for the
+/// first frames of a session.
+pub fn docked_viewport(
+    central_rect: Option<egui::Rect>,
+    window_logical_w: f32,
+    window_logical_h: f32,
+    scale: f32,
+) -> Option<(egui::Rect, (u32, u32))> {
+    let rect = central_rect.or_else(|| compute_central_rect(window_logical_w, window_logical_h))?;
+    let physical = rect_to_physical(rect, scale)?;
+    Some((rect, physical))
 }
 
 /// Translate a window-space logical mouse position into game-viewport coordinates.
@@ -331,5 +363,102 @@ mod tests {
             Some(rect),
             Some(&ctx)
         ));
+    }
+
+    // ── docked_viewport: one decision, two consumers ───────────────────────────
+
+    #[test]
+    fn docked_viewport_prefers_the_real_panel_rect() {
+        // Once `ui/docked` has published a rect, the fallback margins must not be consulted:
+        // a panel narrower than the margins would otherwise disagree with what egui drew.
+        let panel = egui::Rect::from_min_size(egui::pos2(300.0, 40.0), egui::vec2(400.0, 250.0));
+        let (rect, physical) = docked_viewport(Some(panel), 1280.0, 720.0, 1.0).unwrap();
+        assert_eq!(rect, panel);
+        assert_eq!(physical, (400, 250));
+        // Control: the same window with no published rect yields the margin fallback instead,
+        // so the assertion above is about precedence and not about the window being ignored.
+        let (fallback, _) = docked_viewport(None, 1280.0, 720.0, 1.0).unwrap();
+        assert_eq!(fallback.width(), 1280.0 - MARGIN_LEFT - MARGIN_RIGHT);
+        assert_ne!(fallback, panel);
+    }
+
+    #[test]
+    fn a_window_too_small_for_a_central_panel_has_no_viewport_at_all() {
+        // The v0.155.6 defect: `App::compute_viewport` re-derived the margin subtraction by hand
+        // with a `.max(1.0)` floor and published a **1x1** `ViewportSize` here, while
+        // `prepare_docked_scene_view` skipped the scene render from the same inputs. Every system
+        // reading the viewport then ran against a size no frame matched.
+        // Horizontal margin is 260 + 300 = 560, vertical 36 + 160 = 196; a rect needs 1 pt of each.
+        assert!(
+            docked_viewport(None, 560.0, 800.0, 1.0).is_none(),
+            "one point too narrow for a central panel"
+        );
+        assert!(
+            docked_viewport(None, 1000.0, 196.0, 1.0).is_none(),
+            "one point too short for a central panel"
+        );
+        // Controls — one point wider / taller and a viewport exists, so the two assertions above
+        // are not passing merely because the whole neighbourhood is empty.
+        assert_eq!(
+            docked_viewport(None, 561.0, 800.0, 1.0).map(|(_, p)| p),
+            Some((1, 604))
+        );
+        assert_eq!(
+            docked_viewport(None, 1000.0, 197.0, 1.0).map(|(_, p)| p),
+            Some((440, 1))
+        );
+    }
+
+    #[test]
+    fn a_panel_rect_that_rounds_to_zero_physical_pixels_has_no_viewport_either() {
+        // A squeezed window can leave egui itself handing back a sub-pixel central panel. The
+        // renderer has always refused it (no RT can be one-zero-th of a pixel wide); the
+        // published viewport used to take it verbatim, because it branched on the rect alone.
+        let sliver = egui::Rect::from_min_size(egui::pos2(260.0, 36.0), egui::vec2(0.4, 100.0));
+        assert!(docked_viewport(Some(sliver), 1280.0, 720.0, 1.0).is_none());
+        // Control: the same sliver on a 2x display rounds up to one real pixel and is renderable,
+        // so the refusal above is about the physical size and not about the rect's shape.
+        assert_eq!(
+            docked_viewport(Some(sliver), 1280.0, 720.0, 2.0).map(|(_, p)| p),
+            Some((1, 200))
+        );
+    }
+
+    #[test]
+    fn the_published_size_and_the_render_target_size_are_one_decision() {
+        // The invariant that makes the two consumers agree: whenever a viewport exists, the
+        // logical rect `App::compute_viewport` publishes is exactly the one
+        // `prepare_docked_scene_view` sizes its offscreen target from — and when none exists,
+        // neither consumer gets a size to use.
+        let mut renderable = 0;
+        let mut skipped = 0;
+        for &(w, h) in &[
+            (200.0, 100.0),   // both axes too small
+            (560.0, 800.0),   // too narrow by one point
+            (561.0, 800.0),   // the narrowest renderable window
+            (1000.0, 196.0),  // too short by one point
+            (1000.0, 197.0),  // the shortest renderable window
+            (1280.0, 720.0),  // ordinary
+            (3840.0, 2160.0), // large
+        ] {
+            for &scale in &[1.0, 1.5, 2.0] {
+                match docked_viewport(None, w, h, scale) {
+                    Some((rect, physical)) => {
+                        renderable += 1;
+                        assert_eq!(
+                            rect_to_physical(rect, scale),
+                            Some(physical),
+                            "{w}x{h} @{scale}: the published rect and the RT size disagree"
+                        );
+                    }
+                    None => skipped += 1,
+                }
+            }
+        }
+        // Control against a vacuous sweep: both arms must actually be reached.
+        assert!(
+            renderable > 0 && skipped > 0,
+            "sweep exercised only one arm ({renderable} renderable, {skipped} skipped)"
+        );
     }
 }

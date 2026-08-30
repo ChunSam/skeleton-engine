@@ -4,6 +4,54 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.155.6
+
+### A window too small for a central panel published a 1x1 viewport nothing rendered at
+
+Two consumers derived the docked editor's viewport from the same inputs and disagreed about the
+degenerate case. `prepare_docked_scene_view` took `central_rect.or_else(compute_central_rect)` and
+skipped the scene render when it came back `None` — narrower than **561** or shorter than **197**
+logical points and the fixed panel margins (260 + 300 wide, 36 + 160 tall) leave no room for a
+central panel at all.
+`App::compute_viewport` took the same `or_else`, then re-derived the margin subtraction **by hand**
+with a `.max(1.0)` floor and published the result as `ViewportSize`. Below the threshold that is a
+**1x1** viewport: the game camera, screen-space UI layout and `Camera::screen_to_world` all ran
+against a size no frame matched. Reachable by dragging the window narrow and recoverable by dragging
+it back, so a wrong state rather than a stuck one.
+
+Both branches now come from one function — `docked_rt::docked_viewport`, which returns the logical
+rect **and** its physical pixel size, or `None`. The renderer skips the frame on `None`;
+`compute_viewport` **holds** the previously published `ViewportSize` rather than inventing one,
+because a frame that renders no scene has no viewport to describe.
+
+⚠️ **The sub-pixel half was worse than the row that filed this.** The hand-rolled arm branched on
+the *rect* alone, so a central panel egui itself had squeezed to a fraction of a point was published
+verbatim — a 0.4-wide viewport — while the renderer refused it, since no render target can be zero
+pixels wide. Both gates live inside the shared function now.
+
+**Enforced by construction, not by care.** `MARGIN_LEFT`/`RIGHT`/`TOP`/`BOTTOM`,
+`compute_central_rect` and `rect_to_physical` are private to `docked_rt` as of this release, so
+nothing outside the module can spell the subtraction a second time. None of them was public API —
+`docked_rt` is `pub(super)` and appears nowhere in `src/lib.rs`.
+
+Four tests over the pure function, sabotage-verified by reinstating each half of the arm they
+replaced. Each half reddens its own test and no other (exit 101 both times):
+
+| Reinstated | What went red |
+|---|---|
+| the clamped hand-rolled fallback | `a_window_too_small_for_a_central_panel_has_no_viewport_at_all` ("one point too narrow") **and** the sweep's own control, `sweep exercised only one arm (21 renderable, 0 skipped)` |
+| the rect-only branch (no physical gate) | `a_panel_rect_that_rounds_to_zero_physical_pixels_has_no_viewport_either`, alone |
+
+Every test carries a control, because "no viewport" is as easy to pass by accident as any other
+absence: one point wider or taller must produce a viewport, and the same sub-pixel panel on a 2x
+display must round up to one real pixel and render.
+
+Also gone: all three **"until package 2 replaces them"** comments. Package 2 landed — `ui/docked`
+writes the real panel rect every docked frame — and the margins those comments called scaffolding
+are the live fallback for the first frames of a session, which is now what they say.
+
+Found by continuing the `src/app/editor` read-through; see `docs/NEXT_WORK.md`.
+
 ## 0.155.5
 
 ### Ctrl+Z after a scene load resurrected an entity from the scene it replaced

@@ -213,7 +213,10 @@ impl App {
     /// `DisplayScaleFactor` resources that the rest of the frame reads.
     ///
     /// In Docked editor mode (native), the viewport is narrowed to the central panel rect so the
-    /// game camera and screen-space UI do not see the panel chrome.
+    /// game camera and screen-space UI do not see the panel chrome. The rect comes from
+    /// `docked_rt::docked_viewport` — the same call the renderer sizes the offscreen target from —
+    /// and when it yields `None` (window too small for a central panel) the previous
+    /// [`ViewportSize`] is held rather than replaced, because that frame renders no scene.
     ///
     /// Caller must ensure `self.gpu.is_some()` before calling.
     fn compute_viewport(&mut self) {
@@ -291,40 +294,40 @@ impl App {
 
         #[cfg(not(target_arch = "wasm32"))]
         let (viewport_size, letterbox) = {
-            use crate::app::editor::docked_rt::compute_central_rect;
+            use crate::app::editor::docked_rt::docked_viewport;
             use crate::app::editor::EditorMode;
             if self.editor.mode == EditorMode::Docked {
                 // The docked editor owns the viewport (the central panel rect); the design
-                // resolution does not apply there.
-                let rect = self
-                    .editor
-                    .central_rect
-                    .or_else(|| compute_central_rect(win_logical_w, win_logical_h));
-                let vp = match rect {
-                    Some(r) => ViewportSize {
-                        width: r.width(),
-                        height: r.height(),
-                    },
-                    None => ViewportSize {
-                        width: (win_logical_w
-                            - crate::app::editor::docked_rt::MARGIN_LEFT
-                            - crate::app::editor::docked_rt::MARGIN_RIGHT)
-                            .max(1.0),
-                        height: (win_logical_h
-                            - crate::app::editor::docked_rt::MARGIN_TOP
-                            - crate::app::editor::docked_rt::MARGIN_BOTTOM)
-                            .max(1.0),
-                    },
-                };
+                // resolution does not apply there. `None` is the frame `prepare_docked_scene_view`
+                // skips from this same call — the window is too small for a central panel — so
+                // there is no rendered frame for a ViewportSize to describe. Hold the last one
+                // instead of publishing a size no frame matches; dragging the window back wide
+                // resumes normally.
+                let vp = docked_viewport(
+                    self.editor.central_rect,
+                    win_logical_w,
+                    win_logical_h,
+                    scale_factor,
+                )
+                .map(|(r, _)| ViewportSize {
+                    width: r.width(),
+                    height: r.height(),
+                });
                 (vp, Letterbox::IDENTITY)
             } else {
-                apply_design(win_logical_w, win_logical_h)
+                let (vp, letterbox) = apply_design(win_logical_w, win_logical_h);
+                (Some(vp), letterbox)
             }
         };
         #[cfg(target_arch = "wasm32")]
-        let (viewport_size, letterbox) = apply_design(win_logical_w, win_logical_h);
+        let (viewport_size, letterbox) = {
+            let (vp, letterbox) = apply_design(win_logical_w, win_logical_h);
+            (Some(vp), letterbox)
+        };
 
-        self.world.insert_resource(viewport_size);
+        if let Some(viewport_size) = viewport_size {
+            self.world.insert_resource(viewport_size);
+        }
         self.world.insert_resource(letterbox);
         self.world.insert_resource(DisplayScaleFactor(scale_factor));
     }
