@@ -79,10 +79,57 @@ pub(in crate::app) enum EditorCmd {
     },
 }
 
-#[derive(Default)]
+/// Default heap budget for the two stacks, in bytes.
+///
+/// **Not a command count, and that is the finding.** Measured 2026-08-31 on a 256x256 tilemap:
+/// one Bucket fill retains **1.50 MB** (65,536 cells x 24 B), so 50 of them retain 75 MB — while
+/// **1,000 freehand strokes** retain **70.75 KB** all in. Four orders of magnitude between two
+/// ordinary editor gestures, so a cap counted in commands is either useless or absurd depending
+/// on which gesture the user favours.
+const DEFAULT_HEAP_BUDGET_BYTES: usize = 64 * 1024 * 1024;
+
+/// Approximate heap held by one command, excluding the enum itself.
+///
+/// **Exact for `PaintTiles`** — the only variant whose payload scales with the size of the edit,
+/// and the only one that has ever mattered. The def-carrying variants are counted as their
+/// `EntityDef`s plus the two `String`s each: an `EntityDef` also holds a
+/// `HashMap<String, ron::Value>` whose deep size cannot be read without walking every value, which
+/// would cost more than the accounting saves. That under-counts, so the budget is a floor rather
+/// than a ceiling — stated rather than papered over.
+fn cmd_heap_bytes(cmd: &EditorCmd) -> usize {
+    fn def_bytes(def: &crate::prefab::EntityDef) -> usize {
+        std::mem::size_of::<crate::prefab::EntityDef>()
+            + def.tag.as_ref().map_or(0, |s| s.len())
+            + def.parent.as_ref().map_or(0, |s| s.len())
+            + def.components.len() * std::mem::size_of::<(String, ron::Value)>()
+    }
+    match cmd {
+        EditorCmd::PaintTiles { changes, .. } => {
+            changes.capacity() * std::mem::size_of::<(usize, usize, u32, u32)>()
+        }
+        EditorCmd::DeleteEntity { defs, .. } => defs
+            .iter()
+            .map(|(d, _)| def_bytes(d) + std::mem::size_of::<Option<usize>>())
+            .sum(),
+        EditorCmd::CreateEntity { def, .. } => def.as_ref().map_or(0, def_bytes),
+        _ => 0,
+    }
+}
+
 pub(in crate::app) struct EditorHistory {
     undo: Vec<EditorCmd>,
     redo: Vec<EditorCmd>,
+    /// Trim threshold for [`Self::retained_bytes`]. Defaults to [`DEFAULT_HEAP_BUDGET_BYTES`];
+    /// a test lowers it rather than allocating 64 MB to reach it.
+    pub(in crate::app) budget_bytes: usize,
+}
+
+impl Default for EditorHistory {
+    /// ⚠️ Hand-written, not derived: a derived `Default` would set `budget_bytes` to **0** and
+    /// trim the history down to one command on every push.
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl EditorHistory {
@@ -90,7 +137,39 @@ impl EditorHistory {
         Self {
             undo: Vec::new(),
             redo: Vec::new(),
+            budget_bytes: DEFAULT_HEAP_BUDGET_BYTES,
         }
+    }
+
+    /// Approximate heap held by both stacks' payloads. See [`cmd_heap_bytes`] for what
+    /// "approximate" covers.
+    pub(in crate::app) fn retained_bytes(&self) -> usize {
+        self.undo
+            .iter()
+            .chain(self.redo.iter())
+            .map(cmd_heap_bytes)
+            .sum()
+    }
+
+    /// Drop the **oldest** commands until the stacks fit [`Self::budget_bytes`].
+    ///
+    /// The newest is never dropped, so the action the user just took stays undoable even when it
+    /// alone exceeds the budget — a Bucket fill on a large tilemap is exactly that case.
+    ///
+    /// The total is recomputed rather than kept as a running tally: this runs once per user
+    /// action, where an O(n) sum is free, and an incremental counter is one missed subtraction
+    /// away from being silently wrong in a direction nothing would notice.
+    fn trim_to_budget(&mut self) {
+        let mut total = self.retained_bytes();
+        if total <= self.budget_bytes {
+            return;
+        }
+        let mut drop_count = 0;
+        while drop_count + 1 < self.undo.len() && total > self.budget_bytes {
+            total -= cmd_heap_bytes(&self.undo[drop_count]);
+            drop_count += 1;
+        }
+        self.undo.drain(..drop_count);
     }
 
     /// Drops both stacks. Called whenever entity identity stops being meaningful — a world
@@ -126,6 +205,9 @@ impl EditorHistory {
     pub(in crate::app) fn push(&mut self, cmd: EditorCmd) {
         self.undo.push(cmd);
         self.redo.clear();
+        // Nothing else trims: `undo`/`redo` move commands between the stacks without changing
+        // the total, and `clear` drops everything.
+        self.trim_to_budget();
     }
 
     pub(in crate::app) fn undo(&mut self, world: &mut World, selected: &mut Option<Entity>) {
