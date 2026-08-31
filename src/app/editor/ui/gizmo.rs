@@ -50,6 +50,12 @@ impl App {
             // that runs — the release handler is never reached again. See
             // `EditorState::clear_drag_state`.
             self.editor.clear_drag_state();
+            // A tile-paint stroke is abandoned by the same event, and clearing flags is not
+            // enough: its cells are already on the map, so it is committed against the tilemap
+            // it was painted on. Left standing, it used to be carried into the *next* stroke on
+            // a different tilemap and undone against that one (v0.155.8).
+            #[cfg(not(target_arch = "wasm32"))]
+            self.finish_paint_stroke();
             return;
         };
 
@@ -62,11 +68,11 @@ impl App {
                 self.editor.gizmo_dragging = false;
                 return;
             }
-            // Selection is no longer a Tilemap — leave paint mode cleanly.
+            // Selection is no longer a Tilemap — leave paint mode cleanly. The stroke is
+            // committed rather than dropped: those cells are on the map either way, and the
+            // batch knows which tilemap they belong to.
+            self.finish_paint_stroke();
             self.editor.paint_mode = false;
-            self.editor.paint_active = false;
-            self.editor.paint_stroke.clear();
-            self.editor.paint_anchor = None;
         }
 
         // ── Branch: UiNode (screen-space) vs Transform (world-space) ─────────

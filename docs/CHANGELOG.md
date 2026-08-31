@@ -4,6 +4,58 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.155.8
+
+### A tile-paint stroke could be committed against a tilemap it was never painted on
+
+`EditorState::paint_stroke` accumulates `(row, col, old, new)` with no entity, and
+`commit_paint_stroke` attributed the whole batch to whatever was selected at release time. Those
+are the same tilemap right up until a stroke outlives its selection, and one does: Ctrl+Z over an
+`EditorCmd::CreateEntity` sets the selection to `None`, and it is reachable with the button still
+held — the same event v0.155.4 fixed for the gizmo, at the same `let Some(sel) … else` arm.
+`update_editor_gizmo` then returns there every frame, so the release handler never runs again:
+`paint_active` stayed set and the cells stayed buffered. The **next** stroke on a different tilemap
+skipped its own `clear()` — guarded on `!paint_active` — and committed both maps' cells under one
+`PaintTiles { entity }`.
+
+Measured on the bug, A(0,0) starting at 1 and B all zeros:
+
+```
+PROBE mid-stroke on A:     paint_active=true  stroke=[(0, 0, 1, 3)]
+PROBE after selection lost: paint_active=true stroke=[(0, 0, 1, 3)]   ← nothing cleared it
+PROBE after B stroke:      A(0,0)=3 B(0,0)=0 B(2,2)=3
+PROBE after undo:          A(0,0)=3 B(0,0)=1 B(2,2)=0
+```
+
+One undo put **B(0,0) = 1** — a tile only A ever had, at a cell nobody painted in B — and left A's
+own paint standing at 3 with no history entry to undo it.
+
+⚠️ **The filed row named the wrong route, and reading alone would have closed it wrongly.** It
+supposed the selection moving to *another `Tilemap`* mid-stroke and flagged that as
+undemonstrated. That path exists and is fixed here too, but the reachable one goes through `None`
+and a stale `paint_active` — the flag surviving is what disarms the next stroke's `clear()`. The
+probe above is what separated them.
+
+The fix is the row's own title: the buffer is tied to the entity it was painted on.
+`EditorState::paint_entity` is captured when a stroke starts and is what `commit_paint_stroke`
+attributes to. Two sites end a stroke that cannot reach its release handler — the selection going
+to `None`, and the selection ceasing to be a `Tilemap` — and both now **commit** it rather than
+dropping it, because those cells are on the map either way; dropping the batch is what makes a
+paint un-undoable. A third guard ends the stroke when the selection moves to a different tilemap
+mid-drag, so the two-tilemap case cannot arise at all. `paint_mode` is deliberately left alone on
+the `None` path: re-selecting a tilemap resumes painting.
+
+Three branches, three sabotages, each red on its own assertion (exit 101 every time):
+
+| Reinstated | What went red |
+|---|---|
+| the abandon site doing nothing | `a_stroke_abandoned_by_the_selection_…` — "the abandoned stroke is still standing" |
+| attributing the batch to the current selection | `a_selection_change_to_another_tilemap_…` — "the second undo reverts A" |
+| no ownership guard in `update_tile_paint` | `a_selection_change_to_another_tilemap_…` — "the first undo reverts B" |
+
+Both tests carry controls that separate "the undo did nothing" from "the undo landed on the wrong
+map": B's own cell must revert on its own undo, and A must **not** move on B's.
+
 ## 0.155.7
 
 ### `RtDebounce::reset` was not called on the exit its doc names

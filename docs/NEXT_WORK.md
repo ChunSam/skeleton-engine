@@ -257,13 +257,20 @@ Finishing it is a continuation, not a new review.
 It was scoped by measurement, not by hunch: at **10.6 tests per 1k lines** the editor had the
 lowest density in the repo — the renderer sat at 10.7 before its own review found 21 items.
 
+⚠️ **Two rows filed as "unproven" have now been settled by running them, and the first went the
+way the file keeps predicting**: the stroke-buffer row was right that something was broken and
+wrong about how it was reached, and a 40-line probe separated the two in one run where re-reading
+had not. Its sibling — `EditorHistory` has no cap — is still **UNMEASURED**.
+
 ⚠️ **Stale doc comments are the recurring shape here, not a one-off.** Three of this review's
 findings are a comment describing behaviour the code does not have — the `clear()` justification,
 the "until package 2" trio, and `update_tile_paint`'s claim that painting does not sync tile
 colliders (fixed in passing; `commit_paint_stroke` has synced since, and `loading.rs:9` said so
 all along). In a repo that cites its own docs as evidence, that is the finding, not the noise.
 
-**Six have shipped.** v0.155.7 — `RtDebounce`'s three-stable-frame rule did not survive a
+**Seven have shipped.** v0.155.8 — a tile-paint stroke abandoned by its selection was carried
+into the next stroke on a different tilemap, so one undo wrote the first map's cells into the
+second. v0.155.7 — `RtDebounce`'s three-stable-frame rule did not survive a
 docked-mode round trip, because the teardown reset hung off a texture that did not exist yet.
 v0.155.6 — the docked viewport's degenerate-window disagreement, below;
 the margin subtraction lived in two places and the two spellings disagreed about windows too small
@@ -289,7 +296,7 @@ described the very code it moved.
 | **(new, surfaced by v0.155.6) A third consumer of `central_rect` disagrees on the *first* frames.** `window.rs` maps the cursor with `match central_rect { Some(r) => viewport_to_game(…), None => pass the window position through }` — it does **not** consult the margin fallback the other two now share via `docked_viewport`. So until `ui/docked` publishes a rect, the scene renders into the fallback viewport while the cursor is read in window space. Transient (the first frames of a session) and correct ever after, which is why v0.155.6 left it: aligning it changes cursor mapping, and no filed diagnosis asks for that. | `src/app/window.rs:606` | A decision. `docked_viewport` is already the door if the answer is "align it" |
 | **(unproven) `EditorHistory` has no cap.** `push` appends forever; nothing trims. `PaintTiles` stores every changed cell as `(usize, usize, u32, u32)` = 24 B, and Bucket flood-fills a whole region in one stroke. | `src/app/editor/history.rs:72` | A measurement — paint N bucket strokes on a large tilemap and read the stack's heap size. **UNMEASURED**; the severity above is a hypothesis, not a number |
 
-| **(unproven) The stroke buffer is not tied to the entity it was painted on.** `paint_stroke` accumulates `(row, col, old, new)` with no entity, and `commit_paint_stroke(sel)` attributes the whole batch to whatever `sel` is at commit time. If the selection can move to a *different* `Tilemap` mid-stroke — undo/redo set the selection from the keyboard, which no `egui_wants_mouse` guard covers — the batch would be recorded against the wrong tilemap, and undo would then write one map's cells into another. **Not demonstrated**: the reachability of a mid-stroke selection change to a second `Tilemap` has not been shown. | `src/app/editor/ui/tile_paint.rs:330`, `:337` | A unit test driving `update_tile_paint` across a selection change — `App::new()` works headlessly, as `ui/gizmo.rs`'s tests show. Show the reachability first; if it is unreachable, say so and close the row |
+| ~~**(unproven) The stroke buffer is not tied to the entity it was painted on.**~~ | `src/app/editor/ui/tile_paint.rs`, `src/app/editor/ui/gizmo.rs` | **DONE v0.155.8 — real, and the row's route was the wrong one.** The row supposed the selection moving to *another `Tilemap`* mid-stroke, and asked for that reachability to be shown first. It is reachable, but the path that bites goes through **`None`**: Ctrl+Z over a `CreateEntity` drops the selection with the button still held, `update_editor_gizmo` returns at its `let Some(sel) … else` arm every frame after, and `paint_active` stays set — which disarms the *next* stroke's `clear()`, because that is guarded on `!paint_active`. Probe on the bug: one undo put `B(0,0) = 1`, a tile only A ever had, and left A's own paint standing with no history entry. Fixed as the row's title says — `EditorState::paint_entity` owns the batch — plus two abandon sites that now **commit** rather than drop (the cells are on the map either way) and a guard that ends a stroke when the selection moves to another tilemap. Three branches, three sabotages, each red on its own assertion. |
 
 | **`reset_scene` clears `copy_clipboard`; the editor's scene load does not.** Both replace the world, and after v0.155.5 both clear the undo history — but the clipboard divergence remains, unexplained on either side. It holds `EntityDef` **values**, not handles, so keeping it across a load is defensible (copy in one scene, paste in another) and clearing it on reset may simply be over-caution. Recorded as a divergence with no stated intent, not as a defect. | `src/app/scenes.rs:66` vs `src/app/editor/ui/docked/save_load.rs` | A decision, then one line either way. Whoever takes it should say in a comment which behaviour is intended |
 

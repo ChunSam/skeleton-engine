@@ -331,8 +331,21 @@ pub(in crate::app) struct EditorState {
     pub(in crate::app) paint_value: u32,
     /// Changed cells accumulated during the in-progress stroke: `(row, col, old, new)`.
     /// Committed to history as one `EditorCmd::PaintTiles` on mouse release.
+    ///
+    /// The cells carry no entity of their own — [`Self::paint_entity`] is what says whose they
+    /// are, and the two must be cleared together.
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) paint_stroke: Vec<(usize, usize, u32, u32)>,
+    /// The tilemap [`Self::paint_stroke`]'s cells were painted on, captured when the stroke
+    /// started.
+    ///
+    /// A stroke belongs to one entity. Until v0.155.8 the commit attributed the whole batch to
+    /// whatever happened to be selected at release time, and a stroke could outlive its selection
+    /// — Ctrl+Z over a `CreateEntity` sets the selection to `None` with the button still held —
+    /// so the next stroke on a *different* tilemap appended to the same buffer and one undo wrote
+    /// the first map's old values into the second.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) paint_entity: Option<crate::ecs::Entity>,
     /// Whether a press→release paint stroke is currently in progress.
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) paint_active: bool,
@@ -441,6 +454,12 @@ impl EditorState {
     /// so the gizmo then refused every later gesture until egui happened to take the pointer.
     ///
     /// One method so the policy lives in one place rather than being re-remembered per site.
+    ///
+    /// ⚠️ A tile-paint stroke is abandoned the same way and is **not** handled here, because
+    /// ending one is not a matter of clearing flags: the cells are already on the map, so the
+    /// batch has to be committed against the entity it was painted on
+    /// ([`Self::paint_entity`]) or the paint becomes un-undoable. `App::finish_paint_stroke`
+    /// owns that, and the abandon sites call both.
     pub(in crate::app) fn clear_drag_state(&mut self) {
         self.gizmo_dragging = false;
         #[cfg(not(target_arch = "wasm32"))]
@@ -492,6 +511,7 @@ impl EditorState {
             paint_mode: false,
             paint_value: 1,
             paint_stroke: Vec::new(),
+            paint_entity: None,
             paint_active: false,
             paint_atlas_tex: None,
             paint_tool: PaintTool::Freehand,

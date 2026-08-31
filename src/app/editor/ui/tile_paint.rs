@@ -176,6 +176,14 @@ impl App {
             return;
         }
 
+        // A stroke belongs to the entity it started on. If the selection moved to a different
+        // tilemap while the button was held — undo/redo set it from the keyboard, which no
+        // `egui_wants_mouse` guard covers — end the stroke there rather than appending this
+        // tilemap's cells to the other one's batch.
+        if self.editor.paint_active && self.editor.paint_entity != Some(sel) {
+            self.finish_paint_stroke();
+        }
+
         // A button counts as "active" this frame if it is held OR was just pressed
         // (a fast click can deliver press *and* release within a single update).
         let left_active = left_held || left_pressed;
@@ -221,6 +229,7 @@ impl App {
         if (left_active || right_active) && !egui_wants_mouse && !self.editor.paint_active {
             self.editor.paint_active = true;
             self.editor.paint_stroke.clear();
+            self.editor.paint_entity = Some(sel);
         }
         if self.editor.paint_active && (left_active || right_active) && !egui_wants_mouse {
             let value = if right_active {
@@ -242,8 +251,7 @@ impl App {
             self.apply_paint_cells(sel, &cells, value);
         }
         if self.editor.paint_active && !left_active && !right_active {
-            self.commit_paint_stroke(sel);
-            self.editor.paint_active = false;
+            self.finish_paint_stroke();
         }
     }
 
@@ -264,6 +272,7 @@ impl App {
             self.editor.paint_active = true;
             self.editor.paint_erase = right_pressed && !left_pressed;
             self.editor.paint_stroke.clear();
+            self.editor.paint_entity = Some(sel);
             self.editor.paint_anchor = self
                 .world
                 .get::<crate::tilemap::Tilemap>(sel)
@@ -283,9 +292,7 @@ impl App {
                 let cells = rect_cells(a, b);
                 self.apply_paint_cells(sel, &cells, value);
             }
-            self.commit_paint_stroke(sel);
-            self.editor.paint_active = false;
-            self.editor.paint_anchor = None;
+            self.finish_paint_stroke();
         }
     }
 
@@ -317,8 +324,9 @@ impl App {
             }
         };
         self.editor.paint_stroke.clear();
+        self.editor.paint_entity = Some(sel);
         self.apply_paint_cells(sel, &cells, value);
-        self.commit_paint_stroke(sel);
+        self.commit_paint_stroke();
     }
 
     /// Apply `value` to each `(row, col)` cell, recording changed cells into the stroke.
@@ -336,19 +344,43 @@ impl App {
     }
 
     /// Commit the accumulated stroke as one undoable `PaintTiles` command (if non-empty).
+    ///
+    /// The batch is attributed to `EditorState::paint_entity` — the tilemap the cells were
+    /// actually painted on — and **not** to whatever is selected now. Those were the same value
+    /// until v0.155.8, and the case where they differ is the bug: a stroke can outlive its
+    /// selection, and the cells carry no entity of their own to fall back on.
     #[cfg(not(target_arch = "wasm32"))]
-    fn commit_paint_stroke(&mut self, sel: crate::ecs::Entity) {
+    fn commit_paint_stroke(&mut self) {
         let changes = std::mem::take(&mut self.editor.paint_stroke);
+        let Some(owner) = self.editor.paint_entity.take() else {
+            return;
+        };
         if !changes.is_empty() {
             self.editor
                 .cmd_history
                 .push(crate::app::editor::EditorCmd::PaintTiles {
-                    entity: sel,
+                    entity: owner,
                     changes,
                 });
             // Keep static tile colliders in sync if this tilemap opted in via TilemapColliders.
-            self.sync_tilemap_colliders(sel);
+            self.sync_tilemap_colliders(owner);
         }
+    }
+
+    /// End the in-progress stroke: commit it against the tilemap it was painted on and clear the
+    /// per-stroke state.
+    ///
+    /// Called on release, and at the two sites where a stroke is **abandoned** — the selection
+    /// going to `None` (Ctrl+Z over a `CreateEntity`, with the button still held) and the
+    /// selection ceasing to be a `Tilemap`. Those sites used to drop the buffer, or leave it
+    /// standing with `paint_active` still set; either way the cells were already on the map, so
+    /// committing is what keeps the paint undoable. `paint_mode` is deliberately untouched —
+    /// re-selecting a tilemap resumes painting.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) fn finish_paint_stroke(&mut self) {
+        self.commit_paint_stroke();
+        self.editor.paint_active = false;
+        self.editor.paint_anchor = None;
     }
 }
 
@@ -419,6 +451,149 @@ mod tests {
             .resource_mut::<crate::input::InputState>()
             .unwrap()
             .flush();
+    }
+
+    /// Spawn a second 4x4 tilemap at the same world origin as `setup_paint_app`'s.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn spawn_second_tilemap(app: &mut crate::app::App) -> crate::ecs::Entity {
+        use crate::tilemap::{Tilemap, TilemapAtlas};
+        let e = app.world.spawn();
+        app.world.add_component(
+            e,
+            Tilemap::new(
+                TilemapAtlas::new("test_atlas", 2, 2),
+                vec![vec![0u32; 4]; 4],
+                10.0,
+                glam::Vec2::ZERO,
+            ),
+        );
+        e
+    }
+
+    /// A stroke abandoned by the selection belongs to the tilemap it was painted on.
+    ///
+    /// Ctrl+Z over an `EditorCmd::CreateEntity` sets the selection to `None`, and it is reachable
+    /// with the mouse still held — the same event `selection_lost_mid_drag_does_not_deafen_the_gizmo`
+    /// covers for the gizmo. `update_editor_gizmo` then returns at its `let Some(sel) … else` arm,
+    /// so the release handler never runs: before v0.155.8 `paint_active` stayed set and the cells
+    /// stayed buffered, and the *next* stroke on a different tilemap skipped its own `clear()`
+    /// (guarded on `!paint_active`) and committed both maps' cells under one `PaintTiles`.
+    ///
+    /// Measured on the bug, with A(0,0) starting at 1 and B untouched: one undo of B's stroke put
+    /// **B(0,0) = 1** — a tile only A ever had, at a cell nobody painted in B — and left A's own
+    /// paint standing at 3, un-undoable.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_stroke_abandoned_by_the_selection_belongs_to_the_tilemap_it_was_painted_on() {
+        use winit::event::MouseButton;
+        let (mut app, a) = setup_paint_app();
+        let b = spawn_second_tilemap(&mut app);
+        // A(0,0) starts at 1, so the stroke records `old = 1` there and B (all zeros) cannot
+        // produce that value by itself.
+        app.world
+            .get_mut::<crate::tilemap::Tilemap>(a)
+            .unwrap()
+            .set_tile(0, 0, 1);
+        app.editor.paint_value = 3;
+
+        // Freehand stroke on A: press over cell (0,0), centre (5,5).
+        cursor(&mut app, 5.0, 5.0);
+        press(&mut app, MouseButton::Left);
+        app.update_editor_gizmo(&None);
+        flush(&mut app);
+        assert_eq!(
+            app.editor.paint_stroke,
+            vec![(0, 0, 1, 3)],
+            "precondition: the stroke must actually have accumulated a cell on A, or the rest \
+             of this test proves nothing"
+        );
+
+        // The selection vanishes with the button still held, and frames keep running.
+        app.editor.inspector_selected = None;
+        for _ in 0..3 {
+            app.update_editor_gizmo(&None);
+        }
+        assert!(
+            !app.editor.paint_active && app.editor.paint_stroke.is_empty(),
+            "the abandoned stroke is still standing — it will be carried into the next one"
+        );
+
+        // The user selects B and paints its cell (2,2), centre (25,25).
+        app.editor.inspector_selected = Some(b);
+        release(&mut app, MouseButton::Left);
+        flush(&mut app);
+        cursor(&mut app, 25.0, 25.0);
+        press(&mut app, MouseButton::Left);
+        app.update_editor_gizmo(&None);
+        flush(&mut app);
+        release(&mut app, MouseButton::Left);
+        app.update_editor_gizmo(&None);
+        assert_eq!(
+            tile(&app, b, 2, 2),
+            3,
+            "precondition: B's own cell was painted"
+        );
+
+        // Undo B's stroke: only B's own cell moves.
+        let mut sel = app.editor.inspector_selected;
+        app.editor.cmd_history.undo(&mut app.world, &mut sel);
+        assert_eq!(tile(&app, b, 2, 2), 0, "control: B's own stroke did undo");
+        assert_eq!(
+            tile(&app, b, 0, 0),
+            0,
+            "A's cell was written into B — the abandoned batch was attributed to B"
+        );
+
+        // Undo again: A's abandoned stroke was committed against A, so it is still undoable.
+        app.editor.cmd_history.undo(&mut app.world, &mut sel);
+        assert_eq!(
+            tile(&app, a, 0, 0),
+            1,
+            "the abandoned stroke was dropped instead of committed — A's paint cannot be undone"
+        );
+    }
+
+    /// The selection moving to a *different* tilemap mid-stroke ends the stroke on the first one.
+    ///
+    /// Same event as above (undo/redo set the selection from the keyboard), but landing on
+    /// another `Tilemap` rather than on `None`, so `update_tile_paint` keeps being called and the
+    /// buffer would otherwise gain a second map's cells.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_selection_change_to_another_tilemap_ends_the_stroke_on_the_first() {
+        use winit::event::MouseButton;
+        let (mut app, a) = setup_paint_app();
+        let b = spawn_second_tilemap(&mut app);
+        app.editor.paint_value = 2;
+
+        // Hold and paint A's cell (0,0).
+        cursor(&mut app, 5.0, 5.0);
+        press(&mut app, MouseButton::Left);
+        app.update_editor_gizmo(&None);
+        flush(&mut app);
+
+        // Still held, the selection jumps to B; paint B's cell (2,2), then release.
+        app.editor.inspector_selected = Some(b);
+        cursor(&mut app, 25.0, 25.0);
+        app.update_editor_gizmo(&None);
+        flush(&mut app);
+        release(&mut app, MouseButton::Left);
+        app.update_editor_gizmo(&None);
+
+        assert_eq!(tile(&app, a, 0, 0), 2, "precondition: A was painted");
+        assert_eq!(tile(&app, b, 2, 2), 2, "precondition: B was painted");
+
+        // Two strokes, two undo steps, each landing on its own map.
+        let mut sel = app.editor.inspector_selected;
+        app.editor.cmd_history.undo(&mut app.world, &mut sel);
+        assert_eq!(tile(&app, b, 2, 2), 0, "the first undo reverts B");
+        assert_eq!(
+            tile(&app, a, 0, 0),
+            2,
+            "control: A must not move on B's undo — one undo per stroke, not one for both"
+        );
+        app.editor.cmd_history.undo(&mut app.world, &mut sel);
+        assert_eq!(tile(&app, a, 0, 0), 0, "the second undo reverts A");
     }
 
     #[cfg(not(target_arch = "wasm32"))]
