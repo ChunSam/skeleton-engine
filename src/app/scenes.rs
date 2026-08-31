@@ -63,7 +63,11 @@ impl App {
         #[cfg(not(target_arch = "wasm32"))]
         {
             self.editor.selected_entities.clear();
-            self.editor.copy_clipboard.clear();
+            // `copy_clipboard` deliberately survives (v0.156.2). It holds `EntityDef` **values**,
+            // not `Entity` handles, so nothing in it can retarget the way an undo command can —
+            // and copying in one scene to paste in another is a feature. Clearing it here was
+            // over-caution, and it made this path disagree with the editor's own scene load,
+            // which never cleared it.
             // Undo/redo holds raw `Entity` handles, and the ECS reuses ids — so a command
             // surviving a world reset does not merely fail, it silently retargets onto whatever
             // new entity now occupies that slot. (Native-only: `cmd_history` is not a field of
