@@ -27,8 +27,8 @@ fn delete_undo_restores_full_def() {
     // Simulate the Delete button: push DeleteEntity, then despawn.
     let mut history = EditorHistory::new();
     history.push(EditorCmd::DeleteEntity {
-        entity: None,
-        def: def.clone(),
+        entities: None,
+        defs: vec![(def.clone(), None)],
     });
     world.despawn(e);
     assert!(!world.is_alive(e), "entity should be despawned");
@@ -582,8 +582,8 @@ fn world_reset_clears_editor_undo_history() {
     app.world
         .add_component(e, crate::components::Transform::default());
     app.editor.cmd_history.push(EditorCmd::DeleteEntity {
-        entity: Some(e),
-        def: Default::default(),
+        entities: Some(vec![e]),
+        defs: vec![(Default::default(), None)],
     });
     assert_eq!(app.editor.cmd_history.undo_len(), 1);
 
@@ -663,5 +663,143 @@ fn every_editor_addable_component_survives_a_scene_save() {
         missing.is_empty(),
         "these components can be added in the Inspector but a scene cannot carry them, so \
          Save Scene drops them in silence: {missing:?}"
+    );
+}
+
+// ── Deleting a parent takes its subtree (v0.156.0) ────────────────────────────
+
+/// Spawn `parent` at (500, 300) with a child at local (16, 0); the child's world position is
+/// therefore (516, 300). `parent_tag` decides whether the link is expressible through
+/// `EntityDef.parent`, which is tag-based.
+#[cfg(not(target_arch = "wasm32"))]
+fn app_with_a_parented_pair(parent_tag: Option<&str>) -> (crate::App, Entity, Entity) {
+    let mut app = crate::App::new();
+    let parent = app.world.spawn();
+    if let Some(t) = parent_tag {
+        app.world.add_component(parent, Tag(t.into()));
+    }
+    app.world.add_component(
+        parent,
+        crate::components::Transform::new(glam::Vec2::new(500.0, 300.0), glam::Vec2::ONE, 0.0),
+    );
+    let child = app.world.spawn();
+    app.world.add_component(child, Tag("Child".into()));
+    app.world.add_component(
+        child,
+        crate::components::Transform::new(glam::Vec2::new(16.0, 0.0), glam::Vec2::ONE, 0.0),
+    );
+    crate::hierarchy::attach(&mut app.world, child, parent);
+    (app, parent, child)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn world_pos(app: &crate::App, e: Entity) -> glam::Vec2 {
+    app.world
+        .get::<crate::hierarchy::GlobalTransform>(e)
+        .expect("GlobalTransform")
+        .position
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn entity_tagged(app: &crate::App, tag: &str) -> Option<Entity> {
+    app.world
+        .query::<Tag>()
+        .find(|(_, t)| t.0 == tag)
+        .map(|(e, _)| e)
+}
+
+/// 🗑 Delete on a parent deletes its children too, and undo brings the whole subtree back with
+/// the hierarchy intact — the child composes against its parent again rather than drawing at its
+/// local offset.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn deleting_a_parent_takes_the_subtree_and_undo_restores_the_links() {
+    use crate::ecs::System;
+    let (mut app, parent, child) = app_with_a_parented_pair(Some("Parent"));
+    crate::hierarchy::HierarchySystem::default().run(&mut app.world, 0.0);
+    assert_eq!(
+        world_pos(&app, child),
+        glam::Vec2::new(516.0, 300.0),
+        "precondition: the child must start composed against its parent"
+    );
+
+    app.editor.inspector_selected = Some(parent);
+    app.editor_delete_selection();
+    assert!(!app.world.is_alive(parent));
+    assert!(
+        !app.world.is_alive(child),
+        "the child outlived its deleted parent — it is now an orphan pointing at a dead handle"
+    );
+
+    let mut sel: Option<Entity> = None;
+    app.editor.cmd_history.undo(&mut app.world, &mut sel);
+    let restored_child = entity_tagged(&app, "Child").expect("the child must come back too");
+    crate::hierarchy::HierarchySystem::default().run(&mut app.world, 0.0);
+    assert_eq!(
+        world_pos(&app, restored_child),
+        glam::Vec2::new(516.0, 300.0),
+        "the child came back as a root — undo restored the entities but not the parent link"
+    );
+    assert_eq!(
+        sel,
+        entity_tagged(&app, "Parent"),
+        "undo should select the restored root of the subtree"
+    );
+}
+
+/// The parent link survives undo even when `EntityDef.parent` **cannot express it**.
+///
+/// That field is a tag, so a parent with no `Tag` drops the link — the same "parent link dropped"
+/// the scene saver warns about. The command records the link as an index into its own def list
+/// instead, and this is the case that tells the two apart: with tag-based resolution the child
+/// would come back at its local (16, 0).
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn undo_restores_a_parent_link_that_the_tag_based_def_cannot_express() {
+    use crate::ecs::System;
+    let (mut app, parent, _child) = app_with_a_parented_pair(None);
+    assert!(
+        entity_to_def(&app.world, _child)
+            .expect("def")
+            .parent
+            .is_none(),
+        "precondition: with an untagged parent the def really cannot carry the link, or this \
+         test is measuring the tag path after all"
+    );
+
+    app.editor.inspector_selected = Some(parent);
+    app.editor_delete_selection();
+
+    let mut sel: Option<Entity> = None;
+    app.editor.cmd_history.undo(&mut app.world, &mut sel);
+    let restored_child = entity_tagged(&app, "Child").expect("the child must come back");
+    crate::hierarchy::HierarchySystem::default().run(&mut app.world, 0.0);
+    assert_eq!(
+        world_pos(&app, restored_child),
+        glam::Vec2::new(516.0, 300.0),
+        "the link was lost — an index-based parent is what this case needs"
+    );
+}
+
+/// Redo re-deletes exactly the subtree undo recreated.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn redo_of_a_subtree_delete_removes_the_whole_subtree_again() {
+    let (mut app, parent, _child) = app_with_a_parented_pair(Some("Parent"));
+    app.editor.inspector_selected = Some(parent);
+    app.editor_delete_selection();
+
+    let mut sel: Option<Entity> = None;
+    app.editor.cmd_history.undo(&mut app.world, &mut sel);
+    assert!(
+        entity_tagged(&app, "Child").is_some() && entity_tagged(&app, "Parent").is_some(),
+        "control: undo must have restored both, or redo has nothing to remove"
+    );
+
+    app.editor.cmd_history.redo(&mut app.world, &mut sel);
+    assert!(entity_tagged(&app, "Parent").is_none());
+    assert!(
+        entity_tagged(&app, "Child").is_none(),
+        "redo removed the root and left the child behind"
     );
 }

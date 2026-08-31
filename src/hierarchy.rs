@@ -84,6 +84,55 @@ pub fn detach(world: &mut World, child: Entity) {
     world.add_component(parent, Children(children));
 }
 
+/// Every descendant of `root`, **parents before children**; `root` itself is not included.
+///
+/// Breadth-first over the `Children` lists, so the result can be replayed in order: each entity's
+/// parent appears before it. Entities whose `Children` entry holds a dead handle are skipped, so a
+/// graph left inconsistent by a raw `World::despawn` does not produce phantom entries.
+///
+/// A cycle would make this loop forever if the graph could hold one; [`reparent`] is the only
+/// public way to move an entity and it refuses cycles, and [`attach`] refuses self-attachment.
+pub fn descendants(world: &World, root: Entity) -> Vec<Entity> {
+    let mut out = Vec::new();
+    let mut frontier = vec![root];
+    while let Some(e) = frontier.pop() {
+        let Some(children) = world.get::<Children>(e) else {
+            continue;
+        };
+        for &c in &children.0 {
+            if world.is_alive(c) {
+                out.push(c);
+                frontier.push(c);
+            }
+        }
+    }
+    out
+}
+
+/// Despawns `root` **and its whole subtree**, leaving no entity pointing at a dead parent.
+///
+/// `World::despawn` is storage-level: it does not touch `Parent` / `Children`, so despawning a
+/// parent on its own leaves every child holding a `Parent(<dead>)`. `HierarchySystem` survives
+/// that — an unresolvable parent sorts as a root — but the composition arm then falls back to
+/// `GlobalTransform::from_transform(local)`, so a child at local `(16, 0)` under a parent at
+/// `(500, 300)` stops drawing at `(516, 300)` and starts drawing at `(16, 0)`. Deleting a subtree
+/// is the operation that avoids that, and this is the only function in the engine that performs
+/// it.
+///
+/// `root` is detached from its own parent first, so the surviving parent's `Children` list does
+/// not keep a dead handle either.
+pub fn despawn_recursive(world: &mut World, root: Entity) {
+    if !world.is_alive(root) {
+        return;
+    }
+    let subtree = descendants(world, root);
+    detach(world, root);
+    for e in subtree {
+        world.despawn(e);
+    }
+    world.despawn(root);
+}
+
 /// Re-parents `child` under `new_parent` (or detaches it to a root when `new_parent` is `None`),
 /// maintaining both the `Parent` and `Children` lists and **preventing cycles**.
 ///
@@ -537,6 +586,91 @@ mod tests {
         assert!(
             world.get::<Children>(e).is_none(),
             "self-attach must not add Children"
+        );
+    }
+
+    // ── descendants / despawn_recursive ──────────────────────────────────────
+
+    #[test]
+    fn descendants_lists_parents_before_children() {
+        let mut world = World::new();
+        let root = world.spawn();
+        let a = world.spawn();
+        let b = world.spawn();
+        let grandchild = world.spawn();
+        attach(&mut world, a, root);
+        attach(&mut world, b, root);
+        attach(&mut world, grandchild, a);
+
+        let d = descendants(&world, root);
+        assert_eq!(d.len(), 3, "root itself is not included: {d:?}");
+        assert!(!d.contains(&root));
+        let ix = |e: Entity| d.iter().position(|&x| x == e).unwrap();
+        assert!(
+            ix(a) < ix(grandchild),
+            "a parent must be listed before its child, or undo cannot replay the list in order"
+        );
+        // Control: a leaf has no descendants, so the walk is not just returning everything alive.
+        assert!(descendants(&world, grandchild).is_empty());
+    }
+
+    #[test]
+    fn despawn_recursive_takes_the_whole_subtree_and_leaves_no_dead_handle() {
+        let mut world = World::new();
+        let keep = world.spawn();
+        let root = world.spawn();
+        let child = world.spawn();
+        let grandchild = world.spawn();
+        attach(&mut world, root, keep);
+        attach(&mut world, child, root);
+        attach(&mut world, grandchild, child);
+
+        despawn_recursive(&mut world, root);
+
+        assert!(!world.is_alive(root));
+        assert!(
+            !world.is_alive(child),
+            "a child outlived its deleted parent"
+        );
+        assert!(
+            !world.is_alive(grandchild),
+            "the walk stopped one level short"
+        );
+        // Control: an entity outside the subtree is untouched...
+        assert!(world.is_alive(keep));
+        // ...and its Children list does not keep a handle to the entity that was deleted.
+        assert_eq!(
+            world.get::<Children>(keep).map(|c| c.0.len()),
+            Some(0),
+            "the surviving parent still lists its deleted child"
+        );
+    }
+
+    #[test]
+    fn despawning_a_parent_without_the_subtree_is_what_makes_children_jump() {
+        // The behaviour `despawn_recursive` exists to avoid, pinned so the cost of the plain
+        // `World::despawn` is on the record rather than in a comment: an orphaned child falls
+        // back to its *local* transform, so it moves.
+        let mut world = World::new();
+        let parent = world.spawn();
+        world.add_component(
+            parent,
+            Transform::new(Vec2::new(500.0, 300.0), Vec2::ONE, 0.0),
+        );
+        let child = world.spawn();
+        world.add_component(child, Transform::new(Vec2::new(16.0, 0.0), Vec2::ONE, 0.0));
+        attach(&mut world, child, parent);
+
+        HierarchySystem::default().run(&mut world, 0.0);
+        assert_eq!(pos(&world, child), Vec2::new(516.0, 300.0));
+
+        world.despawn(parent); // storage-level only — the child keeps `Parent(<dead>)`
+        HierarchySystem::default().run(&mut world, 0.0);
+        assert_eq!(
+            pos(&world, child),
+            Vec2::new(16.0, 0.0),
+            "the orphan is expected to jump to its local offset — if this ever stops being true, \
+             `despawn_recursive`'s doc needs rewriting, not this test"
         );
     }
 }
