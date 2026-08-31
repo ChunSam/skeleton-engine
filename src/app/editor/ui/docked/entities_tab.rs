@@ -36,15 +36,21 @@ pub(in crate::app) fn entities_tab_body(
                 .add_enabled(true, egui::Button::new(tr("🗑 Delete", "🗑 삭제")))
                 .clicked()
             {
-                // Capture the full entity def before despawning so undo can restore
-                // all components (not just tag/transform/sprite).
-                let def = super::super::entity_to_def(&app.world, sel).unwrap_or_default();
+                // Capture the whole subtree before despawning so undo restores every
+                // component *and* the parent links (not just tag/transform/sprite).
+                let defs = super::super::prefab::subtree_to_defs(&app.world, sel);
                 app.editor
                     .cmd_history
-                    .push(super::super::EditorCmd::DeleteEntity { entity: None, def });
-                app.world.despawn(sel);
+                    .push(super::super::EditorCmd::DeleteEntity {
+                        entities: None,
+                        defs,
+                    });
+                crate::hierarchy::despawn_recursive(&mut app.world, sel);
                 app.editor.inspector_selected = None;
-                app.editor.selected_entities.retain(|&x| x != sel);
+                // Descendants went with it, so filter by liveness rather than by `sel`.
+                app.editor
+                    .selected_entities
+                    .retain(|&x| app.world.is_alive(x));
             }
             if ui
                 .add_enabled(true, egui::Button::new(tr("⎘ Duplicate", "⎘ 복제")))

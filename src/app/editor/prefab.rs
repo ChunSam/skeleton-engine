@@ -2,6 +2,33 @@ use super::tr;
 use crate::app::App;
 use crate::ecs::{Entity, World};
 
+/// Capture `root` and its whole subtree as defs, **parents before children**, each carrying the
+/// index *into the returned list* of its parent (`None` for `root` itself).
+///
+/// The index is what makes undo-of-delete restore the hierarchy exactly. `EntityDef.parent` is a
+/// **tag**, so it cannot express a parent that has no `Tag` and misroutes one whose tag is shared
+/// — the "parent link dropped" case the scene saver warns about. Within a single delete the real
+/// structure is known, so it is recorded directly. `root`'s own parent lies outside the subtree
+/// and stays tag-based in its `EntityDef.parent`.
+pub(in crate::app) fn subtree_to_defs(
+    world: &World,
+    root: Entity,
+) -> Vec<(crate::prefab::EntityDef, Option<usize>)> {
+    let order: Vec<Entity> = std::iter::once(root)
+        .chain(crate::hierarchy::descendants(world, root))
+        .collect();
+    let index_of = |e: Entity| order.iter().position(|&o| o == e);
+    order
+        .iter()
+        .map(|&e| {
+            let parent_ix = world
+                .get::<crate::hierarchy::Parent>(e)
+                .and_then(|p| index_of(p.0));
+            (entity_to_def(world, e).unwrap_or_default(), parent_ix)
+        })
+        .collect()
+}
+
 pub(in crate::app) fn entity_to_def(
     world: &World,
     entity: Entity,

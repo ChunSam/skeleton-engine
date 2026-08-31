@@ -185,9 +185,10 @@ mod tests {
         app.world
             .add_component(e, crate::components::Transform::default());
         let def = crate::app::editor::prefab::entity_to_def(&app.world, e).expect("def");
-        app.editor
-            .cmd_history
-            .push(EditorCmd::DeleteEntity { entity: None, def });
+        app.editor.cmd_history.push(EditorCmd::DeleteEntity {
+            entities: None,
+            defs: vec![(def, None)],
+        });
         app.world.despawn(e);
         app
     }

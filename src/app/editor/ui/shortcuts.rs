@@ -149,12 +149,15 @@ impl App {
             if !self.world.is_alive(e) {
                 continue;
             }
-            let def = entity_to_def(&self.world, e).unwrap_or_default();
-            self.editor
-                .cmd_history
-                .push(EditorCmd::DeleteEntity { entity: None, def });
-            self.world.despawn(e);
-            deleted += 1;
+            let defs = crate::app::editor::prefab::subtree_to_defs(&self.world, e);
+            deleted += defs.len() as u32;
+            self.editor.cmd_history.push(EditorCmd::DeleteEntity {
+                entities: None,
+                defs,
+            });
+            // The subtree goes too, which is why the `is_alive` skip above matters: selecting a
+            // parent and its child deletes the child once, not twice.
+            crate::hierarchy::despawn_recursive(&mut self.world, e);
         }
         self.editor.inspector_selected = None;
         self.editor.selected_entities.clear();

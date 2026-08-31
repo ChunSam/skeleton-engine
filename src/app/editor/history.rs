@@ -15,12 +15,22 @@ pub(in crate::app) enum EditorCmd {
         /// `None` for New Entity (redo spawns a default entity).
         def: Option<crate::prefab::EntityDef>,
     },
+    /// One 🗑 Delete, of an entity **and its whole subtree** — `hierarchy::despawn_recursive`,
+    /// since v0.156.0. Deleting a parent alone left its children pointing at a dead handle and
+    /// drawing at their local offsets.
     DeleteEntity {
-        /// Entity id recreated by undo. Filled in at undo time so redo can despawn exactly
-        /// this entity (None on first creation — the original has already been despawned).
-        entity: Option<Entity>,
-        /// Full captured state at delete time; undo restores all components via spawn_entity_def.
-        def: crate::prefab::EntityDef,
+        /// Entity ids recreated by undo, aligned with `defs`. Filled in at undo time so redo
+        /// despawns exactly those (None on first creation — the originals are already gone).
+        entities: Option<Vec<Entity>>,
+        /// The deleted subtree, **parents before children**, each with the index *into this same
+        /// list* of its parent; `None` marks the deleted root.
+        ///
+        /// ⚠️ The link is an index and not `EntityDef.parent`, which is a **tag**: a parent with
+        /// no `Tag`, or two entities sharing one, drops or misroutes it — that is the "parent
+        /// link dropped" the scene saver warns about. Within one delete the real structure is
+        /// known, so it is kept. The root is the exception: its own parent is outside the subtree
+        /// and stays tag-based, exactly as it was before.
+        defs: Vec<(crate::prefab::EntityDef, Option<usize>)>,
     },
     /// Move a screen-space `UiNode` widget (offset changed, size/anchor unchanged).
     MoveUiNode {
@@ -122,8 +132,8 @@ impl EditorHistory {
         let Some(mut cmd) = self.undo.pop() else {
             return;
         };
-        // entity id recreated by DeleteEntity undo — recorded into cmd after the match
-        let mut respawned: Option<Entity> = None;
+        // entity ids recreated by DeleteEntity undo — recorded into cmd after the match
+        let mut respawned: Option<Vec<Entity>> = None;
         match &cmd {
             EditorCmd::MoveEntity {
                 entity, old_pos, ..
@@ -137,10 +147,21 @@ impl EditorHistory {
                 world.despawn(*entity);
                 *selected = None;
             }
-            EditorCmd::DeleteEntity { def, .. } => {
-                let e = crate::prefab::spawn_entity_def(world, def);
-                *selected = Some(e);
-                respawned = Some(e);
+            EditorCmd::DeleteEntity { defs, .. } => {
+                // Parents before children, so `spawned[ix]` is always already live.
+                let mut spawned: Vec<Entity> = Vec::with_capacity(defs.len());
+                for (def, parent_ix) in defs {
+                    let e = crate::prefab::spawn_entity_def(world, def);
+                    if let Some(&p) = parent_ix.and_then(|ix| spawned.get(ix)) {
+                        // `reparent`, not `attach`: `spawn_entity_def` may already have attached
+                        // this entity by tag, and attaching twice would leave the first parent's
+                        // `Children` holding it. Reparent detaches first (and refuses cycles).
+                        crate::hierarchy::reparent(world, e, Some(p));
+                    }
+                    spawned.push(e);
+                }
+                *selected = spawned.first().copied();
+                respawned = Some(spawned);
             }
             EditorCmd::MoveUiNode {
                 entity, old_offset, ..
@@ -198,8 +219,8 @@ impl EditorHistory {
             }
         }
         // record the id so redo despawns the exact recreated entity, not the current selection
-        if let (Some(e), EditorCmd::DeleteEntity { entity, .. }) = (respawned, &mut cmd) {
-            *entity = Some(e);
+        if let (Some(list), EditorCmd::DeleteEntity { entities, .. }) = (respawned, &mut cmd) {
+            *entities = Some(list);
         }
         self.redo.push(cmd);
     }
@@ -233,9 +254,11 @@ impl EditorHistory {
                 });
                 return;
             }
-            EditorCmd::DeleteEntity { entity, .. } => {
-                // despawn exactly the entity recreated by undo (independent of current selection)
-                if let Some(e) = *entity {
+            EditorCmd::DeleteEntity { entities, .. } => {
+                // Despawn exactly the entities recreated by undo, independent of the current
+                // selection. Plain `despawn` and not `despawn_recursive`: the list already holds
+                // the whole subtree, and anything attached *since* the undo is not ours to take.
+                for &e in entities.iter().flatten() {
                     world.despawn(e);
                     if *selected == Some(e) {
                         *selected = None;

@@ -4,6 +4,45 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.0
+
+### Deleting a parent in the editor now deletes its subtree
+
+🗑 Delete was `world.despawn(sel)` — storage-level only. It did not touch `Parent` / `Children`,
+and the engine had **no recursive despawn at all**, so the children of a deleted parent kept a
+`Parent(<dead>)`. `HierarchySystem` survives that (an unresolvable parent sorts as a root), but the
+composition arm then falls back to `GlobalTransform::from_transform(local)`: a child at local
+`(16, 0)` under a parent at `(500, 300)` stopped drawing at `(516, 300)` and started drawing at
+`(16, 0)`. Nobody would choose that, which is why it was filed as a decision rather than patched.
+
+**New public API** — `hierarchy::descendants` and `hierarchy::despawn_recursive`, both re-exported
+from `src/lib.rs`. `descendants` returns a subtree **parents before children**, so a caller can
+replay the list in order; `despawn_recursive` detaches the root from its own parent first, so the
+*surviving* parent's `Children` does not keep a dead handle either. Both editor delete paths — the
+🗑 button and the Delete / Backspace shortcut — go through it.
+
+⚠️ **Undo needed a link `EntityDef` cannot express.** `EditorCmd::DeleteEntity` now carries the
+whole subtree, parents before children, each with the **index into that same list** of its parent.
+`EntityDef.parent` is a *tag*: a parent with no `Tag`, or two entities sharing one, drops or
+misroutes the link — the "parent link dropped" the scene saver warns about. Within a single delete
+the real structure is known, so it is recorded directly. The deleted root is the exception: its own
+parent lies outside the subtree and stays tag-based, exactly as before. Undo restores with
+`hierarchy::reparent` rather than `attach`, because `spawn_entity_def` may already have attached by
+tag and attaching twice would leave the first parent's `Children` holding the child.
+
+Six tests. Three sabotages, each red on its own assertion (exit 101 every time):
+
+| Reinstated | What went red |
+|---|---|
+| plain `World::despawn` at the delete site | the editor tests — "the child outlived its deleted parent", plus the redo test |
+| the tag-based parent link (no index) | `undo_restores_a_parent_link_that_the_tag_based_def_cannot_express`, **alone** — the tagged variant stayed green, which is the point of having both |
+| `despawn_recursive` not detaching the root | `despawn_recursive_takes_the_whole_subtree_and_leaves_no_dead_handle` — "the surviving parent still lists its deleted child" |
+
+The old behaviour is pinned rather than described:
+`despawning_a_parent_without_the_subtree_is_what_makes_children_jump` drives `HierarchySystem` and
+asserts the orphan lands at `(16, 0)`. If that ever stops being true, `despawn_recursive`'s doc
+needs rewriting — and the test says so.
+
 ## 0.155.8
 
 ### A tile-paint stroke could be committed against a tilemap it was never painted on
