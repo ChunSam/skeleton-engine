@@ -88,6 +88,19 @@ impl EditorHistory {
     /// reuses entity ids, so a stale `DeleteEntity(e)` sitting in the undo stack does not fail
     /// after a reset: it resolves onto whatever NEW entity now occupies that slot and deletes
     /// that instead. Ctrl+Z then destroys something the user never touched.
+    ///
+    /// ⚠️ **`Entity` being generation-checked does not save this, and the reasoning that says it
+    /// does is a trap this doc has already caught once.** A reset does `self.world =
+    /// World::new()` (`app/scenes.rs`), so the new world's generation counters start at 0 and an
+    /// old `Entity { index: 0, generation: 0 }` compares **equal** to the first entity spawned
+    /// after it. Measured: a handle from the old world reads the *new* world's component through
+    /// it. The generation check rules out reuse only *within* one world, where `despawn` bumps
+    /// the counter. Do not simplify this call away on the strength of it.
+    ///
+    /// The editor's own scene load is the second call site and is justified differently: it
+    /// despawns rather than rebuilding the world, so generations do bump and most stale commands
+    /// become silent no-ops — but `DeleteEntity`'s undo spawns unconditionally, which is the
+    /// resurrection v0.155.5 fixed.
     pub(in crate::app) fn clear(&mut self) {
         self.undo.clear();
         self.redo.clear();
