@@ -890,3 +890,44 @@ fn the_default_budget_is_not_zero() {
     }
     assert_eq!(history.undo_len(), 3);
 }
+
+// ── The copy clipboard survives a world reset (v0.156.2) ──────────────────────
+
+/// `copy_clipboard` holds `EntityDef` **values**, so it cannot retarget across a reset the way an
+/// undo command can — copying in one scene and pasting in another is a feature. `reset_scene`
+/// used to clear it anyway while the editor's own 📂 Load never did, a divergence with no stated
+/// intent on either side.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn a_world_reset_keeps_the_copy_clipboard() {
+    let mut app = crate::App::new();
+    app.editor.copy_clipboard = vec![crate::prefab::EntityDef {
+        tag: Some("Copied".into()),
+        ..Default::default()
+    }];
+    // Something the reset MUST drop, so "the clipboard survived" cannot be read as "the reset
+    // never ran". This is the positive control the whole test hangs on.
+    let e = app.world.spawn();
+    app.editor.cmd_history.push(EditorCmd::DeleteEntity {
+        entities: Some(vec![e]),
+        defs: vec![(Default::default(), None)],
+    });
+
+    app.reload_scene();
+
+    assert_eq!(
+        app.editor.cmd_history.undo_len(),
+        0,
+        "control: the reset must have dropped the undo history, or it did not run at all"
+    );
+    assert_eq!(
+        app.editor.copy_clipboard.len(),
+        1,
+        "the clipboard was cleared by the reset"
+    );
+    assert_eq!(
+        app.editor.copy_clipboard[0].tag.as_deref(),
+        Some("Copied"),
+        "the clipboard survived but its contents did not"
+    );
+}

@@ -4,6 +4,22 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.2
+
+### The copy clipboard survives a world reset
+
+`reset_scene` cleared `EditorState::copy_clipboard` while the editor's own 📂 Load never did — a
+divergence with no stated intent on either side. The clipboard holds `EntityDef` **values**, not
+`Entity` handles, so nothing in it can retarget onto a new entity the way an undo command can (the
+hazard `EditorHistory::clear` exists for, and which v0.155.8's probe showed is real for handles).
+Copying in one scene to paste in another is a feature; clearing it here was over-caution. The
+`clear()` is gone, and the reason it is gone is now written where it used to be.
+
+⚠️ **The test's control is the whole test.** "The clipboard survived" is equally true of a reset
+that never ran, so `a_world_reset_keeps_the_copy_clipboard` stages an undo command the reset
+*must* drop and asserts that first. Sabotage-verified: reinstating the `clear()` reddens it (exit
+101) on the clipboard assertion, with the control still passing.
+
 ## 0.156.1
 
 ### The editor's undo history is bounded, by bytes rather than by commands
