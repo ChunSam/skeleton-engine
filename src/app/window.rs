@@ -596,6 +596,47 @@ impl App {
     /// `DesignResolution` a finger reported window space while a mouse reported design space,
     /// through the one accessor `Camera::screen_to_world` documents as its input. One function with
     /// two callers is the point of this, not the arithmetic.
+    /// The docked central-panel rect in logical points, or `None` when the window leaves no room
+    /// for one.
+    ///
+    /// Thin wrapper over `docked_rt::docked_viewport` — the same call `App::compute_viewport` and
+    /// `prepare_docked_scene_view` branch on. Those two derive the window's logical size where
+    /// they stand because neither has `&self` in hand; what is shared is the **decision**, which
+    /// is the half that was wrong. Before v0.156.3 this call site had a third answer of its own:
+    /// it consulted only `central_rect` and passed the raw window position through when egui had
+    /// not published one yet, so during the first frames of a session the scene rendered into the
+    /// fallback viewport while the cursor was read in window space.
+    ///
+    /// `None` with no surface yet: there is no frame to map into, which is the same verdict this
+    /// returns for a window too small to hold a central panel.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn docked_central_rect(&self) -> Option<egui::Rect> {
+        let scale = self
+            .window
+            .as_ref()
+            .map(|w| w.scale_factor() as f32)
+            .unwrap_or(1.0)
+            .max(1.0);
+        // Only the *fallback* needs the surface. With no gpu yet a published rect must still map,
+        // so pass a zero window rather than declining outright: `compute_central_rect` refuses it
+        // and `docked_viewport` falls back to nothing, which is the honest answer for a frame
+        // that has no surface to be rendered into.
+        let (win_logical_w, win_logical_h) = match self.gpu.as_ref() {
+            Some(gpu) => (
+                gpu.config.width as f32 / scale,
+                gpu.config.height as f32 / scale,
+            ),
+            None => (0.0, 0.0),
+        };
+        crate::app::editor::docked_rt::docked_viewport(
+            self.editor.central_rect,
+            win_logical_w,
+            win_logical_h,
+            scale,
+        )
+        .map(|(rect, _)| rect)
+    }
+
     fn game_cursor(&self, logical: Vec2) -> Option<Vec2> {
         // The docked editor keeps the untranslated cursor: the central panel has its own
         // `viewport_to_game` mapping, and a design resolution does not apply inside it.
@@ -603,13 +644,15 @@ impl App {
         {
             use crate::app::editor::{docked_rt::viewport_to_game, EditorMode};
             if self.editor.mode == EditorMode::Docked {
-                return match self.editor.central_rect {
+                return match self.docked_central_rect() {
                     // Outside the central rect the game cursor freezes at its last in-panel
                     // value — hence `Option`, and hence no update rather than a clamped one.
                     Some(rect) => viewport_to_game(egui::pos2(logical.x, logical.y), rect)
                         .map(|p| Vec2::new(p.x, p.y)),
-                    // `central_rect` not yet computed (first frames) — pass through.
-                    None => Some(logical),
+                    // No viewport this frame — the same `None` the renderer and `ViewportSize`
+                    // stand down on. Freeze rather than pass window coordinates through as if
+                    // they were game ones.
+                    None => None,
                 };
             }
         }
@@ -903,6 +946,58 @@ mod tests {
         // #217), which taught `CursorMoved` the mapping and never came back for it.
         assert!((mapped.x - 640.0).abs() < 1e-3, "x={}", mapped.x);
         assert!((mapped.y - 360.0).abs() < 1e-3, "y={}", mapped.y);
+    }
+
+    /// In Docked mode the cursor is never passed through as if window space were game space.
+    ///
+    /// Until v0.156.3 a `central_rect` of `None` returned `Some(logical)` — the raw window
+    /// position — while the renderer and `ViewportSize` were both using the margin fallback for
+    /// exactly those frames. Three consumers, three answers.
+    ///
+    /// ⚠️ **What this can and cannot reach.** Headlessly there is no surface, so the fallback
+    /// cannot be derived and `docked_central_rect` declines for that reason rather than for a
+    /// too-small window. Both are the same verdict — no viewport, no cursor — and the decision
+    /// itself is unit-tested in `editor::docked_rt`. What this pins is that the pass-through is
+    /// gone from this call site.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn docked_cursor_never_passes_window_coordinates_through() {
+        use crate::app::editor::EditorMode;
+        let mut app = App::new();
+        app.world.insert_resource(Letterbox::IDENTITY);
+        let p = Vec2::new(123.0, 456.0);
+        // Control: outside the editor this exact position maps straight through, so a `None`
+        // below is the docked branch declining and not the mapping failing generally.
+        assert_eq!(app.game_cursor(p), Some(p));
+
+        app.editor.mode = EditorMode::Docked;
+        assert_eq!(
+            app.game_cursor(p),
+            None,
+            "the docked branch handed back the raw window position"
+        );
+    }
+
+    /// The published central rect still maps, unchanged: this change is about which rect the
+    /// branch reads, not about the arithmetic.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn docked_cursor_maps_through_a_published_central_rect() {
+        use crate::app::editor::EditorMode;
+        let mut app = App::new();
+        app.world.insert_resource(Letterbox::IDENTITY);
+        app.editor.mode = EditorMode::Docked;
+        app.editor.central_rect = Some(egui::Rect::from_min_size(
+            egui::pos2(260.0, 36.0),
+            egui::vec2(720.0, 534.0),
+        ));
+        assert_eq!(
+            app.game_cursor(Vec2::new(300.0, 100.0)),
+            Some(Vec2::new(40.0, 64.0)),
+            "a published rect must still translate window space into panel-local space"
+        );
+        // Control: a position outside the panel freezes the game cursor rather than clamping.
+        assert_eq!(app.game_cursor(Vec2::new(10.0, 10.0)), None);
     }
 
     /// No design resolution in play: the mapping must be an exact no-op, not an approximate

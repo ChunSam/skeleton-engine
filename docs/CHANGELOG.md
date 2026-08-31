@@ -4,6 +4,35 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.3
+
+### The docked cursor reads the same viewport the frame was rendered at
+
+Three consumers derived the docked central rect and, until v0.155.6, two of them disagreed about a
+window too small to hold one. That left the third: `App::game_cursor` consulted only
+`EditorState::central_rect` and **passed the raw window position through** when egui had not
+published one yet, so during the first frames of a session the scene rendered into the margin
+fallback while the cursor was read in window space — a third answer, in a function whose own doc
+says "every pointer source goes through here".
+
+It now reads `docked_rt::docked_viewport`, the call the renderer and `ViewportSize` already branch
+on. `None` — no room for a central panel, or no surface yet — freezes the game cursor, which is
+what leaving the panel already did; there is no frame to map into either way.
+
+⚠️ **A test caught a regression in the first attempt at this**, which is worth more than the fix.
+Requiring the surface up front (`self.gpu.as_ref()?`) also broke the case where egui *has*
+published a rect, because that path never needed the window size at all. Only the **fallback**
+does. The surface is now optional, and a zero window is passed when there is none — which
+`compute_central_rect` refuses, leaving a published rect to win on its own.
+
+⚠️ **What the tests can and cannot reach**: headlessly there is no surface, so the fallback arm
+cannot be derived and `docked_central_rect` declines for that reason rather than for a too-small
+window. Both are the same verdict, and the decision itself is unit-tested in `editor::docked_rt`.
+What is pinned here is that the pass-through is gone (sabotage-verified: reinstating
+`None => Some(logical)` reddens it, exit 101) and that a published rect still maps, with a control
+on each — a non-docked position mapping straight through, and a position outside the panel
+freezing rather than clamping.
+
 ## 0.156.2
 
 ### The copy clipboard survives a world reset
