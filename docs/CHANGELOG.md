@@ -4,6 +4,48 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.1
+
+### The editor's undo history is bounded, by bytes rather than by commands
+
+`EditorHistory::push` appended forever and nothing trimmed. Measured on a 256x256 tilemap:
+
+| Workload | Retained |
+|---|---|
+| 1 Bucket fill | **1.50 MB** — 65,536 cells x 24 B, no capacity slack |
+| 10 fills | 15.00 MB |
+| 50 fills | **75.00 MB** |
+| 1,000 freehand strokes | **70.75 KB** total, spine included |
+
+⚠️ **The four orders of magnitude between two ordinary gestures is the finding, not the 75 MB.**
+A cap counted in commands is useless for the user who reaches for Bucket and absurd for the one
+who does not, so the budget is in **bytes**: `EditorHistory::budget_bytes`, defaulting to 64 MB,
+trimming oldest-first on push.
+
+**The newest command is never dropped**, even when it alone exceeds the budget — a Bucket fill on
+a large tilemap is exactly that case, and the action a user just took must stay undoable.
+
+⚠️ **The accounting is a floor, not a ceiling, and says so.** It is exact for `PaintTiles`, the
+only variant whose payload scales with the size of the edit; the def-carrying variants count their
+`EntityDef`s and the two `String`s each, but not the deep size of
+`HashMap<String, ron::Value>` — walking every value would cost more than the accounting saves.
+
+⚠️ **`Default` is hand-written now.** The derived one set `budget_bytes` to **0**, which trims
+every history to a single command on the first push. `EditorState::new` calls `new()`, so nothing
+shipped broken; a future `..Default::default()` would have.
+
+Five tests. Three sabotages, each red on its own test, alone (exit 101 every time):
+
+| Reinstated | What went red |
+|---|---|
+| no trim on push | `the_oldest_commands_are_dropped_when_the_budget_is_passed` |
+| trimming without the keep-newest guard | `the_newest_command_is_never_dropped_even_alone_over_budget` |
+| the derived `Default` (budget 0) | `the_default_budget_is_not_zero` |
+
+The control that matters is `small_commands_are_never_trimmed`: 1,000 payload-free edits must all
+survive a 6,000-byte budget. A trim that fired on count rather than bytes would pass every other
+test here and fail that one.
+
 ## 0.156.0
 
 ### Deleting a parent in the editor now deletes its subtree

@@ -803,3 +803,90 @@ fn redo_of_a_subtree_delete_removes_the_whole_subtree_again() {
         "redo removed the root and left the child behind"
     );
 }
+
+// ── EditorHistory heap budget (v0.156.1) ──────────────────────────────────────
+
+/// A `PaintTiles` command holding `cells` changed cells — the payload that actually scales.
+fn paint_of(cells: usize) -> EditorCmd {
+    EditorCmd::PaintTiles {
+        entity: Entity::from_raw_parts(0, 0),
+        changes: vec![(0, 0, 0, 1); cells],
+    }
+}
+
+#[test]
+fn retained_bytes_counts_a_paint_payload_exactly() {
+    let mut history = EditorHistory::new();
+    history.push(paint_of(1000));
+    assert_eq!(
+        history.retained_bytes(),
+        1000 * std::mem::size_of::<(usize, usize, u32, u32)>(),
+        "a cell is 24 B and 1000 of them are 24,000 — the budget is only meaningful if this is"
+    );
+}
+
+#[test]
+fn the_oldest_commands_are_dropped_when_the_budget_is_passed() {
+    let mut history = EditorHistory::new();
+    // 100 cells = 2,400 B per command; a 6,000 B budget holds two.
+    history.budget_bytes = 6_000;
+    for _ in 0..5 {
+        history.push(paint_of(100));
+    }
+    assert_eq!(
+        history.undo_len(),
+        2,
+        "expected the budget to hold two commands"
+    );
+    assert!(
+        history.retained_bytes() <= history.budget_bytes,
+        "trimming stopped before reaching the budget"
+    );
+}
+
+#[test]
+fn the_newest_command_is_never_dropped_even_alone_over_budget() {
+    // One Bucket fill on a large tilemap is exactly this case: 1.50 MB in a single stroke. The
+    // user must still be able to undo the thing they just did.
+    let mut history = EditorHistory::new();
+    history.budget_bytes = 1_000;
+    history.push(paint_of(10_000)); // 240,000 B, 240x the budget
+    assert_eq!(history.undo_len(), 1);
+    assert!(
+        history.retained_bytes() > history.budget_bytes,
+        "precondition"
+    );
+}
+
+#[test]
+fn small_commands_are_never_trimmed() {
+    // Control against a trim that fires indiscriminately: 1,000 ordinary edits are ~0 heap, so
+    // nothing may be dropped. This is the freehand end of the measurement — 70.75 KB for 1,000
+    // strokes — and a count-based cap is what would have broken it.
+    let mut history = EditorHistory::new();
+    history.budget_bytes = 6_000;
+    for _ in 0..1_000 {
+        history.push(EditorCmd::MoveEntity {
+            entity: Entity::from_raw_parts(0, 0),
+            old_pos: glam::Vec2::ZERO,
+            new_pos: glam::Vec2::ONE,
+        });
+    }
+    assert_eq!(
+        history.undo_len(),
+        1_000,
+        "an edit with no payload was trimmed"
+    );
+}
+
+#[test]
+fn the_default_budget_is_not_zero() {
+    // `EditorHistory` derived `Default` before v0.156.1; a derived one would set the budget to 0
+    // and trim every history to a single command. `EditorState::new` uses `new()`, but a future
+    // `..Default::default()` would not.
+    let mut history = EditorHistory::default();
+    for _ in 0..3 {
+        history.push(paint_of(100));
+    }
+    assert_eq!(history.undo_len(), 3);
+}
