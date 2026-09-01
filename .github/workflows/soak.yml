@@ -94,9 +94,15 @@ jobs:
           SOAK_SELFTEST: ${{ github.event.inputs.selftest || '' }}
         run: |
           # ⚠️ The dispatch inputs reach bash through `env`, never interpolated into the command
-          # line. `${{ }}` is substituted as TEXT before any shell sees it, so an input containing
-          # shell metacharacters would run as code. Only a write-access account can dispatch this,
-          # which lowers the stakes without changing the rule.
+          # line. A workflow expression is substituted as TEXT before any shell sees it, so an
+          # input containing shell metacharacters would run as code. Only a write-access account
+          # can dispatch this, which lowers the stakes without changing the rule.
+          #
+          # ⚠️ And that substitution does not care about `#`. The first version of this comment
+          # spelled the expression syntax out with an empty body to illustrate it — GitHub tried
+          # to evaluate it, "An expression was expected", and the whole file failed to parse. A
+          # workflow comment is not a comment to the expression parser; `scripts/lint_workflows.py`
+          # now fails on an empty one before it can reach main again.
           #
           # `$SOAK_SELFTEST` is deliberately UNQUOTED: empty must expand to no argument at all,
           # and quoting would hand soak.sh an empty filter, which matches nothing and exits 2.

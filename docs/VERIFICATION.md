@@ -184,6 +184,34 @@ Two rules came out of it:
 The general form is the one this file keeps repeating in other clothes: a green result is evidence
 only once you have shown the thing can go red.
 
+### Trap 10 — valid YAML is not a valid workflow, and only `main` will tell you
+
+`.github/workflows/soak.yml` landed on `main` in #528 unparseable by GitHub. Every check on that PR
+was green, because **a `schedule` / `workflow_dispatch` workflow never runs on a pull request** —
+there is nothing for CI to notice. The first news came from a dispatch, after the merge:
+
+```
+HTTP 422: failed to parse workflow: (Line: 95, Col: 14): An expression was expected
+```
+
+The local check that passed was `python3 -c 'yaml.safe_load(...)'`, and it was answering a
+different question. The file was valid YAML and invalid GitHub Actions.
+
+⚠️ **The cause is the part to keep.** The offending text sat inside a `#` comment in a `run:`
+block, and the comment was explaining that a workflow expression gets substituted before the shell
+sees it. It does — including inside comments, because **the expression parser has no idea what a
+shell comment is.** Writing an empty expression to illustrate the syntax made GitHub try to
+evaluate it.
+
+`scripts/lint_workflows.py` now fails on an empty or unterminated expression, and runs as a step in
+the `Rustdoc` job so every PR sees it. It is deliberately narrow — two rules, not a general linter;
+adopt `actionlint` before adding a third. Both rules are sabotage-verified by reinstating the exact
+line that broke #528.
+
+The general lesson generalises past workflows: **a file another system parses is only verified by
+that system.** A local parser that accepts it has told you about your parser.
+
+
 ### The soak — `scripts/soak.sh`, a detector, never a proof
 
 The rule above says counting clean runs proves nothing. It does not say counting *failing* runs

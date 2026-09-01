@@ -402,6 +402,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # ⚠️ A workflow GitHub cannot PARSE fails before any step, and a `schedule` /
+      # `workflow_dispatch` workflow never runs on a pull request — so nothing here could see it.
+      # `soak.yml` reached `main` unparseable that way (#528) and only `gh workflow run` said so.
+      # Valid YAML is not the same test: `yaml.safe_load` accepted that file.
+      #
+      # A STEP in an existing job on purpose. A new job would need its context added to branch
+      # protection, and the required set is every job in this file — same reasoning as the
+      # selftest step in `test`. First step after checkout because it costs ~0 and gates a
+      # ~40 s job.
+      - name: Workflow files parse as GitHub expressions
+        run: ./scripts/lint_workflows.py
+
       - name: Install system dependencies
         run: |
           sudo apt-get update -q
