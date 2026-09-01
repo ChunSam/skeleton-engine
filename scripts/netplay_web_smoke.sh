@@ -115,9 +115,20 @@ if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
 fi
 python3 -m http.server "$PORT" --directory "$WEB_DIR" >/dev/null 2>&1 &
 HTTPD_PID=$!
-sleep 1
-if ! kill -0 "$HTTPD_PID" 2>/dev/null; then
-  echo "FAIL: http.server failed to start on :$PORT" >&2
+# ⚠️ Wait for the LISTEN, not for a second to pass. `sleep 1` is a guess about how fast python
+# starts, and `kill -0` cannot correct it — the process exists long before it binds. On a loaded
+# runner Chrome then dials a port nothing is on yet, the page never loads, no verdict is ever
+# written, and the poll further down times out with a message that blames the ENGINE for a server
+# that was not up. Same loop the sibling servers in these smokes already use.
+serving=0
+for _ in $(seq 1 100); do
+  if bash -c "exec 3<>/dev/tcp/127.0.0.1/$PORT" 2>/dev/null; then serving=1; break; fi
+  kill -0 "$HTTPD_PID" 2>/dev/null || break
+  sleep 0.1
+done
+if [[ "$serving" -ne 1 ]]; then
+  echo "FAIL: http.server never began serving :$PORT within 10 s — this is the server, not the" >&2
+  echo "      engine. It either died on startup or never bound." >&2
   exit 2
 fi
 
