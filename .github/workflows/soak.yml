@@ -1,0 +1,116 @@
+name: Soak
+
+# Reruns the `<NAME>_SELFTEST` acceptance tests many times on the runner hardware and reports how
+# often they fail. `scripts/soak.sh` carries the reasoning; this file is only what puts it on a
+# clock and on the machine that matters.
+#
+# ⚠️ **Why this is a separate file and not a ninth job in `ci.yml`.**
+#
+# `ci.yml`'s header states an invariant its comments and branch protection both depend on: the
+# required set is EVERY job in that file. A job that triggers only on `schedule` can never report
+# on a pull request, so putting it there forces one of two bad outcomes — the invariant quietly
+# stops being true, or the context gets added to branch protection and then **every PR waits on a
+# check that will never arrive**. That exact failure is written up in `ci.yml` and in
+# `docs/VERIFICATION.md`; it is not hypothetical here.
+#
+# ⚠️ **This workflow's job must NEVER be added to branch protection.** It is a detector that runs
+# on its own clock, not a merge gate. Verify with:
+#
+#   gh api repos/ChunSam/skeleton-engine/branches/main/protection \
+#     --jq '.required_status_checks.contexts'
+#
+# and expect the same EIGHT `ci.yml` contexts, with `Selftest soak` absent.
+#
+# ── Two GitHub behaviours that decide whether this ever runs ────────────────────────────────────
+#
+# 1. `schedule` fires against the DEFAULT BRANCH only. Editing this file on a branch changes
+#    nothing until it lands on `main` — a PR run of this workflow does not exist.
+# 2. GitHub disables scheduled workflows in a repository with **60 days** of no activity, and it
+#    does so silently. If the nightly result goes quiet, check that before believing the tests got
+#    better. `workflow_dispatch` below always works and is the way to check on demand.
+
+on:
+  schedule:
+    # 04:23 UTC daily. Off the hour on purpose — scheduled runs pile up at :00 and are delayed.
+    - cron: '23 4 * * *'
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: 'Runs per selftest'
+        required: false
+        default: '20'
+      selftest:
+        description: 'Which selftest (NETPLAY, netplay_game, ...). Empty runs every one.'
+        required: false
+        default: ''
+
+concurrency:
+  # One soak at a time. A second one racing the first competes for the same runner CPU, which is
+  # the very variable being measured.
+  group: soak
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  soak:
+    name: Selftest soak
+    runs-on: ubuntu-latest
+    # The soak is bounded by `runs` rather than by work, so this is a hang detector sized well
+    # above the default: at 20 runs the netplay selftest alone is ~10 s each (measured 9.4 s on a
+    # 2026-09-01 laptop), and `workflow_dispatch` can ask for far more.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Runner capacity
+        run: |
+          echo "nproc=$(nproc)"
+          free -g | head -2
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libudev-dev libxkbcommon-dev \
+            libwayland-dev libx11-dev pkg-config
+
+      - name: Install Rust 1.95
+        uses: dtolnay/rust-toolchain@1.95.0
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      # ⚠️ No `SKELETON_REQUIRE_AUDIO`. The runner has no usable sound card — a PulseAudio null
+      # sink and ALSA `snd-dummy` were both measured and neither works (the table is in
+      # docs/VERIFICATION.md) — so the audio halves skip here exactly as they do in `ci.yml`, and
+      # demanding a device would turn every run red for a reason that is not a flake.
+      - name: Soak
+        env:
+          SKELETON_MUTE: '1'
+          SOAK_RUNS: ${{ github.event.inputs.runs || '20' }}
+          SOAK_SELFTEST: ${{ github.event.inputs.selftest || '' }}
+        run: |
+          # ⚠️ The dispatch inputs reach bash through `env`, never interpolated into the command
+          # line. `${{ }}` is substituted as TEXT before any shell sees it, so an input containing
+          # shell metacharacters would run as code. Only a write-access account can dispatch this,
+          # which lowers the stakes without changing the rule.
+          #
+          # `$SOAK_SELFTEST` is deliberately UNQUOTED: empty must expand to no argument at all,
+          # and quoting would hand soak.sh an empty filter, which matches nothing and exits 2.
+          # Word splitting is the wanted behaviour here — it is how two names are passed.
+          ./scripts/soak.sh -n "$SOAK_RUNS" $SOAK_SELFTEST
+
+      # The per-run logs are what makes a red actionable: the margins across every run are in
+      # them, and a failing run's whole output is the only record of an interleaving that may not
+      # happen again. Kept on failure too — especially on failure.
+      - name: Upload soak logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: soak-logs
+          path: target/soak/
+          retention-days: 14
+          if-no-files-found: warn

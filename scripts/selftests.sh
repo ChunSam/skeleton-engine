@@ -152,6 +152,26 @@ while IFS= read -r n; do [ -n "$n" ] && SERVERS+=("$n"); done < <(
   } | sort -u
 )
 
+# ── `--list`: the discovered inventory, for other tools ─────────────────────────────────────────
+#
+# `scripts/soak.sh` reruns one of these many times and needs the same answers this file computes:
+# which env var, which Cargo target, which sibling servers. Deriving that a SECOND time over there
+# is precisely the failure rule 1 is written against — two derivations drift, and the one that
+# drifts unnoticed is the one that does NOT run on every commit. So there is one derivation and
+# this flag exposes it.
+#
+# Emitted after rules 2-4, so a tree that would fail the gate fails this query the same way rather
+# than quietly listing a broken inventory. ⚠️ The `[selftests] ...` progress lines above are on
+# stdout too, so a consumer must select the `selftest ` / `server ` prefixes rather than read every
+# line — soak.sh does.
+if [ "${1:-}" = "--list" ]; then
+  for spec in "${SELFTESTS[@]}"; do printf 'selftest %s %s\n' "${spec%%:*}" "${spec##*:}"; done
+  if [ "${#SERVERS[@]}" -gt 0 ]; then
+    for s in "${SERVERS[@]}"; do printf 'server %s\n' "$s"; done
+  fi
+  exit 0
+fi
+
 BUILD_ARGS=()
 for spec in "${SELFTESTS[@]}"; do BUILD_ARGS+=(--example "${spec##*:}"); done
 if [ "${#SERVERS[@]}" -gt 0 ]; then
