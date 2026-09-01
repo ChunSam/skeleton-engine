@@ -55,13 +55,24 @@ jobs:
   # work to fit. (Those numbers predate the examples-tree deletion, so every job is now
   # faster than measured; they are kept as upper bounds rather than re-measured.)
 
+  # ── 액션 핀 ────────────────────────────────────────────────────────────────
+  # `actions/checkout` is v7 in all eight jobs. v4 runs on Node 20, which GitHub deprecated: the
+  # runner already force-ran it on Node 24 and annotated every job with the warning, so the pin sat
+  # one runner-image change away from failing all eight at their very first step. v5 is the first
+  # `using: node24` release and would clear the warning on its own — the bump goes to the current
+  # major instead, because v5 and v6 inherit the same clock and would each buy the same fix twice.
+  #
+  # Nothing in this file depends on what changed between them. v6 moved credential persistence to a
+  # separate file: this workflow has no submodules and never pushes back from CI. v7 blocks fork-PR
+  # checkout under `pull_request_target` and `workflow_run`, and it triggers on neither.
+
   # ── 네이티브 빌드 + 테스트 ─────────────────────────────────────────────────
   test:
     name: Test (native)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The native job builds --all-targets (debug) AND --release in one `target/`, on top of a
       # restored cache. That once ran the runner out of disk ("No space left on device"), so this
@@ -156,7 +167,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install build + Vulkan software (lavapipe) deps
         run: |
@@ -202,7 +213,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust 1.95 + wasm32 target
         uses: dtolnay/rust-toolchain@1.95.0
@@ -247,7 +258,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # `netplay_web_smoke.sh` builds and runs the NATIVE `netplay_server` alongside the browser —
       # a browser tab cannot listen on a socket, so the server half has to be native. A native build
@@ -327,7 +338,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust 1.95
         uses: dtolnay/rust-toolchain@1.95.0
@@ -372,7 +383,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust 1.95
         uses: dtolnay/rust-toolchain@1.95.0
@@ -389,7 +400,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: |
@@ -412,7 +423,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: |
