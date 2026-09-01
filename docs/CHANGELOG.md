@@ -4,6 +4,49 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.4
+
+### The netplay check reports the margins it survived on, and a dead server stops pretending to be a slow one
+
+Two diagnostics in `NETPLAY_SELFTEST`, neither a product bug. Both come out of the CI reliability
+review that closed #526: the check family is sound, but when it does go red it says less than it
+knows.
+
+**Check 6 now emits its margins.** v0.155.1 and v0.155.2 both turned on runtime quantities — the
+server's copy of the ship sitting 76.5 px into a 120 px reach, one 35 ms iteration against 46 px of
+travel room — each measured by hand, once, mid-investigation, and afterwards surviving only in
+prose. A margin eroding on a slower runner was therefore invisible until it flipped to red. The
+worst of each across every round now rides on the `ok:` line:
+
+    Margins: the server's copy 62.7 px into its 120 px reach, slowest frame 29 ms against
+    102 ms of travel room, flight 0.4 s of 12, first snapshot 0.26 s
+
+Three local runs read 62.7 / 69.4 / 68.8 px, which is v0.155.2's hand-measured "~70 px, 50 px
+spare" reproduced by the check itself. `travel_room` is derived from `APPROACH`, `CLAIM_RADIUS`,
+and `PLAYER_SPEED` rather than written down, so it cannot drift from the comment that reasons
+about it. The `granted none` failure message also carries the gap now, and says outright whether
+distance can be the reason — the question that sent the v0.155.1 investigation at the wrong half of
+the system.
+
+**A server that died is no longer reported as a server that is slow.** The port is reserved by
+binding `:0` and dropping the listener, so the child re-binds a port this process no longer holds;
+lose that race and `server.rs` panics on `.expect("bind failed")`. With the child's stderr
+discarded, the panic went nowhere and the only evidence was the 10 s bind timeout — which names a
+wedged server, the one thing it is not. The child's stderr is kept (a file, not a pipe: an unread
+pipe fills and blocks a server that logs every accept error) and the wait loop calls `try_wait`, so
+a dead child is reported immediately instead of at the deadline.
+
+Measured by sabotage — handing the child an unbindable address, which is the same failure the race
+produces:
+
+    before   11.96 s   FAIL: netplay_server never bound 127.0.0.1:54046 within 10 s
+    after     1.98 s   FAIL: netplay_server exited before it bound 127.0.0.1:54040
+                       (exit status: 101) - it said: ... bind failed: Os { code: 13,
+                       kind: PermissionDenied }
+
+Check 7 was deliberately left alone: its numbers are entity counts, not timing margins, and it has
+no equivalent to report.
+
 ## 0.156.3
 
 ### The docked cursor reads the same viewport the frame was rendered at
