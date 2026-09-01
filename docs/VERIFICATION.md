@@ -184,6 +184,39 @@ Two rules came out of it:
 The general form is the one this file keeps repeating in other clothes: a green result is evidence
 only once you have shown the thing can go red.
 
+### The soak — `scripts/soak.sh`, a detector, never a proof
+
+The rule above says counting clean runs proves nothing. It does not say counting *failing* runs
+proves nothing, and that asymmetry is the whole reason the soak exists: a rate is a real finding,
+a zero is not a clean bill of health.
+
+```sh
+./scripts/soak.sh                  # every selftest, 20 runs each
+./scripts/soak.sh -n 60 NETPLAY    # 60 runs of one, ~9 s each
+```
+
+It reruns `<NAME>_SELFTEST` acceptance tests, reports the failure rate, keeps every run's output
+under `target/soak/<VAR>/`, and exits non-zero if anything failed. Its inventory comes from
+`./scripts/selftests.sh --list` — the gate's own derivation, queried rather than copied, because
+two derivations drift and the one that drifts unnoticed is the one not running on every commit.
+
+**Read a green soak precisely.** A flake of rate `p` survives `N` runs with probability `(1-p)^N`,
+so the default 20 runs misses a 15% flake 4% of the time, a 5% flake 36% of the time, and a 1%
+flake 82% of the time. It is sized for the flake this repo has actually seen. A green 20-run soak
+means "not the 15% kind" and nothing more.
+
+**What it adds over a CI red.** A red tells you a check failed once. The soak tells you how often —
+and for the checks that report margins (`NETPLAY_SELFTEST` since v0.156.4), how much room they had
+across every run, which is the warning a red arrives without. On 2026-09-01, 8 local runs reported
+a worst server gap of 69.7 px against a 120 px reach and a worst frame of 38 ms against 102 ms of
+travel room.
+
+⚠️ **The nightly `Soak` workflow is not a merge gate and must never be added to branch protection**
+— `.github/workflows/soak.yml` explains why it is a separate file from `ci.yml`, whose invariant is
+that every job in it *is* required. It also fires only on the default branch, so a change to it
+proves nothing until it lands on `main`.
+
+
 ### Trap 8 — a conflict resolution is a tree nothing has ever verified
 
 Both branches were green **before** the merge, and neither of those greens covers the tree the
