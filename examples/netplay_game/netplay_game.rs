@@ -1535,15 +1535,37 @@ fn self_test() -> i32 {
         }
     };
 
+    // ⚠️ Keep the child's stderr. The port above is reserved by binding `:0` and dropping the
+    // listener, so the child re-binds a port this process no longer holds — and `server.rs` meets
+    // a lost race with `.expect("bind failed")`. With stderr discarded that panic went nowhere,
+    // and the only surviving evidence was the 10 s timeout below, which reports a server that
+    // "never bound" without saying it died trying. Two different failures, one message.
+    //
+    // A FILE, not a pipe. An unread pipe fills and blocks the writer, and the server logs every
+    // accept error and failed WS handshake — so a pipe would trade this diagnosis for a deadlock
+    // in the checks that follow. A file has no such ceiling and needs no reader thread.
+    let err_path =
+        std::env::temp_dir().join(format!("netplay_selftest_{}.err", std::process::id()));
+    let err_file = match std::fs::File::create(&err_path) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!(
+                "FAIL: could not create {} for the server's stderr: {e}",
+                err_path.display()
+            );
+            return 8;
+        }
+    };
     let mut child = match std::process::Command::new(&server_bin)
         .env("NETPLAY_ADDR", &addr)
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::from(err_file))
         .spawn()
     {
         Ok(c) => c,
         Err(e) => {
             eprintln!("FAIL: could not spawn {}: {e}", server_bin.display());
+            std::fs::remove_file(&err_path).ok();
             return 8;
         }
     };
@@ -1558,24 +1580,70 @@ fn self_test() -> i32 {
         code
     }
 
+    // Whatever the server wrote to stderr, trimmed. Empty when it said nothing.
+    let server_said = |path: &std::path::Path| -> String {
+        std::fs::read_to_string(path)
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    };
+
     // Wait for the child to bind before connecting. `NetworkClient::connect` dials once and does
     // NOT retry, so connecting first and hoping is not a slower path — it is a guaranteed failure.
     let bind_deadline = Instant::now() + Duration::from_secs(10);
     let mut bound = false;
+    let mut died = None;
     while Instant::now() < bind_deadline {
         if std::net::TcpStream::connect(&addr).is_ok() {
             bound = true;
             break;
         }
+        // ⚠️ A dead child will never bind, so waiting out the remaining deadline for it buys
+        // nothing and costs the diagnosis: 10 s of silence reads as a slow machine, which is the
+        // one thing it is not. This is the branch that separates "the port was taken" from "the
+        // server is wedged", and they have opposite fixes.
+        if let Ok(Some(status)) = child.try_wait() {
+            died = Some(status);
+            break;
+        }
         std::thread::sleep(Duration::from_millis(50));
     }
+    if let Some(status) = died {
+        let said = server_said(&err_path);
+        std::fs::remove_file(&err_path).ok();
+        eprintln!(
+            "FAIL: netplay_server exited before it bound {addr} ({status}) — {}. The port is \
+             reserved by binding :0 and dropping the listener, so anything that claimed it in \
+             that gap leaves the server nothing to bind.",
+            if said.is_empty() {
+                "it wrote nothing to stderr".to_string()
+            } else {
+                format!("it said: {said}")
+            },
+        );
+        return 8;
+    }
     if !bound {
+        let said = server_said(&err_path);
+        std::fs::remove_file(&err_path).ok();
         return finish(
             &mut child,
             8,
-            Some(format!("netplay_server never bound {addr} within 10 s")),
+            Some(format!(
+                "netplay_server never bound {addr} within 10 s, and it is still running — a slow \
+                 or wedged server rather than a failed bind.{}",
+                if said.is_empty() {
+                    String::new()
+                } else {
+                    format!(" It said: {said}")
+                },
+            )),
         );
     }
+    // Bound, so the diagnostic window is over and every failure past here has its own message.
+    // On Unix the child keeps writing into the unlinked inode, which costs nothing and is
+    // reclaimed when it exits — this is what keeps a 60-run soak from leaving 60 files behind.
+    std::fs::remove_file(&err_path).ok();
 
     /// A live client: the game's own world and systems, plus a real socket.
     struct Live {
@@ -1640,10 +1708,24 @@ fn self_test() -> i32 {
         // Steers every client toward `target` through the game's real input path, until all are
         // within `stop_dist` or `secs` runs out. Eight-direction, like a player: `read_move` reads
         // keys, so nothing here can express a direction the game itself cannot.
-        fn fly_to(lives: &mut [&mut Live], target: Vec2, stop_dist: f32, secs: f64) -> bool {
+        /// What a flight cost. The check reports these rather than only whether it arrived,
+        /// because the two margins that decide check 6 are runtime quantities and both flake
+        /// fixes turned on them — see `APPROACH`.
+        struct Flight {
+            arrived: bool,
+            /// Wall clock used, against the `secs` budget.
+            elapsed: f64,
+            /// The LONGEST single iteration. This is the client-side margin's whole story: the
+            /// stop test runs BEFORE the frame moves the ship, so one iteration of travel is the
+            /// overshoot, and `APPROACH - CLAIM_RADIUS` is all the room there is to absorb it.
+            worst_iter: f64,
+        }
+
+        fn fly_to(lives: &mut [&mut Live], target: Vec2, stop_dist: f32, secs: f64) -> Flight {
             const DEAD: f32 = 6.0;
             let start = Instant::now();
             let mut last = start;
+            let mut worst_iter = 0.0f64;
             while start.elapsed().as_secs_f64() < secs {
                 let mut all_arrived = true;
                 for live in lives.iter_mut() {
@@ -1671,11 +1753,16 @@ fn self_test() -> i32 {
                     InputScript::new(events).apply(&mut live.app.world);
                 }
                 if all_arrived {
-                    return true;
+                    return Flight {
+                        arrived: true,
+                        elapsed: start.elapsed().as_secs_f64(),
+                        worst_iter,
+                    };
                 }
                 let now = Instant::now();
                 let dt = (now - last).as_secs_f32();
                 last = now;
+                worst_iter = worst_iter.max(dt as f64);
                 for live in lives.iter_mut() {
                     live.net.run(&mut live.app.world, dt);
                     live.client.run(&mut live.app.world, dt);
@@ -1685,17 +1772,24 @@ fn self_test() -> i32 {
                 }
                 std::thread::sleep(Duration::from_millis(16));
             }
-            false
+            Flight {
+                arrived: false,
+                elapsed: start.elapsed().as_secs_f64(),
+                worst_iter,
+            }
         }
 
         let mut a = connect(&addr);
         let mut b = connect(&addr);
 
-        // Wait for both to receive a first snapshot.
-        let deadline = Instant::now() + Duration::from_secs(10);
+        // Wait for both to receive a first snapshot. How long that takes is the cheapest health
+        // signal this check has for the machine it is running on, so it is kept and reported.
+        let authority_start = Instant::now();
+        let deadline = authority_start + Duration::from_secs(10);
         while Instant::now() < deadline && (!a.client.have_authority || !b.client.have_authority) {
             run_live(&mut [&mut a, &mut b], 0.25);
         }
+        let authority_wait = authority_start.elapsed().as_secs_f64();
         if !a.client.have_authority || !b.client.have_authority {
             return finish(
                 &mut child,
@@ -1736,6 +1830,19 @@ fn self_test() -> i32 {
         // this is ~4 snapshots. It is not a guess about scheduling — the ships are not moving, so
         // the only thing being waited on is the round trip.
         const SETTLE: f64 = 0.35;
+
+        // ── The margins, kept rather than remembered ──────────────────────────────────────────
+        //
+        // v0.155.1 and v0.155.2 both turned on numbers nobody can see from the outside: the
+        // server's copy sitting 76.5 px into a 120 px reach, and one 35 ms iteration against
+        // 46 px of travel room. Each was measured by hand, once, mid-investigation — and then the
+        // only place they survived was prose, which CLAUDE.md is explicit about: a number pinned
+        // in prose goes stale, and a margin eroding on a slower runner is a red that arrives with
+        // no warning at all. The worst of each across every round rides on the `ok:` line, so the
+        // check reports how close it came instead of only that it got there.
+        let mut worst_gap = 0.0f32; // server-side: its copy of the ship, against its reach
+        let mut worst_iter = 0.0f64; // client-side: one frame of travel, against the room for it
+        let mut worst_flight = 0.0f64; // against `fly_to`'s own 12 s budget
         let mut contested = 0usize;
 
         for _ in 0..ROUNDS {
@@ -1756,16 +1863,21 @@ fn self_test() -> i32 {
                 break;
             };
 
-            if !fly_to(&mut [&mut a, &mut b], target, APPROACH, 12.0) {
+            let flight = fly_to(&mut [&mut a, &mut b], target, APPROACH, 12.0);
+            worst_flight = worst_flight.max(flight.elapsed);
+            worst_iter = worst_iter.max(flight.worst_iter);
+            if !flight.arrived {
                 return finish(
                     &mut child,
                     6,
                     Some(format!(
                         "the pilots did not reach {target:?} within 12 s (a is {:.0} px away, b \
-                         is {:.0} px). They fly at {PLAYER_SPEED} px/s through the real input \
-                         path, so this is a movement or reconciliation failure, not a claim one.",
+                         is {:.0} px; slowest iteration {:.0} ms). They fly at {PLAYER_SPEED} \
+                         px/s through the real input path, so this is a movement or \
+                         reconciliation failure, not a claim one.",
                         a.client.prediction.pos.distance(target),
                         b.client.prediction.pos.distance(target),
+                        flight.worst_iter * 1000.0,
                     )),
                 );
             }
@@ -1775,6 +1887,13 @@ fn self_test() -> i32 {
             // buys the claim below its margin against the server's 120 px reach without spending
             // the client's margin against `CLAIM_RADIUS`. See `APPROACH`.
             run_live(&mut [&mut a, &mut b], SETTLE);
+
+            // The margin `SETTLE` exists to buy, read at the only instant it decides anything:
+            // `try_claim` measures from the server's copy of the ship, so this is the distance
+            // the server is about to compare against its own reach. Worst of the two pilots.
+            worst_gap = worst_gap
+                .max(a.client.server_pos.distance(target))
+                .max(b.client.server_pos.distance(target));
 
             // Both pilots are now within APPROACH px of the salvage — inside the server's
             // CLAIM_SLACK, so a claim from here is one the server should honour. Push both onto it
@@ -1893,8 +2012,15 @@ fn self_test() -> i32 {
                 format!(
                     "{sent} claim(s) were sent and none was granted — this is the server's \
                      `try_claim`, which measures from ITS copy of the ship, not the predicted \
-                     one. Reach is {:.0} px.",
-                    CLAIM_RADIUS + CLAIM_SLACK
+                     one. Reach is {:.0} px and its copy was {worst_gap:.1} px out at the worst \
+                     staged moment, so {}.",
+                    CLAIM_RADIUS + CLAIM_SLACK,
+                    if worst_gap > CLAIM_RADIUS + CLAIM_SLACK {
+                        "the claim was legitimately out of range — `SETTLE` did not buy enough \
+                         for this machine"
+                    } else {
+                        "distance is NOT the reason and the refusal is in the guard itself"
+                    },
                 )
             };
             return finish(
@@ -1922,12 +2048,23 @@ fn self_test() -> i32 {
                 )),
             );
         }
+        // ⚠️ The margins are the half of this line that can warn. The verdict above only ever
+        // says yes or no, and both flake fixes were about a number sliding toward zero long
+        // before it flipped — `travel_room` is derived from the same constants the comment on
+        // `APPROACH` reasons about, so it cannot drift away from them the way prose did.
+        let travel_room = (APPROACH - CLAIM_RADIUS) / (PLAYER_SPEED * std::f32::consts::SQRT_2);
         println!(
             "ok: two pilots flew onto {contested} pickup(s) and claimed together — {points} \
-             point(s) awarded against {} removed, and both agree on which (a={} b={})",
+             point(s) awarded against {} removed, and both agree on which (a={} b={}). Margins: \
+             the server's copy {worst_gap:.1} px into its {:.0} px reach, slowest frame {:.0} ms \
+             against {:.0} ms of travel room, flight {worst_flight:.1} s of 12, first snapshot \
+             {authority_wait:.2} s",
             taken.len(),
             a.client.score,
-            b.client.score
+            b.client.score,
+            CLAIM_RADIUS + CLAIM_SLACK,
+            worst_iter * 1000.0,
+            travel_room * 1000.0,
         );
     }
 
