@@ -786,14 +786,50 @@ mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
+    /// ⚠️ Membership, not `.len()`: counting alone passed a block shifted by one in both axes,
+    /// and — because the two full-block cases were centred — a row/col transposition too
+    /// (v0.156.15). The asymmetric case is what catches that one.
     fn brush_cells_sizes_and_clamp() {
+        let sorted = |r, c, b, rows, cols| {
+            let mut v = brush_cells(r, c, b, rows, cols);
+            v.sort_unstable();
+            v
+        };
         assert_eq!(brush_cells(2, 2, 1, 5, 5), vec![(2, 2)]); // 1×1
-        assert_eq!(brush_cells(2, 2, 3, 5, 5).len(), 9); // full 3×3
-                                                         // 3×3 at the top-left corner clamps to a 2×2.
-        let mut corner = brush_cells(0, 0, 3, 5, 5);
-        corner.sort_unstable();
-        assert_eq!(corner, vec![(0, 0), (0, 1), (1, 0), (1, 1)]);
-        assert_eq!(brush_cells(2, 2, 5, 5, 5).len(), 25); // full 5×5
+        assert_eq!(
+            sorted(2, 2, 3, 5, 5),
+            vec![
+                (1, 1),
+                (1, 2),
+                (1, 3),
+                (2, 1),
+                (2, 2),
+                (2, 3),
+                (3, 1),
+                (3, 2),
+                (3, 3)
+            ],
+            "the 3×3 sits on its centre cell"
+        );
+        // Asymmetric: row 1, col 3 — a transposed (row, col) lands somewhere else entirely.
+        assert_eq!(
+            sorted(1, 3, 3, 5, 5),
+            vec![
+                (0, 2),
+                (0, 3),
+                (0, 4),
+                (1, 2),
+                (1, 3),
+                (1, 4),
+                (2, 2),
+                (2, 3),
+                (2, 4)
+            ],
+            "row and col are not interchangeable"
+        );
+        // 3×3 at the top-left corner clamps to a 2×2.
+        assert_eq!(sorted(0, 0, 3, 5, 5), vec![(0, 0), (0, 1), (1, 0), (1, 1)]);
+        assert_eq!(brush_cells(2, 2, 5, 5, 5).len(), 25); // full 5×5 covers the grid
     }
 
     #[cfg(not(target_arch = "wasm32"))]
