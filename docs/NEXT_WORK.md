@@ -205,7 +205,7 @@ transition, no editor. Its selftest is the only acceptance test in the repo.
 
 ## Board gate — check this first, every session
 
-Both channels were **empty** as of 2026-08-10 (re-checked; neither has moved):
+Both channels were **empty** as of 2026-09-02 (re-checked with `git log -1`; neither has moved):
 
 - `../dungeon-merchant/docs/engine-wishlist.md` — next free **EW-012**, unmoved since 2026-07-27
 - `../rust-survivors/docs/ENGINE_CHANGE_REQUESTS.md` — `_None._`, unmoved since 2026-07-14
@@ -223,7 +223,9 @@ empty**: its last two items closed on 2026-08-19, one by the measurement it was 
 shipping (v0.152.6). That section is kept below as the record of what measuring did to it. The
 follow-up review of that work left nine small items of its own — they have their own section below
 and are **not** gated the way these three are. Neither is the 2026-08-19 **render** review, which
-added a section of its own after shipping three fixes as v0.152.9.
+added a section of its own after shipping three fixes as v0.152.9. **The 2026-09-01 timing-check
+review** has a section too, and it is the odd one out: its list was never written into the tree,
+so the section records a gap rather than a queue.
 
 A backlog this short is still the *expected* state, not a gap to fill: two programs closed in
 v0.150.7 and v0.151.1, and the board gate above is empty. Manufacturing work to fill it would be a
@@ -240,6 +242,48 @@ did not fix*, not as a queue that has to be drained.
 | ~~**`TextCacheStats`** — shaped-text cache hit/miss counters~~ | **DONE v0.154.0 — and it did not need the caller after all.** The row said to build it alongside `survivor_game`'s `FloatingText`, on the reasoning that nothing else could exercise it. That was wrong in one direction: `tests/render.rs` drives real multi-frame text through a real `TextRenderer`, so the whole check — moving draw, static draw, content-changing draw, warm-up window, all three controls — fits in a render test with **no game involved**. Built as its own resource (not a `RenderStats` field, which is documented sprite-pass-only), reset in `TextRenderer::end_frame`. ⚠️ The check was **seen to fail**: reinstating `position` in the cache key gives `hits=1 misses=2` against the fixed `hits=2 misses=1`. The lesson worth keeping is that "needs a game" deserves the same re-derivation as any other filed diagnosis — the render harness reaches further than the row assumed. |
 | ~~**`NETPLAY_SELFTEST` check 6 is flaky** — the contested pickup~~ | **DONE v0.155.1 — and the row's own two candidate causes were both wrong.** It named "the claim never reached the server" or "its distance validation refused a legitimate one"; the answer was that the client never *sent* one. The check stages its contested moment by writing `prediction.pos` directly, which no input backs, and the frame drains the network — and `reconcile`, which overwrites `prediction.pos` wholesale — **before** `pump_claims`. ~83 ms between snapshots against a ~16 ms frame put the erasure at roughly one teleport in five. Claims are now pumped at the staged instant, which is what the comment above already said was happening. ⚠️ A second flake was one slow machine away: `try_claim` measures from the server's copy of the ship, which was **76.5** and **96.7** px from the pickup against a reach of **120** — 23 px of margin on a legitimate claim. `APPROACH` 70 → 40 roughly doubled it — ⚠️ **superseded by v0.155.2, which put it back to 70.** Narrowing the approach bought the server margin out of the *client* one (16 px of frame travel against 46, i.e. one ~35 ms iteration), which is a second flake of the opposite shape. The ships now hold still for `SETTLE` ≈ 4 snapshots instead, so the server's copy catches up and both margins end up wider than either setting gave. ⚠️ **The first probe hid the bug** (65 clean runs with a server-side `eprintln!`; the failure returned on run 17 of 25 once it was reverted) — that lesson is in `docs/VERIFICATION.md` § *A probe that changes timing…*, along with why counting clean runs proved nothing and forcing the race did. |
 | **Last-seen eviction helper** (`RemoteEntities` #5) | **Back to n=1 as of 2026-08-21** — `netplay_game` implements exactly this shape (`last_seen: HashMap<NetId, f64>` + `AOI_EVICT_SECS`, `evict_stale` in `examples/netplay_game/netplay_game.rs`), so the gate is reachable again and the row is once more waiting on a **2nd** call site, the same bar that held `SnapshotBuffer`. It read n=0 from 2026-08-19, when its one call site went with the examples tree. ⚠️ The rebuild plan *predicted* this — "**Bonus:** AOI streaming restores the `RemoteEntities` last-seen eviction gate" — and the row still went stale for a day, because phase 5a updated the sections it was editing and not the one a different section had forecast. A row that names its own trigger does not update itself. Historical detail — `salvage_run`'s AOI streaming produces **removal-by-omission**: the server never sends a `Bye`, an entity just stops appearing in snapshots, so the client infers eviction from `last_seen` + timeout. Candidate shape (`touch(key, t)` / `expired(now - timeout) -> Vec<K>`) is written up in `docs/REMOTE_ENTITIES_DESIGN.md` § *5th example*, **flagged not built**. Surfaced here 2026-08-10 because that doc was its only home — the four sibling verdicts in the same section all resolved to *keep minimal / zero engine change*, and this is the one that did not. |
+
+### Open — the 2026-09-01 timing-check review's remainder
+
+A review of the timing-dependent checks — `NETPLAY_SELFTEST` check 6's margins and the server waits
+in the three `*_web_smoke.sh` — run on 2026-09-01 by the session that closed #526. Its verdict, as
+#527 records it: the check family is sound and its reds say less than they know. **Three shipped
+the same day.** v0.156.4 (#527: check 6 emits the margins it survived on, and a server that died
+is reported as dead rather than slow), #528 ("item 2": `scripts/soak.sh` and the nightly
+`.github/workflows/soak.yml`, so a flake gets a rate instead of an anecdote), and #530 ("item 4":
+the smokes wait for the server's LISTEN, with a 10 s budget that names the server when it never
+serves). #529 was not an item: `soak.yml` landed on `main` unparseable — a workflow expression
+inside a shell comment — and was fixed the same day; that is Trap 10 in `docs/VERIFICATION.md`, and
+`scripts/lint_workflows.py` now runs first in the `Rustdoc` job (a step, not a ninth job, so the
+required set is still every job in `ci.yml`).
+
+⚠️ **The review's own list was never written into the tree, and the tree cannot give it back.**
+Searched 2026-09-02: `docs/`, `plans/`, `scripts/`, `.github/`, the five PR bodies, the commit
+bodies, and this machine's session transcripts. The only trace is two commit bodies calling
+themselves "Item 2" and "Item 4". #527 never numbers itself (item 1, by inference); **item 3, and
+anything after 4, is unknown.** This section is therefore a gap, not a queue — filed so the next
+reader does not spend a session looking for a list that is not there.
+
+| Item | Where | What settles it |
+|---|---|---|
+| **Item 3 and any later item — lost.** Not scheduled. Do not reconstruct it by guessing what a timing review "would" have found: each of the three that shipped carried a measurement that reversed its own filed reasoning (#530's bind race "does not exist" — a bind delayed 3, 10 and 20 s passed against the *old* code; #528's first sabotage read 60/60 because macOS clocks in microseconds and `subsec_nanos() % 10` was always 0), and a guessed row is exactly the thing that would lack one. | — | Nothing in the tree can. A new pass over the timing checks would be a new review, scoped and named as one, **and its list goes into this file before its first item ships** (`subsystem-review` rule 7) — which is the one lesson this section exists to carry. |
+
+**The instrument's first readings**, kept as the baseline the next red gets judged against. The
+durable description is `docs/VERIFICATION.md` § *The soak — a detector, never a proof*; the
+numbers below are what it has said so far, and `NETPLAY` is the only selftest that reports margins.
+
+| Run | Machine | Result | `NETPLAY` worst of the batch: server gap · slowest frame · flight |
+|---|---|---|---|
+| 8 local runs, 2026-09-01 (#528's body) | macOS | margins only | 69.7 px of 120 · 38 ms of 102 · 0.7 s of 12 |
+| `workflow_dispatch`, 2026-09-01 | ubuntu runner | 0/20 on all five | 69.3 px · 17 ms · 1.1 s |
+| first nightly, 2026-09-02 | ubuntu runner | 0/20 on all five | 70.0 px · 17 ms · 1.0 s |
+
+Two things the table already says: the runner's frames are *faster* than the laptop's (17 ms
+against 38), and its flight is slower (1.0–1.1 s against 0.7, of a 12 s budget) — neither is near a
+limit, and both are now numbers rather than a feeling. Read the latest run, not this table:
+`gh run list --workflow soak.yml --limit 3`, then `gh run view <id> --log | grep '\[soak\]'`.
+⚠️ A zero is the detection floor, not a clean bill: at N=20 a 15% flake is missed 4% of the time, a
+5% one 36%, a 1% one 82%.
 
 ### Open — the 2026-08-28 `src/app/editor` review's remainder
 
@@ -291,7 +335,7 @@ described the very code it moved.
 
 | Item | Where | What settles it |
 |---|---|---|
-| **`dispatch_fires_only_for_matching_entity` tests the test, not the code.** The name and doc claim the *draw closure* fires only when `presence` is true. The body never invokes `draw` — the comment says "Simulate invoking the draw closure … omitted here", and the `counter` it would increment is silenced with `_ = counter;` and never asserted. What is asserted is `fire_count`, incremented by an `if` written **in the test**. Same shape as the three v0.155.2 fixed. | `src/app/editor/state.rs:575` | A unit test — but `draw` takes `&mut egui::Ui` + `&mut App`, which a unit test cannot build. The real fix is the repo's own split (`docs/PATTERNS.md` § *Split a decision out of GPU-typed code so a test can reach it*); the cheap fix is renaming it to what it tests |
+| **`dispatch_fires_only_for_matching_entity` tests the test, not the code.** The name and doc claim the *draw closure* fires only when `presence` is true. The body never invokes `draw` — the comment says "Simulate invoking the draw closure … omitted here", and the `counter` it would increment is silenced with `_ = counter;` and never asserted. What is asserted is `fire_count`, incremented by an `if` written **in the test**. Same shape as the three v0.155.2 fixed. | `src/app/editor/state.rs:619` | A unit test — but `draw` takes `&mut egui::Ui` + `&mut App`, which a unit test cannot build. The real fix is the repo's own split (`docs/PATTERNS.md` § *Split a decision out of GPU-typed code so a test can reach it*); the cheap fix is renaming it to what it tests |
 | ~~**`EditorHistory::clear()`'s doc names a danger the ECS makes impossible.**~~ | `src/app/editor/history.rs` | ❌ **FALSE POSITIVE — the doc was right and the row was wrong, settled by running it.** The row reasoned that `Entity` is generation-checked and `despawn` bumps the generation, so a stale handle cannot match. True *within one world* — and a reset does not stay within one: `app/scenes.rs` does `self.world = World::new()`, so the new world's counters start at 0. Probe: an `Entity { index: 0, generation: 0 }` from the old world compares **equal** to the first entity spawned after the reset and reads that entity's component (`Some(99)`), while the same-world despawn→respawn pair compares unequal in the same run. The doc now carries that mechanism, and the load path's separate justification with it. ⚠️ **The row's own "What settles it" said *Read — both sides already read*, and reading is exactly what produced it.** |
 | ~~**Two consumers of the same rect disagree on the degenerate window.**~~ | `src/app/editor/docked_rt.rs` | **DONE v0.155.6 — one function now, and the row named the smaller of the two halves.** Both call sites read `docked_rt::docked_viewport`, which returns the logical rect **and** its physical pixel size or `None`; the renderer skips the frame and `compute_viewport` **holds** the previous `ViewportSize` rather than inventing a 1x1. ⚠️ **The hand-rolled arm branched on the rect alone**, so a sub-pixel central panel — one egui itself had squeezed — was published verbatim while the renderer refused it as un-renderable. That half was not in the row. The margins, `compute_central_rect` and `rect_to_physical` are **private to the module** now, so the subtraction cannot be spelled a second time; none of them was public API (`docked_rt` is `pub(super)`, absent from `src/lib.rs`). Four tests with controls, two sabotages, each reddening its own half and no other. |
 | ~~**Three comments say a migration is pending that has landed.**~~ | `src/app/editor/docked_rt.rs:1`, `src/app/editor/state.rs:280`, `src/app/render/docked.rs:99` | **DONE v0.155.6**, all three in that change rather than as a docs row of its own: two of them sat on the code that moved (the margins, now private; the `or_else` the renderer no longer spells), and leaving "until package 2 replaces them" on a line just edited is worse than the staleness it started as. They now say what is true — `ui/docked` writes the real panel rect every docked frame, so the margins are the fallback for the first frames of a session. |
@@ -748,6 +792,16 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
   `grep -cE '^\s*[^#]*scripts/[a-z_]*_smoke\.sh' .github/workflows/ci.yml`
 - **A headless capture cannot photograph a meter** — fixed dt, no wall clock. Three sessions have
   now reached for `ENGINE_CAPTURE` before remembering this.
+- **The nightly `Soak` is a detector on its own clock, not a gate — and must never become one.**
+  `.github/workflows/soak.yml` (#528) runs `scripts/soak.sh` over every selftest on the runner,
+  where timing differs from a laptop. Its job `Selftest soak` is deliberately absent from branch
+  protection: a `schedule`-only context can never report on a PR, so requiring it would block every
+  merge forever — the v0.153.0 failure reached from the other direction. Re-verified 2026-09-02
+  against the API and `origin/main`'s `ci.yml`: eight contexts, eight jobs, both set differences
+  empty, `Selftest soak` absent; `strict` and `enforce_admins` true, force-pushes and deletions
+  barred. ⚠️ GitHub silently disables a scheduled workflow after 60 days without repository
+  activity — if the nightly goes quiet, check that before believing the tests got better;
+  `workflow_dispatch` always works.
 
 ---
 
@@ -764,21 +818,21 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
 > Rolling off on schedule is the default, not an obligation: an entry whose lesson lives nowhere
 > else **stays until it does**.
 
-**Nothing here.** The 2026-08-24/25 entries — v0.155.0 (the nine follow-up-review items), v0.155.1
-(the `NETPLAY_SELFTEST` check 6 flake) and v0.155.2 (the three checks that could not fail) — rolled
-off on 2026-08-28, each home opened and read rather than assumed:
+**The 2026-09-01 batch — four PRs, one release.** Each home opened and read on 2026-09-02, per
+the rule above; these roll off next session.
 
-| What it carried | Home, verified 2026-08-28 |
+| What it carried | Home, verified 2026-09-02 |
 |---|---|
-| What shipped, all three releases | `docs/CHANGELOG.md` §§ 0.155.0, 0.155.1, 0.155.2 |
-| A check that stages its own precondition must assert the staging happened | `docs/VERIFICATION.md` § *Writing one: if the check stages its own precondition, assert the staging happened* |
-| When the only observable is a diagnostic, assert the diagnostic | `docs/VERIFICATION.md` § *Writing one: when the only observable is a diagnostic, assert the diagnostic* |
-| **When two margins squeeze one constant, widen the gap rather than sliding along it** | `docs/VERIFICATION.md`, closing the first of those two sections |
-| The flake was **check 6**, not check 7 — check 7 is AOI streaming | `docs/CHANGELOG.md` § 0.155.2, and the doc comments in `examples/netplay_game/netplay_game.rs` |
+| v0.156.4 (#527) — check 6 emits its margins; a dead server is reported as dead, not slow | `docs/CHANGELOG.md` § 0.156.4 |
+| #528 — `scripts/soak.sh`, the nightly `soak.yml`, `selftests.sh --list`; a zero is a detection floor, never a proof | `docs/VERIFICATION.md` § *The soak — `scripts/soak.sh`, a detector, never a proof*, plus the headers of both files |
+| #529 — a workflow that valid YAML could not vouch for; `scripts/lint_workflows.py` as the first `Rustdoc` step | `docs/VERIFICATION.md` § *Trap 10 — valid YAML is not a valid workflow, and only `main` will tell you* |
+| #530 — the smokes wait for the LISTEN; the race filed to justify it did not exist | `docs/VERIFICATION.md` § *wasm smoke checks* — **homed 2026-09-02**; it had no home, so under the rule it could not have rolled off |
+| The review's own item list | **nowhere** — see *Open — the 2026-09-01 timing-check review's remainder* above |
 
-Nothing was summarised here on the way out, because the struck-through rows in *Open — engineering*
-and *Open — the 2026-08-19 follow-up review's remainder* already keep the part of each filed
-diagnosis that turned out **wrong** — which is the half worth re-reading later, not the fix.
+No version bump rode on #528–#530: `scripts/` does not ship, the convention #528 states and #530
+repeats. The 2026-08-24/25 entries that stood here (v0.155.0–v0.155.2) rolled off on 2026-08-28
+with each home verified; the struck-through rows above keep the half of each diagnosis that was
+wrong, which is the half worth re-reading.
 
 ⚠️ **Two programs ended here, and the file should stay small now.** The v0.150.x measurement program
 closed with v0.150.7 and the 2026-08-07 analysis with v0.151.1. Nothing from either is open. What

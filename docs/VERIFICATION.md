@@ -869,6 +869,16 @@ smokes (`headless_screenshot`, `lighting_cap`, `packaged_assets`) were examples 
 > `true`. That is the strongest form this check can take: the sabotage is not a proxy for the
 > failure, it *is* the failure, restored.
 >
+> ✅ **Since #530 (2026-09-01) all three wait for the server's LISTEN instead of sleeping 1 s.** A
+> 10 s budget, and a failure inside it names the server — "http.server never began serving :8090
+> within 10 s — this is the server, not the engine" — instead of sending you to the page and the
+> browser console. ⚠️ **The race filed to justify it does not exist**: delaying the bind 3, 10 and
+> 20 s against the *old* code passed every time, because Chrome's own startup and the 45 s verdict
+> poll absorb it. What the wait buys is a *diagnosis* of a server that is alive but never serving,
+> which `kill -0` structurally cannot see — that case took 50.8 s to blame the page before and takes
+> 13.2 s to blame the server now. The sixth filed diagnosis in this repo reversed by one
+> measurement: the change stayed, the reasoning was replaced.
+>
 > ⚠️ **The gap was in the shape of the list, not in anyone's diligence.** The rebuild plan's four
 > browser smokes were chosen by subsystem — audio, save, network, render — and all four happened to
 > be success paths. Nothing about a coverage list organised by *what it touches* asks "which of
