@@ -374,6 +374,12 @@ pub(in crate::app) struct EditorState {
     /// Whether the in-progress stroke erases (right button) rather than paints.
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) paint_erase: bool,
+    /// The tool the in-progress stroke was started with. A stroke belongs to its tool the way
+    /// it belongs to its entity ([`Self::paint_entity`]): the inspector's tool buttons can be
+    /// clicked with the other mouse button still held, and a stroke that outlives its tool used
+    /// to be dropped by Bucket's `clear()` and to swallow the next Freehand stroke with it.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) paint_stroke_tool: Option<PaintTool>,
 
     // ── Inspector QoL (native only) ───────────────────────────────────────────
     /// Single-component clipboard: `(type name, serialized value)` from a "copy component".
@@ -485,6 +491,24 @@ impl EditorState {
         }
     }
 
+    /// Forgets every edit that is mid-gesture — a paint stroke, an inline rename, a gizmo drag —
+    /// **without recording any of it**. For a world reset only. The entities those edits refer to
+    /// are gone, and the counters restart, so a handle kept across the reset aliases whatever the
+    /// new scene spawns first: a stroke that survived the reset was committed the next frame as a
+    /// `PaintTiles` against the old tilemap's handle, onto the fresh history the reset had just
+    /// emptied, and one Ctrl+Z then wrote the old scene's cell values into the new scene's map
+    /// (v0.156.9). The same handle problem applies to a rename buffer and a gizmo gesture.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) fn drop_in_flight_edits(&mut self) {
+        self.paint_active = false;
+        self.paint_entity = None;
+        self.paint_stroke.clear();
+        self.paint_anchor = None;
+        self.paint_stroke_tool = None;
+        self.entity_rename = None;
+        self.clear_drag_state();
+    }
+
     /// Whether any gizmo gesture is in progress — the three flags the press guard checks.
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) fn gesture_active(&self) -> bool {
@@ -539,6 +563,7 @@ impl EditorState {
             paint_brush: 1,
             paint_anchor: None,
             paint_erase: false,
+            paint_stroke_tool: None,
             component_clipboard: None,
             entity_filter: String::new(),
             entity_sort: EntitySortMode::Index,

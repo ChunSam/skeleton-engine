@@ -165,11 +165,16 @@ impl App {
         };
 
         // ── Eyedropper: Alt+click picks the hovered cell's value (any tool) ───
-        if alt_held && (left_pressed || right_pressed) && !egui_wants_mouse {
-            if let Some(tm) = self.world.get::<crate::tilemap::Tilemap>(sel) {
-                if let Some((row, col)) = tm.cell_at_world(world_pos) {
-                    if let Some(v) = tm.get_tile(row, col) {
-                        self.editor.paint_value = v;
+        // Alt is the eyedropper for as long as it is held, not only on the press frame: the
+        // held frames after an Alt+click used to fall through to the tool below, which started
+        // a stroke and painted the just-sampled value around the sampled cell.
+        if alt_held {
+            if (left_pressed || right_pressed) && !egui_wants_mouse {
+                if let Some(tm) = self.world.get::<crate::tilemap::Tilemap>(sel) {
+                    if let Some((row, col)) = tm.cell_at_world(world_pos) {
+                        if let Some(v) = tm.get_tile(row, col) {
+                            self.editor.paint_value = v;
+                        }
                     }
                 }
             }
@@ -181,6 +186,15 @@ impl App {
         // `egui_wants_mouse` guard covers — end the stroke there rather than appending this
         // tilemap's cells to the other one's batch.
         if self.editor.paint_active && self.editor.paint_entity != Some(sel) {
+            self.finish_paint_stroke();
+        }
+        // …and to the tool that started it. The inspector's tool buttons can be clicked with the
+        // other mouse button still held, so a Freehand stroke can be in flight when Bucket or
+        // Rectangle runs. Bucket's own `clear()` then dropped that stroke's cells from history
+        // (they stayed erased), and the next Freehand stroke — its init guarded on
+        // `!paint_active` — was committed with no owner and lost too.
+        if self.editor.paint_active && self.editor.paint_stroke_tool != Some(self.editor.paint_tool)
+        {
             self.finish_paint_stroke();
         }
 
@@ -230,6 +244,7 @@ impl App {
             self.editor.paint_active = true;
             self.editor.paint_stroke.clear();
             self.editor.paint_entity = Some(sel);
+            self.editor.paint_stroke_tool = Some(crate::app::editor::PaintTool::Freehand);
         }
         if self.editor.paint_active && (left_active || right_active) && !egui_wants_mouse {
             let value = if right_active {
@@ -273,6 +288,7 @@ impl App {
             self.editor.paint_erase = right_pressed && !left_pressed;
             self.editor.paint_stroke.clear();
             self.editor.paint_entity = Some(sel);
+            self.editor.paint_stroke_tool = Some(crate::app::editor::PaintTool::Rectangle);
             self.editor.paint_anchor = self
                 .world
                 .get::<crate::tilemap::Tilemap>(sel)
@@ -323,7 +339,10 @@ impl App {
                 None => Vec::new(),
             }
         };
-        self.editor.paint_stroke.clear();
+        // Nothing is in flight here — the tool guard in `update_tile_paint` finished whatever
+        // another tool left — and a fill is its own batch either way. `finish` rather than
+        // `clear`: a `clear()` here is what used to drop an interrupted stroke from history.
+        self.finish_paint_stroke();
         self.editor.paint_entity = Some(sel);
         self.apply_paint_cells(sel, &cells, value);
         self.commit_paint_stroke();
@@ -370,17 +389,23 @@ impl App {
     /// End the in-progress stroke: commit it against the tilemap it was painted on and clear the
     /// per-stroke state.
     ///
-    /// Called on release, and at the two sites where a stroke is **abandoned** — the selection
-    /// going to `None` (Ctrl+Z over a `CreateEntity`, with the button still held) and the
-    /// selection ceasing to be a `Tilemap`. Those sites used to drop the buffer, or leave it
-    /// standing with `paint_active` still set; either way the cells were already on the map, so
-    /// committing is what keeps the paint undoable. `paint_mode` is deliberately untouched —
-    /// re-selecting a tilemap resumes painting.
+    /// Called on release, and wherever a stroke is **abandoned**: the selection going to `None`
+    /// (Ctrl+Z over a `CreateEntity`, with the button still held), the selection moving to any
+    /// other entity — Tilemap or not, paint mode on or off — the tool changing under it, and a
+    /// Bucket fill starting. Those sites used to drop the buffer, or leave it standing with
+    /// `paint_active` still set; either way the cells were already on the map, so committing is
+    /// what keeps the paint undoable. Safe with nothing in flight.
+    ///
+    /// `paint_mode` is left to the caller, and the callers disagree on purpose: the
+    /// selection→`None` site keeps it (re-selecting a tilemap resumes painting), the
+    /// selection→non-Tilemap site in `update_editor_gizmo` clears it on the next line, and in
+    /// Docked mode the inspector has already cleared it before the gizmo runs at all.
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) fn finish_paint_stroke(&mut self) {
         self.commit_paint_stroke();
         self.editor.paint_active = false;
         self.editor.paint_anchor = None;
+        self.editor.paint_stroke_tool = None;
     }
 }
 
@@ -877,5 +902,219 @@ mod tests {
             "eyedropper picked the cell value"
         );
         assert_eq!(tile(&app, e, 1, 1), 3, "eyedropper did not paint");
+    }
+
+    // ── A stroke belongs to its tool, survives Alt, and does not survive a reset ────────────
+
+    /// Alt is the eyedropper for as long as it is held. The check used to be on *just-pressed*
+    /// only, so the second frame of any real Alt+click fell through to Freehand, started a
+    /// stroke, and painted the just-sampled value around the sampled cell.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn eyedropper_held_frames_do_not_paint() {
+        use winit::event::MouseButton;
+        use winit::keyboard::KeyCode;
+        let (mut app, e) = setup_paint_app();
+        app.world
+            .get_mut::<crate::tilemap::Tilemap>(e)
+            .unwrap()
+            .set_tile(1, 1, 3);
+        app.editor.paint_value = 1;
+        app.editor.paint_brush = 3; // a 3×3 block around (1,1) covers (0,0)
+
+        cursor(&mut app, 15.0, 15.0);
+        app.world
+            .resource_mut::<crate::input::InputState>()
+            .unwrap()
+            .press(KeyCode::AltLeft);
+        press(&mut app, MouseButton::Left);
+        app.update_tile_paint(e, false);
+        assert_eq!(app.editor.paint_value, 3, "precondition: the press sampled");
+
+        // The next frame: the button is held, Alt is held.
+        flush(&mut app);
+        app.update_tile_paint(e, false);
+        assert!(
+            !app.editor.paint_active,
+            "a held Alt frame must not start a stroke"
+        );
+        assert_eq!(
+            tile(&app, e, 0, 0),
+            0,
+            "and must not paint the sampled value around the cell"
+        );
+
+        // Control: the same held frame without Alt is a Freehand stroke and does paint.
+        app.world
+            .resource_mut::<crate::input::InputState>()
+            .unwrap()
+            .release(KeyCode::AltLeft);
+        flush(&mut app);
+        app.update_tile_paint(e, false);
+        assert_eq!(
+            tile(&app, e, 0, 0),
+            3,
+            "control: without Alt the held button paints"
+        );
+    }
+
+    /// A stroke belongs to the tool that started it. Clicking the inspector's tool button with
+    /// the other mouse button still held switches tools mid-stroke; Bucket's unconditional
+    /// `clear()` then dropped the in-flight cells from history (they stayed erased), and the next
+    /// Freehand stroke — its init guarded on `!paint_active` — was committed with no owner and
+    /// lost too. Measured on the bug: `undo_len` 0 after both strokes.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_tool_switch_mid_stroke_commits_the_stroke_it_interrupts() {
+        use winit::event::MouseButton;
+        let (mut app, e) = setup_paint_app();
+        app.world
+            .get_mut::<crate::tilemap::Tilemap>(e)
+            .unwrap()
+            .set_tile(0, 0, 2);
+        app.editor.paint_value = 3;
+
+        // Right-button erase of (0,0), still held.
+        cursor(&mut app, 5.0, 5.0);
+        press(&mut app, MouseButton::Right);
+        app.update_tile_paint(e, false);
+        assert_eq!(tile(&app, e, 0, 0), 0, "precondition: erased");
+        assert!(
+            app.editor.paint_active,
+            "precondition: the stroke is in flight"
+        );
+
+        // The tool changes under it, then the button comes up.
+        app.editor.paint_tool = crate::app::editor::PaintTool::Bucket;
+        flush(&mut app);
+        release(&mut app, MouseButton::Right);
+        app.update_tile_paint(e, false);
+        assert_eq!(
+            app.editor.cmd_history.undo_len(),
+            1,
+            "the interrupted erase stroke was committed when the tool changed"
+        );
+        assert!(!app.editor.paint_active);
+
+        // Back to Freehand: a fresh stroke on (1,1) must be its own undo entry.
+        app.editor.paint_tool = crate::app::editor::PaintTool::Freehand;
+        flush(&mut app);
+        cursor(&mut app, 15.0, 15.0);
+        press(&mut app, MouseButton::Left);
+        app.update_tile_paint(e, false);
+        flush(&mut app);
+        release(&mut app, MouseButton::Left);
+        app.update_tile_paint(e, false);
+        assert_eq!(tile(&app, e, 1, 1), 3);
+        assert_eq!(
+            app.editor.cmd_history.undo_len(),
+            2,
+            "two strokes, two entries"
+        );
+
+        let mut sel = app.editor.inspector_selected;
+        app.editor.cmd_history.undo(&mut app.world, &mut sel);
+        assert_eq!(tile(&app, e, 1, 1), 0, "the second stroke undoes");
+        app.editor.cmd_history.undo(&mut app.world, &mut sel);
+        assert_eq!(
+            tile(&app, e, 0, 0),
+            2,
+            "and so does the erase the tool switch interrupted"
+        );
+    }
+
+    /// In Docked mode the inspector clears `paint_mode` for a non-Tilemap selection *before* the
+    /// gizmo runs, so the gizmo's "selection ceased to be a Tilemap" arm — the one that commits an
+    /// abandoned stroke — was never reached there: the stroke stayed buffered with `paint_active`
+    /// set. This is exactly the state the inspector leaves behind.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_stroke_is_committed_when_the_selection_leaves_it_with_paint_mode_already_off() {
+        use winit::event::MouseButton;
+        let (mut app, a) = setup_paint_app();
+        app.editor.paint_value = 3;
+        cursor(&mut app, 5.0, 5.0);
+        press(&mut app, MouseButton::Left);
+        app.update_tile_paint(a, false);
+        assert!(
+            app.editor.paint_active && tile(&app, a, 0, 0) == 3,
+            "precondition"
+        );
+
+        // What the docked inspector does for a sprite selection, before the gizmo runs.
+        let sprite = app.world.spawn();
+        app.world.add_component(
+            sprite,
+            crate::components::Transform::new(glam::Vec2::new(100.0, 100.0), glam::Vec2::ONE, 0.0),
+        );
+        app.editor.inspector_selected = Some(sprite);
+        app.editor.selected_entities = vec![sprite];
+        app.editor.paint_mode = false;
+
+        app.update_editor_gizmo(&None);
+        assert!(!app.editor.paint_active, "the stroke ended with its entity");
+        assert_eq!(
+            app.editor.cmd_history.undo_len(),
+            1,
+            "and was recorded, not dropped"
+        );
+        let mut sel = app.editor.inspector_selected;
+        app.editor.cmd_history.undo(&mut app.world, &mut sel);
+        assert_eq!(
+            tile(&app, a, 0, 0),
+            0,
+            "undo reaches the tilemap it was painted on"
+        );
+    }
+
+    /// A scene Replace resets the World and empties the history, but the in-flight stroke
+    /// survived it: the next frame's abandon arm committed a `PaintTiles` against the OLD
+    /// tilemap's handle onto the fresh history, and entity counters restart on reset, so that
+    /// handle aliases whatever the new scene spawns first. One Ctrl+Z then wrote the old scene's
+    /// cell values into the new scene's map.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_stroke_in_flight_across_a_scene_reset_is_dropped_not_committed() {
+        use winit::event::MouseButton;
+        let (mut app, a) = setup_paint_app();
+        app.editor.paint_value = 3;
+        cursor(&mut app, 5.0, 5.0);
+        press(&mut app, MouseButton::Left);
+        app.update_tile_paint(a, false);
+        assert!(
+            app.editor.paint_active,
+            "precondition: a stroke is in flight"
+        );
+
+        app.reload_scene();
+        let b = spawn_second_tilemap(&mut app);
+        assert_eq!(
+            b, a,
+            "precondition: the new scene's first tilemap aliases the old handle — that is the hazard"
+        );
+
+        // The next frame: the selection is `None`, so the abandon arm runs.
+        app.update_editor_gizmo(&None);
+        assert!(!app.editor.paint_active);
+        assert_eq!(
+            app.editor.cmd_history.undo_len(),
+            0,
+            "nothing from the old world may be recorded against the new one"
+        );
+        assert_eq!(tile(&app, b, 0, 0), 0, "the new map is untouched");
+
+        // Control: the same abandon without a reset commits the stroke (v0.155.8's behaviour).
+        let (mut app, a) = setup_paint_app();
+        app.editor.paint_value = 3;
+        cursor(&mut app, 5.0, 5.0);
+        press(&mut app, MouseButton::Left);
+        app.update_tile_paint(a, false);
+        app.editor.inspector_selected = None;
+        app.update_editor_gizmo(&None);
+        assert_eq!(
+            app.editor.cmd_history.undo_len(),
+            1,
+            "control: no reset, so it commits"
+        );
     }
 }

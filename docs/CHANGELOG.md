@@ -4,6 +4,48 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.9
+
+### A tile-paint stroke belongs to its tool as well as its tilemap, survives Alt, and does not survive a scene reset
+
+Four ways a stroke could end somewhere other than the release handler, from the editor review's
+tile-paint rows. v0.155.8 fixed the first of this family — a stroke belongs to the tilemap it was
+painted on — and these are the rest.
+
+- **Alt was the eyedropper only on the press frame.** The check was on *just-pressed*, so the
+  second frame of any real Alt+click — button held, Alt held — fell through to Freehand, started
+  a stroke, and painted the just-sampled value around the sampled cell (or erased it, for
+  Alt+right). Alt now short-circuits the tools for as long as it is held.
+- **A stroke did not belong to its tool.** The inspector's tool buttons can be clicked with the
+  other mouse button still held. Bucket's unconditional `paint_stroke.clear()` then dropped the
+  in-flight stroke's cells from history (they stayed erased), and the *next* Freehand stroke —
+  its init guarded on `!paint_active` — was committed with no owner and lost too. Measured on the
+  bug: `undo_len` 0 after both strokes. `paint_stroke_tool` records the tool a stroke started
+  with, a tool change under a stroke ends it the way a selection change does, and Bucket
+  finishes rather than clears.
+- **In Docked mode the inspector clears `paint_mode` for a non-Tilemap selection before the gizmo
+  runs**, so the gizmo's "selection ceased to be a Tilemap" arm — the one that commits an
+  abandoned stroke — was unreachable there: the stroke stayed buffered, neither committed nor
+  cleared, until some later stroke committed it (wiping the redo stack) or nothing ever did. The
+  gizmo now ends a stroke whose entity is no longer the selection whether or not paint mode is
+  still on.
+- **A scene Replace left the in-flight stroke standing.** `reload_scene` emptied the history and
+  the selection but not `paint_active` / `paint_entity` / `paint_stroke`, so the next frame's
+  abandon arm committed a `PaintTiles` against the *old* tilemap's handle onto the fresh history
+  — and entity counters restart on reset, so that handle aliases whatever the new scene spawns
+  first. One Ctrl+Z then wrote the old scene's cell values into the new scene's map. The new
+  `EditorState::drop_in_flight_edits` forgets a stroke, a rename buffer and a gizmo gesture on
+  reset, recording none of them: their world is gone.
+
+`finish_paint_stroke`'s doc also said `paint_mode` survives both abandon sites; the
+selection→non-Tilemap site clears it on the next line, and the docked inspector clears it earlier
+still. It now says who does what.
+
+Four tests, each with a control — the held frame without Alt paints; the reset-less abandon
+commits; the second Freehand stroke undoes on its own — and the reset test asserts the alias as
+its precondition. Sabotage: each of the four guards reverted reddens its own test and no other
+(18 green each time).
+
 ## 0.156.8
 
 ### 📂 Load and 🗑 Delete release the rapier bodies of what they despawn
