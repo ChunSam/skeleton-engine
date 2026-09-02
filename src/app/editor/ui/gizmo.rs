@@ -48,8 +48,9 @@ impl App {
             // Every flag, not just `gizmo_dragging`: the selection can vanish mid-drag (Ctrl+Z
             // over a `CreateEntity` sets it to `None`) and this return is then the only code
             // that runs — the release handler is never reached again. See
-            // `EditorState::clear_drag_state`.
-            self.editor.clear_drag_state();
+            // `EditorState::clear_drag_state`. Since v0.156.6 the gesture is *recorded* on its
+            // way out, not just cleared: what it applied is on the entity either way.
+            self.abandon_gesture();
             // A tile-paint stroke is abandoned by the same event, and clearing flags is not
             // enough: its cells are already on the map, so it is committed against the tilemap
             // it was painted on. Left standing, it used to be carried into the *next* stroke on
@@ -58,6 +59,16 @@ impl App {
             self.finish_paint_stroke();
             return;
         };
+
+        // A gesture belongs to the entity it started on. If the selection moved while the button
+        // was held — undo/redo set it from the keyboard, which no `egui_wants_mouse` guard
+        // covers — end it there: every branch below reads `sel` fresh, so a held frame would
+        // apply the first entity's start state to the second, and the release would record the
+        // first entity's old value under the second's id.
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.editor.gesture_active() && self.editor.gesture_entity != Some(sel) {
+            self.abandon_gesture();
+        }
 
         // ── Tile paint: when paint mode is on for a Tilemap entity, viewport
         //    clicks paint tiles and the move/resize gizmo is suppressed. ──────
@@ -95,6 +106,9 @@ impl App {
         // Copy data out (short borrow).
         let node_copy = self.world.get::<crate::ui::UiNode>(sel).cloned();
         let Some(node) = node_copy else {
+            // The node went away under an in-progress gesture: record and clear it here, since
+            // the release handler below is never reached again for this entity.
+            self.abandon_gesture();
             return;
         };
 
@@ -141,7 +155,7 @@ impl App {
         }
 
         if egui_wants_mouse {
-            self.editor.clear_drag_state();
+            self.abandon_gesture();
             return;
         }
 
@@ -216,6 +230,7 @@ impl App {
             // Try resize handles first (higher priority).
             if let Some(handle) = hit_test_handles(screen_pos, node.size, cursor) {
                 self.editor.resize_handle_active = Some(handle);
+                self.editor.gesture_entity = Some(sel);
                 self.editor.resize_drag_start_cursor = cursor;
                 self.editor.resize_drag_start_offset = node.offset;
                 self.editor.resize_drag_start_size = node.size;
@@ -227,6 +242,7 @@ impl App {
                     && cursor.y <= screen_pos.y + node.size.y;
                 if inside {
                     self.editor.gizmo_dragging = true;
+                    self.editor.gesture_entity = Some(sel);
                     self.editor.gizmo_drag_offset = node.offset - cursor;
                     self.editor.resize_drag_start_offset = node.offset; // record start for undo
                 }
@@ -283,42 +299,7 @@ impl App {
 
         // ── Release: record undo command ──────────────────────────────────────
         if just_released {
-            if let Some(handle) = self.editor.resize_handle_active.take() {
-                let _ = handle;
-                let old_offset = self.editor.resize_drag_start_offset;
-                let old_size = self.editor.resize_drag_start_size;
-                let (new_offset, new_size) = self
-                    .world
-                    .get::<crate::ui::UiNode>(sel)
-                    .map(|n| (n.offset, n.size))
-                    .unwrap_or((old_offset, old_size));
-                if (new_offset - old_offset).length_squared() > 0.01
-                    || (new_size - old_size).length_squared() > 0.01
-                {
-                    self.editor.cmd_history.push(EditorCmd::ResizeUiNode {
-                        entity: sel,
-                        old_offset,
-                        old_size,
-                        new_offset,
-                        new_size,
-                    });
-                }
-            } else if self.editor.gizmo_dragging {
-                let old_offset = self.editor.resize_drag_start_offset;
-                let new_offset = self
-                    .world
-                    .get::<crate::ui::UiNode>(sel)
-                    .map(|n| n.offset)
-                    .unwrap_or(old_offset);
-                if (new_offset - old_offset).length_squared() > 0.01 {
-                    self.editor.cmd_history.push(EditorCmd::MoveUiNode {
-                        entity: sel,
-                        old_offset,
-                        new_offset,
-                    });
-                }
-                self.editor.gizmo_dragging = false;
-            }
+            self.commit_gesture(sel);
         }
     }
 
@@ -329,7 +310,9 @@ impl App {
         let tr_copy = self.world.get::<crate::components::Transform>(sel).cloned();
 
         let Some(tr) = tr_copy else {
-            self.editor.gizmo_dragging = false;
+            // Same as the `UiNode` arm: the component went away under a gesture. This site used
+            // to clear `gizmo_dragging` alone, leaving a rotation or resize flag set forever.
+            self.abandon_gesture();
             return;
         };
 
@@ -428,7 +411,11 @@ impl App {
                 }
             }
         } else {
-            self.editor.clear_drag_state();
+            // egui took the pointer mid-gesture — in Docked mode, the cursor leaving the central
+            // panel with the button held. What the drag applied so far stays on the entity, so
+            // it is recorded rather than dropped; the release lands outside the panel and finds
+            // nothing active.
+            self.abandon_gesture();
         }
     }
 
@@ -454,10 +441,12 @@ impl App {
             let rot_handle = rotation_handle_pos(tr.position, tr.scale, ROT_HANDLE_GAP);
             if (world_pos - rot_handle).length() <= ROT_HIT_RADIUS {
                 self.editor.rotate_active = true;
+                self.editor.gesture_entity = Some(sel);
                 self.editor.rotate_start_rotation = tr.rotation;
                 self.editor.rotate_start_angle = cursor_angle(tr.position, world_pos);
             } else if let Some(handle) = hit_test_handles(pos, tr.scale, world_pos) {
                 self.editor.resize_handle_active = Some(handle);
+                self.editor.gesture_entity = Some(sel);
                 self.editor.resize_drag_start_cursor = world_pos;
                 self.editor.resize_drag_start_scale = tr.scale;
             } else {
@@ -468,6 +457,7 @@ impl App {
                     && world_pos.y <= tr.position.y + half.y;
                 if hit {
                     self.editor.gizmo_dragging = true;
+                    self.editor.gesture_entity = Some(sel);
                     self.editor.gizmo_drag_offset = tr.position - world_pos;
                     self.editor.gizmo_drag_start_pos = Some(tr.position);
                     // Snapshot start positions of all selected entities for group-move undo.
@@ -587,56 +577,114 @@ impl App {
 
         // ── Release ───────────────────────────────────────────────────────────
         if just_released {
-            if self.editor.rotate_active {
-                self.editor.rotate_active = false;
-                let old_rotation = self.editor.rotate_start_rotation;
-                let new_rotation = self
-                    .world
-                    .get::<crate::components::Transform>(sel)
-                    .map(|t| t.rotation)
-                    .unwrap_or(old_rotation);
+            self.commit_gesture(sel);
+        }
+    }
+
+    /// Records whatever the active gesture has already applied to `e` as one undo command and
+    /// clears the gesture. **The release handler and every abandon site go through here**, so a
+    /// gesture ended by anything other than a release — the selection moving, egui taking the
+    /// pointer, the component going away — is recorded exactly as a release would have recorded
+    /// it. The change is already on the entity either way; the only choice is whether it is
+    /// undoable (v0.155.8 made the same call for a tile-paint stroke).
+    ///
+    /// The kind of gesture is read off the flags and the kind of entity off its components: a
+    /// `UiNode` gesture records `MoveUiNode` / `ResizeUiNode`, anything else `MoveEntity` /
+    /// `ResizeEntity` / `RotateEntity`. A gone entity records nothing — there is nothing left to
+    /// undo on it. No-op when no gesture is active.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn commit_gesture(&mut self, e: crate::ecs::Entity) {
+        use crate::components::Transform;
+        use crate::ui::UiNode;
+        let is_ui = self.world.get::<UiNode>(e).is_some();
+        if self.editor.rotate_active {
+            let old_rotation = self.editor.rotate_start_rotation;
+            if let Some(new_rotation) = self.world.get::<Transform>(e).map(|t| t.rotation) {
                 if (new_rotation - old_rotation).abs() > 1e-4 {
                     self.editor.cmd_history.push(EditorCmd::RotateEntity {
-                        entity: sel,
+                        entity: e,
                         old_rotation,
                         new_rotation,
                     });
                 }
-            } else if let Some(_handle) = self.editor.resize_handle_active.take() {
-                let old_scale = self.editor.resize_drag_start_scale;
-                let new_scale = self
-                    .world
-                    .get::<crate::components::Transform>(sel)
-                    .map(|t| t.scale)
-                    .unwrap_or(old_scale);
-                if (new_scale - old_scale).length_squared() > 0.01 {
-                    self.editor.cmd_history.push(EditorCmd::ResizeEntity {
-                        entity: sel,
-                        old_scale,
-                        new_scale,
-                    });
-                }
-            } else {
-                // Record the entire group move.
-                let starts = std::mem::take(&mut self.editor.gizmo_drag_start_positions);
-                for (entity, start_pos) in starts {
-                    let new_pos = self
-                        .world
-                        .get::<crate::components::Transform>(entity)
-                        .map(|t| t.position)
-                        .unwrap_or(start_pos);
-                    if (new_pos - start_pos).length_squared() > 0.01 {
-                        self.editor.cmd_history.push(EditorCmd::MoveEntity {
-                            entity,
-                            old_pos: start_pos,
-                            new_pos,
+            }
+        } else if self.editor.resize_handle_active.is_some() {
+            if is_ui {
+                let old_offset = self.editor.resize_drag_start_offset;
+                let old_size = self.editor.resize_drag_start_size;
+                if let Some((new_offset, new_size)) =
+                    self.world.get::<UiNode>(e).map(|n| (n.offset, n.size))
+                {
+                    if (new_offset - old_offset).length_squared() > 0.01
+                        || (new_size - old_size).length_squared() > 0.01
+                    {
+                        self.editor.cmd_history.push(EditorCmd::ResizeUiNode {
+                            entity: e,
+                            old_offset,
+                            old_size,
+                            new_offset,
+                            new_size,
                         });
                     }
                 }
-                self.editor.gizmo_drag_start_pos = None;
-                self.editor.gizmo_dragging = false;
+            } else {
+                let old_scale = self.editor.resize_drag_start_scale;
+                if let Some(new_scale) = self.world.get::<Transform>(e).map(|t| t.scale) {
+                    if (new_scale - old_scale).length_squared() > 0.01 {
+                        self.editor.cmd_history.push(EditorCmd::ResizeEntity {
+                            entity: e,
+                            old_scale,
+                            new_scale,
+                        });
+                    }
+                }
+            }
+        } else if self.editor.gizmo_dragging {
+            if is_ui {
+                let old_offset = self.editor.resize_drag_start_offset;
+                if let Some(new_offset) = self.world.get::<UiNode>(e).map(|n| n.offset) {
+                    if (new_offset - old_offset).length_squared() > 0.01 {
+                        self.editor.cmd_history.push(EditorCmd::MoveUiNode {
+                            entity: e,
+                            old_offset,
+                            new_offset,
+                        });
+                    }
+                }
+            } else {
+                // The whole group: every selected entity moved by the same delta.
+                let starts = std::mem::take(&mut self.editor.gizmo_drag_start_positions);
+                for (entity, old_pos) in starts {
+                    if let Some(new_pos) = self.world.get::<Transform>(entity).map(|t| t.position) {
+                        if (new_pos - old_pos).length_squared() > 0.01 {
+                            self.editor.cmd_history.push(EditorCmd::MoveEntity {
+                                entity,
+                                old_pos,
+                                new_pos,
+                            });
+                        }
+                    }
+                }
             }
         }
+        self.editor.clear_drag_state();
+    }
+
+    /// Ends a gesture that will never see its release: records it against the entity it started
+    /// on ([`crate::app::editor::EditorState::gesture_entity`]) and clears the flags. Safe with no
+    /// gesture active.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) fn abandon_gesture(&mut self) {
+        match self.editor.gesture_entity {
+            Some(e) => self.commit_gesture(e),
+            None => self.editor.clear_drag_state(),
+        }
+    }
+
+    /// wasm has no undo history, so abandoning a gesture is clearing it.
+    #[cfg(target_arch = "wasm32")]
+    pub(in crate::app) fn abandon_gesture(&mut self) {
+        self.editor.clear_drag_state();
     }
 }
 
@@ -776,6 +824,203 @@ mod tests {
             clean.editor.gizmo_dragging,
             "control: this press must be accepted on a clean App, or the assertion above is \
              not measuring what it claims"
+        );
+    }
+
+    // ── Gestures end on the entity they started on ────────────────────────────
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn spawn_at(
+        app: &mut crate::app::App,
+        pos: glam::Vec2,
+    ) -> (crate::ecs::Entity, crate::components::Transform) {
+        let e = app.world.spawn();
+        let tr = crate::components::Transform::new(pos, glam::Vec2::splat(20.0), 0.0);
+        app.world.add_component(e, tr.clone());
+        (e, tr)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn select(app: &mut crate::app::App, e: crate::ecs::Entity) {
+        app.editor.inspector_selected = Some(e);
+        app.editor.selected_entities = vec![e];
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn position(app: &crate::app::App, e: crate::ecs::Entity) -> glam::Vec2 {
+        app.world
+            .get::<crate::components::Transform>(e)
+            .expect("entity has a Transform")
+            .position
+    }
+
+    /// A gesture belongs to the entity it started on, not to whatever is selected when a later
+    /// frame runs. Ctrl+Z is reachable mid-drag and every undo arm re-selects the entity it
+    /// touched, so the selection can move from A to B with the button still held. The held
+    /// branches read `sel` fresh: they applied A's captured start state to B, and the release
+    /// recorded A's old value under B's id.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_gesture_ends_on_its_own_entity_when_the_selection_moves() {
+        let mut app = crate::app::App::new();
+        let (a, tra) = spawn_at(&mut app, glam::Vec2::ZERO);
+        let (b, _) = spawn_at(&mut app, glam::Vec2::new(100.0, 0.0));
+        select(&mut app, a);
+
+        // Press A's body and drag it 10 units right.
+        app.update_transform_gizmo_native(a, tra.clone(), glam::Vec2::ZERO, true, false, false);
+        app.update_transform_gizmo_native(a, tra, glam::Vec2::new(10.0, 0.0), false, true, false);
+        assert_eq!(
+            position(&app, a),
+            glam::Vec2::new(10.0, 0.0),
+            "precondition: the drag moved A"
+        );
+
+        // The selection moves to B with the button still held — what an undo arm does.
+        select(&mut app, b);
+        app.update_editor_gizmo(&None);
+        assert!(
+            !app.editor.gesture_active(),
+            "the gesture must end when its entity stops being the selection"
+        );
+        assert_eq!(
+            position(&app, b),
+            glam::Vec2::new(100.0, 0.0),
+            "B was never part of the gesture"
+        );
+
+        // A's partial move was recorded — under A.
+        assert_eq!(app.editor.cmd_history.undo_len(), 1);
+        let mut sel = app.editor.inspector_selected;
+        app.editor.cmd_history.undo(&mut app.world, &mut sel);
+        assert_eq!(
+            position(&app, a),
+            glam::Vec2::ZERO,
+            "undo restores A, so the abandoned move was recorded against A"
+        );
+        assert_eq!(
+            position(&app, b),
+            glam::Vec2::new(100.0, 0.0),
+            "and that undo does not touch B"
+        );
+
+        // A held frame on B now moves nothing: no gesture is active.
+        let trb = app
+            .world
+            .get::<crate::components::Transform>(b)
+            .cloned()
+            .unwrap();
+        app.update_transform_gizmo_native(
+            b,
+            trb.clone(),
+            glam::Vec2::new(150.0, 0.0),
+            false,
+            true,
+            false,
+        );
+        assert_eq!(
+            position(&app, b),
+            glam::Vec2::new(100.0, 0.0),
+            "a held frame with no press behind it must not move B"
+        );
+        // Control: the same held frame after a press on B moves it, so the line above is not
+        // passing because held frames never move anything.
+        app.update_transform_gizmo_native(
+            b,
+            trb.clone(),
+            glam::Vec2::new(100.0, 0.0),
+            true,
+            false,
+            false,
+        );
+        app.update_transform_gizmo_native(b, trb, glam::Vec2::new(110.0, 0.0), false, true, false);
+        assert_eq!(position(&app, b), glam::Vec2::new(110.0, 0.0), "control");
+    }
+
+    /// In Docked mode the game viewport is an egui panel, so a drag whose cursor leaves it hands
+    /// the pointer to egui mid-gesture. The frames already applied stay on the entity, and the
+    /// release lands outside the panel where nothing is active, so the move used to end with no
+    /// undo entry — Ctrl+Z then reverted the *previous* command instead.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_docked_drag_that_leaves_the_panel_is_recorded_not_dropped() {
+        let mut app = crate::app::App::new();
+        let (a, tra) = spawn_at(&mut app, glam::Vec2::ZERO);
+        select(&mut app, a);
+        app.update_transform_gizmo_native(a, tra.clone(), glam::Vec2::ZERO, true, false, false);
+        app.update_transform_gizmo_native(a, tra, glam::Vec2::new(10.0, 0.0), false, true, false);
+        assert_eq!(
+            position(&app, a),
+            glam::Vec2::new(10.0, 0.0),
+            "precondition"
+        );
+
+        app.editor.mode = crate::app::editor::EditorMode::Docked;
+        app.editor.central_rect = Some(egui::Rect::from_min_size(
+            egui::pos2(0.0, 0.0),
+            egui::vec2(100.0, 100.0),
+        ));
+
+        // Control first: with the cursor still inside the panel nothing ends the gesture.
+        app.editor.window_cursor = Some(egui::pos2(50.0, 50.0));
+        app.update_editor_gizmo(&None);
+        assert!(
+            app.editor.gizmo_dragging,
+            "control: inside the panel the gesture survives"
+        );
+        assert_eq!(
+            app.editor.cmd_history.undo_len(),
+            0,
+            "control: nothing recorded yet"
+        );
+
+        // The cursor overshoots into the inspector.
+        app.editor.window_cursor = Some(egui::pos2(500.0, 50.0));
+        app.update_editor_gizmo(&None);
+        assert!(
+            !app.editor.gizmo_dragging,
+            "egui took the pointer, so the gesture is over"
+        );
+        assert_eq!(
+            app.editor.cmd_history.undo_len(),
+            1,
+            "the 10 units already applied are one undoable move"
+        );
+        let mut sel = app.editor.inspector_selected;
+        app.editor.cmd_history.undo(&mut app.world, &mut sel);
+        assert_eq!(position(&app, a), glam::Vec2::ZERO);
+    }
+
+    /// The `Transform` going away under a gesture is the third abandon site. It cleared
+    /// `gizmo_dragging` alone, so a rotation or resize left its flag set and the press guard
+    /// refused every later gesture — the v0.155.4 defect, on the one site that fix did not reach.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_gesture_whose_entity_lost_its_transform_is_cleared() {
+        let mut app = crate::app::App::new();
+        let (a, tra) = spawn_at(&mut app, glam::Vec2::ZERO);
+        select(&mut app, a);
+        app.update_transform_gizmo_native(a, tra, glam::Vec2::new(0.0, -26.0), true, false, false);
+        assert!(
+            app.editor.rotate_active,
+            "precondition: the rotation drag started"
+        );
+
+        app.world
+            .remove_component::<crate::components::Transform>(a);
+        app.update_editor_gizmo(&None);
+        assert!(
+            !app.editor.rotate_active,
+            "the Transform-gone arm must clear the rotation flag"
+        );
+
+        // Consequence: a fresh entity accepts a press.
+        let (b, trb) = spawn_at(&mut app, glam::Vec2::ZERO);
+        select(&mut app, b);
+        app.update_transform_gizmo_native(b, trb, glam::Vec2::ZERO, true, false, false);
+        assert!(
+            app.editor.gizmo_dragging,
+            "the press guard is no longer gated by the stale flag"
         );
     }
 }

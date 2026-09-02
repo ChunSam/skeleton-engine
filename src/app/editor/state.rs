@@ -219,6 +219,13 @@ pub(in crate::app) struct EditorState {
     /// Positions of all selected entities at gizmo group-drag start (for group-move undo).
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) gizmo_drag_start_positions: Vec<(Entity, glam::Vec2)>,
+    /// The entity a gizmo gesture (move / resize / rotate, world or UI) started on. Every press
+    /// that starts one sets it, and `App::commit_gesture` records against it — not against
+    /// whatever is selected when the gesture ends. Those were the same value until Ctrl+Z was
+    /// allowed to re-select mid-drag; the case where they differ is a gesture begun on one
+    /// entity being applied to, and recorded under, another.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) gesture_entity: Option<Entity>,
     /// Component add factory map (native only). Type name → closure that adds the component to the World.
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) component_factories: std::collections::HashMap<String, ComponentFactory>,
@@ -455,6 +462,12 @@ impl EditorState {
     ///
     /// One method so the policy lives in one place rather than being re-remembered per site.
     ///
+    /// ⚠️ Clearing is only half of ending a gesture. A move, resize or rotation that was
+    /// abandoned has already been applied to the entity, so dropping the flags alone leaves
+    /// that change with no undo entry. `App::abandon_gesture` records it first — through the
+    /// same `commit_gesture` the release handler uses — and then calls this; the abandon sites
+    /// call *that*. Call this directly only where nothing can have been applied.
+    ///
     /// ⚠️ A tile-paint stroke is abandoned the same way and is **not** handled here, because
     /// ending one is not a matter of clearing flags: the cells are already on the map, so the
     /// batch has to be committed against the entity it was painted on
@@ -468,7 +481,14 @@ impl EditorState {
             self.rotate_active = false;
             self.gizmo_drag_start_pos = None;
             self.gizmo_drag_start_positions.clear();
+            self.gesture_entity = None;
         }
+    }
+
+    /// Whether any gizmo gesture is in progress — the three flags the press guard checks.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) fn gesture_active(&self) -> bool {
+        self.gizmo_dragging || self.rotate_active || self.resize_handle_active.is_some()
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -486,6 +506,7 @@ impl EditorState {
             cmd_history: EditorHistory::new(),
             gizmo_drag_start_pos: None,
             gizmo_drag_start_positions: Vec::new(),
+            gesture_entity: None,
             component_factories: std::collections::HashMap::new(),
             component_removers: std::collections::HashMap::new(),
             add_component_selected: String::new(),
