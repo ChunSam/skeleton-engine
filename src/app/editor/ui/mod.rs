@@ -222,6 +222,15 @@ impl App {
                 }
             }
         }
+        // What the inspector was handed this frame. Write-back compares against it and applies
+        // only the fields the UI actually changed. The world is written between staging and
+        // write-back by things other than the inspector — Ctrl+Z / redo, the inline rename,
+        // the `Name:` field, ⧉ Paste — and those writes are already on the world; re-applying
+        // every staged value on top of them reverted them in the same frame (v0.156.7).
+        let staged: Vec<Vec<crate::reflect::ReflectValue>> = comp_fields
+            .iter()
+            .map(|(_, _, fields)| fields.iter().map(|(_, v)| v.clone()).collect())
+            .collect();
 
         // Built-in EngineStats panel + Inspector
         if let Some(ctx) = egui_ctx {
@@ -639,7 +648,9 @@ impl App {
             }
         }
 
-        // Inspector: apply staged values to the World (before the egui frame ends).
+        // Inspector: apply the values the UI changed to the World (before the egui frame ends).
+        // Only those — see `staged` above; `changed_fields` is the decision, and it is what
+        // keeps an undo of the *selected* entity's own move from being undone again here.
         //
         // Match by component TYPE NAME rather than positional index so that an
         // archetype change (add/remove component) or a mid-frame selection change
@@ -654,9 +665,13 @@ impl App {
                 // label) differs from Reflect::type_name() (the Rust struct ident), which
                 // happens when a forker passes a human-readable string to
                 // register_editable_component / register_reflect_named.
-                for (tid, _comp_name, fields) in &comp_fields {
+                for ((tid, _comp_name, fields), before) in comp_fields.iter().zip(&staged) {
+                    let mut changed = changed_fields(fields, before).peekable();
+                    if changed.peek().is_none() {
+                        continue;
+                    }
                     if let Some(refl) = self.world.get_reflect_mut(sel, *tid) {
-                        for (fname, fval) in fields {
+                        for (fname, fval) in changed {
                             refl.set_field(fname, fval.clone());
                         }
                     }
@@ -689,5 +704,43 @@ impl App {
         }
         #[cfg(target_arch = "wasm32")]
         self.update_editor_gizmo(egui_ctx);
+    }
+}
+
+/// The fields the inspector changed this frame: each `(name, value)` in `now` whose value differs
+/// from what was `staged` for it at the top of the frame. Write-back applies exactly these and
+/// nothing else, so a world write made *between* staging and write-back by something other than
+/// the inspector (an undo, a rename, a paste) is left standing. Pure, so a test can reach it
+/// without an egui frame; `update_editor_ui`'s Ctrl+Z test reaches it with one.
+pub(super) fn changed_fields<'a>(
+    now: &'a [(&'static str, crate::reflect::ReflectValue)],
+    staged: &'a [crate::reflect::ReflectValue],
+) -> impl Iterator<Item = &'a (&'static str, crate::reflect::ReflectValue)> + 'a {
+    now.iter()
+        .zip(staged.iter())
+        .filter(|(cur, was)| &cur.1 != *was)
+        .map(|(cur, _)| cur)
+}
+
+#[cfg(test)]
+mod write_back_tests {
+    use super::changed_fields;
+    use crate::reflect::ReflectValue;
+
+    #[test]
+    fn only_a_field_the_ui_changed_is_written_back() {
+        let staged = vec![ReflectValue::F32(1.0), ReflectValue::F32(2.0)];
+        let mut now = vec![("x", ReflectValue::F32(1.0)), ("y", ReflectValue::F32(2.0))];
+        assert_eq!(
+            changed_fields(&now, &staged).count(),
+            0,
+            "nothing changed, so nothing is written — this is what lets an undo survive"
+        );
+        // Control: the instrument sees a change when there is one.
+        now[1].1 = ReflectValue::F32(3.0);
+        let changed: Vec<_> = changed_fields(&now, &staged).collect();
+        assert_eq!(changed.len(), 1);
+        assert_eq!(changed[0].0, "y");
+        assert_eq!(changed[0].1, ReflectValue::F32(3.0));
     }
 }
