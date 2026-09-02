@@ -1301,3 +1301,181 @@ fn a_world_reset_clears_the_load_status_too() {
         "control: the save status was already cleared"
     );
 }
+
+// ── The overlays and F draw and focus where the renderer draws ─────────────────
+
+/// The bounds overlay used `Transform` alone, the one place the collision grid stopped indexing
+/// at: a parented collider's box drew at its offset from the origin while collision tested it
+/// at its `GlobalTransform` — the placement this overlay exists to show.
+#[test]
+fn debug_bounds_draws_a_parented_collider_where_it_collides() {
+    use crate::resources::DebugShape;
+    let mut app = crate::app::App::new();
+    let p = app.world.spawn();
+    app.world.add_component(
+        p,
+        crate::components::Transform::new(
+            glam::Vec2::new(300.0, 200.0),
+            glam::Vec2::splat(32.0),
+            0.0,
+        ),
+    );
+    // C is local (16, 0) under P, composed to (316, 200) — what `HierarchySystem` writes.
+    let c = app.world.spawn();
+    app.world.add_component(
+        c,
+        crate::components::Transform::new(glam::Vec2::new(16.0, 0.0), glam::Vec2::splat(16.0), 0.0),
+    );
+    app.world.add_component(
+        c,
+        crate::hierarchy::GlobalTransform {
+            position: glam::Vec2::new(316.0, 200.0),
+            scale: glam::Vec2::splat(16.0),
+            rotation: 0.0,
+            z: 0.0,
+        },
+    );
+    app.world.add_component(
+        c,
+        crate::collision::Collider::Aabb {
+            half_extents: glam::Vec2::splat(12.0),
+        },
+    );
+    // Control: a root with no `GlobalTransform` still draws at its `Transform`.
+    let r = app.world.spawn();
+    app.world.add_component(
+        r,
+        crate::components::Transform::new(glam::Vec2::new(50.0, 50.0), glam::Vec2::splat(8.0), 0.0),
+    );
+    app.world.add_component(
+        r,
+        crate::collision::Collider::Aabb {
+            half_extents: glam::Vec2::splat(4.0),
+        },
+    );
+
+    app.draw_debug_bounds();
+    let dbg = app
+        .world
+        .resource::<crate::resources::DebugDraw>()
+        .expect("DebugDraw resource");
+    let rect_min_of_size = |size: f32| -> glam::Vec2 {
+        dbg.shapes
+            .iter()
+            .find_map(|s| match s {
+                DebugShape::Rect { min, max, .. } if ((*max - *min).x - size).abs() < 1e-4 => {
+                    Some(*min)
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no rect of size {size}"))
+    };
+    assert_eq!(
+        rect_min_of_size(24.0),
+        glam::Vec2::new(304.0, 188.0),
+        "the collider box sits where the collision grid tests it"
+    );
+    assert_eq!(
+        rect_min_of_size(16.0),
+        glam::Vec2::new(308.0, 192.0),
+        "and the child's bounds sit where the sprite draws"
+    );
+    assert_eq!(
+        rect_min_of_size(8.0),
+        glam::Vec2::new(46.0, 46.0),
+        "control: a root is unchanged"
+    );
+}
+
+/// The pathfinding overlay rebuilt each map without its `projection`, so an isometric map was
+/// shaded as a square lattice at the orthographic positions — contradicting its own doc,
+/// "visualizes exactly the grid a game … would navigate".
+#[test]
+fn pathfinding_overlay_places_cells_by_the_maps_projection() {
+    use crate::tilemap::{Tilemap, TilemapAtlas, TilemapProjection};
+    let mut app = crate::app::App::new();
+    let tiles = vec![vec![0, 0, 0], vec![0, 1, 0], vec![0, 0, 0]];
+    let tm = Tilemap::new(
+        TilemapAtlas::new("t.png", 1, 1),
+        tiles,
+        16.0,
+        glam::Vec2::ZERO,
+    )
+    .with_projection(TilemapProjection::Isometric);
+    let expected = tm.cell_center_world(1, 1);
+    let e = app.world.spawn();
+    app.world.add_component(e, tm);
+
+    app.draw_pathfinding_overlay();
+    let dbg = app
+        .world
+        .resource::<crate::resources::DebugDraw>()
+        .expect("DebugDraw resource");
+    assert_eq!(dbg.filled_rects.len(), 1, "one blocked cell");
+    let r = &dbg.filled_rects[0];
+    let centre = (r.min + r.max) * 0.5;
+    assert_eq!(
+        centre, expected,
+        "the blocked cell is shaded at its isometric centre"
+    );
+    // Control on the instrument: the orthographic centre is somewhere else entirely.
+    assert_ne!(
+        centre,
+        glam::Vec2::new(24.0, 24.0),
+        "control: not the square-lattice position"
+    );
+}
+
+/// F centred the camera on the selection's local `Transform`, so focusing a child went to its
+/// offset from the parent — near the origin — and left the child off-screen.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn focus_centres_on_where_a_child_is_drawn() {
+    let mut app = crate::app::App::new();
+    app.world
+        .insert_resource(crate::camera::Camera::new(glam::Vec2::ZERO, 1.0));
+    app.world
+        .insert_resource(crate::resources::ViewportSize::new(800, 600));
+    let p = app.world.spawn();
+    app.world.add_component(
+        p,
+        crate::components::Transform::new(glam::Vec2::new(500.0, 300.0), glam::Vec2::ONE, 0.0),
+    );
+    let c = app.world.spawn();
+    app.world.add_component(
+        c,
+        crate::components::Transform::new(glam::Vec2::new(16.0, 0.0), glam::Vec2::ONE, 0.0),
+    );
+    app.world.add_component(
+        c,
+        crate::hierarchy::GlobalTransform {
+            position: glam::Vec2::new(516.0, 300.0),
+            scale: glam::Vec2::ONE,
+            rotation: 0.0,
+            z: 0.0,
+        },
+    );
+
+    app.editor_select_entity(c);
+    app.editor_focus_camera_on_selection();
+    let cam = app
+        .world
+        .resource::<crate::camera::Camera>()
+        .unwrap()
+        .position;
+    assert_eq!(
+        cam,
+        glam::Vec2::new(516.0, 300.0) - glam::Vec2::new(400.0, 300.0),
+        "centred on where C draws"
+    );
+
+    // Control: a root with no `GlobalTransform` focuses on its `Transform`, as before.
+    app.editor_select_entity(p);
+    app.editor_focus_camera_on_selection();
+    let cam = app
+        .world
+        .resource::<crate::camera::Camera>()
+        .unwrap()
+        .position;
+    assert_eq!(cam, glam::Vec2::new(100.0, 0.0), "control");
+}

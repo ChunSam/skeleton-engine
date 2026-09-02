@@ -260,8 +260,9 @@ impl App {
         self.editor.show_shortcuts = open;
     }
 
-    /// Center the camera on the primary selected entity's position. Backs the F (focus) shortcut.
-    /// No-op when nothing is selected or the selection has no `Transform`.
+    /// Center the camera on where the primary selected entity is drawn (`GlobalTransform`, else
+    /// `Transform`). Backs the F (focus) shortcut. No-op when nothing is selected or the
+    /// selection has neither.
     pub(in crate::app) fn editor_focus_camera_on_selection(&mut self) {
         let Some(sel) = self
             .editor
@@ -270,7 +271,15 @@ impl App {
         else {
             return;
         };
-        let Some(pos) = self.world.get::<Transform>(sel).map(|t| t.position) else {
+        // Where it is drawn: `GlobalTransform` for a parented entity, whose `Transform` is only
+        // the offset from its parent — focusing a child used to centre on that offset instead
+        // and leave the child off-screen (v0.156.11).
+        let Some(pos) = self
+            .world
+            .get::<crate::hierarchy::GlobalTransform>(sel)
+            .map(|g| g.position)
+            .or_else(|| self.world.get::<Transform>(sel).map(|t| t.position))
+        else {
             return;
         };
         let viewport = self
