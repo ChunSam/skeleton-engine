@@ -1524,3 +1524,58 @@ fn editor_shortcuts_do_not_fire_while_the_editor_is_off() {
         "control: and records it"
     );
 }
+
+// ── The panels do not rewrite what they only display ──────────────────────────
+
+/// One headless egui frame drawing `body` — no window, no GPU.
+#[cfg(not(target_arch = "wasm32"))]
+fn panel_frame(body: impl FnOnce(&mut egui::Ui)) {
+    let ctx = egui::Context::default();
+    let mut body = Some(body);
+    let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        (body.take().expect("one pass"))(ui);
+    });
+}
+
+/// egui's `DragValue::range` clamps the *existing* value on display by default, and the particle
+/// and lighting panels bind the component's fields directly — so merely selecting a rain emitter
+/// at `spawn_rate 4000` (the component's own doc's number) wrote `2000` into the world with no
+/// interaction, and a light at `intensity 20` became `10`.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn displaying_an_emitter_or_a_light_does_not_rewrite_its_fields() {
+    let mut app = crate::app::App::new();
+    let e = app.world.spawn();
+    app.world.add_component(
+        e,
+        crate::particle::ParticleEmitter {
+            spawn_rate: 4000.0,
+            max_per_frame: 10_000,
+            ..Default::default()
+        },
+    );
+    app.world.add_component(
+        e,
+        crate::components::PointLight {
+            intensity: 20.0,
+            radius: 5000.0,
+            ..Default::default()
+        },
+    );
+
+    panel_frame(|ui| super::ui::particle_tuner_grid(ui, &mut app, e));
+    panel_frame(|ui| super::ui::point_light_grid(ui, &mut app, e));
+
+    let em = app
+        .world
+        .get::<crate::particle::ParticleEmitter>(e)
+        .unwrap();
+    assert_eq!(em.spawn_rate, 4000.0, "spawn_rate survives being displayed");
+    assert_eq!(
+        em.max_per_frame, 10_000,
+        "max_per_frame survives being displayed"
+    );
+    let l = app.world.get::<crate::components::PointLight>(e).unwrap();
+    assert_eq!(l.intensity, 20.0, "intensity survives being displayed");
+    assert_eq!(l.radius, 5000.0, "radius survives being displayed");
+}
