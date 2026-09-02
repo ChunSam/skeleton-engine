@@ -4,6 +4,40 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.15
+
+### Five editor checks that could not fail on their stated cause now can
+
+The same shape v0.155.2 fixed three of, and v0.156.5 a fourth: a test whose name promises more
+than its body checks. Found by reading every test in `src/app/editor` during the 2026-09-02
+review; each is now sabotage-verified against the defect it names.
+
+- **`delete_undo_restores_full_def`** promised "full def (including non-core components)" from a
+  fixture of Tag + Transform in a bare `World` with no `SerdeComponentRegistry`, and asserted the
+  Tag. It builds an `App`, registers a serde component, and asserts the transform's own values and
+  that component after undo — with the def's capture asserted first, as the precondition.
+- **`create_entity_with_def_undo_redo`** said redo "re-spawns it with its original components"
+  and asserted the Tag; it now asserts the transform and the registered component too.
+- **`editor_settings_round_trip`** never set `show_bounds` or `locale`, so both sat at their
+  defaults on *both* sides of the comparison and dropping either from `from_state` / `apply_to`
+  stayed green. Every field now differs from `EditorState::new()`'s value; the locale is flipped
+  off its own default rather than hardcoded.
+- **`brush_cells_sizes_and_clamp`** pinned only `.len()` for the 3×3 and 5×5 blocks, and both
+  were centred — so a block shifted by one in both axes passed, and so did a row/col
+  transposition. It compares sorted membership now, with an asymmetric case (row 1, col 3) that
+  the transposition cannot survive.
+- **`every_editor_addable_component_survives_a_scene_save`** said it "drives the real
+  serialization path rather than the registry's bookkeeping" while calling `component_names_for`,
+  which *is* the bookkeeping (a presence check). It calls `serialize_entity` — what
+  `do_save_scene` calls, whose `filter_map` drops any component whose `Serialize` fails — so a
+  component that is present but does not serialize is now caught.
+
+Sabotage, each reddening its own test: `spawn_entity_def` ignoring `def.components` reddens the
+first two; `apply_to` dropping the locale, and separately `show_bounds`, reddens the third;
+`brush_cells` transposing row and col reddens the fourth; a component filtered out of
+`serialize_entity` reddens the fifth — which the `component_names_for` version could not have
+seen at all.
+
 ## 0.156.14
 
 ### A zero snap size snaps nothing, an orphan shows in the Scene tree, and Reload reloads the table it names

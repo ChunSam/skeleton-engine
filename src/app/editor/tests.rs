@@ -14,15 +14,27 @@ use crate::prefab::Tag;
 /// components captured in `def`, not just tag/transform/sprite.
 #[test]
 fn delete_undo_restores_full_def() {
-    let mut world = World::new();
-    // Spawn an entity with tag + transform only (no serde components needed here,
-    // the important thing is the def captures what was there).
+    // ⚠️ The fixture carries a serde-registered component, and the assertions below check it.
+    // Tag + Transform alone made this test green on the exact regression it names — undo
+    // restoring only the `EntityDef`'s named fields and dropping `def.components` (v0.156.15).
+    let mut app = crate::app::App::new();
+    app.register_serde_component::<CopyTest>("CopyTest", None);
+    let world = &mut app.world;
     let e = world.spawn();
     world.add_component(e, Tag("Goblin".into()));
-    world.add_component(e, crate::components::Transform::default());
+    world.add_component(
+        e,
+        crate::components::Transform::new(glam::Vec2::new(7.0, 9.0), glam::Vec2::splat(3.0), 0.5),
+    );
+    world.add_component(e, CopyTest { v: 42 });
 
-    let def = entity_to_def(&world, e).expect("entity_to_def");
+    let def = entity_to_def(world, e).expect("entity_to_def");
     assert_eq!(def.tag.as_deref(), Some("Goblin"));
+    assert!(
+        def.components.contains_key("CopyTest"),
+        "precondition: the def captured the non-core component, or the undo assertion below \
+         cannot fail on its stated cause"
+    );
 
     // Simulate the Delete button: push DeleteEntity, then despawn.
     let mut history = EditorHistory::new();
@@ -33,18 +45,31 @@ fn delete_undo_restores_full_def() {
     world.despawn(e);
     assert!(!world.is_alive(e), "entity should be despawned");
 
-    // Undo: entity must come back with its tag.
+    // Undo: the entity comes back whole — tag, transform, AND the registered component.
     let mut sel: Option<Entity> = None;
-    history.undo(&mut world, &mut sel);
+    history.undo(world, &mut sel);
     let restored = sel.expect("undo must set selection");
     assert!(world.is_alive(restored), "entity must be alive after undo");
     let tag = world
         .get::<Tag>(restored)
         .expect("Tag must be restored after undo");
     assert_eq!(tag.0, "Goblin");
+    assert_eq!(
+        world
+            .get::<crate::components::Transform>(restored)
+            .map(|t| t.position),
+        Some(glam::Vec2::new(7.0, 9.0)),
+        "the transform comes back at its own values, not a default"
+    );
+    assert_eq!(
+        world.get::<CopyTest>(restored),
+        Some(&CopyTest { v: 42 }),
+        "and so does the component that only `def.components` carries — the whole point of \
+         \"full def\""
+    );
 
     // Redo: entity must be despawned again.
-    history.redo(&mut world, &mut sel);
+    history.redo(world, &mut sel);
     assert!(
         sel.is_none() || !world.is_alive(sel.unwrap()),
         "entity must be dead after redo"
@@ -57,13 +82,21 @@ fn delete_undo_restores_full_def() {
 /// the entity; redo must re-spawn it with its original components.
 #[test]
 fn create_entity_with_def_undo_redo() {
-    let mut world = World::new();
-    // Spawn a "duplicated" entity.
+    // Same fixture reasoning as `delete_undo_restores_full_def`: the redo arm respawns from the
+    // def, so the def has to carry more than a tag for "with its original components" to mean
+    // anything (v0.156.15).
+    let mut app = crate::app::App::new();
+    app.register_serde_component::<CopyTest>("CopyTest", None);
+    let world = &mut app.world;
     let e = world.spawn();
     world.add_component(e, Tag("Copy".into()));
-    world.add_component(e, crate::components::Transform::default());
+    world.add_component(
+        e,
+        crate::components::Transform::new(glam::Vec2::new(4.0, 5.0), glam::Vec2::ONE, 0.0),
+    );
+    world.add_component(e, CopyTest { v: 7 });
 
-    let def = entity_to_def(&world, e);
+    let def = entity_to_def(world, e);
     let mut history = EditorHistory::new();
     history.push(EditorCmd::CreateEntity {
         entity: e,
@@ -72,18 +105,30 @@ fn create_entity_with_def_undo_redo() {
 
     // Undo: entity must be despawned.
     let mut sel: Option<Entity> = Some(e);
-    history.undo(&mut world, &mut sel);
+    history.undo(world, &mut sel);
     assert!(sel.is_none());
     assert!(!world.is_alive(e), "entity must be despawned after undo");
 
-    // Redo: entity must be re-spawned from def with its tag.
-    history.redo(&mut world, &mut sel);
+    // Redo: re-spawned from the def with everything the def carried.
+    history.redo(world, &mut sel);
     let redone = sel.expect("redo must set selection");
     assert!(world.is_alive(redone));
     let tag = world
         .get::<Tag>(redone)
         .expect("Tag must be present after redo");
     assert_eq!(tag.0, "Copy");
+    assert_eq!(
+        world
+            .get::<crate::components::Transform>(redone)
+            .map(|t| t.position),
+        Some(glam::Vec2::new(4.0, 5.0)),
+        "the transform is the def's, not a default"
+    );
+    assert_eq!(
+        world.get::<CopyTest>(redone),
+        Some(&CopyTest { v: 7 }),
+        "and the registered component came back too"
+    );
 }
 
 // ── Fix B: CreateEntity without def (New Entity) still works ─────────────
@@ -237,9 +282,18 @@ fn editor_settings_round_trip() {
     s.snap_enabled = true;
     s.snap_size = 24.0;
     s.show_grid = true;
+    s.show_bounds = true;
     s.show_pathgrid = true;
     s.paint_brush = 5;
     s.paint_tool = PaintTool::Bucket;
+    // ⚠️ Every field must differ from `EditorState::new()`'s value, or its half of the round trip
+    // is asserted against itself: `show_bounds` and `locale` sat at their defaults on both sides,
+    // so dropping either from `from_state`/`apply_to` stayed green (v0.156.15).
+    s.locale = match super::EditorLocale::default() {
+        super::EditorLocale::English => super::EditorLocale::Korean,
+        _ => super::EditorLocale::English,
+    };
+    let flipped_locale = s.locale;
 
     let settings = EditorSettings::from_state(&s);
     let path =
@@ -254,9 +308,11 @@ fn editor_settings_round_trip() {
     assert!(fresh.snap_enabled);
     assert_eq!(fresh.snap_size, 24.0);
     assert!(fresh.show_grid);
+    assert!(fresh.show_bounds);
     assert!(fresh.show_pathgrid);
     assert_eq!(fresh.paint_brush, 5);
     assert_eq!(fresh.paint_tool, PaintTool::Bucket);
+    assert_eq!(fresh.locale, flipped_locale, "the locale crosses both ways");
 
     let _ = std::fs::remove_file(&path);
 }
@@ -609,7 +665,9 @@ fn world_reset_clears_editor_undo_history() {
 ///
 /// This test is the tie. It drives the **real serialization path** rather than the
 /// registry's bookkeeping: each factory is applied to a fresh entity and the component is
-/// required to come back out of `component_names_for`.
+/// required to come back out of `serialize_entity` — the function `do_save_scene` calls, whose
+/// `filter_map` drops any component whose `Serialize` fails. It said this while calling
+/// `component_names_for`, the cheap presence check, until v0.156.15.
 #[test]
 fn every_editor_addable_component_survives_a_scene_save() {
     use crate::app::App;
@@ -637,16 +695,16 @@ fn every_editor_addable_component_survives_a_scene_save() {
         let e = app.world.spawn();
         factory(&mut app.world, e);
 
-        // `component_names_for` needs the registry by value while inspecting the world.
+        // `serialize_entity` needs the registry by value while inspecting the world.
         let registry = app
             .world
             .remove_resource::<SerdeComponentRegistry>()
             .expect("App::new() inserts SerdeComponentRegistry");
-        let serialised = registry.component_names_for(&app.world, e);
+        let serialised = registry.serialize_entity(&app.world, e);
         app.world.insert_resource(registry);
 
         checked += 1;
-        if !serialised.iter().any(|s| s == name) {
+        if !serialised.contains_key(name.as_str()) {
             missing.push(name.clone());
         }
         app.world.despawn(e);
