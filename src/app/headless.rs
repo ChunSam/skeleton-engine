@@ -255,12 +255,17 @@ impl App {
         ));
         self.gpu = Some(gpu);
 
-        // Docked mode: enter the docked layout so `update_editor_ui` builds the full panel chrome
-        // (the overlay capture leaves the mode `Off`). The central viewport's offscreen RT then
-        // warms up over the debounce window — see the method doc's frame-count note.
-        if docked {
-            self.editor.mode = crate::app::editor::EditorMode::Docked;
-        }
+        // Enter the editor for real: Docked for the docked capture (so `update_editor_ui` builds
+        // the full panel chrome; the central viewport's offscreen RT then warms up over the
+        // debounce window — see the method doc's frame-count note), Overlay otherwise. The overlay
+        // capture used to leave the mode `Off` and relied on the cheatsheet and toasts drawing
+        // regardless of mode; since v0.156.12 nothing of the editor runs while it is Off — which
+        // is what a windowed F1/F2 guarantees, and what a capture must match.
+        self.editor.mode = if docked {
+            crate::app::editor::EditorMode::Docked
+        } else {
+            crate::app::editor::EditorMode::Overlay
+        };
 
         let dt = 1.0 / 60.0;
         for _ in 0..frames.max(1) {

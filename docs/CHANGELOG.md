@@ -4,6 +4,28 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.12
+
+### The editor's shortcuts, cheatsheet, toasts and inspector staging run only while the editor is showing
+
+The block that handles Ctrl+Z / C / V / S / D, Delete, F and `?` was gated on the egui context
+alone — which every windowed frame has — and F1 / F2 never clear the selection. So with the
+editor Off and an entity still selected from before, Delete or Backspace despawned it (and its
+subtree) mid-game, Ctrl+S wrote `saved_scene.ron`, Ctrl+Z mutated the world and `F` recentred
+the camera; game input was not suppressed either, so both fired. The inspector's field staging
+ran every frame for that lingering selection too, with no editor to show it in.
+
+All of it is gated on `mode != Off` now (native; wasm has no mode and its overlay stays gated on
+`DebugUi`). One test drives `update_editor_ui` through a headless egui frame with a Delete key:
+Off → the entity lives and nothing is recorded; Overlay, as the control → deleted and recorded.
+Sabotage: the gate removed reddens it.
+
+⚠️ **The gate caught a capture that depended on the bug.** The headless *overlay* capture
+(`screenshot_editor_headless_rgba`) left the mode `Off` and relied on the cheatsheet and
+toasts drawing regardless — two render tests went red on the first run. It enters
+`EditorMode::Overlay` now, the way the docked capture enters `Docked`, so what it photographs
+is the overlay editor a windowed F1 shows and nothing else.
+
 ## 0.156.11
 
 ### The overlays draw where the renderer draws, and F focuses there too

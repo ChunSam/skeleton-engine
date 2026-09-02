@@ -205,9 +205,20 @@ impl App {
         // name. Previously the write-back looked up by `refl.type_name()` (Rust struct
         // ident) in a register-name → TypeId map, which silently discards edits when
         // the two names differ (e.g. a forker registers "My Transform" for `Transform`).
+        // Nothing below acts unless the editor is showing. The shortcuts, the cheatsheet, the
+        // toasts and the inspector staging were gated on the egui context alone — which every
+        // windowed frame has — and F1 / F2 never clear the selection, so with the editor Off and
+        // an entity still selected from before, Delete despawned it mid-game, Ctrl+S wrote
+        // `saved_scene.ron`, and Ctrl+Z mutated the world (v0.156.12). wasm has no mode; its
+        // overlay is gated on `DebugUi` further down, as before.
+        #[cfg(not(target_arch = "wasm32"))]
+        let editor_showing = self.editor.mode != EditorMode::Off;
+        #[cfg(target_arch = "wasm32")]
+        let editor_showing = true;
+
         let mut comp_fields: InspectorCompFields = Vec::new();
         let comp_fields_entity: Option<Entity> = self.editor.inspector_selected;
-        if let Some(sel) = self.editor.inspector_selected {
+        if let Some(sel) = self.editor.inspector_selected.filter(|_| editor_showing) {
             // Build a TypeId → register name lookup once so the inner loop is O(1).
             let tid_to_reg_name: std::collections::HashMap<std::any::TypeId, &'static str> =
                 self.world.reflect_registered_types().into_iter().collect();
@@ -240,14 +251,15 @@ impl App {
 
             // ── Undo (Ctrl+Z) / Redo (Ctrl+Shift+Z) / Copy (Ctrl+C) / Paste (Ctrl+V) /
             //    Save (Ctrl+S) / Duplicate (Ctrl+D) / Delete / Focus (F) / Cheatsheet (?) ─
+            // Only while the editor is showing (Overlay or Docked) — see `editor_showing`.
             #[cfg(not(target_arch = "wasm32"))]
-            self.handle_editor_shortcuts(ctx);
-            // Keyboard-shortcuts cheatsheet window (shown while `show_shortcuts` is on; both modes).
-            #[cfg(not(target_arch = "wasm32"))]
-            self.draw_editor_shortcuts_window(ctx);
-            // Action-feedback toasts (bottom-right, auto-expiring; both modes).
-            #[cfg(not(target_arch = "wasm32"))]
-            self.draw_editor_toasts(ctx, dt);
+            if editor_showing {
+                self.handle_editor_shortcuts(ctx);
+                // Keyboard-shortcuts cheatsheet window (shown while `show_shortcuts` is on).
+                self.draw_editor_shortcuts_window(ctx);
+                // Action-feedback toasts (bottom-right, auto-expiring).
+                self.draw_editor_toasts(ctx, dt);
+            }
 
             // Docked mode: draw the full docked layout.
             #[cfg(not(target_arch = "wasm32"))]

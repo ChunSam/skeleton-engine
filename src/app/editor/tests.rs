@@ -1479,3 +1479,48 @@ fn focus_centres_on_where_a_child_is_drawn() {
         .position;
     assert_eq!(cam, glam::Vec2::new(100.0, 0.0), "control");
 }
+
+// ── The editor acts only while it is showing ───────────────────────────────────
+
+/// The shortcuts block was gated on the egui context alone, which every windowed frame has, and
+/// F1 / F2 never clear the selection. Overlay → click an entity → F1 → play: Backspace or Delete
+/// despawned it (and its subtree) mid-game, Ctrl+S wrote `saved_scene.ron`, Ctrl+Z mutated the
+/// world — with game input not suppressed either, so both fired.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn editor_shortcuts_do_not_fire_while_the_editor_is_off() {
+    let delete = || egui::Event::Key {
+        key: egui::Key::Delete,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let mut app = crate::app::App::new();
+    let e = app.world.spawn();
+    app.world
+        .add_component(e, crate::components::Transform::default());
+    app.editor_select_entity(e);
+    app.editor.mode = super::EditorMode::Off;
+
+    editor_frame(&mut app, vec![delete()]);
+    assert!(
+        app.world.is_alive(e),
+        "Delete must do nothing while the editor is Off"
+    );
+    assert_eq!(app.editor.cmd_history.undo_len(), 0, "and record nothing");
+
+    // Control: the same frame with the editor showing deletes and records.
+    app.editor.mode = super::EditorMode::Overlay;
+    app.editor_select_entity(e);
+    editor_frame(&mut app, vec![delete()]);
+    assert!(
+        !app.world.is_alive(e),
+        "control: with the editor showing, Delete deletes"
+    );
+    assert_eq!(
+        app.editor.cmd_history.undo_len(),
+        1,
+        "control: and records it"
+    );
+}
