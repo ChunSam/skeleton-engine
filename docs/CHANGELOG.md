@@ -4,6 +4,33 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.8
+
+### 📂 Load and 🗑 Delete release the rapier bodies of what they despawn
+
+The editor's two despawn paths used `World::despawn` and `hierarchy::despawn_recursive`, both
+storage-level by design: neither knows about `PhysicsWorld`. So a scene load left every rigid body
+and tile collider of the replaced scene behind as invisible, still-colliding ghosts — a Replace
+drops `PhysicsWorld` with the World, but a Load keeps the World and everything in it — and a
+delete leaked the deleted subtree's bodies the same way. `physics::despawn_with_body` has said
+exactly this since it was written; the editor never called it, and could not have, since it
+despawns subtrees and whole scenes rather than one entity.
+
+New public API **`physics::release_physics(world, entity)`**: everything an entity owns in
+`PhysicsWorld` — a `PhysicsBody`'s body and colliders, and every tile collider its
+`TilemapColliders` tracks — released without despawning, for callers that despawn some other way.
+`despawn_with_body` is now that plus the despawn, so it covers tile colliders too. Load calls it
+for every entity before the despawn loop; both delete paths go through one
+`App::editor_despawn_subtree`, which releases the subtree's physics and then cascades. Undo of a
+delete restores entities from `EntityDef`s, which carry no physics — already so, now stated.
+
+Tests count `rigid_body_set` against a baseline. A load of a one-entity scene over a dynamic body
+plus a synced 3×3 tilemap (ten bodies) returns to baseline; deleting a parent whose child also
+carries a body returns to baseline. Sabotage, each on its own: the release loop removed from
+Load → the load test; the release skipped in `editor_despawn_subtree` → the delete test, and so
+does releasing the root but not its descendants; the tile-collider half skipped in
+`release_physics` → its own test *and* the load test, on the tile half only.
+
 ## 0.156.7
 
 ### The inspector writes back only what it changed, so an undo of the selected entity is no longer undone again in the same frame

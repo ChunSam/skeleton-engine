@@ -121,6 +121,10 @@ pub fn descendants(world: &World, root: Entity) -> Vec<Entity> {
 ///
 /// `root` is detached from its own parent first, so the surviving parent's `Children` list does
 /// not keep a dead handle either.
+///
+/// Storage-level, like `World::despawn`: nothing the subtree owns in `PhysicsWorld` is released.
+/// Call [`crate::physics::release_physics`] on each entity first — the editor's delete does,
+/// through `App::editor_despawn_subtree`.
 pub fn despawn_recursive(world: &mut World, root: Entity) {
     if !world.is_alive(root) {
         return;

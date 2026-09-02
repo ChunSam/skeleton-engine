@@ -141,6 +141,21 @@ impl App {
         }
     }
 
+    /// Despawns `root` and its whole subtree the way the editor must: everything the subtree owns
+    /// in `PhysicsWorld` — rigid bodies, colliders, tile colliders — is released first, then
+    /// `hierarchy::despawn_recursive` takes the entities. Both are storage-level by design, so
+    /// without the release an editor delete left the physics behind as invisible, still-colliding
+    /// ghosts (v0.156.8). **Both delete paths — the Delete key and the 🗑 button — go through
+    /// here.** Undo restores the entities from their `EntityDef`s, which carry no physics; that
+    /// was already so, and the release does not change it.
+    pub(in crate::app) fn editor_despawn_subtree(&mut self, root: Entity) {
+        for e in crate::hierarchy::descendants(&self.world, root) {
+            crate::physics::release_physics(&mut self.world, e);
+        }
+        crate::physics::release_physics(&mut self.world, root);
+        crate::hierarchy::despawn_recursive(&mut self.world, root);
+    }
+
     /// Delete every entity in the current editor selection (multi-select aware), recording each for
     /// undo, then clear the selection. Backs the Delete / Backspace shortcut.
     pub(in crate::app) fn editor_delete_selection(&mut self) {
@@ -157,7 +172,7 @@ impl App {
             });
             // The subtree goes too, which is why the `is_alive` skip above matters: selecting a
             // parent and its child deletes the child once, not twice.
-            crate::hierarchy::despawn_recursive(&mut self.world, e);
+            self.editor_despawn_subtree(e);
         }
         self.editor.inspector_selected = None;
         self.editor.selected_entities.clear();

@@ -45,7 +45,7 @@ pub(in crate::app) fn entities_tab_body(
                         entities: None,
                         defs,
                     });
-                crate::hierarchy::despawn_recursive(&mut app.world, sel);
+                app.editor_despawn_subtree(sel);
                 app.editor.inspector_selected = None;
                 // Descendants went with it, so filter by liveness rather than by `sel`.
                 app.editor

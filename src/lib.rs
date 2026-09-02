@@ -174,10 +174,10 @@ pub use particle::{
 pub use pathfinding::{find_path, find_path_diagonal, PathGrid, MAX_PATH_GRID_CELLS};
 #[cfg(not(target_arch = "wasm32"))]
 pub use physics::{
-    despawn_with_body, sync_tilemap_entity_colliders, BodyHandle, CharacterController,
-    ColliderHandle, CollisionEvent, CollisionGroups, JointHandle, PhysicsBody, PhysicsSystem,
-    PhysicsWorld, RaycastHit, SolidTiles, TileCollider, TileColliderIndex, TilemapColliders,
-    TriggerEvent,
+    despawn_with_body, release_physics, sync_tilemap_entity_colliders, BodyHandle,
+    CharacterController, ColliderHandle, CollisionEvent, CollisionGroups, JointHandle, PhysicsBody,
+    PhysicsSystem, PhysicsWorld, RaycastHit, SolidTiles, TileCollider, TileColliderIndex,
+    TilemapColliders, TriggerEvent,
 };
 pub use pool::{Pool, Pooled};
 pub use prefab::{

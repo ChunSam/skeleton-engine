@@ -1075,3 +1075,74 @@ fn a_direct_write_inside_the_frame_survives_the_write_back() {
         "a write made inside the frame must not be overwritten by the staged copy"
     );
 }
+
+// ── A delete releases the physics of what it despawns ─────────────────────────
+
+/// Both editor delete paths despawned through `hierarchy::despawn_recursive`, which is
+/// storage-level like `World::despawn`: the subtree's rapier bodies stayed in `PhysicsWorld` as
+/// invisible colliders. `editor_despawn_subtree` releases them first — for the root and every
+/// descendant.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn deleting_a_subtree_releases_its_physics() {
+    use crate::physics::{PhysicsBody, PhysicsWorld};
+    let mut app = crate::app::App::new();
+    app.world
+        .insert_resource(PhysicsWorld::new(glam::Vec2::ZERO));
+    let bodies = |app: &crate::app::App| {
+        app.world
+            .resource::<PhysicsWorld>()
+            .unwrap()
+            .rigid_body_set
+            .len()
+    };
+    let baseline = bodies(&app);
+    let with_body = |app: &mut crate::app::App| {
+        let e = app.world.spawn();
+        app.world
+            .add_component(e, crate::components::Transform::default());
+        let (rb, col) = app
+            .world
+            .resource_mut::<PhysicsWorld>()
+            .unwrap()
+            .add_dynamic_box(glam::Vec2::ZERO, 8.0, 8.0, true);
+        app.world.add_component(
+            e,
+            PhysicsBody {
+                rigid_body_handle: rb,
+                collider_handle: col,
+            },
+        );
+        e
+    };
+    let parent = with_body(&mut app);
+    let child = with_body(&mut app);
+    assert!(crate::hierarchy::reparent(
+        &mut app.world,
+        child,
+        Some(parent)
+    ));
+    assert_eq!(
+        bodies(&app),
+        baseline + 2,
+        "precondition: parent and child each own a body"
+    );
+
+    app.editor_select_entity(parent);
+    app.editor_delete_selection();
+
+    assert!(
+        !app.world.is_alive(parent) && !app.world.is_alive(child),
+        "the subtree is gone"
+    );
+    assert_eq!(
+        bodies(&app),
+        baseline,
+        "both bodies must be released — the child's through the cascade, not only the root's"
+    );
+    assert_eq!(
+        app.editor.cmd_history.undo_len(),
+        1,
+        "control: the delete is still recorded for undo"
+    );
+}
