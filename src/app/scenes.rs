@@ -73,6 +73,10 @@ impl App {
             // new entity now occupies that slot. (Native-only: `cmd_history` is not a field of
             // the reduced wasm `EditorState`.)
             self.editor.cmd_history.clear();
+            // And every edit still in flight — a paint stroke, a rename, a gizmo drag. Their
+            // handles point into the world just discarded, and the next frame's abandon arms
+            // would otherwise record them against whatever the new scene spawns first.
+            self.editor.drop_in_flight_edits();
         }
         self.editor.editor_save_status = None;
         // Clear the set of system indices disabled by panics.

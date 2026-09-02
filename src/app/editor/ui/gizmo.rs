@@ -70,6 +70,17 @@ impl App {
             self.abandon_gesture();
         }
 
+        // A tile-paint stroke belongs to the entity it was painted on, whether or not paint mode
+        // is still on. In Docked mode the inspector clears `paint_mode` for a non-Tilemap
+        // selection *before* this runs, so the arm below that ends a stroke when "the selection
+        // ceased to be a Tilemap" was unreachable there: the stroke stayed buffered, neither
+        // committed nor cleared, until some later stroke committed it (wiping the redo stack) or
+        // nothing ever did.
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.editor.paint_active && self.editor.paint_entity != Some(sel) {
+            self.finish_paint_stroke();
+        }
+
         // ── Tile paint: when paint mode is on for a Tilemap entity, viewport
         //    clicks paint tiles and the move/resize gizmo is suppressed. ──────
         #[cfg(not(target_arch = "wasm32"))]
