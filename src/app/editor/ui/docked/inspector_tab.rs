@@ -149,18 +149,7 @@ pub(in crate::app) fn inspector_tab_body(
                 }
 
                 // ── Registered inspector panels (built-in + user-defined) ─────
-                // Take the vec off `app.editor` to avoid holding a borrow of
-                // `app.editor` while the draw closure receives `&mut app`.
-                let panels = std::mem::take(&mut app.editor.inspector_panels);
-                for p in &panels {
-                    if (p.presence)(&app.world, sel) {
-                        ui.separator();
-                        egui::CollapsingHeader::new(&p.title)
-                            .default_open(true)
-                            .show(ui, |ui| (p.draw)(ui, app, sel));
-                    }
-                }
-                app.editor.inspector_panels = panels;
+                draw_registered_panels(ui, app, sel);
 
                 ui.separator();
                 ui.strong(tr("Component List", "컴포넌트 목록"));
@@ -302,6 +291,33 @@ pub(in crate::app) fn inspector_tab_body(
         });
 }
 
+/// Draws every panel registered through `App::register_inspector_panel` whose `presence`
+/// holds for `sel`, in registration order — one `CollapsingHeader` each, open by default.
+///
+/// The registry is taken off `app.editor` for the duration, because each `draw` receives
+/// `&mut App` and could not otherwise coexist with a borrow of the vec it lives in. It is
+/// restored by **appending** what is there afterwards rather than overwriting it, so a panel
+/// registered from inside a `draw` closure survives the frame; the registry reads as empty
+/// *during* a draw, which is the one thing a closure can observe about this arrangement.
+///
+/// Split out of [`inspector_tab_body`] so a unit test can drive it with a real `egui::Ui`
+/// and a real `App` — the previous test of this dispatch never called `draw` at all.
+#[cfg(not(target_arch = "wasm32"))]
+pub(in crate::app) fn draw_registered_panels(ui: &mut egui::Ui, app: &mut App, sel: Entity) {
+    let mut panels = std::mem::take(&mut app.editor.inspector_panels);
+    for p in &panels {
+        if (p.presence)(&app.world, sel) {
+            ui.separator();
+            egui::CollapsingHeader::new(&p.title)
+                .default_open(true)
+                .show(ui, |ui| (p.draw)(ui, app, sel));
+        }
+    }
+    // Anything registered while the vec was taken is appended, not lost.
+    panels.append(&mut app.editor.inspector_panels);
+    app.editor.inspector_panels = panels;
+}
+
 /// Convert an engine [`UvRect`](crate::renderer::uv::UvRect) (offset + size) into the
 /// `min..max` [`egui::Rect`] that `egui::Image::uv` expects, so a Tile Paint swatch
 /// samples exactly its atlas tile.
@@ -311,6 +327,111 @@ fn uv_rect_to_egui(uv: crate::renderer::uv::UvRect) -> egui::Rect {
         egui::pos2(uv.u_offset, uv.v_offset),
         egui::pos2(uv.u_offset + uv.u_size, uv.v_offset + uv.v_size),
     )
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod panel_dispatch_tests {
+    use super::draw_registered_panels;
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    struct MarkerA;
+
+    /// Runs `f` inside one real egui frame so a `&mut egui::Ui` exists. The docked editor is
+    /// egui-only, so this needs no window and no GPU; `max_passes` is pinned to 1 so a draw
+    /// counts once per call and not once per repaint pass.
+    fn with_ui(f: impl FnOnce(&mut egui::Ui)) {
+        let ctx = egui::Context::default();
+        ctx.options_mut(|o| o.max_passes = std::num::NonZeroUsize::new(1).unwrap());
+        let mut f = Some(f);
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            (f.take().expect("egui ran a second pass"))(ui);
+        });
+    }
+
+    /// The dispatch, driven for real: the registered `draw` runs exactly once for an entity
+    /// that carries the component and not at all for one that does not, and the registry is
+    /// back in place afterwards. Sabotage: inverting the `presence` test reads 1 then 0.
+    #[test]
+    fn registered_panel_draws_only_for_an_entity_that_has_the_component() {
+        let mut app = crate::app::App::new();
+        let with_a = app.world.spawn();
+        app.world.add_component(with_a, MarkerA);
+        let without_a = app.world.spawn();
+
+        // `App::new()` registers the built-in panels; count relative to them.
+        let base = app.editor.inspector_panels.len();
+        let drawn = Rc::new(Cell::new(0u32));
+        let d = Rc::clone(&drawn);
+        app.register_inspector_panel::<MarkerA>("Marker A", move |_ui, _app, _e| {
+            d.set(d.get() + 1);
+        });
+
+        with_ui(|ui| draw_registered_panels(ui, &mut app, without_a));
+        assert_eq!(drawn.get(), 0, "no MarkerA, so the panel must not draw");
+
+        with_ui(|ui| draw_registered_panels(ui, &mut app, with_a));
+        assert_eq!(
+            drawn.get(),
+            1,
+            "MarkerA present, so the panel draws exactly once"
+        );
+        assert_eq!(
+            app.editor.inspector_panels.len(),
+            base + 1,
+            "the registry is restored after the frame"
+        );
+    }
+
+    /// A panel registered from inside another panel's `draw` lands while the registry is
+    /// taken; the restore must append it, not overwrite it. Sabotage: restoring with a plain
+    /// assignment leaves the registry at 1 and the second panel never draws.
+    #[test]
+    fn panel_registered_during_a_draw_survives_the_frame() {
+        let mut app = crate::app::App::new();
+        let e = app.world.spawn();
+        app.world.add_component(e, MarkerA);
+
+        let base = app.editor.inspector_panels.len();
+        let second_drawn = Rc::new(Cell::new(0u32));
+        let sd = Rc::clone(&second_drawn);
+        // Register once. The registry reads empty during *every* draw (it is taken), so
+        // "is it empty?" cannot be the guard — a flag is.
+        let registered = Rc::new(Cell::new(false));
+        let r = Rc::clone(&registered);
+        app.register_inspector_panel::<MarkerA>("First", move |_ui, app, _e| {
+            if !r.replace(true) {
+                let sd = Rc::clone(&sd);
+                app.register_inspector_panel::<MarkerA>("Second", move |_ui, _app, _e| {
+                    sd.set(sd.get() + 1);
+                });
+            }
+        });
+
+        with_ui(|ui| draw_registered_panels(ui, &mut app, e));
+        assert_eq!(
+            app.editor.inspector_panels.len(),
+            base + 2,
+            "the panel registered mid-draw must survive the restore"
+        );
+        assert_eq!(
+            app.editor.inspector_panels[base + 1].title,
+            "Second",
+            "and it must come after the panel that registered it"
+        );
+
+        with_ui(|ui| draw_registered_panels(ui, &mut app, e));
+        assert_eq!(
+            second_drawn.get(),
+            1,
+            "the surviving panel draws on the next frame"
+        );
+        assert_eq!(
+            app.editor.inspector_panels.len(),
+            base + 2,
+            "and is not registered again"
+        );
+    }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
