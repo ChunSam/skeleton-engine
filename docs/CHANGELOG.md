@@ -4,6 +4,39 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.5
+
+### The inspector-panel dispatch is tested for real, and a panel registered mid-draw survives the frame
+
+The last open row of the 2026-08-28 editor review. `dispatch_fires_only_for_matching_entity` in
+`state.rs` claimed to test that a registered panel's `draw` runs only when its `presence` holds.
+The body never called `draw`: its counter was silenced with `_ = counter;`, and the `fire_count`
+it asserted was incremented by an `if` written in the test — the same shape as the three checks
+v0.155.2 fixed.
+
+The dispatch loop moved out of `inspector_tab_body` into `draw_registered_panels(ui, app, sel)`,
+and the test now drives *that* with a real `App::new()` and a real egui frame (`Context::run_ui`;
+the docked editor is egui-only, so no window and no GPU): the registered `draw` runs zero times for
+an entity without the component, once for one with it, and the registry is back in place
+afterwards. ⚠️ The row's "a unit test cannot build `&mut App`" was wrong — `App::new()` is headless
+and 22 editor tests already construct one. ⚠️ It also ships **five built-in panels**, so the test
+counts relative to that base; the first draft assumed an empty registry and failed on its own
+control.
+
+**One behaviour change rode along, because it is the restore line the loop was moved with.** The
+registry is `mem::take`n while panels draw (each `draw` receives `&mut App`) and was restored by
+assignment, so a panel registered from inside another panel's `draw` was silently overwritten. It
+is appended now. ⚠️ The registry reads as *empty* during every draw — the one thing a closure can
+observe about the arrangement, and why the second test's "register once" guard is a flag: "is the
+registry empty?" is true on every frame.
+
+Sabotage, each half alone:
+
+- `presence` inverted → the first test reads `1` drawn for the entity **without** the component,
+  against `0`; the second goes red too (its first panel no longer draws, so nothing registers);
+- restore by assignment → the second test reads a registry of `5` against `6`; the first stays
+  green.
+
 ## 0.156.4
 
 ### The netplay check reports the margins it survived on, and a dead server stops pretending to be a slow one
