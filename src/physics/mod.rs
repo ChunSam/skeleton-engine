@@ -4,7 +4,7 @@ pub mod events;
 pub mod system;
 pub mod world;
 
-pub use body::{despawn_with_body, PhysicsBody};
+pub use body::{despawn_with_body, release_physics, PhysicsBody};
 pub use character::CharacterController;
 pub use events::{CollisionEvent, TriggerEvent};
 pub use system::PhysicsSystem;

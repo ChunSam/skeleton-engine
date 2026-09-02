@@ -137,6 +137,12 @@ pub(in crate::app) fn do_load_scene(app: &mut App) {
             // Despawn ALL current entities before loading so that UiNode-only
             // entities (menus/HUD without a Transform) don't accumulate on reload.
             let to_remove: Vec<Entity> = app.world.entities().to_vec();
+            // The replaced scene's rigid bodies and tile colliders live in `PhysicsWorld`, which
+            // this path keeps — a Replace drops it with the World, a Load does not — so they
+            // have to be released by hand or they stay behind as invisible colliders (v0.156.8).
+            for e in &to_remove {
+                crate::physics::release_physics(&mut app.world, *e);
+            }
             for e in to_remove {
                 app.world.despawn(e);
             }
@@ -207,6 +213,78 @@ mod tests {
             ..Default::default()
         });
         def.save(std::path::Path::new(path)).expect("write scene");
+    }
+
+    /// A Load keeps `PhysicsWorld` (only a Replace drops it with the World), so the replaced
+    /// scene's rapier bodies had to be released by hand and were not: every one stayed behind
+    /// as an invisible collider. Ten of them here — a dynamic body and a synced 3×3 tilemap.
+    #[test]
+    fn loading_a_scene_releases_the_old_scenes_physics() {
+        use crate::physics::{PhysicsBody, PhysicsWorld, SolidTiles, TilemapColliders};
+        let dir = std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".into());
+        let path = format!("{dir}/load_releases_physics_{}.ron", std::process::id());
+        write_scene(&path, "FromNewScene");
+
+        let mut app = App::new();
+        app.world
+            .insert_resource(PhysicsWorld::new(glam::Vec2::ZERO));
+        let bodies = |app: &App| {
+            app.world
+                .resource::<PhysicsWorld>()
+                .unwrap()
+                .rigid_body_set
+                .len()
+        };
+        let baseline = bodies(&app);
+        let body = app.world.spawn();
+        let (rb, col) = app
+            .world
+            .resource_mut::<PhysicsWorld>()
+            .unwrap()
+            .add_dynamic_box(glam::Vec2::ZERO, 8.0, 8.0, true);
+        app.world.add_component(
+            body,
+            PhysicsBody {
+                rigid_body_handle: rb,
+                collider_handle: col,
+            },
+        );
+        let map = app.world.spawn();
+        app.world.add_component(
+            map,
+            crate::tilemap::Tilemap::new(
+                crate::tilemap::TilemapAtlas::new("", 1, 1),
+                vec![vec![1u32; 3]; 3],
+                32.0,
+                glam::Vec2::ZERO,
+            ),
+        );
+        app.world
+            .add_component(map, TilemapColliders::new(32.0, SolidTiles::NonZero));
+        assert!(crate::physics::sync_tilemap_entity_colliders(
+            &mut app.world,
+            map
+        ));
+        assert_eq!(
+            bodies(&app),
+            baseline + 10,
+            "precondition: the scene about to be replaced owns ten rapier bodies"
+        );
+
+        app.editor.editor_save_path = path.clone();
+        super::do_load_scene(&mut app);
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(
+            tags(&app),
+            vec!["FromNewScene".to_string()],
+            "the scene was replaced"
+        );
+        assert_eq!(
+            bodies(&app),
+            baseline,
+            "every rapier body the replaced scene owned must go with it"
+        );
     }
 
     /// Loading a scene must drop the undo history, or Ctrl+Z resurrects an entity from the
