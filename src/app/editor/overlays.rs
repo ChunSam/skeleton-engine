@@ -1,5 +1,21 @@
 use crate::app::App;
-use crate::ecs::Entity;
+use crate::ecs::{Entity, World};
+
+/// The position and scale an entity is drawn at: its `GlobalTransform` when the hierarchy has
+/// composed one, else its own `Transform`. This is the renderer's policy
+/// (`renderer/sprite/collect.rs`) and the collision grid's (`collision/grid.rs`), so the
+/// overlays show what those two see — a parented entity's `Transform.position` is only its
+/// offset from the parent.
+fn world_placement(
+    world: &World,
+    e: Entity,
+    t: &crate::components::Transform,
+) -> (glam::Vec2, glam::Vec2) {
+    world
+        .get::<crate::hierarchy::GlobalTransform>(e)
+        .map(|g| (g.position, g.scale))
+        .unwrap_or((t.position, t.scale))
+}
 
 impl App {
     /// Draw the debug bounds overlay via `DebugDraw`: every entity's Transform AABB plus any
@@ -7,15 +23,18 @@ impl App {
     pub(in crate::app) fn draw_debug_bounds(&mut self) {
         use crate::collision::Collider;
         // Collect first so the immutable world borrow is released before borrowing DebugDraw.
-        let bounds: Vec<(glam::Vec2, glam::Vec2)> = self
-            .world
+        // Placed where things are DRAWN and COLLIDE (`world_placement`), not at their local
+        // offset: until v0.156.11 this read `Transform` alone, so a parented collider's box drew
+        // at its offset from the origin while collision tested it at its world position — the
+        // exact placement this overlay exists to show.
+        let world = &self.world;
+        let bounds: Vec<(glam::Vec2, glam::Vec2)> = world
             .query::<crate::components::Transform>()
-            .map(|(_, t)| (t.position, t.scale))
+            .map(|(e, t)| world_placement(world, e, t))
             .collect();
-        let colliders: Vec<(glam::Vec2, Collider)> = self
-            .world
+        let colliders: Vec<(glam::Vec2, Collider)> = world
             .query2::<crate::components::Transform, Collider>()
-            .map(|(_, t, c)| (t.position, *c))
+            .map(|(e, t, c)| (world_placement(world, e, t).0, *c))
             .collect();
         let Some(dbg) = self.world.resource_mut::<crate::resources::DebugDraw>() else {
             return;
@@ -47,25 +66,27 @@ impl App {
         use crate::pathfinding::PathGrid;
         use crate::tilemap::Tilemap;
 
-        // We need a mutable borrow of DebugDraw and an immutable borrow of each Tilemap
-        // at the same time, which the borrow checker forbids via `world`. To avoid
-        // cloning the full Tilemap (which includes a TilemapAtlas with a heap-allocated
-        // texture String), we collect only the minimal data needed by the overlay:
-        // the tile grid (unavoidable — PathGrid::from_tilemap reads every cell),
-        // plus tile_size and origin (two f32 + Vec2 scalars). The atlas is not needed
-        // and is not cloned.
+        // A mutable borrow of DebugDraw and an immutable borrow of each Tilemap cannot coexist
+        // through `world`, so the grid is built while the tilemap is borrowed and only the
+        // result crosses over: the `PathGrid`, plus the scalars that place a cell.
+        // `PathGrid::from_tilemap` takes `&Tilemap`, so the tile grid never needed cloning —
+        // the old comment called that clone "unavoidable". ⚠️ `projection` is part of the
+        // placement: leaving it out drew every isometric and hexagonal map as a square lattice
+        // at the wrong positions, contradicting the doc above (v0.156.11).
         struct TilemapSnapshot {
-            tiles: Vec<Vec<u32>>,
+            grid: PathGrid,
             tile_size: f32,
             origin: glam::Vec2,
+            projection: crate::tilemap::TilemapProjection,
         }
         let snapshots: Vec<TilemapSnapshot> = self
             .world
             .query::<Tilemap>()
             .map(|(_, tm)| TilemapSnapshot {
-                tiles: tm.tiles.clone(),
+                grid: PathGrid::from_tilemap(tm, |id| id != 0),
                 tile_size: tm.tile_size,
                 origin: tm.origin,
+                projection: tm.projection,
             })
             .collect();
 
@@ -75,19 +96,20 @@ impl App {
         let blocked_color = crate::color::Color::rgba(1.0, 0.3, 0.3, 0.35);
         let walkable_color = crate::color::Color::rgba(0.3, 1.0, 0.5, 0.25);
         for snap in snapshots {
-            // Build a temporary Tilemap using the moved tile grid (no second clone).
-            // The atlas is not used by PathGrid::from_tilemap; a zero-cost dummy is fine.
-            let tm = Tilemap::new(
+            // A tile-less Tilemap carries the placement math: `cell_center_world` and
+            // `cell_render_size` read only `tile_size`, `origin` and `projection`.
+            let geom = Tilemap::new(
                 crate::tilemap::TilemapAtlas::new("", 0, 0),
-                snap.tiles,
+                Vec::new(),
                 snap.tile_size,
                 snap.origin,
-            );
-            let grid = PathGrid::from_tilemap(&tm, |id| id != 0);
-            let half = glam::Vec2::splat(snap.tile_size * 0.5);
+            )
+            .with_projection(snap.projection);
+            let grid = snap.grid;
+            let half = geom.cell_render_size() * 0.5;
             for y in 0..grid.height {
                 for x in 0..grid.width {
-                    let center = tm.cell_center_world(y as usize, x as usize);
+                    let center = geom.cell_center_world(y as usize, x as usize);
                     if grid.is_walkable(x, y) {
                         dbg.rect(center - half, center + half, walkable_color);
                     } else {

@@ -4,6 +4,34 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.11
+
+### The overlays draw where the renderer draws, and F focuses there too
+
+Three places the editor read `Transform.position` where the renderer and the collision grid read
+`GlobalTransform` — so for a parented entity, whose `Transform` is only its offset from the
+parent, the editor pointed at the wrong place.
+
+- **The bounds overlay** drew every AABB and every `Collider` at the local offset: a parented
+  collider's green box sat near the origin while collision tested it at its world position — the
+  placement the overlay exists to make visible. `collision/grid.rs` describes that very symptom
+  as the bug it fixed; the overlay meant to show it reproduced the pre-fix placement. One
+  `world_placement` now carries the policy for both passes.
+- **The pathfinding overlay** rebuilt each `Tilemap` without its `projection`, so an isometric or
+  hexagonal map was shaded as a square lattice at the orthographic positions, contradicting its
+  own doc ("visualizes exactly the grid a game … would navigate"). The snapshot now carries the
+  projection, the cell size comes from `cell_render_size`, and the `PathGrid` is built inside the
+  query — `PathGrid::from_tilemap` takes `&Tilemap`, so the tile grid the old comment called an
+  "unavoidable" clone was never needed.
+- **F (focus)** centred the camera on the local offset, so focusing a child went near the origin
+  and left the child off-screen.
+
+Three tests, each with a control (a root without a `GlobalTransform` still draws and focuses at
+its `Transform`; the orthographic centre is asserted *not* to be where the isometric cell landed).
+Sabotage: the overlays back to the local `Transform` reddens the bounds test; the snapshot without
+its projection reddens the pathfinding test; F back to the local `Transform` reddens the focus
+test — each alone, the two pre-existing overlay tests green throughout.
+
 ## 0.156.10
 
 ### The editor's last two unrecorded spawns are recorded, the Exit button saves what the F2 key saved, and a reset clears the load status
