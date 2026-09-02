@@ -158,6 +158,7 @@ pub(in crate::app) fn timeline_panel(ui: &mut egui::Ui, app: &mut App, sel: crat
         ui.add(
             egui::DragValue::new(&mut tl.duration)
                 .speed(0.05)
+                .clamp_existing_to_range(false)
                 .range(0.0..=3600.0)
                 .suffix("s"),
         );
@@ -246,6 +247,7 @@ pub(in crate::app) fn timeline_panel(ui: &mut egui::Ui, app: &mut App, sel: crat
                 .add(
                     egui::DragValue::new(&mut c.r)
                         .speed(0.01)
+                        .clamp_existing_to_range(false)
                         .range(0.0..=1.0)
                         .prefix("r:"),
                 )
@@ -254,6 +256,7 @@ pub(in crate::app) fn timeline_panel(ui: &mut egui::Ui, app: &mut App, sel: crat
                 .add(
                     egui::DragValue::new(&mut c.g)
                         .speed(0.01)
+                        .clamp_existing_to_range(false)
                         .range(0.0..=1.0)
                         .prefix("g:"),
                 )
@@ -262,6 +265,7 @@ pub(in crate::app) fn timeline_panel(ui: &mut egui::Ui, app: &mut App, sel: crat
                 .add(
                     egui::DragValue::new(&mut c.b)
                         .speed(0.01)
+                        .clamp_existing_to_range(false)
                         .range(0.0..=1.0)
                         .prefix("b:"),
                 )
@@ -270,6 +274,7 @@ pub(in crate::app) fn timeline_panel(ui: &mut egui::Ui, app: &mut App, sel: crat
                 .add(
                     egui::DragValue::new(&mut c.a)
                         .speed(0.01)
+                        .clamp_existing_to_range(false)
                         .range(0.0..=1.0)
                         .prefix("a:"),
                 )

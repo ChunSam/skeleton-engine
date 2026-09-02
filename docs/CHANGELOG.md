@@ -4,6 +4,30 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.13
+
+### The particle, lighting and timeline panels stop rewriting the values they only display
+
+egui's `DragValue::range` clamps the *existing* value to the range on display by default
+(`clamp_existing_to_range = true`) and marks it changed without any interaction. The particle
+tuner and the point-light grid bind the component's fields directly, so merely selecting a rain
+emitter at `spawn_rate 4000, max_per_frame 10000` — the numbers the component's own doc
+recommends — wrote `2000 / 8192` into the world, and a `PointLight` at `intensity 20, radius
+5000` became `10 / 4000`. The reflect grid beside them carries no ranges, so two editors for one
+field disagreed. The timeline's colour keyframes had the same shape one step removed: each channel
+clamped a snapshot to `[0, 1]`, and a sibling channel's `changed()` carried the whole clamped
+snapshot into `revalue` — while `Color` is un-clamped by design for HDR targets. Its `duration`
+above 3600 s was rewritten on view too.
+
+Every bound `DragValue` in the three panels now carries `.clamp_existing_to_range(false)`: the
+range still bounds what a drag produces, and nothing is written until the user drags. `tl.time`'s
+clamp to the duration is the intended one and stays; the scalar tracks and the state-machine
+panel clamp local snapshots they only push on `changed()`, and were never affected.
+
+One test draws both grids through a headless egui frame for an emitter at 4000 / 10000 and a
+light at 20 / 5000, and reads the four values back unchanged. Sabotage: the flag dropped from
+`spawn_rate` reddens it.
+
 ## 0.156.12
 
 ### The editor's shortcuts, cheatsheet, toasts and inspector staging run only while the editor is showing

@@ -5,6 +5,11 @@
 //! `point_light_grid` is called from the per-component inspector dispatch in
 //! `component_registry.rs`, and `ambient_light_control` from `inspector_tab_body` in `docked.rs`.
 //!
+//! ⚠️ Every `DragValue` here binds the component's field directly and carries
+//! `.clamp_existing_to_range(false)`: egui's default clamps the *existing* value to the widget's
+//! range on display, so merely selecting a light at `intensity 20` used to write `10` into the
+//! world with no interaction (v0.156.13). The range still bounds what a drag produces.
+//!
 //! [`PointLight`]: crate::components::PointLight
 //! [`AmbientLight`]: crate::resources::AmbientLight
 
@@ -28,6 +33,7 @@ pub(in crate::app) fn point_light_grid(ui: &mut egui::Ui, app: &mut App, sel: cr
         ui.label(tr("radius", "반지름"));
         ui.add(
             egui::DragValue::new(&mut l.radius)
+                .clamp_existing_to_range(false)
                 .range(0.0..=4000.0)
                 .speed(2.0),
         );
@@ -36,6 +42,7 @@ pub(in crate::app) fn point_light_grid(ui: &mut egui::Ui, app: &mut App, sel: cr
         ui.label(tr("intensity", "강도"));
         ui.add(
             egui::DragValue::new(&mut l.intensity)
+                .clamp_existing_to_range(false)
                 .range(0.0..=10.0)
                 .speed(0.05),
         );
@@ -44,6 +51,7 @@ pub(in crate::app) fn point_light_grid(ui: &mut egui::Ui, app: &mut App, sel: cr
         ui.label(tr("light_height", "빛 높이"));
         ui.add(
             egui::DragValue::new(&mut l.light_height)
+                .clamp_existing_to_range(false)
                 .range(0.01..=2.0)
                 .speed(0.01),
         );
@@ -63,6 +71,7 @@ pub(in crate::app) fn ambient_light_control(ui: &mut egui::Ui, app: &mut App) {
             ui.label(tr("intensity", "강도"));
             ui.add(
                 egui::DragValue::new(&mut amb.intensity)
+                    .clamp_existing_to_range(false)
                     .range(0.0..=1.0)
                     .speed(0.01),
             );
@@ -76,6 +85,7 @@ fn color_rgb_drags(ui: &mut egui::Ui, c: &mut crate::color::Color) {
     for (label, ch) in [("r", &mut c.r), ("g", &mut c.g), ("b", &mut c.b)] {
         ui.add(
             egui::DragValue::new(ch)
+                .clamp_existing_to_range(false)
                 .range(0.0..=1.0)
                 .speed(0.01)
                 .prefix(label),
