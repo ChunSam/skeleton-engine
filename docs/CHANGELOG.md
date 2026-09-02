@@ -4,6 +4,41 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.6
+
+### A gizmo gesture ends on the entity it started on, and an abandoned gesture is recorded, not dropped
+
+Three abandon-path defects in the editor gizmo, one mechanism. A move, resize or rotation is
+applied to the entity frame by frame and recorded for undo only by the release handler — so every
+path that ends a gesture *without* a release left the applied change on the entity with no undo
+entry, and two of those paths did worse.
+
+- **The gesture was not bound to its entity.** Every held and release branch reads the selection
+  fresh, and Ctrl+Z is reachable mid-drag with every undo arm re-selecting the entity it touched.
+  Press A's rotation handle, undo a `MoveEntity{B}`: the next frame sets B's rotation from A's
+  start angle, and the release records A's old rotation under B's id, so Ctrl+Z then sets B to
+  A's value. A move drag was worse — B jumped to `cursor + A's offset` with **no** undo entry at
+  all, since B was not in the start-position snapshot.
+- **In Docked mode a drag whose cursor left the central panel was dropped**, however far in: egui
+  takes the pointer, `clear_drag_state` cleared the flags, and the release — forwarded, but
+  outside the panel — found nothing active. Ctrl+Z then reverted the *previous* command instead.
+- **Two abandon sites still cleared `gizmo_dragging` alone** — the `UiNode`-gone and
+  `Transform`-gone arms — leaving a rotation or resize flag set: the v0.155.4 defect, on the two
+  sites that fix did not reach.
+
+`EditorState::gesture_entity` now records which entity a press started on, and one
+`App::commit_gesture` records what the gesture applied and clears it. **The release handler and
+every abandon site go through it**, so ending a gesture by any route records exactly what a
+release would have. A selection that moves away from the gesture's entity ends it there — the
+rule v0.155.8 gave a tile-paint stroke — and what egui's takeover or a vanished component leaves
+behind is recorded rather than dropped.
+
+Sabotage, each reddening its own test with the other four green: the selection-moved guard
+removed → the cross-entity test; the docked arm back to `clear_drag_state` → the
+leaving-the-panel test; the Transform-gone arm back to `gizmo_dragging = false` → the stale-flag
+test. Each test carries a control — a held frame after a fresh press still moves, inside the panel
+the gesture survives the frame, a clean press is accepted.
+
 ## 0.156.5
 
 ### The inspector-panel dispatch is tested for real, and a panel registered mid-draw survives the frame
