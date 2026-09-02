@@ -931,3 +931,147 @@ fn a_world_reset_keeps_the_copy_clipboard() {
         "the clipboard survived but its contents did not"
     );
 }
+
+// ── The inspector write-back applies what the UI changed, and nothing else ────
+
+/// One editor frame with `events` in its `RawInput`, the way `headless.rs` drives the docked
+/// editor — no window, no GPU.
+#[cfg(not(target_arch = "wasm32"))]
+fn editor_frame(app: &mut crate::app::App, events: Vec<egui::Event>) {
+    let ctx = egui::Context::default();
+    // `handle_editor_shortcuts` reads the frame's `modifiers`, not the key event's; a real
+    // winit frame sets both, so mirror the first key event's modifiers onto the frame.
+    let modifiers = events
+        .iter()
+        .find_map(|e| match e {
+            egui::Event::Key { modifiers, .. } => Some(*modifiers),
+            _ => None,
+        })
+        .unwrap_or_default();
+    let raw = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(800.0, 600.0),
+        )),
+        events,
+        modifiers,
+        ..Default::default()
+    };
+    ctx.begin_pass(raw);
+    app.update_editor_ui(&Some(ctx.clone()), 1.0 / 60.0);
+    let _ = ctx.end_pass();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn ctrl_z() -> egui::Event {
+    egui::Event::Key {
+        key: egui::Key::Z,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::CTRL,
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn position_of(app: &crate::app::App, e: Entity) -> glam::Vec2 {
+    app.world
+        .get::<crate::components::Transform>(e)
+        .expect("has a Transform")
+        .position
+}
+
+/// `update_editor_ui` stages every reflected field of the selected entity before the egui block
+/// and used to write all of them back after it — so a world write made *inside* the block to the
+/// selected entity was reverted the same frame. Ctrl+Z of that entity's own move is the everyday
+/// case: the undo landed, then the write-back put the staged position straight back. Every gizmo
+/// undo test in the tree calls `cmd_history.undo` directly, which is why none of them saw it.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn ctrl_z_on_the_selected_entity_survives_the_inspector_write_back() {
+    let moved = glam::Vec2::new(100.0, 100.0);
+    let mut app = crate::app::App::new();
+    let e = app.world.spawn();
+    app.world.add_component(
+        e,
+        crate::components::Transform::new(moved, glam::Vec2::splat(20.0), 0.0),
+    );
+    app.editor_select_entity(e);
+    app.editor.mode = super::EditorMode::Overlay;
+    app.editor.cmd_history.push(EditorCmd::MoveEntity {
+        entity: e,
+        old_pos: glam::Vec2::ZERO,
+        new_pos: moved,
+    });
+
+    editor_frame(&mut app, vec![ctrl_z()]);
+
+    assert_eq!(
+        app.editor.cmd_history.undo_len(),
+        0,
+        "precondition: Ctrl+Z reached the history inside the frame"
+    );
+    assert_eq!(
+        position_of(&app, e),
+        glam::Vec2::ZERO,
+        "the undo's write must survive the write-back — the inspector changed nothing, so it \
+         must write nothing"
+    );
+
+    // Control: with a *different* entity selected the same frame already passed, because the
+    // write-back is skipped when the selection moves. So the assertion above is about the
+    // same-entity case specifically, not about Ctrl+Z working at all.
+    let mut app = crate::app::App::new();
+    let e = app.world.spawn();
+    app.world.add_component(
+        e,
+        crate::components::Transform::new(moved, glam::Vec2::splat(20.0), 0.0),
+    );
+    let other = app.world.spawn();
+    app.world
+        .add_component(other, crate::components::Transform::default());
+    app.editor_select_entity(other);
+    app.editor.mode = super::EditorMode::Overlay;
+    app.editor.cmd_history.push(EditorCmd::MoveEntity {
+        entity: e,
+        old_pos: glam::Vec2::ZERO,
+        new_pos: moved,
+    });
+    editor_frame(&mut app, vec![ctrl_z()]);
+    assert_eq!(position_of(&app, e), glam::Vec2::ZERO, "control");
+}
+
+/// The same mechanism from the other side: a registered inspector panel that writes a reflected
+/// component directly, inside the block, keeps its write. Before, the `Name:` field, the inline
+/// rename and ⧉ Paste were all silently reverted this way for every reflected type.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn a_direct_write_inside_the_frame_survives_the_write_back() {
+    let mut app = crate::app::App::new();
+    let e = app.world.spawn();
+    app.world.add_component(e, Tag("A".into()));
+    app.world
+        .add_component(e, crate::components::Transform::default());
+    app.editor_select_entity(e);
+    app.editor.mode = super::EditorMode::Overlay;
+    let drew = std::rc::Rc::new(std::cell::Cell::new(false));
+    let d = std::rc::Rc::clone(&drew);
+    app.register_inspector_panel::<Tag>("Renamer", move |_ui, app, e| {
+        d.set(true);
+        if let Some(t) = app.world.get_mut::<Tag>(e) {
+            t.0 = "B".into();
+        }
+    });
+
+    editor_frame(&mut app, vec![]);
+
+    assert!(
+        drew.get(),
+        "precondition: the panel drew inside the frame, or this test proves nothing"
+    );
+    assert_eq!(
+        app.world.get::<Tag>(e).unwrap().0,
+        "B",
+        "a write made inside the frame must not be overwritten by the staged copy"
+    );
+}

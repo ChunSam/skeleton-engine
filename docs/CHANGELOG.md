@@ -4,6 +4,32 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.7
+
+### The inspector writes back only what it changed, so an undo of the selected entity is no longer undone again in the same frame
+
+`update_editor_ui` stages every reflected field of the selected entity before the egui block and
+wrote **all** of them back after it. Anything else that wrote one of those components *inside* the
+block was reverted the same frame — and the everyday case is Ctrl+Z of the selected entity's own
+move, resize or rotation: the undo landed, then the write-back put the staged value straight back,
+and the command sat on the redo stack. The write-back's guard skips only when the selection
+*moves*, which an undo of the selected entity's own command never does.
+
+The docked build's own direct writes were victims too: the `Name:` field, the inline rename,
+⧉ Paste of a component already present — all dead for every reflected type (`Tag`, `Transform`,
+`Sprite`, `UiNode`, …) since both sides landed on 2026-05-25. Only the reflect grid's own fields
+ever worked. ⚠️ Every gizmo undo test in the tree calls `cmd_history.undo` directly, and the rename
+tests call `editor_commit_rename` outside a frame, which is why none of them could see it.
+
+The write-back now compares each field against the copy the inspector was handed and applies only
+the ones the UI changed; `changed_fields` is that decision as a pure function. Two frame tests
+drive `update_editor_ui` through a real headless egui frame — a Ctrl+Z key event, and a registered
+panel writing `Tag` directly — plus a unit test on the decision with a control. ⚠️ The harness had
+to mirror the key event's modifiers onto `RawInput.modifiers`: `handle_editor_shortcuts` reads the
+frame's modifiers, not the event's, and a synthetic frame sets neither by default. Sabotage: the
+pre-fix loop reddens both frame tests and leaves the pure test green; `changed_fields` reporting
+everything reddens all three.
+
 ## 0.156.6
 
 ### A gizmo gesture ends on the entity it started on, and an abandoned gesture is recorded, not dropped
