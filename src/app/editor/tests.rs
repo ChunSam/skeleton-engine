@@ -1146,3 +1146,158 @@ fn deleting_a_subtree_releases_its_physics() {
         "control: the delete is still recorded for undo"
     );
 }
+
+// ── Mode transitions, settings on disk, and the two unrecorded spawns ──────────
+
+/// The table `set_editor_mode` applies. The toolbar's Exit button spelled the Docked→Off half
+/// by hand without the save; now every caller reads this.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn mode_transition_table() {
+    use super::state::{mode_transition, ModeTransition};
+    use super::EditorMode::{Docked, Off, Overlay};
+    let t = |old, new, loaded| mode_transition(old, new, loaded);
+    let mt = |load_settings, save_settings, resume| ModeTransition {
+        load_settings,
+        save_settings,
+        resume,
+    };
+    assert_eq!(
+        t(Off, Docked, false),
+        mt(true, false, false),
+        "first Docked open loads"
+    );
+    assert_eq!(
+        t(Off, Docked, true),
+        mt(false, false, false),
+        "later opens do not"
+    );
+    assert_eq!(
+        t(Docked, Off, true),
+        mt(false, true, true),
+        "Docked exit saves and resumes"
+    );
+    assert_eq!(
+        t(Docked, Overlay, true),
+        mt(false, true, true),
+        "so does Docked→Overlay"
+    );
+    assert_eq!(
+        t(Overlay, Off, false),
+        mt(false, false, true),
+        "no Docked involved: resume only"
+    );
+    assert_eq!(
+        t(Docked, Docked, true),
+        mt(false, false, false),
+        "no change: nothing"
+    );
+}
+
+/// Leaving Docked through `set_editor_mode` writes the settings file — what the toolbar's Exit
+/// button skipped — and a transition that never touched Docked writes nothing.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn leaving_docked_saves_the_settings_file() {
+    use super::EditorMode;
+    let path = std::env::temp_dir().join(format!("set_mode_saves_{}.ron", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let mut app = crate::app::App::new();
+    app.editor.settings_path_override = Some(path.clone());
+    app.editor.mode = EditorMode::Docked;
+    app.editor.show_grid = true;
+    app.editor.paused = true;
+
+    app.set_editor_mode(EditorMode::Off);
+
+    assert_eq!(app.editor.mode, EditorMode::Off);
+    assert!(!app.editor.paused, "exiting Docked resumes");
+    let saved: EditorSettings =
+        crate::save::read_ron(&path).expect("the settings file was written");
+    assert!(saved.show_grid, "and it holds the current preferences");
+    let _ = std::fs::remove_file(&path);
+
+    // Control: Overlay→Off never involves Docked, so nothing is written.
+    let path2 = std::env::temp_dir().join(format!("set_mode_saves_ctl_{}.ron", std::process::id()));
+    let _ = std::fs::remove_file(&path2);
+    let mut app = crate::app::App::new();
+    app.editor.settings_path_override = Some(path2.clone());
+    app.editor.mode = EditorMode::Overlay;
+    app.set_editor_mode(EditorMode::Off);
+    assert!(!path2.exists(), "control: no Docked exit, no file");
+}
+
+/// A settings file that exists but does not parse is left alone and logged; the preferences in
+/// memory stand. Before, the failure was indistinguishable from a missing file — every
+/// preference silently reverted, and the next save overwrote the evidence.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn a_corrupt_settings_file_keeps_the_in_memory_preferences() {
+    let path = std::env::temp_dir().join(format!("corrupt_settings_{}.ron", std::process::id()));
+    std::fs::write(&path, "this is not RON (").unwrap();
+    let mut app = crate::app::App::new();
+    app.editor.settings_path_override = Some(path.clone());
+    app.editor.snap_size = 24.0;
+    app.load_editor_settings();
+    assert_eq!(
+        app.editor.snap_size, 24.0,
+        "nothing applied from a file that did not parse"
+    );
+
+    // Control: a valid file at the same path applies.
+    let good = EditorSettings {
+        snap_size: 48.0,
+        ..EditorSettings::from_state(&app.editor)
+    };
+    crate::save::write_ron(&path, &good).unwrap();
+    app.load_editor_settings();
+    assert_eq!(app.editor.snap_size, 48.0, "control: a valid file applies");
+    let _ = std::fs::remove_file(&path);
+}
+
+/// `➕ Spawn` was the one spawn that recorded nothing: Ctrl+Z after it undid an older command
+/// and the prefab instance stayed.
+#[test]
+fn spawning_a_prefab_is_recorded_for_undo() {
+    let mut app = crate::app::App::new();
+    let a = app.world.spawn();
+    app.world.add_component(a, Tag("Hero".into()));
+    app.world
+        .add_component(a, crate::components::Transform::default());
+    let path = std::env::temp_dir().join(format!("spawn_prefab_undo_{}.ron", std::process::id()));
+    let path_str = path.to_string_lossy().to_string();
+    app.save_selected_as_prefab(a, &path_str);
+    let before = app.editor.cmd_history.undo_len();
+
+    app.spawn_prefab(&path_str);
+    let b = app.editor.inspector_selected.expect("spawned and selected");
+    assert_eq!(
+        app.editor.cmd_history.undo_len(),
+        before + 1,
+        "the spawn is one undo entry"
+    );
+
+    let mut sel = app.editor.inspector_selected;
+    app.editor.cmd_history.undo(&mut app.world, &mut sel);
+    assert!(!app.world.is_alive(b), "undo removes the spawned instance");
+    assert!(
+        app.world.is_alive(a),
+        "and not the entity the prefab was saved from"
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+/// `reload_scene` cleared the save status but kept the load status, so the toolbar went on
+/// naming a file the scene on screen did not come from.
+#[test]
+fn a_world_reset_clears_the_load_status_too() {
+    let mut app = crate::app::App::new();
+    app.editor.editor_load_status = Some("✓ 12 entities ← old.ron".into());
+    app.editor.editor_save_status = Some("saved".into());
+    app.reload_scene();
+    assert_eq!(app.editor.editor_load_status, None);
+    assert_eq!(
+        app.editor.editor_save_status, None,
+        "control: the save status was already cleared"
+    );
+}

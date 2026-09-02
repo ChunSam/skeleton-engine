@@ -104,12 +104,9 @@ pub(super) fn docked_toolbar(ui: &mut egui::Ui, app: &mut App) {
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.button(tr("Exit (F2)", "종료 (F2)")).clicked() {
-                app.editor.mode = EditorMode::Off;
-                app.editor.paused = false;
-                app.editor.step_once = false;
-                if let Some(debug_ui) = app.world.resource_mut::<DebugUi>() {
-                    debug_ui.set_enabled(false);
-                }
+                // The same transition the F2 key makes — including the settings save this
+                // button used to leave out.
+                app.set_editor_mode(EditorMode::Off);
             }
         });
     });

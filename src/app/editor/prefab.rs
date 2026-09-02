@@ -119,6 +119,13 @@ impl App {
         let (status, kind) = match crate::prefab::Prefab::load(std::path::Path::new(path)) {
             Ok(prefab) => {
                 let e = prefab.spawn_with_tracking(&mut self.world, path.to_string());
+                // Recorded like Duplicate / Paste / New Entity — it was the one spawn that was
+                // not. Redo respawns from the def without the `PrefabInstance` marker, i.e. as
+                // the plain entity Break Prefab would have made.
+                let def = entity_to_def(&self.world, e);
+                self.editor
+                    .cmd_history
+                    .push(crate::app::editor::EditorCmd::CreateEntity { entity: e, def });
                 self.editor.inspector_selected = Some(e);
                 self.editor.selected_entities = vec![e];
                 (

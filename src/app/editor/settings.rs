@@ -1,7 +1,7 @@
 use crate::app::App;
 
-use super::state::EditorState;
-use super::PaintTool;
+use super::state::{mode_transition, EditorState};
+use super::{EditorMode, PaintTool};
 
 /// Persisted docked-editor preferences (snap / grid / paint tool + brush). Written to a RON
 /// config file when the editor closes and restored when it next opens.
@@ -47,25 +47,61 @@ impl EditorSettings {
     }
 }
 
-/// Config-dir path for the persisted editor settings.
-fn editor_settings_path() -> std::path::PathBuf {
-    crate::save::save_path("skeleton-engine", "editor_settings.ron")
-}
-
 impl App {
+    /// Path of the persisted editor settings: the config dir, unless a test overrode it.
+    fn editor_settings_path(&self) -> std::path::PathBuf {
+        self.editor
+            .settings_path_override
+            .clone()
+            .unwrap_or_else(|| crate::save::save_path("skeleton-engine", "editor_settings.ron"))
+    }
+
     /// Write the current docked-editor preferences to the RON config file.
     pub(in crate::app) fn save_editor_settings(&self) {
         let settings = EditorSettings::from_state(&self.editor);
-        let _ = crate::save::write_ron(&editor_settings_path(), &settings);
+        let _ = crate::save::write_ron(&self.editor_settings_path(), &settings);
     }
 
-    /// Load persisted editor preferences (if the config file exists) and apply them.
+    /// Load persisted editor preferences (if the config file exists) and apply them. A file
+    /// that exists but does not parse is logged and left alone — the in-memory defaults stand,
+    /// and the next save overwrites it; silently reverting every preference used to be the
+    /// only evidence that the file was corrupt.
     pub(in crate::app) fn load_editor_settings(&mut self) {
-        let path = editor_settings_path();
+        let path = self.editor_settings_path();
         if crate::save::exists(&path) {
-            if let Ok(settings) = crate::save::read_ron::<EditorSettings>(&path) {
-                settings.apply_to(&mut self.editor);
+            match crate::save::read_ron::<EditorSettings>(&path) {
+                Ok(settings) => settings.apply_to(&mut self.editor),
+                Err(e) => log::warn!(
+                    "editor settings at {} did not parse ({e}); keeping the defaults, and the next \
+                     save will overwrite the file",
+                    path.display()
+                ),
             }
+        }
+    }
+
+    /// Switches the editor mode and does everything the switch implies — the settings load on
+    /// the first Docked open, the settings save on every Docked exit, the pause reset, the
+    /// `DebugUi` sync — as decided by [`mode_transition`]. **The one entry point** for the F1 and
+    /// F2 keys and the toolbar's Exit button.
+    pub(in crate::app) fn set_editor_mode(&mut self, new_mode: EditorMode) {
+        let t = mode_transition(self.editor.mode, new_mode, self.editor.settings_loaded);
+        self.editor.mode = new_mode;
+        if t.load_settings {
+            self.load_editor_settings();
+            self.editor.settings_loaded = true;
+        }
+        if t.save_settings {
+            self.save_editor_settings();
+        }
+        if t.resume {
+            self.editor.paused = false;
+            self.editor.step_once = false;
+        }
+        // `DebugUi.enabled` is true only in Overlay mode, so systems that query `is_enabled()`
+        // keep working there.
+        if let Some(debug_ui) = self.world.resource_mut::<crate::debug_ui::DebugUi>() {
+            debug_ui.set_enabled(new_mode == EditorMode::Overlay);
         }
     }
 }

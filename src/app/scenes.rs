@@ -77,6 +77,9 @@ impl App {
             // handles point into the world just discarded, and the next frame's abandon arms
             // would otherwise record them against whatever the new scene spawns first.
             self.editor.drop_in_flight_edits();
+            // The load status too: it names a file the scene now on screen did not come from.
+            // (Native-only, like the field: the reduced wasm `EditorState` has no load status.)
+            self.editor.editor_load_status = None;
         }
         self.editor.editor_save_status = None;
         // Clear the set of system indices disabled by panics.

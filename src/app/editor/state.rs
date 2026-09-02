@@ -165,6 +165,36 @@ pub(in crate::app) fn apply_f1(mode: EditorMode) -> EditorMode {
     }
 }
 
+/// What a mode change has to do besides setting the mode, decided in one place and applied by
+/// `App::set_editor_mode`, which the F1 / F2 keys and the toolbar's Exit button all call. The
+/// toolbar used to spell the Docked→Off half by hand and left the settings save out, so
+/// preferences were saved on the F2 *key* and not on the button labelled with it (v0.156.10).
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::app) struct ModeTransition {
+    /// Load the persisted settings: the first time Docked opens in this session.
+    pub load_settings: bool,
+    /// Persist the settings: on every exit from Docked.
+    pub save_settings: bool,
+    /// Drop pause and single-step: whenever the new mode is not Docked.
+    pub resume: bool,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(in crate::app) fn mode_transition(
+    old: EditorMode,
+    new: EditorMode,
+    settings_loaded: bool,
+) -> ModeTransition {
+    let was_docked = old == EditorMode::Docked;
+    let is_docked = new == EditorMode::Docked;
+    ModeTransition {
+        load_settings: is_docked && !was_docked && !settings_loaded,
+        save_settings: was_docked && !is_docked,
+        resume: !is_docked,
+    }
+}
+
 /// Apply the F2 press transition to `mode`.
 ///
 /// | Current mode | After F2 |
@@ -446,6 +476,10 @@ pub(in crate::app) struct EditorState {
     /// Whether persisted editor settings have been loaded this process (load once on first open).
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) settings_loaded: bool,
+    /// Where the settings file lives. `None` is the real config dir; a test points it at a
+    /// temp path so a mode switch can be asserted on disk without touching the user's file.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) settings_path_override: Option<std::path::PathBuf>,
 
     // ── Pluggable inspector panels (native only) ──────────────────────────────
     /// Sub-panels registered via [`App::register_inspector_panel`].
@@ -583,6 +617,7 @@ impl EditorState {
             prefab_path: "prefab.ron".into(),
             prefab_status: None,
             settings_loaded: false,
+            settings_path_override: None,
             inspector_panels: Vec::new(),
         }
     }

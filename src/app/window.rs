@@ -209,33 +209,14 @@ impl ApplicationHandler for App {
                 if state == ElementState::Pressed
                     && (key == winit::keyboard::KeyCode::F1 || key == winit::keyboard::KeyCode::F2)
                 {
-                    let old_mode = self.editor.mode;
                     let new_mode = if key == winit::keyboard::KeyCode::F1 {
                         crate::app::editor::apply_f1(self.editor.mode)
                     } else {
                         crate::app::editor::apply_f2(self.editor.mode)
                     };
-                    self.editor.mode = new_mode;
-                    // Persist editor preferences across docked sessions: load the saved
-                    // settings the first time the docked editor opens, save them on close.
-                    let was_docked = old_mode == crate::app::editor::EditorMode::Docked;
-                    let is_docked = new_mode == crate::app::editor::EditorMode::Docked;
-                    if is_docked && !was_docked && !self.editor.settings_loaded {
-                        self.load_editor_settings();
-                        self.editor.settings_loaded = true;
-                    }
-                    if was_docked && !is_docked {
-                        self.save_editor_settings();
-                    }
-                    // Exiting Docked mode clears pause state so the game resumes.
-                    if new_mode != crate::app::editor::EditorMode::Docked {
-                        self.editor.paused = false;
-                        self.editor.step_once = false;
-                    }
-                    // Sync DebugUi.enabled: true only in Overlay mode.
-                    if let Some(debug_ui) = self.world.resource_mut::<DebugUi>() {
-                        debug_ui.set_enabled(new_mode == crate::app::editor::EditorMode::Overlay);
-                    }
+                    // The settings load/save, the pause reset and the DebugUi sync all live in
+                    // `set_editor_mode`, which the toolbar's Exit button shares.
+                    self.set_editor_mode(new_mode);
                 }
                 // WASM: keep the original F1 = DebugUi.toggle() behaviour (no EditorMode).
                 #[cfg(target_arch = "wasm32")]
