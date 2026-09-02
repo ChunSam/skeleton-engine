@@ -275,26 +275,7 @@ impl App {
                     .collect();
                 let selected_comp_names: Vec<&'static str> =
                     comp_fields.iter().map(|(_, name, _)| *name).collect();
-                let scene_graph_data: Vec<(Entity, Option<Entity>)> = entity_list
-                    .iter()
-                    .map(|&e| {
-                        let parent = self.world.get::<crate::hierarchy::Parent>(e).map(|p| p.0);
-                        (e, parent)
-                    })
-                    .collect();
-                let children_map: HashMap<Entity, Vec<Entity>> = {
-                    let mut map: HashMap<Entity, Vec<Entity>> = HashMap::new();
-                    for &(child, parent_opt) in &scene_graph_data {
-                        if let Some(parent) = parent_opt {
-                            map.entry(parent).or_default().push(child);
-                        }
-                    }
-                    map
-                };
-                let root_entities: Vec<Entity> = scene_graph_data
-                    .iter()
-                    .filter_map(|&(e, p)| if p.is_none() { Some(e) } else { None })
-                    .collect();
+                let tree = scene_tree_inputs(&self.world, &entity_list);
 
                 update_docked_ui(
                     ctx,
@@ -303,9 +284,9 @@ impl App {
                     &entity_list,
                     &tag_map,
                     &selected_comp_names,
-                    &scene_graph_data,
-                    &children_map,
-                    &root_entities,
+                    &tree.graph,
+                    &tree.children,
+                    &tree.roots,
                 );
             }
 
@@ -340,33 +321,7 @@ impl App {
                 // Borrow-checker workaround: copy the entire hierarchy before entering
                 // the egui closure.
                 #[cfg(not(target_arch = "wasm32"))]
-                let scene_graph_data: Vec<(Entity, Option<Entity>)> = {
-                    // (entity, parent_entity_or_none)
-                    entity_list
-                        .iter()
-                        .map(|&e| {
-                            let parent = self.world.get::<crate::hierarchy::Parent>(e).map(|p| p.0);
-                            (e, parent)
-                        })
-                        .collect()
-                };
-                // children_map: parent → list of children
-                #[cfg(not(target_arch = "wasm32"))]
-                let children_map: HashMap<Entity, Vec<Entity>> = {
-                    let mut map: HashMap<Entity, Vec<Entity>> = HashMap::new();
-                    for &(child, parent_opt) in &scene_graph_data {
-                        if let Some(parent) = parent_opt {
-                            map.entry(parent).or_default().push(child);
-                        }
-                    }
-                    map
-                };
-                // Root entities = those without a Parent component
-                #[cfg(not(target_arch = "wasm32"))]
-                let root_entities: Vec<Entity> = scene_graph_data
-                    .iter()
-                    .filter_map(|&(e, p)| if p.is_none() { Some(e) } else { None })
-                    .collect();
+                let tree = scene_tree_inputs(&self.world, &entity_list);
                 let entity_count = self.world.entity_count();
                 let asset_count = self
                     .world
@@ -482,9 +437,9 @@ impl App {
                                 ui,
                                 self,
                                 &tag_map,
-                                &scene_graph_data,
-                                &children_map,
-                                &root_entities,
+                                &tree.graph,
+                                &tree.children,
+                                &tree.roots,
                             );
                         }
 
@@ -716,6 +671,56 @@ impl App {
         }
         #[cfg(target_arch = "wasm32")]
         self.update_editor_gizmo(egui_ctx);
+    }
+}
+
+/// What the Scene tree draws from. **A root is an entity whose parent is not in the list** —
+/// none, or dead — which is what `hierarchy::topological_sort_entities` and `HierarchySystem`
+/// already call a root. The docked and overlay branches each had a verbatim copy of this that
+/// spelled it as "no `Parent` component", so an entity orphaned by a raw `World::despawn` of its
+/// parent was neither a root nor anyone's child and vanished from the one tool that could have
+/// re-parented it (v0.156.14).
+#[cfg(not(target_arch = "wasm32"))]
+pub(in crate::app) struct SceneTree {
+    /// `(entity, parent)` per listed entity; the parent is `None` when it is not in the list.
+    pub graph: Vec<(Entity, Option<Entity>)>,
+    /// Parent → its listed children.
+    pub children: HashMap<Entity, Vec<Entity>>,
+    /// Entities with no listed parent, in list order.
+    pub roots: Vec<Entity>,
+}
+
+/// Derives [`SceneTree`] for `entity_list`. One spelling for both editor branches.
+#[cfg(not(target_arch = "wasm32"))]
+pub(in crate::app) fn scene_tree_inputs(
+    world: &crate::ecs::World,
+    entity_list: &[Entity],
+) -> SceneTree {
+    let listed: std::collections::HashSet<Entity> = entity_list.iter().copied().collect();
+    let graph: Vec<(Entity, Option<Entity>)> = entity_list
+        .iter()
+        .map(|&e| {
+            let parent = world
+                .get::<crate::hierarchy::Parent>(e)
+                .map(|p| p.0)
+                .filter(|p| listed.contains(p));
+            (e, parent)
+        })
+        .collect();
+    let mut children: HashMap<Entity, Vec<Entity>> = HashMap::new();
+    for &(child, parent) in &graph {
+        if let Some(parent) = parent {
+            children.entry(parent).or_default().push(child);
+        }
+    }
+    let roots: Vec<Entity> = graph
+        .iter()
+        .filter_map(|&(e, p)| if p.is_none() { Some(e) } else { None })
+        .collect();
+    SceneTree {
+        graph,
+        children,
+        roots,
     }
 }
 

@@ -350,19 +350,33 @@ impl DataTableRegistry {
         let Some(name) = name else {
             return ReloadOutcome::NotFound;
         };
+        self.reload_name(&name)
+    }
 
-        let table = self.tables.get(&name).expect("name came from iter");
+    /// Re-load the table registered as `name` from its own path — unless `dirty` is set, in
+    /// which case the unsaved edits are kept and a warning is logged. Returns a
+    /// [`ReloadOutcome`] so callers can show an accurate status message.
+    ///
+    /// The editor's Reload button goes through here. It used to resolve by *path*, and two
+    /// names loaded from one file then reloaded or skipped whichever `reload_path` found first —
+    /// hash-order dependent — while the status named the selected table either way
+    /// (v0.156.14). `reload_path` is the file watcher's entry and still resolves by path; a
+    /// file shared by two names hot-reloads one of them, which is that path's limitation.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn reload_name(&mut self, name: &str) -> ReloadOutcome {
+        let Some(table) = self.tables.get(name) else {
+            return ReloadOutcome::NotFound;
+        };
+        let path = table.path.clone();
         if table.dirty {
             log::warn!(
-                "data_table: skipping hot-reload of '{}' (path: {path}) — table has unsaved edits",
-                name
+                "data_table: skipping hot-reload of '{name}' (path: {path}) — table has unsaved edits"
             );
             return ReloadOutcome::SkippedDirty;
         }
-
-        match DataTable::load(path) {
+        match DataTable::load(&path) {
             Ok(reloaded) => {
-                self.tables.insert(name, reloaded);
+                self.tables.insert(name.to_string(), reloaded);
                 ReloadOutcome::Reloaded
             }
             Err(e) => {
@@ -513,6 +527,38 @@ mod tests {
     // Regression: file-watcher hot-reload silently no-op'd because `reload_path` compared
     // the raw stored path against the CANONICAL path `AssetServer::poll_reloads` reports.
     // Loading with a non-canonical path (extra "./") here forces that exact mismatch.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn reload_name_reloads_only_the_named_table() {
+        // Two names on one file: `reload_path` could only ever pick one of them, in hash
+        // order, and the editor's Reload button resolved by path.
+        let dir = std::env::temp_dir();
+        let file = dir.join(format!("dt_reload_name_{}.ron", std::process::id()));
+        std::fs::write(&file, SAMPLE).expect("write");
+        let path = file.to_string_lossy().to_string();
+        let mut reg = DataTableRegistry::default();
+        reg.load("a", &path).expect("load a");
+        reg.load("b", &path).expect("load b");
+        reg.get_mut("a").unwrap().dirty = true;
+
+        assert_eq!(
+            reg.reload_name("b"),
+            ReloadOutcome::Reloaded,
+            "b reloads by name"
+        );
+        assert!(
+            reg.get("a").unwrap().dirty,
+            "a's unsaved edits are untouched by b's reload"
+        );
+        assert_eq!(
+            reg.reload_name("a"),
+            ReloadOutcome::SkippedDirty,
+            "and a itself is the one skipped — by its own name, not by whichever shares its path"
+        );
+        assert_eq!(reg.reload_name("nope"), ReloadOutcome::NotFound);
+        let _ = std::fs::remove_file(&file);
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn reload_path_matches_canonical_path() {

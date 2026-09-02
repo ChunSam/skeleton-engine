@@ -273,11 +273,8 @@ impl App {
                     (vp.width, vp.height),
                 );
                 let snapped_size = if self.editor.snap_enabled {
-                    glam::Vec2::new(
-                        (new_size.x / self.editor.snap_size).round() * self.editor.snap_size,
-                        (new_size.y / self.editor.snap_size).round() * self.editor.snap_size,
-                    )
-                    .max(glam::Vec2::splat(MIN_UI_SIZE))
+                    snap_to_grid(new_size, self.editor.snap_size)
+                        .max(glam::Vec2::splat(MIN_UI_SIZE))
                 } else {
                     new_size
                 };
@@ -431,7 +428,7 @@ impl App {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn update_transform_gizmo_native(
+    pub(in crate::app) fn update_transform_gizmo_native(
         &mut self,
         sel: crate::ecs::Entity,
         tr: crate::components::Transform,
@@ -544,11 +541,8 @@ impl App {
                     }
                 }
                 let final_scale = if self.editor.snap_enabled {
-                    glam::Vec2::new(
-                        (new_scale.x / self.editor.snap_size).round() * self.editor.snap_size,
-                        (new_scale.y / self.editor.snap_size).round() * self.editor.snap_size,
-                    )
-                    .max(glam::Vec2::splat(MIN_SPRITE_SCALE))
+                    snap_to_grid(new_scale, self.editor.snap_size)
+                        .max(glam::Vec2::splat(MIN_SPRITE_SCALE))
                 } else {
                     new_scale
                 };

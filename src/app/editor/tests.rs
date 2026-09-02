@@ -1579,3 +1579,117 @@ fn displaying_an_emitter_or_a_light_does_not_rewrite_its_fields() {
     assert_eq!(l.intensity, 20.0, "intensity survives being displayed");
     assert_eq!(l.radius, 5000.0, "radius survives being displayed");
 }
+
+// ── Snap size zero, and orphans in the Scene tree ──────────────────────────────
+
+/// `snap_size` from the settings file was applied unclamped; the UI's clamps only run while the
+/// widget shows. A `0.0` made every snapped drag `(x / 0).round() * 0 = NaN` — the sprite
+/// vanished and the NaN move was never recorded, so it could not be undone.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn a_zero_snap_size_snaps_nothing_instead_of_producing_nan() {
+    use super::settings::sanitize_snap_size;
+    use super::util::snap_to_grid;
+    let v = glam::Vec2::new(5.0, 7.0);
+    assert_eq!(snap_to_grid(v, 0.0), v, "zero means no snapping");
+    assert_eq!(snap_to_grid(v, f32::NAN), v, "and so does a NaN");
+    assert_eq!(
+        snap_to_grid(v, 4.0),
+        glam::Vec2::new(4.0, 8.0),
+        "control: a real size snaps"
+    );
+
+    assert_eq!(
+        sanitize_snap_size(0.0),
+        1.0,
+        "a file's 0.0 lands at the toolbar's floor"
+    );
+    assert_eq!(
+        sanitize_snap_size(f32::NAN),
+        16.0,
+        "a NaN lands at the editor's default"
+    );
+    assert_eq!(
+        sanitize_snap_size(24.0),
+        24.0,
+        "control: an in-range size is kept"
+    );
+    let mut s = EditorState::new();
+    EditorSettings {
+        snap_size: 0.0,
+        ..EditorSettings::from_state(&s)
+    }
+    .apply_to(&mut s);
+    assert_eq!(s.snap_size, 1.0, "apply_to sanitizes");
+
+    // The resize path had its own spelling of the division; it goes through `snap_to_grid` now.
+    let mut app = crate::app::App::new();
+    let e = app.world.spawn();
+    let tr = crate::components::Transform::new(glam::Vec2::ZERO, glam::Vec2::splat(20.0), 0.0);
+    app.world.add_component(e, tr.clone());
+    app.editor_select_entity(e);
+    app.editor.snap_enabled = true;
+    app.editor.snap_size = 0.0;
+    // Press the Right handle at (10, 0), drag to (15, 0): scale.x 20 → 30.
+    app.update_transform_gizmo_native(
+        e,
+        tr.clone(),
+        glam::Vec2::new(10.0, 0.0),
+        true,
+        false,
+        false,
+    );
+    assert!(
+        app.editor.resize_handle_active.is_some(),
+        "precondition: resizing"
+    );
+    app.update_transform_gizmo_native(e, tr, glam::Vec2::new(15.0, 0.0), false, true, false);
+    let scale = app
+        .world
+        .get::<crate::components::Transform>(e)
+        .unwrap()
+        .scale;
+    assert!(
+        scale.x.is_finite(),
+        "a resize with snap size 0 must not produce NaN"
+    );
+    assert_eq!(scale.x, 30.0);
+}
+
+/// The Scene tree's root predicate was "no `Parent` component", so an entity whose parent had
+/// been despawned by a raw `World::despawn` was neither a root nor anyone's child and vanished
+/// from the tree — the one tool that could have re-parented it — while `HierarchySystem` and
+/// `topological_sort_entities` both treat it as a root.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn an_orphan_is_a_root_in_the_scene_tree() {
+    use super::ui::scene_tree_inputs;
+    let mut app = crate::app::App::new();
+    let p = app.world.spawn();
+    let c = app.world.spawn();
+    app.world.add_component(c, crate::hierarchy::Parent(p));
+    let gone = app.world.spawn();
+    let orphan = app.world.spawn();
+    app.world
+        .add_component(orphan, crate::hierarchy::Parent(gone));
+    app.world.despawn(gone);
+
+    let list: Vec<Entity> = app.world.entities_sorted();
+    let tree = scene_tree_inputs(&app.world, &list);
+    assert!(
+        tree.roots.contains(&orphan),
+        "an orphan is a root, so the tree shows it"
+    );
+    assert!(tree.roots.contains(&p), "control: a true root is a root");
+    assert!(
+        !tree.roots.contains(&c),
+        "control: a child of a live parent is not"
+    );
+    assert_eq!(tree.children.get(&p).map(|v| v.as_slice()), Some(&[c][..]));
+    assert!(
+        tree.graph
+            .iter()
+            .any(|&(e, parent)| e == orphan && parent.is_none()),
+        "the orphan's dead parent is reported as none"
+    );
+}
