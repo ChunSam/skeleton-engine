@@ -4,6 +4,39 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.10
+
+### The editor's last two unrecorded spawns are recorded, the Exit button saves what the F2 key saved, and a reset clears the load status
+
+Four small consistency defects from the editor review, each a place where one path did what its
+siblings did not.
+
+- **`＋ Add child` recorded nothing** — its own comment claimed parity with "＋ New Entity", which
+  records a `CreateEntity`. Ctrl+Z after Add child undid the *previous* command and left the
+  child under its parent. It records now, with a def that carries the parent as a tag so redo
+  re-attaches it (where the parent has a `Tag`; the documented limitation). ⚠️ `CreateEntity`'s
+  undo went through `World::despawn`, which would have left the parent's `Children` holding the
+  dead handle; it goes through `hierarchy::despawn_recursive` now, so the parent is clean and
+  anything still attached goes too.
+- **`➕ Spawn` (prefab) recorded nothing** — the one spawn that did not, next to Duplicate, Paste
+  and New Entity. Redo respawns from the def without the `PrefabInstance` marker, i.e. as the
+  plain entity Break Prefab would have made.
+- **The toolbar's "Exit (F2)" button re-implemented the Docked→Off transition and left out the
+  settings save**, so preferences were saved on the F2 *key* and not on the button labelled with
+  it. `mode_transition` now decides what a mode change implies — load on the first Docked open,
+  save on every Docked exit, resume when leaving Docked — and `App::set_editor_mode` applies it
+  for F1, F2 and the button alike. The settings path is overridable for tests, which is also what
+  lets a corrupt settings file be tested: it is now logged instead of silently reverting every
+  preference and letting the next save overwrite the evidence.
+- **`reload_scene` cleared the save status but not the load status**, so the toolbar kept naming
+  a file the scene on screen did not come from.
+
+Six tests. Sabotage: `mode_transition` never saving reddens the table test and the on-disk test;
+Add child recording nothing reddens its test, and so does `CreateEntity`'s undo going back to a
+bare despawn (on the dead-handle assertion); Spawn recording nothing and the reset keeping the
+load status each redden their own. The corrupt-file test pins behaviour that already held — the
+change there is the log line, which a test cannot see.
+
 ## 0.156.9
 
 ### A tile-paint stroke belongs to its tool as well as its tilemap, survives Alt, and does not survive a scene reset

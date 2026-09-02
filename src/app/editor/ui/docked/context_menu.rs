@@ -34,15 +34,22 @@ impl App {
             return;
         }
         if action == EntityContextAction::AddChild {
-            // Same fresh-spawn shape as the "＋ New Entity" toolbar button (Transform + Tag), then
-            // parented under the target. Not undoable, matching that button. Select the child so the
-            // user can immediately rename/edit it.
+            // Same fresh-spawn shape as the "＋ New Entity" button (Transform + Tag), then parented
+            // under the target, and recorded for undo like that button — this comment used to
+            // claim parity while the code recorded nothing. Select the child so the user can
+            // immediately rename/edit it.
             let child = self.world.spawn();
             self.world
                 .add_component(child, crate::components::Transform::default());
             self.world
                 .add_component(child, crate::prefab::Tag("New Entity".into()));
             crate::hierarchy::reparent(&mut self.world, child, Some(entity));
+            // The def carries the parent as a tag, so redo re-attaches it where the parent has
+            // one (the documented tag limitation).
+            let def = crate::app::editor::prefab::entity_to_def(&self.world, child);
+            self.editor
+                .cmd_history
+                .push(crate::app::editor::EditorCmd::CreateEntity { entity: child, def });
             self.editor.inspector_selected = Some(child);
             self.editor.selected_entities = vec![child];
             return;
@@ -109,6 +116,59 @@ mod context_action_tests {
     use super::EntityContextAction;
     use crate::prefab::Tag;
     use crate::{App, Transform};
+
+    /// Add child claimed parity with "＋ New Entity" and recorded nothing, so Ctrl+Z after it
+    /// undid the *previous* command and left the child under its parent.
+    #[test]
+    fn add_child_is_recorded_and_undo_removes_it_from_the_parent() {
+        let mut app = App::new();
+        let p = app.world.spawn();
+        app.world.add_component(p, Tag("Parent".into()));
+        app.world.add_component(p, Transform::default());
+
+        app.editor_apply_entity_context_action(p, EntityContextAction::AddChild);
+        let child = app
+            .editor
+            .inspector_selected
+            .expect("the child is selected");
+        assert_ne!(child, p);
+        assert_eq!(
+            app.world
+                .get::<crate::hierarchy::Parent>(child)
+                .map(|x| x.0),
+            Some(p),
+            "precondition: parented"
+        );
+        assert_eq!(
+            app.editor.cmd_history.undo_len(),
+            1,
+            "recorded, like New Entity"
+        );
+
+        let mut sel = app.editor.inspector_selected;
+        app.editor.cmd_history.undo(&mut app.world, &mut sel);
+        assert!(!app.world.is_alive(child), "undo removes the child");
+        let children = app
+            .world
+            .get::<crate::hierarchy::Children>(p)
+            .map(|c| c.0.clone())
+            .unwrap_or_default();
+        assert!(
+            !children.contains(&child),
+            "and the parent's Children list does not keep the dead handle"
+        );
+
+        // Redo brings it back under the same parent (the def carries the parent's tag).
+        app.editor.cmd_history.redo(&mut app.world, &mut sel);
+        let again = sel.expect("redo re-selects the child");
+        assert_eq!(
+            app.world
+                .get::<crate::hierarchy::Parent>(again)
+                .map(|x| x.0),
+            Some(p),
+            "redo re-attaches it"
+        );
+    }
 
     #[test]
     fn rename_selects_the_target_and_starts_a_rename() {

@@ -226,7 +226,11 @@ impl EditorHistory {
                 *selected = Some(*entity);
             }
             EditorCmd::CreateEntity { entity, .. } => {
-                world.despawn(*entity);
+                // Through the hierarchy, not `World::despawn`: Add child records a *parented*
+                // entity, and a bare despawn would leave the parent's `Children` holding a dead
+                // handle. Anything still attached under it goes too — by this point in the stack
+                // nothing created after this command is live unless it was attached out of order.
+                crate::hierarchy::despawn_recursive(world, *entity);
                 *selected = None;
             }
             EditorCmd::DeleteEntity { defs, .. } => {
