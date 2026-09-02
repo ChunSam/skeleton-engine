@@ -259,8 +259,10 @@ pub(in crate::app) fn data_table_panel_body(ui: &mut egui::Ui, app: &mut App) {
             .map(|t| (t.path.clone(), t.dirty));
 
         if let Some((path, _)) = path_opt {
+            // By name, not by path: two names loaded from one file used to reload or skip
+            // whichever `reload_path` found first, with this status naming the selected one.
             let outcome = if let Some(reg) = app.world.resource_mut::<DataTableRegistry>() {
-                reg.reload_path(&path)
+                reg.reload_name(&sel_name)
             } else {
                 ReloadOutcome::NotFound
             };

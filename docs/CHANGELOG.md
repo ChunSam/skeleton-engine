@@ -4,6 +4,38 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.14
+
+### A zero snap size snaps nothing, an orphan shows in the Scene tree, and Reload reloads the table it names
+
+Three small editor defects, each a value read from the wrong place.
+
+- **`snap_size` from the settings file was applied unclamped**, and the UI's `1..=128` clamps run
+  only while the widget shows. A `0.0` — the derived `Default`, or a hand edit — made every
+  snapped drag `(x / 0).round() * 0 = NaN`: the sprite vanished, and the NaN move was never
+  recorded, so it could not be undone. The grid overlay spelled the same value as `.max(1.0)` and
+  kept drawing, and the two resize paths each spelled the division by hand. `snap_to_grid` now
+  treats a non-positive or non-finite size as *no snapping*, both resize paths go through it, and
+  `sanitize_snap_size` clamps what a file can hand the editor to the toolbar's range (NaN → the
+  default).
+- **The Scene tree's root was "no `Parent` component"**, so an entity whose parent had been
+  despawned by a raw `World::despawn` was neither a root nor anyone's child and vanished from
+  the one tool that could have re-parented it — while `HierarchySystem` and
+  `topological_sort_entities` treat exactly that entity as a root. The docked and overlay branches
+  each had a verbatim copy of the derivation; one `scene_tree_inputs` now feeds both, with a root
+  being an entity whose parent is not in the list.
+- **The data-table panel's Reload resolved by *path*** — `reload_path` picks the first registry
+  entry whose canonical path matches, so two names loaded from one file reloaded or skipped
+  whichever came first in hash order, while the status named the selected table either way.
+  New `DataTableRegistry::reload_name`; `reload_path` (the file watcher's entry) finds the name
+  and delegates, and its one-of-two limitation on a shared file is now stated on it.
+
+Tests: `snap_to_grid` at 0 and NaN returns the input (4.0 as the control), `sanitize_snap_size`
+and `apply_to`, and a real resize drag at snap size 0 lands on a finite 30; an orphan is a root
+with a true root and a true child as controls; two names on one file reload independently by
+name. Sabotage: the guard removed → NaN; the predicate back to "no `Parent`" → the orphan
+vanishes; `reload_name` ignoring `dirty` → the skip assertion. Each on its own test.
+
 ## 0.156.13
 
 ### The particle, lighting and timeline panels stop rewriting the values they only display

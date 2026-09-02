@@ -3,6 +3,18 @@ use crate::app::App;
 use super::state::{mode_transition, EditorState};
 use super::{EditorMode, PaintTool};
 
+/// The snap size a settings file is allowed to hand the editor: the toolbar's `1..=128`, with the
+/// editor's default for anything that is not a number. The file is the one input the UI's
+/// clamps never see, and `0.0` — the derived `Default` — made every snapped drag NaN
+/// (v0.156.14).
+pub(in crate::app) fn sanitize_snap_size(v: f32) -> f32 {
+    if v.is_finite() {
+        v.clamp(1.0, 128.0)
+    } else {
+        16.0
+    }
+}
+
 /// Persisted docked-editor preferences (snap / grid / paint tool + brush). Written to a RON
 /// config file when the editor closes and restored when it next opens.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
@@ -37,7 +49,7 @@ impl EditorSettings {
 
     pub(in crate::app) fn apply_to(&self, s: &mut EditorState) {
         s.snap_enabled = self.snap_enabled;
-        s.snap_size = self.snap_size;
+        s.snap_size = sanitize_snap_size(self.snap_size);
         s.show_grid = self.show_grid;
         s.show_bounds = self.show_bounds;
         s.show_pathgrid = self.show_pathgrid;
