@@ -172,8 +172,8 @@ documents written hours earlier by the same session.
 
 **A filed diagnosis is a hypothesis — so is the gate it names, and so is its size.** *(권고)*
 Five times in v0.150.7–v0.152.5 a written cause was wrong and one measurement reversed it (#459,
-#461, #462, #464, #473). The *gate* was wrong twice on 2026-08-20 — "needs a GPU" named a pure
-function — which over-estimates cost and is how a row stays deferred unnoticed. The *size* was
+#461, #462, #464, #473). The *gate* was wrong three times — twice on 2026-08-20 ("needs a GPU"
+named a pure function) and on 2026-09-03 (#556) — each deferring a row unnoticed. The *size* was
 wrong twice on 2026-08-25: 0.13 estimated against 0.004 measured, and decisive in the half it
 never mentioned. Re-derive all three, **including your own claim from ten minutes ago**.
 

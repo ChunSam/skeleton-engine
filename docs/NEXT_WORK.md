@@ -310,24 +310,28 @@ names its instrument.
 **46 of the 50 rows are settled and 4 are open** — 40 shipped as releases v0.156.6–v0.156.26 on
 2026-09-03, and 6 needed no release entry of their own: five settled by documentation or a
 corrected in-app label, one decided as unsupported and said so at the site. (Struck-through rows
-are done and keep whatever the fix contradicted.) ⚠️ **What is left is not simply "the rest of the
-list".** Every row a test could settle on its own has shipped; most of what remains is one of
-three kinds, and each wants something this pass deliberately did not do:
+are done and keep whatever the fix contradicted.)
 
-- **A decision, not a fix.** The gizmo's handles swallowing an entity ≤ 16 world units (hit-test
-  in screen space, or body-first?), `Ctrl+D` copying a different component set than `Ctrl+C/V`,
-  the Ambient Light header switching the lighting pass on by existing, drag-to-reparent moving
-  the entity on screen, `Ctrl+Z` firing into a focused text field, the three panels' edits not
-  being undoable. Each row states the options; none should be picked unilaterally.
-- **Needs eyes or another OS.** `Ctrl+C`/`Ctrl+V` never reaching `key_pressed` on Windows and
-  Linux (CI only *builds* there), the timeline keyframe drag handing over to its neighbour, the
-  editor settings loading on exactly one transition. A windowed run is the instrument.
-- **Cheap prose.** Eight stale doc comments, two "log and return" comments that log nothing, the
-  `anchor_base` doc, the cheatsheet's Delete/Backspace row. Take them with the next fix that
-  touches the file, per the rule above.
+✅ **All six maintainer decisions are made and shipped**, so the "a decision, not a fix" kind is
+empty: the gizmo's handles swallowing a small entity (screen-space hit-test), `Ctrl+D`'s component
+set, the Ambient Light header (an explicit button), drag-to-reparent (preserve the world position),
+`Ctrl+Z` in a focused text field (blocked while typing), and the three panels' edits (documented,
+not made undoable). The "cheap prose" kind is empty too.
 
-The per-frame allocation rows stay **UNMEASURED** and none is on a game path; `alloc-measure` is
-the instrument if one ever matters.
+⚠️ **The "needs eyes or another OS" kind lost a row to a re-derived gate, not to a windowed run.**
+`Ctrl+C` / `Ctrl+V` was filed as needing Windows or Linux. `egui_winit::is_copy_command` is
+`modifiers.command` with **no `cfg`**, so the behaviour is identical everywhere: one file read in
+the cargo registry settled the premise and two headless frames settled the fix (v0.156.26). That is
+the third time in this program a written gate over-estimated its cost and the first where the gate
+alone kept a row deferred. **Re-derive the gate before paying what a row claims to cost.** The four
+below were re-derived on 2026-09-03 and all four held.
+
+| Open row | Instrument | Re-derived 2026-09-03 |
+|---|---|---|
+| Timeline keyframe drag hands the drag to its neighbour | a windowed run, or a multi-frame pointer-drag harness | **Holds.** The bug is egui keeping the drag on the row index's widget id across frames, not `set_time`'s re-sort — whose own doc already warns that indices move. A pure test of the re-sort pins nothing. |
+| Editor settings read on exactly one transition | a windowed run | **Holds for the behaviour half** — the load sits in `set_editor_mode` under `mode_transition`, inside the winit handler, with no unit seam. Its three-doc half shipped separately on 2026-09-03. ⚠️ That row's own `Where` column was stale and is corrected. |
+| Per-frame allocation, editor-only | `alloc-measure` | **Holds.** UNMEASURED by choice and not on a game path; filed as an observation, not a defect. |
+| Per-frame allocation in the docked panels | `alloc-measure` | **Holds.** Same — UNMEASURED, editor-only. |
 
 | Item | Where | What settles it |
 |---|---|---|
