@@ -2100,3 +2100,91 @@ fn duplicating_an_entity_keeps_its_light_its_animation_and_its_parent() {
         "control: and its light"
     );
 }
+
+// ── No editor shortcut fires into a focused text field ────────────────────────
+
+/// The Ctrl combos were exempt from the typing gate. `TextEdit` runs its own Ctrl+Z and does not
+/// consume the event, so Ctrl+Z in the rename box undid a character *and* popped a world command
+/// — with `sync_selection_after_history` then moving the selection out from under the box.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn ctrl_shortcuts_do_not_fire_into_a_focused_text_field() {
+    let moved = glam::Vec2::new(100.0, 100.0);
+    let staged = |app: &mut crate::app::App| {
+        let e = app.world.spawn();
+        app.world.add_component(
+            e,
+            crate::components::Transform::new(moved, glam::Vec2::splat(20.0), 0.0),
+        );
+        app.editor_select_entity(e);
+        app.editor.mode = super::EditorMode::Overlay;
+        app.editor.cmd_history.push(EditorCmd::MoveEntity {
+            entity: e,
+            old_pos: glam::Vec2::ZERO,
+            new_pos: moved,
+        });
+        e
+    };
+
+    // One frame that draws a focused `TextEdit` and delivers Ctrl+Z to the same frame.
+    let frame_with_focused_box = |app: &mut crate::app::App, focus: bool| {
+        let ctx = egui::Context::default();
+        let raw = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(800.0, 600.0),
+            )),
+            events: vec![ctrl_z()],
+            modifiers: egui::Modifiers::CTRL,
+            ..Default::default()
+        };
+        ctx.begin_pass(raw);
+        let mut buf = String::from("typing here");
+        egui::Area::new(egui::Id::new("probe")).show(&ctx, |ui| {
+            let r = ui.add(egui::TextEdit::singleline(&mut buf));
+            if focus {
+                r.request_focus();
+            }
+        });
+        app.update_editor_ui(&Some(ctx.clone()), 1.0 / 60.0);
+        let _ = ctx.end_pass();
+    };
+
+    let mut app = crate::app::App::new();
+    let e = staged(&mut app);
+    // Focus the box in one frame, then send Ctrl+Z in the next: egui carries focus across frames,
+    // and a request in the same frame is not yet in effect when the shortcut is read.
+    frame_with_focused_box(&mut app, true);
+    frame_with_focused_box(&mut app, true);
+    assert_eq!(
+        app.editor.cmd_history.undo_len(),
+        1,
+        "Ctrl+Z into a focused text field must not touch the editor's history"
+    );
+    assert_eq!(
+        app.world
+            .get::<crate::components::Transform>(e)
+            .map(|t| t.position),
+        Some(moved),
+        "and the world is unchanged"
+    );
+
+    // Control: the same two frames with nothing focused DO undo, so the assertions above are
+    // about the focus and not about the harness failing to deliver the key.
+    let mut app = crate::app::App::new();
+    let e = staged(&mut app);
+    frame_with_focused_box(&mut app, false);
+    frame_with_focused_box(&mut app, false);
+    assert_eq!(
+        app.editor.cmd_history.undo_len(),
+        0,
+        "control: with no text field focused the same Ctrl+Z undoes"
+    );
+    assert_eq!(
+        app.world
+            .get::<crate::components::Transform>(e)
+            .map(|t| t.position),
+        Some(glam::Vec2::ZERO),
+        "control: and the world moves back"
+    );
+}
