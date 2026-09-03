@@ -4,6 +4,45 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.20
+
+### One anchor formula, one widget list, and a function that can say no
+
+Three editor findings of the same family: a value spelled twice, or a branch that could not be
+reached.
+
+- **`entity_to_def` returned `Some` unconditionally**, so a dead handle produced a def of all
+  `None` rather than nothing — and its two callers that check for `None`
+  (`save_selected_as_prefab`'s "No entity to save" arm, `subtree_to_defs`'s `unwrap_or_default`)
+  were dead branches guarding a case they could not see. It declines a dead entity now.
+- **The anchor base was spelled twice**, in `UiNode::screen_pos` and in the editor's
+  `gizmo_math::anchor_base`, while the latter's doc called them "a single authoritative
+  definition (no drift)" — and the only test used the gizmo's copy on *both* sides of its own
+  assertion. The formula moved to **`Anchor::base`**, a new method on the public enum; both call
+  it, and a test walks all seven variants with a control that they land in seven different
+  places.
+- **The "is a UI widget" set was spelled twice and had drifted by nine.** `entity_kind` listed
+  seven while the editor registry registers sixteen, so `ScrollView`, `ProgressBar`, `Tooltip`,
+  `Dropdown`, `RadioGroup`, `TabBar`, `ListBox`, `Stepper` and `Switch` did not classify as `Ui`
+  on their own. A widget usually carries a `UiNode` and was caught by the first arm; the "+ Add"
+  factory adds the widget and *not* a `UiNode`, which is exactly how the gap was reachable — the
+  row showed as 🔹 and sorted under Transform.
+
+⚠️ **The widget test is a third spelling of the list, deliberately.** Neither the registry nor the
+classifier can fail for the other, so something outside both has to go red when they drift. It
+applies each of the sixteen registered adders to a fresh entity and requires 🔘, with a plain
+`Transform` as the control.
+
+Sabotage, each on its own test: making `entity_to_def` infallible again; giving `anchor_base` an
+arm of its own instead of delegating; dropping `ScrollView` back out of the ladder.
+
+⚠️ **The gate's wasm build caught the re-export that lets the anchor test see `anchor_base`.**
+`gizmo_math` is private to `ui`, so the test needs one — but inserting it above
+`lighting_panel::point_light_grid` took that line's `#[cfg(not(target_arch = "wasm32"))]` for
+itself and left a wasm-only build importing a native-only module. The re-export carries
+`#[cfg(all(test, not(target_arch = "wasm32")))]` of its own now. An attribute in a list of them
+belongs to the item that follows it, and moving in above one is how you steal it.
+
 ## 0.156.19
 
 ### The State Machine panel stops offering a state that is gone, and says when "+" did nothing

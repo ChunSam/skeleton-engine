@@ -46,9 +46,10 @@ impl EntityKind {
 #[cfg(not(target_arch = "wasm32"))]
 fn entity_kind(world: &crate::World, e: Entity) -> EntityKind {
     use crate::{
-        AnimationPlayer, AnimationStateMachine, AtlasSprite, Button, CameraTarget, CheckBox, Label,
-        NineSlice, Panel, ParticleEmitter, PointLight, ShaderMaterial, Slider, Sprite, TextInput,
-        Tilemap, Transform, UiNode,
+        AnimationPlayer, AnimationStateMachine, AtlasSprite, Button, CameraTarget, CheckBox,
+        Dropdown, Label, ListBox, NineSlice, Panel, ParticleEmitter, PointLight, ProgressBar,
+        RadioGroup, ScrollView, ShaderMaterial, Slider, Sprite, Stepper, Switch, TabBar, TextInput,
+        Tilemap, Tooltip, Transform, UiNode,
     };
     if world.get::<PointLight>(e).is_some() {
         EntityKind::Light
@@ -62,13 +63,28 @@ fn entity_kind(world: &crate::World, e: Entity) -> EntityKind {
         || world.get::<AnimationStateMachine>(e).is_some()
     {
         EntityKind::Animation
+    // ⚠️ All sixteen widgets the editor can add, not the seven this listed until v0.156.20:
+    // the registry grew nine more (`ScrollView` … `Switch`) and this ladder did not, so a
+    // `Dropdown` added to a plain entity showed as 🔹 and sorted under Transform. A widget
+    // usually carries a `UiNode` and was caught by the first arm; the factory does not add
+    // one, so the gap was reachable exactly through "+ Add". `ui_widget_names_classify_as_ui`
+    // is the tie between this list and the registry's.
     } else if world.get::<UiNode>(e).is_some()
         || world.get::<Button>(e).is_some()
         || world.get::<Label>(e).is_some()
         || world.get::<TextInput>(e).is_some()
         || world.get::<Slider>(e).is_some()
         || world.get::<CheckBox>(e).is_some()
+        || world.get::<ScrollView>(e).is_some()
         || world.get::<Panel>(e).is_some()
+        || world.get::<ProgressBar>(e).is_some()
+        || world.get::<Tooltip>(e).is_some()
+        || world.get::<Dropdown>(e).is_some()
+        || world.get::<RadioGroup>(e).is_some()
+        || world.get::<TabBar>(e).is_some()
+        || world.get::<ListBox>(e).is_some()
+        || world.get::<Stepper>(e).is_some()
+        || world.get::<Switch>(e).is_some()
     {
         EntityKind::Ui
     } else if world.get::<Sprite>(e).is_some()
@@ -128,6 +144,58 @@ mod icon_tests {
         ents.iter()
             .filter_map(|&e| app.world.get::<Tag>(e).map(|t| (e, t.0.clone())))
             .collect()
+    }
+
+    /// The editor registers an adder for sixteen UI widgets; `entity_kind` listed seven, so nine
+    /// of them (`ScrollView`, `ProgressBar`, `Tooltip`, `Dropdown`, `RadioGroup`, `TabBar`,
+    /// `ListBox`, `Stepper`, `Switch`) classified as whatever else the entity had — 🔹 Transform
+    /// on a fresh one, since the factory adds the widget and not a `UiNode`.
+    ///
+    /// ⚠️ This test is a third spelling of the list, deliberately: its whole job is to go red
+    /// when the registry and the ladder drift, which neither of them can do for the other.
+    #[test]
+    fn ui_widget_names_classify_as_ui() {
+        const WIDGETS: [&str; 16] = [
+            "UiNode",
+            "Button",
+            "Label",
+            "TextInput",
+            "Slider",
+            "CheckBox",
+            "ScrollView",
+            "Panel",
+            "ProgressBar",
+            "Tooltip",
+            "Dropdown",
+            "RadioGroup",
+            "TabBar",
+            "ListBox",
+            "Stepper",
+            "Switch",
+        ];
+        let mut app = crate::app::App::new();
+        let factories = std::mem::take(&mut app.editor.component_factories);
+        for name in WIDGETS {
+            let factory = factories
+                .get(name)
+                .unwrap_or_else(|| panic!("the editor registers an adder for {name}"));
+            let e = app.world.spawn();
+            factory(&mut app.world, e);
+            assert_eq!(
+                super::entity_type_icon(&app.world, e),
+                "🔘",
+                "{name} must classify as a UI widget on its own"
+            );
+            app.world.despawn(e);
+        }
+        app.editor.component_factories = factories;
+
+        // Control: a component that is not a widget still classifies as something else, so the
+        // assertion above is not passing because everything is 🔘.
+        let e = app.world.spawn();
+        app.world
+            .add_component(e, crate::components::Transform::default());
+        assert_eq!(super::entity_type_icon(&app.world, e), "🔹");
     }
 
     #[test]

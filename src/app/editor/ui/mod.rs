@@ -37,6 +37,10 @@ pub(in crate::app) use docked::{
     assets_tab_body, entities_tab_body, inspector_tab_body, save_load_controls, scene_tab_body,
     update_docked_ui,
 };
+// Only a test reaches for this: `gizmo_math` is private to `ui`, and the tie between
+// `anchor_base` and `UiNode::screen_pos` is asserted from `editor::tests`.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(in crate::app) use gizmo_math::anchor_base;
 #[cfg(not(target_arch = "wasm32"))]
 pub(in crate::app) use lighting_panel::point_light_grid;
 #[cfg(not(target_arch = "wasm32"))]
