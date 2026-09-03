@@ -2290,3 +2290,46 @@ fn a_scene_tree_drag_leaves_the_entity_where_it_was_drawn() {
         "control: the plain reparent keeps the local position, so the entity jumps"
     );
 }
+
+// ── The three panels' edits are deliberately not undoable ─────────────────────
+
+/// The State Machine, Timeline and Data Table panels mutate their component directly and record
+/// nothing, so Ctrl+Z after a panel edit undoes whatever came *before* it. Keeping that is a
+/// decision, and this is what makes it visible rather than assumed.
+///
+/// ⚠️ Read against the **source text**, which is unusual here and deliberate: the panels only edit
+/// when a widget is actually interacted with, and a headless egui frame interacts with nothing —
+/// so a behavioural "undo_len is unchanged" would pass without the panel ever having edited
+/// anything, which is a test of nothing at all. The control below fails the same search on a file
+/// that *does* record, so a passing run means the needle was findable.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn the_three_panels_record_nothing_on_the_undo_stack() {
+    const PANELS: [(&str, &str); 3] = [
+        (
+            "state_machine_panel",
+            include_str!("ui/state_machine_panel.rs"),
+        ),
+        ("timeline_panel", include_str!("ui/timeline_panel.rs")),
+        ("data_table_panel", include_str!("ui/data_table_panel.rs")),
+    ];
+    for (name, src) in PANELS {
+        assert!(
+            !src.contains("cmd_history") && !src.contains("EditorCmd"),
+            "{name} now touches the undo stack — the module doc says it does not, so one of the \
+             two is wrong. If the panel gained undo on purpose, rewrite that paragraph."
+        );
+    }
+
+    // Control: the same search finds the recorders, so the assertions above are not passing
+    // because "cmd_history" is unfindable in any file.
+    for (name, src) in [
+        ("gizmo", include_str!("ui/gizmo.rs")),
+        ("shortcuts", include_str!("ui/shortcuts.rs")),
+    ] {
+        assert!(
+            src.contains("cmd_history"),
+            "control: {name} records on the undo stack and the search should see it"
+        );
+    }
+}
