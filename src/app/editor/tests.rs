@@ -2017,3 +2017,86 @@ fn drawing_the_ambient_light_control_does_not_turn_lighting_on() {
         "control: an existing AmbientLight is edited, not replaced"
     );
 }
+
+// ── Ctrl+D carries what Ctrl+C/V carries ──────────────────────────────────────
+
+/// Duplicate used `World::clone_entity` alone, which copies the `register_clone`d set — so a
+/// `PointLight` (serde-registered, not clone-registered) vanished from the copy and the copy
+/// landed as a root ~500 px from the original, because nothing carried the parent link. The two
+/// registries overlap but neither contains the other, so the fix needs both plus the parent.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn duplicating_an_entity_keeps_its_light_its_animation_and_its_parent() {
+    use crate::hierarchy::Parent;
+    let mut app = crate::app::App::new();
+    let p = app.world.spawn();
+    app.world.add_component(p, Tag("Boss".into()));
+    app.world.add_component(
+        p,
+        crate::components::Transform::new(glam::Vec2::new(500.0, 300.0), glam::Vec2::ONE, 0.0),
+    );
+    let c = app.world.spawn();
+    app.world.add_component(c, Tag("Lamp".into()));
+    app.world.add_component(
+        c,
+        crate::components::Transform::new(glam::Vec2::new(16.0, 0.0), glam::Vec2::ONE, 0.0),
+    );
+    // Serde-registered but NOT clone-registered — what the old duplicate dropped.
+    app.world.add_component(
+        c,
+        crate::components::PointLight {
+            intensity: 3.0,
+            ..Default::default()
+        },
+    );
+    // Clone-registered but NOT serde-registered — what a def-only duplicate would drop, which is
+    // why this is not simply the paste path.
+    app.world
+        .add_component(c, crate::animation::AnimationPlayer::new(Vec::new()));
+    assert!(crate::hierarchy::reparent(&mut app.world, c, Some(p)));
+
+    app.editor_select_entity(c);
+    app.editor_duplicate_selection();
+
+    let copy = app.editor.inspector_selected.expect("the copy is selected");
+    assert_ne!(copy, c, "precondition: a new entity");
+    assert_eq!(
+        app.world
+            .get::<crate::components::PointLight>(copy)
+            .map(|l| l.intensity),
+        Some(3.0),
+        "the serde-only component came across"
+    );
+    assert!(
+        app.world
+            .get::<crate::animation::AnimationPlayer>(copy)
+            .is_some(),
+        "and so did the clone-only one — neither registry alone is enough"
+    );
+    assert_eq!(
+        app.world.get::<Parent>(copy).map(|x| x.0),
+        Some(p),
+        "and the copy belongs under the same parent, by handle"
+    );
+    assert_eq!(
+        app.world
+            .get::<crate::components::Transform>(copy)
+            .map(|t| t.position),
+        Some(glam::Vec2::new(32.0, 16.0)),
+        "offset +16 from the original's own local position, as before"
+    );
+
+    // Control: the original is untouched by any of this.
+    assert_eq!(
+        app.world.get::<Parent>(c).map(|x| x.0),
+        Some(p),
+        "control: the original keeps its parent"
+    );
+    assert_eq!(
+        app.world
+            .get::<crate::components::PointLight>(c)
+            .map(|l| l.intensity),
+        Some(3.0),
+        "control: and its light"
+    );
+}
