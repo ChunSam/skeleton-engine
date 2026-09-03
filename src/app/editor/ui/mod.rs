@@ -41,6 +41,10 @@ pub(in crate::app) use docked::{
 // `anchor_base` and `UiNode::screen_pos` is asserted from `editor::tests`.
 #[cfg(all(test, not(target_arch = "wasm32")))]
 pub(in crate::app) use gizmo_math::anchor_base;
+// Test-only, like `anchor_base` above: `docked` reaches the control through
+// `super::lighting_panel` directly, so nothing else needs this name here.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(in crate::app) use lighting_panel::ambient_light_control;
 #[cfg(not(target_arch = "wasm32"))]
 pub(in crate::app) use lighting_panel::point_light_grid;
 #[cfg(not(target_arch = "wasm32"))]

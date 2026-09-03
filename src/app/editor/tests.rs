@@ -1980,3 +1980,39 @@ fn the_gizmo_and_the_ui_node_place_every_anchor_the_same() {
         "control: the seven anchors land in seven different places, so agreeing is not trivial"
     );
 }
+
+// ── Looking at the Ambient Light header does not switch lighting on ───────────
+
+/// The control called `ensure_ambient_light` on every draw. The resource's presence *is* the
+/// lighting-pass switch and its default is WHITE × 0.1, so expanding the header dropped a game
+/// that used no lighting to 10 % brightness — with no editor path back.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn drawing_the_ambient_light_control_does_not_turn_lighting_on() {
+    use crate::resources::AmbientLight;
+    let mut app = crate::app::App::new();
+    assert!(
+        app.world.resource::<AmbientLight>().is_none(),
+        "precondition: a fresh App has no AmbientLight, so the lighting pass is off"
+    );
+
+    panel_frame(|ui| super::ui::ambient_light_control(ui, &mut app));
+
+    assert!(
+        app.world.resource::<AmbientLight>().is_none(),
+        "drawing the control must not insert one — that is what switches the pass on"
+    );
+
+    // Control: with one present the editors draw and leave it alone, so the assertion above is
+    // about the insertion and not about the control refusing to work.
+    app.world.insert_resource(AmbientLight {
+        color: crate::color::Color::WHITE,
+        intensity: 0.75,
+    });
+    panel_frame(|ui| super::ui::ambient_light_control(ui, &mut app));
+    assert_eq!(
+        app.world.resource::<AmbientLight>().map(|a| a.intensity),
+        Some(0.75),
+        "control: an existing AmbientLight is edited, not replaced"
+    );
+}

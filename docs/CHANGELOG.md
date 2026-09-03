@@ -4,6 +4,31 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.21
+
+### Opening the Ambient Light header no longer switches the lighting pass on
+
+The control called `App::ensure_ambient_light` on every draw, "so the control is always usable".
+But an `AmbientLight` resource **existing at all** is what gates the 2D lighting pass
+(`prepare_lighting` reads `resource::<AmbientLight>()`), and its default is WHITE × **0.1** — so
+a game that used no lighting dropped to 10 % brightness the moment somebody expanded the header
+to look at it, and nothing in the editor could take it back. Collapsing the header changed
+nothing; dragging intensity to 1.0 restored the brightness and left the pass on.
+
+With no resource the control is now an **"Enable lighting"** button beside a "(lighting is off)"
+note. Pressing it inserts the default, which is the same call as before — the difference is that
+turning the pass on is something you do rather than something looking does.
+`ensure_ambient_light` keeps its behaviour and says at its definition that it switches the pass
+on, since that is now its only caller's whole point.
+
+The test draws the control on a fresh `App` and requires no resource afterwards, with an existing
+`AmbientLight` at intensity 0.75 as the control — drawn again, still 0.75, so the assertion is
+about the insertion and not about the editors refusing to work. Sabotage: restoring the
+unconditional `ensure_ambient_light()` reddens it on exactly that assertion.
+
+⚠️ **A game that was relying on the editor to insert one now has to press the button.** That is
+the point of the change, and the button says what it does.
+
 ## 0.156.20
 
 ### One anchor formula, one widget list, and a function that can say no

@@ -139,8 +139,11 @@ impl App {
         }
     }
 
-    /// Ensure an `AmbientLight` resource exists (inserting the default if absent) so the editor's
-    /// Ambient Light control always has something to edit. Returns whether one had to be inserted.
+    /// Insert a default `AmbientLight` if there is none. Returns whether one had to be inserted.
+    ///
+    /// ⚠️ **This switches the 2D lighting pass on**, because the pass is gated on the resource
+    /// existing at all — so it is what the Ambient Light control's "Enable lighting" button
+    /// does, and nothing calls it just to make a control drawable (v0.156.21).
     pub(in crate::app) fn ensure_ambient_light(&mut self) -> bool {
         if self
             .world
