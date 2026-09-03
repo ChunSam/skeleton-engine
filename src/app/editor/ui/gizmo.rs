@@ -627,6 +627,11 @@ impl App {
     }
 
     /// The parent's world transform, when `e` has a live parent the hierarchy has composed.
+    ///
+    /// Native-only, like both its callers: the scale and rotation writes. The position write
+    /// went to `hierarchy::world_to_local_position` in v0.156.25, which left this with no wasm
+    /// caller at all.
+    #[cfg(not(target_arch = "wasm32"))]
     fn editor_parent_world(
         &self,
         e: crate::ecs::Entity,
@@ -637,17 +642,11 @@ impl App {
             .copied()
     }
 
-    /// Writes a **world** position onto `e`'s local `Transform`, inverting the parent's transform
-    /// when it has one. Exact: the same matrix `hierarchy::compose` multiplies by, inverted.
+    /// Writes a **world** position onto `e`'s local `Transform`, through
+    /// [`crate::hierarchy::world_to_local_position`] — which is where that inverse lives, so the
+    /// gizmo and the Scene tree's drag cannot drift apart on it (v0.156.25).
     fn editor_set_world_position(&mut self, e: crate::ecs::Entity, world_pos: glam::Vec2) {
-        let local = match self.editor_parent_world(e) {
-            Some(p) => {
-                let v =
-                    p.to_matrix().inverse() * glam::Vec4::new(world_pos.x, world_pos.y, 0.0, 1.0);
-                glam::Vec2::new(v.x, v.y)
-            }
-            None => world_pos,
-        };
+        let local = crate::hierarchy::world_to_local_position(&self.world, e, world_pos);
         if let Some(t) = self.world.get_mut::<crate::components::Transform>(e) {
             t.position = local;
         }

@@ -2188,3 +2188,105 @@ fn ctrl_shortcuts_do_not_fire_into_a_focused_text_field() {
         "control: and the world moves back"
     );
 }
+
+// ── A Scene-tree drag does not move the entity on screen ──────────────────────
+
+/// `hierarchy::reparent` keeps the local `Transform`, so a root at (500, 316) dropped onto a
+/// parent at (500, 300) jumped to (1000, 616). That is right for code that means an offset and
+/// wrong for a drag someone just performed. Undo and redo go through the same world-preserving
+/// call, so the entity stays put across those too — a plain `reparent` on undo would move it,
+/// because the local position was re-derived by the drag.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn a_scene_tree_drag_leaves_the_entity_where_it_was_drawn() {
+    use crate::hierarchy::{GlobalTransform, Parent};
+    let pass = |app: &mut crate::app::App| {
+        use crate::ecs::System;
+        crate::hierarchy::HierarchySystem::default().run(&mut app.world, 0.0);
+    };
+    let drawn_at = |app: &crate::app::App, e: Entity| {
+        app.world
+            .get::<GlobalTransform>(e)
+            .map(|g| g.position)
+            .expect("the hierarchy pass composes one for every entity with a Transform")
+    };
+
+    let mut app = crate::app::App::new();
+    let p = app.world.spawn();
+    app.world.add_component(
+        p,
+        crate::components::Transform::new(glam::Vec2::new(500.0, 300.0), glam::Vec2::ONE, 0.0),
+    );
+    let c = app.world.spawn();
+    app.world.add_component(
+        c,
+        crate::components::Transform::new(glam::Vec2::new(500.0, 316.0), glam::Vec2::ONE, 0.0),
+    );
+    pass(&mut app);
+    assert_eq!(
+        drawn_at(&app, c),
+        glam::Vec2::new(500.0, 316.0),
+        "precondition"
+    );
+
+    assert!(app.editor_reparent(c, Some(p)), "the drag is accepted");
+    pass(&mut app);
+    assert_eq!(
+        drawn_at(&app, c),
+        glam::Vec2::new(500.0, 316.0),
+        "the drag moved it in the tree, not on screen"
+    );
+    assert_eq!(
+        app.world
+            .get::<crate::components::Transform>(c)
+            .map(|t| t.position),
+        Some(glam::Vec2::new(0.0, 16.0)),
+        "and its local position is now the offset from its new parent"
+    );
+
+    // Undo puts it back under no parent, still where it is drawn.
+    let mut sel = app.editor.inspector_selected;
+    app.editor.cmd_history.undo(&mut app.world, &mut sel);
+    pass(&mut app);
+    assert!(
+        app.world.get::<Parent>(c).is_none(),
+        "undo detaches it again"
+    );
+    assert_eq!(
+        drawn_at(&app, c),
+        glam::Vec2::new(500.0, 316.0),
+        "and undo does not move it either — the local position was re-derived by the drag"
+    );
+
+    // Redo, same.
+    app.editor.cmd_history.redo(&mut app.world, &mut sel);
+    pass(&mut app);
+    assert_eq!(app.world.get::<Parent>(c).map(|x| x.0), Some(p));
+    assert_eq!(
+        drawn_at(&app, c),
+        glam::Vec2::new(500.0, 316.0),
+        "redo, same"
+    );
+
+    // Control: the raw `hierarchy::reparent` still moves it, so the preservation above is the
+    // editor's doing and not something the hierarchy does on its own.
+    let mut app = crate::app::App::new();
+    let p = app.world.spawn();
+    app.world.add_component(
+        p,
+        crate::components::Transform::new(glam::Vec2::new(500.0, 300.0), glam::Vec2::ONE, 0.0),
+    );
+    let c = app.world.spawn();
+    app.world.add_component(
+        c,
+        crate::components::Transform::new(glam::Vec2::new(500.0, 316.0), glam::Vec2::ONE, 0.0),
+    );
+    pass(&mut app);
+    assert!(crate::hierarchy::reparent(&mut app.world, c, Some(p)));
+    pass(&mut app);
+    assert_eq!(
+        drawn_at(&app, c),
+        glam::Vec2::new(1000.0, 616.0),
+        "control: the plain reparent keeps the local position, so the entity jumps"
+    );
+}

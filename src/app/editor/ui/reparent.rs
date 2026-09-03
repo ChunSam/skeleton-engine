@@ -3,8 +3,9 @@
 //! The docked editor's **Scene** tab shows a read-only parent→children tree. This adds the write
 //! side: dragging a node onto another node re-parents it under that node; dragging it onto the
 //! bottom "unparent" zone detaches it to a root. The actual graph edit goes through the cycle-safe
-//! [`crate::hierarchy::reparent`] (no-op + `false` for a self/descendant-cycle/no-change move);
-//! this layer adds the editor toast and is what `scene_tab_body`'s egui drag-and-drop calls.
+//! [`crate::hierarchy::reparent_keeping_world_position`] (no-op + `false` for a
+//! self/descendant-cycle/no-change move), which also keeps the entity where it was drawn; this
+//! layer adds the editor toast and is what `scene_tab_body`'s egui drag-and-drop calls.
 
 #![cfg(not(target_arch = "wasm32"))]
 
@@ -14,12 +15,17 @@ use crate::hierarchy::Parent;
 use crate::prefab::Tag;
 
 impl App {
-    /// Re-parent `child` under `new_parent` (or to a root with `None`) from the editor, via the
-    /// cycle-safe [`crate::hierarchy::reparent`], record it on the editor undo stack, and surface a
+    /// Re-parent `child` under `new_parent` (or to a root with `None`) from the editor, record it
+    /// on the editor undo stack, and surface a
     /// success toast when the hierarchy actually changed. Returns that change flag — a self /
     /// descendant-cycle / no-op move returns `false`, pushes nothing, and shows no toast (so Ctrl+Z
     /// never replays a rejected drag). Public so a headless capture or a game tool can drive a
     /// reparent the same way a Scene-tree drag does. Native-only.
+    ///
+    /// ⚠️ Goes through [`crate::hierarchy::reparent_keeping_world_position`], not the plain
+    /// `reparent`: a drag is a statement about the hierarchy, not about where the thing should
+    /// end up, so the entity stays where it was drawn. Undo and redo of an
+    /// editor `Reparent` command go through the same function, so it stays put across those too.
     pub fn editor_reparent(
         &mut self,
         child: crate::Entity,
@@ -27,7 +33,7 @@ impl App {
     ) -> bool {
         // Capture the pre-move parent so undo can restore it; read before the graph mutates.
         let old_parent = self.world.get::<Parent>(child).map(|p| p.0);
-        if !crate::hierarchy::reparent(&mut self.world, child, new_parent) {
+        if !crate::hierarchy::reparent_keeping_world_position(&mut self.world, child, new_parent) {
             return false;
         }
         self.editor.cmd_history.push(EditorCmd::Reparent {
