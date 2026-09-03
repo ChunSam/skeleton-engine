@@ -183,6 +183,7 @@ pub(in crate::app) fn update_docked_ui(
 
     // Write the real central rect in LOGICAL points so the RT/ViewportSize
     // delegation in schedule.rs picks up the actual panel geometry.
-    // `inner_rect` is the content area inside panel margins.
+    // `response.rect` is the panel's own rect. (`inner_rect`, which this named until
+    // 2026-09-03, is the content area inside the margins — a different rectangle.)
     app.editor.central_rect = Some(central_response.response.rect);
 }

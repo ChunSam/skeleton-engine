@@ -2,7 +2,10 @@
 
 use super::*;
 
-/// Toolbar contents: ▶/⏸, ⏭ step, Snap, scene path + Save/Load, Exit(F2).
+/// Toolbar contents, left to right: ▶/⏸ play-pause, ⏭ step, Snap (toggle + size), Grid, Bounds,
+/// Path (the pathfinding overlay), 💾 Set. (save settings), the EN/한국어 language toggle,
+/// ? Keys (the cheatsheet), the scene path with 💾 Save / 📂 Load and their status, and
+/// Exit (F2). Eleven controls; this listed five until 2026-09-03.
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) fn docked_toolbar(ui: &mut egui::Ui, app: &mut App) {
     ui.horizontal(|ui| {
@@ -112,9 +115,11 @@ pub(super) fn docked_toolbar(ui: &mut egui::Ui, app: &mut App) {
     });
 }
 
-// ── Shared tab-body functions ────────────────────────────────────────────────
+// ── Where the shared tab bodies went ─────────────────────────────────────────
 //
-// Each of these renders a self-contained piece of UI into the given `ui`.
-// They are called from BOTH the docked panels (above) and the overlay windows
-// (`ui/mod.rs`).  The overlay windows must NOT change behaviour: the bodies
-// only mutate `app.editor.*` and `app.world` through well-defined paths.
+// This header sat above nothing: the tab bodies it describes live in their own modules
+// (`entities_tab`, `inspector_tab`, `scene_tab`, `assets_tab`, `save_load`), re-exported from
+// `docked/mod.rs`. The property it states still holds and still matters — each renders a
+// self-contained piece of UI into the given `ui`, and each is called from BOTH the docked
+// panels and the overlay windows in `ui/mod.rs`, so a body must not change behaviour based on
+// which one is drawing it — so it is kept here, pointing at where they are (2026-09-03).

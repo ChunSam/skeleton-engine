@@ -5,8 +5,13 @@ use crate::ecs::Entity;
 impl App {
     /// Resync the static tile colliders of `entity` against the [`PhysicsWorld`](crate::physics::PhysicsWorld)
     /// resource. Thin wrapper over [`sync_tilemap_entity_colliders`](crate::physics::sync_tilemap_entity_colliders);
-    /// no-op (returns `false`) unless `entity` has a `Tilemap` + `TilemapColliders` and a `PhysicsWorld`
-    /// resource exists. The editor calls this after a Tile Paint stroke; games call it after `set_tile`.
+    /// The editor calls this after a Tile Paint stroke; games call it after `set_tile`.
+    ///
+    /// ⚠️ **The `bool` says a `PhysicsWorld` was there, not that anything synced.** It is `false`
+    /// only when `entity` has no `Tilemap` or the resource is absent; a `Tilemap` with a
+    /// `PhysicsWorld` and **no** `TilemapColliders` returns `true` having synced nothing, which
+    /// `tile_collider.rs`'s own test asserts. Do not gate "colliders are up to date" on it. The
+    /// doc said `false` for that case until 2026-09-03 and the code never did.
     ///
     /// Native-only: the `physics` module (rapier2d) is excluded from wasm builds.
     #[cfg(not(target_arch = "wasm32"))]
@@ -63,7 +68,8 @@ impl App {
 
         #[cfg(target_arch = "wasm32")]
         {
-            // File I/O is not supported on wasm; log and return.
+            // File I/O is not supported on wasm: a silent no-op, as the doc above says. (This
+            // said "log and return" until 2026-09-03 and nothing ever logged.)
             let _ = (name, path);
         }
     }
@@ -199,7 +205,8 @@ impl App {
 
         #[cfg(target_arch = "wasm32")]
         {
-            // File I/O is not supported on wasm; log and return.
+            // File I/O is not supported on wasm: a silent no-op, as the doc above says. (This
+            // said "log and return" until 2026-09-03 and nothing ever logged.)
             let _ = (name, path);
         }
     }
