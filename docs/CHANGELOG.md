@@ -4,6 +4,33 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.26
+
+### Ctrl+C and Ctrl+V work in the editor on Windows and Linux
+
+egui-winit turns a copy or paste chord into `egui::Event::Copy` / `Event::Paste` and **returns** —
+no `Event::Key` follows it. The editor read `ctrl && key_pressed(Key::C)`, so on Windows and Linux
+its Ctrl+C and Ctrl+V did nothing at all: no copy, no paste, no message.
+
+The chord is `Modifiers::command`, which is Cmd on macOS and **Ctrl everywhere else**. macOS was
+the one platform spared, because there Ctrl+C is not a copy command — which is exactly why nobody
+developing on a Mac ever saw it. The two shortcuts now read the events as well as the keys, so
+they work on every platform, and Cmd+C / Cmd+V start working on macOS where they previously did
+nothing.
+
+Both go through the v0.156.24 typing gate like the other nine, so a focused `TextEdit` still owns
+its own copy and the editor does not also copy the selection.
+
+⚠️ **The filed row said this needed "eyes in a windowed run on Windows or Linux". It did not.**
+`is_copy_command` is `modifiers.command` with no `cfg`, so the behaviour is identical everywhere
+and the events can just be handed to a headless frame. The gate was wrong in the direction that
+keeps a row deferred — the third time in this program that a written gate over-estimated its cost.
+
+Two tests: the events alone, with no key press and no modifiers, copy and then paste; and a
+focused text field suppresses the event path. Each has a control — the key path still works, and
+an unfocused frame still copies. Sabotage: dropping the copy event, dropping the paste event, and
+disabling the typing gate each redden one assertion by name.
+
 ## 0.156.25
 
 ### A Scene-tree drag re-parents without moving the entity on screen

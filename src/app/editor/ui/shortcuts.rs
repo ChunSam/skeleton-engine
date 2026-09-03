@@ -32,11 +32,20 @@ impl App {
         let keys = ctx.input(|i| {
             let ctrl = i.modifiers.ctrl;
             let shift = i.modifiers.shift;
+            // ⚠️ Copy and paste do NOT arrive as key presses on Windows or Linux. egui-winit
+            // turns a copy/paste chord into `Event::Copy` / `Event::Paste` and **returns** —
+            // no `Event::Key` follows it. The chord is `Modifiers::command`, which is Cmd on
+            // macOS and **Ctrl everywhere else**, so Ctrl+C is a copy command off macOS and
+            // never reaches `key_pressed`; on macOS Ctrl+C is not one, which is the only
+            // reason the key path appeared to work. Read both (v0.156.26). This is also what
+            // makes Cmd+C work on macOS, where it previously did nothing.
+            let copy_event = i.events.iter().any(|e| matches!(e, egui::Event::Copy));
+            let paste_event = i.events.iter().any(|e| matches!(e, egui::Event::Paste(_)));
             Keys {
                 undo: ctrl && i.key_pressed(egui::Key::Z) && !shift,
                 redo: ctrl && i.key_pressed(egui::Key::Z) && shift,
-                copy: ctrl && i.key_pressed(egui::Key::C),
-                paste: ctrl && i.key_pressed(egui::Key::V),
+                copy: copy_event || (ctrl && i.key_pressed(egui::Key::C)),
+                paste: paste_event || (ctrl && i.key_pressed(egui::Key::V)),
                 save: ctrl && i.key_pressed(egui::Key::S),
                 duplicate: ctrl && i.key_pressed(egui::Key::D),
                 delete: i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace),
