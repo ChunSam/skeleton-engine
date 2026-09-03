@@ -4,6 +4,28 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.19
+
+### The State Machine panel stops offering a state that is gone, and says when "+" did nothing
+
+Two small editor defects, both in the same panel and both a decision the panel never re-made.
+
+- **The per-state add-transition target was chosen once and never re-checked.** It is stored per
+  state and only filled `or_insert_with`, so removing the state it pointed at left that name in
+  the combo, and "+" then pushed a transition to a state that no longer exists — warn-logged by
+  `AnimationStateMachine` and kept, visible in the list, removable only through the transition's
+  own button. `resolve_add_target` re-derives it every frame: the stored choice while it still
+  exists, otherwise the first remaining state.
+- **"+" on a name that already exists did nothing and looked like it worked.**
+  `AnimationStateMachine::add_state` is `entry().or_insert`, so the edit was a silent no-op, and
+  the panel cleared the text box anyway because it cleared on *any* add edit. `add_state_verdict`
+  separates empty, duplicate and addable; a duplicate raises an error toast and leaves the box
+  alone.
+
+Both decisions are pure functions, which is the only reason they are testable: the panel around
+them needs an egui frame, and the bug was entirely in the choice. Sabotage: keeping a removed
+target reddens the first test, and never reporting a duplicate reddens the second.
+
 ## 0.156.18
 
 ### The gizmo grabs a parented entity where it is drawn, and writes back through its parent

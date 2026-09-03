@@ -34,6 +34,43 @@ fn param_display(p: Option<&crate::animation::AnimParam>) -> String {
     }
 }
 
+/// The add-transition target to show for a state: whatever was chosen last, unless it has since
+/// been removed — then the first remaining state. `other_states` never contains the state itself.
+///
+/// Pure so a test can reach it: the panel around it needs an egui frame, and the bug was entirely
+/// in this choice.
+#[cfg(not(target_arch = "wasm32"))]
+fn resolve_add_target<'a>(stored: &'a str, other_states: &[&'a str]) -> &'a str {
+    if other_states.contains(&stored) {
+        stored
+    } else {
+        other_states.first().copied().unwrap_or(stored)
+    }
+}
+
+/// What the add-state "+" should do with `name`.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AddState {
+    /// Nothing typed.
+    Empty,
+    /// A state by that name is already there; `add_state` would be a silent no-op.
+    Duplicate,
+    Add,
+}
+
+/// Pure, for the same reason as [`resolve_add_target`].
+#[cfg(not(target_arch = "wasm32"))]
+fn add_state_verdict(name: &str, existing: &[String]) -> AddState {
+    if name.is_empty() {
+        AddState::Empty
+    } else if existing.iter().any(|n| n == name) {
+        AddState::Duplicate
+    } else {
+        AddState::Add
+    }
+}
+
 /// State Machine inspector panel: lists the selected entity's `AnimationStateMachine` states
 /// (current highlighted) with their transitions and parameters, and offers edits — set current,
 /// edit clip index, remove state/transition, add state. Snapshots display data under an immutable
@@ -329,12 +366,19 @@ pub(in crate::app) fn state_machine_panel(
                 .map(|n| n.as_str())
                 .collect();
             if !other_states.is_empty() {
-                let target = app
-                    .editor
-                    .sm_add_trans_target
-                    .entry(st.name.clone())
-                    .or_insert_with(|| other_states[0].to_string())
-                    .clone();
+                // Re-derived every frame, not just on first sight: removing the state this
+                // pointed at left the combo showing a name that no longer exists, and "+" then
+                // pushed a transition to it — a dead edge the model warn-logs and keeps
+                // (v0.156.19).
+                let target = {
+                    let slot = app
+                        .editor
+                        .sm_add_trans_target
+                        .entry(st.name.clone())
+                        .or_insert_with(|| other_states[0].to_string());
+                    *slot = resolve_add_target(slot, &other_states).to_string();
+                    slot.clone()
+                };
                 let xf = *app
                     .editor
                     .sm_add_trans_xf
@@ -393,8 +437,15 @@ pub(in crate::app) fn state_machine_panel(
         ui.add(egui::TextEdit::singleline(&mut app.editor.sm_add_state_name).desired_width(100.0));
         if ui.button("+").clicked() {
             let name = app.editor.sm_add_state_name.trim().to_string();
-            if !name.is_empty() {
-                edits.push(Edit::AddState(name));
+            match add_state_verdict(&name, &all_state_names) {
+                AddState::Add => edits.push(Edit::AddState(name)),
+                // `AnimationStateMachine::add_state` is `entry().or_insert`, so a duplicate was a
+                // silent no-op — and the box cleared as if it had worked (v0.156.19).
+                AddState::Duplicate => app.push_editor_toast(
+                    format!("{} {name}", tr("state already exists:", "이미 있는 상태:")),
+                    crate::app::editor::state::ToastKind::Error,
+                ),
+                AddState::Empty => {}
             }
         }
     });
@@ -487,5 +538,48 @@ pub(in crate::app) fn state_machine_panel(
         if added_state {
             app.editor.sm_add_state_name.clear();
         }
+    }
+}
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::{add_state_verdict, resolve_add_target, AddState};
+
+    /// The stored target is kept while it exists and falls back the moment it does not. Removing
+    /// the state a combo pointed at left that name showing, and "+" then pushed a transition to a
+    /// state that was gone — warn-logged by the model, listed by the panel, and only removable
+    /// through the transition's own button.
+    #[test]
+    fn the_add_transition_target_falls_back_when_its_state_is_removed() {
+        let all = ["jump", "run"];
+        assert_eq!(
+            resolve_add_target("jump", &all),
+            "jump",
+            "a target that still exists is kept"
+        );
+        assert_eq!(
+            resolve_add_target("jump", &["run"]),
+            "run",
+            "and one that was removed falls back to what is left"
+        );
+        assert_eq!(
+            resolve_add_target("jump", &[]),
+            "jump",
+            "with nothing to fall back to it stands rather than panicking"
+        );
+    }
+
+    /// `add_state` is `entry().or_insert`, so "+" on an existing name changed nothing while the
+    /// panel cleared the box as if it had worked.
+    #[test]
+    fn adding_a_state_that_exists_is_reported_rather_than_ignored() {
+        let existing = vec!["idle".to_string(), "run".to_string()];
+        assert_eq!(add_state_verdict("idle", &existing), AddState::Duplicate);
+        assert_eq!(add_state_verdict("jump", &existing), AddState::Add);
+        assert_eq!(add_state_verdict("", &existing), AddState::Empty);
+        assert_eq!(
+            add_state_verdict("idle", &[]),
+            AddState::Add,
+            "control: with nothing registered the same name is addable"
+        );
     }
 }
