@@ -2333,3 +2333,129 @@ fn the_three_panels_record_nothing_on_the_undo_stack() {
         );
     }
 }
+
+// ── Copy and paste do not arrive as key presses ───────────────────────────────
+
+/// egui-winit turns the platform copy/paste chord into `Event::Copy` / `Event::Paste` and
+/// **returns** — no `Event::Key` follows. The chord is `Modifiers::command`, which is Cmd on macOS
+/// and **Ctrl everywhere else**, so the editor's `ctrl && key_pressed(Key::C)` was dead on Windows
+/// and Linux. Only macOS was spared, because there Ctrl+C is not a copy command — which is exactly
+/// why nobody developing on this machine ever saw it.
+///
+/// ⚠️ The row that filed this said it needed "eyes in a windowed run on Windows or Linux". It did
+/// not: `is_copy_command` is `modifiers.command`, with no `cfg`, so the behaviour is the same
+/// everywhere and the events can simply be delivered to a headless frame.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn copy_and_paste_arrive_as_clipboard_events_not_key_presses() {
+    let staged = || {
+        let mut app = crate::app::App::new();
+        let e = app.world.spawn();
+        app.world.add_component(e, Tag("original".into()));
+        app.world.add_component(
+            e,
+            crate::components::Transform::new(
+                glam::Vec2::new(10.0, 10.0),
+                glam::Vec2::splat(20.0),
+                0.0,
+            ),
+        );
+        app.editor.mode = super::EditorMode::Overlay;
+        app.editor_select_entity(e);
+        app
+    };
+
+    // The Windows/Linux path: the events themselves, with no key press and no modifiers.
+    let mut app = staged();
+    assert_eq!(app.world.query::<Tag>().count(), 1, "precondition");
+    editor_frame(&mut app, vec![egui::Event::Copy]);
+    assert_eq!(
+        app.editor.copy_clipboard.len(),
+        1,
+        "Event::Copy is how the copy chord actually arrives off macOS"
+    );
+    editor_frame(&mut app, vec![egui::Event::Paste(String::new())]);
+    assert_eq!(
+        app.world.query::<Tag>().count(),
+        2,
+        "Event::Paste is how the paste chord actually arrives off macOS"
+    );
+
+    // Control: the key path still works, so the events were added rather than swapped in.
+    let mut app = staged();
+    let ctrl_key = |k| egui::Event::Key {
+        key: k,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::CTRL,
+    };
+    editor_frame(&mut app, vec![ctrl_key(egui::Key::C)]);
+    assert_eq!(
+        app.editor.copy_clipboard.len(),
+        1,
+        "control: Ctrl+C as a key press still copies (this is the macOS path)"
+    );
+    editor_frame(&mut app, vec![ctrl_key(egui::Key::V)]);
+    assert_eq!(
+        app.world.query::<Tag>().count(),
+        2,
+        "control: Ctrl+V as a key press still pastes"
+    );
+}
+
+/// The new event path goes through the same typing gate as the nine keys (v0.156.24) — a focused
+/// `TextEdit` handles its own copy, and the editor must not also copy the selected entities.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn a_clipboard_event_does_not_copy_entities_while_a_text_field_is_focused() {
+    let frame = |app: &mut crate::app::App, focus: bool| {
+        let ctx = egui::Context::default();
+        let raw = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(800.0, 600.0),
+            )),
+            events: vec![egui::Event::Copy],
+            ..Default::default()
+        };
+        ctx.begin_pass(raw);
+        let mut buf = String::from("typing here");
+        egui::Area::new(egui::Id::new("probe")).show(&ctx, |ui| {
+            let r = ui.add(egui::TextEdit::singleline(&mut buf));
+            if focus {
+                r.request_focus();
+            }
+        });
+        app.update_editor_ui(&Some(ctx.clone()), 1.0 / 60.0);
+        let _ = ctx.end_pass();
+    };
+
+    let staged = || {
+        let mut app = crate::app::App::new();
+        let e = app.world.spawn();
+        app.world.add_component(e, Tag("original".into()));
+        app.editor.mode = super::EditorMode::Overlay;
+        app.editor_select_entity(e);
+        app
+    };
+
+    // Focus in one frame, then deliver the event in the next: egui carries focus across frames.
+    let mut app = staged();
+    frame(&mut app, true);
+    frame(&mut app, true);
+    assert!(
+        app.editor.copy_clipboard.is_empty(),
+        "the focused field owns the copy; the editor must not also copy the selection"
+    );
+
+    // Control: the same two frames with nothing focused do copy.
+    let mut app = staged();
+    frame(&mut app, false);
+    frame(&mut app, false);
+    assert_eq!(
+        app.editor.copy_clipboard.len(),
+        1,
+        "control: with no field focused the event reaches the editor"
+    );
+}
