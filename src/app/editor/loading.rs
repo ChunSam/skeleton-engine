@@ -68,6 +68,40 @@ impl App {
         }
     }
 
+    /// Opens `path` as a data table registered under `name` — the Data Tables panel's Open
+    /// button. Returns whether it opened.
+    ///
+    /// ⚠️ The file is validated through [`DataTable::load`](crate::data_table::DataTable::load),
+    /// which returns a `Result`, **before** [`load_data_table`](Self::load_data_table), whose
+    /// failure path goes to `asset_path::record_failure`: that logs at `error!`, appends to
+    /// [`asset_failures`](Self::asset_failures) — which no editor UI reads — and **panics
+    /// outright under [`set_strict_assets(true)`](Self::set_strict_assets)**. A typo in an editor
+    /// text field must not be able to abort the process, and the person who typed it has to be
+    /// able to see why (v0.156.16).
+    ///
+    /// On failure the typed name and path are left alone, so the typo can be corrected instead of
+    /// retyped; on success they are cleared and the new table is selected.
+    ///
+    /// The file is read twice on the success path. This is a one-shot button, and the alternative
+    /// is duplicating `load_data_table`'s watcher and persistent-resource registration here.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(in crate::app) fn editor_open_data_table(&mut self, name: String, path: String) -> bool {
+        match crate::data_table::DataTable::load(&path) {
+            Ok(_) => {
+                self.load_data_table(name.clone(), path);
+                self.editor.selected_data_table = Some(name);
+                self.editor.data_table_status = None;
+                self.editor.data_table_open_name.clear();
+                self.editor.data_table_open_path.clear();
+                true
+            }
+            Err(e) => {
+                self.editor.data_table_status = Some(format!("✗ {path}: {e}"));
+                false
+            }
+        }
+    }
+
     /// Load an animation clip set from `path` and register it under `name`.
     ///
     /// Lazily inserts an [`crate::animation::clip_set::AnimationClipRegistry`] resource

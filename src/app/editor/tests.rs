@@ -1751,3 +1751,72 @@ fn an_orphan_is_a_root_in_the_scene_tree() {
         "the orphan's dead parent is reported as none"
     );
 }
+
+// ── A bad path typed into the Data Tables panel ───────────────────────────────
+
+/// The Open button called `App::load_data_table` straight off, whose failure goes to
+/// `asset_path::record_failure`: logged, appended to `asset_failures()` (which no editor UI
+/// reads), and a **panic** under strict assets. The panel then cleared the typed path and
+/// selected the name regardless, so the only trace of a typo was an empty field and a grid
+/// saying the table was not found.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn a_bad_path_in_the_data_table_panel_reports_and_keeps_what_was_typed() {
+    // Unique per process, so the `asset_failures()` assertion below cannot collide with another
+    // test's entry — that list is process-global.
+    let bad = format!(
+        "{}/no_such_data_table_{}.ron",
+        std::env::temp_dir().to_string_lossy(),
+        std::process::id()
+    );
+    let mut app = crate::app::App::new();
+    app.editor.data_table_open_name = "enemies".into();
+    app.editor.data_table_open_path = bad.clone();
+
+    let opened = app.editor_open_data_table("enemies".into(), bad.clone());
+
+    assert!(!opened, "a path that does not load must not report success");
+    assert!(
+        !app.asset_failures().iter().any(|f| f.path == bad),
+        "the bad path must never reach `record_failure` — that is what panics under strict assets"
+    );
+    let status = app
+        .editor
+        .data_table_status
+        .as_deref()
+        .expect("the panel says why");
+    assert!(
+        status.contains(&bad),
+        "and the status names the path: {status}"
+    );
+    assert_eq!(
+        app.editor.data_table_open_path, bad,
+        "the typed path is kept so the typo can be corrected"
+    );
+    assert_eq!(app.editor.data_table_open_name, "enemies");
+    assert!(
+        app.world
+            .resource::<crate::data_table::DataTableRegistry>()
+            .is_none_or(|r| r.get("enemies").is_none()),
+        "and nothing was registered under that name"
+    );
+
+    // Control: a file that does load opens, clears the fields, and selects the table — so the
+    // assertions above are about the failure, not about Open being broken.
+    let good = std::env::temp_dir().join(format!("open_ok_{}.ron", std::process::id()));
+    std::fs::write(&good, "[ ( id: \"slime\", hp: 10 ) ]").expect("write");
+    let good_path = good.to_string_lossy().to_string();
+    app.editor.data_table_open_name = "ok".into();
+    app.editor.data_table_open_path = good_path.clone();
+    assert!(
+        app.editor_open_data_table("ok".into(), good_path),
+        "control: a loadable file opens"
+    );
+    assert_eq!(app.editor.selected_data_table.as_deref(), Some("ok"));
+    assert!(
+        app.editor.data_table_open_path.is_empty(),
+        "control: fields cleared on success"
+    );
+    assert!(app.editor.data_table_status.is_none());
+    let _ = std::fs::remove_file(&good);
+}

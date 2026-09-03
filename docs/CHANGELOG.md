@@ -4,6 +4,32 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.16
+
+### A typo in the Data Tables panel reports itself instead of aborting the editor
+
+The Open button called `App::load_data_table` straight off. That method reports a failure through
+`asset_path::record_failure`, which logs at `error!`, appends to `asset_failures()` — which no
+editor UI reads — and **panics outright under `set_strict_assets(true)`**. So a mistyped path in
+a text field could abort the process, and short of that the only trace was an emptied field and a
+grid saying the table was not found: the panel cleared the typed path and selected the name
+whether or not anything had loaded.
+
+`App::editor_open_data_table` validates with `DataTable::load`, which returns a `Result`, before
+handing the path to `load_data_table`. A path that does not load never reaches `record_failure`;
+the panel says why, and keeps what was typed so the typo can be corrected rather than retyped.
+The file is read twice on the success path, which is stated at the function: this is a one-shot
+button, and the alternative is duplicating `load_data_table`'s watcher and persistent-resource
+registration.
+
+⚠️ **The test does not flip strict-asset mode**, because that flag is process-global and
+`cargo test` runs in threads: turning it on would panic unrelated tests. It asserts the thing
+that makes the panic unreachable instead — a uniquely-named bad path is absent from
+`asset_failures()` afterwards — plus the status, the kept fields, and an empty registry, with a
+loadable file as the control. Sabotaged in halves: skipping the validation reddens the
+success-report assertion, and silencing that one leaves the `asset_failures()` assertion to fire
+on its own.
+
 ## 0.156.15
 
 ### Five editor checks that could not fail on their stated cause now can

@@ -60,11 +60,9 @@ pub(in crate::app) fn data_table_panel_body(ui: &mut egui::Ui, app: &mut App) {
             let name = app.editor.data_table_open_name.trim().to_string();
             let path = app.editor.data_table_open_path.trim().to_string();
             if !name.is_empty() && !path.is_empty() {
-                app.load_data_table(name.clone(), path);
-                app.editor.selected_data_table = Some(name);
-                app.editor.data_table_status = None;
-                app.editor.data_table_open_name.clear();
-                app.editor.data_table_open_path.clear();
+                // Validates first, so a typo reports here rather than through the asset-failure
+                // path — which no panel reads and which panics under strict assets.
+                app.editor_open_data_table(name, path);
             }
         }
     });
