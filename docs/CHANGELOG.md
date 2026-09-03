@@ -4,6 +4,53 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.18
+
+### The gizmo grabs a parented entity where it is drawn, and writes back through its parent
+
+The Transform gizmo hit-tested, highlighted and dragged from the selected entity's own
+`Transform`. For a parented entity that is only its offset from the parent, so a child at local
+`(16, 0)` under a parent at `(500, 300)` drew at `(516, 300)` and was grabbable at `(16, 0)`:
+a press on the sprite you can see started nothing, and a press on empty space near the world
+origin dragged it. The renderer and the collision grid have preferred `GlobalTransform` for a
+while; this is the last editor surface that did not.
+
+The gizmo now reads `App::editor_world_transform` — `GlobalTransform` when the hierarchy has
+composed one, else `Transform` — for the highlight, all eight handles, the rotation handle and
+every hit test. The three writes go back through the parent:
+
+- **position** inverts the parent's matrix, the same one `hierarchy::compose` multiplies by, so a
+  rotated and scaled parent is exact;
+- **scale** divides out the parent's, component-wise, which is exact while the parent is
+  unrotated or uniformly scaled. A rotated parent with non-uniform scale shears, and
+  `GlobalTransform` cannot represent shear either — `compose` decomposes the product the same
+  lossy way. A zero parent scale leaves the local scale alone rather than producing an infinity;
+- **rotation** subtracts the parent's.
+
+The group move and the undo snapshots are world-space throughout, so a group member under a
+rotated parent no longer takes a world delta onto its local offset.
+
+⚠️ **A drag writes the local transform; the world one catches up on the next frame's hierarchy
+pass.** The tests run `HierarchySystem` before asserting a world position, which is what a frame
+does — the first draft asserted immediately and read the pre-drag value.
+
+Three sabotages, each on its own test: reading the local `Transform` again reddens the press test
+(and only that one, because the other two hand the transform in); skipping the parent's inverse
+reddens both drag tests; subtracting the parent's position instead of inverting its matrix reddens
+the rotated-and-scaled one alone.
+
+⚠️ **The first sabotage found a hole in the tests, not in the fix.** Two of the three drove
+`update_transform_gizmo_native` directly, which takes the transform as an argument — so the read
+the fix changed was never exercised. `the_gizmo_grabs_at_the_drawn_position_not_the_local_one`
+presses a real mouse through `update_editor_gizmo` instead, with a press at the old local position
+as its control.
+
+⚠️ **The gate's wasm build found a second one.** The read site compiles on wasm and the helper did
+not, so the first run was red there. The wasm gizmo drags the same parented entities and had the
+same defect, so the read helper and the position write are shared rather than native-only, and the
+wasm branch writes through the parent too. The three that stay native-only are scale, rotation and
+the group move, which that branch does not have.
+
 ## 0.156.17
 
 ### The pasted child already lands on the pasted parent, and now something says so

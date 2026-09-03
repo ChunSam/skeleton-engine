@@ -314,8 +314,11 @@ impl App {
     // ── World-space Transform gizmo (move + resize) ───────────────────────────
 
     fn update_transform_gizmo(&mut self, sel: crate::ecs::Entity, egui_wants_mouse: bool) {
-        // Copy the selected entity's Transform (releases the borrow).
-        let tr_copy = self.world.get::<crate::components::Transform>(sel).cloned();
+        // The transform the entity is DRAWN at (releases the borrow). For a parented entity
+        // that is its `GlobalTransform`; its own `Transform` is only the offset from the
+        // parent, and hit-testing there put the box near the world origin while the sprite
+        // drew on the parent — a press on what you can see started nothing (v0.156.18).
+        let tr_copy = self.editor_world_transform(sel);
 
         let Some(tr) = tr_copy else {
             // Same as the `UiNode` arm: the component went away under a gesture. This site used
@@ -409,9 +412,8 @@ impl App {
                     }
                     if self.editor.gizmo_dragging && held {
                         let new_pos = world_pos + self.editor.gizmo_drag_offset;
-                        if let Some(t) = self.world.get_mut::<crate::components::Transform>(sel) {
-                            t.position = new_pos;
-                        }
+                        // Through the parent, like the native path: `new_pos` is world-space.
+                        self.editor_set_world_position(sel, new_pos);
                     }
                     if just_released {
                         self.editor.gizmo_dragging = false;
@@ -471,8 +473,8 @@ impl App {
                     // Snapshot start positions of all selected entities for group-move undo.
                     let mut starts: Vec<(crate::ecs::Entity, glam::Vec2)> = Vec::new();
                     let mut has_sel = false;
-                    for &e in &self.editor.selected_entities {
-                        if let Some(t) = self.world.get::<crate::components::Transform>(e) {
+                    for &e in self.editor.selected_entities.clone().iter() {
+                        if let Some(t) = self.editor_world_transform(e) {
                             if e == sel {
                                 has_sel = true;
                             }
@@ -498,9 +500,7 @@ impl App {
                     cur,
                     snap,
                 );
-                if let Some(t) = self.world.get_mut::<crate::components::Transform>(sel) {
-                    t.rotation = new_rot;
-                }
+                self.editor_set_world_rotation(sel, new_rot);
             } else if let Some(handle) = self.editor.resize_handle_active {
                 // Scale the entity from its centre.  The corner/edge delta in
                 // world-space maps directly to a scale change; position stays fixed.
@@ -546,9 +546,7 @@ impl App {
                 } else {
                     new_scale
                 };
-                if let Some(t) = self.world.get_mut::<crate::components::Transform>(sel) {
-                    t.scale = final_scale;
-                }
+                self.editor_set_world_scale(sel, final_scale);
             } else if self.editor.gizmo_dragging {
                 let new_pos = world_pos + self.editor.gizmo_drag_offset;
                 let final_pos = if self.editor.snap_enabled {
@@ -556,15 +554,15 @@ impl App {
                 } else {
                     new_pos
                 };
+                // The delta is world-space, and so is every entity's position below: a group
+                // member under a rotated or scaled parent cannot take a world delta on its
+                // local offset.
                 let old_pos = self
-                    .world
-                    .get::<crate::components::Transform>(sel)
+                    .editor_world_transform(sel)
                     .map(|t| t.position)
                     .unwrap_or(final_pos);
                 let delta = final_pos - old_pos;
-                if let Some(t) = self.world.get_mut::<crate::components::Transform>(sel) {
-                    t.position = final_pos;
-                }
+                self.editor_set_world_position(sel, final_pos);
                 let others: Vec<crate::ecs::Entity> = self
                     .editor
                     .selected_entities
@@ -573,8 +571,8 @@ impl App {
                     .filter(|&e| e != sel)
                     .collect();
                 for other in others {
-                    if let Some(t) = self.world.get_mut::<crate::components::Transform>(other) {
-                        t.position += delta;
+                    if let Some(t) = self.editor_world_transform(other) {
+                        self.editor_set_world_position(other, t.position + delta);
                     }
                 }
             }
@@ -583,6 +581,85 @@ impl App {
         // ── Release ───────────────────────────────────────────────────────────
         if just_released {
             self.commit_gesture(sel);
+        }
+    }
+
+    /// The transform `e` is **drawn** at: its `GlobalTransform` when the hierarchy has composed
+    /// one, else its own `Transform`. The renderer's policy (`renderer/sprite/collect.rs`) and
+    /// the collision grid's, so the gizmo grabs what the eye sees. Compiled on wasm too — the
+    /// move-only gizmo there drags the same parented entities.
+    pub(in crate::app) fn editor_world_transform(
+        &self,
+        e: crate::ecs::Entity,
+    ) -> Option<crate::components::Transform> {
+        let local = self.world.get::<crate::components::Transform>(e)?;
+        Some(
+            match self.world.get::<crate::hierarchy::GlobalTransform>(e) {
+                Some(g) => crate::components::Transform {
+                    position: g.position,
+                    scale: g.scale,
+                    rotation: g.rotation,
+                    z: g.z,
+                },
+                None => local.clone(),
+            },
+        )
+    }
+
+    /// The parent's world transform, when `e` has a live parent the hierarchy has composed.
+    fn editor_parent_world(
+        &self,
+        e: crate::ecs::Entity,
+    ) -> Option<crate::hierarchy::GlobalTransform> {
+        let parent = self.world.get::<crate::hierarchy::Parent>(e)?.0;
+        self.world
+            .get::<crate::hierarchy::GlobalTransform>(parent)
+            .copied()
+    }
+
+    /// Writes a **world** position onto `e`'s local `Transform`, inverting the parent's transform
+    /// when it has one. Exact: the same matrix `hierarchy::compose` multiplies by, inverted.
+    fn editor_set_world_position(&mut self, e: crate::ecs::Entity, world_pos: glam::Vec2) {
+        let local = match self.editor_parent_world(e) {
+            Some(p) => {
+                let v =
+                    p.to_matrix().inverse() * glam::Vec4::new(world_pos.x, world_pos.y, 0.0, 1.0);
+                glam::Vec2::new(v.x, v.y)
+            }
+            None => world_pos,
+        };
+        if let Some(t) = self.world.get_mut::<crate::components::Transform>(e) {
+            t.position = local;
+        }
+    }
+
+    /// Writes a **world** scale onto `e`'s local `Transform`, dividing out the parent's.
+    ///
+    /// ⚠️ Component-wise, which is exact only while the parent is unrotated or scaled uniformly.
+    /// A rotated parent with non-uniform scale shears, and `GlobalTransform` cannot represent
+    /// shear either — `hierarchy::compose` decomposes the product the same lossy way. A zero
+    /// parent scale leaves the local scale alone rather than producing an infinity.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn editor_set_world_scale(&mut self, e: crate::ecs::Entity, world_scale: glam::Vec2) {
+        let local = match self.editor_parent_world(e) {
+            Some(p) if p.scale.x.abs() > 1e-6 && p.scale.y.abs() > 1e-6 => world_scale / p.scale,
+            Some(_) => return,
+            None => world_scale,
+        };
+        if let Some(t) = self.world.get_mut::<crate::components::Transform>(e) {
+            t.scale = local;
+        }
+    }
+
+    /// Writes a **world** rotation onto `e`'s local `Transform`, subtracting the parent's.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn editor_set_world_rotation(&mut self, e: crate::ecs::Entity, world_rotation: f32) {
+        let local = match self.editor_parent_world(e) {
+            Some(p) => world_rotation - p.rotation,
+            None => world_rotation,
+        };
+        if let Some(t) = self.world.get_mut::<crate::components::Transform>(e) {
+            t.rotation = local;
         }
     }
 
@@ -599,12 +676,12 @@ impl App {
     /// undo on it. No-op when no gesture is active.
     #[cfg(not(target_arch = "wasm32"))]
     fn commit_gesture(&mut self, e: crate::ecs::Entity) {
-        use crate::components::Transform;
         use crate::ui::UiNode;
         let is_ui = self.world.get::<UiNode>(e).is_some();
         if self.editor.rotate_active {
             let old_rotation = self.editor.rotate_start_rotation;
-            if let Some(new_rotation) = self.world.get::<Transform>(e).map(|t| t.rotation) {
+            // World values throughout: the gesture was captured from the drawn transform.
+            if let Some(new_rotation) = self.editor_world_transform(e).map(|t| t.rotation) {
                 if (new_rotation - old_rotation).abs() > 1e-4 {
                     self.editor.cmd_history.push(EditorCmd::RotateEntity {
                         entity: e,
@@ -634,7 +711,7 @@ impl App {
                 }
             } else {
                 let old_scale = self.editor.resize_drag_start_scale;
-                if let Some(new_scale) = self.world.get::<Transform>(e).map(|t| t.scale) {
+                if let Some(new_scale) = self.editor_world_transform(e).map(|t| t.scale) {
                     if (new_scale - old_scale).length_squared() > 0.01 {
                         self.editor.cmd_history.push(EditorCmd::ResizeEntity {
                             entity: e,
@@ -660,7 +737,7 @@ impl App {
                 // The whole group: every selected entity moved by the same delta.
                 let starts = std::mem::take(&mut self.editor.gizmo_drag_start_positions);
                 for (entity, old_pos) in starts {
-                    if let Some(new_pos) = self.world.get::<Transform>(entity).map(|t| t.position) {
+                    if let Some(new_pos) = self.editor_world_transform(entity).map(|t| t.position) {
                         if (new_pos - old_pos).length_squared() > 0.01 {
                             self.editor.cmd_history.push(EditorCmd::MoveEntity {
                                 entity,
@@ -1027,5 +1104,212 @@ mod tests {
             app.editor.gizmo_dragging,
             "the press guard is no longer gated by the stale flag"
         );
+    }
+
+    // ── A parented entity is grabbed where it is drawn ────────────────────────
+
+    /// P at (500, 300), C local (16, 0) under it, so C draws at (516, 300). Everything the
+    /// gizmo does with `sel` starts from that composed transform.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn parented_pair(
+        app: &mut crate::app::App,
+        parent_rotation: f32,
+        parent_scale: glam::Vec2,
+    ) -> (crate::ecs::Entity, crate::ecs::Entity) {
+        let p = app.world.spawn();
+        app.world.add_component(
+            p,
+            crate::components::Transform::new(
+                glam::Vec2::new(500.0, 300.0),
+                parent_scale,
+                parent_rotation,
+            ),
+        );
+        let c = app.world.spawn();
+        app.world.add_component(
+            c,
+            crate::components::Transform::new(
+                glam::Vec2::new(16.0, 0.0),
+                glam::Vec2::splat(20.0),
+                0.0,
+            ),
+        );
+        assert!(crate::hierarchy::reparent(&mut app.world, c, Some(p)));
+        hierarchy_pass(app);
+        (p, c)
+    }
+
+    /// One `HierarchySystem` pass, which is what recomputes `GlobalTransform`. A drag writes the
+    /// LOCAL transform; the world one it is drawn at only catches up on the next frame's pass, so
+    /// a test that asserts a world position after a drag has to run this the way a frame does.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn hierarchy_pass(app: &mut crate::app::App) {
+        use crate::ecs::System;
+        crate::hierarchy::HierarchySystem::default().run(&mut app.world, 0.0);
+    }
+
+    /// The gizmo hit-tested and highlighted a parented entity at its LOCAL `Transform.position`,
+    /// which is only its offset from the parent — so the box sat near the world origin while the
+    /// sprite drew on the parent, and a press on what you can see started nothing.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_parented_entity_is_grabbed_where_it_is_drawn() {
+        let mut app = crate::app::App::new();
+        let (_, c) = parented_pair(&mut app, 0.0, glam::Vec2::ONE);
+        select(&mut app, c);
+        let drawn = app
+            .editor_world_transform(c)
+            .expect("the child has a transform");
+        assert_eq!(
+            drawn.position,
+            glam::Vec2::new(516.0, 300.0),
+            "precondition: the child is drawn on the parent, not at its offset"
+        );
+
+        // A press on the sprite the eye sees.
+        app.update_transform_gizmo_native(c, drawn.clone(), drawn.position, true, false, false);
+        assert!(
+            app.editor.gizmo_dragging,
+            "a press on the drawn sprite must start the drag"
+        );
+
+        // Dragging 10 to the right puts it there in WORLD space, and its local offset is what
+        // the parent-relative value has to be.
+        app.update_transform_gizmo_native(
+            c,
+            drawn,
+            glam::Vec2::new(526.0, 300.0),
+            false,
+            true,
+            false,
+        );
+        hierarchy_pass(&mut app);
+        assert_eq!(
+            app.editor_world_transform(c).unwrap().position,
+            glam::Vec2::new(526.0, 300.0),
+            "the drag lands under the cursor once the frame's hierarchy pass runs"
+        );
+        assert_eq!(
+            app.world
+                .get::<crate::components::Transform>(c)
+                .unwrap()
+                .position,
+            glam::Vec2::new(26.0, 0.0),
+            "and what is written is the local offset, not the world position"
+        );
+    }
+
+    /// The parent's rotation and scale go through the same inverse. A quarter turn and a doubling
+    /// make the local offset something a subtraction could not produce.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_drag_under_a_rotated_scaled_parent_writes_the_right_local_offset() {
+        use std::f32::consts::FRAC_PI_2;
+        let mut app = crate::app::App::new();
+        let (_, c) = parented_pair(&mut app, FRAC_PI_2, glam::Vec2::splat(2.0));
+        select(&mut app, c);
+        let drawn = app.editor_world_transform(c).unwrap();
+
+        // Put it at a world position 40 above the parent (engine Y is down, so -40).
+        let target = glam::Vec2::new(500.0, 260.0);
+        app.update_transform_gizmo_native(c, drawn.clone(), drawn.position, true, false, false);
+        app.update_transform_gizmo_native(c, drawn, target, false, true, false);
+
+        hierarchy_pass(&mut app);
+        let got = app.editor_world_transform(c).unwrap().position;
+        assert!(
+            (got - target).length() < 1e-3,
+            "the drag lands where the cursor is: {got:?} vs {target:?}"
+        );
+        // parent = rotate(+90°) ∘ scale(2). Inverting: local = R(-90°) * (world - p) / 2
+        // = R(-90°) * (0, -40) / 2 = (-20, 0).
+        let local = app
+            .world
+            .get::<crate::components::Transform>(c)
+            .unwrap()
+            .position;
+        assert!(
+            (local - glam::Vec2::new(-20.0, 0.0)).length() < 1e-3,
+            "the local offset inverts the parent's rotation AND scale: {local:?}"
+        );
+    }
+
+    /// The half the two tests above cannot reach: they hand `update_transform_gizmo_native` a
+    /// transform, so the **read** is theirs, not the gizmo's. This one presses a real mouse
+    /// through `update_editor_gizmo`, which is where the gizmo decides what transform to grab.
+    ///
+    /// The control is the point: a press at the child's LOCAL offset — where the box used to be
+    /// drawn, near the world origin — must now start nothing.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn the_gizmo_grabs_at_the_drawn_position_not_the_local_one() {
+        let press_at = |app: &mut crate::app::App, x: f32, y: f32| {
+            app.editor.clear_drag_state();
+            let inp = app
+                .world
+                .resource_mut::<crate::input::InputState>()
+                .expect("App::new inserts InputState");
+            inp.flush();
+            inp.set_cursor(glam::Vec2::new(x, y));
+            inp.press_mouse(winit::event::MouseButton::Left);
+            app.update_editor_gizmo(&None);
+            app.editor.gizmo_dragging
+        };
+
+        let mut app = crate::app::App::new();
+        // Identity screen→world.
+        app.world
+            .insert_resource(crate::camera::Camera::new(glam::Vec2::ZERO, 1.0));
+        app.editor.mode = crate::app::editor::EditorMode::Overlay;
+        let (_, c) = parented_pair(&mut app, 0.0, glam::Vec2::ONE);
+        select(&mut app, c);
+
+        assert!(
+            press_at(&mut app, 516.0, 300.0),
+            "a press on the sprite the eye sees must start the drag"
+        );
+        assert!(
+            !press_at(&mut app, 16.0, 0.0),
+            "and a press at the local offset — where the box used to be — must not"
+        );
+
+        // Control: for an unparented entity the two are the same place, and it still grabs.
+        let mut app = crate::app::App::new();
+        app.world
+            .insert_resource(crate::camera::Camera::new(glam::Vec2::ZERO, 1.0));
+        app.editor.mode = crate::app::editor::EditorMode::Overlay;
+        let (a, _) = spawn_at(&mut app, glam::Vec2::new(16.0, 0.0));
+        select(&mut app, a);
+        assert!(
+            press_at(&mut app, 16.0, 0.0),
+            "control: an unparented entity is grabbed at its own position"
+        );
+    }
+
+    /// Control: an unparented entity is unchanged by all of this — its world transform is its
+    /// own, and the drag writes the world position straight through.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn an_unparented_entity_still_drags_in_world_space() {
+        let mut app = crate::app::App::new();
+        let (a, tra) = spawn_at(&mut app, glam::Vec2::new(100.0, 100.0));
+        select(&mut app, a);
+        app.update_transform_gizmo_native(
+            a,
+            tra.clone(),
+            glam::Vec2::new(100.0, 100.0),
+            true,
+            false,
+            false,
+        );
+        app.update_transform_gizmo_native(
+            a,
+            tra,
+            glam::Vec2::new(140.0, 100.0),
+            false,
+            true,
+            false,
+        );
+        assert_eq!(position(&app, a), glam::Vec2::new(140.0, 100.0));
     }
 }
