@@ -58,10 +58,34 @@ pub(in crate::app) fn point_light_grid(ui: &mut egui::Ui, app: &mut App, sel: cr
     });
 }
 
-/// Edit the global `AmbientLight` resource (color + intensity), inserting a default one first if
-/// the game never set it, so the control is always usable.
+/// Edit the global `AmbientLight` resource (color + intensity), or offer to create one.
+///
+/// ⚠️ **Expanding the header does not insert it.** The resource's *presence* is what switches
+/// the 2D lighting pass on (`App::prepare_lighting` gates on `resource::<AmbientLight>()`),
+/// and the default is WHITE × **0.1** — so inserting one to "make the control usable" dropped
+/// a game that used no lighting to 10 % brightness the moment somebody opened this header to
+/// look, with no editor path back. Turning the pass on is now a button you press (v0.156.21).
 pub(in crate::app) fn ambient_light_control(ui: &mut egui::Ui, app: &mut App) {
-    app.ensure_ambient_light();
+    if app
+        .world
+        .resource::<crate::resources::AmbientLight>()
+        .is_none()
+    {
+        ui.horizontal(|ui| {
+            if ui
+                .button(tr("Enable lighting", "조명 켜기"))
+                .on_hover_text(tr(
+                    "insert an AmbientLight resource — this turns the 2D lighting pass on",
+                    "AmbientLight 리소스를 넣습니다 — 2D 조명 패스가 켜집니다",
+                ))
+                .clicked()
+            {
+                app.ensure_ambient_light();
+            }
+            ui.label(egui::RichText::new(tr("(lighting is off)", "(조명 꺼짐)")).weak());
+        });
+        return;
+    }
     if let Some(amb) = app.world.resource_mut::<crate::resources::AmbientLight>() {
         ui.horizontal(|ui| {
             ui.label(tr("color", "색상"));
