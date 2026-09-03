@@ -225,7 +225,8 @@ pub(in crate::app) struct EditorState {
     pub(in crate::app) gizmo_drag_offset: glam::Vec2,
     /// Result message of the last scene save.
     pub(in crate::app) editor_save_status: Option<String>,
-    /// Current Inspector tab index (0: Entities, 1: Assets).
+    /// Current Inspector tab index: 0 Entities, 1 Assets, 2 Scene. (The third was missing here
+    /// until 2026-09-03.)
     pub(in crate::app) inspector_tab: u8,
 
     /// Multi-selected entity list (includes `inspector_selected`).
@@ -312,8 +313,9 @@ pub(in crate::app) struct EditorState {
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) step_once: bool,
 
-    /// The central viewport rect expressed as `(x, y, width, height)` in logical
-    /// points.  `None` until the first docked frame computes it.
+    /// The central viewport rect, in logical points. `None` until the first docked frame
+    /// computes it. An `egui::Rect` — min and max corners, not the `(x, y, width, height)`
+    /// tuple this said until 2026-09-03.
     ///
     /// Written every docked frame from the real egui panel bounds (`ui/docked::draw`, the
     /// central panel's own response rect), so `None` means the first frames of a session and
@@ -341,7 +343,8 @@ pub(in crate::app) struct EditorState {
     pub(in crate::app) rt_debounce: super::docked_rt::RtDebounce,
 
     // ── Data-table panel fields (native only) ─────────────────────────────────
-    /// Active tab in the bottom panel: 0 = Assets, 1 = Data Tables.
+    /// Active tab in the bottom panel: 0 Assets, 1 Data Tables, 2 Audio. (The third was missing
+    /// here until 2026-09-03.)
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::app) bottom_tab: u8,
     /// Name of the currently selected table in the Data Tables panel.

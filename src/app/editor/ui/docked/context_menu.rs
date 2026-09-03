@@ -23,8 +23,10 @@ impl App {
     /// `AddChild` instead spawns a NEW entity parented under `entity` (via the cycle-safe
     /// [`crate::hierarchy::reparent`]) and selects that child, so it does NOT pre-select `entity`. A
     /// dead entity is a no-op. Drives the same public ops the toolbar/shortcuts use; native-only.
-    /// Module-private (its only callers — `entities_tab_body`/`scene_tab_body` and the tests — live in
-    /// this file), so the private `EntityContextAction` never leaks through a more-public signature.
+    /// `pub(super)` rather than public, so the private `EntityContextAction` never leaks through a
+    /// more-public signature. Its callers are `entities_tab_body`, `scene_tab_body` and this
+    /// file's tests — the first two are in sibling modules, not here, whatever this said before
+    /// 2026-09-03.
     pub(super) fn editor_apply_entity_context_action(
         &mut self,
         entity: Entity,
@@ -108,7 +110,8 @@ pub(super) fn entity_context_menu(
     }
 }
 
-/// Tests for the Entities-list right-click context menu's action dispatch. The egui menu buttons only
+/// Tests for the right-click context menu's action dispatch — the Entities list and the Scene tree
+/// share it. The egui menu buttons only
 /// record `(entity, action)`; `editor_apply_entity_context_action` does the real work — so testing it
 /// directly covers the behaviour without driving egui.
 #[cfg(all(test, not(target_arch = "wasm32")))]

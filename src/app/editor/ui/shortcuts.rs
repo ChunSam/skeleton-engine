@@ -245,7 +245,7 @@ impl App {
             ),
             ("Ctrl+D", "Duplicate selection", "선택 복제"),
             ("Ctrl+S", "Save scene", "씬 저장"),
-            ("Delete", "Delete selection", "선택 삭제"),
+            ("Delete / Backspace", "Delete selection", "선택 삭제"),
             ("F", "Focus camera on selection", "선택으로 카메라 포커스"),
             ("?", "Toggle this cheatsheet", "이 단축키 안내 토글"),
         ];

@@ -540,6 +540,13 @@ impl App {
                         new_scale.y = (start_scale.y + delta.y * 2.0).max(MIN_SPRITE_SCALE);
                     }
                 }
+                // ⚠️ A negative `Transform.scale` is not supported here, and the editor does not
+                // offer one: `MIN_SPRITE_SCALE` floors every arm, so the first frame of a resize
+                // on a flipped sprite un-flips it to 2 px. `Transform`'s own doc steers mirroring
+                // to `SpriteFlip` and warns that a negative scale breaks rotation, so this floor
+                // is the policy rather than an oversight — only the highlight above anticipates
+                // one (`scale.abs()` on the rotation handle). Recorded rather than fixed
+                // (2026-09-03); the resize is undoable, so the cost is one Ctrl+Z.
                 let final_scale = if self.editor.snap_enabled {
                     snap_to_grid(new_scale, self.editor.snap_size)
                         .max(glam::Vec2::splat(MIN_SPRITE_SCALE))
