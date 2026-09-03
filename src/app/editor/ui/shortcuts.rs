@@ -20,10 +20,14 @@ use glam::Vec2;
 #[cfg(not(target_arch = "wasm32"))]
 impl App {
     pub(in crate::app) fn handle_editor_shortcuts(&mut self, ctx: &egui::Context) {
-        // A widget that wants keyboard input (a focused TextEdit, e.g. the scene-path or a data
-        // cell) must keep the bare single-key shortcuts (Delete / F / ?) from firing — otherwise
-        // typing a path would delete the selection or toggle the cheatsheet. Ctrl-combos are left
-        // ungated, matching the existing Ctrl+Z/C/V.
+        // A widget that wants keyboard input — a focused `TextEdit`: the scene path, the rename
+        // box, a data-table cell — takes the keyboard, and **no editor shortcut fires**.
+        //
+        // ⚠️ The Ctrl combos used to be exempt from this, "matching the existing Ctrl+Z/C/V".
+        // But `TextEdit` runs its own Ctrl+Z and does not consume the event, so Ctrl+Z in the
+        // rename box undid a character AND popped a world command off the history — then
+        // `sync_selection_after_history` moved the selection while the box was still bound to
+        // the old row. Ctrl+D duplicated mid-word and Ctrl+S wrote the scene (v0.156.24).
         let typing = ctx.egui_wants_keyboard_input();
         let keys = ctx.input(|i| {
             let ctrl = i.modifiers.ctrl;
@@ -35,12 +39,14 @@ impl App {
                 paste: ctrl && i.key_pressed(egui::Key::V),
                 save: ctrl && i.key_pressed(egui::Key::S),
                 duplicate: ctrl && i.key_pressed(egui::Key::D),
-                // Bare keys: gated on `!typing` below.
                 delete: i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace),
                 focus: i.key_pressed(egui::Key::F),
                 help: shift && i.key_pressed(egui::Key::Slash), // Shift+/ == ?
             }
         });
+        // One gate for all of them, rather than three `&& !typing` at the call sites and none
+        // on the other six.
+        let keys = if typing { Keys::default() } else { keys };
 
         if keys.undo {
             self.editor_undo();
@@ -68,16 +74,16 @@ impl App {
         if keys.duplicate {
             self.editor_duplicate_selection();
         }
-        // Delete / Backspace: delete the current selection (bare key — skip while typing).
-        if keys.delete && !typing {
+        // Delete / Backspace: delete the current selection.
+        if keys.delete {
             self.editor_delete_selection();
         }
-        // F: center the camera on the selected entity (bare key — skip while typing).
-        if keys.focus && !typing {
+        // F: center the camera on the selected entity.
+        if keys.focus {
             self.editor_focus_camera_on_selection();
         }
-        // ? : toggle the keyboard-shortcuts cheatsheet (bare key — skip while typing).
-        if keys.help && !typing {
+        // ? : toggle the keyboard-shortcuts cheatsheet.
+        if keys.help {
             self.editor.show_shortcuts = !self.editor.show_shortcuts;
         }
     }
@@ -355,6 +361,7 @@ impl App {
 
 /// Edge-detected editor-shortcut keys read once per frame from the egui input.
 #[cfg(not(target_arch = "wasm32"))]
+#[derive(Default)]
 struct Keys {
     undo: bool,
     redo: bool,

@@ -4,6 +4,28 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.24
+
+### No editor shortcut fires into a focused text field
+
+The bare keys (Delete, F, ?) were already skipped while a widget wanted the keyboard. The Ctrl
+combos were exempt, with a comment calling that deliberate — but `egui::TextEdit` runs its own
+Ctrl+Z and **does not consume the event**, so Ctrl+Z in the rename box undid a character *and*
+popped a command off the editor's history; `sync_selection_after_history` then moved the selection
+while the box was still bound to the old row. Ctrl+D duplicated the selection mid-word and Ctrl+S
+wrote the scene.
+
+One gate now covers all nine: when `egui_wants_keyboard_input()` is true the key set is
+`Keys::default()`, so nothing fires. That also replaces three `&& !typing` at the call sites with
+one decision, which is why the other six were exempt in the first place — the gate was applied
+where each key was *used* rather than where they were read.
+
+The test drives two real egui frames with a focused `TextEdit` and a Ctrl+Z, and requires the
+history untouched and the world unmoved; the control runs the same two frames with nothing
+focused and requires the undo to happen. ⚠️ **Two frames, not one:** egui carries focus across
+frames, and a `request_focus()` in the same frame is not yet in effect when the shortcut is read.
+Sabotage: exempting the six Ctrl combos again reddens it on the history assertion.
+
 ## 0.156.23
 
 ### Ctrl+D carries what Ctrl+C/V carries, and the Entities tab stops spelling it a second time
