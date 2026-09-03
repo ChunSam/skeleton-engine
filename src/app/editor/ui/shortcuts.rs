@@ -109,7 +109,20 @@ impl App {
     }
 
     /// Paste the EntityDef clipboard (each entity offset +20 px, recorded for undo, then selected).
-    fn editor_paste_clipboard(&mut self) {
+    /// `pub(in crate::app)` so a test can paste without driving egui; Ctrl+V is the only caller.
+    ///
+    /// ⚠️ **A copied parent and child do land under the pasted parent, and that is incidental.**
+    /// `EntityDef` names its parent by tag, and `spawn_entity_def` searches the whole world and
+    /// takes the first match — so with the original still there, two entities answer to the tag.
+    /// Which one wins is decided by `World::query`, which walks **archetypes in creation order**:
+    /// the fresh copy carries fewer components at that instant (no `Children` yet) and sits in an
+    /// earlier archetype than the original, so the copy wins. Nothing states that, and no test
+    /// covered it, so `pasting_a_parent_and_child_keeps_them_together` pins it (v0.156.17).
+    ///
+    /// ⚠️ Redo of one `CreateEntity` respawns its def alone against a world that no longer has a
+    /// batch, so a redone child resolves the tag afresh. That is the tag limitation
+    /// `EditorCmd::DeleteEntity` already documents: a def carries a tag, not a handle.
+    pub(in crate::app) fn editor_paste_clipboard(&mut self) {
         let defs: Vec<crate::prefab::EntityDef> = self.editor.copy_clipboard.clone();
         let mut pasted: Vec<Entity> = Vec::new();
         for mut def in defs {

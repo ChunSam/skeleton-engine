@@ -1820,3 +1820,101 @@ fn a_bad_path_in_the_data_table_panel_reports_and_keeps_what_was_typed() {
     assert!(app.editor.data_table_status.is_none());
     let _ = std::fs::remove_file(&good);
 }
+
+// ── Where a pasted child's parent tag resolves ────────────────────────────────
+
+/// Filed as a defect: "the tag lookup is first-wins and the original precedes the fresh spawn,
+/// so the pasted parent has no child". **It does not reproduce.** A probe on the unmodified
+/// paste path put the copy's parent at the copy, not the original, and so did a second paste.
+///
+/// The reason is `World::query`, which walks archetypes in creation order and then entities
+/// within each: at the instant the copied child resolves its tag, the copied parent has no
+/// `Children` yet and so sits in an earlier archetype than the original, which does. The right
+/// answer therefore comes out of an ordering nothing states. This test is the statement.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn pasting_a_parent_and_child_keeps_them_together() {
+    use crate::hierarchy::{Children, Parent};
+    let mut app = crate::app::App::new();
+    let p = app.world.spawn();
+    app.world.add_component(p, Tag("Boss".into()));
+    app.world
+        .add_component(p, crate::components::Transform::default());
+    let c = app.world.spawn();
+    app.world.add_component(c, Tag("Minion".into()));
+    app.world
+        .add_component(c, crate::components::Transform::default());
+    assert!(crate::hierarchy::reparent(&mut app.world, c, Some(p)));
+
+    // What Ctrl+C does: a def per selected entity, in selection order.
+    app.editor.copy_clipboard = [p, c]
+        .iter()
+        .filter_map(|&e| entity_to_def(&app.world, e))
+        .collect();
+    assert_eq!(
+        app.editor.copy_clipboard[1].parent.as_deref(),
+        Some("Boss"),
+        "precondition: the child's def names its parent by tag, so two entities answer to it"
+    );
+    app.editor_paste_clipboard();
+
+    let pasted = app.editor.selected_entities.clone();
+    assert_eq!(pasted.len(), 2, "two entities pasted");
+    let (p2, c2) = (pasted[0], pasted[1]);
+    assert!(
+        p2 != p && c2 != c,
+        "precondition: the copies are new entities"
+    );
+    assert_eq!(
+        app.world.get::<Parent>(c2).map(|x| x.0),
+        Some(p2),
+        "the pasted child belongs to the pasted parent"
+    );
+    assert_eq!(
+        app.world
+            .get::<Children>(p)
+            .map(|x| x.0.clone())
+            .unwrap_or_default(),
+        vec![c],
+        "and the original parent keeps exactly its own child"
+    );
+
+    // A second paste resolves against a world holding two "Boss" copies already, and still lands
+    // on its own. That is the case the filed row expected to fail.
+    app.editor_paste_clipboard();
+    let again = app.editor.selected_entities.clone();
+    assert_eq!(
+        app.world.get::<Parent>(again[1]).map(|x| x.0),
+        Some(again[0]),
+        "a second paste lands on its own parent too"
+    );
+}
+
+/// The other half of the same tag lookup, and the reason a batch-local map alone would be wrong:
+/// a child whose parent was **not** copied attaches to the original.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn pasting_a_lone_child_still_attaches_to_the_uncopied_parent() {
+    use crate::hierarchy::Parent;
+    let mut app = crate::app::App::new();
+    let p = app.world.spawn();
+    app.world.add_component(p, Tag("Boss".into()));
+    app.world
+        .add_component(p, crate::components::Transform::default());
+    let c = app.world.spawn();
+    app.world.add_component(c, Tag("Minion".into()));
+    app.world
+        .add_component(c, crate::components::Transform::default());
+    assert!(crate::hierarchy::reparent(&mut app.world, c, Some(p)));
+
+    app.editor.copy_clipboard = entity_to_def(&app.world, c).into_iter().collect();
+    app.editor_paste_clipboard();
+
+    let c2 = app.editor.inspector_selected.expect("the paste selects");
+    assert_ne!(c2, c);
+    assert_eq!(
+        app.world.get::<Parent>(c2).map(|x| x.0),
+        Some(p),
+        "with no copied parent in the world to prefer, the original is the only answer"
+    );
+}

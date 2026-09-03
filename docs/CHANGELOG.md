@@ -4,6 +4,33 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.17
+
+### The pasted child already lands on the pasted parent, and now something says so
+
+A filed row said the opposite: "the tag lookup is first-wins and the original precedes the fresh
+spawn, so the pasted parent has no child". **It does not reproduce.** A probe on the unmodified
+paste path put the copy's parent at the copy, and a second paste — with two "Boss" copies already
+in the world — did the same.
+
+The reason is worth more than the row was. `EntityDef` names its parent by tag and
+`spawn_entity_def` searches the whole world first-wins, so two entities genuinely answer to the
+tag. Which one wins is decided by `World::query`, which walks **archetypes in creation order** and
+then entities within each: at the instant the copied child resolves its tag the copied parent has
+no `Children` yet, so it sits in an earlier archetype than the original, which does. The right
+answer comes out of an ordering nothing stated and no test covered.
+
+So the behaviour is unchanged and the fix is a statement: the paste function says why it works,
+and two tests pin it. Sabotage on the lookup itself, since there is no fix to revert: taking the
+**last** match instead of the first reddens the parent-and-child pin alone, and skipping the
+lookup entirely reddens both it and the lone-child pin.
+
+⚠️ **A batch-local tag map was written and then dropped.** It would have made the resolution
+deterministic, but removing it again left both tests green — an unverifiable change to working
+code is exactly what this repo's sabotage rule exists to refuse. The second pin is also why a
+batch-local map could not simply replace the world search: a child whose parent was *not* copied
+must still attach to the original.
+
 ## 0.156.16
 
 ### A typo in the Data Tables panel reports itself instead of aborting the editor
