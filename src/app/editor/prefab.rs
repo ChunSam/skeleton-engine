@@ -29,10 +29,19 @@ pub(in crate::app) fn subtree_to_defs(
         .collect()
 }
 
+/// The `EntityDef` for `entity`, or `None` when it is not alive.
+///
+/// ⚠️ It used to return `Some` unconditionally, so a dead handle produced an all-`None` def
+/// rather than nothing — and the two callers that check for `None`
+/// (`save_selected_as_prefab`'s "No entity to save" arm, `subtree_to_defs`'s
+/// `unwrap_or_default`) were dead branches guarding a case they could not see (v0.156.20).
 pub(in crate::app) fn entity_to_def(
     world: &World,
     entity: Entity,
 ) -> Option<crate::prefab::EntityDef> {
+    if !world.is_alive(entity) {
+        return None;
+    }
     let components = world
         .resource::<crate::prefab::SerdeComponentRegistry>()
         .map(|r| r.serialize_entity(world, entity))

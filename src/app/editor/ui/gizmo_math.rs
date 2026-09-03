@@ -15,23 +15,14 @@ use crate::app::editor::ResizeHandle;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::ui::Anchor;
 
-/// Returns the anchor base position — the point in screen-space from which
-/// `UiNode::offset` is added.  This is the same formula used by
-/// `UiNode::screen_pos` and must be kept in sync with it.
+/// The anchor base position — the screen-space point `UiNode::offset` is added to.
 ///
-/// Factored out so both `UiNode::screen_pos` callers and the resize gizmo
-/// share a single authoritative definition (no drift).
+/// Delegates to [`Anchor::base`], where the formula lives. This was a second copy of that
+/// `match` while this very doc claimed the two were "a single authoritative definition"; they
+/// agreed, and nothing made them (v0.156.20).
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn anchor_base(anchor: Anchor, size: glam::Vec2, vw: f32, vh: f32) -> glam::Vec2 {
-    match anchor {
-        Anchor::TopLeft => glam::Vec2::ZERO,
-        Anchor::TopCenter => glam::Vec2::new((vw - size.x) / 2.0, 0.0),
-        Anchor::TopRight => glam::Vec2::new(vw - size.x, 0.0),
-        Anchor::Center => glam::Vec2::new((vw - size.x) / 2.0, (vh - size.y) / 2.0),
-        Anchor::BottomLeft => glam::Vec2::new(0.0, vh - size.y),
-        Anchor::BottomCenter => glam::Vec2::new((vw - size.x) / 2.0, vh - size.y),
-        Anchor::BottomRight => glam::Vec2::new(vw - size.x, vh - size.y),
-    }
+    anchor.base(size, glam::Vec2::new(vw, vh))
 }
 
 /// Returns the corrected offset after a screen-space drag.

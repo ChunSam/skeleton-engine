@@ -18,6 +18,27 @@ pub enum Anchor {
 }
 
 impl Anchor {
+    /// The screen-space point `UiNode::offset` is added to: the corner or edge midpoint this
+    /// anchor names, for a node of `size` in a viewport of `viewport`.
+    ///
+    /// ⚠️ **The one definition.** [`UiNode::screen_pos`] and the editor's resize gizmo
+    /// (`editor::ui::gizmo_math::anchor_base`) both call it. They were two copies of this
+    /// `match` until v0.156.20, while the gizmo's doc claimed they were one — and the only
+    /// test used the gizmo's copy on both sides of its own assertion.
+    pub fn base(self, size: Vec2, viewport: Vec2) -> Vec2 {
+        let (vw, vh) = (viewport.x, viewport.y);
+        let (w, h) = (size.x, size.y);
+        match self {
+            Anchor::TopLeft => Vec2::ZERO,
+            Anchor::TopCenter => Vec2::new((vw - w) / 2.0, 0.0),
+            Anchor::TopRight => Vec2::new(vw - w, 0.0),
+            Anchor::Center => Vec2::new((vw - w) / 2.0, (vh - h) / 2.0),
+            Anchor::BottomLeft => Vec2::new(0.0, vh - h),
+            Anchor::BottomCenter => Vec2::new((vw - w) / 2.0, vh - h),
+            Anchor::BottomRight => Vec2::new(vw - w, vh - h),
+        }
+    }
+
     /// Maps each variant to a stable integer index (declaration order: 0 = TopLeft … 6 = BottomRight).
     pub fn to_i32(self) -> i32 {
         match self {
@@ -143,18 +164,9 @@ impl UiNode {
 
     /// Returns the absolute top-left screen pixel coordinate of this node given the viewport size.
     pub fn screen_pos(&self, viewport: &ViewportSize) -> Vec2 {
-        let (vw, vh) = (viewport.width, viewport.height);
-        let (w, h) = (self.size.x, self.size.y);
-        let base = match self.anchor {
-            Anchor::TopLeft => Vec2::ZERO,
-            Anchor::TopCenter => Vec2::new((vw - w) / 2.0, 0.0),
-            Anchor::TopRight => Vec2::new(vw - w, 0.0),
-            Anchor::Center => Vec2::new((vw - w) / 2.0, (vh - h) / 2.0),
-            Anchor::BottomLeft => Vec2::new(0.0, vh - h),
-            Anchor::BottomCenter => Vec2::new((vw - w) / 2.0, vh - h),
-            Anchor::BottomRight => Vec2::new(vw - w, vh - h),
-        };
-        base + self.offset
+        self.anchor
+            .base(self.size, Vec2::new(viewport.width, viewport.height))
+            + self.offset
     }
 }
 

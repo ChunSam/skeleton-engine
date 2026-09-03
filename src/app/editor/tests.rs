@@ -1918,3 +1918,65 @@ fn pasting_a_lone_child_still_attaches_to_the_uncopied_parent() {
         "with no copied parent in the world to prefer, the original is the only answer"
     );
 }
+
+// ── Two spellings, and a function that could not say no ───────────────────────
+
+/// `entity_to_def` returned `Some` unconditionally, so a dead handle produced an all-`None` def.
+/// The two callers that check for `None` were dead branches guarding a case they could not see.
+#[test]
+fn entity_to_def_declines_a_dead_entity() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.add_component(e, Tag("Goblin".into()));
+    assert!(
+        entity_to_def(&world, e).is_some(),
+        "control: a live entity still yields a def"
+    );
+    world.despawn(e);
+    assert!(
+        entity_to_def(&world, e).is_none(),
+        "a dead handle yields nothing, not a def of all-None"
+    );
+}
+
+/// `gizmo_math::anchor_base` and `UiNode::screen_pos` each had their own copy of the anchor
+/// `match` while the gizmo's doc called them "a single authoritative definition". They agreed;
+/// nothing made them. Both go through `Anchor::base` now, and this walks every variant.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn the_gizmo_and_the_ui_node_place_every_anchor_the_same() {
+    use crate::ui::{Anchor, UiNode};
+    let vp = crate::resources::ViewportSize::new(800, 600);
+    let size = glam::Vec2::new(120.0, 40.0);
+    let offset = glam::Vec2::new(7.0, -3.0);
+    let anchors = [
+        Anchor::TopLeft,
+        Anchor::TopCenter,
+        Anchor::TopRight,
+        Anchor::Center,
+        Anchor::BottomLeft,
+        Anchor::BottomCenter,
+        Anchor::BottomRight,
+    ];
+    let mut seen = std::collections::HashSet::new();
+    for a in anchors {
+        let node = UiNode {
+            anchor: a,
+            size,
+            offset,
+            ..Default::default()
+        };
+        let from_gizmo = super::ui::anchor_base(a, size, vp.width, vp.height) + offset;
+        assert_eq!(
+            from_gizmo,
+            node.screen_pos(&vp),
+            "{a:?} must place the same in both"
+        );
+        seen.insert((from_gizmo.x.to_bits(), from_gizmo.y.to_bits()));
+    }
+    assert_eq!(
+        seen.len(),
+        7,
+        "control: the seven anchors land in seven different places, so agreeing is not trivial"
+    );
+}
