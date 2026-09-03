@@ -144,6 +144,34 @@ impl App {
         }
     }
 
+    /// Copies onto `dst` what `World::clone_entity` cannot take from `src`: the components only
+    /// the serde registry knows, and the parent link.
+    ///
+    /// The two registries overlap but neither contains the other — see
+    /// [`editor_duplicate_selection`](Self::editor_duplicate_selection). Deserializing on top of a
+    /// clone is safe because the registry's apply is `add_component`, which replaces.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn editor_copy_extras(&mut self, src: Entity, dst: Entity) {
+        let components = self
+            .world
+            .resource::<crate::prefab::SerdeComponentRegistry>()
+            .map(|r| r.serialize_entity(&self.world, src))
+            .unwrap_or_default();
+        if !components.is_empty() {
+            self.world
+                .with_resource_mut::<crate::prefab::SerdeComponentRegistry, _>(
+                    |registry, world| {
+                        registry.deserialize_into(world, dst, &components);
+                    },
+                );
+        }
+        // By handle, not by tag: the duplicate belongs under the original's own parent, and there
+        // is no ambiguity to resolve here.
+        if let Some(parent) = self.world.get::<crate::hierarchy::Parent>(src).map(|p| p.0) {
+            crate::hierarchy::reparent(&mut self.world, dst, Some(parent));
+        }
+    }
+
     /// The entities a selection-scoped action targets: the multi-select list, or the single
     /// `inspector_selected` if the list is empty.
     fn editor_effective_selection(&self) -> Vec<Entity> {
@@ -197,8 +225,23 @@ impl App {
         }
     }
 
-    /// Duplicate every selected entity (clone all components, offset +16 px), record each for undo,
-    /// and select the clones. Backs Ctrl+D.
+    /// Duplicate every selected entity (offset +16 px), record each for undo, and select the
+    /// clones. Backs Ctrl+D and the Entities tab's ⎘ Duplicate button, which calls this rather
+    /// than spelling it a second time.
+    ///
+    /// ⚠️ **A duplicate carries what a copy-paste carries**, which took three sources
+    /// (v0.156.23). `World::clone_entity` copies the `register_clone`d types — that set holds
+    /// `AnimationPlayer` and `Timer`, which nothing else can carry, since neither derives
+    /// `Serialize`. The serde registry holds `PointLight`, `ParticleEmitter`, `TriggerZone` and
+    /// friends, which `clone_entity` does not. And neither carries the parent link. So: clone,
+    /// then apply the original's serde components on top (`add_component` replaces, so the
+    /// overlap is harmless), then attach to the original's own parent — by **handle**, which is
+    /// better than the paste path's tag lookup can do.
+    ///
+    /// ⚠️ **Redo of a duplicate is lossier than the duplicate.** `EditorCmd::CreateEntity`
+    /// respawns from an `EntityDef`, which carries the named fields, the serde components and a
+    /// parent *tag* — so a redone duplicate loses `AnimationPlayer` and `Timer`, and lands on a
+    /// parent found by tag. That is the def's limitation, the same one `DeleteEntity` documents.
     pub(in crate::app) fn editor_duplicate_selection(&mut self) {
         let mut clones: Vec<Entity> = Vec::new();
         for e in self.editor_effective_selection() {
@@ -206,6 +249,7 @@ impl App {
                 if let Some(t) = self.world.get_mut::<Transform>(new_entity) {
                     t.position += Vec2::new(16.0, 16.0);
                 }
+                self.editor_copy_extras(e, new_entity);
                 let def = entity_to_def(&self.world, new_entity);
                 self.editor.cmd_history.push(EditorCmd::CreateEntity {
                     entity: new_entity,

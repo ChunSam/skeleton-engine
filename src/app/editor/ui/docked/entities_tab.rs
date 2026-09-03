@@ -56,24 +56,11 @@ pub(in crate::app) fn entities_tab_body(
                 .add_enabled(true, egui::Button::new(tr("⎘ Duplicate", "⎘ 복제")))
                 .clicked()
             {
-                if let Some(new_entity) = app.world.clone_entity(sel) {
-                    if let Some(t) = app
-                        .world
-                        .get_mut::<crate::components::Transform>(new_entity)
-                    {
-                        t.position += glam::Vec2::new(16.0, 16.0);
-                    }
-                    app.editor.inspector_selected = Some(new_entity);
-                    app.editor.selected_entities = vec![new_entity];
-                    // Capture the def after offset so redo restores the same position.
-                    let def = super::super::entity_to_def(&app.world, new_entity);
-                    app.editor
-                        .cmd_history
-                        .push(super::super::EditorCmd::CreateEntity {
-                            entity: new_entity,
-                            def,
-                        });
-                }
+                // The same op as Ctrl+D, not a second spelling of it: this one copied only the
+                // `register_clone`d components and dropped the parent (v0.156.23).
+                app.editor.selected_entities = vec![sel];
+                app.editor.inspector_selected = Some(sel);
+                app.editor_duplicate_selection();
             }
         }
     });

@@ -4,6 +4,37 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.23
+
+### Ctrl+D carries what Ctrl+C/V carries, and the Entities tab stops spelling it a second time
+
+Duplicate used `World::clone_entity` alone, which copies the `register_clone`d types. Copy-paste
+round-trips through the serde registry plus a parent tag. The two sets overlap and neither
+contains the other, so a duplicate silently lost whatever only the other side knew: a `PointLight`
+or `ParticleEmitter` vanished from the copy, and the copy landed as a **root** — duplicating a
+child at local `(16, 0)` under a parent at `(500, 300)` put it about 500 px away with no parent.
+The doc said "clone all components".
+
+⚠️ **Unifying on the paste path outright would have traded one loss for another.** `clone_entity`
+carries `AnimationPlayer` and `Timer`, and neither derives `Serialize`, so an `EntityDef` cannot
+hold them — a def-only duplicate would drop an entity's animation. So the fix takes all three
+sources: clone first, apply the original's serde components on top (the registry's apply is
+`add_component`, which replaces, so the overlap is harmless), then attach to the original's own
+parent **by handle** — which is better than the paste path's tag lookup can manage.
+
+The Entities tab's ⎘ Duplicate button was a hand-rolled second copy of the same operation, with
+the same two gaps. It calls `editor_duplicate_selection` now.
+
+⚠️ **Redo of a duplicate is lossier than the duplicate.** `EditorCmd::CreateEntity` respawns from
+an `EntityDef`, so a redone duplicate loses `AnimationPlayer` and `Timer` and finds its parent by
+tag. That is the def's limitation, the same one `DeleteEntity` already documents, and it is now
+stated where the duplicate is made.
+
+The test duplicates a child carrying a `PointLight` (serde-only) and an `AnimationPlayer`
+(clone-only) under a parent, and requires all three across, with the original untouched as the
+control. Sabotage: dropping the extras entirely, dropping just the serde half, and dropping just
+the parent each redden it on their own assertion.
+
 ## 0.156.22
 
 ### The gizmo's handles are a fixed size on screen, so a small entity can be dragged
