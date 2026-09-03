@@ -300,7 +300,10 @@ impl EditorHistory {
             EditorCmd::Reparent {
                 entity, old_parent, ..
             } => {
-                crate::hierarchy::reparent(world, *entity, *old_parent);
+                // World-preserving, like the drag that made it: the local position was
+                // re-derived then, so a plain `reparent` here would move the entity rather
+                // than put it back.
+                crate::hierarchy::reparent_keeping_world_position(world, *entity, *old_parent);
                 *selected = Some(*entity);
             }
         }
@@ -402,7 +405,7 @@ impl EditorHistory {
             EditorCmd::Reparent {
                 entity, new_parent, ..
             } => {
-                crate::hierarchy::reparent(world, *entity, *new_parent);
+                crate::hierarchy::reparent_keeping_world_position(world, *entity, *new_parent);
                 *selected = Some(*entity);
             }
         }

@@ -137,6 +137,54 @@ pub fn despawn_recursive(world: &mut World, root: Entity) {
     world.despawn(root);
 }
 
+/// The local position that puts `child` at `world_pos`, given whatever parent it has now.
+///
+/// The inverse of what this module's `compose` multiplies by, so a rotated and scaled parent is
+/// exact. With no parent — or a parent the hierarchy has not composed yet — the local position *is*
+/// the world one.
+pub fn world_to_local_position(world: &World, child: Entity, world_pos: Vec2) -> Vec2 {
+    let Some(parent) = world.get::<Parent>(child).map(|p| p.0) else {
+        return world_pos;
+    };
+    let Some(pg) = world.get::<GlobalTransform>(parent) else {
+        return world_pos;
+    };
+    let v = pg.to_matrix().inverse() * glam::Vec4::new(world_pos.x, world_pos.y, 0.0, 1.0);
+    Vec2::new(v.x, v.y)
+}
+
+/// [`reparent`], but the child stays where it is **on screen**: its local `Transform.position` is
+/// re-derived so the new parent composes back to the world position it had.
+///
+/// `reparent` keeps the local position, so a root at `(500, 316)` dropped onto a parent at
+/// `(500, 300)` jumps to `(1000, 616)`. That is right for code that means an offset and wrong for a
+/// drag someone just performed, which is why the editor's Scene tree calls this one (v0.156.25).
+///
+/// Returns what `reparent` returns; a refused move changes nothing at all. The world position is
+/// read from `GlobalTransform` when the hierarchy has composed one, else from `Transform` — so a
+/// child whose parent moved since the last `HierarchySystem` pass is preserved at where it was
+/// last **drawn**, which is what the person dragging it sees.
+pub fn reparent_keeping_world_position(
+    world: &mut World,
+    child: Entity,
+    new_parent: Option<Entity>,
+) -> bool {
+    let before = world
+        .get::<GlobalTransform>(child)
+        .map(|g| g.position)
+        .or_else(|| world.get::<Transform>(child).map(|t| t.position));
+    if !reparent(world, child, new_parent) {
+        return false;
+    }
+    if let Some(before) = before {
+        let local = world_to_local_position(world, child, before);
+        if let Some(t) = world.get_mut::<Transform>(child) {
+            t.position = local;
+        }
+    }
+    true
+}
+
 /// Re-parents `child` under `new_parent` (or detaches it to a root when `new_parent` is `None`),
 /// maintaining both the `Parent` and `Children` lists and **preventing cycles**.
 ///
@@ -148,7 +196,8 @@ pub fn despawn_recursive(world: &mut World, root: Entity) {
 ///
 /// Otherwise the child is detached from its old parent, attached to the new one (or left detached
 /// for `None`), and `true` is returned. The child keeps its **local** `Transform`, so its world
-/// position shifts to be relative to the new parent — matching [`attach`].
+/// position shifts to be relative to the new parent — matching [`attach`]. Use
+/// [`reparent_keeping_world_position`] when the child should stay where it is on screen.
 pub fn reparent(world: &mut World, child: Entity, new_parent: Option<Entity>) -> bool {
     let current = world.get::<Parent>(child).map(|p| p.0);
     match new_parent {

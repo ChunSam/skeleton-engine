@@ -4,6 +4,37 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.25
+
+### A Scene-tree drag re-parents without moving the entity on screen
+
+`hierarchy::reparent` keeps the child's local `Transform`, so its world position shifts to be
+relative to the new parent: a root at `(500, 316)` dropped onto a parent at `(500, 300)` jumped to
+`(1000, 616)`. That is right for code that means an offset, and wrong for a drag someone just
+performed — and `reparent.rs` never said which it was doing.
+
+New **`hierarchy::reparent_keeping_world_position`**: the same cycle-safe move, with the local
+position re-derived afterwards so the composed world position is what it was. The editor's
+drag calls it, and so do `EditorCmd::Reparent`'s undo and redo — a plain `reparent` on undo would
+*move* the entity, because the drag had already re-derived its local position.
+
+The inverse itself is **`hierarchy::world_to_local_position`**, public and beside `compose`, which
+is what it inverts. The gizmo's world-position write (v0.156.18) calls it too, so the two places
+that convert between the spaces cannot drift apart.
+
+The test drags a root under a parent and requires its `GlobalTransform` unchanged after a
+hierarchy pass, its local position to be the new offset, and undo *and* redo to leave it where it
+is drawn. The control is the raw `hierarchy::reparent`, which still jumps to `(1000, 616)` — so
+the preservation is the editor's doing rather than something the hierarchy now does for everyone.
+Sabotage: the drag on the plain call, the compensation skipped inside the helper, and undo on the
+plain call each redden it, the first two on the drag assertion and the third on undo's.
+
+⚠️ **Moving the position write out left `editor_parent_world` with no wasm caller**, and the gate's
+wasm clippy said so — its other two callers, the scale and rotation writes, are native-only. It
+carries the same `cfg` now. That is the fourth wasm finding in five releases, and every one has
+been the same shape: a native-only neighbour changing under something the wasm build still
+compiles.
+
 ## 0.156.24
 
 ### No editor shortcut fires into a focused text field
