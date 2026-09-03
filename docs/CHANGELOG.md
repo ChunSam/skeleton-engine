@@ -4,6 +4,41 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.22
+
+### The gizmo's handles are a fixed size on screen, so a small entity can be dragged
+
+`HANDLE_HIT_RADIUS` is documented as logical pixels and the UI gizmo treats it that way. The
+Transform gizmo works in world units and used the number as-is, so the eight handles each claimed
+an eight-**world**-unit disc: every interior point of anything 16 units or smaller was inside one,
+the first match won, and a 16×16 tile — exactly what `TilemapSystem` spawns — could never be
+dragged. Zooming in did not help, because the radius did not shrink with the zoom.
+
+`hit_test_handles` takes the radius as a parameter now. The UI gizmo passes the constant (it is
+already in logical pixels); the Transform gizmo passes it divided by the camera zoom, and does the
+same for the rotation handle. At zoom 1 the behaviour is unchanged; at zoom 4 the grab area is a
+quarter of the world units, which is what "a fixed size on screen" means.
+
+`Camera::safe_zoom` is public for this — the guarded zoom every conversion on that type already
+divides by. The alternative was spelling the divide-by-zero guard a second time in the editor,
+which is the drift this release series keeps removing.
+
+Two tests, because one could not do it. `a_small_entity_gets_a_move_region_when_zoomed_in` is
+pure: at eight units the centre of a 16×16 entity is a handle, at two units it is free, and the
+corner still grabs as the control. But the *gizmo* is what divides by the zoom, so a sabotage
+there left that test green — `a_small_entity_can_be_dragged_once_zoomed_in` presses a real mouse
+through `update_editor_gizmo` at zoom 1 (no drag, the defect) and zoom 4 (a drag), and reddens.
+
+⚠️ **Only the hit radii are zoom-corrected, not the drawn handles or the rotation handle's gap.**
+Those are world-unit sizes in the Transform gizmo's `DebugDraw` calls, so they still grow and
+shrink with the zoom. The grab area matching the drawn square at every zoom would be a second
+change; this one is about being able to grab at all.
+
+⚠️ **The gate's wasm clippy caught the third one of these in three releases.** `zoom` is read only
+by the native arm — the wasm gizmo is move-only and has no handles — so a wasm build saw an unused
+binding. It carries a `cfg_attr` allow for that target rather than an underscore, because the
+native arm does use it and renaming would hide that.
+
 ## 0.156.21
 
 ### Opening the Ambient Light header no longer switches the lighting pass on

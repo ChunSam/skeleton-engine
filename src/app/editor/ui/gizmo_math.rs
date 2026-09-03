@@ -52,15 +52,22 @@ pub(super) const MIN_SPRITE_SCALE: f32 = 2.0;
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) const HANDLE_SIZE: f32 = 6.0;
 
-/// Hit-test radius around a handle centre (logical pixels).
+/// Hit-test radius around a handle centre, in **logical pixels**.
+///
+/// ⚠️ The UI gizmo works in logical pixels and can use this directly; the Transform gizmo works
+/// in world units and must divide by the camera zoom. It did not until v0.156.22, so eight
+/// WORLD units of handle covered every interior point of anything 16 units or smaller — a
+/// 16×16 tile had no move region at any zoom, because zooming in did not shrink the radius.
 #[cfg(not(target_arch = "wasm32"))]
-const HANDLE_HIT_RADIUS: f32 = 8.0;
+pub(super) const HANDLE_HIT_RADIUS: f32 = 8.0;
 
 /// Gap (world units) between the entity's top edge and the rotation handle.
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) const ROT_HANDLE_GAP: f32 = 16.0;
 
-/// Hit-test radius (world units) around the rotation handle.
+/// Hit-test radius around the rotation handle, in **logical pixels** — the Transform gizmo
+/// divides it by the camera zoom, like [`HANDLE_HIT_RADIUS`]. It was world units until
+/// v0.156.22, so the rotation handle's grab area grew and shrank with the zoom.
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) const ROT_HIT_RADIUS: f32 = 8.0;
 
@@ -127,13 +134,16 @@ pub(crate) fn handle_centers(pos: glam::Vec2, size: glam::Vec2) -> [glam::Vec2; 
     ]
 }
 
-/// Hit-test the 8 resize handles; returns the first one whose centre is within
-/// `HANDLE_HIT_RADIUS` of `cursor`, or `None`.
+/// Hit-test the 8 resize handles; returns the first one whose centre is within `radius` of
+/// `cursor`, or `None`. Everything is in one space — logical pixels for the UI gizmo, world
+/// units for the Transform one, which passes [`HANDLE_HIT_RADIUS`] divided by the camera zoom
+/// so the grab area is the same size on screen at any zoom (v0.156.22).
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn hit_test_handles(
     pos: glam::Vec2,
     size: glam::Vec2,
     cursor: glam::Vec2,
+    radius: f32,
 ) -> Option<ResizeHandle> {
     use ResizeHandle::*;
     let centres = handle_centers(pos, size);
@@ -148,7 +158,7 @@ pub(crate) fn hit_test_handles(
         BottomRight,
     ];
     for (c, v) in centres.iter().zip(variants.iter()) {
-        if (cursor - *c).length() <= HANDLE_HIT_RADIUS {
+        if (cursor - *c).length() <= radius {
             return Some(*v);
         }
     }
@@ -252,6 +262,34 @@ mod tests {
 
     // ─── handle_centers / hit_test_handles ───────────────────────────────────
 
+    /// A 16-unit entity's every interior point sits within eight units of some handle centre, and
+    /// `hit_test_handles` returns the first match — so at zoom 1 there is no move region at all,
+    /// and before v0.156.22 zooming in did not help because the radius was world units. Passing
+    /// the radius in the caller's space fixes both: at zoom 4 the same press finds the body.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_small_entity_gets_a_move_region_when_zoomed_in() {
+        // A 16×16 entity centred on the origin: top-left (-8, -8).
+        let (pos, size) = (glam::Vec2::splat(-8.0), glam::Vec2::splat(16.0));
+        assert_eq!(
+            hit_test_handles(pos, size, glam::Vec2::ZERO, HANDLE_HIT_RADIUS),
+            Some(ResizeHandle::Top),
+            "precondition: at eight units of radius the centre of a 16×16 entity is a handle"
+        );
+        assert_eq!(
+            hit_test_handles(pos, size, glam::Vec2::ZERO, HANDLE_HIT_RADIUS / 4.0),
+            None,
+            "at zoom 4 the radius is two world units and the centre is free"
+        );
+        // Control: the corner is still a handle at that zoom, so the radius shrank rather than
+        // the hit test breaking.
+        assert_eq!(
+            hit_test_handles(pos, size, pos, HANDLE_HIT_RADIUS / 4.0),
+            Some(ResizeHandle::TopLeft),
+            "control: the corner still grabs"
+        );
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn resize_handle_hit_corners() {
@@ -261,22 +299,22 @@ mod tests {
 
         // Top-left corner.
         assert_eq!(
-            hit_test_handles(pos, size, glam::Vec2::new(50.0, 50.0)),
+            hit_test_handles(pos, size, glam::Vec2::new(50.0, 50.0), HANDLE_HIT_RADIUS),
             Some(ResizeHandle::TopLeft)
         );
         // Top-right corner.
         assert_eq!(
-            hit_test_handles(pos, size, glam::Vec2::new(250.0, 50.0)),
+            hit_test_handles(pos, size, glam::Vec2::new(250.0, 50.0), HANDLE_HIT_RADIUS),
             Some(ResizeHandle::TopRight)
         );
         // Bottom-left corner.
         assert_eq!(
-            hit_test_handles(pos, size, glam::Vec2::new(50.0, 150.0)),
+            hit_test_handles(pos, size, glam::Vec2::new(50.0, 150.0), HANDLE_HIT_RADIUS),
             Some(ResizeHandle::BottomLeft)
         );
         // Bottom-right corner.
         assert_eq!(
-            hit_test_handles(pos, size, glam::Vec2::new(250.0, 150.0)),
+            hit_test_handles(pos, size, glam::Vec2::new(250.0, 150.0), HANDLE_HIT_RADIUS),
             Some(ResizeHandle::BottomRight)
         );
     }
@@ -289,7 +327,7 @@ mod tests {
 
         // Centre of the box — far from any handle.
         assert_eq!(
-            hit_test_handles(pos, size, glam::Vec2::new(150.0, 100.0)),
+            hit_test_handles(pos, size, glam::Vec2::new(150.0, 100.0), HANDLE_HIT_RADIUS),
             None
         );
     }
@@ -302,22 +340,22 @@ mod tests {
 
         // Top edge midpoint: (150, 50).
         assert_eq!(
-            hit_test_handles(pos, size, glam::Vec2::new(150.0, 50.0)),
+            hit_test_handles(pos, size, glam::Vec2::new(150.0, 50.0), HANDLE_HIT_RADIUS),
             Some(ResizeHandle::Top)
         );
         // Right edge midpoint: (250, 100).
         assert_eq!(
-            hit_test_handles(pos, size, glam::Vec2::new(250.0, 100.0)),
+            hit_test_handles(pos, size, glam::Vec2::new(250.0, 100.0), HANDLE_HIT_RADIUS),
             Some(ResizeHandle::Right)
         );
         // Bottom edge midpoint: (150, 150).
         assert_eq!(
-            hit_test_handles(pos, size, glam::Vec2::new(150.0, 150.0)),
+            hit_test_handles(pos, size, glam::Vec2::new(150.0, 150.0), HANDLE_HIT_RADIUS),
             Some(ResizeHandle::Bottom)
         );
         // Left edge midpoint: (50, 100).
         assert_eq!(
-            hit_test_handles(pos, size, glam::Vec2::new(50.0, 100.0)),
+            hit_test_handles(pos, size, glam::Vec2::new(50.0, 100.0), HANDLE_HIT_RADIUS),
             Some(ResizeHandle::Left)
         );
     }
