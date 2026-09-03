@@ -10,8 +10,8 @@ use crate::app::editor::{snap_to_grid, EditorCmd};
 #[cfg(not(target_arch = "wasm32"))]
 use super::gizmo_math::{
     applied_rotation, cursor_angle, handle_centers, hit_test_handles, rotation_handle_pos,
-    ui_drag_new_offset, ui_resize_new_layout, HANDLE_SIZE, MIN_SPRITE_SCALE, MIN_UI_SIZE,
-    ROT_HANDLE_GAP, ROT_HIT_RADIUS, ROT_SNAP,
+    ui_drag_new_offset, ui_resize_new_layout, HANDLE_HIT_RADIUS, HANDLE_SIZE, MIN_SPRITE_SCALE,
+    MIN_UI_SIZE, ROT_HANDLE_GAP, ROT_HIT_RADIUS, ROT_SNAP,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -239,7 +239,9 @@ impl App {
         if just_pressed && !self.editor.gizmo_dragging && self.editor.resize_handle_active.is_none()
         {
             // Try resize handles first (higher priority).
-            if let Some(handle) = hit_test_handles(screen_pos, node.size, cursor) {
+            // Logical pixels throughout in the UI gizmo, so the constant is used as it stands.
+            if let Some(handle) = hit_test_handles(screen_pos, node.size, cursor, HANDLE_HIT_RADIUS)
+            {
                 self.editor.resize_handle_active = Some(handle);
                 self.editor.gesture_entity = Some(sel);
                 self.editor.resize_drag_start_cursor = cursor;
@@ -373,6 +375,7 @@ impl App {
                     .world
                     .resource::<crate::camera::Camera>()
                     .unwrap_or(&cam_default);
+                let zoom = cam.safe_zoom();
                 self.world
                     .resource::<crate::input::InputState>()
                     .map(|inp| {
@@ -380,11 +383,13 @@ impl App {
                         let pressed = inp.mouse_just_pressed(winit::event::MouseButton::Left);
                         let held = inp.is_mouse_pressed(winit::event::MouseButton::Left);
                         let released = inp.mouse_just_released(winit::event::MouseButton::Left);
-                        (world_pos, pressed, held, released)
+                        (world_pos, pressed, held, released, zoom)
                     })
             };
 
-            if let Some((world_pos, just_pressed, held, just_released)) = gizmo_input {
+            // `zoom` sizes the handle hit radii, which only the native gizmo has.
+            #[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
+            if let Some((world_pos, just_pressed, held, just_released, zoom)) = gizmo_input {
                 // Native path: supports group-move, snap, undo, and resize.
                 #[cfg(not(target_arch = "wasm32"))]
                 self.update_transform_gizmo_native(
@@ -394,6 +399,7 @@ impl App {
                     just_pressed,
                     held,
                     just_released,
+                    zoom,
                 );
 
                 // WASM: simple move only.
@@ -429,7 +435,10 @@ impl App {
         }
     }
 
+    /// `zoom` is the camera's, so the handle hit radii can be a constant number of screen
+    /// pixels rather than of world units — see [`HANDLE_HIT_RADIUS`].
     #[cfg(not(target_arch = "wasm32"))]
+    #[allow(clippy::too_many_arguments)]
     pub(in crate::app) fn update_transform_gizmo_native(
         &mut self,
         sel: crate::ecs::Entity,
@@ -438,7 +447,11 @@ impl App {
         just_pressed: bool,
         held: bool,
         just_released: bool,
+        zoom: f32,
     ) {
+        // The radii are logical pixels; at this zoom they are this many world units.
+        let handle_radius = HANDLE_HIT_RADIUS / zoom;
+        let rot_radius = ROT_HIT_RADIUS / zoom;
         // ── Press ─────────────────────────────────────────────────────────────
         if just_pressed
             && !self.editor.gizmo_dragging
@@ -449,12 +462,12 @@ impl App {
             let pos = tr.position - tr.scale * 0.5;
             // Rotation handle has top priority (it sits outside the AABB).
             let rot_handle = rotation_handle_pos(tr.position, tr.scale, ROT_HANDLE_GAP);
-            if (world_pos - rot_handle).length() <= ROT_HIT_RADIUS {
+            if (world_pos - rot_handle).length() <= rot_radius {
                 self.editor.rotate_active = true;
                 self.editor.gesture_entity = Some(sel);
                 self.editor.rotate_start_rotation = tr.rotation;
                 self.editor.rotate_start_angle = cursor_angle(tr.position, world_pos);
-            } else if let Some(handle) = hit_test_handles(pos, tr.scale, world_pos) {
+            } else if let Some(handle) = hit_test_handles(pos, tr.scale, world_pos, handle_radius) {
                 self.editor.resize_handle_active = Some(handle);
                 self.editor.gesture_entity = Some(sel);
                 self.editor.resize_drag_start_cursor = world_pos;
@@ -807,6 +820,7 @@ mod tests {
             true,
             false,
             false,
+            1.0,
         );
         assert!(app.editor.rotate_active, "rotation drag started");
 
@@ -818,6 +832,7 @@ mod tests {
             false,
             true,
             false,
+            1.0,
         );
         let rot = app
             .world
@@ -827,7 +842,15 @@ mod tests {
         assert!((rot - PI / 2.0).abs() < 1e-3, "rotated ~90°, got {rot}");
 
         // Release commits the RotateEntity command.
-        app.update_transform_gizmo_native(e, tr, glam::Vec2::new(26.0, 0.0), false, false, true);
+        app.update_transform_gizmo_native(
+            e,
+            tr,
+            glam::Vec2::new(26.0, 0.0),
+            false,
+            false,
+            true,
+            1.0,
+        );
         assert!(!app.editor.rotate_active);
 
         // Undo reverts to the original rotation.
@@ -877,7 +900,15 @@ mod tests {
         let (e, tr) = select_fresh(&mut app);
 
         // Press the rotation handle at (0, -26) — a drag is now in progress.
-        app.update_transform_gizmo_native(e, tr, glam::Vec2::new(0.0, -26.0), true, false, false);
+        app.update_transform_gizmo_native(
+            e,
+            tr,
+            glam::Vec2::new(0.0, -26.0),
+            true,
+            false,
+            false,
+            1.0,
+        );
         assert!(
             app.editor.rotate_active,
             "precondition: the rotation drag must actually have started, or the rest of this \
@@ -897,7 +928,7 @@ mod tests {
 
         // The observable consequence: a plain move press on a newly selected entity.
         let (e2, tr2) = select_fresh(&mut app);
-        app.update_transform_gizmo_native(e2, tr2, glam::Vec2::ZERO, true, false, false);
+        app.update_transform_gizmo_native(e2, tr2, glam::Vec2::ZERO, true, false, false, 1.0);
         assert!(
             app.editor.gizmo_dragging,
             "a press well inside the AABB was refused — the stale flag is still gating the \
@@ -908,7 +939,7 @@ mod tests {
         // could not have meant "the press coordinates were wrong".
         let mut clean = crate::app::App::new();
         let (c, trc) = select_fresh(&mut clean);
-        clean.update_transform_gizmo_native(c, trc, glam::Vec2::ZERO, true, false, false);
+        clean.update_transform_gizmo_native(c, trc, glam::Vec2::ZERO, true, false, false, 1.0);
         assert!(
             clean.editor.gizmo_dragging,
             "control: this press must be accepted on a clean App, or the assertion above is \
@@ -957,8 +988,24 @@ mod tests {
         select(&mut app, a);
 
         // Press A's body and drag it 10 units right.
-        app.update_transform_gizmo_native(a, tra.clone(), glam::Vec2::ZERO, true, false, false);
-        app.update_transform_gizmo_native(a, tra, glam::Vec2::new(10.0, 0.0), false, true, false);
+        app.update_transform_gizmo_native(
+            a,
+            tra.clone(),
+            glam::Vec2::ZERO,
+            true,
+            false,
+            false,
+            1.0,
+        );
+        app.update_transform_gizmo_native(
+            a,
+            tra,
+            glam::Vec2::new(10.0, 0.0),
+            false,
+            true,
+            false,
+            1.0,
+        );
         assert_eq!(
             position(&app, a),
             glam::Vec2::new(10.0, 0.0),
@@ -1006,6 +1053,7 @@ mod tests {
             false,
             true,
             false,
+            1.0,
         );
         assert_eq!(
             position(&app, b),
@@ -1021,8 +1069,17 @@ mod tests {
             true,
             false,
             false,
+            1.0,
         );
-        app.update_transform_gizmo_native(b, trb, glam::Vec2::new(110.0, 0.0), false, true, false);
+        app.update_transform_gizmo_native(
+            b,
+            trb,
+            glam::Vec2::new(110.0, 0.0),
+            false,
+            true,
+            false,
+            1.0,
+        );
         assert_eq!(position(&app, b), glam::Vec2::new(110.0, 0.0), "control");
     }
 
@@ -1036,8 +1093,24 @@ mod tests {
         let mut app = crate::app::App::new();
         let (a, tra) = spawn_at(&mut app, glam::Vec2::ZERO);
         select(&mut app, a);
-        app.update_transform_gizmo_native(a, tra.clone(), glam::Vec2::ZERO, true, false, false);
-        app.update_transform_gizmo_native(a, tra, glam::Vec2::new(10.0, 0.0), false, true, false);
+        app.update_transform_gizmo_native(
+            a,
+            tra.clone(),
+            glam::Vec2::ZERO,
+            true,
+            false,
+            false,
+            1.0,
+        );
+        app.update_transform_gizmo_native(
+            a,
+            tra,
+            glam::Vec2::new(10.0, 0.0),
+            false,
+            true,
+            false,
+            1.0,
+        );
         assert_eq!(
             position(&app, a),
             glam::Vec2::new(10.0, 0.0),
@@ -1089,7 +1162,15 @@ mod tests {
         let mut app = crate::app::App::new();
         let (a, tra) = spawn_at(&mut app, glam::Vec2::ZERO);
         select(&mut app, a);
-        app.update_transform_gizmo_native(a, tra, glam::Vec2::new(0.0, -26.0), true, false, false);
+        app.update_transform_gizmo_native(
+            a,
+            tra,
+            glam::Vec2::new(0.0, -26.0),
+            true,
+            false,
+            false,
+            1.0,
+        );
         assert!(
             app.editor.rotate_active,
             "precondition: the rotation drag started"
@@ -1106,7 +1187,7 @@ mod tests {
         // Consequence: a fresh entity accepts a press.
         let (b, trb) = spawn_at(&mut app, glam::Vec2::ZERO);
         select(&mut app, b);
-        app.update_transform_gizmo_native(b, trb, glam::Vec2::ZERO, true, false, false);
+        app.update_transform_gizmo_native(b, trb, glam::Vec2::ZERO, true, false, false, 1.0);
         assert!(
             app.editor.gizmo_dragging,
             "the press guard is no longer gated by the stale flag"
@@ -1174,7 +1255,15 @@ mod tests {
         );
 
         // A press on the sprite the eye sees.
-        app.update_transform_gizmo_native(c, drawn.clone(), drawn.position, true, false, false);
+        app.update_transform_gizmo_native(
+            c,
+            drawn.clone(),
+            drawn.position,
+            true,
+            false,
+            false,
+            1.0,
+        );
         assert!(
             app.editor.gizmo_dragging,
             "a press on the drawn sprite must start the drag"
@@ -1189,6 +1278,7 @@ mod tests {
             false,
             true,
             false,
+            1.0,
         );
         hierarchy_pass(&mut app);
         assert_eq!(
@@ -1219,8 +1309,16 @@ mod tests {
 
         // Put it at a world position 40 above the parent (engine Y is down, so -40).
         let target = glam::Vec2::new(500.0, 260.0);
-        app.update_transform_gizmo_native(c, drawn.clone(), drawn.position, true, false, false);
-        app.update_transform_gizmo_native(c, drawn, target, false, true, false);
+        app.update_transform_gizmo_native(
+            c,
+            drawn.clone(),
+            drawn.position,
+            true,
+            false,
+            false,
+            1.0,
+        );
+        app.update_transform_gizmo_native(c, drawn, target, false, true, false, 1.0);
 
         hierarchy_pass(&mut app);
         let got = app.editor_world_transform(c).unwrap().position;
@@ -1293,6 +1391,45 @@ mod tests {
         );
     }
 
+    /// The pure `hit_test_handles` test cannot see this: the gizmo is what divides the radius by
+    /// the camera zoom, and a press has to travel through `update_editor_gizmo` to reach that.
+    /// At zoom 1 a 16×16 entity is all handle; at zoom 4 its middle is a move region.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_small_entity_can_be_dragged_once_zoomed_in() {
+        let press_centre = |zoom: f32| -> bool {
+            let mut app = crate::app::App::new();
+            app.world
+                .insert_resource(crate::camera::Camera::new(glam::Vec2::ZERO, zoom));
+            app.editor.mode = crate::app::editor::EditorMode::Overlay;
+            let e = app.world.spawn();
+            app.world.add_component(
+                e,
+                crate::components::Transform::new(glam::Vec2::ZERO, glam::Vec2::splat(16.0), 0.0),
+            );
+            select(&mut app, e);
+            let inp = app
+                .world
+                .resource_mut::<crate::input::InputState>()
+                .expect("App::new inserts InputState");
+            inp.flush();
+            // The entity's centre is the world origin, which is screen (0,0) at any zoom here.
+            inp.set_cursor(glam::Vec2::ZERO);
+            inp.press_mouse(winit::event::MouseButton::Left);
+            app.update_editor_gizmo(&None);
+            app.editor.gizmo_dragging
+        };
+
+        assert!(
+            !press_centre(1.0),
+            "precondition: at zoom 1 the handles swallow a 16-unit entity, which is the defect"
+        );
+        assert!(
+            press_centre(4.0),
+            "zoomed in, the radius is worth fewer world units and the middle is grabbable"
+        );
+    }
+
     /// Control: an unparented entity is unchanged by all of this — its world transform is its
     /// own, and the drag writes the world position straight through.
     #[cfg(not(target_arch = "wasm32"))]
@@ -1308,6 +1445,7 @@ mod tests {
             true,
             false,
             false,
+            1.0,
         );
         app.update_transform_gizmo_native(
             a,
@@ -1316,6 +1454,7 @@ mod tests {
             false,
             true,
             false,
+            1.0,
         );
         assert_eq!(position(&app, a), glam::Vec2::new(140.0, 100.0));
     }

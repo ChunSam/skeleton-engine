@@ -1696,12 +1696,13 @@ fn a_zero_snap_size_snaps_nothing_instead_of_producing_nan() {
         true,
         false,
         false,
+        1.0,
     );
     assert!(
         app.editor.resize_handle_active.is_some(),
         "precondition: resizing"
     );
-    app.update_transform_gizmo_native(e, tr, glam::Vec2::new(15.0, 0.0), false, true, false);
+    app.update_transform_gizmo_native(e, tr, glam::Vec2::new(15.0, 0.0), false, true, false, 1.0);
     let scale = app
         .world
         .get::<crate::components::Transform>(e)

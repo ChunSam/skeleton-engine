@@ -193,7 +193,11 @@ impl Camera {
     /// 0 (or an abnormally small value), `screen_to_world`/`visible_rect`/`view_proj`
     /// will not emit NaN coordinates.
     #[inline]
-    fn safe_zoom(&self) -> f32 {
+    /// [`zoom`](Self::zoom), guarded against a divide by zero — the value every conversion on
+    /// this type actually divides by. Public since v0.156.22 so a caller that needs the same
+    /// guard (the editor's gizmo, sizing its hit radius in screen pixels) shares this one
+    /// rather than spelling it again.
+    pub fn safe_zoom(&self) -> f32 {
         if self.zoom.abs() < f32::EPSILON {
             f32::EPSILON
         } else {
