@@ -6,9 +6,14 @@
 //! correctly. The Korean translation lives inline next to the English, which keeps the diff local
 //! (no central catalog to keep in sync) and lets a forker read the English at a glance.
 //!
-//! The active [`EditorLocale`] is a thread-local set once per frame from the persisted editor
-//! settings (see [`set_locale`]); `tr` reads it with no extra plumbing through the deeply-nested
-//! egui closures. The editor runs on a single (UI) thread, so a thread-local is sufficient.
+//! The active [`EditorLocale`] is a thread-local set once per frame from `EditorState::locale`
+//! (see [`set_locale`]); `tr` reads it with no extra plumbing through the deeply-nested egui
+//! closures. The editor runs on a single (UI) thread, so a thread-local is sufficient.
+//!
+//! ⚠️ **That in-memory field is not the persisted setting until the editor has been Docked once.**
+//! `editor_settings.ron` is read on exactly one transition — the first Off/Overlay→Docked — so an
+//! F1 overlay session runs on `EditorState::new`'s default (Korean) no matter what the file says.
+//! Docking once and leaving loads and then saves it. Making Overlay honour the file is open work.
 
 // `set_locale` / `EditorLocale::{label, toggled}` are only used by the native editor toolbar; on
 // wasm only `tr` (the shared overlay path) is exercised, so they'd be flagged dead there.
@@ -48,7 +53,8 @@ thread_local! {
 }
 
 /// Sets the active editor locale for the current (UI) thread. Call once at the top of the editor
-/// UI build each frame from the persisted setting so every [`tr`] in that frame agrees.
+/// UI build each frame from `EditorState::locale` so every [`tr`] in that frame agrees — see the
+/// module doc for why that field is not the persisted setting until the editor has been Docked.
 pub(in crate::app) fn set_locale(locale: EditorLocale) {
     ACTIVE.with(|a| a.set(locale));
 }
