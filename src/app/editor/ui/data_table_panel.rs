@@ -13,6 +13,14 @@
 //! borrow. To avoid holding the borrow while calling back into `app` we use the
 //! collect-then-apply pattern: gather pending edits into local structs, drop the
 //! registry borrow, then re-borrow and apply.
+//!
+//! ⚠️ **These edits are not undoable.** They mutate the component directly and push nothing onto
+//! `EditorHistory`, so Ctrl+Z after one undoes whatever gizmo or paint action came *before* it and
+//! leaves this panel's change standing. That is the maintainer's decision, not an oversight —
+//! making them undoable means an editor command per edit kind, and the panels edit structure
+//! (states, keyframes, rows) rather than a value with a clean before/after. The
+//! `the_three_panels_record_nothing_on_the_undo_stack` test pins it, so the day one of them starts
+//! recording is the day this paragraph gets rewritten.
 
 #![cfg(not(target_arch = "wasm32"))]
 
