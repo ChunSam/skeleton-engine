@@ -680,9 +680,13 @@ what turned a guess into a number.
 
 **Both of the remaining two were measured on 2026-08-19, and the archetype row's stated mechanism
 was wrong as well** — a third consecutive reversal in this section, which is the point of the
-advisory rule in `CLAUDE.md`. Instrumentation and the `survivor` input script are kept in
-`.claude/instrumentation.patch` and `.claude/survivor_play.ron` (gitignored); the tree was returned
-byte-identical to HEAD afterwards.
+advisory rule in `CLAUDE.md`. Instrumentation and the `survivor` input script were kept in `.claude/`
+afterwards, and **deleted 2026-09-04** once both were shown dead rather than assumed so: the patch
+no longer applies (`git apply --check` exits 1 on `ecs/world/parallel.rs` and `queries.rs` — it was
+cut against v0.152.x) and the script drove the **pre-deletion** `survivor`, which `survivor_game`
+replaced without its `G`/`B` keys. They were gitignored, so nothing recovers them — but
+re-instrumenting is a handful of `Instant::now()` lines, and this row demands a fresh measurement
+anyway. The tree was returned byte-identical to HEAD after the original run.
 
 | Item | State |
 |---|---|
