@@ -1010,13 +1010,25 @@ search, not context** — measured across 12 working search terms in tracked mar
 control that proves the drop was the archive and not the measurement. Recover anything with
 `git log --diff-filter=D --name-only -- <path>` then `git show <commit>^:<path>`.
 
-⚠️ **Two things this did *not* close.** The four **untracked** local docs in `docs/`
-(`REMAINING_WORK.md`, `PARALLEL_TASKS.md`, `rust_game_engine_plan.md`,
-`ENGINE_REVIEW_FIX_PROMPT.md`) were left alone — they are gitignored, so deleting them has no
-undo, and they are only **1.1%** of the remaining hits (19 of 1749), which is not worth an
-irreversible delete. And the 82% figure is not the whole story: the remaining 18% is
+**The four untracked local docs went too, later the same day.** `REMAINING_WORK.md`,
+`PARALLEL_TASKS.md`, `rust_game_engine_plan.md` and `ENGINE_REVIEW_FIX_PROMPT.md` were first held
+back — gitignored means no undo, and they were only 1.1% of the noise. Auditing them reversed
+that: **zero citations anywhere**, and three of the four named `docs/HANDOFF.md` as "current
+status" — deleted hours earlier, so keeping them would have converted noise into *wrong answers*,
+which is the failure the prune existed to remove. Two (`PARALLEL_TASKS.md`,
+`ENGINE_REVIEW_FIX_PROMPT.md`) addressed a different repository altogether
+(`~/Projects/rust-2d-engine`). Backed up outside the repo first, since there is no `git show` for
+an ignored file: `~/skeleton-engine-local-docs-backup-2026-09-04.tar.gz`. Their four `.gitignore`
+lines went with them. `docs/` is now **15 files, all tracked and live**.
+
+⚠️ **Measuring that delete caught this file adding noise back.** Hits went 1749 → **1733**: the
+four docs were −19, and **+3 came from the paragraph above** naming `verify.sh`, `clippy` and
+`netplay` while reporting the cut. Prose about noise is noise. It is worth the three here, but the
+next person quoting these numbers should re-measure rather than subtract.
+
+⚠️ **What is left is not archive.** The 82% figure is not the whole story — the remaining ~18% is
 `docs/CHANGELOG.md` (727 KB) and this file (157 KB), both live. **Do not reopen archive pruning as
-a noise fix** — what is left is not archive.
+a noise fix.**
 
 **The 2026-09-01 batch — four PRs, one release.** Each home opened and read on 2026-09-02, per
 the rule above; these roll off next session.
