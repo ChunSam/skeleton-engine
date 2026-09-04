@@ -21,7 +21,7 @@ added as a dependency. Read `docs/VISION.md` once — it is the "why" every feat
 | "How do I write this correctly?" | `docs/PATTERNS.md` — architecture patterns + task recipes |
 | "Why does the gate look like that?" | `docs/VERIFICATION.md` — the traps that have actually bitten |
 | "How should I work?" | `docs/AGENT_WORKFLOW.md` (scope/verify/report rules), `docs/AGENT_NOTES.md` (context + subagent heuristics) |
-| "What changed, and why?" | `docs/CHANGELOG.md` (release-facing), `plans/handoffs/` (session history). `docs/HANDOFF.md` is a **frozen** 2026-06-16 record on the pre-reset 10.x version line — not current state |
+| "What changed, and why?" | `docs/CHANGELOG.md` (release-facing) + the commit bodies, which are unusually detailed here. The 207-file `plans/handoffs/` archive and the frozen `docs/HANDOFF.md` were **deleted 2026-09-04** — recover either with `git show <sha>^:<path>`. A mid-task handoff still goes in `plans/handoffs/` |
 | "What should I build next?" | `docs/NEXT_WORK.md` — the live backlog; **start with its board gate**. `docs/ROADMAP.md` for milestones, `docs/PROGRAM_HISTORY.md` for the finished candidate A–O program |
 | GPU render tests | `docs/RENDER_TESTING.md` |
 | User-facing docs | `README.md`, `FORKING.md`. The four Korean HTML docs were deleted 2026-08-20 — they described the pre-deletion examples tree and are to be rewritten |

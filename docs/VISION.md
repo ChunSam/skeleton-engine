@@ -76,8 +76,9 @@ set of **small playable example games**, one per genre/feature area, living in `
 - **Add features in a fork-friendly shape.** Even while prioritizing breadth, new code
   should keep clear module boundaries and extension points, so the "skeleton" stays
   forkable. Breadth first, but not at the cost of leaving an unreadable mess.
-- **Post-v1.0.0 honors semver.** Breaking changes wait for v2.0.0 (see
-  `docs/ENTITY_GENERATION_V2_PLAN.md`).
+- **Post-v1.0.0 honors semver.** Breaking changes wait for v2.0.0. (The generation-checked
+  `Entity` design that motivated this line was `docs/ENTITY_GENERATION_V2_PLAN.md`, deleted
+  2026-09-04 — `git show <sha>^:docs/ENTITY_GENERATION_V2_PLAN.md`.)
 
 Concrete next-work candidates and how the previously "planned" items map to this vision
 live in `docs/NEXT_WORK.md`.

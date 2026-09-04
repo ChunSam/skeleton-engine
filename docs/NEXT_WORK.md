@@ -712,9 +712,11 @@ Kept verbatim rather than trimmed, because each carries a lesson whose only home
 `plans/2026-08-07-analysis-followup.md` had **fourteen** steps, 0 through 13. Steps 1–13 all
 shipped (#438–#450, v0.145.1 → v0.150.0). **Step 0 — re-running the 33 verification agents that
 died on a session limit, so §10's candidates would get the adversarial pass §1–§8 got — did not
-run**, and it left no trace anywhere: `docs/CODE_ANALYSIS_2026-08-07.md` §10 still says only "worth
+run**, and it left no trace anywhere: `docs/CODE_ANALYSIS_2026-08-07.md` §10 said only "worth
 verifying in a follow-up session", which is not a backlog. That is the burial this file exists to
-prevent, so it is written down here instead.
+prevent, so it is written down here instead. ⚠️ **Both files named in this paragraph were deleted
+2026-09-04** with the rest of the pre-reset archive (`git show <sha>^:<path>` recovers them), which
+makes the paragraphs below the only surviving record — the point of having written them here.
 
 §10 was hand-checked against the tree on **2026-08-08** rather than re-run. Its 21 bullets split
 **10 / 1 / 1 / 9**:
@@ -857,16 +859,14 @@ required-check decision above — closed on 2026-08-04, 2026-08-04, and 2026-08-
   tags. So `## 4.3.0` and `## 10.7.0` are real CHANGELOG entries that are **older** than `0.152.0`,
   and a pre-reset doc citing `v8.11.0` is not ahead of `main`. Recorded so the next person who hits
   one does not "correct" a real version into a wrong one — #464 came within a command of doing
-  exactly that. **Do not go marker-ify the other pre-reset docs — they are already covered**, and
-  this was checked rather than assumed. Of the **11** tracked docs last touched before the reset,
-  **6** carry the date in the filename (`CODE_ANALYSIS_2026-06-16.md` and friends) and the other 5
-  open with an explicit status line: `ROADMAP.md` *historical roadmap*, `ENTITY_GENERATION_V2_PLAN.md`
-  *Implemented in v2.0.0*, `CODE_ANALYSIS.md` *Generated 2026-06-05*, `REMOTE_ENTITIES_DESIGN.md`
-  *minimal helper shipped … deliberately deferred*, while `SKELETAL.md` is a feature reference with
-  no status to go stale. `docs/HANDOFF.md` was the only one carrying **no marker of any kind**, which
-  is why it alone needed one. (A first draft of this bullet claimed the others self-mark *by
-  filename*; 5 of 11 do not. The conclusion held, the reason did not — and only listing them showed
-  which.)
+  exactly that. ⚠️ **Most of what this bullet inventoried is gone as of 2026-09-04** — the prune
+  deleted every dated `CODE_ANALYSIS_*`, `ENTITY_GENERATION_V2_PLAN.md`, `CODE_ANALYSIS.md` and
+  `docs/HANDOFF.md`. **The rule outlives its inventory**, because the hazard was never really those
+  docs: `## 4.3.0` and `## 10.7.0` are still real entries in `docs/CHANGELOG.md`, sitting *below*
+  `## 0.11.0` in the same file. Of the pre-reset docs still tracked, `ROADMAP.md` opens *historical
+  roadmap*, `REMOTE_ENTITIES_DESIGN.md` *minimal helper shipped … deliberately deferred*, and
+  `SKELETAL.md` is a feature reference with no status to go stale — all three self-marked, so
+  **do not go marker-ify anything.**
 
 - **CLOSED by removal, not by diagnosis: the native job's 130 s swing was `cargo build --examples`.**
   Kept as a record because three successive versions of this entry got the *cause* wrong while the
@@ -1001,6 +1001,22 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
 > first (Trap 8, and the addendum under *A required check is only real once its job is on `main`*).
 > Rolling off on schedule is the default, not an obligation: an entry whose lesson lives nowhere
 > else **stays until it does**.
+
+**The pre-reset archive is gone (2026-09-04).** 242 files / 4.88 MB: `plans/handoffs/` (207),
+the dead top-level `plans/` feature plans (23), and 12 pre-reset `docs/` snapshots including the
+frozen `docs/HANDOFF.md`. 20 tracked `*.md` remain. The judgement it settles: **these were costing
+search, not context** — measured across 12 working search terms in tracked markdown, hits fell
+6418 → 1139 (**−82%**), with `verify.sh` −94% and `clippy` −97%. `netplay` moved 41 → 41, the
+control that proves the drop was the archive and not the measurement. Recover anything with
+`git log --diff-filter=D --name-only -- <path>` then `git show <commit>^:<path>`.
+
+⚠️ **Two things this did *not* close.** The four **untracked** local docs in `docs/`
+(`REMAINING_WORK.md`, `PARALLEL_TASKS.md`, `rust_game_engine_plan.md`,
+`ENGINE_REVIEW_FIX_PROMPT.md`) were left alone — they are gitignored, so deleting them has no
+undo, and they are only **1.1%** of the remaining hits (19 of 1749), which is not worth an
+irreversible delete. And the 82% figure is not the whole story: the remaining 18% is
+`docs/CHANGELOG.md` (727 KB) and this file (157 KB), both live. **Do not reopen archive pruning as
+a noise fix** — what is left is not archive.
 
 **The 2026-09-01 batch — four PRs, one release.** Each home opened and read on 2026-09-02, per
 the rule above; these roll off next session.

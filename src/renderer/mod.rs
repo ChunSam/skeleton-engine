@@ -23,7 +23,8 @@ pub mod uv;
 ///
 /// Shared between the sprite renderer (`sprite/geometry.rs`) and the GPU-particle
 /// renderer (`gpu_particle.rs`). Both previously held a local copy; deduplicated here
-/// to close the OCP finding noted in `docs/MODULE_COHESION_REVIEW_2026-06-16.md`.
+/// to close an OCP finding from the 2026-06-16 module-cohesion review (that report was
+/// deleted 2026-09-04; the fix it asked for is this type).
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct CameraUniform {

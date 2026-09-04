@@ -194,7 +194,8 @@ Findings on the open questions:
   (`Prediction`) + `predict_shooter.rs` (now uses `engine::SnapshotBuffer<Vec2>`).
 - 4th example (interpolation only, the `SnapshotBuffer` promotion trigger):
   `examples/games/orbital_dodger/` (`SnapshotBuffer<Vec2>` position + `SnapshotBuffer<f32>` spin).
-- Plans: `PLAN_networking-dogfood_deferred-polish_2026-06-09.md` (Phase 2),
-  `PLAN_networking-dogfood_client-prediction-shooter_2026-06-09.md` (the shooter, Phase D).
+- Plans: `plans/handoffs/PLAN_networking-dogfood_deferred-polish_2026-06-09.md` (Phase 2) and
+  `…_client-prediction-shooter_2026-06-09.md` (the shooter, Phase D) — **both deleted 2026-09-04**
+  with the rest of the handoff archive; `git show <sha>^:<path>` still has them.
 - The "fix only the gap the example hits" + "playable example validates the feature" bar:
   `docs/VISION.md`.
