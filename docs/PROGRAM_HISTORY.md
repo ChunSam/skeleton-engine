@@ -287,6 +287,8 @@ ends the wasm work left behind:
 
 ## Deferred follow-ups (not breadth) — see `plans/handoffs/PLAN_networking-dogfood_deferred-polish_2026-06-09.md`
 
+> ⚠️ That PLAN was deleted 2026-09-04 with the handoff archive: `git show <sha>^:<path>`.
+
 These are tracked in the seq-3 PLAN for a future (monitor-on) session; none are breadth gaps:
 
 1. **wasm Retina crispness** ✅ *done (2026-06-09)* — the wasm drawing buffer is now sized to
@@ -420,8 +422,8 @@ Vision criteria: (1) fork-friendly skeleton, (2) genre-agnostic 2D, breadth-firs
 
 | Planned item | Nature | Alignment | Verdict |
 |--------------|--------|-----------|---------|
-| **Entity Generation v2** (`docs/ENTITY_GENERATION_V2_PLAN.md`) | correctness/safety, breaking | Fits the fork-friendly/learning goal, but it is neither breadth nor example-validated; it is a v2-only breaking change | **Cancelled (archived)** — removed from planned work; design preserved in the archived doc for a possible future v2.0.0. |
-| **Dependency security follow-up** (glyphon→lru `RUSTSEC-2026-0002`, `paste` unmaintained) | maintenance/hygiene | Needed for a trustworthy forkable engine, but it is a renderer/wgpu-major migration: high-risk, non-breadth, non-example | **Cancelled (archived)** — removed from planned work; recorded as accepted/known risk in `docs/SECURITY_HARDENING_2026_05.md`. |
+| **Entity Generation v2** (`docs/ENTITY_GENERATION_V2_PLAN.md`) | correctness/safety, breaking | Fits the fork-friendly/learning goal, but it is neither breadth nor example-validated; it is a v2-only breaking change | **Cancelled (archived)** — removed from planned work; the design doc was deleted 2026-09-04 and survives only in git history. |
+| **Dependency security follow-up** (glyphon→lru `RUSTSEC-2026-0002`, `paste` unmaintained) | maintenance/hygiene | Needed for a trustworthy forkable engine, but it is a renderer/wgpu-major migration: high-risk, non-breadth, non-example | **Cancelled (archived)** — removed from planned work; recorded as an accepted/known risk in `docs/SECURITY_HARDENING_2026_05.md`, deleted 2026-09-04 and recoverable from git history. |
 | **2D skeletal animation** | new feature | Directly fits genre-agnostic 2D breadth and is naturally validated by a playable example | **Done** — implemented as candidate **F** (`src/skeletal.rs`, `examples/skeletal_puppet.rs`). |
 
 **Takeaway:** of the three pre-existing planned items, only skeletal animation matched the

@@ -64,7 +64,8 @@ When public API, usage, examples, or release notes are affected, update docs alo
 - Public API descriptions or example changes: `src/lib.rs` re-exports + the `docs/MODULE_MAP.md` row
 - User getting-started steps, requirements, or check commands: `README.md`
 - Changes visible to release users: `docs/CHANGELOG.md`
-- Dev history, architecture decisions, handoff notes: `docs/HANDOFF.md`
+- Dev history and architecture decisions: `docs/CHANGELOG.md` + the commit body. (`docs/HANDOFF.md`
+  was deleted 2026-09-04; a handoff for a *mid-task* stop still goes in `plans/handoffs/`.)
 - Agent operating rules: `CLAUDE.md` summary + details in this document
 
 Content that could push `CLAUDE.md` over 200 lines goes into a new `docs/*.md`, with only a one-line summary and link added to `CLAUDE.md`.
