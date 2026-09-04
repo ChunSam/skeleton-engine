@@ -1030,6 +1030,25 @@ next person quoting these numbers should re-measure rather than subtract.
 `docs/CHANGELOG.md` (727 KB) and this file (157 KB), both live. **Do not reopen archive pruning as
 a noise fix.**
 
+**Deleting a tree from git leaves its *ignored* build output behind, and `git status` will never
+tell you (2026-09-04).** A repo-wide sweep after the prune found **181 MB** of orphaned
+wasm-bindgen output under `examples/`: 13 directories (`audio_facade`, `bloom`, `game_feel`,
+`web_audio`, the old `games/` path, …) holding nothing but `web/pkg/*.wasm` for examples whose
+source went in the 2026-08-19 deletion, plus `examples/wasm/pkg` — a `run_demo` bundle from
+**2026-06-09** for an output path `scripts/build_wasm.sh` stopped writing to (it writes `dist/`).
+All of it was covered by `.gitignore`'s `pkg/`, so it was invisible to every `git status` for three
+months, and it cannot even be rebuilt — the sources are gone.
+
+**The check that finds this**, worth re-running after any tree deletion:
+
+```sh
+for d in <dir>/*/; do echo "$(git ls-files "$d" | wc -l) $(find "$d" -type f | wc -l) $d"; done
+```
+
+A directory with **tracked=0 but files>0** is a leftover. `.gitignore`'s `examples/wasm/pkg/` line
+went with it — dead, and redundant with `pkg/` the whole time (`git check-ignore -v` on a live
+game's `web/pkg` resolves to `pkg/`, so nothing changed for the three that still build).
+
 **The 2026-09-01 batch — four PRs, one release.** Each home opened and read on 2026-09-02, per
 the rule above; these roll off next session.
 
