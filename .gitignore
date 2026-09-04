@@ -1,7 +1,6 @@
 target/
 dist/
 pkg/
-examples/wasm/pkg/
 ._*
 .DS_Store
 *.lock
