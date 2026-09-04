@@ -1061,26 +1061,18 @@ A directory with **tracked=0 but files>0** is a leftover. `.gitignore`'s `exampl
 went with it — dead, and redundant with `pkg/` the whole time (`git check-ignore -v` on a live
 game's `web/pkg` resolves to `pkg/`, so nothing changed for the three that still build).
 
-**The 2026-09-01 batch — four PRs, one release.** Each home opened and read on 2026-09-02, per
-the rule above; these roll off next session.
+**Rolled off 2026-09-04: the 2026-09-01 batch (#527–#530, v0.156.4).** Every home was re-opened
+and read before removing it rather than trusting the entry's own "verified" claim — `docs/CHANGELOG.md`
+§ 0.156.4, `docs/VERIFICATION.md` § *The soak*, § *Trap 10* and its wasm-smoke LISTEN note, plus
+`scripts/soak.sh`'s own detection-floor header (it carries the lesson in the file a reader opens).
+The one row homed **nowhere** did not roll off with them: it is still open above, under *Open — the
+2026-09-01 timing-check review's remainder*. What the batch's closing note carried is homed too —
+`tests/per_frame_alloc.rs` as the instrument, `docs/PATTERNS.md` § *Per-frame scratch buffers* and
+`docs/VERIFICATION.md` § *Sabotage each half separately* as the two rules.
 
-| What it carried | Home, verified 2026-09-02 |
-|---|---|
-| v0.156.4 (#527) — check 6 emits its margins; a dead server is reported as dead, not slow | `docs/CHANGELOG.md` § 0.156.4 |
-| #528 — `scripts/soak.sh`, the nightly `soak.yml`, `selftests.sh --list`; a zero is a detection floor, never a proof | `docs/VERIFICATION.md` § *The soak — `scripts/soak.sh`, a detector, never a proof*, plus the headers of both files |
-| #529 — a workflow that valid YAML could not vouch for; `scripts/lint_workflows.py` as the first `Rustdoc` step | `docs/VERIFICATION.md` § *Trap 10 — valid YAML is not a valid workflow, and only `main` will tell you* |
-| #530 — the smokes wait for the LISTEN; the race filed to justify it did not exist | `docs/VERIFICATION.md` § *wasm smoke checks* — **homed 2026-09-02**; it had no home, so under the rule it could not have rolled off |
-| The review's own item list | **nowhere** — see *Open — the 2026-09-01 timing-check review's remainder* above |
-
-No version bump rode on #528–#530: `scripts/` does not ship, the convention #528 states and #530
-repeats. The 2026-08-24/25 entries that stood here (v0.155.0–v0.155.2) rolled off on 2026-08-28
-with each home verified; the struck-through rows above keep the half of each diagnosis that was
-wrong, which is the half worth re-reading.
-
-⚠️ **Two programs ended here, and the file should stay small now.** The v0.150.x measurement program
-closed with v0.150.7 and the 2026-08-07 analysis with v0.151.1. Nothing from either is open. What
-survives them is instruments and habits, not work: `tests/per_frame_alloc.rs` settles an allocation
-claim in one command, and the two rules they cost have homes of their own — **a measurement is
-worthless until a control proves the instrument can see anything at all** (`docs/PATTERNS.md`
-§ *Per-frame scratch buffers*), and **a fail-path check is worthless until you revert the fix and
-watch it go red** (`docs/VERIFICATION.md` § *Sabotage each half separately*).
+⚠️ **The 2026-09-04 entries above are due next session — but two of them cannot roll off entirely.**
+The archive prune and the handoff-path decision are decisions, and this file *is* their home, so they
+shorten rather than leave. The two procedures they produced were homed in **gitignored** skill
+references — `prose-sweep`'s § 0 pre-deletion audit and `session-cleanup`'s in-repo-leftover check —
+so a tracked one-line pointer has to stay here or nothing records that they exist
+(the standing rule for anything living only in `.claude/`).
