@@ -1030,6 +1030,18 @@ next person quoting these numbers should re-measure rather than subtract.
 `docs/CHANGELOG.md` (727 KB) and this file (157 KB), both live. **Do not reopen archive pruning as
 a noise fix.**
 
+**One handoff path, and it is not tracked (decided 2026-09-04).** The prune left two live
+destinations for a mid-task handoff: the `handoff` skill's `.claude/handoff.md` (15 lines,
+overwritten, gitignored) and this repo's `plans/handoffs/` (committed) — and nothing said which.
+`plans/handoffs/` is retired. **The 2026-08-03 ruling already implied it**: once durable lessons go
+to `PATTERNS`/`VERIFICATION`/`CHANGELOG` and decisions come here, all a handoff still carries is the
+baton — where I stopped, what I folded, what is next — and *a baton is dead the moment it is picked
+up*. The tracked path is what inflated it: a committed file needs a PR, and a PR needs justifying,
+which is how they reached 61 KB each. The skill's format cannot inflate — it caps at 15 lines and
+forbids work logs outright. **If something in a handoff looks like it should survive, that is the
+signal it belongs in this file or in `PATTERNS`, not in the handoff.** A session that died before
+writing one is recovered from its transcript instead (documented in the skill's `references/`).
+
 **Deleting a tree from git leaves its *ignored* build output behind, and `git status` will never
 tell you (2026-09-04).** A repo-wide sweep after the prune found **181 MB** of orphaned
 wasm-bindgen output under `examples/`: 13 directories (`audio_facade`, `bloom`, `game_feel`,

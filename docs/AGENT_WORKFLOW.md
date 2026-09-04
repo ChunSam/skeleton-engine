@@ -65,7 +65,8 @@ When public API, usage, examples, or release notes are affected, update docs alo
 - User getting-started steps, requirements, or check commands: `README.md`
 - Changes visible to release users: `docs/CHANGELOG.md`
 - Dev history and architecture decisions: `docs/CHANGELOG.md` + the commit body. (`docs/HANDOFF.md`
-  was deleted 2026-09-04; a handoff for a *mid-task* stop still goes in `plans/handoffs/`.)
+  was deleted 2026-09-04. A *mid-task* handoff is the untracked `.claude/handoff.md` — 15 lines,
+  overwritten each time, never committed; `plans/handoffs/` was retired with the archive.)
 - Agent operating rules: `CLAUDE.md` summary + details in this document
 
 Content that could push `CLAUDE.md` over 200 lines goes into a new `docs/*.md`, with only a one-line summary and link added to `CLAUDE.md`.
