@@ -9,10 +9,6 @@ examples/wasm/pkg/
 
 # Local agent/work planning notes; keep out of commits and crates.io packages.
 .claude/
-ENGINE_REVIEW_FIX_PROMPT.md
-PARALLEL_TASKS.md
-REMAINING_WORK.md
-rust_game_engine_plan.md
 CS_FOUNDATIONS.html
 
 # Editor "Save Scene" output / example default save path (test artifact)
