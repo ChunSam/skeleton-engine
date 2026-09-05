@@ -24,7 +24,7 @@ added as a dependency. Read `docs/VISION.md` once — it is the "why" every feat
 | "What changed, and why?" | `docs/CHANGELOG.md` (release-facing) + the commit bodies, which are unusually detailed here. The 207-file `plans/handoffs/` archive and the frozen `docs/HANDOFF.md` were **deleted 2026-09-04** — recover either with `git show <sha>^:<path>`. A mid-task handoff is now the untracked 15-line `.claude/handoff.md` (the `handoff` skill), never a committed file |
 | "What should I build next?" | `docs/NEXT_WORK.md` — the live backlog; **start with its board gate**. `docs/ROADMAP.md` for milestones, `docs/PROGRAM_HISTORY.md` for the finished candidate A–O program |
 | GPU render tests | `docs/RENDER_TESTING.md` |
-| User-facing docs | `README.md`, `FORKING.md`. The four Korean HTML docs were deleted 2026-08-20 — they described the pre-deletion examples tree and are to be rewritten |
+| User-facing docs | `README.md`, `FORKING.md`. The four Korean HTML docs were deleted 2026-08-20 and **will not be rewritten** (2026-09-05) — `src/lib.rs` and `docs/MODULE_MAP.md` are the answer |
 
 Exploration order: `rg`/`grep` for the symbol → `src/lib.rs` → the `MODULE_MAP` row → the file.
 Read only what you need.

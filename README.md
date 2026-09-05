@@ -181,7 +181,7 @@ python3 -m http.server --directory dist 8080
 
 ## Documentation
 
-- The Korean HTML docs (`REFERENCE.html`, `ARCHITECTURE.html`, `STRUCTURE.html`, `DEPENDENCY_GRAPH.html`) were **deleted on 2026-08-20** and will be rewritten. They described the examples tree removed in v0.153.0 — 145 cargo targets that no longer exist — and a stale reference is worse than none. Until they return: [`src/lib.rs`](src/lib.rs) is the public API list, and [`docs/MODULE_MAP.md`](docs/MODULE_MAP.md) is the "where is X?" table.
+- The Korean HTML docs (`REFERENCE.html`, `ARCHITECTURE.html`, `STRUCTURE.html`, `DEPENDENCY_GRAPH.html`) were **deleted on 2026-08-20 and will not be rewritten** (decided 2026-09-05). They described the examples tree removed in v0.153.0 — 145 cargo targets, against the 8 this tree has now — so a rewrite would be a fresh pass rather than a revision, and a stale reference is worse than none. The replacements are English and live: [`src/lib.rs`](src/lib.rs) is the public API list, and [`docs/MODULE_MAP.md`](docs/MODULE_MAP.md) is the "where is X?" table.
 - [`FORKING.md`](FORKING.md) is the English getting-started guide for building your own game on the engine.
 - Contributor handoff and agent notes live in the repository, outside the crates.io package.
 

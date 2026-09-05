@@ -139,4 +139,6 @@ those, and a windowed playtest and gamepads have no automated coverage anywhere.
   validated by a small playable example — a bar the five rebuilt games meet for what they cover,
   and nothing else does).
 - **`docs/PATTERNS.md`** — architecture patterns and task recipes.
-- **`src/lib.rs`** — the public API re-export list, which is the fastest map of what exists. (The Korean `REFERENCE.html` was deleted on 2026-08-20 for describing an examples tree that no longer exists; it will be rewritten.)
+- **The Korean HTML docs are gone and are not coming back.** `REFERENCE.html` and its three
+  siblings were deleted on 2026-08-20 for describing an examples tree that no longer exists, and
+  **will not be rewritten** (decided 2026-09-05). The first two bullets above are the replacement.
