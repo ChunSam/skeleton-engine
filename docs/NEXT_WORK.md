@@ -918,8 +918,12 @@ required-check decision above — closed on 2026-08-04, 2026-08-04, and 2026-08-
   is not `100755`** (the trap `core.fileMode = false` hides — fixed repo-wide in v0.135.2,
   reintroduced twice in v0.143.4, re-fixed in v0.143.14), and **`main`-push blocking** with
   `--delete` exempt so remote-branch cleanup still works (a branch named `maintenance-branch` does
-  not trip the matcher). Skills: `handoff`, `wrap` and `example-selftest` all carry their detail in
-  `references/` rather than the body. **Do not record their sizes here** — that number was wrong
+  not trip the matcher). Skills: **all nine** carry their detail in `references/` rather than the
+  body — seven in this repo's `.claude/skills/`, two in `~/.claude/skills/` (`handoff`, `wrap`).
+  ⚠️ This line enumerated three of them until 2026-09-05; the other six had each grown one and
+  nothing said so, which is the same decay the sizes warning below is about. Count, do not quote:
+  `ls -d .claude/skills/*/references ~/.claude/skills/*/references | wc -l`.
+  **Do not record their sizes here** — that number was wrong
   twice in a row in opposite directions (`wc -c` bytes against a character guideline, then a
   correct `wc -m` that was already stale at merge). The durable form is the command:
   `for f in ~/.claude/skills/*/SKILL.md; do wc -m "$f"; done`.
@@ -1006,77 +1010,62 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
 > Rolling off on schedule is the default, not an obligation: an entry whose lesson lives nowhere
 > else **stays until it does**.
 
-**The pre-reset archive is gone (2026-09-04).** 242 files / 4.88 MB: `plans/handoffs/` (207),
-the dead top-level `plans/` feature plans (23), and 12 pre-reset `docs/` snapshots including the
-frozen `docs/HANDOFF.md`. 20 tracked `*.md` remain. The judgement it settles: **these were costing
-search, not context** — measured across 12 working search terms in tracked markdown, hits fell
-6418 → 1139 (**−82%**), with `verify.sh` −94% and `clippy` −97%. `netplay` moved 41 → 41, the
-control that proves the drop was the archive and not the measurement. Recover anything with
+### Kept — decisions and pointers this file is the home for, not entries awaiting roll-off
+
+**The pre-reset archive is gone (2026-09-04), and archive pruning is closed.** 242 files /
+4.88 MB — `plans/handoffs/` (207), the dead top-level `plans/` feature plans (23) and 12 pre-reset
+`docs/` snapshots including the frozen `docs/HANDOFF.md` — plus the four untracked local docs
+(`REMAINING_WORK.md`, `PARALLEL_TASKS.md`, `rust_game_engine_plan.md`,
+`ENGINE_REVIEW_FIX_PROMPT.md`), held back at first and deleted hours later once an audit found
+**zero citations** and three of them naming the just-deleted `docs/HANDOFF.md` as "current status" —
+noise converted into confident wrong answers, which is the failure the prune existed to remove.
+The judgement it settles: **they were costing search, not context** — hits across 12 working terms
+fell 6418 → 1139 (**−82%**), with `netplay` 41 → 41 as the control proving the drop was the archive
+and not the measurement. **20 tracked `*.md` remain and `docs/` is 15 files, all live**
+(re-counted 2026-09-05). ⚠️ **Do not reopen archive pruning as a noise fix** — the remaining ~18%
+is `docs/CHANGELOG.md` and this file, both live. Recover a tracked one with
 `git log --diff-filter=D --name-only -- <path>` then `git show <commit>^:<path>`.
 
-**The four untracked local docs went too, later the same day.** `REMAINING_WORK.md`,
-`PARALLEL_TASKS.md`, `rust_game_engine_plan.md` and `ENGINE_REVIEW_FIX_PROMPT.md` were first held
-back — gitignored means no undo, and they were only 1.1% of the noise. Auditing them reversed
-that: **zero citations anywhere**, and three of the four named `docs/HANDOFF.md` as "current
-status" — deleted hours earlier, so keeping them would have converted noise into *wrong answers*,
-which is the failure the prune existed to remove. Two (`PARALLEL_TASKS.md`,
-`ENGINE_REVIEW_FIX_PROMPT.md`) addressed a different repository altogether
-(`~/Projects/rust-2d-engine`). Backed up outside the repo first, since there is no `git show` for
-an ignored file: `~/skeleton-engine-local-docs-backup-2026-09-04.tar.gz`. Their four `.gitignore`
-lines went with them. `docs/` is now **15 files, all tracked and live**.
+⚠️ **The four ignored docs are now unrecoverable, and the backup pointer that said otherwise is
+dead.** #560 wrote them to `~/skeleton-engine-local-docs-backup-2026-09-04.tar.gz` (16 KB, 4 files)
+before deleting; **checked 2026-09-05 — the path, the whole of `~`, and `~/.Trash` are all empty.**
+No harm done, since the audit that authorised the delete found zero citations. The transferable
+half is that **an out-of-repo backup is not a home**: it decays with nothing in the tree recording
+that it did, exactly like the ignored files it was standing in for. Do not carry an untracked
+recovery route forward as if it were one — re-check it, or drop the claim.
 
-⚠️ **Measuring that delete caught this file adding noise back.** Hits went 1749 → **1733**: the
-four docs were −19, and **+3 came from the paragraph above** naming `verify.sh`, `clippy` and
-`netplay` while reporting the cut. Prose about noise is noise. It is worth the three here, but the
-next person quoting these numbers should re-measure rather than subtract.
+⚠️ **The lesson with no other home: prose about noise is noise.** Measuring the second delete read
+1749 → 1733 — the four docs were −19 and **+3 came back from the paragraph reporting the cut**,
+which named `verify.sh`, `clippy` and `netplay` in order to report it. Worth the three there; the
+next person quoting any of these numbers should **re-measure rather than subtract**.
 
-⚠️ **What is left is not archive.** The 82% figure is not the whole story — the remaining ~18% is
-`docs/CHANGELOG.md` (727 KB) and this file (157 KB), both live. **Do not reopen archive pruning as
-a noise fix.**
+**One handoff path, and it is not tracked (decided 2026-09-04).** `plans/handoffs/` is retired; the
+sole destination is the gitignored 15-line `.claude/handoff.md` (the `handoff` skill, whose
+`references/modes.md` also covers recovering from a session that died before writing one). The
+tracked statement of this is `CLAUDE.md`'s orientation table. **The tracked path is what inflated
+it** — a committed file needs a PR and a PR needs justifying, which is how handoffs reached 61 KB
+each, against a skill format that caps at 15 lines and forbids work logs. What routes *this* file:
+**if something in a handoff looks like it should survive, that is the signal it belongs here or in
+`PATTERNS`, not in the handoff.**
 
-**One handoff path, and it is not tracked (decided 2026-09-04).** The prune left two live
-destinations for a mid-task handoff: the `handoff` skill's `.claude/handoff.md` (15 lines,
-overwritten, gitignored) and this repo's `plans/handoffs/` (committed) — and nothing said which.
-`plans/handoffs/` is retired. **The 2026-08-03 ruling already implied it**: once durable lessons go
-to `PATTERNS`/`VERIFICATION`/`CHANGELOG` and decisions come here, all a handoff still carries is the
-baton — where I stopped, what I folded, what is next — and *a baton is dead the moment it is picked
-up*. The tracked path is what inflated it: a committed file needs a PR, and a PR needs justifying,
-which is how they reached 61 KB each. The skill's format cannot inflate — it caps at 15 lines and
-forbids work logs outright. **If something in a handoff looks like it should survive, that is the
-signal it belongs in this file or in `PATTERNS`, not in the handoff.** A session that died before
-writing one is recovered from its transcript instead (documented in the skill's `references/`).
+**Two procedures live only in gitignored skill files**, so a tracked one-line pointer stays here or
+nothing records that they exist — the standing rule for anything living in `.claude/`:
 
-**Deleting a tree from git leaves its *ignored* build output behind, and `git status` will never
-tell you (2026-09-04).** A repo-wide sweep after the prune found **181 MB** of orphaned
-wasm-bindgen output under `examples/`: 13 directories (`audio_facade`, `bloom`, `game_feel`,
-`web_audio`, the old `games/` path, …) holding nothing but `web/pkg/*.wasm` for examples whose
-source went in the 2026-08-19 deletion, plus `examples/wasm/pkg` — a `run_demo` bundle from
-**2026-06-09** for an output path `scripts/build_wasm.sh` stopped writing to (it writes `dist/`).
-All of it was covered by `.gitignore`'s `pkg/`, so it was invisible to every `git status` for three
-months, and it cannot even be rebuilt — the sources are gone.
+- `.claude/skills/prose-sweep/references/gotchas.md` § 0 — **the pre-deletion audit.** A prose sweep
+  is the second half; what paid on 2026-09-04 was counting the tree and auditing citations across
+  live docs *and* code **before** deleting anything.
+- `.claude/skills/session-cleanup/references/targets.md` — **the in-repo leftover check**: per
+  directory, compare `git ls-files | wc -l` against `find -type f | wc -l`; **tracked=0 with
+  files>0 is a leftover.** It found **181 MB** of orphaned wasm-bindgen output under `examples/`,
+  for examples whose sources went in the 2026-08-19 deletion — `.gitignore`'s `pkg/` had hidden it
+  from every `git status` for three months, and it could not even be rebuilt. Worth re-running
+  after any tree deletion. ⚠️ `docs/VERIFICATION.md` was checked on 2026-09-05 and carries **no**
+  version of this check, which is why the pointer is not optional.
 
-**The check that finds this**, worth re-running after any tree deletion:
-
-```sh
-for d in <dir>/*/; do echo "$(git ls-files "$d" | wc -l) $(find "$d" -type f | wc -l) $d"; done
-```
-
-A directory with **tracked=0 but files>0** is a leftover. `.gitignore`'s `examples/wasm/pkg/` line
-went with it — dead, and redundant with `pkg/` the whole time (`git check-ignore -v` on a live
-game's `web/pkg` resolves to `pkg/`, so nothing changed for the three that still build).
-
-**Rolled off 2026-09-04: the 2026-09-01 batch (#527–#530, v0.156.4).** Every home was re-opened
-and read before removing it rather than trusting the entry's own "verified" claim — `docs/CHANGELOG.md`
-§ 0.156.4, `docs/VERIFICATION.md` § *The soak*, § *Trap 10* and its wasm-smoke LISTEN note, plus
-`scripts/soak.sh`'s own detection-floor header (it carries the lesson in the file a reader opens).
-The one row homed **nowhere** did not roll off with them: it is still open above, under *Open — the
-2026-09-01 timing-check review's remainder*. What the batch's closing note carried is homed too —
-`tests/per_frame_alloc.rs` as the instrument, `docs/PATTERNS.md` § *Per-frame scratch buffers* and
-`docs/VERIFICATION.md` § *Sabotage each half separately* as the two rules.
-
-⚠️ **The 2026-09-04 entries above are due next session — but two of them cannot roll off entirely.**
-The archive prune and the handoff-path decision are decisions, and this file *is* their home, so they
-shorten rather than leave. The two procedures they produced were homed in **gitignored** skill
-references — `prose-sweep`'s § 0 pre-deletion audit and `session-cleanup`'s in-repo-leftover check —
-so a tracked one-line pointer has to stay here or nothing records that they exist
-(the standing rule for anything living only in `.claude/`).
+**Rolled off 2026-09-05: the 2026-09-04 batch (#559–#564).** Every home was opened and read rather
+than trusted — `CLAUDE.md`'s orientation table (the handoff destination and the
+`git show <sha>^:<path>` recovery), both skill references above (confirmed to carry the procedure
+verbatim, at `gotchas.md:7` and `targets.md:44`), and `docs/VERIFICATION.md`, which turned out to
+carry neither procedure. The prune and handoff decisions shortened rather than left, as the entry
+they replace predicted; reading the homes also killed a dead backup pointer, above.
+**Nothing transient is left in this section.**
