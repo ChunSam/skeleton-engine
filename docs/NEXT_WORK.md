@@ -898,18 +898,18 @@ required-check decision above — closed on 2026-08-04, 2026-08-04, and 2026-08-
   costlier failure), and an inline `-m` message containing a literal command-position delete
   alongside the gate name still trips it — **put that text in a file** rather than fighting the hook.
 
-- **The four Korean HTML docs are promised in `README.md` and `FORKING.md` and were tracked
-  nowhere until 2026-08-24.** `REFERENCE.html`, `ARCHITECTURE.html`, `STRUCTURE.html` and
-  `DEPENDENCY_GRAPH.html` were deleted 2026-08-20 (in #488) for describing an examples tree that no
-  longer existed — 145 cargo targets that are gone. Both user-facing docs say they "will be
-  rewritten", which is a commitment with no row behind it; this bullet is the row. ⚠️ **Not
-  scheduled, and rewriting them is not a docs chore** — they described 145 targets and the tree now
-  has 8, so the rewrite is a fresh pass over `src/lib.rs` and `docs/MODULE_MAP.md`, not a revision
-  of anything recoverable. `git show 52f6307^:REFERENCE.html` still has the deleted files if a
-  structure is worth reusing; the *content* is the part that expired. Until they return the
-  substitutes named in `README.md` are the honest answer: `src/lib.rs` for the public API,
-  `docs/MODULE_MAP.md` for "where is X?". **If they are not going to be rewritten, delete the
-  promise from both files** — that is the cheaper resolution and an equally good one.
+- ✅ **The four Korean HTML docs will not be rewritten — decided 2026-09-05, and the promise is
+  deleted rather than carried.** `REFERENCE.html`, `ARCHITECTURE.html`, `STRUCTURE.html` and
+  `DEPENDENCY_GRAPH.html` went on 2026-08-20 (#488) for describing an examples tree that no longer
+  existed — 145 cargo targets against the **8** this tree has now, which is why a rewrite was never
+  a docs chore but a fresh pass over `src/lib.rs` and `docs/MODULE_MAP.md`. This bullet was the row
+  behind a commitment that had none, and it named its own cheaper resolution; the maintainer took
+  it. `README.md`, `FORKING.md` and `CLAUDE.md` now say *will not be rewritten* and point at the two
+  live English substitutes — inverted rather than stripped, so the next reader gets the answer
+  instead of re-opening the question. `git show 52f6307^:REFERENCE.html` still has the deleted files
+  if a structure is ever worth reusing; the *content* is the part that expired. ⚠️
+  `docs/VERIFICATION.md`'s concept-grep lesson quotes what those files contained on 2026-08-20 and
+  is a dated record — it stays as written.
 
 - **The rest of the `.claude/` inventory** (gitignored, so these lines are the only tracked record
   that any of it exists; rolled off *Recently closed* on 2026-08-05 but kept here for that reason).
