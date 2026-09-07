@@ -38,7 +38,12 @@ pub(super) fn run(
             Some(layout) => layout,
             None => continue,
         };
+        // `cursor_inside` first: `input.cursor` freezes at its last in-window value when the
+        // pointer leaves, so `in_bounds` alone keeps answering `true` and a shown tooltip stayed
+        // on screen over the game while the mouse was on another monitor or the window was
+        // unfocused. It only cleared once the cursor came back and moved off the widget.
         let hovered = visible
+            && input.cursor_inside
             && in_bounds(input.cursor, pos, size)
             && !capture.occludes(input.cursor, entity, z);
 
@@ -263,6 +268,42 @@ mod tests {
             "flipped above the cursor: y={} h={}",
             bg.y,
             bg.h
+        );
+    }
+
+    /// v0.156.28: `hovered` came purely from `input.cursor`, which *freezes* at its last
+    /// in-window value when the pointer leaves — so a shown tooltip stayed on screen over the
+    /// game while the mouse was on another monitor, clearing only once it came back and moved
+    /// off the widget.
+    #[test]
+    fn the_pointer_leaving_the_window_hides_a_shown_tooltip() {
+        let mut world = setup(Vec2::new(60.0, 60.0)); // over the widget
+        let e = spawn_tooltip_widget(
+            &mut world,
+            Tooltip::new("hint").with_delay(0.0).with_fade(0.0),
+        );
+        let mut sys = UiSystem::default();
+
+        sys.run(&mut world, DT);
+        assert!(
+            !take_tooltip_rects(&mut world).is_empty(),
+            "the tooltip shows while hovered"
+        );
+
+        // The pointer leaves the window. `cursor` keeps its last value on purpose — only
+        // `cursor_inside` changes.
+        world
+            .resource_mut::<InputState>()
+            .unwrap()
+            .set_cursor_inside(false);
+        sys.run(&mut world, DT);
+        assert!(
+            take_tooltip_rects(&mut world).is_empty(),
+            "a tooltip must not survive the pointer leaving the window"
+        );
+        assert!(
+            !world.get::<Tooltip>(e).unwrap().is_showing(),
+            "and its hover timer must be reset, not merely undrawn"
         );
     }
 }

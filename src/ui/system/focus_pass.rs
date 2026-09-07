@@ -51,10 +51,8 @@ pub(super) fn run(
     let focusables = &*scratch;
 
     // Current focus, dropped if it is no longer focusable (despawned / hidden / disabled).
-    let mut focus = world
-        .resource::<UiFocus>()
-        .and_then(|f| f.entity)
-        .filter(|&e| is_focusable(focusables, e));
+    let prev_focus = world.resource::<UiFocus>().and_then(|f| f.entity);
+    let mut focus = prev_focus.filter(|&e| is_focusable(focusables, e));
 
     // A click moves focus to the clicked widget, so Tab resumes from there. The shared pointer
     // capture decides which widget the click landed on across *all* widget kinds (the same topmost
@@ -74,6 +72,26 @@ pub(super) fn run(
     // Tab / Shift+Tab cycles focus.
     if input.tab {
         focus = Some(advance(focusables, focus, input.shift));
+    }
+
+    // Focus leaving an open Dropdown closes it, mirroring the pointer path (where pressing
+    // anywhere else is a press-away that closes the list).
+    //
+    // ⚠️ Without this, Tab away from a keyboard-opened dropdown left an orphaned list with no
+    // owner: an open dropdown registers its whole `expanded_rect` in `PointerCapture` at
+    // `DROPDOWN_LIST_Z`, so it kept eating hover and clicks for everything drawn beneath it, and
+    // nothing anywhere closed it — `dropdown_pass` closes only on select / press-away / hidden /
+    // empty, and there is no Escape path.
+    //
+    // Compared against the *previous* focus rather than "any unfocused open dropdown", because a
+    // mouse-opened list spends one frame open before the click's release moves focus onto it —
+    // the looser rule would close it on that frame.
+    if prev_focus != focus {
+        if let Some(prev) = prev_focus {
+            if let Some(dd) = world.get_mut::<Dropdown>(prev) {
+                dd.open = false;
+            }
+        }
     }
 
     // Sync each TextInput's `focused` flag with the focus so typing targets the focused field.
@@ -291,10 +309,19 @@ fn collect_focusables(world: &World, viewport: &ViewportSize, out: &mut Vec<Enti
 
 /// Membership test against the index-sorted `focusables` slice (built by [`collect_focusables`],
 /// which sorts by [`Entity::index`]). `O(log n)` instead of a linear `contains` scan.
+///
+/// ⚠️ **The generation is part of the answer, not noise.** Until v0.156.28 this returned on
+/// `is_ok()` alone, so a *stale* handle whose index had been recycled by a new focusable passed
+/// the "is my focus still valid?" filter at the call site. Focus then stayed pinned to a dead
+/// entity: `World::get` returned `None` everywhere, so no ring drew and Enter/Space/arrows did
+/// nothing, while the dead handle was written back every frame. Any menu that despawns and
+/// respawns a row reaches it — `World::spawn` hands out freed indices FIFO. Indices are unique
+/// among live entities, so the search still finds the one candidate slot; the equality check
+/// then rejects a handle from an older generation.
 fn is_focusable(focusables: &[Entity], e: Entity) -> bool {
     focusables
         .binary_search_by_key(&e.index(), |x| x.index())
-        .is_ok()
+        .is_ok_and(|i| focusables[i] == e)
 }
 
 /// The next focusable after `current` (wrapping), or the first/last when nothing is focused yet.
@@ -1077,6 +1104,100 @@ mod tests {
                 .iter()
                 .any(|ev| matches!(ev, UiEvent::TextBlurred(en) if *en == ti_e)),
             "TextBlurred should be emitted when Tab moves focus away from TextInput"
+        );
+    }
+
+    /// v0.156.28: `is_focusable` compared only `Entity::index()`, so focus survived a despawn
+    /// whose slot a new focusable had taken — pinned to a dead handle that no ring drew and no
+    /// key could activate.
+    #[test]
+    fn focus_drops_when_its_entity_is_despawned_and_its_slot_recycled() {
+        let (mut w, e) = world_with_widgets();
+        w.resource_mut::<UiFocus>().unwrap().entity = Some(e[0]);
+        w.despawn(e[0]);
+
+        let replacement = w.spawn();
+        w.add_component(replacement, UiNode::new(10.0, 10.0, 100.0, 30.0));
+        w.add_component(replacement, Button::new("recycled"));
+        assert_eq!(
+            replacement.index(),
+            e[0].index(),
+            "fixture assumes the freed index is reused"
+        );
+        assert_ne!(replacement, e[0], "but as a different generation");
+
+        press(&mut w, KeyCode::Enter);
+        UiSystem::new().run(&mut w, 0.0);
+
+        assert_eq!(
+            focus(&w),
+            None,
+            "a focus handle from an older generation must be dropped, not kept"
+        );
+    }
+
+    /// v0.156.28: Tab away from a keyboard-opened dropdown left it open, and an open dropdown
+    /// captures its whole expanded rect — so the orphaned list kept eating clicks for everything
+    /// beneath it, with no Escape path and nothing else that would ever close it.
+    #[test]
+    fn tabbing_away_from_an_open_dropdown_closes_it() {
+        use crate::ui::Dropdown;
+        let mut w = World::new();
+        w.insert_resource(ViewportSize::new(400, 300));
+        w.insert_resource(InputState::default());
+        w.insert_resource(UiFocus::default());
+        w.insert_resource(Events::<UiEvent>::default());
+        let dd = w.spawn();
+        w.add_component(dd, UiNode::new(10.0, 10.0, 120.0, 30.0));
+        w.add_component(dd, Dropdown::new(["one", "two", "three"]));
+        let btn = w.spawn();
+        w.add_component(btn, UiNode::new(10.0, 100.0, 120.0, 30.0));
+        w.add_component(btn, Button::new("other"));
+
+        let mut sys = UiSystem::new();
+        press(&mut w, KeyCode::Tab);
+        sys.run(&mut w, 0.0);
+        assert_eq!(focus(&w), Some(dd));
+
+        press(&mut w, KeyCode::Enter);
+        sys.run(&mut w, 0.0);
+        assert!(w.get::<Dropdown>(dd).unwrap().open, "Enter opens the list");
+
+        press(&mut w, KeyCode::Tab);
+        sys.run(&mut w, 0.0);
+        assert_eq!(focus(&w), Some(btn), "focus moved on");
+        assert!(
+            !w.get::<Dropdown>(dd).unwrap().open,
+            "the list the focus left must close behind it"
+        );
+    }
+
+    /// The control for the row above: a dropdown that *keeps* focus stays open, so the close is
+    /// driven by the focus moving away rather than by any frame in which a dropdown is open.
+    #[test]
+    fn an_open_dropdown_that_keeps_focus_stays_open() {
+        use crate::ui::Dropdown;
+        let mut w = World::new();
+        w.insert_resource(ViewportSize::new(400, 300));
+        w.insert_resource(InputState::default());
+        w.insert_resource(UiFocus::default());
+        w.insert_resource(Events::<UiEvent>::default());
+        let dd = w.spawn();
+        w.add_component(dd, UiNode::new(10.0, 10.0, 120.0, 30.0));
+        w.add_component(dd, Dropdown::new(["one", "two"]));
+
+        let mut sys = UiSystem::new();
+        press(&mut w, KeyCode::Tab);
+        sys.run(&mut w, 0.0);
+        press(&mut w, KeyCode::Enter);
+        sys.run(&mut w, 0.0);
+        assert!(w.get::<Dropdown>(dd).unwrap().open);
+
+        w.insert_resource(InputState::default()); // an idle frame, focus unchanged
+        sys.run(&mut w, 0.0);
+        assert!(
+            w.get::<Dropdown>(dd).unwrap().open,
+            "an idle frame must not close a focused open list"
         );
     }
 }

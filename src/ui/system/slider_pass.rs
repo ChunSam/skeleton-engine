@@ -33,6 +33,14 @@ pub(super) fn run(
             None => continue,
         };
         if !visible {
+            // A drag begun while visible must not survive the widget being hidden. The release
+            // that clears `dragging` is *below* this guard, so hiding a slider mid-drag left the
+            // flag set: the next time it was shown while any button was held, the drag-update
+            // path resumed, the thumb jumped to the cursor and it emitted a `SliderChanged` the
+            // player never made. `dragging` is the only cross-frame latch in this pass.
+            if let Some(slider) = world.get_mut::<Slider>(entity) {
+                slider.dragging = false;
+            }
             continue;
         }
 

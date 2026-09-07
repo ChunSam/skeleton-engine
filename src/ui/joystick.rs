@@ -75,9 +75,7 @@ impl VirtualJoystick {
             let is_ended = touch_state.ended().iter().any(|&(id, _)| id == active_id);
 
             if is_ended {
-                self.touch_id = None;
-                self.output = Vec2::ZERO;
-                self.stick_pos = self.center;
+                self.release();
             } else {
                 // Find the current position of the active touch point.
                 let pos = touch_state
@@ -85,11 +83,29 @@ impl VirtualJoystick {
                     .find(|(id, _)| *id == active_id)
                     .map(|(_, pos)| pos);
 
-                if let Some(pos) = pos {
-                    self.update_stick(pos);
+                match pos {
+                    Some(pos) => self.update_stick(pos),
+                    // Gone from the live set without this joystick seeing its `ended` frame —
+                    // release it. See `release`.
+                    None => self.release(),
                 }
             }
         }
+    }
+
+    /// Un-latches the stick: forgets the tracked touch and re-centres the output.
+    ///
+    /// ⚠️ **`ended()` is a one-frame buffer, so it cannot be the only release signal.** Until
+    /// v0.156.28 it was: a frame this joystick did not observe — a movement system gated behind a
+    /// game state, a pause, a scene swap — consumed the release, after which `touch_id` stayed
+    /// `Some` forever. `output` kept its last non-zero value, `is_active()` stayed true, and no
+    /// new touch could claim the stick (step 1 is gated on `touch_id.is_none()`), leaving the
+    /// player walking into a wall with no way out and no public reset. `active_touches()` is the
+    /// durable signal: a touch missing from it is gone whether or not its `ended` frame was seen.
+    fn release(&mut self) {
+        self.touch_id = None;
+        self.output = Vec2::ZERO;
+        self.stick_pos = self.center;
     }
 
     /// Updates the stick position and output vector to the given touch position.
@@ -147,11 +163,12 @@ impl VirtualJoystick {
         if let Some(active_id) = self.touch_id {
             let is_ended = ended.iter().any(|&(id, _)| id == active_id);
             if is_ended {
-                self.touch_id = None;
-                self.output = Vec2::ZERO;
-                self.stick_pos = self.center;
+                self.release();
             } else if let Some(&(_, pos)) = active.iter().find(|(id, _)| *id == active_id) {
                 self.update_stick(pos);
+            } else {
+                // Same missed-release hole as `update`; see `release`.
+                self.release();
             }
         }
     }
@@ -256,5 +273,41 @@ mod tests {
         joy.update(&ts);
 
         assert_eq!(joy.output_with_deadzone(0.1), Vec2::ZERO);
+    }
+
+    /// v0.156.28: `ended()` is a one-frame buffer, so a frame `update` did not observe consumed
+    /// the release and the stick stayed latched at its last output forever — no new touch could
+    /// claim it and there was no public reset.
+    #[test]
+    fn a_missed_release_frame_still_releases_the_stick() {
+        let mut ts = TouchState::default();
+        let mut joy = VirtualJoystick::new(Vec2::ZERO, 50.0);
+
+        ts.on_touch_started(0, Vec2::new(25.0, 0.0));
+        joy.update(&ts);
+        assert!(joy.is_active());
+        assert_ne!(joy.output, Vec2::ZERO);
+
+        // The frame carrying `ended` goes by without this joystick seeing it.
+        ts.flush();
+        ts.on_touch_ended(0, Vec2::new(25.0, 0.0));
+        ts.flush();
+
+        joy.update(&ts);
+        assert!(
+            !joy.is_active(),
+            "a touch gone from the live set must release the stick"
+        );
+        assert_eq!(joy.output, Vec2::ZERO);
+
+        // ...and the stick is claimable again.
+        ts.on_touch_started(1, Vec2::new(-25.0, 0.0));
+        joy.update(&ts);
+        assert!(joy.is_active());
+        assert!(
+            joy.output.x < 0.0,
+            "the new touch drives it, got {:?}",
+            joy.output
+        );
     }
 }
