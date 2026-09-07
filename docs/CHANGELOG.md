@@ -4,6 +4,51 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.27
+
+### Four panics reachable from the public API, and two widgets that rendered nothing
+
+The first fixes off the 2026-09-06 `src/ui` review (39 files, 11,202 lines). All six defects were
+reproduced before they were fixed; every fix has a test, and every test was seen to fail.
+
+**A `TextInput` panicked on the first keystroke after its `text` was assigned from code.**
+`safe_cursor()` exists precisely so that the public `text` and `cursor` fields can drift apart
+without killing the frame, and `backspace` / `move_left` / `move_right` all call it. `insert_char`
+and `delete_forward` did not: they indexed the raw `cursor`, so `input.text = loaded_name;`
+followed by a keypress panicked inside `String::insert`, in the per-frame UI pass rather than at
+the assignment that caused it. `delete_forward`'s `>= len` guard also let through a cursor sitting
+*mid-character*, which panicked in `String::drain`. Both now snap the cursor first, like their
+three siblings. ⚠️ The existing regression test `assigning_text_without_resetting_cursor_does_not_panic`
+builds this exact state and stayed green for it — it exercises only the read methods and
+`backspace`, never a write site.
+
+**A `Slider` panicked on an inverted or NaN range.** `f32::clamp` is documented to panic when
+`min > max` or either bound is NaN, and all three clamp sites used it — while `min` and `max` are
+public fields that `Reflect` writes with no ordering check and `#[serde(default)]` accepts from a
+scene verbatim. So `Slider::new(1.0, 0.0, 0.5)` panicked, and so did dragging `max` below `min` in
+the inspector. A new `Slider::clamped` uses the `max/min` form, which is what `Stepper::clamped_value`
+already does for the same reason and says so in its doc — the two widgets disagreed, and the one
+that knew was not the one that shipped the panic.
+
+**`ListBox` and `ScrollView` rendered nothing after their `items` shrank.** Both called
+`clamp_scroll` only inside the mouse-wheel branch, so a list that was scrolled and then filtered,
+cleared or refreshed kept a stale `scroll_offset`: the render window came out empty, the widget
+drew its background and border with no rows, and `ListBox::row_at` returned `None` for every
+click — until the player happened to wheel or arrow it back. Two widgets, one cause, found
+independently by two readers. The clamp now runs every frame.
+
+**`ScrollView` also overflowed on a large offset.** `scroll_offset = f32::MAX` is the idiomatic
+"pin to bottom"; the unclamped `first` saturated to `usize::MAX` and the window addition
+overflowed. The per-frame clamp fixes the reachable case, and both widgets' window arithmetic is
+now saturating, because `item_height`/`row_height` are only guarded against `<= 0.0` and a tiny
+positive value makes the visible-row count saturate on its own. ⚠️ That second half was **not**
+in the filed row — the tiny-height test found it in the first version of this fix, which still
+had a bare `+ 2`.
+
+Eight tests, each seen to fail: removing either `safe_cursor()` call, restoring `f32::clamp` in
+either slider site, moving either clamp back inside its wheel branch, and restoring either bare
+addition each redden exactly the test named for it and nothing else.
+
 ## 0.156.26
 
 ### Ctrl+C and Ctrl+V work in the editor on Windows and Linux
