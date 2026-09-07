@@ -105,3 +105,136 @@ pub(super) fn run(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use glam::Vec2;
+    use winit::event::MouseButton;
+
+    use crate::ecs::{Entity, Events, System, World};
+    use crate::input::InputState;
+    use crate::renderer::{TextQueue, UiQueue};
+    use crate::resources::ViewportSize;
+    use crate::ui::checkbox::CheckBox;
+    use crate::ui::focus::UiFocus;
+    use crate::ui::node::UiNode;
+    use crate::ui::panel::{LayoutDir, Panel};
+    use crate::ui::{UiEvent, UiSystem};
+
+    fn setup() -> World {
+        let mut world = World::new();
+        world.insert_resource(ViewportSize::new(400, 300));
+        world.insert_resource(Events::<UiEvent>::default());
+        world.insert_resource(UiQueue::default());
+        world.insert_resource(TextQueue::default());
+        world.insert_resource(UiFocus::default());
+        world.insert_resource(InputState::default());
+        world
+    }
+
+    /// A 120x30 checkbox at (50, 50).
+    fn spawn_checkbox(world: &mut World) -> Entity {
+        let e = world.spawn();
+        world.add_component(e, UiNode::new(50.0, 50.0, 120.0, 30.0));
+        world.add_component(e, CheckBox::new("agree"));
+        e
+    }
+
+    /// One frame with a press at `press` and a release at `release`.
+    fn drag(world: &mut World, system: &mut UiSystem, press: Vec2, release: Vec2) {
+        let input = world.resource_mut::<InputState>().unwrap();
+        input.flush();
+        input.set_cursor(press);
+        input.press_mouse(MouseButton::Left);
+        input.set_cursor(release);
+        input.release_mouse(MouseButton::Left);
+        system.run(world, 0.016);
+    }
+
+    fn toggles(world: &World) -> Vec<(Entity, bool)> {
+        world
+            .resource::<Events<UiEvent>>()
+            .unwrap()
+            .read()
+            .iter()
+            .filter_map(|e| match e {
+                UiEvent::CheckBoxToggled(en, v) => Some((*en, *v)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// v0.156.29: `checkbox_pass::run` had no test at all — its whole body could be deleted with
+    /// `cargo test` staying green. The only CheckBox test in the repo exercised the *focus* pass.
+    #[test]
+    fn clicking_a_checkbox_toggles_it_and_emits_once() {
+        let mut world = setup();
+        let cb = spawn_checkbox(&mut world);
+        let mut system = UiSystem::default();
+
+        drag(
+            &mut world,
+            &mut system,
+            Vec2::new(60.0, 60.0),
+            Vec2::new(60.0, 60.0),
+        );
+        assert!(world.get::<CheckBox>(cb).unwrap().checked);
+        assert_eq!(toggles(&world), vec![(cb, true)]);
+    }
+
+    #[test]
+    fn a_checkbox_covered_by_a_higher_z_panel_does_not_toggle() {
+        let mut world = setup();
+        let cb = spawn_checkbox(&mut world);
+        world.get_mut::<UiNode>(cb).unwrap().z = 0.2;
+        let panel = world.spawn();
+        let mut node = UiNode::new(0.0, 0.0, 400.0, 300.0);
+        node.z = 0.9;
+        world.add_component(panel, node);
+        world.add_component(panel, Panel::new(LayoutDir::Vertical));
+        let mut system = UiSystem::default();
+
+        drag(
+            &mut world,
+            &mut system,
+            Vec2::new(60.0, 60.0),
+            Vec2::new(60.0, 60.0),
+        );
+        assert!(!world.get::<CheckBox>(cb).unwrap().checked);
+        assert!(toggles(&world).is_empty());
+    }
+
+    #[test]
+    fn pressing_on_a_checkbox_and_releasing_elsewhere_cancels_the_toggle() {
+        let mut world = setup();
+        let cb = spawn_checkbox(&mut world);
+        let mut system = UiSystem::default();
+
+        drag(
+            &mut world,
+            &mut system,
+            Vec2::new(60.0, 60.0),
+            Vec2::new(350.0, 250.0),
+        );
+        assert!(!world.get::<CheckBox>(cb).unwrap().checked);
+        assert!(toggles(&world).is_empty());
+    }
+
+    #[test]
+    fn a_checkbox_draws_a_box_a_fill_and_its_label() {
+        let mut world = setup();
+        spawn_checkbox(&mut world);
+        UiSystem::default().run(&mut world, 0.016);
+
+        assert_eq!(
+            world.resource::<UiQueue>().unwrap().items.len(),
+            2,
+            "border box + inner fill"
+        );
+        assert!(world
+            .resource::<TextQueue>()
+            .unwrap()
+            .iter()
+            .any(|t| t.text == "agree"));
+    }
+}

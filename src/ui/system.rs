@@ -699,4 +699,31 @@ mod tests {
             "and it must not emit a value change either"
         );
     }
+
+    /// v0.156.29: the guard that stops a **disabled** button emitting on a pointer click had no
+    /// test — the only Disabled test asserts Tab focus order and never clicks, so deleting the
+    /// condition left every test green.
+    #[test]
+    fn a_disabled_button_does_not_fire_on_a_pointer_click() {
+        let (mut world, entity) = setup_button_world(Vec2::new(20.0, 20.0));
+        world.get_mut::<Button>(entity).unwrap().state = ButtonState::Disabled;
+
+        {
+            let input = world.resource_mut::<InputState>().unwrap();
+            input.press_mouse(MouseButton::Left);
+            input.release_mouse(MouseButton::Left);
+        }
+        UiSystem::default().run(&mut world, 0.016);
+
+        assert_eq!(
+            click_count(&world, entity),
+            0,
+            "a disabled button must not fire"
+        );
+        assert_eq!(
+            world.get::<Button>(entity).unwrap().state,
+            ButtonState::Disabled,
+            "and it must stay disabled"
+        );
+    }
 }

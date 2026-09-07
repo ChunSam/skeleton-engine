@@ -963,6 +963,12 @@ mod tests {
         let mut w = world_with_focus_resources();
         let e = spawn_text_input(&mut w, 0.0, 0.0, 100.0, 30.0, 0.9);
         w.get_mut::<UiNode>(e).unwrap().visible = false;
+        // ⚠️ v0.156.29: without another focusable alive, `collect_focusables` comes back empty and
+        // the pass's early return satisfies every assertion below — the visibility filters this
+        // test is named for are never reached, and deleting either one leaves it green.
+        let other = w.spawn();
+        w.add_component(other, UiNode::new(0.0, 200.0, 100.0, 30.0));
+        w.add_component(other, Button::new("other"));
 
         click_at(&mut w, glam::Vec2::new(50.0, 15.0));
         UiSystem::new().run(&mut w, 0.0);
@@ -985,6 +991,11 @@ mod tests {
     fn focus_cleared_when_text_input_becomes_invisible() {
         let mut w = world_with_focus_resources();
         let e = spawn_text_input(&mut w, 0.0, 0.0, 100.0, 30.0, 0.9);
+        // Another live focusable, so the pass takes its real path rather than the
+        // empty-focusables early return. See the note on the test above.
+        let other = w.spawn();
+        w.add_component(other, UiNode::new(0.0, 200.0, 100.0, 30.0));
+        w.add_component(other, Button::new("other"));
         // Pre-focus the entity via UiFocus + ti.focused so focus_pass sees the transition.
         w.resource_mut::<UiFocus>().unwrap().entity = Some(e);
         w.get_mut::<TextInput>(e).unwrap().focused = true;

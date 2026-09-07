@@ -4,6 +4,47 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.29
+
+### Eight places where a green suite was not saying what it looked like it was saying
+
+The last batch off the 2026-09-06 `src/ui` review, and the only one that changes no behaviour.
+Every item here is a claim the test suite appeared to be making and was not. Three passes had no
+test at all, three tests could not fail on the cause they named, and two guards were load-bearing
+and unpinned.
+
+**Three passes could have their bodies deleted with `cargo test` still green.** `checkbox_pass`
+had no test of any kind — not the toggle, not the capture guard, not the drag-off cancel, not the
+render; the only CheckBox test in the repo exercised the *focus* pass. `label_pass` and
+`progress_bar_pass` had nothing asserting their output. Seven tests now cover them, including the
+"skip a zero-width fill" branch that decides whether an empty bar draws over its own track.
+
+**Three tests were repaired rather than added.** `drag_off_the_widget_cancels_the_selection`
+released at (350, 280), outside the node, so `row_at` returned `None` on its own and the
+capture-ownership guard the test is named for was never reached — it now releases *inside* the
+list's rect but over a button that owns the pixel. `clamped_value_survives_inverted_bounds_without_panicking`
+set `min = 8.0` and left `max` at `10.0`, so the range was never inverted and the `f32::clamp` the
+doc says it avoids would have passed it too. And two focus tests that name widget invisibility hid
+the *only* focusable, so the pass's empty-focusables early return satisfied every assertion; each
+now keeps a second visible widget alive, which also turns out to be the only coverage the
+"clear `focused` on TextInputs outside the focusables list" block has ever had.
+
+**Two guards were pinned.** A disabled button's pointer click (the existing Disabled test asserts
+Tab order and never clicks), and the force-close of an open dropdown whose node goes hidden or
+whose `items` empty — the one thing between a game and an orphaned popup that keeps capturing
+clicks at `DROPDOWN_LIST_Z`.
+
+⚠️ **The dropdown pair failed its own sabotage check on the first attempt, and that is the point
+of running one.** Both tests passed with the guard replaced by `if false`, because the frame under
+test never flushed the input: the previous frame's release was still latched, so the ordinary
+"a click on the box closes it" path closed the list and the guard was never consulted. With a
+flush added, disabling each half of the `||` reddens exactly its own test.
+
+Nineteen new or repaired tests. Every one was seen to fail: deleting each pass body, restoring
+`f32::clamp`, dropping either ownership guard, removing the visibility filter, deleting the
+outside-focusables clear, letting disabled buttons fire, and disabling each half of the dropdown
+guard each redden precisely the tests named for them.
+
 ## 0.156.28
 
 ### Five widgets that got stuck when they stopped being interactable

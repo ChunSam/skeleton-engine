@@ -339,9 +339,18 @@ mod tests {
     #[test]
     fn clamped_value_survives_inverted_bounds_without_panicking() {
         // A reflect edit could leave min > max; clamped_value must not panic (unlike f32::clamp).
+        //
+        // ⚠️ v0.156.29: this used to set only `min = 8.0` while `max` stayed at 10.0, so the
+        // range was never actually inverted and `f32::clamp` would have passed it too — the test
+        // could not fail on the cause it names. Both bounds are moved now.
         let mut s = Stepper::new(0.0, 10.0, 5.0);
-        s.min = 8.0; // now min > max
-        let _ = s.clamped_value();
+        s.min = 8.0;
+        s.max = 3.0; // min (8) > max (3)
+        assert_eq!(
+            s.clamped_value(),
+            3.0,
+            "the max/min form yields the upper bound; f32::clamp would panic here"
+        );
     }
 
     #[test]
