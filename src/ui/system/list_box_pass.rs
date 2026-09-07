@@ -296,10 +296,19 @@ mod tests {
         assert!(changed_events(&world).is_empty());
     }
 
+    /// ⚠️ v0.156.29: this released at (350, 280) — outside the node — so `row_at` returned `None`
+    /// on its own and the capture-ownership guard the test is named for was never exercised;
+    /// deleting that guard left the test green. The release now lands *inside* the list's rect but
+    /// over a button that owns the pixel, so only the ownership check can cancel the selection.
     #[test]
     fn drag_off_the_widget_cancels_the_selection() {
         let mut world = setup();
         let lb = spawn_list(&mut world);
+        // A button covering the list's row 2 band (the list is at (50,50) 200x84, rows are 28px).
+        // Spawned second, so it wins the equal-z tie by entity index in `topmost_at`.
+        let cover = world.spawn();
+        world.add_component(cover, UiNode::new(50.0, 106.0, 200.0, 28.0));
+        world.add_component(cover, crate::ui::button::Button::new("cover"));
         let mut system = UiSystem::default();
 
         // Press on row 1, drag off the widget, release: no selection change.
@@ -307,7 +316,7 @@ mod tests {
             let input = world.resource_mut::<InputState>().unwrap();
             input.set_cursor(Vec2::new(60.0, 90.0));
             input.press_mouse(MouseButton::Left);
-            input.set_cursor(Vec2::new(350.0, 280.0));
+            input.set_cursor(Vec2::new(60.0, 120.0)); // inside the list rect, owned by `cover`
             input.release_mouse(MouseButton::Left);
         }
         system.run(&mut world, 0.016);

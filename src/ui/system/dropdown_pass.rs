@@ -596,4 +596,50 @@ mod tests {
         );
         assert!(hl.z > bg.z, "highlight draws over the background");
     }
+
+    /// v0.156.29: the guard that force-closes an open dropdown when its node goes hidden or its
+    /// `items` empty is the only thing standing between a game and an orphaned popup with no
+    /// owner — and nothing in this file ever set `visible = false` or cleared `items` on an open
+    /// one. The guard is correct; these pin it.
+    #[test]
+    fn hiding_an_open_dropdown_closes_it() {
+        let mut world = setup();
+        let dd = spawn_dropdown(&mut world);
+        let mut system = UiSystem::default();
+
+        click(&mut world, &mut system, Vec2::new(60.0, 60.0));
+        assert!(
+            world.get::<Dropdown>(dd).unwrap().open,
+            "the click opens it"
+        );
+
+        world.get_mut::<UiNode>(dd).unwrap().visible = false;
+        // Flush first: without it the previous frame's release is still latched and the ordinary
+        // "a click on the box closes it" path fires, which masks the guard under test.
+        world.resource_mut::<InputState>().unwrap().flush();
+        system.run(&mut world, 0.016);
+
+        let d = world.get::<Dropdown>(dd).unwrap();
+        assert!(!d.open, "a hidden dropdown cannot stay open");
+        assert!(!d.press_opened, "and its press latch is cleared with it");
+    }
+
+    /// The other half of the same `||`: emptying `items` while the list is open.
+    #[test]
+    fn emptying_an_open_dropdowns_items_closes_it() {
+        let mut world = setup();
+        let dd = spawn_dropdown(&mut world);
+        let mut system = UiSystem::default();
+
+        click(&mut world, &mut system, Vec2::new(60.0, 60.0));
+        assert!(world.get::<Dropdown>(dd).unwrap().open);
+
+        world.get_mut::<Dropdown>(dd).unwrap().items.clear();
+        world.resource_mut::<InputState>().unwrap().flush(); // see the note above
+        system.run(&mut world, 0.016);
+
+        let d = world.get::<Dropdown>(dd).unwrap();
+        assert!(!d.open, "an empty dropdown cannot stay open");
+        assert!(!d.press_opened);
+    }
 }
