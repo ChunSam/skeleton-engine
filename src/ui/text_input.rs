@@ -138,8 +138,16 @@ impl TextInput {
     /// a locale swap) leaves `cursor` pointing past the end — or into the middle of a
     /// multi-byte character. Every slicing read below then panics via `str::split_at` or
     /// `String::insert_str`, and it panics **inside the per-frame UI pass**, so the game dies on
-    /// the next frame rather than at the assignment that caused it. Clamping at the read sites
-    /// keeps the field public and forgiving instead of demanding callers remember a paired write.
+    /// the next frame rather than at the assignment that caused it. Clamping at every site that
+    /// uses `cursor` keeps the field public and forgiving instead of demanding callers remember a
+    /// paired write.
+    ///
+    /// ⚠️ **Write sites need this as much as reads do, and that is what was missed.** Until
+    /// v0.156.27 only `backspace` / `move_left` / `move_right` called it: `insert_char` and
+    /// `delete_forward` indexed the raw `cursor`, so the very first keystroke into a field whose
+    /// `text` had been assigned from code panicked in `String::insert` — and `delete_forward`
+    /// panicked in `String::drain` for a cursor left mid-character, which its `>= len` guard
+    /// cannot catch.
     fn safe_cursor(&self) -> usize {
         let mut c = self.cursor.min(self.text.len());
         while c > 0 && !self.text.is_char_boundary(c) {
@@ -200,6 +208,7 @@ impl TextInput {
 
     /// Deletes the character at the cursor position (forward delete, UTF-8 safe).
     pub fn delete_forward(&mut self) {
+        self.cursor = self.safe_cursor();
         if self.cursor >= self.text.len() {
             return;
         }
@@ -212,6 +221,7 @@ impl TextInput {
 
     /// Inserts a character at the cursor position.
     pub fn insert_char(&mut self, c: char) {
+        self.cursor = self.safe_cursor();
         if self.text.len() + c.len_utf8() <= self.max_len {
             self.text.insert(self.cursor, c);
             self.cursor += c.len_utf8();
@@ -421,5 +431,34 @@ mod tests {
         assert_eq!(ti.max_len, 128);
         let fields = ti.fields();
         assert!(fields.iter().any(|(n, _)| *n == "placeholder"));
+    }
+
+    /// v0.156.27: `insert_char` indexed the raw `cursor`, so the first keystroke into a field
+    /// whose `text` was reassigned from code panicked in `String::insert`. The sibling regression
+    /// test `assigning_text_without_resetting_cursor_does_not_panic` builds this exact state but
+    /// exercises only the read methods and `backspace`, so it never reached the write site.
+    #[test]
+    fn insert_char_survives_a_cursor_left_past_the_end() {
+        let mut i = TextInput::new("");
+        i.text = "a very long previous value".into();
+        i.cursor = i.text.len();
+        i.text = "hi".into(); // shorter text, stale cursor at 26
+        i.insert_char('!');
+        assert_eq!(i.text, "hi!");
+        assert_eq!(i.cursor, 3);
+    }
+
+    /// v0.156.27: `delete_forward`'s `>= len` guard catches a past-the-end cursor but not one
+    /// sitting mid-character, so `String::drain` panicked on the start bound.
+    #[test]
+    fn delete_forward_survives_a_cursor_mid_character() {
+        let mut i = TextInput::new("");
+        i.text = "한글".into();
+        i.cursor = 1; // inside the 3-byte '한'
+        i.delete_forward();
+        assert_eq!(
+            i.text, "글",
+            "the cursor snaps back to 0 and deletes the whole character"
+        );
     }
 }

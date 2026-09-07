@@ -44,12 +44,18 @@ pub(super) fn run(
         }
 
         // The wheel scrolls only the list that owns the pointer (shared capture → a list covered by
-        // another widget kind doesn't capture the wheel through it).
-        if input.scroll_delta != 0.0 && hover_owner == Some(entity) {
-            if let Some(lb) = world.get_mut::<ListBox>(entity) {
+        // another widget kind doesn't capture the wheel through it). The clamp runs **every** frame
+        // regardless: `items` can shrink under a scrolled list (an inventory filter, a level-select
+        // page, a refreshed file list) and nothing else re-clamps it. Until v0.156.27 the clamp sat
+        // inside this branch, so a stale offset survived — the render window `first..last` came out
+        // empty and the box drew its background and border with *no rows*, while `row_at` returned
+        // `None` for every click, until the player happened to wheel or arrow it back.
+        // `ScrollView` had the identical defect from the identical cause.
+        if let Some(lb) = world.get_mut::<ListBox>(entity) {
+            if input.scroll_delta != 0.0 && hover_owner == Some(entity) {
                 lb.scroll_offset -= input.scroll_delta * lb.row_height;
-                lb.clamp_scroll(size.y);
             }
+            lb.clamp_scroll(size.y);
         }
 
         // Select on release, like a RadioGroup/CheckBox click (only when both press and release land
@@ -88,9 +94,13 @@ pub(super) fn run(
             } else {
                 None
             };
+            // `saturating_add` because `row_height` is only guarded against `<= 0.0`: a tiny
+            // positive height makes `size.y / row_height` infinite, which saturates to
+            // `usize::MAX` on the cast and overflows a plain `+`. The per-frame clamp above
+            // already keeps `first` inside the list.
             let first = (lb.scroll_offset / lb.row_height).floor().max(0.0) as usize;
-            let visible_rows = (size.y / lb.row_height).ceil() as usize + 2;
-            let last = (first + visible_rows).min(lb.items.len());
+            let visible_rows = ((size.y / lb.row_height).ceil() as usize).saturating_add(2);
+            let last = first.saturating_add(visible_rows).min(lb.items.len());
 
             for i in first..last {
                 let row_top = pos.y + i as f32 * lb.row_height - lb.scroll_offset;
@@ -458,5 +468,41 @@ mod tests {
             !q.items.is_empty(),
             "an empty list still draws its bg/border"
         );
+    }
+
+    /// v0.156.27: `clamp_scroll` ran only inside the wheel branch, so shrinking `items` under a
+    /// scrolled list left a stale `scroll_offset`, `first` landed past the end, and the box drew
+    /// its background and border with no rows at all.
+    #[test]
+    fn shrinking_items_under_a_scrolled_list_still_renders_rows() {
+        let mut world = setup();
+        let lb = spawn_list(&mut world); // 6 items × 28px in an 84-tall node
+        {
+            let l = world.get_mut::<ListBox>(lb).unwrap();
+            l.scroll_offset = 84.0; // the legal max for 6 items — what the wheel test asserts
+            l.items = vec!["A".into(), "B".into()];
+        }
+        UiSystem::default().run(&mut world, 0.016);
+
+        let drawn: Vec<String> = world
+            .resource::<TextQueue>()
+            .unwrap()
+            .iter()
+            .map(|t| t.text.clone())
+            .collect();
+        assert!(
+            drawn.iter().any(|t| t == "A"),
+            "a list whose items shrank must still draw them, got {drawn:?}"
+        );
+    }
+
+    /// A tiny positive `row_height` makes `size.y / row_height` infinite, which saturates to
+    /// `usize::MAX` on the cast; the render window's addition must not overflow.
+    #[test]
+    fn a_tiny_row_height_does_not_overflow_the_render_window() {
+        let mut world = setup();
+        let lb = spawn_list(&mut world);
+        world.get_mut::<ListBox>(lb).unwrap().row_height = f32::MIN_POSITIVE;
+        UiSystem::default().run(&mut world, 0.016); // must not panic
     }
 }

@@ -164,7 +164,7 @@ pub(super) fn run(
                 if let Some(sl) = world.get_mut::<Slider>(e) {
                     let step = sl.resolved_keyboard_step();
                     let delta = if input.nav_right { step } else { -step };
-                    let new_val = (sl.value + delta).clamp(sl.min, sl.max);
+                    let new_val = sl.clamped(sl.value + delta);
                     if (new_val - sl.value).abs() > f32::EPSILON {
                         sl.value = new_val;
                         output.events.push(UiEvent::SliderChanged(e, new_val));

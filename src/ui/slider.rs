@@ -79,7 +79,7 @@ impl Reflect for Slider {
                 self.initial_value = v;
                 // Sync the live thumb position so the slider immediately reflects the
                 // inspector edit, rather than staying at the stale runtime value.
-                self.value = v.clamp(self.min, self.max);
+                self.value = self.clamped(v);
                 true
             }
             ("min", ReflectValue::F32(v)) => {
@@ -105,7 +105,9 @@ impl Reflect for Slider {
 
 impl Slider {
     pub fn new(min: f32, max: f32, value: f32) -> Self {
-        let clamped = value.clamp(min, max);
+        // Same non-panicking form as `clamped`, which needs a built `Self` and so cannot be
+        // called here.
+        let clamped = value.max(min).min(max);
         Self {
             initial_value: clamped,
             value: clamped,
@@ -134,6 +136,20 @@ impl Slider {
     pub fn resolved_keyboard_step(&self) -> f32 {
         self.keyboard_step
             .unwrap_or((self.max - self.min) * DEFAULT_SLIDER_STEP_FRAC)
+    }
+
+    /// `v` clamped into `min..=max`. Uses `max/min` rather than [`f32::clamp`] so a reflect-edited,
+    /// scene-loaded or hand-assigned `min > max` (or a NaN bound) cannot panic — the same reason
+    /// [`Stepper::clamped_value`] is written this way.
+    ///
+    /// ⚠️ `f32::clamp` panics when `min > max` or either bound is NaN, and `min`/`max` are public
+    /// fields written by `Reflect` with no ordering check and accepted verbatim from a scene by
+    /// `#[serde(default)]`. Until v0.156.27 all three clamp sites used it, so `Slider::new(1.0,
+    /// 0.0, 0.5)` and an inspector edit dropping `max` below `min` both panicked.
+    ///
+    /// [`Stepper::clamped_value`]: crate::ui::Stepper::clamped_value
+    pub(crate) fn clamped(&self, v: f32) -> f32 {
+        v.max(self.min).min(self.max)
     }
 
     /// Normalizes the current value to [0.0, 1.0].
@@ -235,5 +251,34 @@ mod tests {
             (s.value - 0.0).abs() < f32::EPSILON,
             "value must be clamped to min"
         );
+    }
+
+    /// v0.156.27: all three clamp sites used `f32::clamp`, which is documented to panic when
+    /// `min > max` or either bound is NaN — and `min`/`max` are public fields that `Reflect`
+    /// writes with no ordering check.
+    #[test]
+    fn inverted_or_nan_bounds_do_not_panic() {
+        // The constructor: min > max.
+        let s = Slider::new(1.0, 0.0, 0.5);
+        assert!(
+            s.value.is_finite(),
+            "an inverted range must not panic, got {}",
+            s.value
+        );
+
+        // The reflect path: drop `max` below `min`, then write a value through it.
+        let mut s = Slider::new(0.0, 100.0, 50.0);
+        assert!(s.set_field("max", ReflectValue::F32(-1.0)));
+        assert!(s.set_field("initial_value", ReflectValue::F32(10.0)));
+        assert!(
+            s.value.is_finite(),
+            "an inverted reflect edit must not panic"
+        );
+
+        // A NaN bound is inert rather than fatal.
+        let mut s = Slider::new(0.0, 100.0, 50.0);
+        assert!(s.set_field("max", ReflectValue::F32(f32::NAN)));
+        assert!(s.set_field("initial_value", ReflectValue::F32(10.0)));
+        let _ = s.clamped(10.0);
     }
 }
