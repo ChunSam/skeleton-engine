@@ -629,4 +629,74 @@ mod tests {
             "expected exactly 1 SliderChanged on press frame, got {values:?}"
         );
     }
+
+    /// v0.156.28: `dragging` is the only cross-frame latch in the slider pass, and the visibility
+    /// guard sat above the release that clears it — so hiding a slider mid-drag left it armed and
+    /// the thumb jumped to the cursor when it came back.
+    #[test]
+    fn hiding_a_slider_mid_drag_clears_the_drag() {
+        let mut world = World::new();
+        world.insert_resource(ViewportSize::new(400, 300));
+        world.insert_resource(Events::<UiEvent>::default());
+        let entity = world.spawn();
+        world.add_component(entity, UiNode::new(100.0, 50.0, 200.0, 20.0));
+        world.add_component(entity, Slider::new(0.0, 1.0, 0.0));
+        let mut input = InputState::default();
+        input.set_cursor(Vec2::new(150.0, 60.0));
+        world.insert_resource(input);
+
+        let mut system = UiSystem::default();
+        world
+            .resource_mut::<InputState>()
+            .unwrap()
+            .press_mouse(MouseButton::Left);
+        system.run(&mut world, 0.016);
+        assert!(
+            world.get::<Slider>(entity).unwrap().dragging,
+            "the drag started"
+        );
+
+        // Hidden mid-drag; the release lands while it is hidden.
+        world.get_mut::<UiNode>(entity).unwrap().visible = false;
+        {
+            let i = world.resource_mut::<InputState>().unwrap();
+            i.flush();
+            i.release_mouse(MouseButton::Left);
+        }
+        system.run(&mut world, 0.016);
+        assert!(
+            !world.get::<Slider>(entity).unwrap().dragging,
+            "hiding a slider must abandon its drag"
+        );
+
+        // A press that begins elsewhere, still held while the slider is hidden.
+        {
+            let i = world.resource_mut::<InputState>().unwrap();
+            i.flush();
+            i.set_cursor(Vec2::new(350.0, 250.0)); // nowhere near the slider
+            i.press_mouse(MouseButton::Left);
+        }
+        system.run(&mut world, 0.016);
+
+        // The slider reappears under that still-held button. This is the frame the stale
+        // `dragging` used to resume on: not a press frame, so the drag-update path runs, and the
+        // thumb would snap to the cursor and emit a SliderChanged nobody asked for.
+        world.get_mut::<UiNode>(entity).unwrap().visible = true;
+        let before = world.get::<Slider>(entity).unwrap().value;
+        world.resource_mut::<Events<UiEvent>>().unwrap().flush();
+        {
+            let i = world.resource_mut::<InputState>().unwrap();
+            i.flush(); // clears just_pressed; the button stays held
+            i.set_cursor(Vec2::new(290.0, 60.0)); // now over the slider's right end
+        }
+        system.run(&mut world, 0.016);
+        assert!(
+            (world.get::<Slider>(entity).unwrap().value - before).abs() < f32::EPSILON,
+            "a resurfaced slider must not resume a drag the player never started"
+        );
+        assert!(
+            count_slider_events(&world).is_empty(),
+            "and it must not emit a value change either"
+        );
+    }
 }

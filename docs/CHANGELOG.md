@@ -4,6 +4,60 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.28
+
+### Five widgets that got stuck when they stopped being interactable
+
+The second batch off the 2026-09-06 `src/ui` review, and they are one theme rather than five bugs:
+every one is an exit path that is not taken when a widget stops being something the player can
+interact with. The editor's v0.155.4 abandoned-drag defect was the same shape in a different
+subsystem.
+
+**Focus stayed pinned to a dead entity handle.** `is_focusable` compared `Entity::index()` alone,
+so the "is my focus still valid?" filter passed for a despawned widget whose index a new focusable
+had taken — and `World::spawn` hands out freed indices FIFO, so any menu that despawns and
+respawns a row reaches it immediately. `World::get` then returned `None` everywhere: no focus ring
+drew, Enter/Space/arrows did nothing, and the dead handle was written back every frame. Focus only
+recovered on the next Tab, which jumped to the first widget instead of resuming. The generation is
+now part of the comparison.
+
+**A virtual joystick stuck forever if one frame was missed.** `TouchState::ended()` is a
+single-frame buffer and it was the only release signal, so a frame `update` did not observe — a
+movement system gated behind a game state, a pause, a scene swap — consumed the release. After
+that `output` kept its last non-zero value permanently, `is_active()` stayed true, no new touch
+could claim the stick, and there was no public reset: the player walks into a wall with no way
+out. The release now also comes from `active_touches()`, which is durable — a touch missing from
+it is gone whether or not its `ended` frame was seen. `update_raw` had the identical hole.
+
+**A slider hidden mid-drag resumed the drag when it came back.** The visibility guard sits above
+the release that clears `dragging`, the pass's only cross-frame latch, so hiding a slider during a
+drag left it armed; the next time it was shown while any button was held, the thumb jumped to the
+cursor and emitted a `SliderChanged` the player never made.
+
+**Tab away from an open dropdown left the list orphaned.** An open dropdown registers its whole
+expanded rect in the pointer capture at `DROPDOWN_LIST_Z`, so it kept eating hover and clicks for
+everything drawn beneath it — and nothing closed it: `dropdown_pass` closes only on select,
+press-away, hidden or empty, and there is no Escape path. Focus leaving a dropdown now closes it,
+mirroring the pointer path where pressing elsewhere is a press-away. Compared against the
+*previous* focus rather than "any unfocused open dropdown", because a mouse-opened list spends one
+frame open before the click's release moves focus onto it.
+
+**A tooltip stayed on screen after the pointer left the window.** This one needed a new fact
+rather than a new branch: `InputState::cursor` is a bare `Vec2` with no way to say "there is no
+pointer here", so when the pointer leaves it simply **freezes** at its last value and every hover
+test keeps answering with it. `InputState` gains `cursor_inside` (defaulting to `true`, so
+headless and virtual-cursor callers are unaffected), `CursorLeft` / `CursorEntered` drive it, and
+the docked-mode freeze — already documented as a freeze — now records itself as one too. The
+tooltip pass consults it first. ⚠️ **The same staleness affects every hover tint in the
+subsystem**; the signal now exists for them, but changing them is a separate call and is filed
+rather than done here.
+
+Six tests, each seen to fail: restoring the index-only comparison, deleting the focus-loss close,
+ignoring a touch missing from the live set, dropping the drag clear, and ignoring `cursor_inside`
+each redden exactly the test named for it. The dropdown pair carries its own control — an idle
+frame must *not* close a focused open list — and the slider test's third phase re-shows the widget
+under a still-held button, which is the frame the stale latch used to resume on.
+
 ## 0.156.27
 
 ### Four panics reachable from the public API, and two widgets that rendered nothing

@@ -66,6 +66,9 @@ fn step_axis(latched: &mut i8, value: f32, activate: f32, release: f32) -> i8 {
 
 pub(super) struct InputSnapshot {
     pub(super) cursor: Vec2,
+    /// Whether the pointer is over the game surface at all. `cursor` freezes at its last
+    /// in-surface value when it is not, so every hover test must consult this first.
+    pub(super) cursor_inside: bool,
     pub(super) just_pressed: bool,
     pub(super) just_released: bool,
     pub(super) is_held: bool,
@@ -100,6 +103,7 @@ impl InputSnapshot {
         // live cursor. Hover/drag still use `cursor`.
         let mut snap = Self {
             cursor,
+            cursor_inside: input.cursor_inside(),
             just_pressed: input.mouse_just_pressed(MouseButton::Left),
             just_released: input.mouse_just_released(MouseButton::Left),
             is_held: input.is_mouse_pressed(MouseButton::Left),

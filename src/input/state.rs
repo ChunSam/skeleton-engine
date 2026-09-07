@@ -14,6 +14,14 @@ pub struct InputState {
 
     // ── Mouse ─────────────────────────────────────────────────────────────────
     cursor: Vec2,
+    /// Whether the pointer is currently over the surface the game is drawn on.
+    ///
+    /// `cursor` is a bare `Vec2` with no way to say "there is no pointer here", so when the
+    /// pointer leaves it simply **freezes** at its last value — and every hover test keeps
+    /// answering with that stale position. This flag is the missing half. Defaults to `true`,
+    /// so a headless or virtual-cursor caller that never sees window events behaves exactly as
+    /// before.
+    cursor_inside: bool,
     mouse_pressed: [bool; 3],
     mouse_just_pressed: [bool; 3],
     mouse_just_released: [bool; 3],
@@ -35,6 +43,7 @@ impl Default for InputState {
             just_pressed: HashSet::new(),
             just_released: HashSet::new(),
             cursor: Vec2::ZERO,
+            cursor_inside: true,
             mouse_pressed: [false; 3],
             mouse_just_pressed: [false; 3],
             mouse_just_released: [false; 3],
@@ -66,6 +75,24 @@ impl InputState {
 
     pub fn cursor(&self) -> Vec2 {
         self.cursor
+    }
+
+    /// Whether the pointer is over the game surface right now.
+    ///
+    /// `false` once it has left the window (or, in the editor's docked mode, the central panel),
+    /// until it comes back. [`cursor`](Self::cursor) keeps its last in-surface value throughout —
+    /// it is frozen, not cleared — so anything that reacts to *where the pointer is* should ask
+    /// this first. Without it a hover-driven popup stays on screen over the game while the mouse
+    /// is on another monitor.
+    pub fn cursor_inside(&self) -> bool {
+        self.cursor_inside
+    }
+
+    /// Marks the pointer as over the game surface or not. Public for the same reason
+    /// [`set_cursor`](Self::set_cursor) is: a game driving a virtual cursor, or a test, needs to
+    /// be able to say so. Real window events drive it otherwise.
+    pub fn set_cursor_inside(&mut self, inside: bool) {
+        self.cursor_inside = inside;
     }
 
     pub fn is_mouse_pressed(&self, btn: MouseButton) -> bool {
@@ -132,6 +159,9 @@ impl InputState {
     /// whatever is set here.
     pub fn set_cursor(&mut self, pos: Vec2) {
         self.cursor = pos;
+        // A position was supplied, so there is a pointer here. Keeps every existing caller —
+        // virtual cursors, touch, tests — correct without a paired write.
+        self.cursor_inside = true;
     }
 
     pub(crate) fn press_mouse(&mut self, btn: MouseButton) {

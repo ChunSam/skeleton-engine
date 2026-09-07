@@ -305,10 +305,31 @@ impl ApplicationHandler for App {
                     self.editor.window_cursor = Some(egui::pos2(logical.x, logical.y));
                 }
 
-                if let Some(cursor) = self.game_cursor(logical) {
-                    if let Some(input) = self.world.resource_mut::<InputState>() {
-                        input.set_cursor(cursor);
+                let cursor = self.game_cursor(logical);
+                if let Some(input) = self.world.resource_mut::<InputState>() {
+                    match cursor {
+                        Some(cursor) => input.set_cursor(cursor),
+                        // Outside the central panel in Docked mode. `cursor` stays frozen at its
+                        // last in-panel value, as documented above — this records *that it is
+                        // frozen*, which is what hover-driven UI needs to know.
+                        None => input.set_cursor_inside(false),
                     }
+                }
+            }
+
+            // The pointer left the window entirely. `cursor` has no "nowhere" value and simply
+            // stops updating, so without this every hover test keeps answering with the last
+            // in-window position — a hover-opened tooltip stayed on screen over the game while
+            // the mouse was on another monitor. `CursorEntered` re-arms it; a `CursorMoved`
+            // would too, but the enter event arrives first.
+            WindowEvent::CursorLeft { .. } => {
+                if let Some(input) = self.world.resource_mut::<InputState>() {
+                    input.set_cursor_inside(false);
+                }
+            }
+            WindowEvent::CursorEntered { .. } => {
+                if let Some(input) = self.world.resource_mut::<InputState>() {
+                    input.set_cursor_inside(true);
                 }
             }
 

@@ -167,6 +167,7 @@ mod tests {
     fn chars_input(chars: Vec<char>) -> InputSnapshot {
         InputSnapshot {
             cursor: Vec2::ZERO,
+            cursor_inside: true,
             just_pressed: false,
             just_released: false,
             is_held: false,
@@ -191,6 +192,7 @@ mod tests {
     fn nav_input(left: bool, right: bool) -> InputSnapshot {
         InputSnapshot {
             cursor: Vec2::ZERO,
+            cursor_inside: true,
             just_pressed: false,
             just_released: false,
             is_held: false,
