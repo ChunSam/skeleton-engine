@@ -11,19 +11,48 @@ use super::text_input::TextInput;
 
 /// Binds a translation `key` to a text-bearing UI widget.
 ///
-/// Attach it alongside a [`Label`], [`Button`], or [`CheckBox`] and
-/// [`LocalizationSystem`] will keep that widget's text in sync with the current
-/// locale every frame — calling [`LocaleResource::set_locale`] is enough to
-/// retranslate the whole UI, with no manual per-widget rebuild.
+/// Attach it alongside a [`Label`], [`Button`], [`CheckBox`], or [`TextInput`] — whose
+/// **`placeholder`** is the translated field — and [`LocalizationSystem`] will keep that widget's
+/// text in sync with the current locale every frame; calling [`LocaleResource::set_locale`] is
+/// enough to retranslate the whole UI, with no manual per-widget rebuild.
 ///
 /// # Example
-/// ```ignore
-/// let e = world.spawn();
-/// world.add_component(e, UiNode::new(0.0, 0.0, 200.0, 40.0));
-/// world.add_component(e, Label::new(""));
-/// world.add_component(e, LocalizedText::new("menu.start"));
-/// // ...later: world.resource_mut::<LocaleResource>().unwrap().set_locale("ko");
-/// // LocalizationSystem now sets the Label text to the Korean "menu.start".
+/// ```
+/// use engine::ecs::{System, World};
+/// use engine::locale::LocaleResource;
+/// use engine::ui::{Label, LocalizationSystem, LocalizedText, TextInput};
+///
+/// let mut world = World::new();
+/// world.insert_resource(
+///     LocaleResource::from_ron_str(
+///         r#"(
+///             default_locale: "en",
+///             locales: {
+///                 "en": ( translations: { "menu.start": "Start" } ),
+///                 "ko": ( translations: { "menu.start": "시작" } ),
+///             },
+///         )"#,
+///     )
+///     .unwrap(),
+/// );
+///
+/// let label = world.spawn();
+/// world.add_component(label, Label::new(""));
+/// world.add_component(label, LocalizedText::new("menu.start"));
+///
+/// // A TextInput binds the same way; its `placeholder` is what gets written.
+/// let field = world.spawn();
+/// world.add_component(field, TextInput::new(""));
+/// world.add_component(field, LocalizedText::new("menu.start"));
+///
+/// LocalizationSystem.run(&mut world, 0.0);
+/// assert_eq!(world.get::<Label>(label).unwrap().text, "Start");
+/// assert_eq!(world.get::<TextInput>(field).unwrap().placeholder, "Start");
+///
+/// world.resource_mut::<LocaleResource>().unwrap().set_locale("ko");
+/// LocalizationSystem.run(&mut world, 0.0);
+/// assert_eq!(world.get::<Label>(label).unwrap().text, "시작");
+/// assert_eq!(world.get::<TextInput>(field).unwrap().placeholder, "시작");
 /// ```
 #[derive(Clone, Serialize, Deserialize)]
 pub struct LocalizedText {
@@ -58,7 +87,9 @@ impl LocalizedText {
 }
 
 /// Resolves every [`LocalizedText`] through the [`LocaleResource`] and writes the
-/// result into the entity's [`Label`] / [`Button`] / [`CheckBox`] text field.
+/// result into the entity's [`Label`] / [`Button`] / [`CheckBox`] text field, or a
+/// [`TextInput`]'s **`placeholder`** — all four kinds, checked for staleness and written by the
+/// same two loops below.
 ///
 /// [`LocaleResource`] lives in `src/locale.rs` and is the single source of truth for
 /// translation data. Each frame this system calls [`LocaleResource::t`] for every
@@ -199,10 +230,19 @@ mod tests {
         world.add_component(checkbox, CheckBox::new(""));
         world.add_component(checkbox, LocalizedText::new("opt.subtitles"));
 
+        // The fourth kind, or this test's name is a claim it does not make.
+        let text_input = world.spawn();
+        world.add_component(text_input, TextInput::new(""));
+        world.add_component(text_input, LocalizedText::new("opt.subtitles"));
+
         LocalizationSystem.run(&mut world, 0.0);
         assert_eq!(world.get::<Label>(label).unwrap().text, "Start");
         assert_eq!(world.get::<Button>(button).unwrap().label, "Start");
         assert_eq!(world.get::<CheckBox>(checkbox).unwrap().label, "Subtitles");
+        assert_eq!(
+            world.get::<TextInput>(text_input).unwrap().placeholder,
+            "Subtitles"
+        );
 
         world
             .resource_mut::<LocaleResource>()
@@ -212,6 +252,10 @@ mod tests {
         assert_eq!(world.get::<Label>(label).unwrap().text, "시작");
         assert_eq!(world.get::<Button>(button).unwrap().label, "시작");
         assert_eq!(world.get::<CheckBox>(checkbox).unwrap().label, "자막");
+        assert_eq!(
+            world.get::<TextInput>(text_input).unwrap().placeholder,
+            "자막"
+        );
     }
 
     #[test]
