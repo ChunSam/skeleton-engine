@@ -6,6 +6,9 @@ use crate::ecs::Entity;
 #[derive(Debug, Clone, PartialEq)]
 pub enum UiEvent {
     ButtonClicked(Entity),
+    /// TextInput text changed. The second field is the new text.
+    /// Emitted only when the text actually changed (a char a full field rejects, or a backspace
+    /// with nothing before the cursor, is silent).
     TextChanged(Entity, String),
     TextSubmitted(Entity, String),
     TextFocused(Entity),
