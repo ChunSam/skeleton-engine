@@ -146,11 +146,11 @@ impl System for LayoutSystem {
         // Can't call get_mut while the query iterator is live, so collect first
         // (the repo's standard borrow-checker workaround).
         struct PanelSnapshot {
+            entity: Entity,
             children: Vec<Entity>,
             gap: f32,
             direction: LayoutDir,
             padding: f32,
-            panel_pos: Vec2,
             // background draw data
             size: Vec2,
             z: f32,
@@ -159,32 +159,70 @@ impl System for LayoutSystem {
         }
         let snapshots: Vec<PanelSnapshot> = world
             .query2::<UiNode, Panel>()
-            .map(|(_, node, panel)| {
-                let panel_pos = node.screen_pos(&viewport);
-                PanelSnapshot {
-                    children: panel.children.clone(),
-                    gap: panel.gap,
-                    direction: panel.direction,
-                    padding: panel.padding,
-                    panel_pos,
-                    size: node.size,
-                    z: node.z,
-                    visible: node.visible,
-                    bg_color: panel.background_color,
-                }
+            .map(|(entity, node, panel)| PanelSnapshot {
+                entity,
+                children: panel.children.clone(),
+                gap: panel.gap,
+                direction: panel.direction,
+                padding: panel.padding,
+                size: node.size,
+                z: node.z,
+                visible: node.visible,
+                bg_color: panel.background_color,
             })
             .collect();
 
-        // Step 2: iterator released after collect → get_mut is safe.
+        // Step 2: order panels parents-first. A nested panel's own position is written by its
+        // parent's pass below, so laying the inner one out first would place its children against
+        // the position the inner panel held at the *start* of the frame — one frame of lag per
+        // nesting level, for the children and for the panel background alike.
+        let index_of = |e: Entity| snapshots.iter().position(|s| s.entity == e);
+        let mut queued: Vec<bool> = vec![true; snapshots.len()];
+        for snap in &snapshots {
+            for &child in &snap.children {
+                if let Some(i) = index_of(child) {
+                    queued[i] = false; // has a panel parent → not a root
+                }
+            }
+        }
+        let mut order: Vec<usize> = Vec::with_capacity(snapshots.len());
+        order.extend((0..snapshots.len()).filter(|&i| queued[i]));
+        let mut head = 0;
+        while head < order.len() {
+            let i = order[head];
+            head += 1;
+            for c in 0..snapshots[i].children.len() {
+                if let Some(j) = index_of(snapshots[i].children[c]) {
+                    if !queued[j] {
+                        queued[j] = true;
+                        order.push(j);
+                    }
+                }
+            }
+        }
+        // A cycle in the child links (nothing forbids one — `children` is a free `pub` field)
+        // leaves panels unreached. Lay each of those out once, in collect order, rather than
+        // looping forever or dropping it.
+        order.extend((0..snapshots.len()).filter(|&i| !queued[i]));
+
+        // Step 3: iterator released after collect → get_mut is safe.
         let mut rects: Vec<DrawRect> = Vec::new();
-        for snap in snapshots {
+        for &i in &order {
+            let snap = &snapshots[i];
+            // Read the panel's position *now*, not at collect time: an outer panel earlier in
+            // this same loop may have just moved it.
+            let panel_pos = match world.get::<UiNode>(snap.entity) {
+                Some(node) => node.screen_pos(&viewport),
+                None => continue,
+            };
+
             // Layout children.
-            let start_x = snap.panel_pos.x + snap.padding;
-            let start_y = snap.panel_pos.y + snap.padding;
+            let start_x = panel_pos.x + snap.padding;
+            let start_y = panel_pos.y + snap.padding;
             let mut cursor_x = start_x;
             let mut cursor_y = start_y;
 
-            for child_entity in snap.children {
+            for &child_entity in &snap.children {
                 let child_size = match world.get::<UiNode>(child_entity) {
                     Some(n) => n.size,
                     None => continue,
@@ -214,8 +252,8 @@ impl System for LayoutSystem {
             if snap.visible {
                 rects.push(
                     DrawRect::new(
-                        snap.panel_pos.x,
-                        snap.panel_pos.y,
+                        panel_pos.x,
+                        panel_pos.y,
                         snap.size.x,
                         snap.size.y,
                         snap.bg_color,
@@ -261,6 +299,114 @@ mod tests {
         assert!((p.padding - 8.0).abs() < f32::EPSILON);
         let fields = p.fields();
         assert!(fields.iter().any(|(n, _)| *n == "background_color"));
+    }
+
+    /// Nested panels used to lag one frame per level: every panel's position was snapshotted
+    /// before any child was moved, so an inner panel laid its own children out against the
+    /// position it held at the start of the frame. Spawn order matters here — the inner panel is
+    /// spawned first on purpose, which is the order that used to lag.
+    #[test]
+    fn a_nested_panel_lays_out_its_children_in_the_frame_the_outer_panel_moves() {
+        fn pos(world: &World, e: Entity) -> Vec2 {
+            world.get::<UiNode>(e).expect("node").offset
+        }
+
+        let mut world = World::new();
+        world.insert_resource(ViewportSize::new(400, 300));
+
+        let leaf = world.spawn();
+        world.add_component(leaf, UiNode::new(0.0, 0.0, 20.0, 20.0));
+
+        let inner = world.spawn();
+        world.add_component(inner, UiNode::new(0.0, 0.0, 100.0, 100.0));
+        let mut inner_panel = Panel::new(LayoutDir::Vertical);
+        inner_panel.children.push(leaf);
+        world.add_component(inner, inner_panel);
+
+        let outer = world.spawn();
+        world.add_component(outer, UiNode::new(0.0, 0.0, 200.0, 200.0));
+        let mut outer_panel = Panel::new(LayoutDir::Vertical);
+        outer_panel.children.push(inner);
+        world.add_component(outer, outer_panel);
+
+        let mut sys = LayoutSystem;
+        sys.run(&mut world, 1.0 / 60.0);
+        // Default padding is 8: outer at 0 puts inner at 8, inner at 8 puts the leaf at 16.
+        assert_eq!(pos(&world, inner), Vec2::new(8.0, 8.0));
+        assert_eq!(pos(&world, leaf), Vec2::new(16.0, 16.0));
+
+        // Move the outer panel. One frame later every level below it must have followed.
+        world.get_mut::<UiNode>(outer).expect("outer node").offset = Vec2::new(100.0, 0.0);
+        sys.run(&mut world, 1.0 / 60.0);
+
+        assert_eq!(pos(&world, inner), Vec2::new(108.0, 8.0));
+        assert_eq!(
+            pos(&world, leaf),
+            Vec2::new(116.0, 16.0),
+            "the leaf lagged a frame behind its grandparent"
+        );
+    }
+
+    /// The background rect is emitted from the same position the children are laid out against,
+    /// so it must not lag either.
+    #[test]
+    fn a_nested_panel_draws_its_background_at_the_position_it_moved_to() {
+        let mut world = World::new();
+        world.insert_resource(ViewportSize::new(400, 300));
+        world.insert_resource(UiQueue::default());
+
+        let inner = world.spawn();
+        world.add_component(inner, UiNode::new(0.0, 0.0, 100.0, 100.0));
+        world.add_component(inner, Panel::new(LayoutDir::Vertical));
+
+        let outer = world.spawn();
+        world.add_component(outer, UiNode::new(0.0, 0.0, 200.0, 200.0));
+        let mut outer_panel = Panel::new(LayoutDir::Vertical);
+        outer_panel.children.push(inner);
+        world.add_component(outer, outer_panel);
+
+        let mut sys = LayoutSystem;
+        sys.run(&mut world, 1.0 / 60.0);
+        world
+            .resource_mut::<UiQueue>()
+            .expect("queue")
+            .items
+            .clear();
+
+        world.get_mut::<UiNode>(outer).expect("outer node").offset = Vec2::new(100.0, 0.0);
+        sys.run(&mut world, 1.0 / 60.0);
+
+        let rects = &world.resource::<UiQueue>().expect("queue").items;
+        assert!(
+            rects.iter().any(|r| r.x == 108.0 && r.y == 8.0),
+            "inner panel background is not at the position its parent just moved it to: {:?}",
+            rects.iter().map(|r| (r.x, r.y)).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_cycle_in_the_child_links_does_not_hang_the_layout_pass() {
+        let mut world = World::new();
+        world.insert_resource(ViewportSize::new(400, 300));
+
+        let a = world.spawn();
+        world.add_component(a, UiNode::new(0.0, 0.0, 100.0, 100.0));
+        let b = world.spawn();
+        world.add_component(b, UiNode::new(0.0, 0.0, 100.0, 100.0));
+
+        let mut pa = Panel::new(LayoutDir::Vertical);
+        pa.children.push(b);
+        world.add_component(a, pa);
+        let mut pb = Panel::new(LayoutDir::Vertical);
+        pb.children.push(a);
+        world.add_component(b, pb);
+
+        // Every panel is somebody's child, so the root set is empty and the pass has to fall back
+        // to collect order rather than skipping them or looping.
+        let mut sys = LayoutSystem;
+        sys.run(&mut world, 1.0 / 60.0);
+        assert!(world.get::<UiNode>(a).is_some());
+        assert!(world.get::<UiNode>(b).is_some());
     }
 
     #[test]

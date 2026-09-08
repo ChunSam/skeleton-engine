@@ -4,6 +4,65 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.30
+
+### Five widgets whose geometry contradicted their own documentation
+
+The fourth batch off the 2026-09-06 `src/ui` review, and the last of its rows that were reproduced
+by running code. Each one is a promise a doc comment makes that the arithmetic under it does not
+keep, and four of the five are only reachable through a public field a game or a scene file can
+set to something the widget never considered.
+
+**A nested panel laid its children out one frame late, per nesting level.** `LayoutSystem`
+snapshotted every panel's position *before* it moved any child, so an inner panel positioned its
+own children against the position it held at the start of the frame — and its background rect was
+drawn there too. A menu that slides a container in showed the outer box in its new place with the
+inner contents trailing behind it. Panels are now laid out parents-first (a breadth-first walk from
+the panels no other panel lists as a child) and each panel reads its position at the moment it is
+processed. A cycle in the `children` links — nothing forbids one; it is a free `pub` field — lays
+each panel out once in collect order rather than hanging the pass. ⚠️ The ordering costs two more
+allocations per frame (both pre-sized): measured 56 → **58** allocations / 9,616 → **10,066** bytes
+at 50 panels × 8 children, on the probe the backlog's open allocation row uses. `LayoutSystem` was
+already allocating per frame and that row stays open with the new number in it.
+
+**A `Switch` narrower than it is tall lost its on/off affordance.** `knob_rect` never clamped the
+"on" position against the track's left edge: `with_size(24.0, 24.0)` gave `off_x == on_x == 3`, a
+knob frozen in place, and `with_size(20.0, 24.0)` put it at `-1`, outside the track — while the
+widget still toggled, so the player saw nothing move. The knob diameter is now capped at half the
+track's inner width, so the knob always has room to travel its own width, and both ends are clamped
+into the track. Any track at least twice as wide as it is tall — the shipped 46×24 default included
+— hits the height term and is byte-identical to before; a new test pins that.
+
+**A `RadioGroup`'s raw `selected` never converged on what it was drawing.** The click path wrote
+`selected` only when the row differed from `selected_index()`, so a value out of range (a scene RON,
+or `Reflect::set_field`, which clamps negatives but not the upper bound) drew as the last row and
+*stayed* out of range no matter how often the player clicked that row. The stored value and the
+visible one then disagreed for the widget's life, and a later `items.push` moved the drawn
+selection with no `RadioChanged` to tell the game. A click now writes the row it resolved; the
+event still fires only when the drawn selection changed.
+
+**`ProgressBar::fraction()` returned NaN** for a NaN `value` — `f32::clamp` propagates it — while
+its doc promises `0.0..=1.0`. The renderer happened to be safe (`if fill_w > 0.0` is false for NaN),
+but a NaN reaches the field from any `hp / max_hp` with both sides zero, and every game reading
+`fraction()` for a percentage readout propagated it. `fraction()` and `new()` now use the same
+`max/min` form `Stepper::clamped_value` documents.
+
+**A negative `TabBar::gap` overlapped adjacent headers**, and `tab_at`'s `find` returned the
+*leftmost* match while the render loop drew each header over the previous one — so a click in the
+overlap selected a tab the player could not see, against `tab_rect`'s own doc that rendering and
+click resolution "can never disagree". `gap` is now floored at `0.0` for geometry purposes
+(`resolved_gap`), because overlapping headers have no coherent draw order to agree with: each
+header draws over the previous one, but each *title* draws over the next header's background.
+
+Eight new tests, each seen to fail: restoring the start-of-frame position read, the pre-fix knob
+arithmetic, the change-gated `selected` write, `f32::clamp`, and the unclamped gap each redden
+exactly the tests named for them. The knob sabotage reproduces the filed symptom verbatim
+("24x24: the knob does not move between off and on (both at 3)"), as does the tab bar's
+("tab 0 ends at 120, tab 1 starts at 100").
+
+**Added:** `Switch::knob_diameter` and `TabBar::resolved_gap`, both public so a game styling either
+widget can see the value the geometry actually uses.
+
 ## 0.156.29
 
 ### Eight places where a green suite was not saying what it looked like it was saying

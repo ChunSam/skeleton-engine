@@ -32,7 +32,8 @@ pub struct RadioGroup {
     pub items: Vec<String>,
     /// Index of the selected option. Read via [`selected_index`](Self::selected_index), which
     /// clamps into range; the raw field is left as set so an out-of-range value is not silently
-    /// mutated.
+    /// mutated. A click on a row writes that row here, so a value out of range converges on the
+    /// drawn selection the first time the player uses the widget.
     pub selected: usize,
     /// Ring (outline) color of every option circle.
     pub circle_color: Color,

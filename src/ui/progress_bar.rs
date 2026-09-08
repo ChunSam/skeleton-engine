@@ -56,10 +56,14 @@ impl Default for ProgressBar {
 }
 
 impl ProgressBar {
-    /// A bar at fill fraction `value` (clamped into `0.0..=1.0`) with the default colors.
+    /// A bar at fill fraction `value` (clamped into `0.0..=1.0`, NaN included) with the default
+    /// colors.
+    // `max/min` on purpose, like `fraction`: clippy's own note on this lint says "clamp returns
+    // NaN if the input is NaN", which is the bug being fixed.
+    #[allow(clippy::manual_clamp)]
     pub fn new(value: f32) -> Self {
         Self {
-            value: value.clamp(0.0, 1.0),
+            value: value.max(0.0).min(1.0),
             ..Self::default()
         }
     }
@@ -84,9 +88,12 @@ impl ProgressBar {
         self
     }
 
-    /// The fill fraction clamped to `0.0..=1.0` — what the renderer uses.
+    /// The fill fraction clamped to `0.0..=1.0` — what the renderer uses. Uses `max/min` rather
+    /// than [`f32::clamp`], which propagates NaN: a game reading this for a percentage readout
+    /// would otherwise print `NaN` for a value that arrived as `0.0 / 0.0`.
+    #[allow(clippy::manual_clamp)] // see the doc above: `f32::clamp` is the NaN path
     pub fn fraction(&self) -> f32 {
-        self.value.clamp(0.0, 1.0)
+        self.value.max(0.0).min(1.0)
     }
 }
 
@@ -148,6 +155,23 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(under.fraction(), 0.0);
+    }
+
+    /// `f32::clamp` propagates NaN, so `fraction()` used to return NaN while its doc promised a
+    /// value in `0.0..=1.0`. The renderer happened to be safe (`if fill_w > 0.0` is false for NaN),
+    /// but every game reading `fraction()` for a readout propagated it.
+    #[test]
+    fn a_nan_value_reads_as_an_empty_bar() {
+        let nan = ProgressBar {
+            value: f32::NAN,
+            ..Default::default()
+        };
+        assert_eq!(nan.fraction(), 0.0);
+        assert!(nan.value.is_nan(), "raw field is left as set");
+
+        // The constructor clamps too, and must not store NaN either.
+        assert_eq!(ProgressBar::new(f32::NAN).value, 0.0);
+        assert_eq!(ProgressBar::new(f32::NAN).fraction(), 0.0);
     }
 
     #[test]
