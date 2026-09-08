@@ -4,6 +4,44 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.156.31
+
+### Four widget behaviours the read-only half of the `src/ui` review predicted
+
+The fifth batch off the 2026-09-06 `src/ui` review, and the first with no reproduction behind it
+when it was filed: every row here was **read-derived**, written from the code without running it.
+All four were red on the first attempt at the test the row itself specified, on exactly the stated
+cause — including the tooltip's predicted `-140.0, -140.0`. Read-derived is weaker evidence than a
+reproduction and this repo keeps the two labelled apart; this batch is the case where the reading
+happened to be right, not an argument that the distinction does not matter.
+
+**Two Enters in one frame submitted a text field twice.** `InputState`'s character buffer
+accumulates over a whole frame and `dt` is capped at `FrameConfig::max_dt`, so a stalled frame can
+carry a double-tap — and the per-character loop had no `break` at `'\n'`. One blur emitted two
+`TextSubmitted` and two `TextBlurred`, so a handler that starts a game on submit started it twice,
+and any character after the newline was inserted into the field that had *just* unfocused. The loop
+now stops at the first Enter.
+
+**A field blurred mid-composition kept its IME preedit forever.** The preedit refresh sat inside
+the `if focused` block, so tabbing or clicking away while composing Hangul left the partial string
+on the component, and `display_with_caret` drew it in place of the placeholder for the rest of the
+session. The refresh now runs outside that branch and reads `focused` fresh, which also covers the
+Enter above — that blur happens within the same frame.
+
+**`TextChanged` fired for input that changed nothing.** A char rejected by a full field (`max_len`
+reached) and a backspace with nothing before the cursor both pushed an event carrying byte-identical
+text. Every sibling widget in the subsystem is emit-on-change and says so in its `UiEvent` doc;
+`TextChanged` was the one variant without that line, so this contradicted the convention rather
+than a written promise. Both paths now compare the text's byte length across the edit — an insert
+or a delete always moves it, so no second clone is needed — and the doc the other variants carry is
+now on `TextChanged` too.
+
+**A negative `Tooltip::offset` put the box off the left or top edge.** The clamp looked only at
+right and bottom overflow, while `Tooltip`'s own doc promises the box is "clamped to the viewport so
+it never runs off screen" unconditionally. `with_offset` is public and the file's own test already
+exercised a negative one. The near edges now clamp at 0; `docs/MODULE_MAP.md`'s tooltip row said
+two edges and now says four.
+
 ## 0.156.30
 
 ### Five widgets whose geometry contradicted their own documentation

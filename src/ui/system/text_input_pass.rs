@@ -68,9 +68,15 @@ pub(super) fn run(
                     for &c in &input.chars {
                         match c {
                             '\x08' => {
+                                // Emit-on-change, like every sibling widget: a backspace at
+                                // cursor 0 deletes nothing. A real edit always moves the byte
+                                // length, so comparing it needs no second clone of the text.
+                                let before = ti.text.len();
                                 ti.backspace();
-                                let text = ti.text.clone();
-                                char_events.push(UiEvent::TextChanged(entity, text));
+                                if ti.text.len() != before {
+                                    let text = ti.text.clone();
+                                    char_events.push(UiEvent::TextChanged(entity, text));
+                                }
                             }
                             '\n' => {
                                 let text = ti.text.clone();
@@ -78,11 +84,20 @@ pub(super) fn run(
                                 submitted = true;
                                 char_events.push(UiEvent::TextSubmitted(entity, text));
                                 char_events.push(UiEvent::TextBlurred(entity));
+                                // Stop at the first Enter. `InputState`'s char buffer accumulates
+                                // over a whole frame and `dt` is capped at `max_dt`, so a stalled
+                                // frame can carry a double-tap: without this, one blur emitted two
+                                // TextSubmitted + two TextBlurred, and every char after the '\n'
+                                // was inserted into the field it had just unfocused.
+                                break;
                             }
                             ch => {
+                                let before = ti.text.len();
                                 ti.insert_char(ch);
-                                let text = ti.text.clone();
-                                char_events.push(UiEvent::TextChanged(entity, text));
+                                if ti.text.len() != before {
+                                    let text = ti.text.clone();
+                                    char_events.push(UiEvent::TextChanged(entity, text));
+                                }
                             }
                         }
                     }
@@ -97,13 +112,18 @@ pub(super) fn run(
                         }
                     }
                 }
-                if let Some(ti) = world.get_mut::<TextInput>(entity) {
-                    ti.preedit = if ti.remaining_capacity() >= input.ime_preedit.len() {
-                        input.ime_preedit.clone()
-                    } else {
-                        String::new()
-                    };
-                }
+            }
+
+            // Outside the `focused` branch, and reading `focused` fresh: the refresh used to run
+            // only while focused, so Tab/click away mid-composition left the stale preedit on the
+            // component forever and `display_with_caret` drew it instead of the placeholder.
+            // Reading it fresh also covers the Enter above, which blurs within this same frame.
+            if let Some(ti) = world.get_mut::<TextInput>(entity) {
+                ti.preedit = if ti.focused && ti.remaining_capacity() >= input.ime_preedit.len() {
+                    input.ime_preedit.clone()
+                } else {
+                    String::new()
+                };
             }
         }
 
@@ -372,5 +392,170 @@ mod tests {
             world.get::<TextInput>(e).unwrap().text.is_empty(),
             "unfocused TextInput must not receive chars"
         );
+    }
+
+    /// Two Enters arriving in one frame are still **one** blur. `InputState`'s char buffer
+    /// accumulates over a whole frame and `dt` is capped at 0.1 s, so a stalled frame absorbs a
+    /// double-tap; the per-char loop has to stop at the first `'\n'` or the field submits twice
+    /// and every later char is inserted into the now-unfocused field.
+    #[test]
+    fn a_second_enter_in_the_same_frame_does_not_submit_again() {
+        let mut world = World::new();
+        let e = spawn_text_input(&mut world, 0.0, 0.0, 200.0, 30.0, 0.5);
+        {
+            let ti = world.get_mut::<TextInput>(e).unwrap();
+            ti.focused = true;
+            ti.insert_str("hello");
+        }
+
+        let vp = viewport();
+        let input = chars_input(vec!['\n', '\n', 'x']);
+        let mut output = UiOutput::default();
+        let mut scratch = Vec::new();
+
+        super::run(&mut world, &vp, &input, 0.016, &mut output, &mut scratch);
+
+        let submitted = output
+            .events
+            .iter()
+            .filter(|ev| matches!(ev, UiEvent::TextSubmitted(_, _)))
+            .count();
+        let blurred = output
+            .events
+            .iter()
+            .filter(|ev| matches!(ev, UiEvent::TextBlurred(_)))
+            .count();
+        assert_eq!(submitted, 1, "one blur is one TextSubmitted");
+        assert_eq!(blurred, 1, "one blur is one TextBlurred");
+        assert_eq!(
+            world.get::<TextInput>(e).unwrap().text,
+            "hello",
+            "a char after the Enter must not reach the blurred field"
+        );
+    }
+
+    /// Blurring mid-composition drops the IME preedit. The refresh used to sit inside the
+    /// `if focused` block, so Tab/click away left the stale string on the component and
+    /// `display_with_caret` rendered it instead of the placeholder — forever.
+    #[test]
+    fn blurring_clears_a_stale_ime_preedit() {
+        let mut world = World::new();
+        let e = spawn_text_input(&mut world, 0.0, 0.0, 200.0, 30.0, 0.5);
+        {
+            let ti = world.get_mut::<TextInput>(e).unwrap();
+            ti.focused = true;
+            ti.placeholder = "type here".to_string();
+        }
+
+        let vp = viewport();
+        let mut composing = chars_input(vec![]);
+        composing.ime_preedit = "한".to_string();
+        let mut output = UiOutput::default();
+        let mut scratch = Vec::new();
+
+        super::run(
+            &mut world,
+            &vp,
+            &composing,
+            0.016,
+            &mut output,
+            &mut scratch,
+        );
+        assert_eq!(
+            world.get::<TextInput>(e).unwrap().preedit,
+            "한",
+            "the focused field takes the preedit"
+        );
+
+        // Focus moves away (the focus pass owns `focused`) and the composition ends with it.
+        world.get_mut::<TextInput>(e).unwrap().focused = false;
+        let mut output = UiOutput::default();
+        super::run(
+            &mut world,
+            &vp,
+            &chars_input(vec![]),
+            0.016,
+            &mut output,
+            &mut scratch,
+        );
+
+        assert_eq!(
+            world.get::<TextInput>(e).unwrap().preedit,
+            "",
+            "a blurred field must not keep its preedit"
+        );
+        assert!(
+            output.texts.iter().any(|t| t.text == "type here"),
+            "the placeholder is drawn again, not the stale preedit"
+        );
+    }
+
+    /// `TextChanged` means the text changed. A full field rejecting a char and a backspace at
+    /// cursor 0 both leave it byte-identical, and every sibling widget in this subsystem is
+    /// emit-on-change.
+    #[test]
+    fn input_that_changes_nothing_emits_no_text_changed() {
+        let mut world = World::new();
+        let e = spawn_text_input(&mut world, 0.0, 0.0, 200.0, 30.0, 0.5);
+        {
+            let ti = world.get_mut::<TextInput>(e).unwrap();
+            ti.focused = true;
+            ti.max_len = 2;
+            ti.insert_str("ab"); // full
+        }
+
+        let vp = viewport();
+        let mut scratch = Vec::new();
+
+        // A char the field has no room for.
+        let mut output = UiOutput::default();
+        super::run(
+            &mut world,
+            &vp,
+            &chars_input(vec!['c']),
+            0.016,
+            &mut output,
+            &mut scratch,
+        );
+        assert_eq!(
+            world.get::<TextInput>(e).unwrap().text,
+            "ab",
+            "a full field rejects the char"
+        );
+        assert_eq!(
+            changed_count(&output),
+            0,
+            "a rejected char changed nothing, so it must not emit TextChanged"
+        );
+
+        // A backspace with nothing before the cursor.
+        world.get_mut::<TextInput>(e).unwrap().cursor = 0;
+        let mut output = UiOutput::default();
+        super::run(
+            &mut world,
+            &vp,
+            &chars_input(vec!['\x08']),
+            0.016,
+            &mut output,
+            &mut scratch,
+        );
+        assert_eq!(
+            world.get::<TextInput>(e).unwrap().text,
+            "ab",
+            "backspace at cursor 0 deletes nothing"
+        );
+        assert_eq!(
+            changed_count(&output),
+            0,
+            "a no-op backspace must not emit TextChanged"
+        );
+    }
+
+    fn changed_count(output: &UiOutput) -> usize {
+        output
+            .events
+            .iter()
+            .filter(|ev| matches!(ev, UiEvent::TextChanged(_, _)))
+            .count()
     }
 }

@@ -19,8 +19,10 @@ const FLIP_GAP: f32 = 8.0;
 /// then the text). Hover requires the cursor inside the node's rect **and** not covered by a
 /// pointer-opaque widget drawn above it ([`PointerCapture::occludes`]) — so a tooltip under an
 /// overlay panel stays silent, while one on a widget that merely sits *on* a lower-z panel works.
-/// The box is clamped to the viewport: right overflow slides it left, bottom overflow flips it
-/// above the cursor. Runs last so tooltip text is queued after (= drawn over) other widget text.
+/// The box is clamped to the viewport on all four edges: right overflow slides it left, bottom
+/// overflow flips it above the cursor, and the left/top edges clamp at 0 (reachable with a
+/// negative [`Tooltip::offset`]). Runs last so tooltip text is queued after (= drawn over) other
+/// widget text.
 pub(super) fn run(
     world: &mut World,
     viewport: &ViewportSize,
@@ -65,7 +67,7 @@ pub(super) fn run(
         let box_size = content + Vec2::splat(2.0 * tip.padding);
 
         // Anchor at cursor + offset; keep the whole box on screen (slide left on right overflow,
-        // flip above the cursor on bottom overflow).
+        // flip above the cursor on bottom overflow, clamp at the left/top edges).
         let mut p = input.cursor + tip.offset;
         if p.x + box_size.x > viewport.width {
             p.x = (viewport.width - box_size.x).max(0.0);
@@ -73,6 +75,11 @@ pub(super) fn run(
         if p.y + box_size.y > viewport.height {
             p.y = (input.cursor.y - box_size.y - FLIP_GAP).max(0.0);
         }
+        // The near edges: only the two overflow branches above clamped, so a negative
+        // `Tooltip::offset` — public, and exercised with one in this file's own test — put the box
+        // off the left/top with nothing to catch it, against a doc that promises the box never
+        // runs off screen at all.
+        p = p.max(Vec2::ZERO);
 
         output.rects.push(
             DrawRect::new(p.x, p.y, box_size.x, box_size.y, faded(tip.bg_color, alpha))
@@ -304,6 +311,32 @@ mod tests {
         assert!(
             !world.get::<Tooltip>(e).unwrap().is_showing(),
             "and its hover timer must be reset, not merely undrawn"
+        );
+    }
+
+    /// A negative `Tooltip::offset` used to put the box off the left/top edges: the clamp looked
+    /// only at right and bottom overflow, while the component doc promises the box is "clamped to
+    /// the viewport so it never runs off screen" unconditionally.
+    #[test]
+    fn tooltip_clamps_against_the_left_and_top_edges() {
+        let mut world = setup(Vec2::new(60.0, 60.0));
+        spawn_tooltip_widget(
+            &mut world,
+            Tooltip::new("hint")
+                .with_delay(0.0)
+                .with_fade(0.0)
+                .with_offset(Vec2::new(-200.0, -200.0)),
+        );
+        let mut system = UiSystem::default();
+
+        system.run(&mut world, DT);
+        let rects = take_tooltip_rects(&mut world);
+        let bg = rects.first().expect("tooltip visible");
+        assert!(
+            bg.x >= 0.0 && bg.y >= 0.0,
+            "the box is clamped to the near edges too: x={} y={}",
+            bg.x,
+            bg.y
         );
     }
 }
