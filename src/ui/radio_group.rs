@@ -142,11 +142,11 @@ impl RadioGroup {
     }
 
     /// The option row under `cursor` for a group drawn at `(pos, node_size)`, or `None` when the
-    /// cursor is outside every row (or there are no options). The same geometry drives rendering
-    /// and click resolution, so they can never disagree. Rows are clickable only where they lie
-    /// inside the node rect (the pointer-capture surface): rows overflowing a too-small node
-    /// still render but don't select, and dead space below short fixed-height rows selects
-    /// nothing.
+    /// cursor is outside every row (or there are no options). Rendering and click resolution share
+    /// this row geometry but **do not cover the same area**: the pass renders every item
+    /// unclipped, while a row is clickable only where it lies inside the node rect (the
+    /// pointer-capture surface). So rows overflowing a too-small node still render but don't
+    /// select, and dead space below short fixed-height rows selects nothing.
     pub fn row_at(&self, cursor: Vec2, pos: Vec2, node_size: Vec2) -> Option<usize> {
         let item_h = self.resolved_item_height(node_size.y);
         if self.items.is_empty() || item_h <= 0.0 {

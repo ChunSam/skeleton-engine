@@ -1,10 +1,23 @@
 //! Keyboard focus for UI widgets.
 //!
 //! [`UiFocus`] is a `World` resource holding the currently keyboard-focused widget. [`UiSystem`]'s
-//! focus pass cycles it with **Tab / Shift+Tab** across focusable widgets ([`Button`], [`TextInput`],
-//! [`Slider`], [`CheckBox`]), draws a focus ring around it, and activates it on **Enter/Space**
-//! (click a button, toggle a checkbox) or adjusts a focused [`Slider`] with **Left/Right**. Clicking
-//! a widget also moves focus to it, so Tab resumes from there.
+//! focus pass cycles it with **Tab / Shift+Tab** and draws a focus ring around it. Clicking a
+//! widget also moves focus to it, so Tab resumes from there.
+//!
+//! **Ten widget kinds are focusable**, each one stop: [`Button`], [`TextInput`], [`Slider`],
+//! [`CheckBox`], [`Dropdown`], [`RadioGroup`], [`TabBar`], [`ListBox`], [`Stepper`] and
+//! [`Switch`] — a widget with no visible [`UiNode`] is skipped, as is a [`Button`] in
+//! [`ButtonState::Disabled`]; the order is by entity index.
+//! What the keys then do depends on the kind:
+//!
+//! - **Enter/Space** (gamepad **A**) activates a [`Button`], toggles a [`CheckBox`] or a
+//!   [`Switch`], and opens/closes a [`Dropdown`]. The other kinds have no activate action.
+//! - **Left/Right** adjusts a [`Slider`], sets a [`Switch`] off/on absolutely, and steps the
+//!   selection of a [`Dropdown`], [`RadioGroup`], [`TabBar`], [`ListBox`] or [`Stepper`] —
+//!   clamped, never wrapping.
+//! - **Up/Down** (keyboard only, since a gamepad's Up/Down cycle focus) also steps a [`ListBox`].
+//! - A focused [`TextInput`] takes none of the above: Enter/Space/arrows are text editing there,
+//!   handled by the text-input pass.
 //!
 //! It is inserted automatically (see `insert_core_resources`); read it to know what's focused.
 //! The ring's appearance is configurable via the [`FocusRingStyle`] resource (also auto-inserted).
@@ -14,6 +27,14 @@
 //! [`TextInput`]: crate::ui::TextInput
 //! [`Slider`]: crate::ui::Slider
 //! [`CheckBox`]: crate::ui::CheckBox
+//! [`Dropdown`]: crate::ui::Dropdown
+//! [`RadioGroup`]: crate::ui::RadioGroup
+//! [`TabBar`]: crate::ui::TabBar
+//! [`ListBox`]: crate::ui::ListBox
+//! [`Stepper`]: crate::ui::Stepper
+//! [`Switch`]: crate::ui::Switch
+//! [`UiNode`]: crate::ui::UiNode
+//! [`ButtonState::Disabled`]: crate::ui::ButtonState::Disabled
 
 use crate::color::Color;
 use crate::ecs::Entity;

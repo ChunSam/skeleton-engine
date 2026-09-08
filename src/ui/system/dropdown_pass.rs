@@ -353,8 +353,8 @@ mod tests {
         click(&mut world, &mut system, Vec2::new(60.0, 270.0)); // open
         assert!(world.get::<Dropdown>(e).unwrap().open);
 
-        // Rows sit above the box: y 170..260. Click the first row ("a" → index 0 is selected;
-        // click row 2 = "c" at y 230..260? No — rows top-down: row 0 at 170, row 2 at 230.)
+        // The list flipped above the box, but its rows still run top-down: y 170..260 holds
+        // row 0 at 170, row 1 at 200, row 2 at 230.
         click(&mut world, &mut system, Vec2::new(60.0, 245.0)); // row 2 ("c")
         let d = world.get::<Dropdown>(e).unwrap();
         assert_eq!(d.selected_index(), 2, "flipped list rows resolve top-down");
