@@ -54,8 +54,14 @@ pub(super) fn run(
         if clicked {
             if let Some(rg) = world.get_mut::<RadioGroup>(entity) {
                 if let Some(row) = rg.row_at(input.release_cursor, pos, size) {
-                    if row != rg.selected_index() {
-                        rg.selected = row;
+                    let changed = row != rg.selected_index();
+                    // Write the clicked row even when it is already the *drawn* selection: an
+                    // out-of-range raw `selected` (what serializes, and what an inspector edit can
+                    // set) would otherwise survive every click on the row it is drawing, leaving
+                    // the stored value and the visible one disagreeing indefinitely. The event
+                    // still follows the drawn selection, so this stays emit-on-change.
+                    rg.selected = row;
+                    if changed {
                         output.events.push(UiEvent::RadioChanged(entity, row));
                     }
                 }
@@ -202,6 +208,32 @@ mod tests {
         assert!(
             changed_events(&world).is_empty(),
             "no event when the selection did not change"
+        );
+    }
+
+    /// An out-of-range raw `selected` (reachable from a scene RON or `Reflect::set_field`) draws
+    /// as the last row; clicking that very row used to leave the raw field where it was, so the
+    /// value that serializes and the value on screen disagreed for the widget's whole life.
+    #[test]
+    fn clicking_the_drawn_selection_normalizes_an_out_of_range_raw_index() {
+        let mut world = setup();
+        let rg = spawn_radio(&mut world);
+        world.get_mut::<RadioGroup>(rg).unwrap().selected = 10;
+        let mut system = UiSystem::default();
+
+        // Row 2 (y 110..140) is what index 10 draws as.
+        assert_eq!(world.get::<RadioGroup>(rg).unwrap().selected_index(), 2);
+        click(&mut world, &mut system, Vec2::new(60.0, 120.0));
+
+        let r = world.get::<RadioGroup>(rg).unwrap();
+        assert_eq!(
+            r.selected, 2,
+            "the raw field still disagrees with the screen"
+        );
+        assert_eq!(r.selected_index(), 2);
+        assert!(
+            changed_events(&world).is_empty(),
+            "the drawn selection did not change, so nothing is emitted"
         );
     }
 

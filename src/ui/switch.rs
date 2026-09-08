@@ -131,23 +131,36 @@ impl Switch {
         (Vec2::new(pos.x, y), size)
     }
 
-    /// The knob rect `(pos, size)` for the current [`on`](Self::on) state: a square (diameter =
-    /// track height − 2·pad) padded inside the track, flush left when off and flush right when on.
+    /// The knob rect `(pos, size)` for the current [`on`](Self::on) state: a square of
+    /// [`knob_diameter`](Self::knob_diameter), vertically centered in the track, flush left when
+    /// off and flush right when on — and never outside the track in either state.
     pub fn knob_rect(&self, pos: Vec2, node_size: Vec2) -> (Vec2, Vec2) {
         let (track_pos, track_size) = self.track_rect(pos, node_size);
-        let d = (track_size.y - KNOB_PAD * 2.0).max(0.0);
-        let y = track_pos.y + KNOB_PAD;
-        let x = if self.on {
-            track_pos.x + track_size.x - KNOB_PAD - d
-        } else {
-            track_pos.x + KNOB_PAD
-        };
+        let d = self.knob_diameter(node_size);
+        let y = track_pos.y + (track_size.y - d) / 2.0;
+        // A track narrower than the knob plus its padding would otherwise put the "on" knob left
+        // of the track, or (at zero width) both knobs outside it, so both ends are clamped into
+        // the track and the "off" end can never overtake the "on" end.
+        let on_x = (track_pos.x + track_size.x - KNOB_PAD - d).max(track_pos.x);
+        let off_x = (track_pos.x + KNOB_PAD).min(on_x);
+        let x = if self.on { on_x } else { off_x };
         (Vec2::new(x, y), Vec2::splat(d))
+    }
+
+    /// The knob diameter: the track height minus the knob padding on both sides, **capped at half the
+    /// track's inner width** so the knob always has room to travel its own width between off and
+    /// on. Any track at least twice as wide as it is tall — the 46×24 default included — hits the
+    /// height term and is unaffected; a square or narrower track gets a smaller knob that still
+    /// visibly slides, instead of one frozen in place or drawn past the track's left edge.
+    pub fn knob_diameter(&self, node_size: Vec2) -> f32 {
+        let track = self.track_size(node_size);
+        let inner_w = (track.x - KNOB_PAD * 2.0).max(0.0);
+        (track.y - KNOB_PAD * 2.0).max(0.0).min(inner_w / 2.0)
     }
 
     /// Knob corner radius (half its diameter) — makes the knob a circle.
     pub fn knob_radius(&self, node_size: Vec2) -> f32 {
-        (self.track_size(node_size).y - KNOB_PAD * 2.0).max(0.0) / 2.0
+        self.knob_diameter(node_size) / 2.0
     }
 
     /// The clamped track size: [`track_width`](Self::track_width) × min(track_height, node height).
@@ -290,6 +303,59 @@ mod tests {
         assert_eq!(s.track_radius(node), 12.0);
         // Knob radius = (track height - 2*pad) / 2 = (24 - 6) / 2 = 9.
         assert_eq!(s.knob_radius(node), 9.0);
+    }
+
+    /// A track no wider than it is tall used to freeze the knob (`with_size(24.0, 24.0)` gave
+    /// `off_x == on_x == 3`) or draw it left of the track entirely (`with_size(20.0, 24.0)` gave
+    /// `on_x == -1`), silently losing the on/off affordance while the widget still toggled.
+    #[test]
+    fn the_knob_slides_and_stays_inside_a_square_or_narrow_track() {
+        let node = Vec2::new(120.0, 40.0);
+        for (w, h) in [
+            (24.0, 24.0),
+            (20.0, 24.0),
+            (12.0, 24.0),
+            (KNOB_PAD * 2.0, 24.0),
+            (0.0, 24.0),
+        ] {
+            let off = Switch::new("x").with_size(w, h);
+            let on = Switch::new("x").with_size(w, h).with_on(true);
+            let (track_pos, track_size) = off.track_rect(Vec2::ZERO, node);
+            let (off_knob, knob) = off.knob_rect(Vec2::ZERO, node);
+            let (on_knob, _) = on.knob_rect(Vec2::ZERO, node);
+
+            assert!(
+                off_knob.x >= track_pos.x,
+                "{w}x{h}: the off knob starts left of the track ({} < {})",
+                off_knob.x,
+                track_pos.x
+            );
+            assert!(
+                on_knob.x >= track_pos.x
+                    && on_knob.x + knob.x <= track_pos.x + track_size.x + f32::EPSILON,
+                "{w}x{h}: the on knob leaves the track (x {} + w {} vs track {}..{})",
+                on_knob.x,
+                knob.x,
+                track_pos.x,
+                track_pos.x + track_size.x
+            );
+            // Below 2·pad of track width there is no inner track left to slide in; above it the
+            // knob must visibly move, or the switch shows nothing when it toggles.
+            if w > KNOB_PAD * 2.0 {
+                assert!(
+                    on_knob.x > off_knob.x,
+                    "{w}x{h}: the knob does not move between off and on (both at {})",
+                    off_knob.x
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_default_track_keeps_its_full_height_knob() {
+        // The narrow-track cap must not shrink the shipped 46x24 geometry: 24 - 2*3 = 18.
+        let s = Switch::new("x");
+        assert_eq!(s.knob_diameter(Vec2::new(120.0, 40.0)), 18.0);
     }
 
     #[test]

@@ -47,7 +47,10 @@ pub struct TabBar {
     pub font_size: f32,
     /// Corner radius in pixels for the tab headers (`0.0` = sharp).
     pub corner_radius: f32,
-    /// Horizontal gap in pixels between adjacent tab headers.
+    /// Horizontal gap in pixels between adjacent tab headers. Read via
+    /// [`resolved_gap`](Self::resolved_gap), which floors it at `0.0`: overlapping headers cannot
+    /// be resolved to one tab by a click, and the render order (each header over the previous,
+    /// each *title* over the next header's background) would contradict any answer `tab_at` gave.
     pub gap: f32,
 }
 
@@ -136,6 +139,11 @@ impl TabBar {
         self.tabs.get(self.selected_index()).map(String::as_str)
     }
 
+    /// The gap actually used by the geometry: [`gap`](Self::gap) floored at `0.0`.
+    pub fn resolved_gap(&self) -> f32 {
+        self.gap.max(0.0)
+    }
+
     /// Width of one tab header for a bar `node_width` wide (equal split minus the gaps, floored
     /// at zero). `0.0` when there are no tabs.
     pub fn tab_width(&self, node_width: f32) -> f32 {
@@ -143,7 +151,7 @@ impl TabBar {
         if n == 0 {
             return 0.0;
         }
-        ((node_width - self.gap * (n as f32 - 1.0)) / n as f32).max(0.0)
+        ((node_width - self.resolved_gap() * (n as f32 - 1.0)) / n as f32).max(0.0)
     }
 
     /// Top-left and size of tab header `index` for a bar drawn at `(pos, node_size)`. The same
@@ -151,7 +159,7 @@ impl TabBar {
     pub fn tab_rect(&self, index: usize, pos: Vec2, node_size: Vec2) -> (Vec2, Vec2) {
         let w = self.tab_width(node_size.x);
         (
-            Vec2::new(pos.x + index as f32 * (w + self.gap), pos.y),
+            Vec2::new(pos.x + index as f32 * (w + self.resolved_gap()), pos.y),
             Vec2::new(w, node_size.y),
         )
     }
@@ -289,6 +297,32 @@ mod tests {
             None,
             "below the bar"
         );
+    }
+
+    /// A negative gap used to overlap adjacent headers: header *i+1* drew over header *i* while
+    /// `tab_at`'s `find` returned the leftmost match, so a click in the overlap selected a tab the
+    /// player could not see — against `tab_rect`'s own doc that the two can never disagree.
+    #[test]
+    fn a_negative_gap_does_not_overlap_headers() {
+        let pos = Vec2::new(10.0, 10.0);
+        let size = Vec2::new(200.0, 30.0);
+        let tb = TabBar::new(["a", "b"]).with_gap(-20.0);
+
+        let (p0, s0) = tb.tab_rect(0, pos, size);
+        let (p1, _) = tb.tab_rect(1, pos, size);
+        assert!(
+            p0.x + s0.x <= p1.x,
+            "headers overlap: tab 0 ends at {}, tab 1 starts at {}",
+            p0.x + s0.x,
+            p1.x
+        );
+        // The pixel where the two used to overlap now belongs to exactly one header — the one
+        // drawn there.
+        assert_eq!(tb.tab_at(Vec2::new(110.0, 20.0), pos, size), Some(1));
+        assert_eq!(tb.tab_at(Vec2::new(105.0, 20.0), pos, size), Some(0));
+
+        assert_eq!(tb.gap, -20.0, "the raw field is left as set");
+        assert_eq!(tb.resolved_gap(), 0.0);
     }
 
     #[test]
