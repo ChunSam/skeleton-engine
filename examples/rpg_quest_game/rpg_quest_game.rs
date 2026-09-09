@@ -596,7 +596,7 @@ impl Scene for PauseScene {
                 .before(UiSystem::LABEL),
         );
         systems.add_labeled(
-            LayoutSystem,
+            LayoutSystem::default(),
             SystemConfig::new()
                 .label(LayoutSystem::LABEL)
                 .before(UiSystem::LABEL),

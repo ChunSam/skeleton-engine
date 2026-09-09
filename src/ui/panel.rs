@@ -124,15 +124,64 @@ impl Panel {
     }
 }
 
+/// One panel's layout inputs, read once per frame so `get_mut` is legal afterwards.
+///
+/// `children` is a **range into [`LayoutSystem::children`]**, not a `Vec` of its own: the child
+/// list used to be cloned per panel per frame, which is one allocation per panel in the steady
+/// state a game actually runs in.
+struct PanelSnapshot {
+    entity: Entity,
+    children: std::ops::Range<usize>,
+    gap: f32,
+    direction: LayoutDir,
+    padding: f32,
+    // background draw data
+    size: Vec2,
+    z: f32,
+    visible: bool,
+    bg_color: Color,
+}
+
+/// Index of the snapshot describing `e`, or `None` if `e` is not itself a panel.
+///
+/// A free function rather than a closure so it borrows only the slice, leaving the sibling scratch
+/// fields free to be written in the same loop.
+fn index_of(snapshots: &[PanelSnapshot], e: Entity) -> Option<usize> {
+    snapshots.iter().position(|s| s.entity == e)
+}
+
 /// System that updates Panel child entity positions before UiSystem runs.
 ///
-/// Register with `app.add_system(Box::new(LayoutSystem))` before `UiSystem`.
-pub struct LayoutSystem;
+/// Register with `app.add_system(LayoutSystem::default())` before `UiSystem`.
+///
+/// ⚠️ **This was a unit struct until v0.157.0** — a bare `LayoutSystem` no longer compiles as a
+/// value and becomes `LayoutSystem::default()` (or `LayoutSystem::new()`). The five buffers below are per-frame temporaries
+/// held across frames (`clear()` + refill), which is this repo's rule for anything running every
+/// frame; measured at 50 panels × 8 children, the old body allocated 58 times / 10,066 bytes on an
+/// unchanged frame.
+#[derive(Default)]
+pub struct LayoutSystem {
+    snapshots: Vec<PanelSnapshot>,
+    /// Flattened child lists — `PanelSnapshot::children` indexes into this.
+    children: Vec<Entity>,
+    /// Per snapshot: false while it is known to be some other panel's child, then reused as
+    /// "already placed in `order`" by the parents-first walk.
+    queued: Vec<bool>,
+    /// Snapshot indices, parents before children.
+    order: Vec<usize>,
+    /// Panel background rects, drained into `UiQueue` at the end of the frame.
+    rects: Vec<DrawRect>,
+}
 
 impl LayoutSystem {
     /// Schedule label. Recommended order: **before** `UiSystem::LABEL`
     /// (`SystemConfig::new().label(LayoutSystem::LABEL).before(UiSystem::LABEL)`).
     pub const LABEL: crate::ecs::schedule::SystemLabel = "engine::ui_layout";
+
+    /// Creates a new `LayoutSystem`. Equivalent to `LayoutSystem::default()`.
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 impl System for LayoutSystem {
@@ -144,24 +193,16 @@ impl System for LayoutSystem {
 
         // Step 1: collect panel layout + background data in a single pass.
         // Can't call get_mut while the query iterator is live, so collect first
-        // (the repo's standard borrow-checker workaround).
-        struct PanelSnapshot {
-            entity: Entity,
-            children: Vec<Entity>,
-            gap: f32,
-            direction: LayoutDir,
-            padding: f32,
-            // background draw data
-            size: Vec2,
-            z: f32,
-            visible: bool,
-            bg_color: Color,
-        }
-        let snapshots: Vec<PanelSnapshot> = world
-            .query2::<UiNode, Panel>()
-            .map(|(entity, node, panel)| PanelSnapshot {
+        // (the repo's standard borrow-checker workaround). Both buffers are scratch fields:
+        // `children` flattens every panel's child list so none of them is cloned per frame.
+        self.snapshots.clear();
+        self.children.clear();
+        for (entity, node, panel) in world.query2::<UiNode, Panel>() {
+            let start = self.children.len();
+            self.children.extend_from_slice(&panel.children);
+            self.snapshots.push(PanelSnapshot {
                 entity,
-                children: panel.children.clone(),
+                children: start..self.children.len(),
                 gap: panel.gap,
                 direction: panel.direction,
                 padding: panel.padding,
@@ -169,33 +210,38 @@ impl System for LayoutSystem {
                 z: node.z,
                 visible: node.visible,
                 bg_color: panel.background_color,
-            })
-            .collect();
+            });
+        }
+        let n = self.snapshots.len();
 
         // Step 2: order panels parents-first. A nested panel's own position is written by its
         // parent's pass below, so laying the inner one out first would place its children against
         // the position the inner panel held at the *start* of the frame — one frame of lag per
         // nesting level, for the children and for the panel background alike.
-        let index_of = |e: Entity| snapshots.iter().position(|s| s.entity == e);
-        let mut queued: Vec<bool> = vec![true; snapshots.len()];
-        for snap in &snapshots {
-            for &child in &snap.children {
-                if let Some(i) = index_of(child) {
-                    queued[i] = false; // has a panel parent → not a root
+        self.queued.clear();
+        self.queued.resize(n, true);
+        for i in 0..n {
+            for k in self.snapshots[i].children.clone() {
+                if let Some(j) = index_of(&self.snapshots, self.children[k]) {
+                    self.queued[j] = false; // has a panel parent → not a root
                 }
             }
         }
-        let mut order: Vec<usize> = Vec::with_capacity(snapshots.len());
-        order.extend((0..snapshots.len()).filter(|&i| queued[i]));
+        self.order.clear();
+        for i in 0..n {
+            if self.queued[i] {
+                self.order.push(i);
+            }
+        }
         let mut head = 0;
-        while head < order.len() {
-            let i = order[head];
+        while head < self.order.len() {
+            let i = self.order[head];
             head += 1;
-            for c in 0..snapshots[i].children.len() {
-                if let Some(j) = index_of(snapshots[i].children[c]) {
-                    if !queued[j] {
-                        queued[j] = true;
-                        order.push(j);
+            for k in self.snapshots[i].children.clone() {
+                if let Some(j) = index_of(&self.snapshots, self.children[k]) {
+                    if !self.queued[j] {
+                        self.queued[j] = true;
+                        self.order.push(j);
                     }
                 }
             }
@@ -203,40 +249,59 @@ impl System for LayoutSystem {
         // A cycle in the child links (nothing forbids one — `children` is a free `pub` field)
         // leaves panels unreached. Lay each of those out once, in collect order, rather than
         // looping forever or dropping it.
-        order.extend((0..snapshots.len()).filter(|&i| !queued[i]));
+        for i in 0..n {
+            if !self.queued[i] {
+                self.order.push(i);
+            }
+        }
 
         // Step 3: iterator released after collect → get_mut is safe.
-        let mut rects: Vec<DrawRect> = Vec::new();
-        for &i in &order {
-            let snap = &snapshots[i];
+        self.rects.clear();
+        for oi in 0..self.order.len() {
+            let i = self.order[oi];
+            let (entity, child_range, gap, direction, padding, size, z, visible, bg_color) = {
+                let snap = &self.snapshots[i];
+                (
+                    snap.entity,
+                    snap.children.clone(),
+                    snap.gap,
+                    snap.direction,
+                    snap.padding,
+                    snap.size,
+                    snap.z,
+                    snap.visible,
+                    snap.bg_color,
+                )
+            };
             // Read the panel's position *now*, not at collect time: an outer panel earlier in
             // this same loop may have just moved it.
-            let panel_pos = match world.get::<UiNode>(snap.entity) {
+            let panel_pos = match world.get::<UiNode>(entity) {
                 Some(node) => node.screen_pos(&viewport),
                 None => continue,
             };
 
             // Layout children.
-            let start_x = panel_pos.x + snap.padding;
-            let start_y = panel_pos.y + snap.padding;
+            let start_x = panel_pos.x + padding;
+            let start_y = panel_pos.y + padding;
             let mut cursor_x = start_x;
             let mut cursor_y = start_y;
 
-            for &child_entity in &snap.children {
+            for k in child_range {
+                let child_entity = self.children[k];
                 let child_size = match world.get::<UiNode>(child_entity) {
                     Some(n) => n.size,
                     None => continue,
                 };
                 if let Some(child_node) = world.get_mut::<UiNode>(child_entity) {
                     child_node.anchor = Anchor::TopLeft;
-                    match snap.direction {
+                    match direction {
                         LayoutDir::Vertical => {
                             child_node.offset = Vec2::new(start_x, cursor_y);
-                            cursor_y += child_size.y + snap.gap;
+                            cursor_y += child_size.y + gap;
                         }
                         LayoutDir::Horizontal => {
                             child_node.offset = Vec2::new(cursor_x, start_y);
-                            cursor_x += child_size.x + snap.gap;
+                            cursor_x += child_size.x + gap;
                         }
                     }
                 }
@@ -249,22 +314,16 @@ impl System for LayoutSystem {
             // into UiQueue before UiSystem pushes widget rects. Combined with the
             // `z − 0.01` offset this guarantees backgrounds are drawn under all widgets
             // without requiring a separate panel pass inside UiSystem.
-            if snap.visible {
-                rects.push(
-                    DrawRect::new(
-                        panel_pos.x,
-                        panel_pos.y,
-                        snap.size.x,
-                        snap.size.y,
-                        snap.bg_color,
-                    )
-                    .with_z(snap.z - PANEL_BG_Z_OFFSET),
+            if visible {
+                self.rects.push(
+                    DrawRect::new(panel_pos.x, panel_pos.y, size.x, size.y, bg_color)
+                        .with_z(z - PANEL_BG_Z_OFFSET),
                 );
             }
         }
 
         if let Some(ui_queue) = world.resource_mut::<UiQueue>() {
-            for rect in rects {
+            for rect in self.rects.drain(..) {
                 ui_queue.push(rect);
             }
         }
@@ -329,7 +388,7 @@ mod tests {
         outer_panel.children.push(inner);
         world.add_component(outer, outer_panel);
 
-        let mut sys = LayoutSystem;
+        let mut sys = LayoutSystem::default();
         sys.run(&mut world, 1.0 / 60.0);
         // Default padding is 8: outer at 0 puts inner at 8, inner at 8 puts the leaf at 16.
         assert_eq!(pos(&world, inner), Vec2::new(8.0, 8.0));
@@ -365,7 +424,7 @@ mod tests {
         outer_panel.children.push(inner);
         world.add_component(outer, outer_panel);
 
-        let mut sys = LayoutSystem;
+        let mut sys = LayoutSystem::default();
         sys.run(&mut world, 1.0 / 60.0);
         world
             .resource_mut::<UiQueue>()
@@ -403,7 +462,7 @@ mod tests {
 
         // Every panel is somebody's child, so the root set is empty and the pass has to fall back
         // to collect order rather than skipping them or looping.
-        let mut sys = LayoutSystem;
+        let mut sys = LayoutSystem::default();
         sys.run(&mut world, 1.0 / 60.0);
         assert!(world.get::<UiNode>(a).is_some());
         assert!(world.get::<UiNode>(b).is_some());

@@ -44,10 +44,11 @@ use engine::{
     CollisionLayer, Color, DialogueBox, DialogueStyle, DialogueSystem, Effect, Entity, Events,
     HierarchySystem, HitFlash, Label, LayoutDir, LayoutSystem, LocaleData, LocaleResource,
     LocalizationSystem, LocalizedText, Panel, Parent, Particle, ParticleSystem, SpatialGrid,
-    Sprite, System, Tag, Tilemap, TilemapAtlas, TilemapSystem, Transform, UiNode, UvRect, Vec2,
-    World, ZoneEffectBindings, ZoneEffectRegistry, ZoneEffectRule, ZoneEffectSystem, ZoneEvent,
-    ZonePhase,
+    Sprite, System, Tag, TextInput, Tilemap, TilemapAtlas, TilemapSystem, Transform, UiNode,
+    UiSystem, UvRect, Vec2, ViewportSize, World, ZoneEffectBindings, ZoneEffectRegistry,
+    ZoneEffectRule, ZoneEffectSystem, ZoneEvent, ZonePhase,
 };
+use engine::{Button, InputState};
 
 // ── Counting allocator ────────────────────────────────────────────────────────────────────────
 
@@ -345,23 +346,141 @@ fn tilemap_system_steady_state_does_not_allocate() {
 /// `LayoutSystem` snapshots every panel each frame, cloning each panel's child list. Named as
 /// "not addressed" by v0.150.0 and then recorded nowhere the backlog looks, so it survived three
 /// more releases unmeasured.
+///
+/// ⚠️ **And then it was measured wrong for five more.** This test's world had no `ViewportSize`
+/// (`World::new` starts with an empty resource map), so `LayoutSystem::run` returned on its first
+/// line and the zero it asserted was the zero of a system that never ran — the exact trap this
+/// file's header warns about, in this file. With the resource inserted the same fixture measured
+/// **58 allocations / 10,066 bytes**; v0.157.0 gave the system scratch fields and it is back to
+/// zero, this time on the path that lays panels out.
 #[test]
 fn layout_system_steady_state_does_not_allocate() {
     let mut world = World::new();
+    world.insert_resource(ViewportSize::new(800, 600));
+    let mut first_child = None;
     for _ in 0..50 {
         let panel = world.spawn();
-        world.add_component(panel, UiNode::new(0.0, 0.0, 200.0, 400.0));
+        world.add_component(panel, UiNode::new(10.0, 20.0, 200.0, 400.0));
         let mut p = Panel::new(LayoutDir::Vertical);
         for _ in 0..8 {
             let child = world.spawn();
             world.add_component(child, UiNode::new(0.0, 0.0, 180.0, 40.0));
             p.children.push(child);
+            first_child.get_or_insert(child);
         }
         world.add_component(panel, p);
     }
-    let mut system = LayoutSystem;
+    let mut system = LayoutSystem::default();
+
+    // Positive control, in two halves. The cold frame must *cost* something — filling five scratch
+    // buffers for 50 panels cannot be free — and the layout must have actually happened, which is
+    // what the missing `ViewportSize` used to hide.
+    let cold = measure(|| system.run(&mut world, 1.0 / 60.0));
+    assert!(
+        cold.0 > 0,
+        "the first frame fills the scratch buffers, so it must allocate; zero here means `run` \
+         bailed on its first line again"
+    );
+    let child = first_child.expect("fixture spawns children");
+    assert_ne!(
+        world.get::<UiNode>(child).unwrap().offset,
+        Vec2::ZERO,
+        "the panel's first child must have been positioned — otherwise the pass never reached \
+         step 3 and every reading below is vacuous"
+    );
+
     let measured = steady_state_frame(&mut system, &mut world, 1.0 / 60.0);
-    assert_no_steady_state_allocation("LayoutSystem", measured);
+    assert_no_steady_state_allocation("LayoutSystem (50 panels x 8 children)", measured);
+}
+
+// ── The 2026-09-06 `src/ui` review's allocation rows ──────────────────────────────────────────
+
+/// A world `UiSystem` will actually run in: an `InputState` and a `ViewportSize`, without which
+/// `run` returns on its first two lines. No `UiQueue`/`TextQueue` — queue *growth* is not what is
+/// being measured here, and leaving them out keeps the reading to what the passes themselves do.
+fn ui_world(labels: usize) -> World {
+    let mut world = World::new();
+    world.insert_resource(ViewportSize::new(800, 600));
+    world.insert_resource(InputState::default());
+    for i in 0..labels {
+        let e = world.spawn();
+        world.add_component(e, UiNode::new(0.0, i as f32 * 24.0, 200.0, 20.0));
+        world.add_component(e, Label::new(format!("row {i}")));
+    }
+    world
+}
+
+/// `UiSystem` was measured nowhere at all (`rg -c UiSystem tests/per_frame_alloc.rs` → no matches)
+/// until the 2026-09-06 `src/ui` review, which measured **n=0 → 0 · n=1 → 3 · n=10 → 16 · n=50 →
+/// 60 (9,210 bytes)**.
+///
+/// Two terms hid in that: a **fixed** cost of three `Vec`s from `UiOutput::default()` every frame,
+/// which is `src/ui`'s to fix and v0.157.0 did, and a **per-widget** cost of one `String` per
+/// `DrawText` — a renderer-API cost (`DrawText.text: String`) that every text-drawing pass in the
+/// engine pays, and not a widget pass's to answer for.
+///
+/// So this asserts **exactly one allocation per drawn text and not one more**, which is sharp
+/// enough to see the fixed term come back: reverting the `UiOutput` reuse reads 13 and 55 against
+/// the 10 and 50 below (6,434 bytes against 290), because three `Vec`s regrow from empty every
+/// frame.
+#[test]
+fn ui_system_steady_state_allocates_only_per_drawn_text() {
+    let mut empty = ui_world(0);
+    let mut system = UiSystem::default();
+    let measured = steady_state_frame(&mut system, &mut empty, 1.0 / 60.0);
+    assert_no_steady_state_allocation("UiSystem (no widgets)", measured);
+
+    // Control for that zero — it is also what an early return reads. Ten labels must cost ten
+    // Strings, which both proves the passes ran and pins the fixed term at nothing.
+    for n in [10, 50] {
+        let mut world = ui_world(n);
+        let mut system = UiSystem::default();
+        let (allocs, bytes) = steady_state_frame(&mut system, &mut world, 1.0 / 60.0);
+        assert_eq!(
+            allocs, n,
+            "{n} labels must cost exactly {n} allocations — one owned String per DrawText, and no \
+             per-frame UiOutput buffers — but measured {allocs} ({bytes} bytes)"
+        );
+    }
+}
+
+/// `focus_pass` walked every `TextInput` in the world into a **fresh** `Vec` each frame, to clear
+/// `focused` on the ones outside the focusable list. `focus_scratch` is still borrowed as that
+/// list at the time, so v0.157.0's fix is a second scratch buffer rather than a reuse.
+///
+/// Measured as a delta, not against zero: a `UiSystem` frame allocates regardless (one `String`
+/// per drawn text, above). The `TextInput`s here are **invisible**, so they draw nothing and are
+/// not focusable — the only per-frame cost they can add is the walk this row is about.
+#[test]
+fn focus_pass_does_not_allocate_per_text_input() {
+    fn frame_cost(hidden_inputs: usize) -> (usize, usize) {
+        let mut world = World::new();
+        world.insert_resource(ViewportSize::new(800, 600));
+        world.insert_resource(InputState::default());
+        // One visible focusable, so the pass takes the main path rather than its empty-list
+        // branch — the branch a hidden-only world would exercise.
+        let b = world.spawn();
+        world.add_component(b, UiNode::new(0.0, 0.0, 100.0, 30.0));
+        world.add_component(b, Button::new("ok"));
+        for _ in 0..hidden_inputs {
+            let e = world.spawn();
+            let mut node = UiNode::new(0.0, 0.0, 100.0, 30.0);
+            node.visible = false;
+            world.add_component(e, node);
+            world.add_component(e, TextInput::new(""));
+        }
+        let mut system = UiSystem::default();
+        steady_state_frame(&mut system, &mut world, 1.0 / 60.0)
+    }
+
+    let none = frame_cost(0);
+    let many = frame_cost(200);
+    assert_eq!(
+        none.0, many.0,
+        "200 invisible TextInputs must cost the same steady-state frame as none: {} vs {} \
+         allocations ({} vs {} bytes)",
+        none.0, many.0, none.1, many.1
+    );
 }
 
 // ── v0.150.0's four remaining unmeasured claims ────────────────────────────────────────────────

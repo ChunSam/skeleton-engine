@@ -166,6 +166,16 @@ pub(super) struct UiOutput {
     pub(super) events: Vec<UiEvent>,
 }
 
+impl UiOutput {
+    /// Empties the three buffers while keeping their capacity — `UiSystem` holds one of these
+    /// across frames rather than building a fresh one (three allocations) every frame.
+    pub(super) fn clear(&mut self) {
+        self.rects.clear();
+        self.texts.clear();
+        self.events.clear();
+    }
+}
+
 pub(super) fn viewport_from_world(world: &World) -> Option<ViewportSize> {
     world.resource::<ViewportSize>().copied()
 }
@@ -180,21 +190,21 @@ pub(super) fn viewport_from_world(world: &World) -> Option<ViewportSize> {
 /// stays readable on the component, a **button click has no polling fallback at all**. The UI
 /// draws, highlights and responds to hover exactly as normal while nothing the player clicks
 /// ever reaches the game.
-pub(super) fn submit_output(world: &mut World, output: UiOutput, warned_no_bus: &mut bool) {
+pub(super) fn submit_output(world: &mut World, output: &mut UiOutput, warned_no_bus: &mut bool) {
     if let Some(ui_queue) = world.resource_mut::<UiQueue>() {
-        for rect in output.rects {
+        for rect in output.rects.drain(..) {
             ui_queue.push(rect);
         }
     }
     if let Some(text_queue) = world.resource_mut::<TextQueue>() {
-        for text in output.texts {
+        for text in output.texts.drain(..) {
             text_queue.push(text);
         }
     }
 
     if !output.events.is_empty() {
         if let Some(events) = world.resource_mut::<Events<UiEvent>>() {
-            for ev in output.events {
+            for ev in output.events.drain(..) {
                 events.send(ev);
             }
         } else if !*warned_no_bus {

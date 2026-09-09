@@ -208,8 +208,8 @@ The pure interleaving algorithm is `src/renderer/text/layering.rs::interleave_ru
 When using `Panel`, register `LayoutSystem` **before** `UiSystem`:
 
 ```rust
-app.add_system(LayoutSystem);  // recomputes child UiNode.offset
-app.add_system(UiSystem);      // reads positions and renders
+app.add_system(LayoutSystem::default());  // recomputes child UiNode.offset
+app.add_system(UiSystem::default());      // reads positions and renders
 ```
 
 `UiEvent` implements `Clone` but not `Copy` (TextChanged/TextSubmitted carry a String).  
@@ -267,8 +267,8 @@ Scenes order systems the same way (since v5): `Scene::on_enter` receives a
 
 ```rust
 fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar) {
-    systems.add(LayoutSystem);
-    systems.add_labeled(UiSystem, SystemConfig::new().after(LayoutSystem::LABEL));
+    systems.add(LayoutSystem::default());
+    systems.add_labeled(UiSystem::default(), SystemConfig::new().after(LayoutSystem::LABEL));
 }
 ```
 

@@ -17,6 +17,19 @@ use super::capture::PointerCapture;
 use super::state::{node_layout, InputSnapshot, UiOutput};
 use super::UiEvent;
 
+/// The buffers this pass reuses across frames, held by `UiSystem` like every other scratch field.
+///
+/// Two of them, not one: `focusables` is still borrowed as the focusable list while the pass walks
+/// every `TextInput` in the world to clear `focused` on the ones outside it. Bundling them also
+/// keeps `run` under clippy's argument limit.
+#[derive(Default)]
+pub(super) struct FocusScratch {
+    /// This frame's focusable widgets, in tab order.
+    focusables: Vec<Entity>,
+    /// Every `TextInput` in the world, focusable or not.
+    text_inputs: Vec<Entity>,
+}
+
 /// Keyboard focus pass: Tab/Shift+Tab cycle focus across focusable widgets, clicking moves focus to
 /// the clicked widget, Enter/Space activate (button click / checkbox toggle), Left/Right nudge a
 /// focused slider, and a focus ring is drawn around the focused widget. Runs before the widget
@@ -28,16 +41,19 @@ pub(super) fn run(
     capture: &PointerCapture,
     elapsed: f32,
     output: &mut UiOutput,
-    scratch: &mut Vec<Entity>,
+    scratch: &mut FocusScratch,
 ) {
-    collect_focusables(world, viewport, scratch);
-    if scratch.is_empty() {
+    collect_focusables(world, viewport, &mut scratch.focusables);
+    if scratch.focusables.is_empty() {
         if let Some(f) = world.resource_mut::<UiFocus>() {
             f.entity = None;
         }
         // Clear focus on any TextInputs that may still have focused=true.
-        let all: Vec<_> = world.query::<TextInput>().map(|(e, _)| e).collect();
-        for e in all {
+        scratch.text_inputs.clear();
+        scratch
+            .text_inputs
+            .extend(world.query::<TextInput>().map(|(e, _)| e));
+        for &e in scratch.text_inputs.iter() {
             let was_focused = world.get::<TextInput>(e).is_some_and(|ti| ti.focused);
             if was_focused {
                 if let Some(ti) = world.get_mut::<TextInput>(e) {
@@ -48,7 +64,7 @@ pub(super) fn run(
         }
         return;
     }
-    let focusables = &*scratch;
+    let focusables = &scratch.focusables;
 
     // Current focus, dropped if it is no longer focusable (despawned / hidden / disabled).
     let prev_focus = world.resource::<UiFocus>().and_then(|f| f.entity);
@@ -118,8 +134,11 @@ pub(super) fn run(
 
     // Also sync TextInputs that are NOT in the focusables list (e.g. invisible / despawned):
     // they may still hold `focused = true` from a previous frame and need to be cleared.
-    let mut all_text_inputs: Vec<_> = world.query::<TextInput>().map(|(e, _)| e).collect();
-    for e in all_text_inputs.drain(..) {
+    scratch.text_inputs.clear();
+    scratch
+        .text_inputs
+        .extend(world.query::<TextInput>().map(|(e, _)| e));
+    for &e in scratch.text_inputs.iter() {
         if is_focusable(focusables, e) {
             continue; // already handled above
         }

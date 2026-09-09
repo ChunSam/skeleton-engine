@@ -4,6 +4,46 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.157.0
+
+### The `src/ui` review's four allocation rows, and the test that was measuring an early return
+
+⚠️ **Breaking: `LayoutSystem` is no longer a unit struct.** `app.add_system(LayoutSystem)` becomes
+`app.add_system(LayoutSystem::default())` (or `::new()`) — one line per registration site, the same
+shape `UiSystem` and `SteeringSystem` have had for as long as they have held scratch buffers.
+
+**The subsystem's own allocation gate was measuring a system that never ran.**
+`layout_system_steady_state_does_not_allocate` built a 50-panel × 8-child world with no
+`ViewportSize` in it, and `LayoutSystem::run` returns on its first line without one — so the zero it
+asserted for five releases was the zero of an early return. This is precisely the trap
+`tests/per_frame_alloc.rs`'s own header warns about, in that same file, and the backlog had recorded
+the reading as a verdict ("False positive — measures 0 … do not reopen without a measurement that
+disagrees"). With the resource inserted the fixture measures **58 allocations / 10,066 bytes** per
+frame. The test now carries a positive control in two halves: the cold frame must cost something,
+and a child node must actually have been positioned. Dropping the `ViewportSize` line again fails
+the first of those instead of passing green.
+
+**`LayoutSystem` allocates nothing per frame now.** It holds five scratch buffers (`clear()` +
+refill, the engine's rule for anything running every frame). The per-panel `children.clone()` — one
+allocation per panel per frame — is gone: child lists are flattened into a single reused `Vec` and
+each snapshot keeps a `Range<usize>` into it. Measured back to **0 allocations** on the fixed
+fixture; reverting the buffers to fresh `Vec`s reads 12 again.
+
+**`UiSystem` was measured nowhere at all**, and allocated a fixed three `Vec`s per frame from
+`UiOutput::default()`. `UiOutput` is now a field, cleared per frame, and `submit_output` drains it
+instead of consuming it. A frame now costs **exactly one allocation per drawn text** — 10 labels →
+10, 50 labels → 50, 290 bytes — which is `DrawText.text: String`, a renderer-API cost every
+text-drawing pass in the engine pays and not a widget pass's to answer for. The new test asserts
+that exact count, which is what makes it able to see the fixed term return: reverting the reuse
+reads 13 and 55 (6,434 bytes).
+
+**`focus_pass` walked every `TextInput` in the world into a fresh `Vec` each frame**, to clear
+`focused` on the ones outside the focusable list — twice, in two branches, one of them ending in a
+`.drain(..)` on a `Vec` dropped a line later. `focus_scratch` is still borrowed as the focusable
+list at that point, so the fix is a second scratch buffer rather than a reuse. Measured as a delta,
+since a `UiSystem` frame allocates regardless: 200 invisible `TextInput`s now cost the same frame as
+none, where before they cost one more allocation and **1,600 more bytes**.
+
 ## 0.156.31
 
 ### Four widget behaviours the read-only half of the `src/ui` review predicted

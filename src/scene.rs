@@ -49,9 +49,9 @@ impl<'a> SystemRegistrar<'a> {
     /// fn on_enter(&mut self, world: &mut World, systems: &mut SystemRegistrar) {
     ///     // The TARGET must carry the label. `add` attaches `SystemConfig::default()`,
     ///     // whose label is `None`, so an `.after(LayoutSystem::LABEL)` against a plain
-    ///     // `add(LayoutSystem)` matches nothing and is silently ignored — a `LABEL` constant
+    ///     // `add(LayoutSystem::default())` matches nothing and is silently ignored — a `LABEL`
     ///     // is just a `&'static str`, not a self-registering identity.
-    ///     systems.add_labeled(LayoutSystem, SystemConfig::new().label(LayoutSystem::LABEL));
+    ///     systems.add_labeled(LayoutSystem::default(), SystemConfig::new().label(LayoutSystem::LABEL));
     ///     // UiSystem reads layout results — must run after LayoutSystem.
     ///     systems.add_labeled(UiSystem::default(), SystemConfig::new().after(LayoutSystem::LABEL));
     /// }
