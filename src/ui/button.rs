@@ -22,9 +22,22 @@ pub enum ButtonState {
 #[serde(default)]
 pub struct Button {
     pub label: String,
-    /// Runtime hit-test state — not serialized.
+    /// Runtime hit-test state — not serialized, and **not where you disable a button**.
+    ///
+    /// `UiSystem` overwrites this every frame from the pointer (Normal / Hovered / Pressed), so a
+    /// `Disabled` written here survives only because the pass leaves a disabled button alone.
+    /// Use [`disabled`](Self::disabled) instead: it is authored state, it round-trips through a
+    /// scene file and the inspector, and it wins over whatever is in this field.
     #[serde(skip)]
     pub state: ButtonState,
+    /// Whether the button is disabled: it takes no clicks, emits no `ButtonClicked`, and draws in
+    /// [`color_disabled`](Self::color_disabled).
+    ///
+    /// Authored state, unlike [`state`](Self::state) — serialized, reflected, and therefore
+    /// settable from a scene RON or the inspector. Before v0.158.0 `Disabled` lived only in the
+    /// runtime enum, which is `#[serde(skip)]`: a disabled button could not be authored at all,
+    /// and a saved scene reloaded one as `Normal`.
+    pub disabled: bool,
     pub color_normal: Color,
     pub color_hovered: Color,
     pub color_pressed: Color,
@@ -55,6 +68,7 @@ impl Reflect for Button {
                 ReflectValue::Color(self.color_normal.to_array()),
             ),
             ("corner_radius", ReflectValue::F32(self.corner_radius)),
+            ("disabled", ReflectValue::Bool(self.disabled)),
         ]
     }
 
@@ -76,6 +90,10 @@ impl Reflect for Button {
                 self.color_normal = Color::from(c);
                 true
             }
+            ("disabled", ReflectValue::Bool(v)) => {
+                self.disabled = v;
+                true
+            }
             ("corner_radius", ReflectValue::F32(v)) => {
                 self.corner_radius = v;
                 true
@@ -95,6 +113,7 @@ impl Button {
         Self {
             label: label.into(),
             state: ButtonState::Normal,
+            disabled: false,
             color_normal: Color::rgba(0.20, 0.20, 0.25, 1.0),
             color_hovered: Color::rgba(0.30, 0.30, 0.40, 1.0),
             color_pressed: Color::rgba(0.12, 0.12, 0.18, 1.0),
@@ -103,6 +122,12 @@ impl Button {
             font_size: 18.0,
             corner_radius: 0.0,
         }
+    }
+
+    /// Sets whether the button is disabled. Builder form of [`disabled`](Self::disabled).
+    pub fn with_disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
     }
 
     /// Set the normal / hovered / pressed background colors. Builder form.

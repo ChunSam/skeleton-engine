@@ -8,6 +8,7 @@ use crate::renderer::{DrawRect, DrawText, TextQueue, UiQueue};
 use crate::resources::ViewportSize;
 use crate::ui::node::UiNode;
 
+use super::capture::PointerCapture;
 use super::UiEvent;
 use crate::ui::focus::StickNavConfig;
 
@@ -174,6 +175,25 @@ impl UiOutput {
         self.texts.clear();
         self.events.clear();
     }
+}
+
+/// The entity the pointer is hovering this frame, or `None` while the pointer is **outside the
+/// window**.
+///
+/// One home for that policy, because eight passes draw a hover state and each used to call
+/// `capture.topmost_at(input.cursor)` directly. `input.cursor` freezes at its last in-window value
+/// when the pointer leaves (there is no meaningful "cursor position" outside), so a hovered button,
+/// list row or tab kept its highlight until the cursor came back — the same staleness the tooltip
+/// had before v0.156.28, which was wired to `cursor_inside` alone.
+///
+/// A pointer that leaves **mid-drag keeps dragging**: a press already owns its widget through
+/// `press_cursor`/`release_cursor`, which this does not touch. That is what every native toolkit
+/// does with a captured pointer.
+pub(super) fn hover_owner(capture: &PointerCapture, input: &InputSnapshot) -> Option<Entity> {
+    if !input.cursor_inside {
+        return None;
+    }
+    capture.topmost_at(input.cursor)
 }
 
 pub(super) fn viewport_from_world(world: &World) -> Option<ViewportSize> {

@@ -4,6 +4,45 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.158.0
+
+### The three decisions the `src/ui` review left for the maintainer — the review is closed
+
+39 of 39 rows. The last three were never defects: each was a place where the code made a choice
+nobody had written down, so the review filed them rather than "fixing" them. All three were decided
+2026-09-09 and are implemented here.
+
+**A hover tint no longer survives the pointer leaving the window.** `input.cursor` freezes at its
+last in-window value when the pointer leaves, so a hovered button, list row, tab, radio row, stepper
+button, slider thumb, scroll view or dropdown kept its highlight until the cursor came back. Only
+the tooltip was wired to `cursor_inside` (v0.156.28). The policy now lives in **one** function —
+`hover_owner(capture, input)` — that the eight passes drawing a hover state call instead of
+`capture.topmost_at(input.cursor)`, so they cannot drift apart again.
+
+⚠️ **A drag that starts in the window keeps dragging when the pointer leaves**, deliberately: a
+press owns its widget through `press_cursor`/`release_cursor`, which this does not touch, and that
+is what a captured pointer does in every native toolkit. ⚠️ The backlog row's list of call sites
+was one entry wrong in each direction — `switch_pass` draws no hover tint at all, and
+`dropdown_pass`, which does, was not listed. Read-derived, and re-derived here.
+
+**`Panel::blocks_pointer` (default `true`) decides whether a panel absorbs the pointer.** A fully
+transparent panel used to swallow every click behind it, while `CaptureItem`'s own doc defines a
+capture item as "A visible UI surface that is **opaque** to the pointer". The alternative — deriving
+it from `background_color`'s alpha — was rejected: an invisible scrim over the game while a modal is
+open is a real pattern, and it would stop blocking the moment someone tuned its alpha to zero.
+Policy is now declared, not inferred from a colour channel. The default reproduces the old behaviour
+exactly.
+
+**`Button::disabled: bool` is the authored disabled flag.** `ButtonState` is `#[serde(skip)]` and
+absent from `Button`'s `Reflect::fields`, so `Disabled` was reachable only from code: a scene RON or
+an inspector edit could not author a disabled button, and a saved scene reloaded one as `Normal`.
+The new field serializes and reflects; the pass forces `state = Disabled` from it every frame, and a
+game that still writes `state = Disabled` directly keeps working. Runtime state and authored state
+are now separate fields instead of two meanings of one enum.
+
+Each of the four new tests was seen red under a sabotage that reverted exactly its fix, and nothing
+else in the suite moved.
+
 ## 0.157.0
 
 ### The `src/ui` review's four allocation rows, and the test that was measuring an early return

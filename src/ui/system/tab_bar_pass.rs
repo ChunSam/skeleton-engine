@@ -5,7 +5,7 @@ use crate::ui::node::UiNode;
 use crate::ui::tab_bar::TabBar;
 
 use super::capture::PointerCapture;
-use super::state::{node_layout, InputSnapshot, UiOutput};
+use super::state::{hover_owner, node_layout, InputSnapshot, UiOutput};
 use super::UiEvent;
 
 /// Handles every [`UiNode`] + [`TabBar`]: a completed click on a tab header (press and release
@@ -25,7 +25,7 @@ pub(super) fn run(
     scratch.clear();
     scratch.extend(world.query2::<UiNode, TabBar>().map(|(e, _, _)| e));
 
-    let hover_owner = capture.topmost_at(input.cursor);
+    let hover_owner = hover_owner(capture, input);
     let pressed_owner = capture.topmost_at(input.press_cursor);
     let released_owner = capture.topmost_at(input.release_cursor);
 

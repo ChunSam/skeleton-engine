@@ -733,4 +733,100 @@ mod tests {
             "and it must stay disabled"
         );
     }
+
+    /// v0.158.0: a `Panel` that opts out of pointer capture positions its children without
+    /// swallowing the clicks behind it. The control is the row above — the same panel with the
+    /// default `blocks_pointer: true` eats the click.
+    #[test]
+    fn a_panel_that_does_not_block_the_pointer_lets_the_click_through() {
+        let mut world = World::new();
+        let btn = spawn_button_at(&mut world, 0.5);
+        let panel = spawn_panel_at(&mut world, 0.9);
+        world.get_mut::<Panel>(panel).unwrap().blocks_pointer = false;
+
+        click_world(&mut world, Vec2::new(60.0, 60.0));
+
+        assert_eq!(
+            click_count(&world, btn),
+            1,
+            "a panel with blocks_pointer=false must not absorb the click"
+        );
+    }
+
+    /// The hover half of the same field: a non-blocking panel is not a capture item at all, so the
+    /// button under it is the topmost surface and hovers normally.
+    #[test]
+    fn a_panel_that_does_not_block_the_pointer_lets_hover_through() {
+        let mut world = World::new();
+        let btn = spawn_button_at(&mut world, 0.5);
+        let panel = spawn_panel_at(&mut world, 0.9);
+        world.get_mut::<Panel>(panel).unwrap().blocks_pointer = false;
+        world.insert_resource(ViewportSize::new(400, 300));
+        world.insert_resource(Events::<UiEvent>::default());
+        let mut input = InputState::default();
+        input.set_cursor(Vec2::new(60.0, 60.0));
+        world.insert_resource(input);
+
+        UiSystem::default().run(&mut world, 0.016);
+
+        assert_eq!(
+            world.get::<Button>(btn).unwrap().state,
+            ButtonState::Hovered,
+            "the button under a non-blocking panel must still hover"
+        );
+    }
+
+    /// v0.158.0: `Button::disabled` is the authored flag — it survives a serde round-trip, unlike
+    /// the runtime `state` enum, and the pass honours it.
+    #[test]
+    fn an_authored_disabled_button_takes_no_clicks() {
+        let (mut world, entity) = setup_button_world(Vec2::new(20.0, 20.0));
+        world.get_mut::<Button>(entity).unwrap().disabled = true;
+        {
+            let input = world.resource_mut::<InputState>().unwrap();
+            input.press_mouse(MouseButton::Left);
+            input.release_mouse(MouseButton::Left);
+        }
+
+        UiSystem::default().run(&mut world, 0.016);
+
+        assert_eq!(
+            click_count(&world, entity),
+            0,
+            "a disabled button must not emit ButtonClicked"
+        );
+        assert_eq!(
+            world.get::<Button>(entity).unwrap().state,
+            ButtonState::Disabled,
+            "the authored flag drives the runtime state, so the disabled colour is drawn"
+        );
+    }
+
+    /// The pointer leaving the window clears the hover tint. `input.cursor` freezes at its last
+    /// in-window value, so before v0.158.0 the highlight stayed lit until the cursor came back —
+    /// the staleness the tooltip shed in v0.156.28, in the eight passes that draw a hover state.
+    #[test]
+    fn the_pointer_leaving_the_window_clears_a_hover_tint() {
+        let (mut world, entity) = setup_button_world(Vec2::new(20.0, 20.0));
+        let mut system = UiSystem::default();
+
+        system.run(&mut world, 0.016);
+        assert_eq!(
+            world.get::<Button>(entity).unwrap().state,
+            ButtonState::Hovered,
+            "the button is hovered while the cursor is on it"
+        );
+
+        world
+            .resource_mut::<InputState>()
+            .unwrap()
+            .set_cursor_inside(false);
+        system.run(&mut world, 0.016);
+
+        assert_eq!(
+            world.get::<Button>(entity).unwrap().state,
+            ButtonState::Normal,
+            "a hover tint must not survive the pointer leaving the window"
+        );
+    }
 }

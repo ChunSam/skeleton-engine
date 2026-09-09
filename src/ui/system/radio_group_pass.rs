@@ -7,7 +7,7 @@ use crate::ui::node::UiNode;
 use crate::ui::radio_group::RadioGroup;
 
 use super::capture::PointerCapture;
-use super::state::{node_layout, InputSnapshot, UiOutput};
+use super::state::{hover_owner, node_layout, InputSnapshot, UiOutput};
 use super::UiEvent;
 
 /// Outline thickness of the option ring in pixels.
@@ -34,7 +34,7 @@ pub(super) fn run(
     scratch.clear();
     scratch.extend(world.query2::<UiNode, RadioGroup>().map(|(e, _, _)| e));
 
-    let hover_owner = capture.topmost_at(input.cursor);
+    let hover_owner = hover_owner(capture, input);
     let pressed_owner = capture.topmost_at(input.press_cursor);
     let released_owner = capture.topmost_at(input.release_cursor);
 

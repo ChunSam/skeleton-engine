@@ -7,7 +7,7 @@ use crate::ui::dropdown::{Dropdown, DROPDOWN_LIST_Z};
 use crate::ui::node::UiNode;
 
 use super::capture::PointerCapture;
-use super::state::{in_bounds, node_layout, InputSnapshot, UiOutput};
+use super::state::{hover_owner, in_bounds, node_layout, InputSnapshot, UiOutput};
 use super::UiEvent;
 
 /// Horizontal inset for the closed box's item text and the ▼/▲ arrow.
@@ -31,7 +31,7 @@ pub(super) fn run(
     scratch.clear();
     scratch.extend(world.query2::<UiNode, Dropdown>().map(|(e, _, _)| e));
 
-    let hover_owner = capture.topmost_at(input.cursor);
+    let hover_owner = hover_owner(capture, input);
     let pressed_owner = capture.topmost_at(input.press_cursor);
     let released_owner = capture.topmost_at(input.release_cursor);
 
