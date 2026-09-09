@@ -7,7 +7,7 @@ use crate::ui::node::UiNode;
 use crate::ui::scroll_view::ScrollView;
 
 use super::capture::PointerCapture;
-use super::state::{InputSnapshot, UiOutput};
+use super::state::{hover_owner, InputSnapshot, UiOutput};
 
 pub(super) fn run(
     world: &mut World,
@@ -22,7 +22,7 @@ pub(super) fn run(
 
     // The wheel scrolls only the scroll view that owns the pointer (shared capture → a scroll view
     // covered by another widget kind doesn't capture the wheel through it).
-    let hover_owner = capture.topmost_at(input.cursor);
+    let hover_owner = hover_owner(capture, input);
 
     for entity in scratch.iter().copied() {
         let (pos, size, z, visible) = match world.get::<UiNode>(entity) {

@@ -7,7 +7,7 @@ use crate::ui::button::{Button, ButtonState};
 use crate::ui::node::UiNode;
 
 use super::capture::PointerCapture;
-use super::state::{node_layout, InputSnapshot, UiOutput};
+use super::state::{hover_owner, node_layout, InputSnapshot, UiOutput};
 use super::UiEvent;
 
 pub(super) fn run(
@@ -27,7 +27,7 @@ pub(super) fn run(
     // pressed / clicked only while it is the topmost pointer-opaque surface under the cursor. Because
     // `topmost_at` already resolves z-order, at most one button can satisfy the click — no separate
     // candidate-resolution pass is needed.
-    let hover_owner = capture.topmost_at(input.cursor);
+    let hover_owner = hover_owner(capture, input);
     let pressed_owner = capture.topmost_at(input.press_cursor);
     let released_owner = capture.topmost_at(input.release_cursor);
 
@@ -40,6 +40,12 @@ pub(super) fn run(
             Some(b) => b,
             None => continue,
         };
+        // Authored `disabled` wins over the runtime enum, every frame. A game that still writes
+        // `state = Disabled` directly keeps working — the guard below leaves it alone — but a
+        // scene file or an inspector edit can only reach the field.
+        if btn.disabled {
+            btn.state = ButtonState::Disabled;
+        }
         if btn.state != ButtonState::Disabled {
             btn.state = if hover {
                 if input.is_held {

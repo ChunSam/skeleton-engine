@@ -7,7 +7,7 @@ use crate::ui::node::UiNode;
 use crate::ui::slider::Slider;
 
 use super::capture::PointerCapture;
-use super::state::{in_bounds, node_layout, InputSnapshot, UiOutput};
+use super::state::{hover_owner, in_bounds, node_layout, InputSnapshot, UiOutput};
 use super::UiEvent;
 
 pub(super) fn run(
@@ -25,7 +25,7 @@ pub(super) fn run(
     // by another widget kind doesn't grab the press through it). An in-progress drag keeps following
     // the cursor even off the track, as before.
     let pressed_owner = capture.topmost_at(input.press_cursor);
-    let hover_owner = capture.topmost_at(input.cursor);
+    let hover_owner = hover_owner(capture, input);
 
     for entity in scratch.iter().copied() {
         let (pos, size, z, visible) = match node_layout(world, entity, viewport) {

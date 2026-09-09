@@ -62,8 +62,28 @@ impl PointerCapture {
         self.extend_kind::<Switch>(world, viewport, 0.0);
         self.extend_kind::<TextInput>(world, viewport, 0.0);
         self.extend_kind::<ScrollView>(world, viewport, 0.0);
-        self.extend_kind::<Panel>(world, viewport, PANEL_BG_Z_OFFSET);
+        self.extend_panels(world, viewport);
         self.extend_dropdowns(world, viewport);
+    }
+
+    /// Appends every visible panel that is [`Panel::blocks_pointer`], at the z its background is
+    /// actually drawn (`z - PANEL_BG_Z_OFFSET`).
+    ///
+    /// A panel opting out is the one widget kind that can be visible and still not a capture item:
+    /// a bare layout container positions its children without swallowing the clicks behind it.
+    /// Not derived from `background_color`'s alpha — see [`Panel::blocks_pointer`].
+    fn extend_panels(&mut self, world: &World, viewport: &ViewportSize) {
+        self.items.extend(
+            world
+                .query2::<UiNode, Panel>()
+                .filter(|(_, node, panel)| node.visible && panel.blocks_pointer)
+                .map(|(e, node, _)| CaptureItem {
+                    entity: e,
+                    pos: node.screen_pos(viewport),
+                    size: node.size,
+                    z: node.z - PANEL_BG_Z_OFFSET,
+                }),
+        );
     }
 
     /// Appends every visible dropdown. A **closed** dropdown captures like any widget (its node

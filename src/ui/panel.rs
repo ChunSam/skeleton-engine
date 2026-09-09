@@ -54,6 +54,16 @@ pub struct Panel {
     pub direction: LayoutDir,
     pub padding: f32,
     pub background_color: Color,
+    /// Whether this panel is **opaque to the pointer**: while true (the default) it absorbs
+    /// clicks, hover and scroll for everything drawn behind its rect, which is what a modal
+    /// scrim wants.
+    ///
+    /// Set it false for a bare layout container — a panel that only positions its children and
+    /// should let the game behind it keep receiving input. ⚠️ The engine does **not** infer this
+    /// from `background_color`'s alpha: a fully transparent panel blocked every click behind it
+    /// until v0.158.0, and reading policy out of a colour channel would make an invisible
+    /// scrim (a real pattern) stop working the moment someone tuned its alpha to zero.
+    pub blocks_pointer: bool,
 }
 
 impl Default for Panel {
@@ -72,6 +82,7 @@ impl Reflect for Panel {
                 ReflectValue::Color(self.background_color.to_array()),
             ),
             ("direction", ReflectValue::I32(self.direction.to_i32())),
+            ("blocks_pointer", ReflectValue::Bool(self.blocks_pointer)),
         ]
     }
 
@@ -93,6 +104,10 @@ impl Reflect for Panel {
                 self.direction = LayoutDir::from_i32(v);
                 true
             }
+            ("blocks_pointer", ReflectValue::Bool(v)) => {
+                self.blocks_pointer = v;
+                true
+            }
             _ => false,
         }
     }
@@ -110,7 +125,14 @@ impl Panel {
             direction,
             padding: 8.0,
             background_color: Color::rgba(0.12, 0.12, 0.18, 0.9),
+            blocks_pointer: true,
         }
+    }
+
+    /// Sets whether the panel absorbs pointer input for what is behind it. Builder form.
+    pub fn with_blocks_pointer(mut self, blocks: bool) -> Self {
+        self.blocks_pointer = blocks;
+        self
     }
 
     pub fn with_gap(mut self, gap: f32) -> Self {
