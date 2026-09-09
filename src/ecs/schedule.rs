@@ -471,7 +471,8 @@ mod tests {
     /// This is the shape of the trap `compute_order` now warns about. `add`/`add_system` attach
     /// `SystemConfig::default()`, whose `label` is `None` — a `LABEL` constant is just a
     /// `&'static str`, not a self-registering identity. So the extremely natural
-    /// `systems.add(LayoutSystem); systems.add_labeled(UiSystem, SystemConfig::new()
+    /// `systems.add(LayoutSystem::default()); systems.add_labeled(UiSystem::default(),
+    /// SystemConfig::new()
     /// .after(LayoutSystem::LABEL))` produced **zero** edges, and the ordering held only by the
     /// accident of insertion order. The engine's own rustdoc taught that form, and four examples
     /// copied it.

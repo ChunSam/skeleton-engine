@@ -57,7 +57,10 @@ pub struct UiSystem {
     button_scratch: Vec<Entity>,
     checkbox_scratch: Vec<Entity>,
     dropdown_scratch: Vec<Entity>,
-    focus_scratch: Vec<Entity>,
+    /// Two buffers, not one: `focus_pass` walks every `TextInput` in the world to clear the
+    /// `focused` flag on the ones outside the focusable list, and the focusable list is still
+    /// borrowed while it does. See [`FocusScratch`].
+    focus_scratch: focus_pass::FocusScratch,
     label_scratch: Vec<Entity>,
     list_box_scratch: Vec<Entity>,
     progress_bar_scratch: Vec<Entity>,
@@ -75,6 +78,10 @@ pub struct UiSystem {
     /// Edge-detection state for the left analog stick → discrete focus nav (persists across frames,
     /// like the scratch buffers). See [`StickNav`].
     stick_nav: StickNav,
+    /// This frame's draw output and events, held across frames (`clear()` + refill) like the
+    /// scratch buffers above — it used to be a fresh `UiOutput::default()` per frame, i.e. three
+    /// `Vec` allocations every frame a UI was on screen.
+    output: UiOutput,
     /// Accumulated wall-clock seconds driving the focus ring's optional pulse (see
     /// [`FocusRingStyle::pulse_hz`]). Advanced by `dt` each frame and wrapped (so it never grows
     /// large enough for `+= dt` to lose precision), exactly like the cursor-blink clock.
@@ -110,7 +117,7 @@ impl System for UiSystem {
             None => return,
         };
 
-        let mut output = UiOutput::default();
+        self.output.clear();
         // Advance the focus-ring pulse clock (wrapped so `+= dt` never loses precision).
         self.ring_elapsed = (self.ring_elapsed + dt).rem_euclid(RING_PULSE_WRAP);
         // One shared "who is on top here?" decision for every pointer interaction this frame, so a
@@ -124,7 +131,7 @@ impl System for UiSystem {
             &input,
             &self.capture,
             self.ring_elapsed,
-            &mut output,
+            &mut self.output,
             &mut self.focus_scratch,
         );
         button_pass::run(
@@ -132,7 +139,7 @@ impl System for UiSystem {
             &viewport,
             &input,
             &self.capture,
-            &mut output,
+            &mut self.output,
             &mut self.button_scratch,
         );
         text_input_pass::run(
@@ -140,7 +147,7 @@ impl System for UiSystem {
             &viewport,
             &input,
             dt,
-            &mut output,
+            &mut self.output,
             &mut self.text_input_scratch,
         );
         scroll_view_pass::run(
@@ -148,14 +155,14 @@ impl System for UiSystem {
             &viewport,
             &input,
             &self.capture,
-            &mut output,
+            &mut self.output,
             &mut self.scroll_view_scratch,
         );
-        label_pass::run(world, &viewport, &mut output, &mut self.label_scratch);
+        label_pass::run(world, &viewport, &mut self.output, &mut self.label_scratch);
         progress_bar_pass::run(
             world,
             &viewport,
-            &mut output,
+            &mut self.output,
             &mut self.progress_bar_scratch,
         );
         slider_pass::run(
@@ -163,7 +170,7 @@ impl System for UiSystem {
             &viewport,
             &input,
             &self.capture,
-            &mut output,
+            &mut self.output,
             &mut self.slider_scratch,
         );
         checkbox_pass::run(
@@ -171,7 +178,7 @@ impl System for UiSystem {
             &viewport,
             &input,
             &self.capture,
-            &mut output,
+            &mut self.output,
             &mut self.checkbox_scratch,
         );
         radio_group_pass::run(
@@ -179,7 +186,7 @@ impl System for UiSystem {
             &viewport,
             &input,
             &self.capture,
-            &mut output,
+            &mut self.output,
             &mut self.radio_group_scratch,
         );
         tab_bar_pass::run(
@@ -187,7 +194,7 @@ impl System for UiSystem {
             &viewport,
             &input,
             &self.capture,
-            &mut output,
+            &mut self.output,
             &mut self.tab_bar_scratch,
         );
         list_box_pass::run(
@@ -195,7 +202,7 @@ impl System for UiSystem {
             &viewport,
             &input,
             &self.capture,
-            &mut output,
+            &mut self.output,
             &mut self.list_box_scratch,
         );
         stepper_pass::run(
@@ -203,7 +210,7 @@ impl System for UiSystem {
             &viewport,
             &input,
             &self.capture,
-            &mut output,
+            &mut self.output,
             &mut self.stepper_scratch,
         );
         switch_pass::run(
@@ -211,7 +218,7 @@ impl System for UiSystem {
             &viewport,
             &input,
             &self.capture,
-            &mut output,
+            &mut self.output,
             &mut self.switch_scratch,
         );
         dropdown_pass::run(
@@ -219,7 +226,7 @@ impl System for UiSystem {
             &viewport,
             &input,
             &self.capture,
-            &mut output,
+            &mut self.output,
             &mut self.dropdown_scratch,
         );
         tooltip_pass::run(
@@ -228,10 +235,10 @@ impl System for UiSystem {
             &input,
             &self.capture,
             dt,
-            &mut output,
+            &mut self.output,
             &mut self.tooltip_scratch,
         );
-        submit_output(world, output, &mut self.warned_no_bus);
+        submit_output(world, &mut self.output, &mut self.warned_no_bus);
     }
 }
 
