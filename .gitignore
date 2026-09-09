@@ -12,3 +12,8 @@ CS_FOUNDATIONS.html
 
 # Editor "Save Scene" output / example default save path (test artifact)
 saved_scene.ron
+
+# Editor swap files
+*.swp
+*.swo
+*~

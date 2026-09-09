@@ -63,6 +63,7 @@ pub(super) fn register_core_component_metadata(world: &mut World) {
     world.register_reflect_named::<crate::ui::Switch>("Switch");
     world.register_reflect_named::<crate::ui::Dropdown>("Dropdown");
     world.register_reflect_named::<crate::ui::Tooltip>("Tooltip");
+    world.register_reflect_named::<crate::ui::VirtualJoystick>("VirtualJoystick");
     world.register_reflect_named::<crate::ui::LocalizedText>("LocalizedText");
 
     world.register_clone::<crate::components::Transform>();
@@ -97,6 +98,7 @@ pub(super) fn register_core_component_metadata(world: &mut World) {
     world.register_clone::<crate::ui::Switch>();
     world.register_clone::<crate::ui::Dropdown>();
     world.register_clone::<crate::ui::Tooltip>();
+    world.register_clone::<crate::ui::VirtualJoystick>();
     world.register_clone::<crate::ui::LocalizedText>();
 
     // Register UI widget serde components for scene save/load
@@ -160,6 +162,7 @@ pub(super) fn register_core_component_metadata(world: &mut World) {
         registry.register::<crate::ui::Tooltip>("Tooltip", None);
         registry.register::<crate::ui::ScrollView>("ScrollView", None);
         registry.register::<crate::ui::panel::Panel>("Panel", None);
+        registry.register::<crate::ui::VirtualJoystick>("VirtualJoystick", None);
         registry.register::<crate::ui::LocalizedText>("LocalizedText", None);
 
         // Animation and timeline components for editor save/load
