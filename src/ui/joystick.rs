@@ -1,25 +1,43 @@
+use serde::{Deserialize, Serialize};
+
 use glam::Vec2;
 
 use crate::input::TouchState;
+use crate::reflect::{Reflect, ReflectValue};
 
 /// Virtual joystick component.
 ///
-/// Attach it to an entity. Call `update()` every frame to process touch
-/// (or mouse-emulated) input and refresh the `output` direction vector.
+/// Attach it to an entity. Call [`update`](Self::update) every frame to process touch
+/// (or mouse-emulated) input and refresh the [`output`](Self::output) direction vector.
+///
+/// Authored state — [`center`](Self::center), [`radius`](Self::radius),
+/// [`visible`](Self::visible) — serializes and reflects, so a joystick can be placed in a scene
+/// file or the inspector like any other UI component (v0.159.0; before that this type derived
+/// nothing and the "attach it to an entity" above was only reachable from code). The knob's live
+/// position and the touch it is tracking are runtime state and are **not** saved.
 ///
 /// # Example
-/// ```ignore
+///
+/// [`update_raw`](Self::update_raw) is the borrow-friendly entry point: a system cannot hold
+/// `world.resource::<TouchState>()` and `world.get_mut::<VirtualJoystick>()` at the same time, so
+/// copy the touch lists out first and pass them in.
+///
+/// ```
+/// # use engine::{VirtualJoystick, Vec2, World};
+/// let mut world = World::new();
 /// let joy_e = world.spawn();
 /// world.add_component(joy_e, VirtualJoystick::new(Vec2::new(120.0, 480.0), 60.0));
 ///
-/// // inside a system
+/// // A touch lands 30 px right of the centre — half of the 60 px radius.
+/// let touches = [(0, Vec2::new(150.0, 480.0))];
 /// if let Some(joy) = world.get_mut::<VirtualJoystick>(joy_e) {
-///     if let Some(ts) = world.resource::<TouchState>() {
-///         joy.update(ts);
-///     }
-///     let dir = joy.output; // Vec2 (-1..1, -1..1)
+///     joy.update_raw(&touches, &[], &touches);
+///     assert!(joy.is_active());
+///     assert_eq!(joy.output, Vec2::new(0.5, 0.0)); // Vec2 (-1..1, -1..1)
 /// }
 /// ```
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct VirtualJoystick {
     /// Center coordinate of the joystick base (screen/UI coordinate space).
     pub center: Vec2,
@@ -29,16 +47,69 @@ pub struct VirtualJoystick {
 
     /// Normalized output direction. Each axis range: -1.0 to 1.0.
     /// `Vec2::ZERO` when there is no input.
+    ///
+    /// Runtime state — not serialized; a loaded joystick starts centred.
+    #[serde(skip)]
     pub output: Vec2,
 
     /// Current screen coordinate of the stick knob (for rendering/debug visualization).
+    ///
+    /// Runtime state — not serialized. While the stick is not held this equals
+    /// [`center`](Self::center), which `update`/`update_raw` re-establish on their first call so a
+    /// joystick loaded from a scene does not draw its knob at the origin.
+    #[serde(skip)]
     pub stick_pos: Vec2,
 
     /// When `true`, the joystick circle is visualized via DebugDraw.
     pub visible: bool,
 
-    /// ID of the touch point currently controlling this joystick.
+    /// ID of the touch point currently controlling this joystick. Runtime state — not serialized,
+    /// so a loaded joystick is never already latched onto a touch from another session.
+    #[serde(skip)]
     touch_id: Option<u64>,
+}
+
+impl Default for VirtualJoystick {
+    fn default() -> Self {
+        Self::new(Vec2::ZERO, 60.0)
+    }
+}
+
+impl Reflect for VirtualJoystick {
+    fn fields(&self) -> Vec<(&'static str, ReflectValue)> {
+        vec![
+            ("center", ReflectValue::Vec2(self.center)),
+            ("radius", ReflectValue::F32(self.radius)),
+            ("visible", ReflectValue::Bool(self.visible)),
+        ]
+    }
+
+    fn set_field(&mut self, name: &str, val: ReflectValue) -> bool {
+        match (name, val) {
+            ("center", ReflectValue::Vec2(v)) => {
+                // Moving the base moves the resting knob with it; otherwise an inspector drag
+                // leaves the knob behind until the next touch.
+                if !self.is_active() {
+                    self.stick_pos = v;
+                }
+                self.center = v;
+                true
+            }
+            ("radius", ReflectValue::F32(v)) => {
+                self.radius = v;
+                true
+            }
+            ("visible", ReflectValue::Bool(v)) => {
+                self.visible = v;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn type_name(&self) -> &'static str {
+        "VirtualJoystick"
+    }
 }
 
 impl VirtualJoystick {
@@ -58,6 +129,8 @@ impl VirtualJoystick {
     ///
     /// Must be called before `TouchState::flush()`.
     pub fn update(&mut self, touch_state: &TouchState) {
+        self.rest_knob_at_center();
+
         // 1. No touch_id: find a touch within the radius in the began list and assign it.
         if self.touch_id.is_none() {
             for &(id, pos) in touch_state.began() {
@@ -90,6 +163,19 @@ impl VirtualJoystick {
                     None => self.release(),
                 }
             }
+        }
+    }
+
+    /// Re-establishes "not held ⇒ the knob rests at the centre".
+    ///
+    /// Every other path already keeps that invariant — `release` re-centres and `update_stick`
+    /// only ever runs with a touch latched. Deserialization is the one way in that does not:
+    /// `stick_pos` is `#[serde(skip)]` runtime state, so it loads as `Vec2::ZERO` while `center`
+    /// loads as whatever the scene says, and a joystick placed at (120, 480) would draw its knob
+    /// in the corner until the player first touched it.
+    fn rest_knob_at_center(&mut self) {
+        if self.touch_id.is_none() {
+            self.stick_pos = self.center;
         }
     }
 
@@ -148,6 +234,8 @@ impl VirtualJoystick {
         ended: &[(u64, Vec2)],
         active: &[(u64, Vec2)],
     ) {
+        self.rest_knob_at_center();
+
         // 1. No touch_id: find a touch within the radius in began and assign it.
         if self.touch_id.is_none() {
             for &(id, pos) in began {
@@ -308,6 +396,92 @@ mod tests {
             joy.output.x < 0.0,
             "the new touch drives it, got {:?}",
             joy.output
+        );
+    }
+
+    /// v0.159.0: the authored fields round-trip through a scene file; the runtime ones do not.
+    #[test]
+    fn joystick_serde_roundtrip_drops_runtime_state() {
+        let mut joy = VirtualJoystick::new(Vec2::new(120.0, 480.0), 60.0);
+        joy.visible = false;
+        joy.update_raw(
+            &[(7, Vec2::new(150.0, 480.0))],
+            &[],
+            &[(7, Vec2::new(150.0, 480.0))],
+        );
+        assert!(joy.is_active(), "the fixture is a joystick mid-hold");
+
+        let ron = ron::to_string(&joy).expect("serialize");
+        let back: VirtualJoystick = ron::from_str(&ron).expect("deserialize");
+
+        assert_eq!(back.center, Vec2::new(120.0, 480.0));
+        assert_eq!(back.radius, 60.0);
+        assert!(!back.visible);
+        assert!(
+            !back.is_active(),
+            "a loaded joystick must not still be latched onto a touch from another session"
+        );
+        assert_eq!(back.output, Vec2::ZERO, "and its output starts centred");
+    }
+
+    /// The knob of a *loaded* joystick rests at its centre, not at the origin. `stick_pos` is
+    /// runtime state and deserializes to `Vec2::ZERO` while `center` comes from the scene, so the
+    /// invariant every other path keeps has to be re-established on the first update.
+    #[test]
+    fn a_loaded_joystick_rests_its_knob_at_the_center() {
+        let joy = VirtualJoystick::new(Vec2::new(120.0, 480.0), 60.0);
+        let ron = ron::to_string(&joy).expect("serialize");
+        let mut back: VirtualJoystick = ron::from_str(&ron).expect("deserialize");
+        assert_eq!(
+            back.stick_pos,
+            Vec2::ZERO,
+            "serde alone cannot know the centre"
+        );
+
+        back.update(&TouchState::default());
+
+        assert_eq!(
+            back.stick_pos,
+            Vec2::new(120.0, 480.0),
+            "the first update must put the resting knob back on the base"
+        );
+    }
+
+    /// A held stick is not re-centred by the guard above — only an unheld one is.
+    #[test]
+    fn resting_the_knob_does_not_disturb_a_live_hold() {
+        let mut joy = VirtualJoystick::new(Vec2::new(100.0, 100.0), 60.0);
+        let touch = [(3, Vec2::new(130.0, 100.0))];
+        joy.update_raw(&touch, &[], &touch);
+        let held = joy.stick_pos;
+        assert_ne!(held, joy.center, "the fixture holds the knob off-centre");
+
+        joy.update_raw(&[], &[], &touch);
+
+        assert_eq!(joy.stick_pos, held, "a live hold keeps its knob position");
+        assert_eq!(joy.output, Vec2::new(0.5, 0.0));
+    }
+
+    #[test]
+    fn joystick_reflect_roundtrip() {
+        let mut joy = VirtualJoystick::new(Vec2::new(10.0, 20.0), 40.0);
+        assert!(joy.set_field("radius", ReflectValue::F32(75.0)));
+        assert!(joy.set_field("visible", ReflectValue::Bool(false)));
+        assert!(joy.set_field("center", ReflectValue::Vec2(Vec2::new(200.0, 300.0))));
+        assert_eq!(joy.radius, 75.0);
+        assert!(!joy.visible);
+        assert_eq!(joy.center, Vec2::new(200.0, 300.0));
+        assert_eq!(
+            joy.stick_pos,
+            Vec2::new(200.0, 300.0),
+            "moving the base moves the resting knob with it"
+        );
+
+        let names: Vec<_> = joy.fields().into_iter().map(|(n, _)| n).collect();
+        assert_eq!(names, vec!["center", "radius", "visible"]);
+        assert!(
+            !joy.set_field("output", ReflectValue::Vec2(Vec2::ONE)),
+            "runtime state is not settable through Reflect"
         );
     }
 }

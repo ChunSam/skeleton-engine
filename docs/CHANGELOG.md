@@ -4,6 +4,33 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.159.0
+
+### `VirtualJoystick` can appear in a scene — the last `src/ui` review item
+
+The half-row v0.158.0 left behind. The type derived nothing — no `Clone`, no `Serialize`, no
+`Reflect` — while its own doc opened "Attach it to an entity", so a touch joystick was reachable
+only from code: it could not be placed in the Inspector, saved into a scene, or copied with an
+entity. It now derives all three and is registered in the four places a UI widget is registered
+(reflect, clone, the serde component registry, and the Inspector's add/remove maps).
+
+**Authored vs runtime is split the way `Button::disabled` split it in v0.158.0.** `center`,
+`radius` and `visible` serialize and reflect; `output`, `stick_pos` and the tracked `touch_id` are
+`#[serde(skip)]` runtime state — a loaded joystick must not come back still latched onto a touch id
+from another session, which would leave it unclaimable (the v0.156.28 stuck-stick failure, reached
+from a new direction).
+
+⚠️ **Skipping `stick_pos` broke an invariant that nothing else could break**, which is why it has a
+test: "not held ⇒ the knob rests at the centre" is kept by `release` and by `update_stick` never
+running unlatched, but deserialization loads `stick_pos` as `Vec2::ZERO` while `center` comes from
+the scene — a joystick authored at (120, 480) drew its knob in the screen corner until the player
+first touched it. `update`/`update_raw` now re-establish it on their first call, and a `Reflect`
+edit of `center` moves the resting knob with the base.
+
+The rustdoc example was ` ```ignore ` and **did not compile**: it borrowed `world.get_mut` and
+`world.resource` at once, which is the exact conflict `update_raw` exists to solve. It is a running
+doctest now, written through `update_raw`.
+
 ## 0.158.0
 
 ### The three decisions the `src/ui` review left for the maintainer — the review is closed
