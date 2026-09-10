@@ -4,6 +4,40 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.159.1
+
+### A keyframe time drag no longer drags its neighbour along
+
+The 2026-09-02 editor review's timeline row, filed as needing eyes in a windowed run. `set_time`
+re-sorts the track, and egui keeps a drag on the widget id it started on — which is the **row
+index**, not the keyframe. Re-sorting under a live drag therefore handed the drag to whichever
+keyframe took that row.
+
+⚠️ **The filed symptom was wrong.** "Both keyframes leapfrog toward the cursor" is not what
+happens: the widget alternates which keyframe it drives on every frame, so the pair advances
+*together*, locked at the gap they had when they met, and neither can pass the other. Measured on
+a two-keyframe track at 0.0 s and 1.0 s, dragging the first one 120 px right (+2.4 s): the
+untouched neighbour ended at **2.2 s**, having been pushed the whole way.
+
+A live time drag is now parked in `ui.data` and written through on release, so the track is
+re-sorted exactly once and never with a drag in flight. The row keeps showing the time the drag
+has reached while it is parked — that is the half that makes it a fix rather than a mute, and it
+has its own test. Typing a time is not a drag and still re-sorts in the same frame; a drag
+released while the panel is not being rendered (another tab, another selection) lands the next
+time it renders instead of being dropped.
+
+⚠️ **The row's gate — "a windowed run, or a heavy pointer-drag harness" — was wrong, and it had
+already survived one re-derivation that never attempted it.** The harness is ~60 lines and needs
+nothing egui does not already hand back: one **persistent** `egui::Context` (the editor's existing
+`editor_frame` helper builds a fresh one per call, which is why no drag had ever been driven in
+this repo), a synthesized `RawInput` per frame, and widget positions read out of the frame's own
+`Shape::Text` list — a `DragValue` draws its number, so the shapes say where to press. No window,
+no GPU, no new dependency; the four tests run in 0.04 s.
+
+All four were **seen to fail** against the hunk each one guards: the repro and the live-display
+test redden on the pre-fix row (the neighbour reads 1.4 s by drag step 7), the interrupted-drag
+flush and the typed-time branch on theirs.
+
 ## 0.159.0
 
 ### `VirtualJoystick` can appear in a scene — the last `src/ui` review item
