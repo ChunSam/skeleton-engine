@@ -4,6 +4,40 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.159.2
+
+### The editor honours its settings file in overlay mode, not only when docked
+
+The 2026-09-02 editor review's settings row, and the maintainer's decision on it. `editor_settings.ron`
+was read on **exactly one** transition — the first Off/Overlay→Docked of the session — and written on
+exactly one — a Docked exit. Three consequences, all reproduced headlessly before anything changed:
+
+- an F1-overlay-only session ran on `EditorState::new` defaults whatever the file said: snap 16 px
+  against a saved 48, and **Korean against a saved English**;
+- an overlay session wrote no settings file at all, so the Snap control — which lives inside the
+  `overlay_visible` block and is gated on the tab, not the mode — was a preference the user could
+  watch themselves change and then find gone;
+- and nothing but a mode switch writes, so quitting with the editor open saves nothing.
+
+`mode_transition` now loads on the first entry into **any** editor mode and saves on every exit from
+one. Chosen over a debounced save-on-change and over documenting the Docked-only policy as intended.
+
+⚠️ **The third consequence is left standing on purpose** and is filed in `docs/NEXT_WORK.md`: quitting
+with the editor still open still saves nothing. `quitting_while_the_editor_is_still_open_saves_nothing`
+pins it, so the row is instrumented before it is scheduled.
+
+⚠️ **The gate was wrong again — the second in one day, and the one that cost least.** "A windowed run;
+the load sits inside the winit handler with no unit seam" was wrong on its face: `App::set_editor_mode`
+is `pub(in crate::app)`, its own doc calls it *"The one entry point"*, and `settings_path_override` had
+been in `EditorState` for exactly this purpose with two tests already using it. Three tests, 0.13 s, no
+window. Both gates re-derived on 2026-09-10 were written by readers who had not opened the entry point
+they were describing.
+
+Four docs said the old policy and now say the new one (`i18n.rs`, `editor.rs`, and the `EditorSettings`
+and `set_editor_mode` doc comments); each also records what is *still* true, so the remainder above does
+not read as an omission. All four tests were seen to fail: the two behaviour ones and the transition
+table against the pre-v0.159.2 formula, the quit-while-open one against a `Drop` that saves.
+
 ## 0.159.1
 
 ### A keyframe time drag no longer drags its neighbour along

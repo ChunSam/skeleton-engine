@@ -5,8 +5,8 @@ mod ui;
 
 // Editor localization. Cross-platform: `tr` is called from both the native docked editor and the
 // shared wasm overlay path, so the module is NOT wasm-gated. The active locale is a thread-local
-// set each frame from `EditorState::locale` (native) — which `EditorSettings` fills in only on the
-// first Docked open, so an overlay-only session keeps the default; wasm has no locale toggle at
+// set each frame from `EditorState::locale` (native) — which `EditorSettings` fills in on the
+// first entry into any editor mode, overlay included since v0.159.2; wasm has no locale toggle at
 // all and stays at the default. See `i18n`'s module doc.
 mod i18n;
 
