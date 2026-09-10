@@ -1226,6 +1226,11 @@ fn mode_transition_table() {
         "first Docked open loads"
     );
     assert_eq!(
+        t(Off, Overlay, false),
+        mt(true, false, true),
+        "and so does the first Overlay open, since v0.159.2"
+    );
+    assert_eq!(
         t(Off, Docked, true),
         mt(false, false, false),
         "later opens do not"
@@ -1241,9 +1246,14 @@ fn mode_transition_table() {
         "so does Docked→Overlay"
     );
     assert_eq!(
-        t(Overlay, Off, false),
+        t(Overlay, Off, true),
+        mt(false, true, true),
+        "and so does leaving Overlay — the half that used to write nothing"
+    );
+    assert_eq!(
+        t(Off, Off, true),
         mt(false, false, true),
-        "no Docked involved: resume only"
+        "no editor mode on either side: resume only"
     );
     assert_eq!(
         t(Docked, Docked, true),
@@ -1275,14 +1285,129 @@ fn leaving_docked_saves_the_settings_file() {
     assert!(saved.show_grid, "and it holds the current preferences");
     let _ = std::fs::remove_file(&path);
 
-    // Control: Overlay→Off never involves Docked, so nothing is written.
+    // Control: a switch with no editor mode on either side writes nothing.
     let path2 = std::env::temp_dir().join(format!("set_mode_saves_ctl_{}.ron", std::process::id()));
     let _ = std::fs::remove_file(&path2);
     let mut app = crate::app::App::new();
     app.editor.settings_path_override = Some(path2.clone());
-    app.editor.mode = EditorMode::Overlay;
+    app.editor.mode = EditorMode::Off;
     app.set_editor_mode(EditorMode::Off);
-    assert!(!path2.exists(), "control: no Docked exit, no file");
+    assert!(!path2.exists(), "control: no editor exit, no file");
+}
+
+/// The 2026-09-02 row's read half, decided on 2026-09-10 and fixed: the settings file used to be
+/// read on **exactly one** transition — the first Off/Overlay→Docked of the session — so an
+/// editor that only ever opened as the F1 overlay ran on `EditorState::new` defaults no matter
+/// what the file said (snap 16 px against a saved 48; Korean against a saved English). It is read
+/// on the first entry into any editor mode now. Pinned end to end rather than through
+/// `mode_transition`'s table, because the table looked correct while the consequence was the
+/// defect.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn the_overlay_editor_reads_the_settings_file_like_the_docked_one() {
+    use super::EditorMode;
+    let path = std::env::temp_dir().join(format!("overlay_reads_{}.ron", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let saved = EditorSettings {
+        snap_size: 48.0,
+        show_grid: true,
+        locale: super::EditorLocale::English,
+        ..EditorSettings::default()
+    };
+    crate::save::write_ron(&path, &saved).unwrap();
+
+    let mut app = crate::app::App::new();
+    app.editor.settings_path_override = Some(path.clone());
+    app.set_editor_mode(EditorMode::Overlay);
+
+    assert_eq!(
+        app.editor.snap_size, 48.0,
+        "the overlay honours the persisted snap size"
+    );
+    assert_eq!(
+        app.editor.locale,
+        super::EditorLocale::English,
+        "and the persisted locale — an English editor used to come back Korean here"
+    );
+
+    // Control: with no file at that path the same open leaves the defaults standing, so the
+    // assertions above are about the file and not about `EditorState::new`.
+    let missing =
+        std::env::temp_dir().join(format!("overlay_reads_none_{}.ron", std::process::id()));
+    let _ = std::fs::remove_file(&missing);
+    let mut app = crate::app::App::new();
+    app.editor.settings_path_override = Some(missing);
+    app.set_editor_mode(EditorMode::Overlay);
+    assert_eq!(app.editor.snap_size, 16.0, "control: no file, no change");
+    assert_eq!(
+        app.editor.locale,
+        super::EditorLocale::Korean,
+        "control: no file, the default locale"
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+/// The same row's write half. The Snap control lives inside the `overlay_visible` block, so it is
+/// reachable in Overlay — and until v0.159.2 an Overlay session wrote no settings file at all, so
+/// a preference the user could watch themselves change was gone next launch.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn a_preference_changed_in_the_overlay_editor_is_persisted_on_the_way_out() {
+    use super::EditorMode;
+    let path = std::env::temp_dir().join(format!("overlay_writes_{}.ron", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+
+    let mut app = crate::app::App::new();
+    app.editor.settings_path_override = Some(path.clone());
+    app.set_editor_mode(EditorMode::Overlay);
+    app.editor.snap_size = 48.0; // what the overlay Inspector's Snap DragValue writes
+    app.set_editor_mode(EditorMode::Off);
+
+    let written: EditorSettings =
+        crate::save::read_ron(&path).expect("leaving Overlay writes the settings file");
+    assert_eq!(written.snap_size, 48.0, "and it holds what Overlay changed");
+    let _ = std::fs::remove_file(&path);
+
+    // Control: a switch with no editor mode on either side writes nothing, so the write above is
+    // the editor exit and not `set_editor_mode` writing unconditionally.
+    let path2 = std::env::temp_dir().join(format!("overlay_writes_ctl_{}.ron", std::process::id()));
+    let _ = std::fs::remove_file(&path2);
+    let mut app = crate::app::App::new();
+    app.editor.settings_path_override = Some(path2.clone());
+    app.set_editor_mode(EditorMode::Off);
+    assert!(!path2.exists(), "control: no editor exit, no file");
+}
+
+/// The deliberate remainder of the 2026-09-10 decision: `set_editor_mode` is still the *only*
+/// thing that writes the file, so a session that quits while the editor is still open — the
+/// ordinary way to close one — saves nothing. Widening the transition did not touch this, and it
+/// is filed rather than fixed; the fix would be a debounced save on change.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn quitting_while_the_editor_is_still_open_saves_nothing() {
+    use super::EditorMode;
+    let path = std::env::temp_dir().join(format!("quit_docked_{}.ron", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let saved = EditorSettings {
+        snap_size: 8.0,
+        ..EditorSettings::default()
+    };
+    crate::save::write_ron(&path, &saved).unwrap();
+
+    let mut app = crate::app::App::new();
+    app.editor.settings_path_override = Some(path.clone());
+    app.set_editor_mode(EditorMode::Docked);
+    assert_eq!(app.editor.snap_size, 8.0, "precondition: the file was read");
+    app.editor.snap_size = 48.0;
+    // No further mode change: the window closes with the editor still open.
+    drop(app);
+
+    let on_disk: EditorSettings = crate::save::read_ron(&path).expect("the file is still there");
+    assert_eq!(
+        on_disk.snap_size, 8.0,
+        "the 48 the user set never reached disk — nothing but a mode switch writes this file"
+    );
+    let _ = std::fs::remove_file(&path);
 }
 
 /// A settings file that exists but does not parse is left alone and logged; the preferences in

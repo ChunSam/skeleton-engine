@@ -15,8 +15,9 @@ pub(in crate::app) fn sanitize_snap_size(v: f32) -> f32 {
     }
 }
 
-/// Persisted docked-editor preferences (snap / grid / paint tool + brush). Written to a RON
-/// config file when the editor closes and restored when it next opens.
+/// Persisted editor preferences (snap / grid / paint tool + brush + locale). Written to a RON
+/// config file on every exit from an editor mode and restored on the first entry into one —
+/// overlay included since v0.159.2.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub(in crate::app) struct EditorSettings {
     pub snap_enabled: bool,
@@ -93,9 +94,10 @@ impl App {
     }
 
     /// Switches the editor mode and does everything the switch implies — the settings load on
-    /// the first Docked open, the settings save on every Docked exit, the pause reset, the
-    /// `DebugUi` sync — as decided by [`mode_transition`]. **The one entry point** for the F1 and
-    /// F2 keys and the toolbar's Exit button.
+    /// the first entry into any editor mode, the settings save on every exit from one, the pause
+    /// reset, the `DebugUi` sync — as decided by [`mode_transition`]. **The one entry point** for
+    /// the F1 and F2 keys and the toolbar's Exit button, and the only thing that writes the
+    /// settings file: quitting with the editor still open saves nothing.
     pub(in crate::app) fn set_editor_mode(&mut self, new_mode: EditorMode) {
         let t = mode_transition(self.editor.mode, new_mode, self.editor.settings_loaded);
         self.editor.mode = new_mode;

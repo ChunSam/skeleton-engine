@@ -172,25 +172,31 @@ pub(in crate::app) fn apply_f1(mode: EditorMode) -> EditorMode {
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::app) struct ModeTransition {
-    /// Load the persisted settings: the first time Docked opens in this session.
+    /// Load the persisted settings: the first time **any** editor mode opens in this session.
     pub load_settings: bool,
-    /// Persist the settings: on every exit from Docked.
+    /// Persist the settings: on every exit from an editor mode.
     pub save_settings: bool,
     /// Drop pause and single-step: whenever the new mode is not Docked.
     pub resume: bool,
 }
 
+/// What a mode switch implies. **The file is read on the first entry into any editor mode and
+/// written on every exit from one** — not, as until v0.159.2, only around Docked: an overlay-only
+/// session then ran on `EditorState::new` defaults whatever the file said, and every preference
+/// it changed was dropped.
+///
+/// ⚠️ It is still **only** a mode switch that writes. A session that quits while the editor is
+/// still open saves nothing, which is the ordinary way to close one; see `docs/NEXT_WORK.md`.
 #[cfg(not(target_arch = "wasm32"))]
 pub(in crate::app) fn mode_transition(
     old: EditorMode,
     new: EditorMode,
     settings_loaded: bool,
 ) -> ModeTransition {
-    let was_docked = old == EditorMode::Docked;
     let is_docked = new == EditorMode::Docked;
     ModeTransition {
-        load_settings: is_docked && !was_docked && !settings_loaded,
-        save_settings: was_docked && !is_docked,
+        load_settings: new != EditorMode::Off && !settings_loaded,
+        save_settings: old != EditorMode::Off && old != new,
         resume: !is_docked,
     }
 }
