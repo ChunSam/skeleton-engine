@@ -827,6 +827,71 @@ fn crossfade_schedules_fade_in_on_channel_and_fade_out_on_temp() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// End to end on a real device: a crossfade must leave the **incoming** track on its bus and at
+/// its base volume. Before v0.159.4 `begin_crossfade` *moved* both onto the temp channel, so the
+/// new track played at `1.0` instead of `0.7 × 0.2 = 0.14` — a 7.1x jump — and `set_bus_volume`
+/// no longer reached it, because the channel was on no bus at all.
+///
+/// ⚠️ **This one skips wherever there is no audio device, which is every CI job.** The policy it
+/// exercises is pinned in CI by `crossfade_mixer_state_tests` in `playback.rs`; what only this
+/// test covers is the *wiring* — that `begin_crossfade` and `stop_immediate` actually call those
+/// helpers. See the 2026-09-11 `src/audio` review in `docs/NEXT_WORK.md`: 36 of this subsystem's
+/// 109 tests are in the same position.
+#[test]
+fn crossfade_keeps_the_incoming_track_on_its_bus_when_device_exists() {
+    let Some(mut audio) = AudioManager::new() else {
+        return;
+    };
+    audio.assign_bus("bgm", "master");
+    audio.set_bus_volume("master", 0.2);
+    audio.set_volume("bgm", 0.7);
+    audio.play_tone("bgm", 330.0, 60.0, 0.5);
+    assert!(
+        (audio.effective_volume("bgm") - 0.14).abs() < 1e-4,
+        "precondition: 0.7 base x 0.2 bus, got {}",
+        audio.effective_volume("bgm")
+    );
+
+    audio.crossfade_bytes("bgm", include_bytes!("fixtures/tone.wav"), true, 2.0);
+
+    assert_eq!(
+        audio.channel_buses.get("bgm").map(String::as_str),
+        Some("master"),
+        "the incoming track must still be on the master bus"
+    );
+    assert!(
+        (audio.effective_volume("bgm") - 0.14).abs() < 1e-4,
+        "the incoming track must start at its mixed level, not full scale: got {}",
+        audio.effective_volume("bgm")
+    );
+    // The outgoing track keeps the same mixed level — the half that was already right.
+    assert!(
+        (audio.effective_volume("bgm__xfade") - 0.14).abs() < 1e-4,
+        "the outgoing track must not spike either: got {}",
+        audio.effective_volume("bgm__xfade")
+    );
+    // And the master control still reaches the music.
+    audio.set_bus_volume("master", 0.5);
+    assert!(
+        (audio.effective_volume("bgm") - 0.35).abs() < 1e-4,
+        "set_bus_volume must still reach the music after a crossfade: got {}",
+        audio.effective_volume("bgm")
+    );
+
+    // Tearing the temp channel down takes its copied mixer state with it.
+    audio.stop_immediate("bgm__xfade");
+    assert!(
+        !audio.channel_buses.contains_key("bgm__xfade")
+            && !audio.volume_overrides.contains_key("bgm__xfade"),
+        "the temp channel must not outlive the crossfade in the bus maps"
+    );
+    assert_eq!(
+        audio.channel_buses.get("bgm").map(String::as_str),
+        Some("master"),
+        "and the teardown must not touch the live channel"
+    );
+}
+
 /// After `crossfade` with no prior track, behavior is identical to `play_fade_in`:
 /// no temp channel is created.
 #[test]
