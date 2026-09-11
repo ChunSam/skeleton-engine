@@ -587,6 +587,14 @@ impl ApplicationHandler for App {
             window.request_redraw();
         }
     }
+
+    /// The event loop is shutting down: persist the editor preferences if the editor is still
+    /// open. `set_editor_mode` was the only other writer, so quitting from inside the editor —
+    /// the ordinary way to close one — used to drop everything the session had changed.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        self.save_editor_settings_on_exit();
+    }
 }
 
 impl App {

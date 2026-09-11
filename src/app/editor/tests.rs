@@ -1378,13 +1378,13 @@ fn a_preference_changed_in_the_overlay_editor_is_persisted_on_the_way_out() {
     assert!(!path2.exists(), "control: no editor exit, no file");
 }
 
-/// The deliberate remainder of the 2026-09-10 decision: `set_editor_mode` is still the *only*
-/// thing that writes the file, so a session that quits while the editor is still open — the
-/// ordinary way to close one — saves nothing. Widening the transition did not touch this, and it
-/// is filed rather than fixed; the fix would be a debounced save on change.
+/// The 2026-09-10 decision's remainder, closed on 2026-09-11: `set_editor_mode` used to be the
+/// *only* writer, so a session that quit while the editor was still open — the ordinary way to
+/// close one — dropped every preference it had changed. winit's `exiting` hook now calls
+/// `save_editor_settings_on_exit`, and this drives that seam directly.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn quitting_while_the_editor_is_still_open_saves_nothing() {
+fn quitting_while_the_editor_is_still_open_saves_the_preferences() {
     use super::EditorMode;
     let path = std::env::temp_dir().join(format!("quit_docked_{}.ron", std::process::id()));
     let _ = std::fs::remove_file(&path);
@@ -1400,14 +1400,69 @@ fn quitting_while_the_editor_is_still_open_saves_nothing() {
     assert_eq!(app.editor.snap_size, 8.0, "precondition: the file was read");
     app.editor.snap_size = 48.0;
     // No further mode change: the window closes with the editor still open.
-    drop(app);
+    app.save_editor_settings_on_exit();
 
     let on_disk: EditorSettings = crate::save::read_ron(&path).expect("the file is still there");
     assert_eq!(
-        on_disk.snap_size, 8.0,
-        "the 48 the user set never reached disk — nothing but a mode switch writes this file"
+        on_disk.snap_size, 48.0,
+        "what the user set on the way out reached disk"
     );
     let _ = std::fs::remove_file(&path);
+
+    // The overlay closes the same way.
+    let path2 = std::env::temp_dir().join(format!("quit_overlay_{}.ron", std::process::id()));
+    let _ = std::fs::remove_file(&path2);
+    let mut app = crate::app::App::new();
+    app.editor.settings_path_override = Some(path2.clone());
+    app.set_editor_mode(EditorMode::Overlay);
+    app.editor.snap_size = 24.0;
+    app.save_editor_settings_on_exit();
+    let written: EditorSettings = crate::save::read_ron(&path2).expect("overlay writes too");
+    assert_eq!(written.snap_size, 24.0);
+    let _ = std::fs::remove_file(&path2);
+}
+
+/// A plain game run must not start writing an editor config file. The exit writer is gated on an
+/// editor mode being open, which is the whole difference between this and the test above.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn quitting_without_having_opened_the_editor_writes_no_settings_file() {
+    let path = std::env::temp_dir().join(format!("quit_off_{}.ron", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+
+    let mut app = crate::app::App::new();
+    app.editor.settings_path_override = Some(path.clone());
+    app.editor.snap_size = 48.0;
+    app.save_editor_settings_on_exit();
+
+    assert!(
+        !path.exists(),
+        "a session that never opened the editor writes nothing on the way out"
+    );
+}
+
+/// The seam above is only reached from winit's `exiting` hook, which no headless frame can drive
+/// — so the wiring is pinned by reading the source, the same idiom as
+/// `the_three_panels_record_nothing_on_the_undo_stack`. Without this, deleting the one line in
+/// `window.rs` leaves every test above green while the fix is gone from the shipped binary.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn the_exit_hook_is_wired_to_the_settings_writer() {
+    let window_rs = include_str!("../window.rs");
+    assert!(
+        window_rs.contains("fn exiting")
+            && window_rs.contains("self.save_editor_settings_on_exit()"),
+        "window.rs must call save_editor_settings_on_exit from winit's exiting hook — without \
+         that line the editor's preferences die with the process again"
+    );
+
+    // Control: the same search fails against a file that does not do it, so the assertion above
+    // is not passing because `include_str!` returns something everything matches.
+    let settings_rs = include_str!("settings.rs");
+    assert!(
+        !settings_rs.contains("fn exiting"),
+        "control: settings.rs defines the writer, not the hook"
+    );
 }
 
 /// A settings file that exists but does not parse is left alone and logged; the preferences in

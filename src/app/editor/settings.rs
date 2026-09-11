@@ -75,6 +75,23 @@ impl App {
         let _ = crate::save::write_ron(&self.editor_settings_path(), &settings);
     }
 
+    /// Persist the editor preferences when the process is closing with the editor still open.
+    ///
+    /// [`Self::set_editor_mode`] is the only other writer, so without this a session that quits
+    /// from inside the editor — the ordinary way to close one — dropped every preference it had
+    /// changed. A session that never opened the editor writes nothing, so this does not create a
+    /// config file for a plain game run.
+    ///
+    /// ⚠️ **Only a clean exit reaches this.** winit calls `exiting` for `CloseRequested` and for
+    /// `event_loop.exit()`; a crash or a force-quit still loses the session's preferences. That
+    /// is the price of not writing on every change, and it is the whole remaining gap.
+    pub(in crate::app) fn save_editor_settings_on_exit(&self) {
+        if self.editor.mode == EditorMode::Off {
+            return;
+        }
+        self.save_editor_settings();
+    }
+
     /// Load persisted editor preferences (if the config file exists) and apply them. A file
     /// that exists but does not parse is logged and left alone — the in-memory defaults stand,
     /// and the next save overwrites it; silently reverting every preference used to be the
@@ -96,8 +113,8 @@ impl App {
     /// Switches the editor mode and does everything the switch implies — the settings load on
     /// the first entry into any editor mode, the settings save on every exit from one, the pause
     /// reset, the `DebugUi` sync — as decided by [`mode_transition`]. **The one entry point** for
-    /// the F1 and F2 keys and the toolbar's Exit button, and the only thing that writes the
-    /// settings file: quitting with the editor still open saves nothing.
+    /// the F1 and F2 keys and the toolbar's Exit button. It is one of **two** writers, the other
+    /// being [`Self::save_editor_settings_on_exit`] on a clean shutdown.
     pub(in crate::app) fn set_editor_mode(&mut self, new_mode: EditorMode) {
         let t = mode_transition(self.editor.mode, new_mode, self.editor.settings_loaded);
         self.editor.mode = new_mode;

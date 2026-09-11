@@ -4,6 +4,39 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.159.3
+
+### Quitting with the editor open keeps its preferences
+
+The remainder v0.159.2 left on purpose, taken the next day. `set_editor_mode` was the only writer
+of `editor_settings.ron`, so closing the window from inside the editor — the ordinary way to close
+one — dropped every preference the session had changed. winit's `exiting` hook now calls a new
+`App::save_editor_settings_on_exit`, which writes only when an editor mode is open, so a plain game
+run still creates no config file.
+
+⚠️ **The filed fix shape was the wrong one, which is the part worth keeping.** `docs/NEXT_WORK.md`
+said the fix was "a debounced save when `EditorSettings::from_state` differs from what was last
+written (`RtDebounce` is the precedent)". No debounce was needed: winit's `ApplicationHandler`
+already carries an `exiting` hook that this repo had simply not implemented, and one call to a seam
+method closes the row with **no per-frame work at all**. The row's own remedy would have added a
+struct compare to every editor frame and bought nothing extra. Three days, three filed claims that
+over-estimated themselves — two gates (v0.159.1, v0.159.2) and now a remedy. **Re-derive the fix
+shape too, not only the gate.**
+
+The remaining gap is smaller than the one it replaces and is stated where the code is: a crash or a
+force-quit reaches neither writer, because nothing writes on change.
+
+⚠️ **The wiring is one line inside a winit callback that no headless frame can reach**, so it is
+pinned by an `include_str!` source test with a control — the
+`the_three_panels_record_nothing_on_the_undo_stack` idiom. The sabotage run is why it exists:
+deleting that line leaves both behavioural tests green while the fix is gone from the shipped
+binary. Each of the three tests reddens against its own hunk and no other — the hook, the
+editor-open guard, and the write itself.
+
+Four prose sites that described the old single-writer policy were swept with the change
+(`state.rs`, `settings.rs`, `i18n.rs`, `docs/MODULE_MAP.md`); all four had been written the day
+before, by this same program.
+
 ## 0.159.2
 
 ### The editor honours its settings file in overlay mode, not only when docked

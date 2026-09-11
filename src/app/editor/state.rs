@@ -185,8 +185,8 @@ pub(in crate::app) struct ModeTransition {
 /// session then ran on `EditorState::new` defaults whatever the file said, and every preference
 /// it changed was dropped.
 ///
-/// ⚠️ It is still **only** a mode switch that writes. A session that quits while the editor is
-/// still open saves nothing, which is the ordinary way to close one; see `docs/NEXT_WORK.md`.
+/// ⚠️ A mode switch is not the only writer: `App::save_editor_settings_on_exit` persists on a
+/// clean shutdown with the editor still open (v0.159.3). A crash or a force-quit reaches neither.
 #[cfg(not(target_arch = "wasm32"))]
 pub(in crate::app) fn mode_transition(
     old: EditorMode,

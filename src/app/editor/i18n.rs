@@ -13,8 +13,8 @@
 //! `editor_settings.ron` is read on the first entry into **any** editor mode and written on every
 //! exit from one, so the F1 overlay honours the persisted locale like the docked editor does.
 //! ⚠️ Until v0.159.2 it was read only around Docked, and an overlay-only session ran on
-//! `EditorState::new`'s default (Korean) whatever the file said. What is still true: nothing but a
-//! mode switch writes the file, so a session that quits with the editor open saves no locale.
+//! `EditorState::new`'s default (Korean) whatever the file said. A clean shutdown with the editor
+//! still open also writes it (v0.159.3); only a crash or a force-quit loses the session's locale.
 
 // `set_locale` / `EditorLocale::{label, toggled}` are only used by the native editor toolbar; on
 // wasm only `tr` (the shared overlay path) is exercised, so they'd be flagged dead there.
