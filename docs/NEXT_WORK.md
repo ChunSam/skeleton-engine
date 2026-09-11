@@ -225,10 +225,13 @@ follow-up review of that work left nine small items of its own — they have the
 and are **not** gated the way these three are. Neither is the 2026-08-19 **render** review, which
 added a section of its own after shipping three fixes as v0.152.9. **The 2026-09-01 timing-check
 review** has a section too, and it is the odd one out: its list was never written into the tree,
-so the section records a gap rather than a queue. ⚠️ **The 2026-09-06 `src/ui` review is the newest
+so the section records a gap rather than a queue. ⚠️ **The 2026-09-06 `src/ui` review was the newest
 and by far the largest**: 38 rows off the first full read of the subsystem, filed before any of them
 shipped. Four are panics reachable from public API and one is a permanently stuck input, so that
-section — not this table — is where the next engineering work comes from.
+section — not this table — was where the next engineering work came from. **It closed on
+2026-09-09 (v0.159.0), all 39 rows.** ⚠️ **The newest is now the 2026-09-11 `src/audio` review**:
+9 rows off 6,670 lines, one of them measured — a crossfade leaves the incoming track at 7.1× its
+mixed level and off the master bus. That section is where the next engineering work comes from.
 
 ⚠️ **This paragraph described the backlog before 2026-09-06 and is kept for its reasoning, not its
 arithmetic** — the `src/ui` review put 38 rows in. A backlog this short is still the *expected* state,
@@ -428,6 +431,60 @@ are filed as rows rather than as notes.
 ⚠️ **Two stacked tooltip-bearing widgets that are both pointer-transparent** (a `Label` over a `Panel`, say) each draw a tooltip at the same `TOOLTIP_Z` and the same cursor-anchored position, overlapping unreadably — `occludes` needs a capture item with strictly greater z, and labels deliberately are not capture items. Nothing in the docs promises one tooltip at a time, so this is recorded rather than filed.
 
 ⚠️ **Process note for the next parallel review**: temporary measurement probes in the main session edited `tests/per_frame_alloc.rs` and `src/ui/*` while four read-only agents were reading the same tree, and two of them saw and reported the transient state. Nothing was mis-filed — both checked `git status` and said so — but the next such review should put probes in a worktree, or run them after the readers finish.
+
+### Open — the 2026-09-11 `src/audio` review
+
+The first full read of the audio subsystem: **6,670 lines / 15 files** — `src/audio.rs` + the nine
+`src/audio/*.rs` + `audio_facade.rs`, `audio_wasm.rs`, `audio_analysis.rs`, `audio_spatial.rs`.
+⚠️ **The scale line filed at the start of the session said 6,513 / 14 and was wrong**: it missed
+`src/audio.rs`, the parent module holding `AudioManager` itself. Count the files before quoting a
+number, including the one the directory listing does not show.
+
+Filed **before the first fix ships**, per `subsystem-review` rule 7.
+
+⚠️ **Read in full**: `audio.rs`, `types.rs`, `source.rs`, `playback.rs`, `bus.rs`, `ducking.rs`,
+`positional.rs`, `effects.rs`, `audio_spatial.rs`, `audio_facade.rs`. **Read in part**:
+`analysis.rs` (the tap, the manager side; not its 17 inline tests), `spectrum.rs` (the FFT and the
+fold; not its 8 tests), `audio_wasm.rs` (~700 of 1,181 — the graph, the meters, the metered and
+positional paths; not the music/decode tail), `audio_analysis.rs` (the doc contract and signatures,
+not every body), `tests.rs` (the 43 test *names* and the crossfade group, not all 1,124 lines).
+The rows below are what that read found; a claim about the parts marked "in part" is worth less
+than one about the parts marked "in full", and the table says which.
+
+**Why this subsystem.** It was picked by the measure the 2026-08-28 editor review used — tests per
+1k lines — applied to everything unreviewed: `audio_facade.rs` scores **2.6** (the lowest real
+density in the tree) and `audio_wasm.rs` **0.0** across 1,181 lines. It is also the exact shape
+`CLAUDE.md` warns about under *cfg-split backends share the policy, not the implementation*.
+
+⚠️ **The headline is not a row — it is what the rows sit on.** **36 of the subsystem's 109
+`#[test]`s never run in CI**: they open `let Some(mut audio) = AudioManager::new() else { return; }`
+and return silently wherever there is no device, which is every CI job. Sixteen of them say so in
+their own names (`..._when_device_exists`). So the subsystem's apparent coverage is a third
+smaller than it counts, and *"a skip is not a pass"* (`docs/VERIFICATION.md`) applies to a third of
+it. The remedy is already demonstrated **four times inside this very subsystem** —
+`collect_bus_names`, `read_cached_bytes`, `sfx_voice_channel` and `next_poly_voice` are each split
+out as a pure function precisely so a headless machine can test them, each with a comment saying
+so. Every row below whose instrument is "a pure helper" means that split, not a new harness.
+
+| Item | Where | What settles it |
+|---|---|---|
+| **(MEASURED) A crossfade strips the live channel's bus *and* its base volume, so the incoming track plays at full scale and the master control no longer reaches it.** `begin_crossfade` moves `channel_buses[ch]` and `volume_overrides[ch]` onto the temp channel and never restores them, so `effective_volume(ch)` falls back to `1.0 × 1.0`. Reproduced on a real device: `bgm` on bus `master` at 0.2 with base 0.7 reads **effective 0.14** before `crossfade_bytes` and **1.0** after — a **7.1× jump** — and a later `set_bus_volume("master", 0.5)` leaves it at 1.0, because the channel is no longer on any bus. Through the facade this is `crossfade_music`: after one crossfade, `set_master_volume` silently stops affecting the music until the next `play_music`/`crossfade_music` re-assigns. ⚠️ The hunk's own comment describes fixing exactly this spike **for the outgoing track** ("with a master bus at 0.2 that is a 5x spike on every crossfade") — it moved the spike to the incoming one. | `src/audio/playback.rs:596-625`, `src/audio_facade.rs:448-458` | Reproduced; needs a regression test that runs in CI. The three existing crossfade tests assert only the **temp** side and that a sink exists on the channel, which is why this shipped. Extract the map surgery into a pure `fn relocate_channel_state(maps…, channel, temp)` — the `collect_bus_names` / `read_cached_bytes` split, already used twice in these two files — and assert the live channel keeps its bus and base. |
+| **(read-derived) Native and web use different stereo pan laws, ~3 dB apart at centre.** Native `PannedSource::gains` is linear — `((1-pan).clamp(0,1), (1+pan).clamp(0,1))`, so centre is `(1.0, 1.0)` and hard-left `(1.0, 0.0)`: total energy **halves** as a sound moves off centre. Web uses `StereoPannerNode`, whose spec law is equal-power — centre `(0.707, 0.707)`, hard-left `(1.0, 0.0)`: total energy constant. So the same positional sound moving centre → side gets quieter on native and holds level on web, on top of the distance attenuation the two backends *do* share. ⚠️ `audio_spatial.rs`'s module doc says it exists "so the two builds can't drift" — and the `(volume, pan)` **pair** genuinely cannot, but what each backend does with the pan afterwards is not shared. Sharing a formula is not sharing a policy. | `src/audio/source.rs:48-51`; `src/audio_wasm.rs:1116`, `:1134-1136`; doc claim at `src/audio_spatial.rs:1-5` | A pure unit test, **no device**: drive `PannedSource` over a stereo `SamplesBuffer` (the file's three existing tests already do exactly this) and assert the gains at pan 0 / ±0.5 / ±1 against the equal-power curve. Then a decision — move native to equal-power, or write the divergence down where `audio_spatial` currently promises the opposite. |
+| **(read-derived) The facade documents an eight-voice bound that only one backend has.** `play_tone_metered` / `play_sfx_metered` both say, under *Limits worth knowing*, "**Eight voices per name**, then it wraps and reuses its oldest — a bound, not a leak." Native has that ring (`POLY_VOICES = 8`, `next_poly_voice`). The web path has none — `play_tone_to_metered` builds a fresh oscillator+gain per call and its own doc says "the web backend needs no voice pool". So on web the count is unbounded per frame, and `levels(meter)` saturates sooner because the browser mixes every live voice rather than eight. | `src/audio_facade.rs:262-266`, `:318-321`; `src/audio_wasm.rs:519-528`, `:765-778` | Read — the two docs contradict each other in the same repo. A decision: bound the web path, or state the bound as native-only. |
+| **(read-derived) `levels()` is measured at a different point on the two backends, and the difference shows on positional sound.** `AudioLevels`' doc promises the **pre-volume** envelope on both — "turning the volume down, ducking a bus, or muting entirely does not change these values". Native honours that: the tap sits before the sink volume, which is where `update_position` writes the distance attenuation, so a native meter does **not** fall as the source recedes. Web taps *after* the sound's own gain node — which is exactly the node `Sfx::update_position` writes the distance attenuation into — so a web meter **does** fall with distance. A HUD driven off `levels()` for a `play_at_on_channel` sound therefore behaves differently on the two platforms. | `src/audio/analysis.rs:447-455` + `src/audio/positional.rs:96-101`; `src/audio_wasm.rs:367-372`, `:915-940`, `:1151-1158`; contract at `src/audio_analysis.rs:70-79` | A browser smoke reading `levels` for a positional channel at two distances, against the native selftest doing the same — the two answers should agree or the contract should say they do not. ⚠️ Cheaper first step: decide which point is intended, because the doc currently claims one of them for both. |
+| **(read-derived) The spatial volume and the game's channel volume are the same slot, so each silently destroys the other.** `play_at` / `play_bytes_at` / `update_position` all write `volume_overrides[channel]`, which is the slot `set_volume` owns. A game that calls `set_volume("sfx", 0.5)` and then `play_at(...)` loses the 0.5 with no diagnostic; a `set_volume` after `play_at` wipes the distance attenuation until the next `update_position` puts it back. Neither doc mentions the other. | `src/audio/positional.rs:22-23`, `:44-45`, `:89-90`; `src/audio/bus.rs:81-83` | Read. A pure test once the state is reachable headlessly (same split as the crossfade row). Then a decision: a separate `spatial_volume` factor multiplied into `effective_volume`, or document the collision at both sites. |
+| **(read-derived) `set_pan` is a permanent no-op on any tone channel.** `set_pan` writes `pans[ch]` and then `pan_handles.get(ch)`, but `play_tone` and `play_tone_poly` never wrap their source in `PannedSource` and never create a handle — only `append_decoded` (the clip path) does. So a tone channel has no handle on the first call and none ever after, and the pan is applied to nothing. The doc warns that a **mono** source cannot be panned, which happens to make the audible result the same, but by a different mechanism and only by coincidence: the tone path would still ignore a stereo source. | `src/audio/playback.rs:208-228`, `:255-268`; `set_pan` at `src/audio/positional.rs:113-122` | Read. One line to wrap the tone source, or one sentence in `set_pan`'s doc — the choice is whether a tone is ever meant to be positional. |
+| **(read-derived) `update()`'s "avoid a heap allocation" comment is wrong about what it avoids.** The `[Option<String>; 8]` stack buffer skips one `Vec` allocation and then performs **one `String` allocation per fading channel** (`ch.clone()`), which is the allocation that matters. Only reached while a fade is live, so the cost is small and transient — the defect is the comment, which reads as a per-frame guarantee this code does not give. | `src/audio/playback.rs:313-336` | Read. `alloc-measure` if it ever matters; otherwise delete the claim or borrow the keys properly. **Not** filed as an efficiency defect — it is UNMEASURED and not on a hot path. |
+| **(read-derived) The facade's low-pass helpers clobber the channel's whole effect on native.** `set_low_pass` writes `AudioEffect { low_pass_hz: Some(hz), ..Default::default() }`, resetting `pitch`, `attack_secs` and `release_secs`; `clear_low_pass` calls `clear_effect`, removing all four. The web counterparts touch only the filter. A game that sets an envelope through `AudioManager` and a filter through `Audio` loses the envelope, and only on native. | `src/audio_facade.rs:337-352`, `:355-366` | Read. Read-modify-write the existing effect instead of replacing it; a pure test needs the same headless split as the rows above. |
+| **(read-derived) `LevelTap` captures the channel count once and downmixes with it forever.** `LevelTap::new` reads `inner.channels()` at construction, but a rodio `Source` may change format between spans (which is why `current_span_len` exists). A source whose span channel count changes mid-stream then folds the wrong number of samples per frame into the spectrum buffer, skewing every band. Levels are unaffected (they do not use `channels`). | `src/audio/analysis.rs:176-177`, `:196-210` | Read, and speculative about how often rodio actually does it — **re-derive before paying for it**. A pure test can chain two `SamplesBuffer`s of different channel counts and check the mono fold. |
+
+**Not filed, checked and found sound** — recorded so they are not re-chased: the FFT (`spectrum.rs`
+is pinned by Parseval, a known-bin sine and a DC case, which is the right way to check a transform);
+the lock-free meter publication (`LevelSlot`'s sequence counter, and the per-voice staleness test in
+`combine_voices`); the tap's position relative to `repeat_infinite`, which has its own regression
+test and a contrast case; `MIN_AUDIO_DURATION_SECS` clamping on every fade constructor; and the
+`stop` / `fade_out` / release interaction, which is the most carefully documented state machine in
+the subsystem and has a test per path — all of them device-gated.
 
 ### Open — the 2026-09-02 editor review continuation
 
