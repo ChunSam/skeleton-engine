@@ -156,6 +156,12 @@ impl AudioManager {
         if let Some(sink) = self.sinks.remove(channel) {
             sink.stop();
         }
+        // A crossfade temp channel owns a *copy* of its origin's bus and base volume; tearing it
+        // down takes that copy away again. Gated on the name so an ordinary channel keeps its
+        // mixer state across a stop — `stop` then `play` must not lose the bus.
+        if is_xfade_channel(channel) {
+            drop_channel_mixer_state(&mut self.channel_buses, &mut self.volume_overrides, channel);
+        }
     }
 
     /// Returns the playback state for a channel.
@@ -596,7 +602,7 @@ impl AudioManager {
     /// over `dur` seconds, so a freshly-started track on `channel` can fade in for a true overlap.
     /// Shared by [`crossfade`](Self::crossfade) and [`crossfade_bytes`](Self::crossfade_bytes).
     fn begin_crossfade(&mut self, channel: &str, dur: f32) {
-        let temp = format!("{channel}__xfade");
+        let temp = xfade_channel(channel);
 
         // If something is currently on `channel`, relocate it to the temp channel
         // so the two sinks overlap during the crossfade.
@@ -616,14 +622,20 @@ impl AudioManager {
             // assignment and no base volume — so `effective_volume(temp)` fell back to 1.0 and
             // the outgoing track jumped to FULL volume for the entire fade before ramping down.
             // With a master bus at 0.2 that is a 5x spike on every crossfade, which reads as a
-            // mixing bug rather than a fade bug. Removing the old entries also stops the temp
-            // channel outliving the crossfade in the bus maps.
-            if let Some(bus) = self.channel_buses.remove(channel) {
-                self.channel_buses.insert(temp.clone(), bus);
-            }
-            if let Some(vol) = self.volume_overrides.remove(channel) {
-                self.volume_overrides.insert(temp.clone(), vol);
-            }
+            // mixing bug rather than a fade bug.
+            //
+            // ⚠️ COPIED, not moved. Moving it fixed the outgoing track by breaking the incoming
+            // one — the live channel was left with no bus and no base, so the new track played at
+            // 1.0 instead of `base × bus` (measured: effective 0.14 → 1.0) and `set_bus_volume`
+            // stopped reaching it entirely. The temp entries are dropped by `stop_immediate` when
+            // the crossfade tears the temp channel down, which is what keeps the temp name from
+            // outliving the crossfade in the bus maps.
+            copy_channel_mixer_state(
+                &mut self.channel_buses,
+                &mut self.volume_overrides,
+                channel,
+                &temp,
+            );
 
             // Schedule a stop-when-done fade-out on the temp channel.
             let start_vol = self.fade_start_vol(&temp);
@@ -678,6 +690,60 @@ impl AudioManager {
     }
 }
 
+/// Suffix of the temp channel a crossfade relocates the outgoing track to. One definition so the
+/// name policy and the teardown that undoes it cannot disagree.
+pub(super) const XFADE_SUFFIX: &str = "__xfade";
+
+/// The temp channel name a crossfade relocates `channel`'s outgoing track to.
+///
+/// Kept as a free function — independent of the audio device — so it is unit testable in headless
+/// CI where `AudioManager::new()` returns `None`, like [`read_cached_bytes`] below.
+pub(super) fn xfade_channel(channel: &str) -> String {
+    format!("{channel}{XFADE_SUFFIX}")
+}
+
+/// Whether `channel` is a crossfade temp channel, i.e. one whose mixer state
+/// [`copy_channel_mixer_state`] put there and whose teardown should take it away again.
+pub(super) fn is_xfade_channel(channel: &str) -> bool {
+    channel.ends_with(XFADE_SUFFIX)
+}
+
+/// **Copies** `channel`'s bus assignment and base volume onto `temp`, leaving the originals in
+/// place.
+///
+/// Both are needed on the temp channel: `fade_start_vol` and `effective_volume` key on the channel
+/// name, so without them the outgoing track jumps to FULL volume for the whole fade — a 5x spike
+/// against a master bus at 0.2. ⚠️ This used to **move** them, which fixed the outgoing track by
+/// breaking the incoming one: the live channel was left with no bus and no base, so the new track
+/// played at 1.0 instead of `base × bus` and `set_bus_volume` no longer reached it at all. Measured
+/// before the fix: effective 0.14 → 1.0 across one `crossfade_bytes`.
+///
+/// Pure (no device) so the whole policy is testable in headless CI.
+pub(super) fn copy_channel_mixer_state(
+    channel_buses: &mut HashMap<String, String>,
+    volume_overrides: &mut HashMap<String, f32>,
+    channel: &str,
+    temp: &str,
+) {
+    if let Some(bus) = channel_buses.get(channel).cloned() {
+        channel_buses.insert(temp.to_string(), bus);
+    }
+    if let Some(vol) = volume_overrides.get(channel).copied() {
+        volume_overrides.insert(temp.to_string(), vol);
+    }
+}
+
+/// Drops the mixer state [`copy_channel_mixer_state`] left on a crossfade temp channel, so the
+/// temp name does not outlive the crossfade in the bus maps. Pure (no device).
+pub(super) fn drop_channel_mixer_state(
+    channel_buses: &mut HashMap<String, String>,
+    volume_overrides: &mut HashMap<String, f32>,
+    temp: &str,
+) {
+    channel_buses.remove(temp);
+    volume_overrides.remove(temp);
+}
+
 /// Return the cached encoded bytes for `path`, reading (and caching) from disk on
 /// the first request. Returns `None` (with a warning) if the file can't be read.
 ///
@@ -701,6 +767,100 @@ pub(super) fn read_cached_bytes(
             crate::asset_path::record_failure(path, format!("audio file read failed: {e}"));
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod crossfade_mixer_state_tests {
+    use super::{
+        copy_channel_mixer_state, drop_channel_mixer_state, is_xfade_channel, xfade_channel,
+    };
+    use std::collections::HashMap;
+
+    fn staged() -> (HashMap<String, String>, HashMap<String, f32>) {
+        let mut buses = HashMap::new();
+        buses.insert("bgm".to_string(), "master".to_string());
+        let mut vols = HashMap::new();
+        vols.insert("bgm".to_string(), 0.7);
+        (buses, vols)
+    }
+
+    /// The whole of the v0.159.4 bug in one assertion: relocating the outgoing track must not take
+    /// the live channel's mixer state with it. It used to **move** both entries, so the incoming
+    /// track was left with no bus and no base volume and played at `1.0` instead of `0.7 × 0.2`,
+    /// with `set_bus_volume("master", …)` no longer reaching it at all.
+    ///
+    /// Pure, so it runs in CI — which is the point. The three existing crossfade tests all open
+    /// `let Some(mut audio) = AudioManager::new() else { return; }` and assert only the **temp**
+    /// side, so they are both silent on this machine's CI and blind to it anywhere else.
+    #[test]
+    fn a_crossfade_leaves_the_live_channel_its_bus_and_base_volume() {
+        let (mut buses, mut vols) = staged();
+        let temp = xfade_channel("bgm");
+
+        copy_channel_mixer_state(&mut buses, &mut vols, "bgm", &temp);
+
+        assert_eq!(
+            buses.get("bgm").map(String::as_str),
+            Some("master"),
+            "the live channel must keep its bus — the incoming track rides it"
+        );
+        assert_eq!(
+            vols.get("bgm").copied(),
+            Some(0.7),
+            "and its base volume, or the new track starts at full scale"
+        );
+        assert_eq!(
+            buses.get(&temp).map(String::as_str),
+            Some("master"),
+            "the outgoing track needs the same bus, or it spikes to 1.0 for the whole fade"
+        );
+        assert_eq!(vols.get(&temp).copied(), Some(0.7));
+    }
+
+    /// Tearing the temp channel down takes the copy away again, so the temp name does not outlive
+    /// the crossfade in the bus maps — the tidiness the *move* was reaching for, without the bug.
+    #[test]
+    fn tearing_down_the_temp_channel_drops_only_its_copy() {
+        let (mut buses, mut vols) = staged();
+        let temp = xfade_channel("bgm");
+        copy_channel_mixer_state(&mut buses, &mut vols, "bgm", &temp);
+
+        drop_channel_mixer_state(&mut buses, &mut vols, &temp);
+
+        assert!(!buses.contains_key(&temp), "temp bus entry is gone");
+        assert!(!vols.contains_key(&temp), "temp base volume is gone");
+        assert_eq!(
+            buses.get("bgm").map(String::as_str),
+            Some("master"),
+            "and the live channel is untouched by the teardown"
+        );
+        assert_eq!(vols.get("bgm").copied(), Some(0.7));
+    }
+
+    /// `stop_immediate` runs the teardown above for every channel, so the name test is what keeps
+    /// an ordinary `stop` from wiping a channel's mixer state — `stop` then `play` must still ride
+    /// the same bus.
+    #[test]
+    fn only_a_temp_channel_is_recognised_as_one() {
+        assert!(is_xfade_channel(&xfade_channel("bgm")));
+        assert!(is_xfade_channel("bgm__xfade"));
+        assert!(
+            !is_xfade_channel("bgm"),
+            "an ordinary channel keeps its state"
+        );
+        assert!(!is_xfade_channel("__xfade_bgm"), "suffix, not substring");
+    }
+
+    /// A channel with no bus and no base volume copies nothing rather than inserting defaults,
+    /// so an unrouted crossfade still reaches `effective_volume`'s `1.0` fallback by the same
+    /// path it always did.
+    #[test]
+    fn copying_an_unrouted_channel_inserts_nothing() {
+        let mut buses: HashMap<String, String> = HashMap::new();
+        let mut vols: HashMap<String, f32> = HashMap::new();
+        copy_channel_mixer_state(&mut buses, &mut vols, "bgm", &xfade_channel("bgm"));
+        assert!(buses.is_empty() && vols.is_empty());
     }
 }
 

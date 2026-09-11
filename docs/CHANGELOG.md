@@ -4,6 +4,48 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.159.4
+
+### A crossfade no longer leaves the incoming track at full scale, off its bus
+
+The first fix from the 2026-09-11 `src/audio` review, and the one row of the nine that was
+measured rather than read. `begin_crossfade` relocates the outgoing track to a temp channel, and it
+**moved** the channel's bus assignment and base volume across to it. `effective_volume` and
+`fade_start_vol` both key on the channel name, so the live channel was left with neither:
+
+```
+before: bus=Some("master") base=Some(0.7) effective=0.14
+after : bus=None           base=None      effective=1        <- 7.1x
+after set_bus_volume("master", 0.5): effective(bgm)=1         <- master no longer reaches it
+```
+
+Through the facade that is `crossfade_music`: after one crossfade the music plays at full scale and
+`set_master_volume` silently stops affecting it until the next `play_music`/`crossfade_music`
+re-assigns the bus.
+
+⚠️ **The hunk's own comment describes fixing exactly this spike for the *outgoing* track** — "with
+a master bus at 0.2 that is a 5x spike on every crossfade, which reads as a mixing bug rather than
+a fade bug". It moved the spike to the incoming one, and moved it precisely *because* the author
+wanted no temp entries left behind in the bus maps. The state is now **copied** and the copy is
+dropped when `stop_immediate` tears the temp channel down, which keeps both properties.
+
+**Four of the new tests run in CI, which is the point.** `copy_channel_mixer_state`,
+`drop_channel_mixer_state`, `xfade_channel` and `is_xfade_channel` are pure functions sitting beside
+`collect_bus_names` and `read_cached_bytes`, which carry comments saying they were split out for
+exactly this reason. The three crossfade tests that already existed all open
+`let Some(mut audio) = AudioManager::new() else { return; }` and assert only the temp side — silent
+on CI and blind to this anywhere else, which is how it shipped.
+
+⚠️ **The wiring is still CI-blind.** That the two call sites actually call those helpers is covered
+only by a device-gated end-to-end test. That is the subsystem's 36-of-109 problem recorded in
+`docs/NEXT_WORK.md`, not a new one, and the test's own doc says so.
+
+Three sabotages, each reddening its own hunk: restoring the move reddens both policy tests and the
+end-to-end; removing the `is_xfade_channel` gate reddens three device-gated tests, two of which
+predate this change (`bus_fade_volume_applied_exactly_once`,
+`play_after_release_completes_starts_at_correct_volume`); removing the teardown call reddens the
+end-to-end alone.
+
 ## 0.159.3
 
 ### Quitting with the editor open keeps its preferences
