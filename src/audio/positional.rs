@@ -9,6 +9,8 @@ impl AudioManager {
     ///
     /// - Silent when the distance between `source_pos` and `listener_pos` reaches `max_dist`.
     /// - Stereo pan is computed automatically from the X-axis difference.
+    /// - Distance attenuation multiplies the volume set by `set_volume`; neither overwrites
+    ///   the other. Both settings persist across stop/replay on this named channel.
     pub fn play_at(
         &mut self,
         channel: &str,
@@ -19,7 +21,10 @@ impl AudioManager {
         max_dist: f32,
     ) {
         let (vol, pan) = Self::spatial_params(source_pos, listener, max_dist);
-        self.volume_overrides.insert(channel.to_string(), vol);
+        self.volume_overrides
+            .entry(channel.to_string())
+            .or_default()
+            .set_spatial(vol);
         self.pans.insert(channel.to_string(), pan);
         self.play(channel, path, repeat);
     }
@@ -41,7 +46,10 @@ impl AudioManager {
         max_dist: f32,
     ) {
         let (vol, pan) = Self::spatial_params(source_pos, listener, max_dist);
-        self.volume_overrides.insert(channel.to_string(), vol);
+        self.volume_overrides
+            .entry(channel.to_string())
+            .or_default()
+            .set_spatial(vol);
         self.pans.insert(channel.to_string(), pan);
         self.play_bytes(channel, bytes, repeat);
     }
@@ -50,14 +58,9 @@ impl AudioManager {
     ///
     /// Call every frame from an ECS system to track a moving sound source.
     ///
-    /// **Fade interaction**:
-    /// - If a non-`stop_when_done` fade (i.e. `fade_volume`) is active, it is
-    ///   cancelled before writing the spatial volume. The game explicitly
-    ///   repositioned the source, so the spatial volume takes precedence.
-    /// - If a `stop_when_done` fade (i.e. `fade_out` / release envelope) is
-    ///   active, the fade is left running and the immediate sink write is
-    ///   skipped. The spatial volume is stored in `volume_overrides` so it
-    ///   takes effect once the fade completes and the channel is replayed.
+    /// Updates distance attenuation independently of the user volume. Active volume,
+    /// fade-out and release fades continue; their current base is multiplied by the
+    /// new attenuation immediately. Position is remembered across stop/replay.
     pub fn update_position(
         &mut self,
         channel: &str,
@@ -67,24 +70,10 @@ impl AudioManager {
     ) {
         let (vol, pan) = Self::spatial_params(source_pos, listener, max_dist);
 
-        // Determine how to handle an in-progress fade.
-        let skip_sink_write = match self.fades.get(channel) {
-            Some(fade) if fade.stop_when_done => {
-                // A stop_when_done fade (fade_out / release) is winding down the
-                // channel. Leave it running; the repositioned volume is stored in
-                // volume_overrides for when the channel is next played.
-                true
-            }
-            Some(_) => {
-                // A plain fade_volume is active. The explicit reposition overrides
-                // it — cancel the fade so the spatial volume isn't discarded next frame.
-                self.fades.remove(channel);
-                false
-            }
-            None => false,
-        };
-
-        self.volume_overrides.insert(channel.to_string(), vol);
+        self.volume_overrides
+            .entry(channel.to_string())
+            .or_default()
+            .set_spatial(vol);
         self.pans.insert(channel.to_string(), pan);
         // Write the LIVE pan too. Storing it in `pans` alone only affected the next play, so a
         // positional sound tracked the listener in volume while its stereo image stayed frozen
@@ -97,10 +86,9 @@ impl AudioManager {
             );
         }
 
-        if !skip_sink_write {
-            if let Some(sink) = self.sinks.get(channel) {
-                sink.set_volume(self.effective_volume_params(vol, channel) * self.output_gain);
-            }
+        if let Some(sink) = self.sinks.get(channel) {
+            let base = self.fade_start_vol(channel);
+            sink.set_volume(self.effective_volume_params(base, channel) * self.output_gain);
         }
     }
 
@@ -108,13 +96,16 @@ impl AudioManager {
 
     /// Sets the stereo pan for a channel (-1.0 = left, 0.0 = center, 1.0 = right).
     ///
-    /// Applies **immediately** to a sound already playing on the channel, and is remembered for
-    /// the next `play()`.
+    /// Applies **immediately** to a decoded clip already playing on the channel, and is remembered
+    /// for the next clip playback. Synthesized tones bypass the panner; this setting has no effect
+    /// on them.
     ///
-    /// ⚠️ A **mono** source cannot be panned: the two gains always sum to the same value, so the
-    /// result is unchanged. Panning mono would require upmixing to stereo, which changes the
-    /// channel count of every sound in the engine. Use a stereo asset for sounds that must move
-    /// in the stereo image.
+    /// Stereo clips use linear balance: centre preserves both channels; hard pan silences the
+    /// opposite channel without mixing it into the other. Web Audio instead uses a
+    /// `StereoPannerNode`, which crossfeeds stereo input as it moves off centre.
+    ///
+    /// Mono clips stay mono and only get quieter: gain is 1.0 at centre and 0.5 at either extreme.
+    /// Use a stereo asset for native sounds that must move in the stereo image.
     pub fn set_pan(&mut self, channel: &str, pan: f32) {
         let pan = pan.clamp(-1.0, 1.0);
         self.pans.insert(channel.to_string(), pan);
@@ -136,79 +127,90 @@ impl AudioManager {
 mod positional_tests {
     use super::*;
 
-    // ── Fix #2: update_position fade-interaction ───────────────────────────────
-
-    /// `update_position` with a non-`stop_when_done` fade active must cancel that
-    /// fade (the reposition takes precedence) and write the spatial volume to
-    /// `volume_overrides`. The fade entry must be gone afterward.
-    #[test]
-    fn update_position_cancels_fade_volume_and_writes_spatial_vol() {
-        let Some(mut audio) = AudioManager::new() else {
-            return;
-        };
-        // Play a tone and start a plain fade_volume (stop_when_done = false).
-        audio.play_tone("sfx", 440.0, 10.0, 0.5);
-        audio.fade_volume("sfx", 0.1, 5.0);
-        assert!(
-            audio.fades.contains_key("sfx"),
-            "fade_volume must be active before update_position"
-        );
-
-        // Reposition: move the source close to the listener → high spatial volume.
-        let source = Vec2::new(10.0, 0.0);
-        let listener = Vec2::ZERO;
-        audio.update_position("sfx", source, listener, 500.0);
-
-        // The plain fade must be cancelled.
-        assert!(
-            !audio.fades.contains_key("sfx"),
-            "update_position must cancel a non-stop_when_done fade"
-        );
-
-        // volume_overrides must reflect the spatial volume (close → ~1.0).
-        let stored = audio.volume_overrides.get("sfx").copied().unwrap_or(0.0);
-        assert!(
-            stored > 0.95,
-            "volume_overrides must store the spatial volume (~1.0 at dist=10), got {stored}"
-        );
+    fn close(actual: f32, expected: f32) {
+        assert!((actual - expected).abs() < 1e-5, "{actual} != {expected}");
     }
 
-    /// `update_position` while a `stop_when_done` fade is active must leave the
-    /// fade running and skip the sink write. The spatial volume is stored in
-    /// `volume_overrides` for when the channel is next played.
     #[test]
-    fn update_position_preserves_stop_when_done_fade() {
+    fn spatial_volume_and_user_volume_are_independent_when_device_exists() {
         let Some(mut audio) = AudioManager::new() else {
+            eprintln!("SKIP: no audio device");
             return;
         };
-        audio.play_tone("sfx", 440.0, 10.0, 0.5);
-        // fade_out schedules a stop_when_done fade.
-        audio.fade_out("sfx", 5.0);
-        assert!(
-            audio.fades.contains_key("sfx"),
-            "fade_out must be active before update_position"
+        audio.set_volume("sfx", 0.4);
+        audio.play_bytes_at(
+            "sfx",
+            include_bytes!("fixtures/tone.wav"),
+            true,
+            Vec2::new(50.0, 0.0),
+            Vec2::ZERO,
+            100.0,
         );
-
-        // Reposition — should NOT cancel the stop_when_done fade.
-        let source = Vec2::new(50.0, 0.0);
-        audio.update_position("sfx", source, Vec2::ZERO, 500.0);
-
-        // The stop_when_done fade must still be present.
-        let fade = audio
-            .fades
-            .get("sfx")
-            .expect("stop_when_done fade must not be cancelled by update_position");
-        assert!(
-            fade.stop_when_done,
-            "the preserved fade must still be stop_when_done"
+        close(audio.effective_volume("sfx"), 0.2);
+        audio.set_volume("sfx", 0.8);
+        close(audio.effective_volume("sfx"), 0.4);
+        audio.update_position("sfx", Vec2::new(75.0, 0.0), Vec2::ZERO, 100.0);
+        close(audio.effective_volume("sfx"), 0.2);
+        close(audio.volume_overrides["sfx"].base, 0.8);
+        audio.update_position("sfx", Vec2::new(200.0, 0.0), Vec2::ZERO, 100.0);
+        audio.set_volume("sfx", 0.6);
+        close(audio.effective_volume("sfx"), 0.0);
+        audio.play_at(
+            "sfx",
+            concat!(env!("CARGO_MANIFEST_DIR"), "/src/audio/fixtures/tone.wav"),
+            true,
+            Vec2::new(50.0, 0.0),
+            Vec2::ZERO,
+            100.0,
         );
+        close(audio.effective_volume("sfx"), 0.3);
+        audio.stop_immediate("sfx");
+        audio.play_bytes("sfx", include_bytes!("fixtures/tone.wav"), true);
+        close(audio.effective_volume("sfx"), 0.3);
+        close(audio.effective_volume("untouched"), 1.0);
+    }
 
-        // volume_overrides is updated (will apply after the fade + re-play).
-        let stored = audio.volume_overrides.get("sfx").copied().unwrap_or(0.0);
-        let (expected_vol, _) = AudioManager::spatial_params(source, Vec2::ZERO, 500.0);
-        assert!(
-            (stored - expected_vol).abs() < 0.01,
-            "volume_overrides must store the new spatial volume, got {stored}"
+    #[test]
+    fn spatial_movement_preserves_fades_and_mixer_gains_when_device_exists() {
+        let Some(mut audio) = AudioManager::new() else {
+            eprintln!("SKIP: no audio device");
+            return;
+        };
+        // Pause before observing real sink gains; no sound reaches the speakers even
+        // while output_gain is 1, so a muted test cannot make zero-equals-zero pass.
+        audio.output_gain = 0.0;
+        audio.play_bytes("sfx", include_bytes!("fixtures/tone.wav"), true);
+        audio.sinks["sfx"].pause();
+        audio.output_gain = 1.0;
+        audio.set_volume("sfx", 0.8);
+        audio.assign_bus("sfx", "fx");
+        audio.set_bus_volume("fx", 0.5);
+        audio.bus_ducks.insert(
+            "fx".into(),
+            super::super::ducking::BusDuck {
+                current: 0.5,
+                target: 0.5,
+                rate: 0.0,
+            },
         );
+        audio.update_position("sfx", Vec2::new(50.0, 0.0), Vec2::ZERO, 100.0);
+        close(audio.sinks["sfx"].volume(), 0.1);
+        audio.fade_volume("sfx", 0.4, 2.0);
+        audio.update(0.5);
+        close(audio.sinks["sfx"].volume(), 0.0875);
+        audio.update_position("sfx", Vec2::new(75.0, 0.0), Vec2::ZERO, 100.0);
+        close(audio.fades["sfx"].elapsed, 0.5);
+        close(audio.sinks["sfx"].volume(), 0.04375);
+        audio.update(0.5);
+        close(audio.sinks["sfx"].volume(), 0.0375);
+        audio.fade_out("sfx", 1.0);
+        audio.update(0.5);
+        close(audio.sinks["sfx"].volume(), 0.01875);
+        audio.update_position("sfx", Vec2::ZERO, Vec2::ZERO, 100.0);
+        assert!(audio.fades["sfx"].stop_when_done);
+        close(audio.sinks["sfx"].volume(), 0.075);
+        audio.update(0.5);
+        assert!(!audio.sinks.contains_key("sfx"));
+        close(audio.volume_overrides["sfx"].base, 0.8);
     }
 }

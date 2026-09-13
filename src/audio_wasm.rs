@@ -115,8 +115,8 @@ pub struct WebAudio {
     /// [`update_position`]: WebAudio::update_position
     spatial_channels: Rc<RefCell<HashMap<String, Sfx>>>,
     /// Channels being level-analyzed (see [`enable_analysis`](WebAudio::enable_analysis)), keyed by
-    /// channel name. An entry exists only while analysis is on; a play path connects the sound's
-    /// own gain node to the matching analyser, so an unanalyzed channel builds the same graph it
+    /// channel name. An entry exists only while analysis is on; a play path connects its
+    /// pre-volume signal to the matching analyser, so an unanalyzed channel builds the same graph it
     /// always did.
     analysers: Rc<RefCell<HashMap<String, AnalyserState>>>,
     /// Meter release time in seconds, shared by every analyzed channel.
@@ -366,8 +366,8 @@ impl WebAudio {
     }
 
     /// Connects `node` to `channel`'s analyser when analysis is enabled for it; otherwise does
-    /// nothing. Called from the play paths *after* the sound's own gain node, so the measurement
-    /// is pre-bus/pre-master — matching the native tap's position.
+    /// nothing. Tones tap after their synthesis envelope; clips tap before their panner and
+    /// per-source gain. All taps are pre-bus/pre-master.
     fn tap(&self, channel: &str, node: &web_sys::AudioNode) {
         if let Some(state) = self.analysers.borrow().get(channel) {
             let _ = node.connect_with_audio_node(&state.node);
@@ -564,7 +564,7 @@ impl WebAudio {
             return;
         }
         // Metered one-shot: also feed this voice's gain into the meter's analyser. Taken after the
-        // tone's own gain but before `dest`, matching where every other tap sits. Multiple live
+        // tone's synthesis envelope but before `dest`. Multiple live
         // voices all connect here and the browser mixes them — that mixing IS the sum contract.
         if let Some(meter) = meter {
             self.tap(meter, &gain);
@@ -852,15 +852,17 @@ impl WebAudio {
             }
             _ => (None, None),
         };
-        // Metered one-shot: also feed this voice's per-source gain into the meter's analyser —
-        // after the sound's own gain, before `dest`, exactly where the tone path taps. Every live
-        // voice connects to the same analyser and the browser mixes them, which IS the sum
-        // contract `sum_levels` states for both backends. Nothing to tap in the degraded path
-        // where node creation failed, the same way that path also loses per-source control.
-        if let (Some(meter), Some(gain)) = (meter, gain.as_ref()) {
-            self.tap(meter, gain);
-        }
+        // Capture the enabled meter before async decode, as analysis must be enabled before play.
+        // Tap the decoded source below, BEFORE pan and user/distance gain, matching native
+        // LevelTap. Every metered voice feeds the same analyser for the combined level.
+        let analyser = meter.and_then(|name| {
+            self.analysers
+                .borrow()
+                .get(name)
+                .map(|state| state.node.clone())
+        });
         let sfx = Sfx {
+            volume: Rc::new(Cell::new(crate::audio_spatial::ChannelVolume::default())),
             gain,
             panner,
             source: Rc::new(RefCell::new(None)),
@@ -899,6 +901,9 @@ impl WebAudio {
                 // If stop() was called before decode finished, don't start the sound.
                 if stopped.get() {
                     return;
+                }
+                if let Some(analyser) = &analyser {
+                    let _ = src.connect_with_audio_node(analyser);
                 }
                 let _ = src.start();
                 *slot.borrow_mut() = Some(src);
@@ -1110,6 +1115,8 @@ impl WebAudio {
 /// the sound still plays through the master gain.)
 #[derive(Clone)]
 pub struct Sfx {
+    /// Shared by clones, just like the JS gain node.
+    volume: Rc<Cell<crate::audio_spatial::ChannelVolume>>,
     /// Per-source gain (independent of master volume); `None` if node creation failed.
     gain: Option<web_sys::GainNode>,
     /// Per-source stereo panner; `None` if node creation failed.
@@ -1122,10 +1129,18 @@ pub struct Sfx {
 }
 
 impl Sfx {
-    /// Sets this sound's volume, clamped to `0.0..=1.0` — independent of the master volume.
+    /// Sets this sound's base volume, clamped to `0.0..=1.0`, independently of
+    /// distance attenuation and master volume. Clones share both volume factors.
     pub fn set_volume(&self, v: f32) {
+        let mut volume = self.volume.get();
+        volume.set_base(v);
+        self.volume.set(volume);
+        self.apply_volume();
+    }
+
+    fn apply_volume(&self) {
         if let Some(g) = &self.gain {
-            g.gain().set_value(v.clamp(0.0, 1.0));
+            g.gain().set_value(self.volume.get().gain());
         }
     }
 
@@ -1137,7 +1152,7 @@ impl Sfx {
         }
     }
 
-    /// This sound's current volume (its per-source gain; `1.0` if the gain node is absent).
+    /// This sound's current base × distance gain (`1.0` if the gain node is absent).
     pub fn volume(&self) -> f32 {
         self.gain.as_ref().map(|g| g.gain().value()).unwrap_or(1.0)
     }
@@ -1148,12 +1163,15 @@ impl Sfx {
     }
 
     /// Repositions this sound in 2D space: recomputes volume (linear distance falloff, silent at
-    /// `max_dist`) and stereo pan (x-offset) from `source`/`listener` and applies them via
-    /// [`set_volume`](Self::set_volume)/[`set_pan`](Self::set_pan). Call every frame to track a
-    /// moving source. See [`WebAudio::play_at`].
+    /// `max_dist`) and stereo pan (x-offset) from `source`/`listener`. Attenuation multiplies
+    /// the base set by [`set_volume`](Self::set_volume), preserving it on movement.
+    /// Call every frame to track a moving source. See [`WebAudio::play_at`].
     pub fn update_position(&self, source: Vec2, listener: Vec2, max_dist: f32) {
         let (vol, pan) = crate::audio_spatial::spatial_params(source, listener, max_dist);
-        self.set_volume(vol);
+        let mut volume = self.volume.get();
+        volume.set_spatial(vol);
+        self.volume.set(volume);
+        self.apply_volume();
         self.set_pan(pan);
     }
 

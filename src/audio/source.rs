@@ -68,10 +68,9 @@ impl<S: Source> Iterator for PannedSource<S> {
         let sample = self.inner.next()?;
         let channels = self.total_channels;
         let (left_vol, right_vol) = self.gains();
-        // NOTE: a MONO source still cannot be panned — `(l + r) * 0.5` is always exactly 1.0,
-        // since `l + r == 2` for every pan. Panning mono would mean upmixing to stereo, which
-        // changes `channels()` for every sound in the engine and cannot be verified without a
-        // real output device; it is deliberately left alone here and recorded in the changelog.
+        // Mono stays mono: averaging the balance gains attenuates it from 1.0 at centre
+        // to 0.5 at either extreme, without a directional cue. Stereo inputs use linear
+        // balance (no crossfeed), unlike Web Audio's StereoPannerNode.
         let vol = if channels < 2 {
             (left_vol + right_vol) * 0.5
         } else if self.current_channel == 0 {
@@ -162,9 +161,8 @@ mod tests {
     /// gains and both are `clamp(0, 1)`. At hard pan that is a 0.5x volume cut with no
     /// directional cue whatsoever.
     ///
-    /// Real mono panning needs a stereo upmix, which changes `channels()` for every sound in the
-    /// engine and cannot be verified without a real output device; it is deliberately out of
-    /// scope here and recorded in the changelog instead of being half-done.
+    /// Directional mono panning would require a stereo upmix. This test records the current
+    /// sample-level behaviour without needing an output device.
     #[test]
     fn mono_pan_only_attenuates() {
         let buf = SamplesBuffer::new(MONO, RATE, vec![1.0f32; 4]);

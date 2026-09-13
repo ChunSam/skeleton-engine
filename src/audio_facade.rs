@@ -66,7 +66,7 @@
 use glam::Vec2;
 
 #[cfg(not(target_arch = "wasm32"))]
-use crate::audio::{AudioEffect, AudioManager};
+use crate::audio::AudioManager;
 #[cfg(target_arch = "wasm32")]
 use crate::audio_wasm::WebAudio;
 
@@ -269,9 +269,10 @@ impl Audio {
     ///   [`stop_channel`](Self::stop_channel), [`set_low_pass`](Self::set_low_pass) or
     ///   [`is_channel_playing`](Self::is_channel_playing) — a one-shot you can cut or filter is a
     ///   named channel, which is what [`play_tone_on_channel`](Self::play_tone_on_channel) is for.
-    /// - **Eight voices per name**, then it wraps and reuses its oldest — a bound, not a leak.
-    /// - **[`bands`](Self::bands) reports zeros for it.** A spectrum costs an FFT per voice per
-    ///   window, and its use case (a soundtrack) is not a one-shot.
+    /// - **Native: eight voices per name**, then the ring wraps and reuses its oldest. Web creates
+    ///   a fresh voice per call and has no engine-imposed voice limit.
+    /// - **Native: [`bands`](Self::bands) reports zeros for it.** Web can report the combined
+    ///   spectrum when [`enable_spectrum`](Self::enable_spectrum) is enabled for the meter.
     pub fn play_tone_metered(&mut self, meter: &str, freq: f32, dur: f32, vol: f32, bus: &str) {
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -315,8 +316,9 @@ impl Audio {
     ///
     /// Exactly those of [`play_tone_metered`](Self::play_tone_metered): `meter` is a meter name and
     /// not a channel (so [`stop_channel`](Self::stop_channel) / [`set_low_pass`](Self::set_low_pass)
-    /// / [`is_channel_playing`](Self::is_channel_playing) do not address it), eight voices per name
-    /// before the ring wraps and reuses its oldest, and [`bands`](Self::bands) reports zeros.
+    /// / [`is_channel_playing`](Self::is_channel_playing) do not address it). Native has eight
+    /// voices per name before the ring reuses its oldest and reports zero [`bands`](Self::bands).
+    /// Web has no engine-imposed voice limit and supports the combined spectrum.
     pub fn play_sfx_metered(&mut self, meter: &str, bytes: &[u8], bus: &str) {
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -345,19 +347,14 @@ impl Audio {
 
     /// Sets a low-pass filter (cutoff Hz) on the named tone `channel`, applied to the **next**
     /// [`play_tone_on_channel`](Self::play_tone_on_channel) on that channel (toggle, then replay to
-    /// hear it). Native: an [`AudioEffect`] with `low_pass_hz`; web: a
+    /// hear it). Native: an [`AudioEffect`](crate::audio::AudioEffect) with `low_pass_hz`; web: a
     /// `BiquadFilterNode` — same "applied on next play" semantics on both. Affects only named tone
     /// channels (not the fire-and-forget [`play_sfx`](Self::play_sfx)/[`play_tone`](Self::play_tone)).
+    /// Preserves existing pitch and envelope settings.
     pub fn set_low_pass(&mut self, channel: &str, cutoff_hz: u32) {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            self.inner.set_effect(
-                channel,
-                AudioEffect {
-                    low_pass_hz: Some(cutoff_hz),
-                    ..Default::default()
-                },
-            );
+            self.inner.set_low_pass(channel, cutoff_hz);
         }
         #[cfg(target_arch = "wasm32")]
         {
@@ -366,11 +363,11 @@ impl Audio {
     }
 
     /// Removes the low-pass filter from the named tone `channel` (applied on the next play). Inverse
-    /// of [`set_low_pass`](Self::set_low_pass).
+    /// of [`set_low_pass`](Self::set_low_pass). Preserves pitch and envelope settings.
     pub fn clear_low_pass(&mut self, channel: &str) {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            self.inner.clear_effect(channel);
+            self.inner.clear_low_pass(channel);
         }
         #[cfg(target_arch = "wasm32")]
         {
@@ -385,6 +382,10 @@ impl Audio {
     /// [`update_position`](Self::update_position) every frame to follow a moving source. Replacing a
     /// channel stops its previous sound first. (Positional one-shots you don't track aren't covered —
     /// reach for the platform backend's `play_at` directly.)
+    ///
+    /// Panning differs by backend: native clips use linear stereo balance, and mono clips only
+    /// attenuate (down to half gain at hard pan). Web Audio upmixes mono and crossfeeds stereo
+    /// input through `StereoPannerNode`. Use stereo clips for directional sound on native.
     pub fn play_at_on_channel(
         &mut self,
         channel: &str,
@@ -725,6 +726,35 @@ impl crate::ecs::System for AudioFacadeSystem {
 #[cfg(not(target_arch = "wasm32"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn low_pass_facade_preserves_effects_when_device_exists() {
+        let Some(mut audio) = Audio::new() else {
+            eprintln!("SKIP: no audio device; pure effect-state tests still run");
+            return;
+        };
+        audio.inner.set_effect(
+            "tone",
+            crate::audio::AudioEffect {
+                low_pass_hz: None,
+                pitch: 1.5,
+                attack_secs: 0.2,
+                release_secs: 0.4,
+            },
+        );
+        audio.set_low_pass("tone", 800);
+        assert_eq!(audio.inner.effect("tone").unwrap().low_pass_hz, Some(800));
+        for clearing in [false, true] {
+            if clearing {
+                audio.clear_low_pass("tone");
+            }
+            let effect = audio.inner.effect("tone").unwrap();
+            assert_eq!(effect.pitch, 1.5);
+            assert_eq!(effect.attack_secs, 0.2);
+            assert_eq!(effect.release_secs, 0.4);
+        }
+        assert_eq!(audio.inner.effect("tone").unwrap().low_pass_hz, None);
+    }
 
     #[test]
     fn sfx_voices_wrap_round_robin() {

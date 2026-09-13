@@ -75,8 +75,8 @@ pub struct AudioManager {
     /// `Player` a `mixer()` to connect to.
     stream: MixerDeviceSink,
     sinks: HashMap<String, Player>,
-    /// Per-channel base volume (before multiplying by bus volume).
-    volume_overrides: HashMap<String, f32>,
+    /// Per-channel user volume and distance attenuation, retained across stop/replay.
+    volume_overrides: HashMap<String, crate::audio_spatial::ChannelVolume>,
     /// Per-channel stereo pan.
     pans: HashMap<String, f32>,
     /// Live pan handles shared with each channel's `PannedSource`, so `update_position` /
@@ -109,7 +109,7 @@ pub struct AudioManager {
     /// `0.0` when `SKELETON_MUTE=1` (see [`AudioManager::new`]).
     ///
     /// It deliberately sits *outside* `effective_volume`, which stays the pure
-    /// `base × bus × duck` product the API and its tests read back. Silence therefore changes what
+    /// `base × spatial × bus × duck` product the API and its tests read back. Silence therefore changes what
     /// the speakers emit and nothing that any check measures — the level taps are **pre-volume**
     /// (`src/audio/analysis.rs`), so a muted run still measures identical `levels()` / `bands()`.
     ///

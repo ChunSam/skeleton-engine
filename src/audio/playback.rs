@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use super::types::Fade;
+use crate::audio_spatial::ChannelVolume;
 
 use rodio::buffer::SamplesBuffer;
 use rodio::{ChannelCount, Decoder, Player, SampleRate, Source};
@@ -94,6 +95,7 @@ impl AudioManager {
     // ── Basic playback ────────────────────────────────────────────────────────
 
     /// Plays an audio file on a channel. Stops any existing playback on that channel first.
+    /// The channel retains its user volume and last distance attenuation across replays.
     pub fn play(&mut self, channel: &str, path: &str, repeat: bool) {
         self.play_internal(channel, path, repeat, None);
     }
@@ -319,13 +321,10 @@ impl AudioManager {
         self.tick_analysis(dt);
 
         // ── Fade progression ──────────────────────────────────────────────────
-        // Collect channel keys once; use `smallvec`-style stack buffer to avoid a
-        // heap allocation on the common case of ≤ 4 simultaneous fades. We fall
-        // back to a Vec for larger counts. Using a plain array avoids re-borrowing
-        // `self.fades` inside the loop.
-        //
-        // Note: we intentionally do NOT rewrite ducking.rs allocations here —
-        // those loops are less hot and the refactor risk outweighs the gain.
+        // Collect owned channel keys to avoid re-borrowing `self.fades` in the loop.
+        // The first eight fit in the stack array; additional keys use the overflow Vec.
+        // Every non-empty key clone still allocates its String contents, including keys
+        // stored in the array. This only avoids the Vec's backing allocation for up to eight keys.
         let mut channel_buf: [Option<String>; 8] = Default::default();
         let mut overflow: Vec<String> = Vec::new();
         let mut buf_len = 0usize;
@@ -363,8 +362,9 @@ impl AudioManager {
                         .unwrap_or(1.0);
                     // Fades store/interpolate the pre-bus (base) volume. The bus
                     // multiplier and duck factor are applied exactly once here, so the
-                    // sink receives `base_vol × bus_vol × duck` — never squared.
-                    sink.set_volume(vol * bus_vol * duck * self.output_gain);
+                    // sink receives `base_vol × spatial × bus_vol × duck` — never squared.
+                    let volume = self.volume_overrides.get(ch).copied().unwrap_or_default();
+                    sink.set_volume(volume.gain_at(vol) * bus_vol * duck * self.output_gain);
                 }
                 let t = (fade.elapsed / fade.duration).clamp(0.0, 1.0);
                 if t >= 1.0 {
@@ -374,7 +374,10 @@ impl AudioManager {
                     // down; writing 0.0 into volume_overrides would silence the channel's
                     // NEXT play (finding 1).
                     if !stop {
-                        self.volume_overrides.insert(ch.to_owned(), fade.target_vol);
+                        self.volume_overrides
+                            .entry(ch.to_owned())
+                            .or_default()
+                            .set_base(fade.target_vol);
                     }
                     stop
                 } else {
@@ -655,7 +658,7 @@ impl AudioManager {
     /// Returns the **pre-bus** base volume to use as the start of a new fade.
     ///
     /// Fades store and interpolate the pre-bus (base) volume.  `update()` applies
-    /// the bus multiplier exactly once when writing to the sink (`vol * bus_vol`).
+    /// the distance, bus and duck multipliers exactly once when writing to the sink.
     /// This avoids the double-multiply that would occur if the bus factor were baked
     /// into `start_vol`/`target_vol` AND applied again in `update()`.
     ///
@@ -667,12 +670,23 @@ impl AudioManager {
         self.fades
             .get(channel)
             .map(|f| f.current_vol())
-            .unwrap_or_else(|| self.volume_overrides.get(channel).copied().unwrap_or(1.0))
+            .unwrap_or_else(|| {
+                self.volume_overrides
+                    .get(channel)
+                    .copied()
+                    .unwrap_or_default()
+                    .base
+            })
     }
 
-    /// Effective volume for a channel = base volume × bus volume.
+    /// Effective volume = base × distance attenuation × bus volume × duck gain.
     pub(super) fn effective_volume(&self, channel: &str) -> f32 {
-        let base = self.volume_overrides.get(channel).copied().unwrap_or(1.0);
+        let base = self
+            .volume_overrides
+            .get(channel)
+            .copied()
+            .unwrap_or_default()
+            .base;
         self.effective_volume_params(base, channel)
     }
 
@@ -686,7 +700,15 @@ impl AudioManager {
             .and_then(|b| self.bus_ducks.get(b))
             .map(|d| d.current)
             .unwrap_or(1.0);
-        base * bus_vol * duck
+        let volume = ChannelVolume {
+            base,
+            ..self
+                .volume_overrides
+                .get(channel)
+                .copied()
+                .unwrap_or_default()
+        };
+        volume.gain() * bus_vol * duck
     }
 }
 
@@ -708,7 +730,7 @@ pub(super) fn is_xfade_channel(channel: &str) -> bool {
     channel.ends_with(XFADE_SUFFIX)
 }
 
-/// **Copies** `channel`'s bus assignment and base volume onto `temp`, leaving the originals in
+/// **Copies** `channel`'s bus assignment and both volume factors onto `temp`, leaving the originals in
 /// place.
 ///
 /// Both are needed on the temp channel: `fade_start_vol` and `effective_volume` key on the channel
@@ -721,7 +743,7 @@ pub(super) fn is_xfade_channel(channel: &str) -> bool {
 /// Pure (no device) so the whole policy is testable in headless CI.
 pub(super) fn copy_channel_mixer_state(
     channel_buses: &mut HashMap<String, String>,
-    volume_overrides: &mut HashMap<String, f32>,
+    volume_overrides: &mut HashMap<String, ChannelVolume>,
     channel: &str,
     temp: &str,
 ) {
@@ -737,7 +759,7 @@ pub(super) fn copy_channel_mixer_state(
 /// temp name does not outlive the crossfade in the bus maps. Pure (no device).
 pub(super) fn drop_channel_mixer_state(
     channel_buses: &mut HashMap<String, String>,
-    volume_overrides: &mut HashMap<String, f32>,
+    volume_overrides: &mut HashMap<String, ChannelVolume>,
     temp: &str,
 ) {
     channel_buses.remove(temp);
@@ -774,14 +796,21 @@ pub(super) fn read_cached_bytes(
 mod crossfade_mixer_state_tests {
     use super::{
         copy_channel_mixer_state, drop_channel_mixer_state, is_xfade_channel, xfade_channel,
+        ChannelVolume,
     };
     use std::collections::HashMap;
 
-    fn staged() -> (HashMap<String, String>, HashMap<String, f32>) {
+    fn staged() -> (HashMap<String, String>, HashMap<String, ChannelVolume>) {
         let mut buses = HashMap::new();
         buses.insert("bgm".to_string(), "master".to_string());
         let mut vols = HashMap::new();
-        vols.insert("bgm".to_string(), 0.7);
+        vols.insert(
+            "bgm".to_string(),
+            ChannelVolume {
+                base: 0.7,
+                spatial: 0.5,
+            },
+        );
         (buses, vols)
     }
 
@@ -806,7 +835,7 @@ mod crossfade_mixer_state_tests {
             "the live channel must keep its bus — the incoming track rides it"
         );
         assert_eq!(
-            vols.get("bgm").copied(),
+            vols.get("bgm").map(|v| v.base),
             Some(0.7),
             "and its base volume, or the new track starts at full scale"
         );
@@ -815,7 +844,9 @@ mod crossfade_mixer_state_tests {
             Some("master"),
             "the outgoing track needs the same bus, or it spikes to 1.0 for the whole fade"
         );
-        assert_eq!(vols.get(&temp).copied(), Some(0.7));
+        assert_eq!(vols.get(&temp).map(|v| v.base), Some(0.7));
+        assert_eq!(vols[&temp].spatial, 0.5);
+        assert_eq!(vols["bgm"].spatial, 0.5);
     }
 
     /// Tearing the temp channel down takes the copy away again, so the temp name does not outlive
@@ -835,7 +866,7 @@ mod crossfade_mixer_state_tests {
             Some("master"),
             "and the live channel is untouched by the teardown"
         );
-        assert_eq!(vols.get("bgm").copied(), Some(0.7));
+        assert_eq!(vols.get("bgm").map(|v| v.base), Some(0.7));
     }
 
     /// `stop_immediate` runs the teardown above for every channel, so the name test is what keeps
@@ -858,7 +889,7 @@ mod crossfade_mixer_state_tests {
     #[test]
     fn copying_an_unrouted_channel_inserts_nothing() {
         let mut buses: HashMap<String, String> = HashMap::new();
-        let mut vols: HashMap<String, f32> = HashMap::new();
+        let mut vols: HashMap<String, ChannelVolume> = HashMap::new();
         copy_channel_mixer_state(&mut buses, &mut vols, "bgm", &xfade_channel("bgm"));
         assert!(buses.is_empty() && vols.is_empty());
     }
