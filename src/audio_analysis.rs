@@ -70,10 +70,12 @@ pub const DEFAULT_ANALYSIS_SMOOTHING: f32 = 0.15;
 /// # What is measured
 ///
 /// The **pre-volume** signal: after the sound's own effects (pitch, low-pass, fade-in) but
-/// **before** channel volume, bus volume, ducking and the master gain. Consequences worth knowing:
+/// **before** panning, distance attenuation, channel volume, bus volume, ducking and the master
+/// gain. Consequences worth knowing:
 ///
 /// - Turning the volume down, ducking a bus, or muting entirely does **not** change these values.
 ///   A beat-reactive visual keeps working at volume 0.
+/// - Moving a positional source out of audible range does not silence its meter.
 /// - They therefore describe *the sound*, not *what the player hears*. If you need the latter,
 ///   scale by your own volume values.
 ///

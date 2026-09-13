@@ -76,6 +76,7 @@ impl AudioManager {
     }
 
     /// Sets the channel base volume (0.0 = silent, 1.0 = original).
+    /// Distance attenuation remains independent and multiplies this base.
     ///
     /// The base is stored in `volume_overrides` so it persists as the post-fade
     /// resting level. If a fade is currently active the immediate sink write is
@@ -83,7 +84,10 @@ impl AudioManager {
     /// next frame, avoiding a one-frame snap to the new value mid-fade.
     pub fn set_volume(&mut self, channel: &str, volume: f32) {
         let vol = volume.clamp(0.0, 1.0);
-        self.volume_overrides.insert(channel.to_string(), vol);
+        self.volume_overrides
+            .entry(channel.to_string())
+            .or_default()
+            .set_base(vol);
         // Only write to the sink when no fade is in progress; an active fade
         // already drives the sink each frame and will incorporate the new base
         // on its next tick.
@@ -193,7 +197,12 @@ mod bus_name_tests {
             "set_volume must not cancel the active fade"
         );
         // The new base is stored.
-        let base = audio.volume_overrides.get("ch").copied().unwrap_or(1.0);
+        let base = audio
+            .volume_overrides
+            .get("ch")
+            .copied()
+            .unwrap_or_default()
+            .base;
         assert!(
             (base - 0.9).abs() < 0.001,
             "volume_overrides must be updated even when the sink write is skipped, got {base}"

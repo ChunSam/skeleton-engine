@@ -160,7 +160,7 @@ pub(crate) struct LevelTap<S: Source> {
     peak: f32,
     count: u32,
     // ── Spectrum state (only touched while the channel wants a spectrum) ──────
-    /// Interleaved-channel count, so frames can be downmixed to mono.
+    /// Channel count of the frame being downmixed; refreshed when the source changes format.
     channels: u16,
     /// Accumulator for the current frame's channels, and how many have arrived.
     frame_acc: f32,
@@ -198,7 +198,14 @@ impl<S: Source> LevelTap<S> {
     ///
     /// Mono downmix matters: an FFT over raw *interleaved* stereo alternates L and R samples,
     /// which is not the signal and produces a mirrored, meaningless spectrum.
-    fn feed_spectrum(&mut self, sample: f32) {
+    fn feed_spectrum(&mut self, sample: f32, channels: u16) {
+        if channels != self.channels {
+            self.channels = channels;
+            // Never combine an unfinished frame from one layout with samples from another.
+            // Complete mono frames already collected for the FFT remain valid.
+            self.frame_acc = 0.0;
+            self.frame_ch = 0;
+        }
         self.frame_acc += sample;
         self.frame_ch += 1;
         if self.frame_ch < self.channels {
@@ -226,11 +233,21 @@ impl<S: Source> Iterator for LevelTap<S> {
     type Item = Sample;
 
     fn next(&mut self) -> Option<Sample> {
+        let spectrum = self.slot.wants_spectrum();
+        // Buffered sources can advance their metadata while returning the LAST sample of a
+        // span. Preserve that sample's old layout. Decoders/from_iter can instead advance when
+        // fetching the FIRST sample of a new span, so otherwise inspect metadata after next().
+        let last_sample_channels = if spectrum && self.inner.current_span_len() == Some(1) {
+            Some(self.inner.channels().get())
+        } else {
+            None
+        };
         let sample = self.inner.next()?;
         // Gated so a channel that only wants `levels()` never pays for a transform. Checked per
         // sample because the game can toggle it at any time, but it is one relaxed atomic load.
-        if self.slot.wants_spectrum() {
-            self.feed_spectrum(sample);
+        if spectrum {
+            let channels = last_sample_channels.unwrap_or_else(|| self.inner.channels().get());
+            self.feed_spectrum(sample, channels);
         }
         self.sum_sq += sample * sample;
         let magnitude = sample.abs();
@@ -565,6 +582,113 @@ mod tests {
         let mut tap = LevelTap::new(buffer, Arc::clone(&slot));
         while tap.next().is_some() {}
         slot
+    }
+
+    #[test]
+    fn spectrum_tracks_channel_changes_in_chained_sources() {
+        let source = rodio::source::from_iter([
+            SamplesBuffer::new(TEST_CHANNELS, TEST_RATE, vec![0.25, 0.5]),
+            SamplesBuffer::new(
+                ChannelCount::new(2).unwrap(),
+                TEST_RATE,
+                vec![0.25, 0.75, 0.5, 1.0],
+            ),
+            SamplesBuffer::new(TEST_CHANNELS, TEST_RATE, vec![-0.25, -0.5]),
+        ]);
+        let slot = Arc::new(LevelSlot::default());
+        slot.set_spectrum(true);
+        let mut tap = LevelTap::new(source, slot);
+        let forwarded: Vec<_> = tap.by_ref().collect();
+        assert_eq!(forwarded, [0.25, 0.5, 0.25, 0.75, 0.5, 1.0, -0.25, -0.5]);
+        assert_eq!(tap.spec_buf, [0.25, 0.5, 0.5, 0.75, -0.25, -0.5]);
+    }
+
+    #[test]
+    fn spectrum_preserves_last_samples_when_buffered_metadata_advances() {
+        // A span-aligned source whose metadata describes the NEXT sample, including just after
+        // the last sample of a span. Buffer it to exercise the same wrapper used by repeat.
+        struct Spans(usize);
+        impl Iterator for Spans {
+            type Item = Sample;
+            fn next(&mut self) -> Option<Sample> {
+                let sample = [0.25, 0.5, 0.25, 0.75, 0.5, 1.0].get(self.0).copied()?;
+                self.0 += 1;
+                Some(sample)
+            }
+        }
+        impl Source for Spans {
+            fn current_span_len(&self) -> Option<usize> {
+                Some(if self.0 < 2 { 2 - self.0 } else { 6 - self.0 })
+            }
+            fn channels(&self) -> ChannelCount {
+                ChannelCount::new(if self.0 < 2 { 1 } else { 2 }).unwrap()
+            }
+            fn sample_rate(&self) -> SampleRate {
+                TEST_RATE
+            }
+            fn total_duration(&self) -> Option<Duration> {
+                None
+            }
+        }
+        let slot = Arc::new(LevelSlot::default());
+        slot.set_spectrum(true);
+        let mut tap = LevelTap::new(Spans(0).buffered(), slot);
+        let forwarded: Vec<_> = tap.by_ref().collect();
+        assert_eq!(forwarded, [0.25, 0.5, 0.25, 0.75, 0.5, 1.0]);
+        assert_eq!(tap.spec_buf, [0.25, 0.5, 0.5, 0.75]);
+    }
+
+    #[test]
+    fn spectrum_discards_partial_frame_when_channels_change() {
+        // Defensive case: a truncated stereo frame must not contaminate the next mono span.
+        let source = rodio::source::from_iter([
+            SamplesBuffer::new(
+                ChannelCount::new(2).unwrap(),
+                TEST_RATE,
+                vec![0.25, 0.75, 1.0],
+            ),
+            SamplesBuffer::new(TEST_CHANNELS, TEST_RATE, vec![0.5, 0.25]),
+        ]);
+        let slot = Arc::new(LevelSlot::default());
+        slot.set_spectrum(true);
+        let mut tap = LevelTap::new(source, slot);
+        let forwarded: Vec<_> = tap.by_ref().collect();
+        assert_eq!(forwarded, [0.25, 0.75, 1.0, 0.5, 0.25]);
+        assert_eq!(tap.spec_buf, [0.5, 0.5, 0.25]);
+    }
+
+    #[test]
+    fn spectrum_channel_change_matches_equivalent_mono_signal() {
+        let mono: Vec<_> = (0..SPECTRUM_FFT_SIZE)
+            .map(|i| (i as f32 * std::f32::consts::TAU * 8.0 / SPECTRUM_FFT_SIZE as f32).sin())
+            .collect();
+        let source = rodio::source::from_iter([
+            SamplesBuffer::new(TEST_CHANNELS, TEST_RATE, mono[..128].to_vec()),
+            SamplesBuffer::new(
+                ChannelCount::new(2).unwrap(),
+                TEST_RATE,
+                mono[128..].iter().flat_map(|&s| [s, s]).collect::<Vec<_>>(),
+            ),
+        ]);
+        let bands = |source: Box<dyn Source>| {
+            let slot = Arc::new(LevelSlot::default());
+            slot.set_spectrum(true);
+            let mut tap = LevelTap::new(source, Arc::clone(&slot));
+            while tap.next().is_some() {}
+            assert!(
+                tap.spec_buf.is_empty(),
+                "exactly one FFT window of mono frames"
+            );
+            let mut bands = [0.0; SPECTRUM_BANDS];
+            slot.read_bands(&mut bands);
+            assert!(
+                bands.iter().any(|&b| b > 0.0),
+                "the tone must reach the FFT"
+            );
+            bands
+        };
+        let expected = bands(Box::new(SamplesBuffer::new(TEST_CHANNELS, TEST_RATE, mono)));
+        assert_eq!(bands(Box::new(source)), expected);
     }
 
     #[test]

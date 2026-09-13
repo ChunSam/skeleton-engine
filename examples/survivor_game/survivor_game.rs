@@ -1206,10 +1206,12 @@ pub fn run_survivor_game() {
 /// half was the only automated audio evidence the repo ever had, and since the deletion there has
 /// been none of any kind.
 ///
-/// # The two halves, and why one is not enough
+/// # Signal checks
 ///
 /// - **A live level.** `Audio::levels(WEB_METER).rms > 0` says sound reached the meter.
 /// - **A low-biased spectrum.** `Audio::bands` must lean toward the low end for a 110 Hz tone.
+/// - **A pre-volume positional meter.** A looping clip keeps its level out of audible range and
+///   under mixer mute, then falls silent when stopped. The native selftest runs the same probe.
 ///
 /// The level alone would pass on a backend that reports a plausible number without analysing
 /// anything, and the spectrum alone would pass on one that fills a fixed curve. Together they say
@@ -1233,6 +1235,7 @@ pub fn web_check_survivor() {
     let mut fired = false;
     let mut best_rms = 0.0_f32;
     let mut bands = [0.0_f32; 8];
+    let mut positional = None;
 
     app.add_system(WebCheck::new("AUDIO_CHECK", DEADLINE, move |world, t| {
         let Some(audio) = world.resource_mut::<engine::Audio>() else {
@@ -1245,9 +1248,13 @@ pub fn web_check_survivor() {
             if t < FIRE_AT {
                 return Step::Pending;
             }
+            if let Err(detail) = check_web_spatial_volume() {
+                return Step::fail(detail);
+            }
             audio.enable_analysis(WEB_METER);
             audio.enable_spectrum(WEB_METER);
             audio.play_tone_metered(WEB_METER, WEB_TONE_HZ, 6.0, 0.9, "sfx");
+            positional = Some(PositionalMeterCheck::new(audio, t));
             fired = true;
             return Step::Pending;
         }
@@ -1264,9 +1271,15 @@ pub fn web_check_survivor() {
         let low = bands[0] + bands[1] + bands[2];
         let high = bands[5] + bands[6] + bands[7];
 
-        if best_rms > 0.0 && low > 0.0 && low > high * 2.0 {
+        let positional = positional.as_mut().expect("started with the tone");
+        let positional_done = match positional.poll(audio, t) {
+            Ok(done) => done,
+            Err(detail) => return Step::fail(detail),
+        };
+        if best_rms > 0.0 && low > 0.0 && low > high * 2.0 && positional_done {
             return Step::pass(format!(
-                "rms {best_rms:.4}, low {low:.3} vs high {high:.3} on a {WEB_TONE_HZ:.0} Hz tone"
+                "spatial volume/clone checks passed; {}; tone rms {best_rms:.4}, low {low:.3} vs high {high:.3} on {WEB_TONE_HZ:.0} Hz",
+                positional.detail()
             ));
         }
         // Report what is currently visible, so a timeout says WHICH half never arrived. Without
@@ -1275,11 +1288,162 @@ pub fn web_check_survivor() {
         // the trap in docs/VERIFICATION.md § A sabotage that fails the wrong check.
         Step::Waiting(format!(
             "rms {best_rms:.4} (want above 0) and low {low:.3} vs high {high:.3} (want low at \
-             least 2x high)"
+             least 2x high); {}", positional.detail()
         ))
     }));
 
     app.run();
+}
+
+// Exercise actual browser GainNodes and the Rc state behind cloned Sfx handles, even
+// before asynchronous decode finishes. This runs inside the existing CI audio smoke.
+#[cfg(target_arch = "wasm32")]
+fn check_web_spatial_volume() -> Result<(), String> {
+    let audio = engine::WebAudio::new().ok_or("spatial check: no WebAudio")?;
+    let bytes = include_bytes!("../../src/audio/fixtures/tone.wav");
+    let sfx = audio.play_sfx(bytes);
+    let other = audio.play_sfx(bytes);
+    sfx.set_volume(0.4);
+    sfx.update_position(Vec2::new(50.0, 0.0), Vec2::ZERO, 100.0);
+    let first = sfx.volume();
+    let cloned = sfx.clone();
+    cloned.set_volume(0.8);
+    let clone_gain = sfx.volume();
+    sfx.update_position(Vec2::new(75.0, 0.0), Vec2::ZERO, 100.0);
+    let moved = cloned.volume();
+    cloned.update_position(Vec2::new(200.0, 0.0), Vec2::ZERO, 100.0);
+    sfx.set_volume(0.6);
+    let far = sfx.volume();
+    cloned.update_position(Vec2::ZERO, Vec2::ZERO, 100.0);
+    let back = sfx.volume();
+    let untouched = other.volume();
+    sfx.stop();
+    other.stop();
+    for (name, actual, expected) in [
+        ("set-then-move", first, 0.2),
+        ("clone-set", clone_gain, 0.4),
+        ("move-then-set", moved, 0.2),
+        ("out-of-range", far, 0.0),
+        ("return", back, 0.6),
+        ("other-source", untouched, 1.0),
+    ] {
+        if !actual.is_finite() || (actual - expected).abs() > 1e-5 {
+            return Err(format!(
+                "spatial volume {name}: {actual:.3}, expected {expected:.3}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+// One wall-clock probe for both backends. Its own looping mono fixture is independent of kills.
+// Measure fresh windows after each change, so a stale pre-move value cannot forge invariance.
+struct PositionalMeterCheck {
+    phase: usize,
+    since: f32,
+    measured: [engine::AudioLevels; 3],
+    release: f32,
+}
+
+impl PositionalMeterCheck {
+    const CHANNEL: &'static str = "positional-meter-check";
+
+    fn new(audio: &mut engine::Audio, t: f32) -> Self {
+        let release = audio.analysis_smoothing();
+        audio.set_analysis_smoothing(0.0);
+        audio.enable_analysis(Self::CHANNEL);
+        audio.play_at_on_channel(
+            Self::CHANNEL,
+            include_bytes!("../../src/audio/fixtures/tone.wav"),
+            Vec2::ZERO,
+            Vec2::ZERO,
+            100.0,
+            "master",
+        );
+        Self {
+            phase: 0,
+            since: t,
+            measured: [engine::AudioLevels::SILENT; 3],
+            release,
+        }
+    }
+
+    fn poll(&mut self, audio: &mut engine::Audio, t: f32) -> Result<bool, String> {
+        if self.phase == 3 {
+            return Ok(true);
+        }
+        let elapsed = t - self.since;
+        // Discard startup and previous-position windows; keep maxima over the following window
+        // to tolerate the native device publishing between ticks and arbitrary sine phase.
+        if elapsed < 0.2 {
+            return Ok(false);
+        }
+        let level = audio.levels(Self::CHANNEL);
+        if !level.rms.is_finite() || !level.peak.is_finite() {
+            return Err(format!(
+                "positional meter returned non-finite levels: {level:?}"
+            ));
+        }
+        let measured = &mut self.measured[self.phase];
+        measured.rms = measured.rms.max(level.rms);
+        measured.peak = measured.peak.max(level.peak);
+        if elapsed < 0.6 {
+            return Ok(false);
+        }
+        match self.phase {
+            0 => {
+                if measured.rms < 0.05 {
+                    if elapsed < 5.0 {
+                        return Ok(false); // allow async decode/device startup, never skip it
+                    }
+                    return Err(format!(
+                        "positional meter never became live: {}",
+                        self.detail()
+                    ));
+                }
+                audio.update_position(Self::CHANNEL, Vec2::new(200.0, 0.0), Vec2::ZERO, 100.0);
+                audio.set_bus_volume("master", 0.0);
+                audio.set_master_volume(0.0);
+            }
+            1 => {
+                let near = self.measured[0];
+                let far = self.measured[1];
+                if (far.rms - near.rms).abs() > near.rms * 0.15
+                    || (far.peak - near.peak).abs() > near.peak * 0.15
+                {
+                    return Err(format!(
+                        "positional meter changed with distance/mute: {}",
+                        self.detail()
+                    ));
+                }
+                audio.stop_channel(Self::CHANNEL);
+            }
+            _ => {
+                if measured.rms > 1e-4 || measured.peak > 1e-4 {
+                    return Err(format!(
+                        "positional meter did not silence after stop: {}",
+                        self.detail()
+                    ));
+                }
+                audio.set_analysis_smoothing(self.release);
+                // build_app starts both master controls at unity; restore them after the probe.
+                audio.set_bus_volume("master", 1.0);
+                audio.set_master_volume(1.0);
+            }
+        }
+        self.phase += 1;
+        self.since = t;
+        Ok(self.phase == 3)
+    }
+
+    fn detail(&self) -> String {
+        format!(
+            "positional phase {}: near {:.4}/{:.4}, far+muted {:.4}/{:.4}, stopped {:.4}/{:.4} (rms/peak)",
+            self.phase, self.measured[0].rms, self.measured[0].peak,
+            self.measured[1].rms, self.measured[1].peak,
+            self.measured[2].rms, self.measured[2].peak,
+        )
+    }
 }
 
 // ── Acceptance test ─────────────────────────────────────────────────────────────────────────────
@@ -1291,7 +1455,7 @@ pub fn web_check_survivor() {
 // telling you nothing; each check below asserts a property that holds at every N.
 //
 // Exit codes: 0 pass · 1 the bullet pool leaks · 2 the light cap is not actually pressed · 3 the
-// kill tone never reaches the meter · 4 chasers do not close distance · 5 a seeded run is not
+// kill tone or positional meter fails · 4 chasers do not close distance · 5 a seeded run is not
 // reproducible, or two seeds do not diverge · 6 the GPU-particle idle window never happens ·
 // 7 floating text leaks or does not move.
 
@@ -1424,7 +1588,7 @@ fn self_test() -> i32 {
         );
     }
 
-    // ── 3. A kill tone reaches the meter ───────────────────────────────────────────────────────
+    // ── 3. Live audio metering: kill tone and pre-volume positional clip ────────────────────────
     //
     // ⚠️ **Paced off a wall clock, and it has to be.** The meter is published by the audio thread in
     // real time while a headless loop advances at a fixed 1/60 dt as fast as the CPU allows — so a
@@ -1472,6 +1636,25 @@ fn self_test() -> i32 {
             println!(
                 "ok: a kill tone reaches the metered channel (rms {peak:.4} on a real device)"
             );
+            let Some(audio) = app.world.resource_mut::<engine::Audio>() else {
+                eprintln!("FAIL: audio resource missing with a device present");
+                return 3;
+            };
+            let mut positional = PositionalMeterCheck::new(audio, 0.0);
+            let start = Instant::now();
+            loop {
+                app.step_headless(DT);
+                let audio = app.world.resource_mut::<engine::Audio>().unwrap();
+                match positional.poll(audio, start.elapsed().as_secs_f32()) {
+                    Ok(true) => break,
+                    Ok(false) => std::thread::sleep(Duration::from_millis(4)),
+                    Err(detail) => {
+                        eprintln!("FAIL: {detail}");
+                        return 3;
+                    }
+                }
+            }
+            println!("ok: {} on a real device", positional.detail());
         }
     }
 

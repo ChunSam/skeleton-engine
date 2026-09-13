@@ -2,9 +2,48 @@
 //!
 //! Both [`crate::audio::AudioManager`] (native) and [`crate::audio_wasm::WebAudio`] (wasm) compute
 //! the same distance-based volume and stereo-pan values. This module provides a single canonical
-//! implementation so the two builds can't drift.
+//! implementation for those control values, not identical output mixing. Native decoded clips use
+//! linear stereo balance (mono clips only attenuate); Web Audio uses `StereoPannerNode`, which
+//! upmixes mono and crossfeeds stereo input. Both preserve centred stereo input, but their output
+//! away from centre differs.
 
 use glam::Vec2;
+
+/// Independent user/fade volume and distance attenuation, shared by both backends.
+/// A non-positional sound starts with unit attenuation.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ChannelVolume {
+    pub base: f32,
+    pub spatial: f32,
+}
+
+impl Default for ChannelVolume {
+    fn default() -> Self {
+        Self {
+            base: 1.0,
+            spatial: 1.0,
+        }
+    }
+}
+
+impl ChannelVolume {
+    pub fn set_base(&mut self, base: f32) {
+        self.base = base.clamp(0.0, 1.0);
+    }
+
+    pub fn set_spatial(&mut self, spatial: f32) {
+        self.spatial = spatial;
+    }
+
+    /// Substitute an interpolated fade value without baking attenuation into the fade.
+    pub fn gain_at(self, base: f32) -> f32 {
+        base * self.spatial
+    }
+
+    pub fn gain(self) -> f32 {
+        self.gain_at(self.base)
+    }
+}
 
 /// Computes `(volume, pan)` for a positional sound.
 ///
@@ -28,6 +67,39 @@ pub(crate) fn spatial_params(source: Vec2, listener: Vec2, max_dist: f32) -> (f3
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spatial_volume_updates_commute_and_recover_from_silence() {
+        let mut first = ChannelVolume::default();
+        first.set_base(0.4);
+        first.set_spatial(0.5);
+        let mut second = ChannelVolume::default();
+        second.set_spatial(0.5);
+        second.set_base(0.4);
+        assert_eq!(first, second);
+        assert_eq!(first.gain(), 0.2);
+        first.set_spatial(0.0);
+        first.set_base(0.8);
+        assert_eq!(first.gain(), 0.0);
+        first.set_spatial(0.25);
+        assert_eq!(first.gain(), 0.2);
+        assert_eq!(first.gain_at(0.4), 0.1);
+        assert_eq!(
+            first.base, 0.8,
+            "fade sampling must not rewrite resting volume"
+        );
+    }
+
+    #[test]
+    fn spatial_volume_defaults_and_clamps_only_user_volume() {
+        let mut volume = ChannelVolume::default();
+        assert_eq!(volume.gain(), 1.0);
+        volume.set_base(2.0);
+        volume.set_spatial(0.5);
+        assert_eq!(volume.gain(), 0.5);
+        volume.set_base(-1.0);
+        assert_eq!(volume.gain(), 0.0);
+    }
 
     #[test]
     fn spatial_params_at_listener_is_full_volume_center_pan() {

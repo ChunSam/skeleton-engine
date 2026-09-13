@@ -5,6 +5,10 @@
 # engine's analysis reports BOTH:
 #   * a live level  — `Audio::levels(meter).rms > 0`
 #   * a low-biased spectrum — `Audio::bands` leaning toward the low end
+# Also verifies positional gain = user volume × attenuation, including cloned Sfx handles
+# and recovery from out-of-range silence through real browser GainNodes.
+# A looping clip must retain its pre-volume levels at distance under mixer mute, then read
+# silence after stop; the native survivor selftest runs this same wall-clock probe.
 # The page writes its verdict into `document.title` (`AUDIO_CHECK: PASS — …`); this script reads it
 # live over Chrome's DevTools endpoint.
 #

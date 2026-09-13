@@ -4,6 +4,38 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.159.5
+
+### Audio controls and analysis retain their independent state
+
+Positional movement now multiplies the user volume by distance attenuation on both backends.
+It preserves native fades, bus/duck gains and crossfade state; cloned web SFX handles share
+both volume factors. Setting or clearing the facade's low-pass filter also preserves native
+pitch and attack/release settings instead of replacing the whole effect.
+
+Web clip meters now tap before pan and user/distance gain. A positional sound moved out of
+range keeps driving its meter, while stopping the sound still silences it. The same wall-clock
+probe runs in the survivor native selftest and Chrome smoke: native RMS stayed 0.2479 and web
+RMS stayed 0.2488 across the distance/mute change, then both read zero after stop.
+
+Native `LevelTap` refreshes its downmix layout as source channels change, discards an unfinished
+frame from the old layout, and preserves the last sample of buffered spans. Four device-free
+regressions cover chained mono/stereo sources, buffered boundaries, truncated frames and the
+published spectrum against an equivalent mono signal. Restoring the cached count, omitting the
+partial-frame reset and reading only post-pull metadata each fail their own assertion. These
+are source-composition tests; no encoded file changing its format mid-play was exercised.
+
+Panning retains its existing backend differences, now documented along with the native-only
+eight-voice ring and polyphonic spectrum limitation. The fade-loop comment now accurately
+describes its eight-key stack array and remaining String allocations; allocation behavior is
+unchanged.
+
+### Codex project setup
+
+The project selects GPT-6 Astra with medium reasoning, routes `AGENTS.md` to the existing shared
+rules, and includes seven repository skills under `.agents/skills/`. `docs/CODEX_SETUP.md` records
+configuration, live validation and rollback. The prior Claude workflow remains available.
+
 ## 0.159.4
 
 ### A crossfade no longer leaves the incoming track at full scale, off its bus

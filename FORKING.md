@@ -2,7 +2,9 @@
 
 A short, practical guide to building **your own game** on the engine. For the full API
 reference see [`src/lib.rs`](src/lib.rs) and [`docs/MODULE_MAP.md`](docs/MODULE_MAP.md); for the architecture and
-agent notes see [`CLAUDE.md`](CLAUDE.md) and [`docs/`](docs/).
+agent notes see [`CLAUDE.md`](CLAUDE.md) and [`docs/`](docs/). Codex starts with
+[`AGENTS.md`](AGENTS.md); see [`docs/CODEX_SETUP.md`](docs/CODEX_SETUP.md) for model
+configuration and verification.
 
 ## The model: fork, don't depend
 
@@ -23,18 +25,20 @@ engine code directly under `src/`, and grow it into your own engine. There is no
 | `src/lib.rs` | the public API re-export list (the fastest map of what exists) |
 | `docs/MODULE_MAP.md` | module map: "where do I find X?" table for every subsystem (grep it) |
 | `CLAUDE.md` | agent quick reference: conventions, the verify gate, task checklists |
-| `examples/` | your games go here — two rebuilt games live here; see the note below |
+| `AGENTS.md` | Codex entrypoint to the shared project instructions |
+| `docs/CODEX_SETUP.md` | Codex model configuration, skills, verification, and rollback |
+| `examples/` | your games go here — five rebuilt games live here; see the note below |
 | `assets/` | assets shipped with the engine itself (fonts, one test PNG) |
 | `docs/` | VISION, PATTERNS, NEXT_WORK, CHANGELOG (English) |
 | `scripts/verify.sh` | the local CI-equivalent gate — run before you commit |
 
 ## Start your own game
 
-> **Two games to copy from, where there used to be 22.** The old tree — 22 playable games and ~85
-> feature demos — was deleted on 2026-08-19 and is being rebuilt as five. `examples/platformer_game/`
-> (physics, tilemap, animation state machine) and `examples/rpg_quest_game/` (scenes, save, dialogue,
-> UI, localization) are the current references, and each carries a headless acceptance test worth
-> reading alongside it. The deleted ones are still in git history if you want a wider sample:
+> **Five games to copy from, where there used to be 22.** The old tree — 22 playable games and ~85
+> feature demos — was deleted on 2026-08-19 and rebuilt as five: `platformer_game`,
+> `rpg_quest_game`, `survivor_game`, `puzzle_grid_game`, and `netplay_game` (which also needs
+> `netplay_server`). Each carries a headless acceptance test worth reading alongside it.
+> The deleted ones are still in git history if you want a wider sample:
 > `git log --diff-filter=D --name-only -- examples/` to find a file, then
 > `git show <commit>^:examples/<path>` to read it.
 

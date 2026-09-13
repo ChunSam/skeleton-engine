@@ -1,0 +1,3 @@
+# Project default; explicit task/model selections can override this.
+model = "gpt-6-astra"
+model_reasoning_effort = "medium"
