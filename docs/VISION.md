@@ -48,8 +48,8 @@ set of **small playable example games**, one per genre/feature area, living in `
 > playable games and ~85 feature demos were deleted on 2026-08-19 at the maintainer's request, to be
 > rebuilt from scratch. **All five are back** as of 2026-08-21: `platformer_game` (phase 1),
 > `rpg_quest_game` (phase 2), `survivor_game` (phase 3), `puzzle_grid_game` (phase 4) and
-> `netplay_game` + `netplay_server` (phase 5), 35 acceptance checks between them, plus three browser
-> smokes under CI (phase 5b) that put Web Audio and the wasm WebSocket path back under gate. Between
+> `netplay_game` + `netplay_server` (phase 5), 35 acceptance checks between them, plus browser
+> smokes under CI for Web Audio, WebSockets, asset/socket failure paths and RPG saves. Between
 > v0.151.0 and the deletion the repo had a playable slice for every genre named above — platformer,
 > shooter, RPG (`rpg_quest`), puzzle (`sokoban`), top-down action (`survivor`, `maze_escape`) — plus
 > scene-flow and settings/menu demos. **Only the subsystems these five games name meet the

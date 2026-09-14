@@ -8,6 +8,7 @@
 //! ```text
 //! cargo run --example rpg_quest_game                          # play it
 //! RPG_QUEST_SELFTEST=1 cargo run --example rpg_quest_game     # the acceptance test (headless)
+//! ./scripts/rpg_save_web_smoke.sh                           # browser save/load across reloads
 //! ```
 //!
 //! # Three scenes, because one scene cannot ask the question
@@ -47,6 +48,9 @@ use engine::{
 };
 use glam::{IVec2, Vec2};
 use serde::{Deserialize, Serialize};
+
+#[cfg(target_arch = "wasm32")]
+mod web_save_check;
 
 // ── Window / layout ─────────────────────────────────────────────────────────────────────────────
 

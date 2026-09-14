@@ -131,7 +131,7 @@ Run the local gate — it mirrors CI (fmt, clippy, wasm build, tests, doc links)
 
 Run it as-is; a non-zero exit means something is broken. It runs the `<NAME>_SELFTEST` acceptance
 tests too — 35 checks across the five rebuilt games — so a change that breaks real play fails here,
-not later. ⚠️ It is still not all of CI: the three browser smokes need Chrome, so **CI** gates
+not later. ⚠️ It is still not all of CI: the browser smokes need Chrome, so **CI** gates
 those, and a windowed playtest and gamepads have no automated coverage anywhere.
 
 ## Where to read more

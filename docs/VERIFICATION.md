@@ -8,9 +8,10 @@ surprises you.
 > ⚠️ **The examples tree was deleted on 2026-08-19 and the acceptance layer was rebuilt over the
 > following two days — this banner described the gap and outlived it.** What is back: the
 > `<NAME>_SELFTEST` runner (`scripts/selftests.sh`, phase 0) driving **five** games,
-> `scripts/build_wasm_examples.sh` (phase 4), and the `wasm-smokes` CI job (phase 5b). What is not:
-> thirteen of the sixteen `*_smoke.sh` scripts — **three** exist, all browser, all self-verdicting
-> (`survivor_audio_web_smoke.sh`, `netplay_web_smoke.sh`, `wasm_failpaths_web_smoke.sh`).
+> `scripts/build_wasm_examples.sh` (phase 4), and the `wasm-smokes` CI job (phase 5b). **Four**
+> browser smokes now self-verdict: `survivor_audio_web_smoke.sh`, `netplay_web_smoke.sh`,
+> `wasm_failpaths_web_smoke.sh` and `rpg_save_web_smoke.sh`. The deleted smoke inventory below is
+> historical; a current script inventory is `rg --files scripts | rg '_web_smoke.sh$'`.
 >
 > Sections are marked **[gone]** or **[rebuilt]** accordingly. The **[gone]** ones are kept
 > deliberately — their traps are what rebuilding an acceptance layer runs into, and every one was
@@ -840,8 +841,8 @@ smokes (`headless_screenshot`, `lighting_cap`, `packaged_assets`) were examples 
 
 ### wasm smoke checks **[rebuilt 2026-08-21]**
 
-> ⚠️ **Two of the twelve are back, and the section below describes the deleted twelve.** The
-> `wasm-smokes` job now runs `scripts/survivor_audio_web_smoke.sh` (Web Audio: a live level **and** a
+> **Two returned on 2026-08-21; later additions are recorded below.** The
+> `wasm-smokes` job runs `scripts/survivor_audio_web_smoke.sh` (Web Audio: a live level **and** a
 > low-biased spectrum — measured rms 0.5621, low 2.733 vs high 0.009 on a 110 Hz tone) and
 > `scripts/netplay_web_smoke.sh` (the wasm WebSocket path: the handshake completed and 23 entities
 > streamed in over a browser socket). Both self-verdict through `document.title`, read live over
@@ -857,8 +858,8 @@ smokes (`headless_screenshot`, `lighting_cap`, `packaged_assets`) were examples 
 > went green, and the generated JS held **zero** occurrences of the function the page imports — the
 > game could not start. No build gate can see that; only loading the page can.
 >
-> ✅ **A third landed 2026-08-21: `wasm_failpaths_web_smoke.sh`, the only check in the tree that takes
-> a failure path on purpose.** A 404 asset fetch must reach `asset_failures()`, and a `send_text`
+> ✅ **A third landed 2026-08-21: `wasm_failpaths_web_smoke.sh`, covering asset/socket failure
+> paths.** A 404 asset fetch must reach `asset_failures()`, and a `send_text`
 > issued while the socket is still `CONNECTING` must survive and be echoed back. Both are the
 > defects fixed in v0.150.1 / v0.150.2, which shipped **compile-verified only** because nothing
 > could reach them.
@@ -869,7 +870,22 @@ smokes (`headless_screenshot`, `lighting_cap`, `packaged_assets`) were examples 
 > `true`. That is the strongest form this check can take: the sabotage is not a proxy for the
 > failure, it *is* the failure, restored.
 >
-> ✅ **Since #530 (2026-09-01) all three wait for the server's LISTEN instead of sleeping 1 s.** A
+> **The fourth, `rpg_save_web_smoke.sh`, exercises the actual RPG save schema and functions.**
+> Two page reloads separate a v1 write/restore and a v0 write/migration, so neither a retained
+> World nor wasm memory can satisfy persistence. The page independently inspects the AEAD hex
+> blob in `localStorage`, checks quest flags/gold/Unicode, flips a tag nibble and requires
+> `SaveError::Corrupted`, restores a valid control, then verifies deletion through both the engine
+> and `localStorage`. Run `./scripts/rpg_save_web_smoke.sh`; it uses ports 8093/9313 and a fresh
+> temporary Chrome profile. This checks storage and reconstruction, not windowed RPG gameplay.
+>
+> **RPG sabotage evidence (2026-09-14):** five isolated mutations each produced exit **1** with
+> the intended page assertion, rather than a build error or timeout: write under a wrong storage
+> key → `write did not persist`; omit the lantern flag snapshot → `quest changed across reload`;
+> migrate to the wrong lantern name → `migrated quest changed`; replace `Corrupted` with a default
+> save → `tampered ciphertext did not return Corrupted`; delete the wrong key → `deleted save
+> still exists`. Both edited source files were restored byte-for-byte before the final normal run.
+>
+> ✅ **Since #530 (2026-09-01) the original three wait for the server's LISTEN instead of sleeping 1 s.** A
 > 10 s budget, and a failure inside it names the server — "http.server never began serving :8090
 > within 10 s — this is the server, not the engine" — instead of sending you to the page and the
 > browser console. ⚠️ **The race filed to justify it does not exist**: delaying the bind 3, 10 and
