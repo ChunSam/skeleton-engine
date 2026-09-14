@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>RPG save — loading…</title>
+</head>
+<body>
+  <p id="status">Checking RPG saves across page reloads…</p>
+  <script type="module">
+    const status = document.getElementById("status");
+    const phase = new URLSearchParams(location.search).get("phase") || "write";
+    document.title = `RPG save — ${phase}`;
+    const require = (ok, message) => { if (!ok) throw new Error(message); };
+    const reload = next => location.replace(`./check.html?phase=${next}`);
+    try {
+      // Dynamic import stays inside the catch: a missing JS export must produce a verdict too.
+      const { default: init, web_save_key, web_check_save } = await import("./pkg/rpg_quest_game.js");
+      await init();
+      const key = web_save_key();
+      const encryptedSave = () => {
+        const hex = localStorage.getItem(key);
+        // Independent witness of the wasm storage backend, not just an engine read-after-write.
+        require(typeof hex === "string" && /^(?:[0-9a-f]{2})+$/.test(hex), "localStorage lacks an encrypted hex save");
+        const bytes = Uint8Array.from(hex.match(/../g), byte => parseInt(byte, 16));
+        require(bytes.length > 9 + 12 + 16, "AEAD blob is truncated");
+        require(new TextDecoder().decode(bytes.slice(0, 9)) === "R2DAEAD01", "AEAD header missing");
+        return hex;
+      };
+      if (phase === "write") {
+        web_check_save("write");
+        encryptedSave();
+        reload("restore");
+      } else if (phase === "restore") {
+        encryptedSave();
+        web_check_save("restore");
+        encryptedSave();
+        reload("migrate");
+      } else if (phase === "migrate") {
+        const original = encryptedSave();
+        web_check_save("migrate");
+        // Flip a tag nibble, keeping both the hex encoding and AEAD header valid.
+        const tampered = original.slice(0, -1) + (original.endsWith("0") ? "1" : "0");
+        localStorage.setItem(key, tampered);
+        try {
+          web_check_save("corrupted");
+        } finally {
+          localStorage.setItem(key, original);
+        }
+        web_check_save("migrate"); // valid control after the rejection
+        web_check_save("delete");
+        require(localStorage.getItem(key) === null, "delete left the localStorage key behind");
+        document.title = "RPG_SAVE_CHECK: PASS — v1 reload + quest flags + Unicode; v0 migration; tamper rejected; delete verified";
+        status.textContent = document.title;
+      } else {
+        throw new Error(`unknown page phase: ${phase}`);
+      }
+    } catch (error) {
+      document.title = `RPG_SAVE_CHECK: FAIL — ${phase}: ${String(error)}`;
+      status.textContent = document.title;
+      console.error(error);
+    }
+  </script>
+</body>
+</html>

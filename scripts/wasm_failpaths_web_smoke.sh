@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The only check in the tree that takes a FAILURE path on purpose.
+# Browser checks for asset-fetch and pre-open WebSocket failure paths.
 #
 # Runs the `wasm_failpaths` harness in headless Chrome against a native echo server and asserts two
 # things that are supposed to go wrong go wrong *visibly*:
@@ -8,10 +8,10 @@
 # The page writes its verdict into `document.title` (`FAILPATH_CHECK: PASS — …`); this script reads
 # it live over Chrome's DevTools endpoint.
 #
-# ── Why this one is different from every other smoke ────────────────────────────────────────────
+# ── Why this harness was added ──────────────────────────────────────────────────────────────────
 #
-# Every other check in this repo passes when nothing goes wrong. That is a blind spot the engine has
-# been bitten by twice, and both times the broken handler shipped GREEN:
+# When this harness was rebuilt on 2026-08-21, the other browser smokes took only success paths.
+# That blind spot had already let two broken handlers ship GREEN:
 #
 #   * v0.150.1 — a web 404 set `AssetLoadState::Failed` but never called `record_failure`, so
 #     `asset_failures()` stayed empty and `set_strict_assets` never fired. Both are documented as

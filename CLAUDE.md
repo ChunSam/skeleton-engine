@@ -97,8 +97,8 @@ have each cost a session; the ones that recur:
 
 ⚠️ **The acceptance layer is back to full depth, browser included.** `selftests.sh` and
 `build_wasm_examples.sh` both died in the 2026-08-19 deletion and are back — **35 checks across five
-games**, 5 of 8 targets compiling for the web, and (2026-08-21) a **`wasm-smokes` CI job** loading
-the engine in headless Chrome: Web Audio, the wasm WebSocket path, and two deliberate failure paths.
+games**, 5 of 8 targets compiling for the web, and a **`wasm-smokes` CI job** loading the engine in
+headless Chrome: Web Audio, WebSockets, asset/socket failures, and RPG save reload/migration/tamper checks.
 ⚠️ Those smokes need Chrome so **CI gates them, not `verify.sh`**. Native audio still skips with no
 device (all of CI). Else: `fmt`, `clippy`, the wasm build, `cargo test`, doctests, `cargo doc`.
 

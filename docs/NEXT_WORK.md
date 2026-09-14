@@ -7,7 +7,8 @@
 > `netplay_game`), so the subsystems they name meet that bar and the rest of `src/` does not — see
 > the top section below.
 >
-> **This file holds only what is still open.** The completed candidate A–O playable-examples program
+> **This file tracks open work and retains closed review evidence.** Closed headings and settled
+> rows are records, not a queue. The completed candidate A–O playable-examples program
 > and its release/hardening follow-ups moved to **`docs/PROGRAM_HISTORY.md`** on 2026-08-03 — they
 > had grown to 84% of a file named *Next* Work, so the live decisions were buried under 400 lines of
 > finished ones.
@@ -16,18 +17,18 @@
 > `docs/PATTERNS.md` / `docs/VERIFICATION.md`. What has no other home is the **decision backlog**
 > below — and that is exactly what kept getting buried.
 
-## ⚠️ Top of the backlog — rebuild the examples tree (opened 2026-08-19)
+## Examples rebuild — complete; browser coverage follow-ups
 
 **All 22 playable games and ~85 feature demos were deleted on 2026-08-19 at the maintainer's
-request, to rebuild a smaller set of feature-test games from scratch.** This is the one open item
-that is *not* gated on a trigger, and it outranks everything below it.
+request, to rebuild a smaller set of feature-test games from scratch.** The rebuild closed on
+2026-08-21. The smoke table below tracks its later browser coverage additions and remaining gap.
 
 What went with them, because it was built on them:
 
 | Deleted | Consequence |
 |---|---|
 | 11 `<NAME>_SELFTEST` acceptance tests + `scripts/selftests.sh` | the 11 tests are gone; **the runner is back** (phase 0, 2026-08-19) and gates **5** rebuilt selftests — 35 checks, 7 per game (phases 1-5, 2026-08-19 → 2026-08-21) |
-| 16 `scripts/*_smoke.sh` (12 browser, 4 native) + the `wasm-smokes` CI job | the 16 are gone; **the job is back** (phase 5b, 2026-08-21) gating **3** rebuilt `*_web_smoke.sh` — Web Audio, the wasm WebSocket path, and the failure paths. Still no render smokes |
+| 16 `scripts/*_smoke.sh` (12 browser, 4 native) + the `wasm-smokes` CI job | the old scripts are gone; **the job is back** and now runs **4** `*_web_smoke.sh` — Web Audio, WebSockets, asset/socket failure paths, and RPG saves. Still no render smokes |
 | `scripts/build_wasm_examples.sh` + the CI step calling it | **back** (phase 4) — 5 of the 8 example targets build for wasm, 3 declared native-only |
 | `scripts/hot_reload_smoke.sh` + the `DATA_ANIM` / `DATA_PARTICLES` selftests | **covered again** — `RPG_QUEST_SELFTEST` check 6 rewrites a data table on disk and waits on wall clock for the running game to read 42. Animation and particle reload have no equivalent |
 
@@ -66,20 +67,21 @@ phases 2-4 on 2026-08-20, and **phase 5's game landed 2026-08-21**: `netplay_gam
 `netplay_server`, 7 selftest checks. The gate now runs **35 checks across 5 games**, plus two render
 tests (docked-iris, nearest-light-cull) and `build_wasm_examples.sh`.
 
-✅ **Phase 5b landed 2026-08-21 — the rebuild is closed.** The `wasm-smokes` job is back with
-**2 of the planned 4** browser smokes, and its branch-protection context was re-added in the same
-change. A browser loads this engine again for the first time since 2026-08-19.
+✅ **Phase 5b landed 2026-08-21 — the rebuild is closed.** The `wasm-smokes` job returned with
+2 of the planned 4 browser smokes and its required branch-protection context. **The current
+workflow runs 3 planned smokes plus the unplanned asset/socket failure-path harness**; the RPG
+save check was added on 2026-09-14. The DPR render check remains deferred.
 
 | Smoke | Asserts | State |
 |---|---|---|
 | `survivor_audio_web_smoke.sh` | `Audio::levels` live **and** `Audio::bands` low-biased | ✅ rms 0.5621, low 2.733 vs high 0.009 on a 110 Hz tone |
 | `netplay_web_smoke.sh` | the WebSocket handshake completed and entities streamed in | ✅ 23 entities over a browser socket |
-| RPG save round-trip (AEAD `localStorage`) | the wasm save branch | ⬜ not built — the machinery now exists, so it is one page + one script |
+| `rpg_save_web_smoke.sh` | RPG v1 save/restore and v0 migration across page reloads; AEAD tamper rejection; deletion | ✅ browser-verified 2026-09-14; uses the game’s real schema, snapshot and reconstruction functions |
 | puzzle render at DPR=2 | a non-blank frame | ⬜ not built, and see the pixel caveat below |
 | `wasm_failpaths_web_smoke.sh` | that a *broken* path is handled — a 404 reaching `asset_failures()` **and** a send before the socket opens surviving | ✅ both, verified by **reinstating** v0.150.1 and v0.150.2 |
 
 ✅ **The failure-path smoke was the one nobody planned, and it is now built** (2026-08-21).
-Every other check in the tree passes when nothing goes wrong — which is exactly how v0.150.1's
+At that point the other browser smokes took only success paths — which is how v0.150.1's
 broken 404 → `asset_failures()` and v0.150.2's send-before-open both shipped green, both
 compile-verified only. `examples/wasm_failpaths/` takes both paths on purpose against a native echo
 server.
@@ -100,11 +102,12 @@ not a pass" is the rule that layout enforces. It still carries an explicit `[[ex
 because `build_wasm_examples.sh` derives its list from those and a page that exists only to run in a
 browser must at minimum be checked to build for one.
 
-⚠️ **Three of four planned, plus one unplanned, is a deliberate stop.** The three built are the ones
-with no coverage anywhere: Web Audio (the only *working measurement* the deletion removed), the wasm
-WebSocket path (a separate implementation that had not executed a line since the deletion), and the
-failure paths. The save round-trip has a native equivalent that runs every gate, and the DPR render
-is the weakest of the four.
+**The remaining planned smoke is DPR=2 rendering.** The original rebuild stopped after Web Audio,
+WebSockets and asset/socket failure paths. The RPG save check now covers the separate wasm storage
+backend as well: its page reloads twice so retained game/wasm state cannot pass for persistence,
+and a direct `localStorage` read witnesses the engine write. It runs in the existing browser CI job;
+no new Cargo target, dependency or required-check context was added. The native save selftest still
+covers its file backend. DPR rendering remains deferred for the reason below.
 
 ⚠️ **There is still no pixel-level browser check, and there is a reason.** Reading a wgpu canvas
 back needs `preserveDrawingBuffer`, which changes how the surface is configured — so such a check
@@ -215,23 +218,16 @@ A filed request preempts everything below.
 
 ## Open — engineering
 
-**Three items, all deliberately unscheduled** — each gated on a trigger, none on a decision. The
-flake filed here on 2026-08-24 closed as v0.155.1 the next day and is struck through below. A fifth
-(`TextCacheStats`) was added and closed the same day, 2026-08-20: it was filed as gated on a
-first caller and turned out not to be, which is struck through below. **The 2026-08-18 ECS review's efficiency remainder is now
-empty**: its last two items closed on 2026-08-19, one by the measurement it was gated on and one by
-shipping (v0.152.6). That section is kept below as the record of what measuring did to it. The
-follow-up review of that work left nine small items of its own — they have their own section below
-and are **not** gated the way these three are. Neither is the 2026-08-19 **render** review, which
-added a section of its own after shipping three fixes as v0.152.9. **The 2026-09-01 timing-check
-review** has a section too, and it is the odd one out: its list was never written into the tree,
-so the section records a gap rather than a queue. ⚠️ **The 2026-09-06 `src/ui` review was the newest
-and by far the largest**: 38 rows off the first full read of the subsystem, filed before any of them
-shipped. Four are panics reachable from public API and one is a permanently stuck input, so that
-section — not this table — was where the next engineering work came from. **It closed on
-2026-09-09 (v0.159.0), all 39 rows.** ⚠️ **The newest is now the 2026-09-11 `src/audio` review**:
-9 rows off 6,670 lines, one of them measured — a crossfade leaves the incoming track at 7.1× its
-mixed level and off the master bus. That section is where the next engineering work comes from.
+**Three engineering ideas remain deliberately unscheduled** — each waits for its named trigger
+in the table below. The ECS efficiency and follow-up reviews, renderer review, UI review and
+2026-08-28 editor review are closed; their sections retain the evidence rather than a work queue.
+The 2026-09-01 timing review records a lost list, not actionable items.
+
+**The 2026-09-11 audio review closed in v0.159.5, all 9 rows**, including the measured crossfade
+fix; the later channel-transition analysis finding is fixed too. The editor continuation has
+**two unmeasured allocation observations**, not unresolved behaviour defects. Browser save coverage
+is now implemented in `rpg_save_web_smoke.sh`; the optional DPR render check remains in the smoke
+table above. Do not treat closed review rows as a new queue.
 
 ⚠️ **This paragraph described the backlog before 2026-09-06 and is kept for its reasoning, not its
 arithmetic** — the `src/ui` review put 38 rows in. A backlog this short is still the *expected* state,
@@ -250,7 +246,7 @@ did not fix*, not as a queue that has to be drained.
 | ~~**`NETPLAY_SELFTEST` check 6 is flaky** — the contested pickup~~ | **DONE v0.155.1 — and the row's own two candidate causes were both wrong.** It named "the claim never reached the server" or "its distance validation refused a legitimate one"; the answer was that the client never *sent* one. The check stages its contested moment by writing `prediction.pos` directly, which no input backs, and the frame drains the network — and `reconcile`, which overwrites `prediction.pos` wholesale — **before** `pump_claims`. ~83 ms between snapshots against a ~16 ms frame put the erasure at roughly one teleport in five. Claims are now pumped at the staged instant, which is what the comment above already said was happening. ⚠️ A second flake was one slow machine away: `try_claim` measures from the server's copy of the ship, which was **76.5** and **96.7** px from the pickup against a reach of **120** — 23 px of margin on a legitimate claim. `APPROACH` 70 → 40 roughly doubled it — ⚠️ **superseded by v0.155.2, which put it back to 70.** Narrowing the approach bought the server margin out of the *client* one (16 px of frame travel against 46, i.e. one ~35 ms iteration), which is a second flake of the opposite shape. The ships now hold still for `SETTLE` ≈ 4 snapshots instead, so the server's copy catches up and both margins end up wider than either setting gave. ⚠️ **The first probe hid the bug** (65 clean runs with a server-side `eprintln!`; the failure returned on run 17 of 25 once it was reverted) — that lesson is in `docs/VERIFICATION.md` § *A probe that changes timing…*, along with why counting clean runs proved nothing and forcing the race did. |
 | **Last-seen eviction helper** (`RemoteEntities` #5) | **Back to n=1 as of 2026-08-21** — `netplay_game` implements exactly this shape (`last_seen: HashMap<NetId, f64>` + `AOI_EVICT_SECS`, `evict_stale` in `examples/netplay_game/netplay_game.rs`), so the gate is reachable again and the row is once more waiting on a **2nd** call site, the same bar that held `SnapshotBuffer`. It read n=0 from 2026-08-19, when its one call site went with the examples tree. ⚠️ The rebuild plan *predicted* this — "**Bonus:** AOI streaming restores the `RemoteEntities` last-seen eviction gate" — and the row still went stale for a day, because phase 5a updated the sections it was editing and not the one a different section had forecast. A row that names its own trigger does not update itself. Historical detail — `salvage_run`'s AOI streaming produces **removal-by-omission**: the server never sends a `Bye`, an entity just stops appearing in snapshots, so the client infers eviction from `last_seen` + timeout. Candidate shape (`touch(key, t)` / `expired(now - timeout) -> Vec<K>`) is written up in `docs/REMOTE_ENTITIES_DESIGN.md` § *5th example*, **flagged not built**. Surfaced here 2026-08-10 because that doc was its only home — the four sibling verdicts in the same section all resolved to *keep minimal / zero engine change*, and this is the one that did not. |
 
-### Open — the 2026-09-01 timing-check review's remainder
+### Recorded gap — the 2026-09-01 timing-check review's missing list
 
 A review of the timing-dependent checks — `NETPLAY_SELFTEST` check 6's margins and the server waits
 in the three `*_web_smoke.sh` — run on 2026-09-01 by the session that closed #526. Its verdict, as
@@ -292,7 +288,7 @@ limit, and both are now numbers rather than a feeling. Read the latest run, not 
 ⚠️ A zero is the detection floor, not a clean bill: at N=20 a 15% flake is missed 4% of the time, a
 5% one 36%, a 1% one 82%.
 
-### Open — the 2026-09-06 `src/ui` review
+### Closed in v0.159.0 — the 2026-09-06 `src/ui` review
 
 The first full read of `src/ui`: **39 files / 11,202 lines**, every inline `mod tests` included,
 by five passes reading in order (the spine in the main session, four widget families in parallel).
@@ -694,7 +690,7 @@ is re-derived by attempting it, not by re-reading the row.**
 - **Focus math for roots** is correct (`Camera.position` is top-left; Docked `ViewportSize` is
   the central rect); the `F` row above is the child case only.
 
-### Open — the 2026-08-28 `src/app/editor` review's remainder
+### Closed — the 2026-08-28 `src/app/editor` review's remainder
 
 ⚠️ **This review is PARTIAL and the number is the point.** `src/app/editor` is 36 files /
 **9,792 lines** (9,195 non-test), and roughly **4,700** of them have been read — `state.rs`,
@@ -706,7 +702,7 @@ the cross-subsystem call sites they reach (`schedule.rs`, `render/docked.rs`, `w
 `loading.rs`, `ui/state_machine_panel.rs`, `ui/data_table_panel.rs`, six of the seven `ui/docked/*`
 files, `overlays.rs`, `prefab.rs`, `settings.rs`, `i18n.rs`, `theme.rs`.
 Finishing it is a continuation, not a new review — **and it was finished on 2026-09-02**; see
-*Open — the 2026-09-02 editor review continuation* below for what that read found. The line
+*Open — the 2026-09-02 editor review continuation* above for what that read found. The line
 counts above are the 2026-08-28 figures; the subsystem is 10,893 lines now.
 
 It was scoped by measurement, not by hunch: at **10.6 tests per 1k lines** the editor had the
@@ -777,7 +773,7 @@ both registries while `Button` (2/1) and `Panel` (4/1) score non-zero, proving t
 tell them apart. The lesson is the repo's own — a filed diagnosis is a hypothesis, and so is the grep
 that produced it.
 
-### Open — the 2026-08-19 render review's remainder
+### Closed in v0.154.2 — the 2026-08-19 render review's remainder
 
 A full read of the render subsystem (`src/renderer/**` + `src/app/render/**`, 10,549 lines across
 41 files, WGSL included) on 2026-08-19. **Three shipped as v0.152.9** — the `interleave_runs` NaN
@@ -837,7 +833,7 @@ treat the rest as unproven until the named instrument runs.
 | ~~**`register_render_target` allocated a `String` per render target per frame.**~~ | `src/renderer/sprite/textures.rs:146` | **DONE v0.154.1 — found by reading the `rt_cache` row above, not filed by the review.** `render_offscreen_targets` re-registers every target every frame, always with an `Arc::clone` of the bind group already cached, and the method did `insert(key.to_string(), bg)` unconditionally — a `String` allocated per target per frame to overwrite an entry with an identical one. Now compares by pointer identity first; a genuinely rebuilt target (resized/reformatted, so a **different** `Arc` under the same name) still replaces, which a value comparison would have got wrong. Decided by a generic free function so a test reaches it without a GPU, the same split `reload_format` uses. |
 | ~~**Two per-frame allocations found while doing the v0.153.2 batch**~~ | `src/renderer/text/renderer.rs:461`, `src/renderer/sprite/collect.rs:289` | **BOTH DONE v0.154.1, and the row's own "needs a GPU renderer" was half wrong.** (a) `PlainTextCacheKey` now holds `Arc<str>` with a `TextInterner` in front, so a lookup builds its key from a `&str` probe with no copy: a steady-state all-hit frame went **6 allocs / 63 B → 0** (6 HUD lines), **40 / 74 B → 0** (40 `FloatingText`), **12 / 686 B → 0** (12 dialogue lines). ⚠️ **The control is what chose the design.** The obvious two-level `HashMap<Arc<str>, HashMap<ShapeKey, _>>` also reads 0 on hits — and **13** on a frame of six all-new strings against the `String` key's 7, because each new string also allocates an inner map. The interner reads 8 there (parity + one amortised table growth). A score readout changes its text every frame, so that path is not a corner case; a fix checked only on the workload it was aimed at would have shipped a 2x regression. Interning needs its own eviction and has one — a string drops once no key refers to it (`Arc::strong_count == 1`), strictly after the buffer cache evicts. Both halves pinned by `Arc::ptr_eq` (equal text in two allocations compares equal — `assert_eq!` would pass on the bug) and both sabotage-verified red. (b) `mat_ids` is now `drawn_material_entities_scratch`, cleared and refilled beside its `live`/`seen` siblings; the consuming loop is indexed rather than iterated, since the element is `Copy` and the body needs `&mut self.material` — no `mem::take` put-back needed. **On the instrument**: the numbers come from a standalone counting allocator over the key-construction + probe path (the two lines that allocate), since a `TextRenderer` needs a GPU; the *correctness* is pinned in-crate against the real `TextInterner`.
 
-### Open — the 2026-08-19 follow-up review's remainder
+### Closed in v0.155.0 — the 2026-08-19 follow-up review's remainder
 
 A review of everything v0.152.1–v0.152.7 changed (`25c49e5..13ce809`; 88 src lines, 484 test lines)
 produced 13 findings. **Two shipped as v0.152.8** — the `move_entity` drop-order unwind hole and the
@@ -963,7 +959,7 @@ makes the paragraphs below the only surviving record — the point of having wri
   corrected the false *claim* in three docs, and the *decision* it exposed **closed on 2026-08-08**
   and was made again on 2026-08-21 when phase 5b restored the job: `Browser smokes (Chrome +
   swiftshader)` is the eighth required context. ⚠️ This line said "still open" until 2026-08-26,
-  including through the sweep that was editing this very file — see *Open — process* above, which
+  including through the sweep that was editing this very file — see *Closed — process* below, which
   has said "closed" the whole time. Re-read the list rather than either paragraph:
   `gh api repos/ChunSam/skeleton-engine/branches/main/protection --jq '.required_status_checks.contexts'`
 - **1 is a false positive** — `src/ron_registry.rs:11`'s "nobody registers the path with the file
@@ -1004,7 +1000,7 @@ burial that hid step 0:
 
 | Item | Verdict |
 |---|---|
-| `src/ui/panel.rs` `LayoutSystem` | ~~**False positive** — measures 0 over 50 panels × 8 children.~~ ⚠️ **REOPENED 2026-09-06 — the measurement that disagrees is in.** The 0 was an early return: `layout_system_steady_state_does_not_allocate` never inserts `ViewportSize`, so `LayoutSystem::run` returned at `panel.rs:140-143` before touching a panel (`World::new` starts with an empty resource map). Inserting it into that test's own fixture measures **56 allocations / 9,616 bytes** per steady-state frame. The row is now in § *Open — the 2026-09-06 `src/ui` review*. ⚠️ **The lesson is the shape, not the number**: this row's "do not reopen without a measurement that disagrees" was doing its job — what failed is that nobody asked whether the *instrument* had run at all. A green alloc test on a system with an early return is indistinguishable from a green one on a system that allocates nothing. → **CLOSED for real as v0.157.0**: the system now has scratch fields and measures 0 on a fixture that runs it, and the test carries a positive control (a cold frame that must cost something, a child that must have moved) so this failure mode cannot come back silently. |
+| `src/ui/panel.rs` `LayoutSystem` | ~~**False positive** — measures 0 over 50 panels × 8 children.~~ ⚠️ **REOPENED 2026-09-06 — the measurement that disagrees is in.** The 0 was an early return: `layout_system_steady_state_does_not_allocate` never inserts `ViewportSize`, so `LayoutSystem::run` returned at `panel.rs:140-143` before touching a panel (`World::new` starts with an empty resource map). Inserting it into that test's own fixture measures **56 allocations / 9,616 bytes** per steady-state frame. The row is now in § *Closed in v0.159.0 — the 2026-09-06 `src/ui` review*. ⚠️ **The lesson is the shape, not the number**: this row's "do not reopen without a measurement that disagrees" was doing its job — what failed is that nobody asked whether the *instrument* had run at all. A green alloc test on a system with an early return is indistinguishable from a green one on a system that allocates nothing. → **CLOSED for real as v0.157.0**: the system now has scratch fields and measures 0 on a fixture that runs it, and the test carries a positive control (a cold frame that must cost something, a child that must have moved) so this failure mode cannot come back silently. |
 | `src/app/assets.rs:262` | **FIXED v0.150.6 — and it was never a measurement problem.** This row asked for a fixture (in-crate unit test or the render job) to *measure* a `pub(crate)` method the harness cannot see. But an allocation you can read off the signature does not need measuring: `image_assets_for_gpu` returned `Vec<(String, ImageAsset)>` from a per-frame call site over `Arc<str>` keys. Yielding `(&str, &ImageAsset)` deletes it in four lines, and leaves nothing to measure. Pinned in-crate by **identity** (`ptr::eq` on the key, `Arc::ptr_eq` on the pixels) — `assert_eq!` on the strings would have passed for a fresh `String`. ⚠️ **Ask "can I just delete this?" before "how do I measure this?"** — the harness's reach is not the only route to a claim. |
 | `src/app/render/debug_draw.rs:34` | **FIXED v0.151.1 — and both of this row's own readings of it were wrong.** It was mis-filed as an allocation claim (it is draw-call volume, so `per_frame_alloc.rs` was the wrong instrument — that part this row got right), and then written off as not implementable because `DrawRect` has no rotation. Rotation is only needed for **diagonals**. An axis-aligned segment collapses to one quad with no renderer change, because `push_line`'s step is always `<= thickness`, so the dots' union *is* the rect — an identity. `centered_text`'s three guide columns went 825 → 3 quads/frame, a `Cross` 30 → 2, with a byte-identical capture. ⚠️ **"not implementable" was a claim about the *suggested fix*, not about the problem** — the row never asked whether a different fix existed, and the answer was three lines below in the same file, where the `Rect` arm already drew its four edges as four quads. |
 
@@ -1048,7 +1044,7 @@ nothing goes wrong, so a *failure* handler can be entirely broken with every che
 Two shipped that way. When adding a check, ask what it does when the thing it guards is removed —
 and if a new failure path gets a handler, it belongs in `wasm_failpaths`, not in a new smoke.
 
-## Open — process
+## Closed — process
 
 Nothing open. **The required-check question closed on 2026-08-08** and was answered a second
 time on 2026-08-21: `Browser smokes (Chrome + swiftshader)` is the **eighth** required context, so
@@ -1199,15 +1195,15 @@ Context for judging new work — not to-dos. Anything here that becomes actionab
   commit*. `ci.yml` and `docs/VERIFICATION.md` were right the whole time; only the file a reader
   actually opens was wrong. **When an experiment is reverted, grep for prose that described it** —
   the revert diff will not show you the comment three files away.
-- **All 3 `scripts/*_web_smoke.sh` run in CI, and the local-only tier is empty.** The old tree had
+- **All 4 `scripts/*_web_smoke.sh` run in CI, and the local-only tier is empty.** The old tree had
   16 smokes of which 5 (`centered_text`, `embedded_atlas`, `embedded_image`, `game_feel_web`,
   `hdr_web`) stayed local because they asserted byte sizes only — a green run proved nothing. All 16
-  died on 2026-08-19; each of the three rebuilt ones self-verdicts, so the tier that existed to hold
+  died on 2026-08-19; each current browser smoke self-verdicts, so the tier that existed to hold
   eyeball-it checks has nothing left in it. **Keep it empty** — a smoke that cannot fail on its own
   stated cause belongs nowhere, not in a tier that excuses it.
   ✅ **"run in CI" *is* "gate"**: `Browser smokes (Chrome + swiftshader)` became a required context
   on 2026-08-08, went with the job on 2026-08-19, and was re-added with it on 2026-08-21 (see
-  *Open — process*). Count before quoting a number here; this line has now been wrong three times:
+  *Closed — process*). Count before quoting a number here; this line has now been wrong three times:
   `grep -cE '^\s*[^#]*scripts/[a-z_]*_smoke\.sh' .github/workflows/ci.yml`
 - **A headless capture cannot photograph a meter** — fixed dt, no wall clock. Three sessions have
   now reached for `ENGINE_CAPTURE` before remembering this.
