@@ -9,10 +9,9 @@
 //! * Add or delete rows.
 //! * Save the table back to disk or force a reload from disk.
 //!
-//! Borrow strategy: the registry lives in `app.world` behind a `resource_mut`
-//! borrow. To avoid holding the borrow while calling back into `app` we use the
-//! collect-then-apply pattern: gather pending edits into local structs, drop the
-//! registry borrow, then re-borrow and apply.
+//! Borrow the table while drawing only the visible rows; collect pending edits
+//! locally, then borrow the registry mutably to apply them. Offscreen cells are
+//! neither cloned nor submitted to egui.
 //!
 //! ⚠️ **These edits are not undoable.** They mutate the component directly and push nothing onto
 //! `EditorHistory`, so Ctrl+Z after one undoes whatever gizmo or paint action came *before* it and
@@ -27,6 +26,10 @@
 use crate::app::editor::tr;
 use crate::app::App;
 use crate::data_table::{DataTableRegistry, ReloadOutcome};
+
+#[cfg(test)]
+#[path = "data_table_tests.rs"]
+mod tests;
 
 /// Render the Data Tables panel body into `ui`.
 ///
@@ -78,7 +81,7 @@ pub(in crate::app) fn data_table_panel_body(ui: &mut egui::Ui, app: &mut App) {
     ui.separator();
 
     // ── Table status message ──────────────────────────────────────────────────
-    if let Some(msg) = &app.editor.data_table_status.clone() {
+    if let Some(msg) = &app.editor.data_table_status {
         ui.small(msg.as_str());
     }
 
@@ -88,55 +91,18 @@ pub(in crate::app) fn data_table_panel_body(ui: &mut egui::Ui, app: &mut App) {
         return;
     };
 
-    // Read current table metadata (columns + row count) without holding a long borrow.
-    let (columns, row_count) = {
-        let reg = match app.world.resource::<DataTableRegistry>() {
-            Some(r) => r,
-            None => {
-                ui.label(tr("(no DataTableRegistry)", "(DataTableRegistry 없음)"));
-                return;
-            }
-        };
-        let table = match reg.get(&sel_name) {
-            Some(t) => t,
-            None => {
-                ui.label(format!(
-                    "{pre}'{sel_name}'{suf}",
-                    pre = tr("(table ", "(테이블 "),
-                    suf = tr(" not found)", " 찾을 수 없음)")
-                ));
-                return;
-            }
-        };
-        (table.columns.clone(), table.rows.len())
+    let Some(registry) = app.world.resource::<DataTableRegistry>() else {
+        ui.label(tr("(no DataTableRegistry)", "(DataTableRegistry 없음)"));
+        return;
     };
-
-    // ── Collect all current cell values for display ───────────────────────────
-    // We read out every cell value, let egui produce edits, then apply them in a
-    // second borrow. This avoids holding the mutable registry borrow while the UI
-    // closure runs.
-
-    // cell_values[row][col_idx] = current ron::Value
-    let mut cell_values: Vec<Vec<ron::Value>> = Vec::with_capacity(row_count);
-    {
-        let reg = app
-            .world
-            .resource::<DataTableRegistry>()
-            .expect("registry exists — checked above");
-        let table = reg.get(&sel_name).expect("table exists — checked above");
-        for row in &table.rows {
-            let vals: Vec<ron::Value> = columns
-                .iter()
-                .map(|col| {
-                    row.iter()
-                        .find(|(c, _)| c == col)
-                        .map(|(_, v)| v.clone())
-                        .unwrap_or(ron::Value::Unit)
-                })
-                .collect();
-            cell_values.push(vals);
-        }
-    }
+    let Some(table) = registry.get(&sel_name) else {
+        ui.label(format!(
+            "{pre}'{sel_name}'{suf}",
+            pre = tr("(table ", "(테이블 "),
+            suf = tr(" not found)", " 찾을 수 없음)")
+        ));
+        return;
+    };
 
     // Pending mutations collected during egui rendering.
     let mut edits: Vec<(usize, usize, ron::Value)> = Vec::new(); // (row, col_idx, new_val)
@@ -159,42 +125,70 @@ pub(in crate::app) fn data_table_panel_body(ui: &mut egui::Ui, app: &mut App) {
     });
 
     // ── Scroll area with grid ─────────────────────────────────────────────────
-    egui::ScrollArea::both()
-        .id_salt("dt_editor_scroll")
-        .show(ui, |ui| {
-            egui::Grid::new("dt_editor_grid")
-                .num_columns(columns.len() + 2) // +1 for row-index, +1 for delete btn
-                .spacing([4.0, 2.0])
-                .striped(true)
-                .show(ui, |ui| {
-                    // Header row
-                    ui.label("#"); // symbol-only — not translated
-                    for col in &columns {
-                        ui.strong(col); // data-derived column name — not translated
-                    }
-                    ui.label(""); // delete column header — empty, not translated
-                    ui.end_row();
-
-                    // Data rows
-                    for (row_idx, row_vals) in cell_values.iter_mut().enumerate() {
-                        ui.label(format!("{}", row_idx));
-
-                        for (col_idx, val) in row_vals.iter_mut().enumerate() {
-                            let changed_val = cell_editor(ui, val, row_idx, col_idx);
-                            if let Some(new_val) = changed_val {
-                                edits.push((row_idx, col_idx, new_val));
+    let cells_id = ui.make_persistent_id(("dt_editor_cells", &sel_name));
+    ui.scope(|ui| {
+        // show_rows and Grid must agree on both the row height and the gap.
+        ui.spacing_mut().item_spacing.y = 2.0;
+        let row_height = table_row_height(ui);
+        egui::ScrollArea::both()
+            .id_salt(("dt_editor_scroll", &sel_name))
+            .show_rows(ui, row_height, table.rows.len() + 1, |ui, visible| {
+                egui::Grid::new(("dt_editor_grid", &sel_name))
+                    .num_columns(table.columns.len() + 2)
+                    .spacing([4.0, 2.0])
+                    .min_row_height(row_height)
+                    .start_row(visible.start)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        for grid_row in visible {
+                            if grid_row == 0 {
+                                ui.label("#");
+                                for col in &table.columns {
+                                    ui.add(
+                                        egui::Label::new(egui::RichText::new(col).strong())
+                                            .truncate(),
+                                    );
+                                }
+                                ui.label("");
+                            } else {
+                                let row_idx = grid_row - 1;
+                                let row = &table.rows[row_idx];
+                                ui.label(row_idx.to_string());
+                                for (col_idx, col) in table.columns.iter().enumerate() {
+                                    let val = row
+                                        .iter()
+                                        .find(|(name, _)| name == col)
+                                        .map(|(_, val)| val)
+                                        .unwrap_or(&ron::Value::Unit);
+                                    // show_rows advances auto IDs with the visible range. Anchor
+                                    // each cell outside that hierarchy to retain editing state.
+                                    let changed = ui
+                                        .scope_builder(
+                                            egui::UiBuilder::new()
+                                                .id(cells_id.with((row_idx, col_idx))),
+                                            |ui| cell_editor(ui, val),
+                                        )
+                                        .inner;
+                                    if let Some(new_val) = changed {
+                                        edits.push((row_idx, col_idx, new_val));
+                                    }
+                                }
+                                let delete = ui
+                                    .scope_builder(
+                                        egui::UiBuilder::new()
+                                            .id(cells_id.with((row_idx, "delete"))),
+                                        |ui| ui.small_button("✕"),
+                                    )
+                                    .inner;
+                                if delete.clicked() {
+                                    delete_row = Some(row_idx);
+                                }
                             }
+                            ui.end_row();
                         }
-
-                        // Delete button
-                        if ui.small_button("✕").clicked() {
-                            delete_row = Some(row_idx);
-                        }
-
-                        ui.end_row();
-                    }
-                });
-        });
+                    });
+            });
+    });
 
     // ── Apply collected mutations ─────────────────────────────────────────────
 
@@ -203,7 +197,7 @@ pub(in crate::app) fn data_table_panel_body(ui: &mut egui::Ui, app: &mut App) {
         if let Some(reg) = app.world.resource_mut::<DataTableRegistry>() {
             if let Some(table) = reg.get_mut(&sel_name) {
                 for (row_idx, col_idx, new_val) in edits {
-                    let col_name = &columns[col_idx].clone();
+                    let col_name = &table.columns[col_idx];
                     if let Some(cell) = table
                         .rows
                         .get_mut(row_idx)
@@ -304,15 +298,21 @@ pub(in crate::app) fn data_table_panel_body(ui: &mut egui::Ui, app: &mut App) {
 /// readable. Wide on purpose — the grid is in a horizontal ScrollArea, so over-wide
 /// rows just scroll rather than squashing other columns.
 const STRING_CELL_WIDTH: f32 = 260.0;
+const STRING_CELL_MARGIN: egui::Margin = egui::Margin::symmetric(4, 2);
+
+fn table_row_height(ui: &egui::Ui) -> f32 {
+    // TextEdit's font height plus its margin can exceed interact_size, even at the
+    // default font size. Round up so virtual scrolling matches the rendered row spacing.
+    ui.spacing()
+        .interact_size
+        .y
+        .max(ui.text_style_height(&egui::TextStyle::Body) + STRING_CELL_MARGIN.sum().y)
+        .ceil()
+}
 
 /// Render one editable cell for `val`.  Returns `Some(new_val)` when the user
 /// made a change, `None` otherwise.
-fn cell_editor(
-    ui: &mut egui::Ui,
-    val: &mut ron::Value,
-    row: usize,
-    col: usize,
-) -> Option<ron::Value> {
+fn cell_editor(ui: &mut egui::Ui, val: &ron::Value) -> Option<ron::Value> {
     match val {
         ron::Value::Number(ron::Number::Float(f)) => {
             let mut v = f.get();
@@ -343,8 +343,11 @@ fn cell_editor(
             // `add_sized` allocates a fixed-width region first, which both sizes the box and
             // grows the grid column; the grid lives in a both-direction ScrollArea, so the
             // extra width just adds horizontal scroll when several columns are wide.
-            let h = ui.spacing().interact_size.y;
-            let resp = ui.add_sized([STRING_CELL_WIDTH, h], egui::TextEdit::singleline(&mut buf));
+            let h = table_row_height(ui);
+            let resp = ui.add_sized(
+                [STRING_CELL_WIDTH, h],
+                egui::TextEdit::singleline(&mut buf).margin(STRING_CELL_MARGIN),
+            );
             if resp.changed() {
                 Some(ron::Value::String(buf))
             } else {
@@ -362,8 +365,7 @@ fn cell_editor(
         }
         _ => {
             // Complex or unit values: display only, no edit
-            let _ = (row, col);
-            ui.label(tr("(complex)", "(복합값)"));
+            ui.add(egui::Label::new(tr("(complex)", "(복합값)")).truncate());
             None
         }
     }

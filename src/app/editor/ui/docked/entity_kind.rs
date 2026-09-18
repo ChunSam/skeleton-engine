@@ -121,12 +121,16 @@ pub(super) fn sorted_entity_list(
     tag_map: &HashMap<Entity, String>,
 ) -> Vec<Entity> {
     let mut v = entity_list.to_vec();
-    let name_key = |e: Entity| entity_label(e, tag_map).to_lowercase();
-    // `sort_by_key` is stable, so within a sort group equal keys keep the incoming index order.
+    let name_key = |e: Entity| match tag_map.get(&e) {
+        Some(name) => name.to_lowercase(),
+        None => entity_label(e, tag_map).to_lowercase(),
+    };
+    // Compute the label and component classification once per entity, not per comparison.
+    // Cached-key sorting is stable too: equal keys retain the incoming index order.
     match mode {
         EntitySortMode::Index => {}
-        EntitySortMode::Name => v.sort_by_key(|&e| name_key(e)),
-        EntitySortMode::Kind => v.sort_by_key(|&e| (entity_kind(world, e), name_key(e))),
+        EntitySortMode::Name => v.sort_by_cached_key(|&e| name_key(e)),
+        EntitySortMode::Kind => v.sort_by_cached_key(|&e| (entity_kind(world, e), name_key(e))),
     }
     v
 }
@@ -285,6 +289,25 @@ mod icon_tests {
         let out = sorted_entity_list(&ents, EntitySortMode::Name, &app.world, &tm);
         let labels: Vec<&str> = out.iter().map(|e| tm[e].as_str()).collect();
         assert_eq!(labels, ["apple", "Mango", "Zebra"], "case-insensitive A–Z");
+    }
+
+    #[test]
+    fn sort_preserves_unicode_ties_and_uses_labels_for_untagged_entities() {
+        let mut app = App::new();
+        let entities: Vec<_> = (0..4).map(|_| app.world.spawn()).collect();
+        let tags = HashMap::from([
+            (entities[0], "ÉCLAIR".into()),
+            (entities[1], "éclair".into()),
+            (entities[3], "apple".into()),
+        ]);
+        // Equal names must preserve the supplied order, even when it differs from entity index.
+        let input = [entities[1], entities[0], entities[2], entities[3]];
+        for mode in [EntitySortMode::Name, EntitySortMode::Kind] {
+            assert_eq!(
+                sorted_entity_list(&input, mode, &app.world, &tags),
+                [entities[3], entities[2], entities[1], entities[0]]
+            );
+        }
     }
 
     #[test]

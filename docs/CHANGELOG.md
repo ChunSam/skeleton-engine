@@ -4,6 +4,24 @@ All notable changes to `skeleton-engine` are documented here.
 
 The package follows semantic versioning. It is currently **pre-1.0 (0.x)**: MINOR covers any release (including breaking changes), PATCH is a bugfix/point release; 1.0.0 will mark a deliberate compatibility commitment.
 
+## 0.159.6
+
+### Editor costs measured and bounded
+
+The data-table editor borrows cells and builds only visible rows. Cell IDs remain stable while
+scrolling, and row heights include text-field margins and rounding to match the rendered spacing.
+Headless input tests cover scrolled editing, deletion, addition, empty tables and a larger font.
+
+Entity Name/Kind sorting computes each lowercase label and component classification once per
+entity, retaining stable ties and the label fallback for untagged entities. The Inspector borrows
+the clipboard name for its paste button; only an actual paste processes the copied payload.
+
+The two remaining editor review observations are measured and closed. The opt-in
+`python3 scripts/editor_alloc_probe.py --check` runs real private paths in a disposable source
+copy, with allocation-count/byte guards and workload controls. See
+[Editor performance](EDITOR_PERFORMANCE.md) for before/after results, sabotage evidence,
+retained costs and the limits of headless CPU measurements.
+
 ## 0.159.5
 
 ### Audio controls and analysis retain their independent state
