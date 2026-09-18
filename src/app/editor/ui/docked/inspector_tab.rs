@@ -193,7 +193,7 @@ pub(in crate::app) fn inspector_tab_body(
                     }
                 }
                 // Paste the clipboard component onto this entity.
-                if let Some((clip_name, _)) = app.editor.component_clipboard.clone() {
+                if let Some((clip_name, _)) = app.editor.component_clipboard.as_ref() {
                     if ui
                         .button(format!("⧉ {} {clip_name}", tr("Paste", "붙여넣기")))
                         .on_hover_text(tr("apply the copied component to this entity", "복사한 컴포넌트를 이 엔티티에 적용"))
